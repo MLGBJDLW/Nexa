@@ -1,10 +1,13 @@
 pub mod db;
+pub mod embed;
 pub mod error;
+pub mod feedback;
 pub mod index;
 pub mod ingest;
 pub mod migrations;
 pub mod models;
 pub mod parse;
 pub mod playbook;
+pub mod privacy;
 pub mod search;
 pub mod sources;

@@ -52,6 +52,15 @@ fn main() {
             commands::remove_citation,
             // Query log
             commands::get_recent_queries,
+            // Hybrid search
+            commands::hybrid_search,
+            // Embeddings
+            commands::embed_source,
+            commands::rebuild_embeddings,
+            // Feedback
+            commands::add_feedback,
+            commands::get_feedback_for_query,
+            commands::delete_feedback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

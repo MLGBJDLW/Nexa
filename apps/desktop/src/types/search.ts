@@ -19,4 +19,5 @@ export interface SearchResult {
   totalMatches: number;
   evidenceCards: import("./evidence").EvidenceCard[];
   searchTimeMs: number;
+  searchMode?: 'fts' | 'hybrid';
 }

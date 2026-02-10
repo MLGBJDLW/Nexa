@@ -7,3 +7,5 @@ export type { SearchQuery, SearchFilters, SearchResult } from "./search";
 export type { IngestResult } from "./ingest";
 export type { IndexStats } from "./index-stats";
 export type { QueryLog } from "./query-log";
+export type { Feedback } from "./feedback";
+export type { EmbedResult } from "./embed";

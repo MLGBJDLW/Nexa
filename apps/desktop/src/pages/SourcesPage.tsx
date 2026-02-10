@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "../lib/api";
-import type { Source, IngestResult } from "../types";
+import type { Source, IngestResult, EmbedResult } from "../types";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 
 export function SourcesPage() {
@@ -10,6 +10,9 @@ export function SourcesPage() {
   const [scanResults, setScanResults] = useState<Record<string, IngestResult>>({});
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [scanningAll, setScanningAll] = useState(false);
+  const [embedResults, setEmbedResults] = useState<Record<string, EmbedResult>>({});
+  const [embeddingId, setEmbeddingId] = useState<string | null>(null);
+  const [rebuildingEmbeddings, setRebuildingEmbeddings] = useState(false);
 
   // ── Add source form ───────────────────────────────────────────────────
   const [showAddForm, setShowAddForm] = useState(false);
@@ -99,6 +102,33 @@ export function SourcesPage() {
     }
   };
 
+  const handleEmbed = async (sourceId: string) => {
+    setEmbeddingId(sourceId);
+    setError(null);
+    try {
+      const result = await api.embedSource(sourceId);
+      setEmbedResults((prev) => ({ ...prev, [sourceId]: result }));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setEmbeddingId(null);
+    }
+  };
+
+  const handleRebuildEmbeddings = async () => {
+    setRebuildingEmbeddings(true);
+    setError(null);
+    try {
+      const result = await api.rebuildEmbeddings();
+      // Apply result globally
+      setEmbedResults((prev) => ({ ...prev, _global: result }));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRebuildingEmbeddings(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner className="py-24" />;
 
   return (
@@ -112,6 +142,13 @@ export function SourcesPage() {
             className="rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-gray-200 transition hover:bg-gray-600 disabled:opacity-50"
           >
             {scanningAll ? "Scanning…" : "Scan All"}
+          </button>
+          <button
+            onClick={handleRebuildEmbeddings}
+            disabled={rebuildingEmbeddings || sources.length === 0}
+            className="rounded-md bg-purple-700 px-3 py-1.5 text-xs font-medium text-purple-100 transition hover:bg-purple-600 disabled:opacity-50"
+          >
+            {rebuildingEmbeddings ? "Rebuilding…" : "Rebuild Embeddings"}
           </button>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
@@ -232,6 +269,13 @@ export function SourcesPage() {
                     {scanningId === source.id ? "Scanning…" : "Scan"}
                   </button>
                   <button
+                    onClick={() => handleEmbed(source.id)}
+                    disabled={embeddingId === source.id}
+                    className="rounded bg-purple-800 px-2 py-1 text-xs text-purple-200 transition hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {embeddingId === source.id ? "Embedding…" : "Embed"}
+                  </button>
+                  <button
                     onClick={() => handleDelete(source.id)}
                     className="rounded bg-gray-700 px-2 py-1 text-xs text-red-400 transition hover:bg-red-900/40"
                   >
@@ -244,6 +288,13 @@ export function SourcesPage() {
               {scanResults[source.id] && (
                 <div className="mt-3 rounded border border-gray-700 bg-gray-900/50 px-3 py-2 text-xs text-gray-400">
                   <ScanResultSummary result={scanResults[source.id]} />
+                </div>
+              )}
+
+              {/* Embed result */}
+              {embedResults[source.id] && (
+                <div className="mt-2 rounded border border-purple-800/50 bg-purple-900/20 px-3 py-2 text-xs text-purple-300">
+                  <EmbedResultSummary result={embedResults[source.id]} />
                 </div>
               )}
             </div>
@@ -273,6 +324,16 @@ function ScanResultSummary({ result }: { result: IngestResult }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function EmbedResultSummary({ result }: { result: EmbedResult }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1">
+      <span className="text-purple-300">Embedded: {result.chunksEmbedded}</span>
+      <span>Skipped: {result.chunksSkipped}</span>
+      <span className="text-gray-500">Model: {result.model}</span>
     </div>
   );
 }

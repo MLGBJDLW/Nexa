@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "../lib/api";
-import type { SearchResult, QueryLog } from "../types";
+import type { SearchResult, QueryLog, Feedback } from "../types";
 import { EvidenceCardComponent } from "../components/EvidenceCard";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 
@@ -10,6 +10,8 @@ export function SearchPage() {
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<'fts' | 'hybrid'>('fts');
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({}); // chunkId -> Feedback
 
   // ── Save-to-playbook modal state ──────────────────────────────────────
   const [savingChunkId, setSavingChunkId] = useState<string | null>(null);
@@ -35,14 +37,51 @@ export function SearchPage() {
     if (!q.trim()) return;
     setLoading(true);
     setError(null);
+    setFeedbackMap({});
     try {
-      const res = await api.search(q.trim());
-      setResult(res);
+      const res = searchMode === 'hybrid'
+        ? await api.hybridSearch(q.trim())
+        : await api.search(q.trim());
+      setResult({ ...res, searchMode });
       loadRecentQueries();
+      // Load existing feedback for this query
+      try {
+        const feedbacks = await api.getFeedbackForQuery(q.trim());
+        const map: Record<string, Feedback> = {};
+        for (const fb of feedbacks) {
+          map[fb.chunkId] = fb;
+        }
+        setFeedbackMap(map);
+      } catch { /* non-critical */ }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFeedback = async (chunkId: string, action: 'upvote' | 'downvote' | 'pin') => {
+    if (!result) return;
+    try {
+      // If same action already exists, delete it (toggle off)
+      const existing = feedbackMap[chunkId];
+      if (existing && existing.action === action) {
+        await api.deleteFeedback(existing.id);
+        setFeedbackMap((prev) => {
+          const next = { ...prev };
+          delete next[chunkId];
+          return next;
+        });
+        return;
+      }
+      // Otherwise, if different action exists, delete old then add new
+      if (existing) {
+        await api.deleteFeedback(existing.id);
+      }
+      const fb = await api.addFeedback(chunkId, result.query, action);
+      setFeedbackMap((prev) => ({ ...prev, [chunkId]: fb }));
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -70,7 +109,7 @@ export function SearchPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-6">
-      {/* Search input */}
+      {/* Search input + mode toggle */}
       <div className="mb-6">
         <div className="relative">
           <input
@@ -88,6 +127,34 @@ export function SearchPage() {
           >
             Search
           </button>
+        </div>
+        {/* Search mode toggle */}
+        <div className="mt-2 flex items-center gap-2">
+          <div className="inline-flex rounded-full border border-gray-700 bg-gray-800 p-0.5 text-xs">
+            <button
+              onClick={() => setSearchMode('fts')}
+              className={`rounded-full px-3 py-1 font-medium transition ${
+                searchMode === 'fts'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              FTS
+            </button>
+            <button
+              onClick={() => setSearchMode('hybrid')}
+              className={`rounded-full px-3 py-1 font-medium transition ${
+                searchMode === 'hybrid'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              Hybrid
+            </button>
+          </div>
+          <span className="text-xs text-gray-500">
+            {searchMode === 'hybrid' ? 'Semantic + keyword search' : 'Full-text keyword search'}
+          </span>
         </div>
       </div>
 
@@ -107,9 +174,23 @@ export function SearchPage() {
           <div className="mb-4 flex items-baseline justify-between text-xs text-gray-500">
             <span>
               {result.totalMatches} match{result.totalMatches !== 1 ? "es" : ""}
+              {result.searchMode && (
+                <span className="ml-2 rounded-full border border-gray-700 px-2 py-0.5 text-gray-400">
+                  {result.searchMode === 'hybrid' ? 'Hybrid' : 'FTS'}
+                </span>
+              )}
             </span>
             <span>{result.searchTimeMs}ms</span>
           </div>
+
+          {/* Uncertainty banner */}
+          {(result.evidenceCards.length < 3 && result.evidenceCards.length > 0 &&
+            result.evidenceCards.every((c) => c.score < 1)) && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
+              <span className="text-lg">⚠️</span>
+              <span>证据不足 — 现有资料中未找到充分证据，请考虑添加更多来源</span>
+            </div>
+          )}
 
           <div className="space-y-3">
             {result.evidenceCards.map((card) => (
@@ -117,14 +198,22 @@ export function SearchPage() {
                 key={card.chunkId}
                 card={card}
                 onSaveToPlaybook={handleSaveToPlaybook}
+                onFeedback={handleFeedback}
+                activeFeedback={feedbackMap[card.chunkId]?.action ?? null}
               />
             ))}
           </div>
 
           {result.evidenceCards.length === 0 && (
-            <p className="py-12 text-center text-sm text-gray-500">
-              No results found for &ldquo;{result.query}&rdquo;
-            </p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 rounded-lg border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
+                <span className="text-lg">⚠️</span>
+                <span>证据不足 — 现有资料中未找到充分证据，请考虑添加更多来源</span>
+              </div>
+              <p className="py-8 text-center text-sm text-gray-500">
+                No results found for &ldquo;{result.query}&rdquo;
+              </p>
+            </div>
           )}
         </>
       )}

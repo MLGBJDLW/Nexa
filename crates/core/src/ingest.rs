@@ -3,6 +3,7 @@
 //! Walks a source's directory tree, applies include/exclude glob filters,
 //! parses matching files, and upserts documents + chunks into the database.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,8 +13,10 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
+use crate::embed::{Embedder, TfIdfEmbedder};
 use crate::error::CoreError;
 use crate::parse::{parse_file, ParsedChunk, ParsedDocument};
+use crate::privacy::{self, PrivacyConfig};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -32,6 +35,16 @@ pub struct IngestResult {
     pub errors: Vec<String>,
 }
 
+/// Summary of an embedding run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedResult {
+    pub source_id: String,
+    pub chunks_embedded: usize,
+    pub chunks_skipped: usize,
+    pub model: String,
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -42,7 +55,31 @@ pub struct IngestResult {
 /// and for each matching file: parses it, checks for changes via content hash,
 /// and inserts or updates the document and its chunks in the database.
 pub fn scan_source(db: &Database, source_id: &str) -> Result<IngestResult, CoreError> {
+    scan_source_with_privacy(db, source_id, None)
+}
+
+/// Scan a source directory with an optional [`PrivacyConfig`].
+///
+/// When `privacy` is `Some`, its `exclude_patterns` are merged with the
+/// source's own exclude globs and content redaction is applied to every
+/// chunk before storage. When `None`, the stored config is loaded from the
+/// database (falling back to defaults).
+pub fn scan_source_with_privacy(
+    db: &Database,
+    source_id: &str,
+    privacy: Option<&PrivacyConfig>,
+) -> Result<IngestResult, CoreError> {
     let source = db.get_source(source_id)?;
+
+    // Resolve privacy config: explicit > stored > default.
+    let default_config;
+    let privacy_cfg = match privacy {
+        Some(cfg) => cfg,
+        None => {
+            default_config = db.load_privacy_config()?;
+            &default_config
+        }
+    };
 
     let root = Path::new(&source.root_path);
     if !root.exists() {
@@ -52,8 +89,12 @@ pub fn scan_source(db: &Database, source_id: &str) -> Result<IngestResult, CoreE
         )));
     }
 
+    // Merge source excludes with privacy excludes.
+    let mut all_excludes = source.exclude_globs.clone();
+    all_excludes.extend(privacy_cfg.exclude_patterns.iter().cloned());
+
     let include_set = build_glob_set(&source.include_globs)?;
-    let exclude_set = build_glob_set(&source.exclude_globs)?;
+    let exclude_set = build_glob_set(&all_excludes)?;
     let has_includes = !source.include_globs.is_empty();
 
     let mut result = IngestResult {
@@ -68,6 +109,10 @@ pub fn scan_source(db: &Database, source_id: &str) -> Result<IngestResult, CoreE
 
     // Collect all files recursively, sorted for deterministic order.
     let files = walk_directory(root)?;
+
+    // Pre-fetch all existing document paths and hashes for this source
+    // to avoid N individual database lookups during scanning.
+    let existing_docs = db.get_document_paths_for_source(source_id)?;
 
     for file_path in &files {
         // Compute relative path for glob matching, normalised to forward slashes.
@@ -89,7 +134,7 @@ pub fn scan_source(db: &Database, source_id: &str) -> Result<IngestResult, CoreE
 
         result.files_scanned += 1;
 
-        match ingest_file(db, source_id, file_path) {
+        match ingest_file(db, source_id, file_path, &existing_docs, privacy_cfg) {
             Ok(IngestAction::Added) => result.files_added += 1,
             Ok(IngestAction::Updated) => result.files_updated += 1,
             Ok(IngestAction::Skipped) => result.files_skipped += 1,
@@ -115,6 +160,129 @@ pub fn scan_source(db: &Database, source_id: &str) -> Result<IngestResult, CoreE
     Ok(result)
 }
 
+/// Generate embeddings for all un-embedded chunks belonging to a source.
+///
+/// Loads an existing TF-IDF embedder from the DB if one was previously saved;
+/// otherwise builds a new one from the full chunk corpus and persists it.
+pub fn embed_source(db: &Database, source_id: &str) -> Result<EmbedResult, CoreError> {
+    let model = "tfidf-v1";
+
+    // Build or load the embedder.
+    let embedder = match db.load_embedder_state(model)? {
+        Some((vocab, idf)) => {
+            info!("Loaded existing embedder state for model '{}'", model);
+            TfIdfEmbedder::from_vocabulary(vocab, idf)
+        }
+        None => {
+            info!("No saved embedder state — building from full corpus");
+            let all_chunks = db.get_all_chunks()?;
+            let corpus: Vec<&str> = all_chunks.iter().map(|(_, c)| c.as_str()).collect();
+            let embedder = TfIdfEmbedder::build_from_corpus(&corpus);
+            db.save_embedder_state(model, &embedder.vocabulary, &embedder.idf)?;
+            embedder
+        }
+    };
+
+    // Embed only chunks that don't have an embedding yet — batch for performance.
+    let missing = db.get_chunks_without_embeddings(model)?;
+    let mut batch: Vec<(String, String, Vec<f32>)> = Vec::with_capacity(missing.len());
+    for (chunk_id, content) in &missing {
+        let vector = embedder.embed(content)?;
+        batch.push((chunk_id.clone(), model.to_string(), vector));
+    }
+    let embedded = batch.len();
+    if !batch.is_empty() {
+        db.batch_store_embeddings(&batch)?;
+    }
+
+    // Count skipped (chunks that already had embeddings for this source).
+    let total_source_chunks = db.get_chunks_for_source(source_id)?.len();
+    let skipped = total_source_chunks.saturating_sub(embedded);
+
+    info!(
+        "Embedding complete for source {}: embedded={}, skipped={}",
+        source_id, embedded, skipped
+    );
+
+    Ok(EmbedResult {
+        source_id: source_id.to_string(),
+        chunks_embedded: embedded,
+        chunks_skipped: skipped,
+        model: model.to_string(),
+    })
+}
+
+/// Delete all embeddings, rebuild the TF-IDF model from scratch, and
+/// re-embed every chunk in the database.
+pub fn rebuild_embeddings(db: &Database) -> Result<EmbedResult, CoreError> {
+    let model = "tfidf-v1";
+
+    // 1. Delete all existing embeddings for this model.
+    let deleted = db.delete_all_embeddings(model)?;
+    info!("Deleted {} existing embeddings", deleted);
+
+    // 2. Collect the full corpus and rebuild the embedder.
+    let all_chunks = db.get_all_chunks()?;
+    let corpus: Vec<&str> = all_chunks.iter().map(|(_, c)| c.as_str()).collect();
+    let embedder = TfIdfEmbedder::build_from_corpus(&corpus);
+    db.save_embedder_state(model, &embedder.vocabulary, &embedder.idf)?;
+
+    // 3. Embed every chunk — batch for performance.
+    let mut batch: Vec<(String, String, Vec<f32>)> = Vec::with_capacity(all_chunks.len());
+    for (chunk_id, content) in &all_chunks {
+        let vector = embedder.embed(content)?;
+        batch.push((chunk_id.clone(), model.to_string(), vector));
+    }
+    let embedded = batch.len();
+    if !batch.is_empty() {
+        db.batch_store_embeddings(&batch)?;
+    }
+
+    info!("Rebuild complete: {} chunks embedded", embedded);
+
+    Ok(EmbedResult {
+        source_id: "all".to_string(),
+        chunks_embedded: embedded,
+        chunks_skipped: 0,
+        model: model.to_string(),
+    })
+}
+
+/// Insert multiple parsed documents in a single transaction for bulk operations.
+///
+/// Much faster than calling `insert_document` per file, as SQLite transactions
+/// are expensive per-call. Returns the number of documents inserted.
+pub fn batch_insert_documents(
+    db: &Database,
+    source_id: &str,
+    parsed_docs: &[ParsedDocument],
+) -> Result<usize, CoreError> {
+    let mut conn = db.conn();
+    let tx = conn.transaction()?;
+    let mut count = 0usize;
+    for parsed in parsed_docs {
+        let doc_id = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
+                                    modified_at, content_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), ?7)",
+            params![
+                &doc_id,
+                source_id,
+                &parsed.file_path,
+                &parsed.file_name,
+                &parsed.mime_type,
+                parsed.file_size,
+                &parsed.content_hash,
+            ],
+        )?;
+        insert_chunks(&tx, &doc_id, &parsed.chunks)?;
+        count += 1;
+    }
+    tx.commit()?;
+    Ok(count)
+}
+
 // ---------------------------------------------------------------------------
 // Database methods for document CRUD
 // ---------------------------------------------------------------------------
@@ -138,6 +306,33 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(CoreError::Database(e)),
         }
+    }
+
+    /// Pre-fetch all document paths and content hashes for a given source.
+    ///
+    /// Returns a `HashMap` from file path to `(document_id, content_hash)`,
+    /// enabling O(1) lookups instead of N individual database queries.
+    pub fn get_document_paths_for_source(
+        &self,
+        source_id: &str,
+    ) -> Result<HashMap<String, (String, String)>, CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, path, content_hash FROM documents WHERE source_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![source_id], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut map = HashMap::new();
+        for row in rows {
+            let (path, id, hash) = row?;
+            map.insert(path, (id, hash));
+        }
+        Ok(map)
     }
 
     /// Insert a new document and all its chunks within a single transaction.
@@ -244,19 +439,26 @@ fn ingest_file(
     db: &Database,
     source_id: &str,
     path: &Path,
+    existing_docs: &HashMap<String, (String, String)>,
+    privacy: &PrivacyConfig,
 ) -> Result<IngestAction, CoreError> {
-    let parsed = parse_file(path)?;
+    let mut parsed = parse_file(path)?;
 
-    let existing = db.get_document_by_path(&parsed.file_path)?;
+    // Apply content redaction when privacy is enabled.
+    if privacy.enabled {
+        for chunk in &mut parsed.chunks {
+            chunk.content = privacy::redact_content(&chunk.content, &privacy.redact_patterns);
+        }
+    }
 
-    match existing {
+    match existing_docs.get(&parsed.file_path) {
         Some((doc_id, existing_hash)) => {
-            if existing_hash == parsed.content_hash {
+            if *existing_hash == parsed.content_hash {
                 debug!("Skipping unchanged file: {}", parsed.file_path);
                 Ok(IngestAction::Skipped)
             } else {
                 debug!("Updating changed file: {}", parsed.file_path);
-                db.update_document(&doc_id, &parsed)?;
+                db.update_document(doc_id, &parsed)?;
                 Ok(IngestAction::Updated)
             }
         }
@@ -659,5 +861,201 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1, "FTS should find the ingested chunk");
+    }
+
+    // ── Embedding integration ───────────────────────────────────────────
+
+    #[test]
+    fn test_embed_source_after_scan() {
+        let vp = vault_path();
+        if !vp.exists() {
+            eprintln!("Skipping: test vault not found at {}", vp.display());
+            return;
+        }
+
+        let db = test_db();
+        let sid = create_test_source(&db, &vp, vec![], vec![]);
+
+        // Scan first to populate chunks.
+        let scan = scan_source(&db, &sid).unwrap();
+        assert!(scan.files_added > 0);
+
+        // Now embed.
+        let embed = embed_source(&db, &sid).unwrap();
+        assert_eq!(embed.source_id, sid);
+        assert!(embed.chunks_embedded > 0, "should embed at least one chunk");
+        assert_eq!(embed.model, "tfidf-v1");
+    }
+
+    #[test]
+    fn test_all_chunks_get_embeddings() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("file1.md"),
+            "# File One\n\nFirst document with enough content to satisfy \
+             the minimum chunk size requirement for the parser to accept it.",
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("file2.md"),
+            "# File Two\n\nSecond document also with plenty of content to \
+             be properly chunked and indexed by the ingestion pipeline.",
+        )
+        .unwrap();
+
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        scan_source(&db, &sid).unwrap();
+
+        let embed = embed_source(&db, &sid).unwrap();
+        assert!(embed.chunks_embedded > 0);
+
+        // Every chunk should now have an embedding.
+        let missing = db.get_chunks_without_embeddings("tfidf-v1").unwrap();
+        assert!(
+            missing.is_empty(),
+            "all chunks should have embeddings, but {} are missing",
+            missing.len()
+        );
+    }
+
+    #[test]
+    fn test_rebuild_embeddings_clears_and_reembeds() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("doc.md"),
+            "# Rebuild Test\n\nDocument used to verify that rebuild_embeddings \
+             deletes existing vectors and creates fresh ones from scratch.",
+        )
+        .unwrap();
+
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        scan_source(&db, &sid).unwrap();
+
+        // Initial embed.
+        let e1 = embed_source(&db, &sid).unwrap();
+        assert!(e1.chunks_embedded > 0);
+
+        // Rebuild.
+        let rebuild = rebuild_embeddings(&db).unwrap();
+        assert!(rebuild.chunks_embedded > 0);
+        assert_eq!(rebuild.chunks_skipped, 0);
+        assert_eq!(rebuild.model, "tfidf-v1");
+
+        // All chunks should still have embeddings after rebuild.
+        let missing = db.get_chunks_without_embeddings("tfidf-v1").unwrap();
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn test_incremental_embedding() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("first.md"),
+            "# First\n\nInitial document with enough text to be parsed and \
+             chunked properly by the ingestion system for embedding.",
+        )
+        .unwrap();
+
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        scan_source(&db, &sid).unwrap();
+
+        let e1 = embed_source(&db, &sid).unwrap();
+        let initial_embedded = e1.chunks_embedded;
+        assert!(initial_embedded > 0);
+
+        // Add a second file.
+        fs::write(
+            tmp.path().join("second.md"),
+            "# Second\n\nA brand new document added after the first embedding \
+             run to verify that only new chunks get embedded incrementally.",
+        )
+        .unwrap();
+
+        // Re-scan picks up the new file.
+        let scan2 = scan_source(&db, &sid).unwrap();
+        assert_eq!(scan2.files_added, 1);
+
+        // Embed again — should only embed the new chunks.
+        let e2 = embed_source(&db, &sid).unwrap();
+        assert!(
+            e2.chunks_embedded > 0,
+            "new chunks should be embedded"
+        );
+
+        // No chunks should be missing.
+        let missing = db.get_chunks_without_embeddings("tfidf-v1").unwrap();
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn test_batch_insert_documents() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..100 {
+            fs::write(
+                tmp.path().join(format!("doc_{:03}.md", i)),
+                format!(
+                    "# Document {i}\n\nThis is test document number {i} with enough \
+                     content to pass the minimum chunk size requirement for parsing.",
+                ),
+            )
+            .unwrap();
+        }
+
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+
+        // Parse all files.
+        let mut parsed_docs: Vec<crate::parse::ParsedDocument> = Vec::new();
+        for entry in fs::read_dir(tmp.path()).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() {
+                parsed_docs.push(parse_file(&path).unwrap());
+            }
+        }
+        assert_eq!(parsed_docs.len(), 100);
+
+        let count = batch_insert_documents(&db, &sid, &parsed_docs).unwrap();
+        assert_eq!(count, 100);
+
+        // Verify all documents exist.
+        for parsed in &parsed_docs {
+            let found = db.get_document_by_path(&parsed.file_path).unwrap();
+            assert!(
+                found.is_some(),
+                "Document {} should exist",
+                parsed.file_path
+            );
+        }
+    }
+
+    #[test]
+    fn test_scan_source_prefetch_many_files() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..10 {
+            fs::write(
+                tmp.path().join(format!("file_{}.md", i)),
+                format!(
+                    "# File {i}\n\nContent of file number {i} with sufficient text to \
+                     pass the minimum chunk size requirement for the parser.",
+                ),
+            )
+            .unwrap();
+        }
+
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+
+        // First scan adds all files.
+        let r1 = scan_source(&db, &sid).unwrap();
+        assert_eq!(r1.files_added, 10);
+
+        // Second scan — pre-fetched paths/hashes make all lookups skip.
+        let r2 = scan_source(&db, &sid).unwrap();
+        assert_eq!(r2.files_skipped, 10);
+        assert_eq!(r2.files_added, 0);
+        assert_eq!(r2.files_updated, 0);
     }
 }

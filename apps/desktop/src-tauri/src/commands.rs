@@ -1,6 +1,7 @@
 use ask_core::db::Database;
+use ask_core::feedback::{Feedback, FeedbackAction};
 use ask_core::index::IndexStats;
-use ask_core::ingest::{self, IngestResult};
+use ask_core::ingest::{self, EmbedResult, IngestResult};
 use ask_core::models::{
     EvidenceCard, Playbook, PlaybookCitation, SearchFilters, SearchQuery, Source,
 };
@@ -257,5 +258,82 @@ pub fn get_recent_queries(
     state
         .db
         .get_recent_queries(limit.unwrap_or(20))
+        .map_err(|e| e.to_string())
+}
+
+// ── Hybrid Search Commands ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn hybrid_search(
+    state: tauri::State<'_, AppState>,
+    query_text: String,
+    filters: Option<SearchFilters>,
+) -> Result<SearchResult, String> {
+    let query = SearchQuery {
+        text: query_text,
+        filters: filters.unwrap_or_default(),
+        limit: 20,
+        offset: 0,
+    };
+    search::hybrid_search(&state.db, &query).map_err(|e| e.to_string())
+}
+
+// ── Embedding Commands ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn embed_source(
+    state: tauri::State<'_, AppState>,
+    source_id: String,
+) -> Result<EmbedResult, String> {
+    ingest::embed_source(&state.db, &source_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rebuild_embeddings(
+    state: tauri::State<'_, AppState>,
+) -> Result<EmbedResult, String> {
+    ingest::rebuild_embeddings(&state.db).map_err(|e| e.to_string())
+}
+
+// ── Feedback Commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn add_feedback(
+    state: tauri::State<'_, AppState>,
+    chunk_id: String,
+    query_text: String,
+    action: String,
+) -> Result<Feedback, String> {
+    let feedback_action = match action.as_str() {
+        "upvote" => FeedbackAction::Upvote,
+        "downvote" => FeedbackAction::Downvote,
+        "pin" => FeedbackAction::Pin,
+        other => return Err(format!("Invalid feedback action: {other}")),
+    };
+    state
+        .db
+        .add_feedback(&chunk_id, &query_text, feedback_action)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_feedback_for_query(
+    state: tauri::State<'_, AppState>,
+    query_text: String,
+) -> Result<Vec<Feedback>, String> {
+    state
+        .db
+        .get_feedback_for_query(&query_text)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_feedback(
+    state: tauri::State<'_, AppState>,
+    feedback_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .delete_feedback(&feedback_id)
         .map_err(|e| e.to_string())
 }

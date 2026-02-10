@@ -6,7 +6,10 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use std::collections::HashMap;
+
 use crate::db::Database;
+use crate::embed::{cosine_similarity, Embedder, TfIdfEmbedder};
 use crate::error::CoreError;
 use crate::models::{EvidenceCard, FileType, Highlight, SearchQuery};
 
@@ -22,6 +25,7 @@ pub struct SearchResult {
     pub total_matches: usize,
     pub evidence_cards: Vec<EvidenceCard>,
     pub search_time_ms: u64,
+    pub search_mode: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +47,7 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
             total_matches: 0,
             evidence_cards: Vec::new(),
             search_time_ms: start.elapsed().as_millis() as u64,
+            search_mode: "fts".to_string(),
         });
     }
 
@@ -53,6 +58,7 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
             total_matches: 0,
             evidence_cards: Vec::new(),
             search_time_ms: start.elapsed().as_millis() as u64,
+            search_mode: "fts".to_string(),
         });
     }
     let limit = if query.limit == 0 { 20 } else { query.limit };
@@ -233,6 +239,7 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
         total_matches,
         evidence_cards: cards,
         search_time_ms: start.elapsed().as_millis() as u64,
+        search_mode: "fts".to_string(),
     })
 }
 
@@ -277,6 +284,170 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
         }
         other => CoreError::Database(other),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid search
+// ---------------------------------------------------------------------------
+
+/// Execute a hybrid search combining FTS5 BM25 and TF-IDF vector cosine
+/// similarity via Reciprocal Rank Fusion (RRF).
+///
+/// Falls back to pure FTS5 when no embeddings or embedder state exist.
+pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreError> {
+    let start = Instant::now();
+    let trimmed = query.text.trim();
+
+    if trimmed.is_empty() {
+        return Ok(SearchResult {
+            query: query.text.clone(),
+            total_matches: 0,
+            evidence_cards: Vec::new(),
+            search_time_ms: start.elapsed().as_millis() as u64,
+            search_mode: "hybrid".to_string(),
+        });
+    }
+
+    let user_limit = if query.limit == 0 { 20 } else { query.limit } as usize;
+    let internal_limit: usize = 50;
+    let terms = extract_terms(trimmed);
+
+    // Step 1: FTS5 search with larger internal limit.
+    let fts_query = SearchQuery {
+        text: query.text.clone(),
+        filters: query.filters.clone(),
+        limit: internal_limit as u32,
+        offset: 0,
+    };
+    let fts_result = search(db, &fts_query)?;
+
+    // Step 2: Vector search.
+    let vec_results = vector_search(db, trimmed, internal_limit)?;
+
+    // Fallback: no embeddings available → return pure FTS.
+    if vec_results.is_empty() {
+        let final_cards: Vec<EvidenceCard> =
+            fts_result.evidence_cards.into_iter().take(user_limit).collect();
+        let total = final_cards.len();
+        return Ok(SearchResult {
+            query: query.text.clone(),
+            total_matches: total,
+            evidence_cards: final_cards,
+            search_time_ms: start.elapsed().as_millis() as u64,
+            search_mode: "fts".to_string(),
+        });
+    }
+
+    // Step 3: Build ranked ID lists for RRF.
+    let fts_ranked: Vec<(String, f32)> = fts_result
+        .evidence_cards
+        .iter()
+        .map(|card| (card.chunk_id.to_string(), card.score as f32))
+        .collect();
+
+    // Step 4: RRF merge.
+    let merged = rrf_merge(&fts_ranked, &vec_results, 60.0);
+
+    // Step 5: Assemble EvidenceCards for the top results.
+    let fts_card_map: HashMap<String, EvidenceCard> = fts_result
+        .evidence_cards
+        .into_iter()
+        .map(|card| (card.chunk_id.to_string(), card))
+        .collect();
+
+    let mut cards = Vec::new();
+    for (chunk_id, rrf_score) in merged.iter().take(user_limit) {
+        let mut card = if let Some(fts_card) = fts_card_map.get(chunk_id) {
+            fts_card.clone()
+        } else {
+            // Chunk only surfaced by vector search — fetch from DB.
+            match get_evidence_card(db, chunk_id) {
+                Ok(c) => c,
+                Err(_) => continue,
+            }
+        };
+        card.score = *rrf_score as f64;
+        card.highlights = compute_highlights(&card.content, &terms);
+        cards.push(card);
+    }
+
+    let total = cards.len();
+
+    Ok(SearchResult {
+        query: query.text.clone(),
+        total_matches: total,
+        evidence_cards: cards,
+        search_time_ms: start.elapsed().as_millis() as u64,
+        search_mode: "hybrid".to_string(),
+    })
+}
+
+/// Vector search optimized for large datasets using batched loading and a
+/// min-heap to maintain top-k results without loading all embeddings at once.
+///
+/// Returns `(chunk_id, cosine_similarity)` pairs sorted by similarity DESC.
+pub fn vector_search_top_k(
+    db: &Database,
+    query_vec: &[f32],
+    model: &str,
+    k: usize,
+) -> Result<Vec<(String, f32)>, CoreError> {
+    if k == 0 || query_vec.iter().all(|&v| v == 0.0) {
+        return Ok(Vec::new());
+    }
+
+    const BATCH_SIZE: usize = 10_000;
+    let mut top_k: Vec<(String, f32)> = Vec::with_capacity(k + 1);
+    let mut threshold: f32 = 0.0;
+
+    let mut offset = 0usize;
+    loop {
+        let batch = db.get_embeddings_batched(model, BATCH_SIZE, offset)?;
+        if batch.is_empty() {
+            break;
+        }
+        let batch_len = batch.len();
+
+        for (chunk_id, vec) in batch {
+            let sim = cosine_similarity(query_vec, &vec);
+            if sim <= 0.0 {
+                continue;
+            }
+
+            if top_k.len() < k {
+                top_k.push((chunk_id, sim));
+                if top_k.len() == k {
+                    threshold = top_k
+                        .iter()
+                        .map(|(_, s)| *s)
+                        .fold(f32::INFINITY, f32::min);
+                }
+            } else if sim > threshold {
+                // Replace the element with the lowest score.
+                let min_idx = top_k
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(i, _)| i)
+                    .unwrap();
+                top_k[min_idx] = (chunk_id, sim);
+                threshold = top_k
+                    .iter()
+                    .map(|(_, s)| *s)
+                    .fold(f32::INFINITY, f32::min);
+            }
+        }
+
+        if batch_len < BATCH_SIZE {
+            break;
+        }
+        offset += BATCH_SIZE;
+    }
+
+    top_k.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(top_k)
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +561,74 @@ fn file_type_to_mime(ft: &FileType) -> String {
         FileType::PlainText => "text/plain".to_string(),
         FileType::Log => "text/x-log".to_string(),
     }
+}
+
+/// Perform a vector-only search using the saved TF-IDF embedder.
+///
+/// Returns `(chunk_id, cosine_similarity)` pairs sorted by similarity DESC.
+/// Returns an empty vec when no embedder state or embeddings exist.
+fn vector_search(
+    db: &Database,
+    query_text: &str,
+    limit: usize,
+) -> Result<Vec<(String, f32)>, CoreError> {
+    let state = db.load_embedder_state("tfidf-v1")?;
+    let (vocab, idf) = match state {
+        Some(s) => s,
+        None => return Ok(Vec::new()),
+    };
+
+    let embedder = TfIdfEmbedder::from_vocabulary(vocab, idf);
+    let query_vec = embedder.embed(query_text)?;
+
+    // All-zero query vector means no recognizable terms.
+    if query_vec.iter().all(|&v| v == 0.0) {
+        return Ok(Vec::new());
+    }
+
+    let all_embeddings = db.get_all_embeddings("tfidf-v1")?;
+    if all_embeddings.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut scored: Vec<(String, f32)> = all_embeddings
+        .into_iter()
+        .map(|(chunk_id, vec)| {
+            let sim = cosine_similarity(&query_vec, &vec);
+            (chunk_id, sim)
+        })
+        .filter(|(_, sim)| *sim > 0.0)
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(limit);
+    Ok(scored)
+}
+
+/// Reciprocal Rank Fusion merge of two ranked result lists.
+///
+/// `k` is the RRF constant (typically 60). Ranks are 1-indexed.
+/// Returns `(chunk_id, rrf_score)` sorted by score DESC.
+fn rrf_merge(
+    fts_results: &[(String, f32)],
+    vec_results: &[(String, f32)],
+    k: f32,
+) -> Vec<(String, f32)> {
+    let mut scores: HashMap<String, f32> = HashMap::new();
+
+    for (rank, (chunk_id, _)) in fts_results.iter().enumerate() {
+        let r = (rank + 1) as f32;
+        *scores.entry(chunk_id.clone()).or_insert(0.0) += 1.0 / (k + r);
+    }
+
+    for (rank, (chunk_id, _)) in vec_results.iter().enumerate() {
+        let r = (rank + 1) as f32;
+        *scores.entry(chunk_id.clone()).or_insert(0.0) += 1.0 / (k + r);
+    }
+
+    let mut merged: Vec<(String, f32)> = scores.into_iter().collect();
+    merged.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    merged
 }
 
 // ---------------------------------------------------------------------------
@@ -760,5 +999,287 @@ mod tests {
         let result = search(&db, &default_query("*")).unwrap();
         assert_eq!(result.total_matches, 0);
         assert!(result.evidence_cards.is_empty());
+    }
+
+    // ── RRF merge tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_rrf_merge_basic() {
+        let fts = vec![
+            ("a".to_string(), 10.0),
+            ("b".to_string(), 8.0),
+            ("c".to_string(), 6.0),
+        ];
+        let vec = vec![
+            ("b".to_string(), 0.9),
+            ("d".to_string(), 0.8),
+            ("a".to_string(), 0.7),
+        ];
+        let merged = rrf_merge(&fts, &vec, 60.0);
+
+        // All 4 unique IDs present.
+        assert_eq!(merged.len(), 4);
+
+        let score_map: HashMap<String, f32> = merged.into_iter().collect();
+        let score_a = score_map["a"]; // FTS rank 1 + vec rank 3
+        let score_b = score_map["b"]; // FTS rank 2 + vec rank 1
+        let score_c = score_map["c"]; // FTS rank 3 only
+        let score_d = score_map["d"]; // vec rank 2 only
+
+        // Items in both lists beat items in only one.
+        assert!(score_b > score_c);
+        assert!(score_a > score_d);
+        assert!(score_b > score_d);
+        assert!(score_a > score_c);
+    }
+
+    #[test]
+    fn test_rrf_merge_disjoint() {
+        let fts = vec![("a".to_string(), 10.0), ("b".to_string(), 8.0)];
+        let vec = vec![("c".to_string(), 0.9), ("d".to_string(), 0.8)];
+        let merged = rrf_merge(&fts, &vec, 60.0);
+
+        assert_eq!(merged.len(), 4);
+        let score_map: HashMap<String, f32> = merged.into_iter().collect();
+        // Same-rank items from different lists get the same score.
+        assert!((score_map["a"] - score_map["c"]).abs() < 1e-6);
+        assert!((score_map["b"] - score_map["d"]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_rrf_merge_empty_inputs() {
+        let fts: Vec<(String, f32)> = vec![];
+        let vec: Vec<(String, f32)> = vec![];
+        let merged = rrf_merge(&fts, &vec, 60.0);
+        assert!(merged.is_empty());
+    }
+
+    // ── Hybrid search tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_hybrid_search_empty_query() {
+        let db = test_db();
+        let result = hybrid_search(&db, &default_query("")).unwrap();
+        assert_eq!(result.total_matches, 0);
+        assert!(result.evidence_cards.is_empty());
+        assert_eq!(result.search_mode, "hybrid");
+    }
+
+    #[test]
+    fn test_hybrid_search_fallback_no_embeddings() {
+        let db = test_db();
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            insert_chunk(&conn, &did, "rust is a great programming language");
+        }
+
+        // No embeddings stored → should fall back to FTS.
+        let result = hybrid_search(&db, &default_query("rust")).unwrap();
+        assert_eq!(result.search_mode, "fts");
+        assert!(!result.evidence_cards.is_empty());
+        assert!(result.evidence_cards[0].content.contains("rust"));
+    }
+
+    #[test]
+    fn test_hybrid_search_with_embeddings() {
+        let db = test_db();
+        let chunk_id_1;
+        let chunk_id_2;
+        let chunk_id_3;
+        // Extra chunks so "rust" (in 2/7 docs) gets non-zero IDF.
+        let chunk_id_4;
+        let chunk_id_5;
+        let chunk_id_6;
+        let chunk_id_7;
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            chunk_id_1 = insert_chunk(&conn, &did, "rust programming language systems");
+            chunk_id_2 = insert_chunk(&conn, &did, "python scripting dynamic typing");
+            chunk_id_3 = insert_chunk(&conn, &did, "rust compiler memory safety performance");
+            chunk_id_4 = insert_chunk(&conn, &did, "javascript web frontend development frameworks");
+            chunk_id_5 = insert_chunk(&conn, &did, "database sql query optimization indexes");
+            chunk_id_6 = insert_chunk(&conn, &did, "networking protocols http server requests");
+            chunk_id_7 = insert_chunk(&conn, &did, "testing integration unit coverage reports");
+        }
+
+        // Build embedder from corpus and persist state + embeddings.
+        let corpus: Vec<&str> = vec![
+            "rust programming language systems",
+            "python scripting dynamic typing",
+            "rust compiler memory safety performance",
+            "javascript web frontend development frameworks",
+            "database sql query optimization indexes",
+            "networking protocols http server requests",
+            "testing integration unit coverage reports",
+        ];
+        let embedder = TfIdfEmbedder::build_from_corpus(&corpus);
+        db.save_embedder_state("tfidf-v1", &embedder.vocabulary, &embedder.idf)
+            .unwrap();
+
+        for (cid, text) in [
+            (&chunk_id_1, corpus[0]),
+            (&chunk_id_2, corpus[1]),
+            (&chunk_id_3, corpus[2]),
+            (&chunk_id_4, corpus[3]),
+            (&chunk_id_5, corpus[4]),
+            (&chunk_id_6, corpus[5]),
+            (&chunk_id_7, corpus[6]),
+        ] {
+            let v = embedder.embed(text).unwrap();
+            db.store_embedding(cid, "tfidf-v1", &v).unwrap();
+        }
+
+        let result = hybrid_search(&db, &default_query("rust")).unwrap();
+        assert_eq!(result.search_mode, "hybrid");
+        assert!(!result.evidence_cards.is_empty());
+
+        // Rust-related chunks should appear in the results.
+        let ids: Vec<String> = result
+            .evidence_cards
+            .iter()
+            .map(|c| c.chunk_id.to_string())
+            .collect();
+        assert!(
+            ids.contains(&chunk_id_1) || ids.contains(&chunk_id_3),
+            "expected at least one rust chunk in results"
+        );
+    }
+
+    #[test]
+    fn test_hybrid_search_includes_both_sources() {
+        let db = test_db();
+        let chunk_fts;
+        let chunk_vec;
+        let chunk_3;
+        let chunk_4;
+        let chunk_5;
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            chunk_fts = insert_chunk(&conn, &did, "deploy application to production server");
+            chunk_vec = insert_chunk(&conn, &did, "release software to live environment");
+            // Extra chunks so "deploy" (in 1/5 docs) gets non-zero IDF.
+            chunk_3 = insert_chunk(&conn, &did, "database schema migration strategy planning");
+            chunk_4 = insert_chunk(&conn, &did, "monitoring alerts dashboards observability");
+            chunk_5 = insert_chunk(&conn, &did, "authentication security oauth tokens sessions");
+        }
+
+        let corpus: Vec<&str> = vec![
+            "deploy application to production server",
+            "release software to live environment",
+            "database schema migration strategy planning",
+            "monitoring alerts dashboards observability",
+            "authentication security oauth tokens sessions",
+        ];
+        let embedder = TfIdfEmbedder::build_from_corpus(&corpus);
+        db.save_embedder_state("tfidf-v1", &embedder.vocabulary, &embedder.idf)
+            .unwrap();
+
+        for (cid, text) in [
+            (&chunk_fts, corpus[0]),
+            (&chunk_vec, corpus[1]),
+            (&chunk_3, corpus[2]),
+            (&chunk_4, corpus[3]),
+            (&chunk_5, corpus[4]),
+        ] {
+            let v = embedder.embed(text).unwrap();
+            db.store_embedding(cid, "tfidf-v1", &v).unwrap();
+        }
+
+        let result = hybrid_search(&db, &default_query("deploy")).unwrap();
+        assert_eq!(result.search_mode, "hybrid");
+
+        // The FTS-matched chunk must always be present.
+        let ids: Vec<String> = result
+            .evidence_cards
+            .iter()
+            .map(|c| c.chunk_id.to_string())
+            .collect();
+        assert!(
+            ids.contains(&chunk_fts),
+            "FTS-matched chunk must be in hybrid results"
+        );
+    }
+
+    #[test]
+    fn test_vector_search_no_embedder_state() {
+        let db = test_db();
+        let result = vector_search(&db, "test query", 50).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_vector_search_top_k_basic() {
+        let db = test_db();
+        let chunk_ids;
+        let embedder;
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            let texts = vec![
+                "rust programming language systems",
+                "python scripting dynamic typing",
+                "javascript web frontend development",
+                "database sql query optimization",
+                "networking protocols http server",
+            ];
+            let mut ids = Vec::new();
+            for text in &texts {
+                ids.push(insert_chunk(&conn, &did, text));
+            }
+            chunk_ids = ids;
+            let refs: Vec<&str> = texts.iter().copied().collect();
+            embedder = TfIdfEmbedder::build_from_corpus(&refs);
+        }
+
+        // Store embeddings.
+        db.save_embedder_state("tfidf-v1", &embedder.vocabulary, &embedder.idf)
+            .unwrap();
+        let corpus = [
+            "rust programming language systems",
+            "python scripting dynamic typing",
+            "javascript web frontend development",
+            "database sql query optimization",
+            "networking protocols http server",
+        ];
+        for (cid, text) in chunk_ids.iter().zip(corpus.iter()) {
+            let v = embedder.embed(text).unwrap();
+            db.store_embedding(cid, "tfidf-v1", &v).unwrap();
+        }
+
+        let query_vec = embedder.embed("rust systems programming").unwrap();
+        let results = vector_search_top_k(&db, &query_vec, "tfidf-v1", 3).unwrap();
+        assert!(!results.is_empty());
+        assert!(results.len() <= 3);
+
+        // Results should be sorted by similarity DESC.
+        for i in 1..results.len() {
+            assert!(results[i - 1].1 >= results[i].1);
+        }
+
+        // First result should be the rust-related chunk.
+        assert_eq!(results[0].0, chunk_ids[0]);
+    }
+
+    #[test]
+    fn test_vector_search_top_k_empty() {
+        let db = test_db();
+        let zero_vec = vec![0.0; 10];
+        let results = vector_search_top_k(&db, &zero_vec, "tfidf-v1", 5).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_vector_search_top_k_zero_k() {
+        let db = test_db();
+        let query = vec![1.0, 0.0];
+        let results = vector_search_top_k(&db, &query, "tfidf-v1", 0).unwrap();
+        assert!(results.is_empty());
     }
 }

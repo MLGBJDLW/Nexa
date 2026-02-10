@@ -1,8 +1,12 @@
 import type { EvidenceCard as EvidenceCardType, Highlight } from "../types";
 
+type FeedbackAction = 'upvote' | 'downvote' | 'pin';
+
 interface Props {
   card: EvidenceCardType;
   onSaveToPlaybook?: (chunkId: string) => void;
+  onFeedback?: (chunkId: string, action: FeedbackAction) => void;
+  activeFeedback?: FeedbackAction | null;
 }
 
 function renderHighlightedContent(content: string, highlights: Highlight[]) {
@@ -40,7 +44,7 @@ function scoreColor(score: number): string {
   return "text-gray-400";
 }
 
-export function EvidenceCardComponent({ card, onSaveToPlaybook }: Props) {
+export function EvidenceCardComponent({ card, onSaveToPlaybook, onFeedback, activeFeedback }: Props) {
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-800/60 p-4 transition hover:border-gray-600">
       {/* Header */}
@@ -65,8 +69,47 @@ export function EvidenceCardComponent({ card, onSaveToPlaybook }: Props) {
         {renderHighlightedContent(card.content, card.highlights)}
       </div>
 
+      {/* Feedback buttons */}
+      {onFeedback && (
+        <div className="mt-3 flex items-center gap-1">
+          <button
+            onClick={() => onFeedback(card.chunkId, 'upvote')}
+            className={`rounded px-1.5 py-0.5 text-sm transition ${
+              activeFeedback === 'upvote'
+                ? 'bg-green-500/20 text-green-300'
+                : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+            }`}
+            title="Upvote"
+          >
+            👍
+          </button>
+          <button
+            onClick={() => onFeedback(card.chunkId, 'downvote')}
+            className={`rounded px-1.5 py-0.5 text-sm transition ${
+              activeFeedback === 'downvote'
+                ? 'bg-red-500/20 text-red-300'
+                : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+            }`}
+            title="Downvote"
+          >
+            👎
+          </button>
+          <button
+            onClick={() => onFeedback(card.chunkId, 'pin')}
+            className={`rounded px-1.5 py-0.5 text-sm transition ${
+              activeFeedback === 'pin'
+                ? 'bg-blue-500/20 text-blue-300'
+                : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+            }`}
+            title="Pin"
+          >
+            📌
+          </button>
+        </div>
+      )}
+
       {/* Footer */}
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-2 flex items-center justify-between">
         <span className="text-xs text-gray-500">{card.sourceName}</span>
         {onSaveToPlaybook && (
           <button

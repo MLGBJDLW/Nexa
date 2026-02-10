@@ -8,6 +8,8 @@ import type {
   IngestResult,
   IndexStats,
   QueryLog,
+  Feedback,
+  EmbedResult,
 } from "../types";
 
 // ── Sources ─────────────────────────────────────────────────────────────
@@ -82,3 +84,27 @@ export const removeCitation = (citationId: string) =>
 
 export const getRecentQueries = (limit?: number) =>
   invoke<QueryLog[]>("get_recent_queries", { limit });
+
+// ── Hybrid Search ───────────────────────────────────────────────────────
+
+export const hybridSearch = (queryText: string) =>
+  invoke<SearchResult>('hybrid_search', { queryText });
+
+// ── Embeddings ──────────────────────────────────────────────────────────
+
+export const embedSource = (sourceId: string) =>
+  invoke<EmbedResult>('embed_source', { sourceId });
+
+export const rebuildEmbeddings = () =>
+  invoke<EmbedResult>('rebuild_embeddings');
+
+// ── Feedback ────────────────────────────────────────────────────────────
+
+export const addFeedback = (chunkId: string, queryText: string, action: string) =>
+  invoke<Feedback>('add_feedback', { chunkId, queryText, action });
+
+export const getFeedbackForQuery = (queryText: string) =>
+  invoke<Feedback[]>('get_feedback_for_query', { queryText });
+
+export const deleteFeedback = (feedbackId: string) =>
+  invoke<void>('delete_feedback', { feedbackId });

@@ -58,11 +58,84 @@ impl Database {
             "PRAGMA foreign_keys = ON",
             "PRAGMA synchronous = NORMAL",
             "PRAGMA cache_size = -64000",
+            "PRAGMA temp_store = MEMORY",
+            "PRAGMA mmap_size = 268435456",
             "PRAGMA journal_size_limit = 67108864",
         ] {
             let _ = conn.prepare(pragma)?.query([])?;
         }
         Ok(())
+    }
+}
+
+impl Database {
+    /// Get all chunks as `(chunk_id, content)` pairs.
+    pub fn get_all_chunks(&self) -> Result<Vec<(String, String)>, crate::error::CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, content FROM chunks ORDER BY id")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Get all chunks belonging to documents of a given source.
+    pub fn get_chunks_for_source(
+        &self,
+        source_id: &str,
+    ) -> Result<Vec<(String, String)>, crate::error::CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.content FROM chunks c
+             JOIN documents d ON c.document_id = d.id
+             WHERE d.source_id = ?1
+             ORDER BY c.id",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![source_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Get chunks that do not yet have an embedding for the given model.
+    pub fn get_chunks_without_embeddings(
+        &self,
+        model: &str,
+    ) -> Result<Vec<(String, String)>, crate::error::CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.content FROM chunks c
+             WHERE c.id NOT IN (
+                 SELECT chunk_id FROM embeddings WHERE model = ?1
+             )
+             ORDER BY c.id",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![model], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Delete all embeddings for a given model.
+    pub fn delete_all_embeddings(&self, model: &str) -> Result<usize, crate::error::CoreError> {
+        let conn = self.conn();
+        let count = conn.execute(
+            "DELETE FROM embeddings WHERE model = ?1",
+            rusqlite::params![model],
+        )?;
+        Ok(count)
     }
 }
 
