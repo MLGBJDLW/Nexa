@@ -26,15 +26,16 @@ import { Badge } from '../components/ui/Badge';
 import { CardSkeleton } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
+import { useTranslation } from '../i18n';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const FILE_TYPE_OPTIONS: { value: FileType; label: string }[] = [
-  { value: 'markdown', label: 'Markdown' },
-  { value: 'plaintext', label: '纯文本' },
-  { value: 'log', label: '日志' },
+const FILE_TYPE_OPTIONS: { value: FileType; label: string; labelKey: 'search.plaintext' | 'search.log' }[] = [
+  { value: 'markdown', label: 'Markdown', labelKey: 'search.plaintext' },
+  { value: 'plaintext', label: 'Plain text', labelKey: 'search.plaintext' },
+  { value: 'log', label: 'Log', labelKey: 'search.log' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +43,7 @@ const FILE_TYPE_OPTIONS: { value: FileType; label: string }[] = [
 /* ------------------------------------------------------------------ */
 
 export function SearchPage() {
+  const { t } = useTranslation();
   // ── Core search state ────────────────────────────────────────────────
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -114,8 +116,8 @@ export function SearchPage() {
     try {
       const res =
         searchMode === 'hybrid'
-          ? await api.hybridSearch(q.trim())
-          : await api.search(q.trim());
+          ? await api.hybridSearch(q.trim(), filters)
+          : await api.search(q.trim(), undefined, undefined, filters);
       setResult({ ...res, searchMode });
       loadRecentQueries();
 
@@ -131,7 +133,7 @@ export function SearchPage() {
         // non-critical
       }
     } catch (e) {
-      toast.error(`搜索出错: ${String(e)}`);
+      toast.error(`${t('search.searchError')}: ${String(e)}`);
     } finally {
       setLoading(false);
     }
@@ -160,7 +162,7 @@ export function SearchPage() {
       const fb = await api.addFeedback(chunkId, result.query, action);
       setFeedbackMap((prev) => ({ ...prev, [chunkId]: fb }));
     } catch (e) {
-      toast.error(`反馈失败: ${String(e)}`);
+      toast.error(`${t('search.feedbackError')}: ${String(e)}`);
     }
   };
 
@@ -197,18 +199,18 @@ export function SearchPage() {
       }
 
       if (!targetId) {
-        toast.error('请选择或创建一个剧本');
+        toast.error(t('search.needSelectPlaybook'));
         setSaveLoading(false);
         return;
       }
 
       await api.addCitation(targetId, savingChunkId, citationNote, 0);
-      toast.success('已保存到剧本');
+      toast.success(t('search.savedToPlaybook'));
       setSavingChunkId(null);
       setCitationNote('');
       setNewPlaybookTitle('');
     } catch (e) {
-      toast.error(`保存失败: ${String(e)}`);
+      toast.error(`${t('search.saveError')}: ${String(e)}`);
     } finally {
       setSaveLoading(false);
     }
@@ -236,39 +238,21 @@ export function SearchPage() {
   const activeFilterCount =
     filters.sourceIds.length + filters.fileTypes.length;
 
-  // ── Filter results client-side ───────────────────────────────────────
-  const filteredCards = result
-    ? result.evidenceCards.filter((card) => {
-        if (
-          filters.sourceIds.length > 0 &&
-          !filters.sourceIds.includes(card.sourceName)
-        )
-          return false;
-        if (filters.fileTypes.length > 0) {
-          const ext = card.documentPath.match(/\.(\w+)$/)?.[1] ?? '';
-          const ft: FileType =
-            ext === 'md' ? 'markdown' : ext === 'log' ? 'log' : 'plaintext';
-          if (!filters.fileTypes.includes(ft)) return false;
-        }
-        return true;
-      })
-    : [];
-
   // ── Uncertainty detection ────────────────────────────────────────────
   const showUncertainty =
     result !== null &&
-    filteredCards.length > 0 &&
-    filteredCards.length < 3 &&
-    filteredCards.every((c) => c.score < 1);
+    result.evidenceCards.length > 0 &&
+    result.evidenceCards.length < 3 &&
+    result.evidenceCards.every((c) => c.score < 1);
 
   // ── Render ───────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
       {/* ── Header ── */}
       <div className="mb-8">
-        <h1 className="mb-1.5 text-lg font-semibold text-text-primary">搜索</h1>
+        <h1 className="mb-1.5 text-lg font-semibold text-text-primary">{t('nav.search')}</h1>
         <p className="text-xs text-text-tertiary">
-          在你的知识库中查找证据
+          {t('search.subtitle')}
           <kbd className="ml-2 inline-flex items-center rounded border border-border bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
             Ctrl+K
           </kbd>
@@ -284,7 +268,7 @@ export function SearchPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="输入关键词搜索..."
+            placeholder={t('search.placeholder')}
             className="h-11"
           />
           <Button
@@ -293,7 +277,7 @@ export function SearchPage() {
             icon={<Search size={14} />}
             size="lg"
           >
-            搜索
+            {t('nav.search')}
           </Button>
         </div>
       </div>
@@ -310,7 +294,7 @@ export function SearchPage() {
                 : 'text-text-tertiary hover:text-text-secondary'
             }`}
           >
-            全文搜索
+            {t('search.fts')}
           </button>
           <button
             onClick={() => setSearchMode('hybrid')}
@@ -320,7 +304,7 @@ export function SearchPage() {
                 : 'text-text-tertiary hover:text-text-secondary'
             }`}
           >
-            混合搜索
+            {t('search.hybrid')}
           </button>
         </div>
 
@@ -331,7 +315,7 @@ export function SearchPage() {
           icon={<Filter size={13} />}
           onClick={() => setFiltersOpen(!filtersOpen)}
         >
-          筛选
+          {t('search.filters')}
           {activeFilterCount > 0 && (
             <Badge variant="info" className="ml-1">
               {activeFilterCount}
@@ -352,7 +336,7 @@ export function SearchPage() {
           >
             <div className="mb-6 rounded-lg border border-border bg-surface-1 p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold text-text-primary">搜索筛选</h3>
+                <h3 className="text-xs font-semibold text-text-primary">{t('search.filterTitle')}</h3>
                 {activeFilterCount > 0 && (
                   <button
                     onClick={() =>
@@ -365,7 +349,7 @@ export function SearchPage() {
                     }
                     className="text-[11px] text-text-tertiary hover:text-text-secondary transition-colors"
                   >
-                    清除全部
+                    {t('search.clearFilters')}
                   </button>
                 )}
               </div>
@@ -374,7 +358,7 @@ export function SearchPage() {
               {sources.length > 0 && (
                 <div className="mb-3">
                   <label className="mb-1.5 block text-[11px] font-medium text-text-tertiary">
-                    来源
+                    {t('search.sourceFilter')}
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     {sources.map((s) => {
@@ -401,7 +385,7 @@ export function SearchPage() {
               {/* File type filters */}
               <div>
                 <label className="mb-1.5 block text-[11px] font-medium text-text-tertiary">
-                  文件类型
+                  {t('search.fileTypeFilter')}
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {FILE_TYPE_OPTIONS.map((ft) => {
@@ -417,7 +401,7 @@ export function SearchPage() {
                         }`}
                       >
                         {active && <X size={10} />}
-                        {ft.label}
+                        {ft.value === 'markdown' ? 'Markdown' : ft.value === 'plaintext' ? t('search.plaintext') : t('search.log')}
                       </button>
                     );
                   })}
@@ -444,17 +428,17 @@ export function SearchPage() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs text-text-tertiary">
               <span>
-                找到 {filteredCards.length} 条结果
-                {filteredCards.length !== result.totalMatches && (
+                {t('search.resultCount', { count: result.evidenceCards.length })}
+                {result.evidenceCards.length !== result.totalMatches && (
                   <span className="text-text-tertiary">
                     {' '}
-                    (共 {result.totalMatches} 条)
+                    ({t('search.totalCount', { total: result.totalMatches })})
                   </span>
                 )}
               </span>
               {result.searchMode && (
                 <Badge variant={result.searchMode === 'hybrid' ? 'info' : 'default'}>
-                  {result.searchMode === 'hybrid' ? '混合搜索' : '全文搜索'}
+                  {result.searchMode === 'hybrid' ? t('search.hybrid') : t('search.fts')}
                 </Badge>
               )}
             </div>
@@ -475,16 +459,16 @@ export function SearchPage() {
                 className="mt-0.5 shrink-0 text-warning"
               />
               <div>
-                <p className="text-sm font-medium text-warning">证据不足</p>
+                <p className="text-sm font-medium text-warning">{t('search.uncertainty')}</p>
                 <p className="mt-0.5 text-xs text-warning/70">
-                  现有资料中未找到充分证据，请考虑添加更多来源
+                  {t('search.uncertaintyDesc')}
                 </p>
               </div>
             </motion.div>
           )}
 
           {/* Evidence cards with staggered animation */}
-          {filteredCards.length > 0 ? (
+          {result.evidenceCards.length > 0 ? (
             <motion.div
               className="space-y-3"
               initial="hidden"
@@ -494,7 +478,7 @@ export function SearchPage() {
                 visible: { transition: { staggerChildren: 0.06 } },
               }}
             >
-              {filteredCards.map((card) => (
+              {result.evidenceCards.map((card) => (
                 <motion.div
                   key={card.chunkId}
                   variants={{
@@ -521,7 +505,7 @@ export function SearchPage() {
                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary"
                     >
                       <BookmarkPlus size={12} />
-                      保存到剧本
+                      {t('search.saveToPlaybook')}
                     </button>
                   </div>
                 </motion.div>
@@ -540,16 +524,16 @@ export function SearchPage() {
                   className="mt-0.5 shrink-0 text-warning"
                 />
                 <div>
-                  <p className="text-sm font-medium text-warning">证据不足</p>
+                  <p className="text-sm font-medium text-warning">{t('search.uncertainty')}</p>
                   <p className="mt-0.5 text-xs text-warning/70">
-                    现有资料中未找到充分证据，请考虑添加更多来源
+                    {t('search.uncertaintyDesc')}
                   </p>
                 </div>
               </motion.div>
               <EmptyState
                 icon={<Search size={32} />}
-                title="未找到结果"
-                description={`未找到与 "${result.query}" 相关的内容，请尝试其他关键词`}
+                title={t('search.noResults')}
+                description={t('search.noResultsDesc', { query: result.query })}
               />
             </>
           )}
@@ -561,7 +545,7 @@ export function SearchPage() {
         <div className="mt-2">
           <div className="mb-3 flex items-center gap-2 text-xs font-medium text-text-tertiary">
             <Clock size={12} />
-            最近搜索
+            {t('search.recentQueries')}
           </div>
           <div className="flex flex-wrap gap-2">
             {recentQueries.map((q) => (
@@ -575,7 +559,7 @@ export function SearchPage() {
               >
                 <span className="truncate max-w-[200px]">{q.queryText}</span>
                 <span className="shrink-0 text-[10px] text-text-tertiary group-hover:text-text-secondary">
-                  {q.resultCount}条
+                  {t('search.resultSuffix', { count: q.resultCount })}
                 </span>
               </button>
             ))}
@@ -587,8 +571,8 @@ export function SearchPage() {
       {!result && !loading && recentQueries.length === 0 && (
         <EmptyState
           icon={<Search size={32} />}
-          title="开始搜索"
-          description="输入关键词，在你的知识库中查找相关证据"
+          title={t('search.initialTitle')}
+          description={t('search.initialDesc')}
         />
       )}
 
@@ -600,7 +584,7 @@ export function SearchPage() {
           setCitationNote('');
           setNewPlaybookTitle('');
         }}
-        title="保存到剧本"
+        title={t('search.saveToPlaybook')}
         footer={
           <>
             <Button
@@ -612,7 +596,7 @@ export function SearchPage() {
                 setNewPlaybookTitle('');
               }}
             >
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               size="sm"
@@ -620,7 +604,7 @@ export function SearchPage() {
               loading={saveLoading}
               disabled={!selectedPlaybookId && !newPlaybookTitle.trim()}
             >
-              保存
+              {t('common.save')}
             </Button>
           </>
         }
@@ -629,7 +613,7 @@ export function SearchPage() {
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                选择剧本
+                {t('search.selectPlaybook')}
               </label>
               <select
                 value={selectedPlaybookId}
@@ -644,57 +628,57 @@ export function SearchPage() {
                     {pb.title}
                   </option>
                 ))}
-                <option value="">+ 新建剧本</option>
+                <option value="">+ {t('search.createNewPlaybook')}</option>
               </select>
             </div>
 
             {!selectedPlaybookId && (
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                  新剧本名称
+                  {t('search.newPlaybookName')}
                 </label>
                 <Input
                   value={newPlaybookTitle}
                   onChange={(e) => setNewPlaybookTitle(e.target.value)}
-                  placeholder="输入剧本名称..."
+                  placeholder={t('search.newPlaybookName')}
                 />
               </div>
             )}
 
             <div>
               <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                备注 <span className="text-text-tertiary">(可选)</span>
+                {t('search.note')} <span className="text-text-tertiary">({t('search.optional')})</span>
               </label>
               <Input
                 value={citationNote}
                 onChange={(e) => setCitationNote(e.target.value)}
-                placeholder="添加备注..."
+                placeholder={t('search.note')}
               />
             </div>
           </div>
         ) : (
           <div className="space-y-4">
             <p className="text-xs text-text-tertiary">
-              暂无剧本，创建一个新剧本来保存此证据。
+              {t('search.noPlaybooks')}
             </p>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                新剧本名称
+                {t('search.newPlaybookName')}
               </label>
               <Input
                 value={newPlaybookTitle}
                 onChange={(e) => setNewPlaybookTitle(e.target.value)}
-                placeholder="输入剧本名称..."
+                placeholder={t('search.newPlaybookName')}
               />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-text-secondary">
-                备注 <span className="text-text-tertiary">(可选)</span>
+                {t('search.note')} <span className="text-text-tertiary">({t('search.optional')})</span>
               </label>
               <Input
                 value={citationNote}
                 onChange={(e) => setCitationNote(e.target.value)}
-                placeholder="添加备注..."
+                placeholder={t('search.note')}
               />
             </div>
           </div>

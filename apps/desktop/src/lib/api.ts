@@ -5,12 +5,14 @@ import type {
   Playbook,
   PlaybookCitation,
   SearchResult,
+  SearchFilters,
   IngestResult,
   IndexStats,
   QueryLog,
   Feedback,
   EmbedResult,
 } from "../types";
+import type { PrivacyConfig } from "../types/privacy";
 
 // ── Sources ─────────────────────────────────────────────────────────────
 
@@ -33,8 +35,8 @@ export const scanAllSources = () =>
 
 // ── Search ──────────────────────────────────────────────────────────────
 
-export const search = (queryText: string, limit?: number, offset?: number) =>
-  invoke<SearchResult>("search", { queryText, limit, offset });
+export const search = (queryText: string, limit?: number, offset?: number, filters?: SearchFilters) =>
+  invoke<SearchResult>("search", { queryText, limit, offset, filters });
 
 export const getEvidenceCard = (chunkId: string) =>
   invoke<EvidenceCard>("get_evidence_card", { chunkId });
@@ -87,8 +89,8 @@ export const getRecentQueries = (limit?: number) =>
 
 // ── Hybrid Search ───────────────────────────────────────────────────────
 
-export const hybridSearch = (queryText: string) =>
-  invoke<SearchResult>('hybrid_search', { queryText });
+export const hybridSearch = (queryText: string, filters?: SearchFilters) =>
+  invoke<SearchResult>('hybrid_search', { queryText, filters });
 
 // ── Embeddings ──────────────────────────────────────────────────────────
 
@@ -108,3 +110,36 @@ export const getFeedbackForQuery = (queryText: string) =>
 
 export const deleteFeedback = (feedbackId: string) =>
   invoke<void>('delete_feedback', { feedbackId });
+
+// ── Sources (extra) ─────────────────────────────────────────────────────
+
+export const getSource = (sourceId: string) =>
+  invoke<Source>('get_source', { sourceId });
+
+export const updateSource = (
+  sourceId: string,
+  includeGlobs: string[],
+  excludeGlobs: string[],
+  watchEnabled: boolean,
+) => invoke<void>('update_source', { sourceId, includeGlobs, excludeGlobs, watchEnabled });
+
+// ── Privacy ─────────────────────────────────────────────────────────────
+
+export const getPrivacyConfig = () =>
+  invoke<PrivacyConfig>('get_privacy_config');
+
+export const savePrivacyConfig = (config: PrivacyConfig) =>
+  invoke<void>('save_privacy_config', { config });
+
+// ── Index (extra) ───────────────────────────────────────────────────────
+
+export const optimizeFtsIndex = () =>
+  invoke<void>('optimize_fts_index');
+
+// ── Citations (extra) ───────────────────────────────────────────────────
+
+export const updateCitationNote = (citationId: string, note: string) =>
+  invoke<void>('update_citation_note', { citationId, note });
+
+export const reorderCitations = (playbookId: string, citationIds: string[]) =>
+  invoke<void>('reorder_citations', { playbookId, citationIds });

@@ -10,10 +10,13 @@ import {
   Trash2,
   Plus,
   RefreshCw,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { Source, IngestResult, EmbedResult } from '../types';
+import { useTranslation } from '../i18n';
+import type { TranslationKeys } from '../i18n/types';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
@@ -27,10 +30,12 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 /* ------------------------------------------------------------------ */
 
 const KIND_OPTIONS = [
-  { value: 'local_folder', label: '本地文件夹', icon: FolderOpen },
-  { value: 'single_file', label: '单个文件', icon: File },
-  { value: 'web', label: '网页', icon: Globe },
+  { value: 'local_folder', labelKey: 'sources.addModal.kindFolder' as const, icon: FolderOpen },
+  { value: 'single_file', labelKey: 'sources.addModal.kindFile' as const, icon: File },
+  { value: 'web', labelKey: 'sources.addModal.kindWeb' as const, icon: Globe },
 ] as const;
+
+type TFunc = (key: keyof TranslationKeys, params?: Record<string, string | number>) => string;
 
 function kindIcon(kind: string) {
   switch (kind) {
@@ -43,22 +48,23 @@ function kindIcon(kind: string) {
   }
 }
 
-function kindLabel(kind: string) {
-  return KIND_OPTIONS.find((k) => k.value === kind)?.label ?? kind;
+function kindLabel(kind: string, t: TFunc) {
+  const opt = KIND_OPTIONS.find((k) => k.value === kind);
+  return opt ? t(opt.labelKey) : kind;
 }
 
-function formatScanResult(r: IngestResult): string {
+function formatScanResult(r: IngestResult, t: TFunc): string {
   const parts: string[] = [];
-  parts.push(`扫描 ${r.filesScanned} 个文件`);
-  if (r.filesAdded > 0) parts.push(`新增 ${r.filesAdded}`);
-  if (r.filesUpdated > 0) parts.push(`更新 ${r.filesUpdated}`);
-  if (r.filesSkipped > 0) parts.push(`跳过 ${r.filesSkipped}`);
-  if (r.filesFailed > 0) parts.push(`失败 ${r.filesFailed}`);
-  return parts.join('，');
+  parts.push(t('sources.scanResult', { scanned: r.filesScanned }));
+  if (r.filesAdded > 0) parts.push(t('sources.scanAdded', { count: r.filesAdded }));
+  if (r.filesUpdated > 0) parts.push(t('sources.scanUpdated', { count: r.filesUpdated }));
+  if (r.filesSkipped > 0) parts.push(t('sources.scanSkipped', { count: r.filesSkipped }));
+  if (r.filesFailed > 0) parts.push(t('sources.scanFailed', { count: r.filesFailed }));
+  return parts.join(', ');
 }
 
-function formatEmbedResult(r: EmbedResult): string {
-  return `嵌入 ${r.chunksEmbedded} 个片段，跳过 ${r.chunksSkipped} 个 (${r.model})`;
+function formatEmbedResult(r: EmbedResult, t: TFunc): string {
+  return t('sources.embedResult', { embedded: r.chunksEmbedded, skipped: r.chunksSkipped, model: r.model });
 }
 
 /* ------------------------------------------------------------------ */
@@ -80,6 +86,7 @@ const listItem = {
 /* ------------------------------------------------------------------ */
 
 export function SourcesPage() {
+  const { t } = useTranslation();
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanningId, setScanningId] = useState<string | null>(null);
@@ -99,6 +106,13 @@ export function SourcesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Source | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Edit source modal
+  const [editTarget, setEditTarget] = useState<Source | null>(null);
+  const [editInclude, setEditInclude] = useState('');
+  const [editExclude, setEditExclude] = useState('');
+  const [editWatch, setEditWatch] = useState(false);
+  const [editing, setEditing] = useState(false);
+
   /* ── Load ─────────────────────────────────────────────────────────── */
 
   const loadSources = useCallback(async () => {
@@ -106,7 +120,7 @@ export function SourcesPage() {
       const list = await api.listSources();
       setSources(list);
     } catch (e) {
-      toast.error(`加载数据源失败: ${String(e)}`);
+      toast.error(`${t('sources.loadError')}: ${String(e)}`);
     } finally {
       setLoading(false);
     }
@@ -138,12 +152,12 @@ export function SourcesPage() {
         .map((s) => s.trim())
         .filter(Boolean);
       await api.addSource(formPath.trim(), includeGlobs, excludeGlobs);
-      toast.success('数据源已添加');
+      toast.success(t('sources.added'));
       resetForm();
       setShowAddModal(false);
       await loadSources();
     } catch (e) {
-      toast.error(`添加失败: ${String(e)}`);
+      toast.error(`${t('sources.addError')}: ${String(e)}`);
     } finally {
       setAdding(false);
     }
@@ -156,13 +170,45 @@ export function SourcesPage() {
     setDeleting(true);
     try {
       await api.deleteSource(deleteTarget.id);
-      toast.success('数据源已删除');
+      toast.success(t('sources.deleted'));
       setDeleteTarget(null);
       await loadSources();
     } catch (e) {
-      toast.error(`删除失败: ${String(e)}`);
+      toast.error(`${t('sources.deleteError')}: ${String(e)}`);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  /* ── Edit ──────────────────────────────────────────────────────────── */
+
+  const openEditModal = (source: Source) => {
+    setEditTarget(source);
+    setEditInclude(source.includeGlobs.join(', '));
+    setEditExclude(source.excludeGlobs.join(', '));
+    setEditWatch(source.watchEnabled);
+  };
+
+  const handleEdit = async () => {
+    if (!editTarget) return;
+    setEditing(true);
+    try {
+      const includeGlobs = editInclude
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const excludeGlobs = editExclude
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await api.updateSource(editTarget.id, includeGlobs, excludeGlobs, editWatch);
+      toast.success(t('sources.updated'));
+      setEditTarget(null);
+      await loadSources();
+    } catch (e) {
+      toast.error(`${t('sources.updateError')}: ${String(e)}`);
+    } finally {
+      setEditing(false);
     }
   };
 
@@ -172,9 +218,9 @@ export function SourcesPage() {
     setScanningId(sourceId);
     try {
       const result = await api.scanSource(sourceId);
-      toast.success(formatScanResult(result));
+      toast.success(formatScanResult(result, t));
     } catch (e) {
-      toast.error(`扫描失败: ${String(e)}`);
+      toast.error(`${t('sources.scanError')}: ${String(e)}`);
     } finally {
       setScanningId(null);
     }
@@ -187,9 +233,9 @@ export function SourcesPage() {
       const total = results.reduce((sum, r) => sum + r.filesScanned, 0);
       const added = results.reduce((sum, r) => sum + r.filesAdded, 0);
       const updated = results.reduce((sum, r) => sum + r.filesUpdated, 0);
-      toast.success(`全部扫描完成: ${total} 个文件，新增 ${added}，更新 ${updated}`);
+      toast.success(t('sources.scanAllComplete', { total, added, updated }));
     } catch (e) {
-      toast.error(`全部扫描失败: ${String(e)}`);
+      toast.error(`${t('sources.scanAllError')}: ${String(e)}`);
     } finally {
       setScanningAll(false);
     }
@@ -201,9 +247,9 @@ export function SourcesPage() {
     setEmbeddingId(sourceId);
     try {
       const result = await api.embedSource(sourceId);
-      toast.success(formatEmbedResult(result));
+      toast.success(formatEmbedResult(result, t));
     } catch (e) {
-      toast.error(`嵌入失败: ${String(e)}`);
+      toast.error(`${t('sources.embedError')}: ${String(e)}`);
     } finally {
       setEmbeddingId(null);
     }
@@ -213,9 +259,9 @@ export function SourcesPage() {
     setRebuildingEmbeddings(true);
     try {
       const result = await api.rebuildEmbeddings();
-      toast.success(formatEmbedResult(result));
+      toast.success(formatEmbedResult(result, t));
     } catch (e) {
-      toast.error(`重建嵌入失败: ${String(e)}`);
+      toast.error(`${t('sources.rebuildEmbedError')}: ${String(e)}`);
     } finally {
       setRebuildingEmbeddings(false);
     }
@@ -243,7 +289,7 @@ export function SourcesPage() {
     <div className="mx-auto max-w-3xl p-6">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text-primary">数据源管理</h2>
+        <h2 className="text-lg font-semibold text-text-primary">{t('sources.title')}</h2>
         <div className="flex gap-2">
           <Button
             variant="secondary"
@@ -253,7 +299,7 @@ export function SourcesPage() {
             loading={scanningAll}
             disabled={sources.length === 0}
           >
-            全部扫描
+            {t('sources.scanAll')}
           </Button>
           <Button
             variant="secondary"
@@ -263,7 +309,7 @@ export function SourcesPage() {
             loading={rebuildingEmbeddings}
             disabled={sources.length === 0}
           >
-            重建嵌入
+            {t('sources.rebuildEmbeddings')}
           </Button>
           <Button
             variant="primary"
@@ -271,7 +317,7 @@ export function SourcesPage() {
             icon={<Plus size={14} />}
             onClick={() => setShowAddModal(true)}
           >
-            添加数据源
+            {t('sources.add')}
           </Button>
         </div>
       </div>
@@ -280,9 +326,9 @@ export function SourcesPage() {
       {sources.length === 0 ? (
         <EmptyState
           icon={<FolderPlus size={32} />}
-          title="暂无数据源"
-          description="添加本地文件夹或文件来开始构建你的知识库。"
-          action={{ label: '添加数据源', onClick: () => setShowAddModal(true) }}
+          title={t('sources.emptyTitle')}
+          description={t('sources.emptyDesc')}
+          action={{ label: t('sources.add'), onClick: () => setShowAddModal(true) }}
         />
       ) : (
         <motion.div
@@ -311,7 +357,7 @@ export function SourcesPage() {
                         <p className="truncate text-sm font-medium text-text-primary font-mono">
                           {source.rootPath}
                         </p>
-                        <Badge variant="default">{kindLabel(source.kind)}</Badge>
+                        <Badge variant="default">{kindLabel(source.kind, t)}</Badge>
                       </div>
 
                       {/* Globs */}
@@ -326,8 +372,8 @@ export function SourcesPage() {
 
                       {/* Meta row */}
                       <div className="flex items-center gap-3 text-[11px] text-text-tertiary">
-                        <span>监听: {source.watchEnabled ? '开启' : '关闭'}</span>
-                        <span>添加于: {new Date(source.createdAt).toLocaleDateString('zh-CN')}</span>
+                        <span>{t('sources.watch')}: {source.watchEnabled ? t('sources.watchOn') : t('sources.watchOff')}</span>
+                        <span>{t('sources.addedAt')}: {new Date(source.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
@@ -341,7 +387,7 @@ export function SourcesPage() {
                       onClick={() => handleScan(source.id)}
                       loading={scanningId === source.id}
                     >
-                      扫描
+                      {t('sources.scan')}
                     </Button>
                     <Button
                       variant="ghost"
@@ -350,7 +396,15 @@ export function SourcesPage() {
                       onClick={() => handleEmbed(source.id)}
                       loading={embeddingId === source.id}
                     >
-                      嵌入向量
+                      {t('sources.embed')}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Pencil size={14} />}
+                      onClick={() => openEditModal(source)}
+                    >
+                      {t('common.edit')}
                     </Button>
                     <Button
                       variant="danger"
@@ -358,7 +412,7 @@ export function SourcesPage() {
                       icon={<Trash2 size={14} />}
                       onClick={() => setDeleteTarget(source)}
                     >
-                      删除
+                      {t('common.delete')}
                     </Button>
                   </div>
                 </div>
@@ -372,11 +426,11 @@ export function SourcesPage() {
       <Modal
         open={showAddModal}
         onClose={() => { setShowAddModal(false); resetForm(); }}
-        title="添加数据源"
+        title={t('sources.addModal.title')}
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => { setShowAddModal(false); resetForm(); }}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -385,7 +439,7 @@ export function SourcesPage() {
               loading={adding}
               disabled={!formPath.trim()}
             >
-              添加
+              {t('common.add')}
             </Button>
           </>
         }
@@ -393,7 +447,7 @@ export function SourcesPage() {
         <div className="space-y-4">
           {/* Kind selector */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">类型</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.kind')}</label>
             <div className="flex gap-2">
               {KIND_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
@@ -413,7 +467,7 @@ export function SourcesPage() {
                     `}
                   >
                     <Icon size={14} />
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </button>
                 );
               })}
@@ -422,18 +476,18 @@ export function SourcesPage() {
 
           {/* Root path */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">根路径</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.rootPath')}</label>
             <Input
               value={formPath}
               onChange={(e) => setFormPath(e.target.value)}
-              placeholder="C:\Users\you\notes  或  /home/user/notes"
+              placeholder="C:\Users\you\notes  /  /home/user/notes"
               icon={<FolderOpen size={15} />}
             />
           </div>
 
           {/* Include globs */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">匹配模式（逗号分隔）</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.includeGlobs')}</label>
             <Input
               value={formInclude}
               onChange={(e) => setFormInclude(e.target.value)}
@@ -443,7 +497,7 @@ export function SourcesPage() {
 
           {/* Exclude globs */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">排除模式（逗号分隔）</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.excludeGlobs')}</label>
             <Input
               value={formExclude}
               onChange={(e) => setFormExclude(e.target.value)}
@@ -453,14 +507,78 @@ export function SourcesPage() {
         </div>
       </Modal>
 
+      {/* ── Edit Source Modal ────────────────────────────────────────── */}
+      <Modal
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        title={t('sources.editModal.title')}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setEditTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleEdit}
+              loading={editing}
+            >
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {/* Root path (read-only) */}
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.rootPath')}</label>
+            <p className="text-sm text-text-primary font-mono truncate">{editTarget?.rootPath}</p>
+          </div>
+
+          {/* Include globs */}
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.includeGlobs')}</label>
+            <Input
+              value={editInclude}
+              onChange={(e) => setEditInclude(e.target.value)}
+              placeholder="**/*.md, **/*.txt"
+            />
+          </div>
+
+          {/* Exclude globs */}
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.excludeGlobs')}</label>
+            <Input
+              value={editExclude}
+              onChange={(e) => setEditExclude(e.target.value)}
+              placeholder="**/node_modules/**, **/.git/**"
+            />
+          </div>
+
+          {/* Watch toggle */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="edit-watch"
+              checked={editWatch}
+              onChange={(e) => setEditWatch(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
+            />
+            <label htmlFor="edit-watch" className="text-xs font-medium text-text-secondary">
+              {t('sources.editModal.watch')}
+            </label>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Delete Confirm Dialog ────────────────────────────────────── */}
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="删除数据源"
-        message={`确定要删除数据源「${deleteTarget?.rootPath ?? ''}」吗？此操作不可撤销，关联的文档索引也将被移除。`}
-        confirmText="删除"
+        title={t('sources.deleteConfirm')}
+        message={t('sources.deleteConfirmMsg', { name: deleteTarget?.rootPath ?? '' })}
+        confirmText={t('common.delete')}
         variant="danger"
         loading={deleting}
       />

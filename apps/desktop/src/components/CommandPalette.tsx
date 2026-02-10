@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, ScanSearch, Database, Clock } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, Settings, ScanSearch, Database, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { QueryLog } from '../types';
+import { useTranslation } from '../i18n';
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   /* ── Ctrl/Cmd+K toggle ───────────────────────────────────────────── */
   useEffect(() => {
@@ -52,9 +54,9 @@ export function CommandPalette() {
   const handleScanAll = () => {
     select(() => {
       toast.promise(api.scanAllSources(), {
-        loading: '正在扫描所有数据源…',
-        success: '扫描完成',
-        error: '扫描失败',
+        loading: t('cmd.scanningAll'),
+        success: t('cmd.scanComplete'),
+        error: t('cmd.scanError'),
       });
     });
   };
@@ -62,9 +64,9 @@ export function CommandPalette() {
   const handleRebuildEmbeddings = () => {
     select(() => {
       toast.promise(api.rebuildEmbeddings(), {
-        loading: '正在重建向量索引…',
-        success: '向量重建完成',
-        error: '向量重建失败',
+        loading: t('cmd.rebuildingEmbeddings'),
+        success: t('cmd.rebuildComplete'),
+        error: t('cmd.rebuildError'),
       });
     });
   };
@@ -97,7 +99,7 @@ export function CommandPalette() {
               loop
             >
               <Command.Input
-                placeholder="输入命令..."
+                placeholder={t('cmd.placeholder')}
                 className="w-full border-b border-border bg-transparent px-4 py-3 text-sm
                   text-text-primary placeholder:text-text-tertiary outline-none"
                 autoFocus
@@ -105,44 +107,48 @@ export function CommandPalette() {
 
               <Command.List className="max-h-72 overflow-y-auto p-2">
                 <Command.Empty className="px-4 py-8 text-center text-sm text-text-tertiary">
-                  未找到匹配命令
+                  {t('cmd.noResults')}
                 </Command.Empty>
 
-                {/* 导航 */}
-                <Command.Group heading="导航">
+                {/* Navigation */}
+                <Command.Group heading={t('cmd.navigation')}>
                   <Command.Item onSelect={() => select(() => navigate('/'))}>
                     <Search className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    搜索
+                    {t('nav.search')}
                   </Command.Item>
                   <Command.Item onSelect={() => select(() => navigate('/sources'))}>
                     <FolderOpen className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    数据源
+                    {t('nav.sources')}
                   </Command.Item>
                   <Command.Item onSelect={() => select(() => navigate('/playbooks'))}>
                     <BookOpen className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    剧本集
+                    {t('nav.playbooks')}
+                  </Command.Item>
+                  <Command.Item onSelect={() => select(() => navigate('/settings'))}>
+                    <Settings className="h-4 w-4 shrink-0 text-text-tertiary" />
+                    {t('nav.settings')}
                   </Command.Item>
                 </Command.Group>
 
                 <Command.Separator className="mx-2 my-1 h-px bg-border" />
 
-                {/* 操作 */}
-                <Command.Group heading="操作">
+                {/* Actions */}
+                <Command.Group heading={t('cmd.actions')}>
                   <Command.Item onSelect={handleScanAll}>
                     <ScanSearch className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    扫描所有数据源
+                    {t('cmd.scanAll')}
                   </Command.Item>
                   <Command.Item onSelect={handleRebuildEmbeddings}>
                     <Database className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    重建向量索引
+                    {t('cmd.rebuildEmbeddings')}
                   </Command.Item>
                 </Command.Group>
 
-                {/* 最近搜索 */}
+                {/* Recent queries */}
                 {recentQueries.length > 0 && (
                   <>
                     <Command.Separator className="mx-2 my-1 h-px bg-border" />
-                    <Command.Group heading="最近搜索">
+                    <Command.Group heading={t('cmd.recentQueries')}>
                       {recentQueries.map((q) => (
                         <Command.Item
                           key={q.id}

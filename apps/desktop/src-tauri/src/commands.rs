@@ -6,6 +6,7 @@ use ask_core::models::{
     EvidenceCard, Playbook, PlaybookCitation, SearchFilters, SearchQuery, Source,
 };
 use ask_core::playbook::QueryLog;
+use ask_core::privacy::PrivacyConfig;
 use ask_core::search::{self, SearchResult};
 use ask_core::sources::{CreateSourceInput, UpdateSourceInput};
 
@@ -335,5 +336,60 @@ pub fn delete_feedback(
     state
         .db
         .delete_feedback(&feedback_id)
+        .map_err(|e| e.to_string())
+}
+
+// ── Privacy Commands ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_privacy_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<PrivacyConfig, String> {
+    state.db.load_privacy_config().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_privacy_config(
+    state: tauri::State<'_, AppState>,
+    config: PrivacyConfig,
+) -> Result<(), String> {
+    state
+        .db
+        .save_privacy_config(&config)
+        .map_err(|e| e.to_string())
+}
+
+// ── Index Commands (extra) ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn optimize_fts_index(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.db.optimize_fts_index().map_err(|e| e.to_string())
+}
+
+// ── Citation Commands (extra) ───────────────────────────────────────────
+
+#[tauri::command]
+pub fn update_citation_note(
+    state: tauri::State<'_, AppState>,
+    citation_id: String,
+    note: String,
+) -> Result<(), String> {
+    state
+        .db
+        .update_citation_note(&citation_id, &note)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reorder_citations(
+    state: tauri::State<'_, AppState>,
+    playbook_id: String,
+    citation_ids: Vec<String>,
+) -> Result<(), String> {
+    state
+        .db
+        .reorder_citations(&playbook_id, &citation_ids)
         .map_err(|e| e.to_string())
 }

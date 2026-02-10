@@ -61,6 +61,14 @@ fn main() {
             commands::add_feedback,
             commands::get_feedback_for_query,
             commands::delete_feedback,
+            // Privacy
+            commands::get_privacy_config,
+            commands::save_privacy_config,
+            // Index (extra)
+            commands::optimize_fts_index,
+            // Citations (extra)
+            commands::update_citation_note,
+            commands::reorder_citations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,7 @@
 import { Modal } from './Modal';
 import { Button } from './Button';
 import { AlertTriangle } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -15,14 +16,16 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   open, onClose, onConfirm, title, message,
-  confirmText = '确认', variant = 'danger', loading
+  confirmText, variant = 'danger', loading
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
+  const resolvedConfirmText = confirmText ?? t('common.confirm');
   return (
     <Modal open={open} onClose={onClose} title={title} footer={
       <>
-        <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
+        <Button variant="ghost" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
         <Button variant="danger" size="sm" onClick={onConfirm} loading={loading}>
-          {confirmText}
+          {resolvedConfirmText}
         </Button>
       </>
     }>

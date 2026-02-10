@@ -1,10 +1,12 @@
 import { type ReactNode } from "react";
 import { Routes, Route } from "react-router-dom";
 import { motion } from "framer-motion";
+import { I18nProvider } from "./i18n";
 import { Layout } from "./components/Layout";
 import { SearchPage } from "./pages/SearchPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { PlaybooksPage } from "./pages/PlaybooksPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { CommandPalette } from "./components/CommandPalette";
 
 /* ── Page transition wrapper ─────────────────────────────────────── */
@@ -22,16 +24,17 @@ function PageTransition({ children }: { children: ReactNode }) {
 
 function App() {
   return (
-    <>
+    <I18nProvider>
       <CommandPalette />
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<PageTransition><SearchPage /></PageTransition>} />
           <Route path="/sources" element={<PageTransition><SourcesPage /></PageTransition>} />
           <Route path="/playbooks" element={<PageTransition><PlaybooksPage /></PageTransition>} />
+          <Route path="/settings" element={<PageTransition><SettingsPage /></PageTransition>} />
         </Route>
       </Routes>
-    </>
+    </I18nProvider>
   );
 }
 

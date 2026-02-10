@@ -1,15 +1,18 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, Brain, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, Settings, Brain, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Toaster } from 'sonner';
+import { useTranslation } from '../i18n';
+import type { TranslationKey } from '../i18n';
 
 const STORAGE_KEY = 'sidebar-collapsed';
 
-const navItems = [
-  { to: '/', label: '搜索', icon: Search },
-  { to: '/sources', label: '数据源', icon: FolderOpen },
-  { to: '/playbooks', label: '剧本集', icon: BookOpen },
+const navItems: { to: string; labelKey: TranslationKey; icon: typeof Search }[] = [
+  { to: '/', labelKey: 'nav.search', icon: Search },
+  { to: '/sources', labelKey: 'nav.sources', icon: FolderOpen },
+  { to: '/playbooks', labelKey: 'nav.playbooks', icon: BookOpen },
+  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
 /* ── Right-side tooltip for collapsed sidebar ─────────────────────── */
@@ -47,6 +50,7 @@ function SidebarTooltip({ content, show, children }: { content: string; show: bo
 
 /* ── Layout ───────────────────────────────────────────────────────── */
 export function Layout() {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === 'true';
@@ -70,7 +74,7 @@ export function Layout() {
         className="flex shrink-0 flex-col border-r border-border bg-surface-1 overflow-hidden"
         animate={{ width: collapsed ? 56 : 208 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        aria-label="主导航"
+        aria-label={t('nav.mainNav')}
       >
         {/* Branding */}
         <div className="flex items-center gap-2.5 px-3.5 py-4 overflow-hidden">
@@ -94,12 +98,13 @@ export function Layout() {
         <nav className="flex-1 space-y-0.5 px-2" role="navigation">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const label = t(item.labelKey);
             return (
-              <SidebarTooltip key={item.to} content={item.label} show={collapsed}>
+              <SidebarTooltip key={item.to} content={label} show={collapsed}>
                 <NavLink
                   to={item.to}
                   end={item.to === '/'}
-                  aria-label={item.label}
+                  aria-label={label}
                   className={({ isActive }) =>
                     `relative flex items-center gap-2.5 rounded-md text-sm transition-colors duration-fast ease-out
                     ${collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2'}
@@ -128,7 +133,7 @@ export function Layout() {
                             transition={{ duration: 0.2 }}
                             className="overflow-hidden whitespace-nowrap"
                           >
-                            {item.label}
+                            {label}
                           </motion.span>
                         )}
                       </AnimatePresence>
@@ -144,7 +149,7 @@ export function Layout() {
         <div className="border-t border-border px-2 py-2">
           <button
             onClick={toggle}
-            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+            aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
             className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs
               text-text-tertiary hover:text-text-secondary hover:bg-surface-2
               transition-colors duration-fast ease-out cursor-pointer
@@ -155,14 +160,14 @@ export function Layout() {
             ) : (
               <>
                 <ChevronLeft className="h-4 w-4 shrink-0" />
-                <span className="overflow-hidden whitespace-nowrap">收起</span>
-                <span className="ml-auto text-text-tertiary/60">v0.1.0</span>
+                <span className="overflow-hidden whitespace-nowrap">{t('nav.collapse')}</span>
+                <span className="ml-auto text-text-tertiary/60">{t('app.version')}</span>
               </>
             )}
           </button>
           {!collapsed && (
             <div className="mt-1 px-2 py-0.5 text-[11px] text-text-tertiary/60 select-none">
-              {/Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl+'}K 命令面板
+              {/Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl+'}K {t('nav.commandPalette')}
             </div>
           )}
         </div>

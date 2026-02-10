@@ -17,6 +17,7 @@ use crate::error::CoreError;
 
 /// Top-level privacy configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrivacyConfig {
     /// File-path glob patterns that are always excluded during ingestion.
     pub exclude_patterns: Vec<String>,
@@ -28,6 +29,7 @@ pub struct PrivacyConfig {
 
 /// A single content-redaction rule backed by a regex.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RedactRule {
     /// Human-readable name shown in UI / logs.
     pub name: String,

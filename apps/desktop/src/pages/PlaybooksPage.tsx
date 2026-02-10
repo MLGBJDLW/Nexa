@@ -4,6 +4,7 @@ import { BookOpen, Plus, Trash2, X, Pencil, FileText, Calendar } from 'lucide-re
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { Playbook, PlaybookCitation } from '../types';
+import { useTranslation } from '../i18n';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
@@ -16,8 +17,8 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('zh-CN', {
+function formatDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -45,6 +46,7 @@ const detailVariants = {
 /* ------------------------------------------------------------------ */
 
 export function PlaybooksPage() {
+  const { t, locale } = useTranslation();
   /* ── Data state ─────────────────────────────────────────────────── */
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +85,7 @@ export function PlaybooksPage() {
       const list = await api.listPlaybooks();
       setPlaybooks(list);
     } catch (e) {
-      toast.error(`加载剧本列表失败: ${String(e)}`);
+      toast.error(`${t('playbooks.loadError')}: ${String(e)}`);
     } finally {
       setLoading(false);
     }
@@ -106,10 +108,10 @@ export function PlaybooksPage() {
       setFormDesc('');
       setFormQuery('');
       setShowCreateModal(false);
-      toast.success('剧本已创建');
+      toast.success(t('playbooks.created'));
       await loadPlaybooks();
     } catch (e) {
-      toast.error(`创建失败: ${String(e)}`);
+      toast.error(`${t('playbooks.createError')}: ${String(e)}`);
     } finally {
       setCreating(false);
     }
@@ -124,10 +126,10 @@ export function PlaybooksPage() {
         setSelectedPlaybook(null);
         setCitations([]);
       }
-      toast.success('剧本已删除');
+      toast.success(t('playbooks.deleted'));
       await loadPlaybooks();
     } catch (e) {
-      toast.error(`删除失败: ${String(e)}`);
+      toast.error(`${t('playbooks.deleteError')}: ${String(e)}`);
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
@@ -142,7 +144,7 @@ export function PlaybooksPage() {
       const cits = await api.listCitations(playbook.id);
       setCitations(cits);
     } catch (e) {
-      toast.error(`加载引用失败: ${String(e)}`);
+      toast.error(`${t('playbooks.loadCitationsError')}: ${String(e)}`);
     } finally {
       setLoadingCitations(false);
     }
@@ -153,9 +155,9 @@ export function PlaybooksPage() {
     try {
       await api.removeCitation(removeCitTarget);
       setCitations((prev) => prev.filter((c) => c.id !== removeCitTarget));
-      toast.success('引用已移除');
+      toast.success(t('playbooks.citationRemoved'));
     } catch (e) {
-      toast.error(`移除引用失败: ${String(e)}`);
+      toast.error(`${t('playbooks.removeCitationError')}: ${String(e)}`);
     } finally {
       setRemoveCitTarget(null);
     }
@@ -179,10 +181,10 @@ export function PlaybooksPage() {
       );
       setSelectedPlaybook(updated);
       setEditMode(false);
-      toast.success('剧本已更新');
+      toast.success(t('playbooks.updated'));
       await loadPlaybooks();
     } catch (e) {
-      toast.error(`更新失败: ${String(e)}`);
+      toast.error(`${t('playbooks.updateError')}: ${String(e)}`);
     } finally {
       setSaving(false);
     }
@@ -221,14 +223,14 @@ export function PlaybooksPage() {
     <div className="mx-auto max-w-6xl p-6">
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-lg font-semibold text-text-primary">剧本集</h1>
+        <h1 className="text-lg font-semibold text-text-primary">{t('playbooks.title')}</h1>
         <Button
           variant="primary"
           size="sm"
           icon={<Plus size={15} />}
           onClick={() => setShowCreateModal(true)}
         >
-          新建剧本
+          {t('playbooks.create')}
         </Button>
       </div>
 
@@ -239,9 +241,9 @@ export function PlaybooksPage() {
           {playbooks.length === 0 ? (
             <EmptyState
               icon={<BookOpen size={32} />}
-              title="尚无剧本"
-              description="创建你的第一个剧本来收集和整理搜索中的关键引用"
-              action={{ label: '新建剧本', onClick: () => setShowCreateModal(true) }}
+              title={t('playbooks.emptyTitle')}
+              description={t('playbooks.emptyDesc')}
+              action={{ label: t('playbooks.create'), onClick: () => setShowCreateModal(true) }}
             />
           ) : (
             <AnimatePresence mode="popLayout">
@@ -280,11 +282,11 @@ export function PlaybooksPage() {
                         )}
                         <div className="mt-2 flex items-center gap-2">
                           <Badge variant="info">
-                            {pb.citations?.length ?? 0} 引用
+                            {t('playbooks.citationCount', { count: pb.citations?.length ?? 0 })}
                           </Badge>
                           <span className="text-[11px] text-text-tertiary flex items-center gap-1">
                             <Calendar size={11} />
-                            {formatDate(pb.createdAt)}
+                            {formatDate(pb.createdAt, locale)}
                           </span>
                         </div>
                       </div>
@@ -315,12 +317,12 @@ export function PlaybooksPage() {
                       <Input
                         value={editTitle}
                         onChange={(e) => setEditTitle(e.target.value)}
-                        placeholder="剧本名称"
+                        placeholder={t('playbooks.namePlaceholder')}
                       />
                       <Input
                         value={editDesc}
                         onChange={(e) => setEditDesc(e.target.value)}
-                        placeholder="剧本描述（可选）"
+                        placeholder={t('playbooks.descPlaceholder')}
                       />
                       <div className="flex items-center gap-2">
                         <Button
@@ -330,10 +332,10 @@ export function PlaybooksPage() {
                           loading={saving}
                           disabled={!editTitle.trim()}
                         >
-                          保存
+                          {t('common.save')}
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => setEditMode(false)}>
-                          取消
+                          {t('common.cancel')}
                         </Button>
                       </div>
                     </div>
@@ -350,12 +352,12 @@ export function PlaybooksPage() {
                         )}
                         <p className="mt-2 text-xs text-text-tertiary flex items-center gap-1">
                           <Calendar size={12} />
-                          创建于 {formatDate(selectedPlaybook.createdAt)}
+                          {t('playbooks.createdAt', { date: formatDate(selectedPlaybook.createdAt, locale) })}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <Button variant="ghost" size="sm" icon={<Pencil size={14} />} onClick={startEdit}>
-                          编辑
+                          {t('common.edit')}
                         </Button>
                         <Button
                           variant="danger"
@@ -363,7 +365,7 @@ export function PlaybooksPage() {
                           icon={<Trash2 size={14} />}
                           onClick={() => setDeleteTarget(selectedPlaybook)}
                         >
-                          删除剧本
+                          {t('playbooks.delete')}
                         </Button>
                       </div>
                     </div>
@@ -374,7 +376,7 @@ export function PlaybooksPage() {
                 <div className="px-5 py-4">
                   <div className="flex items-center gap-2 mb-3">
                     <h3 className="text-xs font-medium uppercase tracking-wider text-text-tertiary">
-                      引用列表
+                      {t('playbooks.citations')}
                     </h3>
                     <Badge variant="default">{citations.length}</Badge>
                   </div>
@@ -390,9 +392,9 @@ export function PlaybooksPage() {
                       <div className="p-3 rounded-xl bg-surface-2 text-text-tertiary mb-3">
                         <FileText size={24} />
                       </div>
-                      <p className="text-sm font-medium text-text-secondary mb-1">尚无引用</p>
+                      <p className="text-sm font-medium text-text-secondary mb-1">{t('playbooks.noCitations')}</p>
                       <p className="text-xs text-text-tertiary max-w-xs leading-relaxed">
-                        在搜索结果中将证据卡片保存到此剧本，引用将显示在这里
+                        {t('playbooks.noCitationsDesc')}
                       </p>
                     </div>
                   ) : (
@@ -412,7 +414,7 @@ export function PlaybooksPage() {
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-mono text-text-tertiary">
-                                  片段: {cit.chunkId.slice(0, 12)}…
+                                  {t('playbooks.chunkId')}: {cit.chunkId.slice(0, 12)}…
                                 </p>
                                 {cit.annotation && (
                                   <p className="mt-1.5 text-sm text-text-secondary leading-relaxed">
@@ -446,7 +448,7 @@ export function PlaybooksPage() {
                 <div className="p-4 rounded-2xl bg-surface-2 text-text-tertiary mb-4">
                   <BookOpen size={28} />
                 </div>
-                <p className="text-sm text-text-tertiary">选择一个剧本查看引用详情</p>
+                <p className="text-sm text-text-tertiary">{t('playbooks.selectHintDesc')}</p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -457,11 +459,11 @@ export function PlaybooksPage() {
       <Modal
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        title="新建剧本"
+        title={t('playbooks.createModal.title')}
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setShowCreateModal(false)}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -470,7 +472,7 @@ export function PlaybooksPage() {
               loading={creating}
               disabled={!formTitle.trim()}
             >
-              创建
+              {t('common.create')}
             </Button>
           </>
         }
@@ -478,33 +480,33 @@ export function PlaybooksPage() {
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              名称 <span className="text-danger">*</span>
+              {t('playbooks.createModal.name')} <span className="text-danger">*</span>
             </label>
             <Input
               value={formTitle}
               onChange={(e) => setFormTitle(e.target.value)}
-              placeholder="例如：我的研究主题"
+              placeholder={t('playbooks.namePlaceholder')}
               autoFocus
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              描述
+              {t('playbooks.createModal.desc')}
             </label>
             <Input
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
-              placeholder="简要描述此剧本的用途"
+              placeholder={t('playbooks.descPlaceholder')}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">
-              基础查询（可选）
+              {t('playbooks.createModal.query')}
             </label>
             <Input
               value={formQuery}
               onChange={(e) => setFormQuery(e.target.value)}
-              placeholder="创建此剧本的原始搜索查询"
+              placeholder={t('playbooks.queryPlaceholder')}
             />
           </div>
         </div>
@@ -515,9 +517,9 @@ export function PlaybooksPage() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="删除剧本"
-        message={`确定要删除「${deleteTarget?.title ?? ''}」吗？此操作不可撤销，剧本中的所有引用也将被移除。`}
-        confirmText="删除剧本"
+        title={t('playbooks.deleteConfirm')}
+        message={t('playbooks.deleteConfirmMsg', { name: deleteTarget?.title ?? '' })}
+        confirmText={t('playbooks.delete')}
         variant="danger"
         loading={deleting}
       />
@@ -527,9 +529,9 @@ export function PlaybooksPage() {
         open={!!removeCitTarget}
         onClose={() => setRemoveCitTarget(null)}
         onConfirm={handleRemoveCitation}
-        title="移除引用"
-        message="确定要从此剧本中移除该引用吗？"
-        confirmText="移除"
+        title={t('playbooks.removeCitation')}
+        message={t('playbooks.removeCitationConfirm')}
+        confirmText={t('common.remove')}
         variant="danger"
       />
     </div>

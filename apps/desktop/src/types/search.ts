@@ -7,13 +7,6 @@ export interface SearchFilters {
   dateTo: string | null;
 }
 
-export interface SearchQuery {
-  text: string;
-  filters: SearchFilters;
-  limit: number;
-  offset: number;
-}
-
 export interface SearchResult {
   query: string;
   totalMatches: number;

@@ -13,6 +13,7 @@ import {
 import type { EvidenceCard as EvidenceCardType, Highlight } from '../types/evidence';
 import { Badge } from './ui/Badge';
 import { Tooltip } from './ui/Tooltip';
+import { useTranslation } from '../i18n';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -112,6 +113,7 @@ export function EvidenceCardComponent({
   feedbackState = {},
 }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useTranslation();
 
   const needsTruncation = card.content.length > TRUNCATE_LENGTH;
   const displayContent =
@@ -155,7 +157,7 @@ export function EvidenceCardComponent({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <span className="text-[11px] text-text-tertiary">相关度</span>
+          <span className="text-[11px] text-text-tertiary">{t('card.relevance')}</span>
           <div className="flex items-center gap-1.5">
             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-4">
               <motion.div
@@ -205,12 +207,12 @@ export function EvidenceCardComponent({
         >
           {expanded ? (
             <>
-              收起
+              {t('card.collapse')}
               <ChevronUp size={12} />
             </>
           ) : (
             <>
-              展开更多
+              {t('card.expand')}
               <ChevronDown size={12} />
             </>
           )}
@@ -245,7 +247,7 @@ export function EvidenceCardComponent({
         {/* Feedback */}
         {onFeedback && (
           <div className="flex shrink-0 items-center gap-0.5">
-            <Tooltip content="点赞">
+            <Tooltip content={t('card.upvote')}>
               <button
                 onClick={() => onFeedback(card.chunkId, 'upvote')}
                 className={`cursor-pointer rounded-md p-1.5 transition-colors ${
@@ -261,7 +263,7 @@ export function EvidenceCardComponent({
               </button>
             </Tooltip>
 
-            <Tooltip content="踩">
+            <Tooltip content={t('card.downvote')}>
               <button
                 onClick={() => onFeedback(card.chunkId, 'downvote')}
                 className={`cursor-pointer rounded-md p-1.5 transition-colors ${
@@ -277,7 +279,7 @@ export function EvidenceCardComponent({
               </button>
             </Tooltip>
 
-            <Tooltip content="收藏">
+            <Tooltip content={t('card.pin')}>
               <button
                 onClick={() => onFeedback(card.chunkId, 'pin')}
                 className={`cursor-pointer rounded-md p-1.5 transition-colors ${
