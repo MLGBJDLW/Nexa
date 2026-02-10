@@ -53,6 +53,7 @@ export interface TranslationKeys {
   'search.saveError': string;
   'search.plaintext': string;
   'search.log': string;
+  'search.pdf': string;
   'search.optional': string;
 
   // Evidence Card
@@ -62,6 +63,9 @@ export interface TranslationKeys {
   'card.pin': string;
   'card.expand': string;
   'card.collapse': string;
+  'card.openFile': string;
+  'card.showInFolder': string;
+  'card.fileNotFound': string;
 
   // Sources
   'sources.title': string;
@@ -108,6 +112,10 @@ export interface TranslationKeys {
   'sources.scanSkipped': string;
   'sources.scanFailed': string;
   'sources.embedResult': string;
+  'sources.watcherStart': string;
+  'sources.watcherStop': string;
+  'sources.watcherActive': string;
+  'sources.watcherFileChanged': string;
 
   // Playbooks
   'playbooks.title': string;

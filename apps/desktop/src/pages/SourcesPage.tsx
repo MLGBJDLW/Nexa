@@ -11,8 +11,11 @@ import {
   Plus,
   RefreshCw,
   Pencil,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { listen } from '@tauri-apps/api/event';
 import * as api from '../lib/api';
 import type { Source, IngestResult, EmbedResult } from '../types';
 import { useTranslation } from '../i18n';
@@ -113,6 +116,9 @@ export function SourcesPage() {
   const [editWatch, setEditWatch] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  // Watcher
+  const [togglingWatch, setTogglingWatch] = useState<string | null>(null);
+
   /* ── Load ─────────────────────────────────────────────────────────── */
 
   const loadSources = useCallback(async () => {
@@ -129,6 +135,56 @@ export function SourcesPage() {
   useEffect(() => {
     loadSources();
   }, [loadSources]);
+
+  /* ── File-change event listener ───────────────────────────────────── */
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen<{ sourceId: string; filesAdded: number; filesUpdated: number }>(
+      'file-changed',
+      (event) => {
+        if (cancelled) return;
+        const { sourceId } = event.payload;
+        const source = sources.find((s) => s.id === sourceId);
+        const name = source?.rootPath ?? sourceId;
+        toast.info(t('sources.watcherFileChanged', { path: name }));
+        loadSources();
+      },
+    ).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [sources, loadSources, t]);
+
+  /* ── Watch toggle ────────────────────────────────────────────────── */
+
+  const handleToggleWatch = async (source: Source) => {
+    setTogglingWatch(source.id);
+    try {
+      if (source.watchEnabled) {
+        await api.stopWatching(source.id);
+        toast.success(t('sources.watcherStop'));
+      } else {
+        await api.startWatching(source.id);
+        toast.success(t('sources.watcherStart'));
+      }
+      await loadSources();
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setTogglingWatch(null);
+    }
+  };
 
   /* ── Add ──────────────────────────────────────────────────────────── */
 
@@ -372,7 +428,9 @@ export function SourcesPage() {
 
                       {/* Meta row */}
                       <div className="flex items-center gap-3 text-[11px] text-text-tertiary">
-                        <span>{t('sources.watch')}: {source.watchEnabled ? t('sources.watchOn') : t('sources.watchOff')}</span>
+                        <span className={source.watchEnabled ? 'text-green-500 font-medium' : ''}>
+                          {t('sources.watch')}: {source.watchEnabled ? t('sources.watcherActive') : t('sources.watchOff')}
+                        </span>
                         <span>{t('sources.addedAt')}: {new Date(source.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
@@ -380,6 +438,15 @@ export function SourcesPage() {
 
                   {/* Right: actions */}
                   <div className="flex shrink-0 gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={source.watchEnabled ? <EyeOff size={14} /> : <Eye size={14} />}
+                      onClick={() => handleToggleWatch(source)}
+                      loading={togglingWatch === source.id}
+                    >
+                      {source.watchEnabled ? t('sources.watcherStop') : t('sources.watcherStart')}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

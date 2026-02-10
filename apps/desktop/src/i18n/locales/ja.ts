@@ -53,6 +53,7 @@ export const ja: TranslationKeys = {
   'search.saveError': '保存に失敗しました',
   'search.plaintext': 'プレーンテキスト',
   'search.log': 'ログ',
+  'search.pdf': 'PDF',
   'search.optional': '任意',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const ja: TranslationKeys = {
   'card.pin': 'ピン留め',
   'card.expand': 'さらに表示',
   'card.collapse': '折りたたむ',
+  'card.openFile': 'ファイルを開く',
+  'card.showInFolder': 'フォルダーで表示',
+  'card.fileNotFound': 'ファイルが見つかりません',
 
   // Sources
   'sources.title': 'データソース管理',
@@ -108,6 +112,10 @@ export const ja: TranslationKeys = {
   'sources.scanSkipped': '{count} スキップ',
   'sources.scanFailed': '{count} 失敗',
   'sources.embedResult': '{embedded} チャンクを埋め込み、{skipped} スキップ ({model})',
+  'sources.watcherStart': '監視を開始',
+  'sources.watcherStop': '監視を停止',
+  'sources.watcherActive': '監視中',
+  'sources.watcherFileChanged': 'ファイル変更: {path}',
 
   // Playbooks
   'playbooks.title': 'プレイブック',

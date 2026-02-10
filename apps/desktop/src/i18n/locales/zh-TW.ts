@@ -53,6 +53,7 @@ export const zhTW: TranslationKeys = {
   'search.saveError': '儲存失敗',
   'search.plaintext': '純文字',
   'search.log': '日誌',
+  'search.pdf': 'PDF',
   'search.optional': '選填',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const zhTW: TranslationKeys = {
   'card.pin': '收藏',
   'card.expand': '展開更多',
   'card.collapse': '收合',
+  'card.openFile': '開啟檔案',
+  'card.showInFolder': '在資料夾中顯示',
+  'card.fileNotFound': '檔案不存在',
 
   // Sources
   'sources.title': '資料來源管理',
@@ -108,6 +112,10 @@ export const zhTW: TranslationKeys = {
   'sources.scanSkipped': '跳過 {count}',
   'sources.scanFailed': '失敗 {count}',
   'sources.embedResult': '嵌入 {embedded} 個片段，跳過 {skipped} 個 ({model})',
+  'sources.watcherStart': '監聽已啟動',
+  'sources.watcherStop': '監聽已停止',
+  'sources.watcherActive': '監聽中',
+  'sources.watcherFileChanged': '檔案變更：{path}',
 
   // Playbooks
   'playbooks.title': '劇本集',

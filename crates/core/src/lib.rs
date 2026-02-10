@@ -11,3 +11,4 @@ pub mod playbook;
 pub mod privacy;
 pub mod search;
 pub mod sources;
+pub mod watcher;

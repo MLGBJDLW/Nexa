@@ -22,6 +22,12 @@ fn main() {
                 Database::new(&db_path).expect("failed to initialize database");
 
             app.manage(AppState { db });
+
+            // Initialise the file watcher for auto-indexing.
+            let handle = app.handle().clone();
+            let app_state: tauri::State<'_, AppState> = app.state();
+            commands::init_watcher(handle, &app_state.db);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +81,13 @@ fn main() {
             commands::test_api_connection_cmd,
             commands::check_local_model_cmd,
             commands::download_local_model_cmd,
+            // File
+            commands::open_file_in_default_app,
+            commands::show_in_file_explorer,
+            // Watcher
+            commands::start_watching,
+            commands::stop_watching,
+            commands::get_watcher_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

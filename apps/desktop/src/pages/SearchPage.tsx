@@ -32,10 +32,11 @@ import { useTranslation } from '../i18n';
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const FILE_TYPE_OPTIONS: { value: FileType; label: string; labelKey: 'search.plaintext' | 'search.log' }[] = [
+const FILE_TYPE_OPTIONS: { value: FileType; label: string; labelKey: 'search.plaintext' | 'search.log' | 'search.pdf' }[] = [
   { value: 'markdown', label: 'Markdown', labelKey: 'search.plaintext' },
   { value: 'plaintext', label: 'Plain text', labelKey: 'search.plaintext' },
   { value: 'log', label: 'Log', labelKey: 'search.log' },
+  { value: 'pdf', label: 'PDF', labelKey: 'search.pdf' },
 ];
 
 /* ------------------------------------------------------------------ */

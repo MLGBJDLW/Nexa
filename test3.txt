@@ -1,6 +1,6 @@
-﻿cargo : warning: variable does not need to be mutable
-所在位置 行:1 字符: 32
-+ ... OR="never"; cargo test -p ask-core -- search::tests::test_feedback se ...
+cargo : warning: variable does not need to be mutable
+所在位置 行:1 字符: 66
++ ... est3.txt", (cargo test -p ask-core -- test_feedback_boosts test_feedb ...
 +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (warning: variab...d to be mutable 
    :String) [], RemoteException
@@ -18,13 +18,13 @@
 warning: `ask-core` (lib) generated 1 warning (run `cargo fix --lib -p 
 ask-core` to apply 1 suggestion)
 warning: `ask-core` (lib test) generated 1 warning (1 duplicate)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
      Running unittests src\lib.rs 
 (target\debug\deps\ask_core-ba1817ef6c7753ff.exe)
 
 running 4 tests
-test search::tests::test_apply_feedback_reranking_direct ... ok
 test search::tests::test_feedback_adjustment_clamped_to_half ... ok
+test search::tests::test_apply_feedback_reranking_direct ... ok
 test search::tests::test_feedback_penalizes_downvoted ... ok
 test search::tests::test_feedback_boosts_search_ranking ... ok
 

@@ -53,6 +53,7 @@ export const fr: TranslationKeys = {
   'search.saveError': 'Échec de l\'enregistrement',
   'search.plaintext': 'Texte brut',
   'search.log': 'Journaux',
+  'search.pdf': 'PDF',
   'search.optional': 'facultatif',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const fr: TranslationKeys = {
   'card.pin': 'Épingler',
   'card.expand': 'Voir plus',
   'card.collapse': 'Réduire',
+  'card.openFile': 'Ouvrir le fichier',
+  'card.showInFolder': 'Afficher dans le dossier',
+  'card.fileNotFound': 'Fichier introuvable',
 
   // Sources
   'sources.title': 'Gestion des sources',
@@ -108,6 +112,10 @@ export const fr: TranslationKeys = {
   'sources.scanSkipped': '{count} ignorés',
   'sources.scanFailed': '{count} échoués',
   'sources.embedResult': '{embedded} fragments intégrés, {skipped} ignorés ({model})',
+  'sources.watcherStart': 'Surveillance démarrée',
+  'sources.watcherStop': 'Surveillance arrêtée',
+  'sources.watcherActive': 'Surveillance active',
+  'sources.watcherFileChanged': 'Fichier modifié : {path}',
 
   // Playbooks
   'playbooks.title': 'Guides',

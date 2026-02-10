@@ -53,6 +53,7 @@ export const zhCN: TranslationKeys = {
   'search.saveError': '保存失败',
   'search.plaintext': '纯文本',
   'search.log': '日志',
+  'search.pdf': 'PDF',
   'search.optional': '可选',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const zhCN: TranslationKeys = {
   'card.pin': '收藏',
   'card.expand': '展开更多',
   'card.collapse': '收起',
+  'card.openFile': '打开文件',
+  'card.showInFolder': '在文件夹中显示',
+  'card.fileNotFound': '文件不存在',
 
   // Sources
   'sources.title': '数据源管理',
@@ -108,6 +112,10 @@ export const zhCN: TranslationKeys = {
   'sources.scanSkipped': '跳过 {count}',
   'sources.scanFailed': '失败 {count}',
   'sources.embedResult': '嵌入 {embedded} 个片段，跳过 {skipped} 个 ({model})',
+  'sources.watcherStart': '监听已启动',
+  'sources.watcherStop': '监听已停止',
+  'sources.watcherActive': '监听中',
+  'sources.watcherFileChanged': '文件变更：{path}',
 
   // Playbooks
   'playbooks.title': '剧本集',

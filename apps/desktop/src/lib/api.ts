@@ -149,6 +149,14 @@ export const checkLocalModel = () =>
 export const downloadLocalModel = () =>
   invoke<void>('download_local_model');
 
+// ── File ────────────────────────────────────────────────────────────────
+
+export const openFileInDefaultApp = (path: string) =>
+  invoke<void>('open_file_in_default_app', { path });
+
+export const showInFileExplorer = (path: string) =>
+  invoke<void>('show_in_file_explorer', { path });
+
 // ── Index (extra) ───────────────────────────────────────────────────────
 
 export const optimizeFtsIndex = () =>
@@ -161,3 +169,19 @@ export const updateCitationNote = (citationId: string, note: string) =>
 
 export const reorderCitations = (playbookId: string, citationIds: string[]) =>
   invoke<void>('reorder_citations', { playbookId, citationIds });
+
+// ── Watcher ─────────────────────────────────────────────────────────────
+
+export interface WatchedSourceInfo {
+  sourceId: string;
+  rootPath: string;
+}
+
+export const startWatching = (sourceId: string) =>
+  invoke<void>('start_watching', { sourceId });
+
+export const stopWatching = (sourceId: string) =>
+  invoke<void>('stop_watching', { sourceId });
+
+export const getWatcherStatus = () =>
+  invoke<WatchedSourceInfo[]>('get_watcher_status');

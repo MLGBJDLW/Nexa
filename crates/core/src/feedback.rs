@@ -58,6 +58,17 @@ impl FeedbackAction {
             Self::Pin => 2.0,
         }
     }
+
+    /// Per-event search boost adjustment.
+    ///
+    /// Upvote → +0.15, Downvote → −0.15, Pin → +0.25.
+    pub(crate) fn boost(&self) -> f64 {
+        match self {
+            Self::Upvote => 0.15,
+            Self::Downvote => -0.15,
+            Self::Pin => 0.25,
+        }
+    }
 }
 
 // ── Database methods ─────────────────────────────────────────────────
@@ -158,6 +169,31 @@ impl Database {
             *scores.entry(fb.chunk_id).or_insert(0.0) += fb.action.score();
         }
         Ok(scores)
+    }
+
+    /// Compute per-chunk feedback adjustments for search re-ranking.
+    ///
+    /// Each upvote adds +0.15, each downvote −0.15, each pin +0.25.
+    /// The total per-chunk adjustment is clamped to \[−0.5, +0.5\].
+    /// Only chunks present in `chunk_ids` are included.
+    pub fn get_feedback_adjustments(
+        &self,
+        query_text: &str,
+        chunk_ids: &[String],
+    ) -> Result<HashMap<String, f64>, CoreError> {
+        let feedbacks = self.get_feedback_for_query(query_text)?;
+        let id_set: std::collections::HashSet<&str> =
+            chunk_ids.iter().map(|s| s.as_str()).collect();
+        let mut adjustments: HashMap<String, f64> = HashMap::new();
+        for fb in feedbacks {
+            if id_set.contains(fb.chunk_id.as_str()) {
+                *adjustments.entry(fb.chunk_id).or_insert(0.0) += fb.action.boost();
+            }
+        }
+        for val in adjustments.values_mut() {
+            *val = val.clamp(-0.5, 0.5);
+        }
+        Ok(adjustments)
     }
 }
 

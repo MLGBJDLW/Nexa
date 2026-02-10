@@ -134,10 +134,11 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
 
     // -- execute ----------------------------------------------------------
 
-    let conn = db.conn();
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-        param_values.iter().map(|p| p.as_ref()).collect();
-    let mut stmt = conn.prepare(&sql)?;
+    let (mut cards, total_matches) = {
+        let conn = db.conn();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
 
     let cards: Vec<EvidenceCard> = stmt
         .query_map(param_refs.as_slice(), |row| {
@@ -233,6 +234,12 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
         conn.query_row(&count_sql, count_refs.as_slice(), |row| row.get::<_, usize>(0))
             .unwrap_or(cards.len())
     };
+
+        (cards, total_matches)
+    }; // conn dropped here
+
+    // Apply feedback-based re-ranking (must happen after conn is released).
+    apply_feedback_reranking(&mut cards, db, trimmed)?;
 
     Ok(SearchResult {
         query: query.text.clone(),
@@ -371,6 +378,9 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         cards.push(card);
     }
 
+    // Apply feedback-based re-ranking.
+    apply_feedback_reranking(&mut cards, db, trimmed)?;
+
     let total = cards.len();
 
     Ok(SearchResult {
@@ -453,6 +463,33 @@ pub fn vector_search_top_k(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Apply feedback-based score adjustments and re-sort results.
+///
+/// Looks up feedback for the given query, applies per-chunk adjustments
+/// (upvote +0.15, downvote −0.15, pin +0.25, clamped to ±0.5 per chunk),
+/// clamps final scores to [0.0, 1.0], and re-sorts descending.
+fn apply_feedback_reranking(
+    cards: &mut Vec<EvidenceCard>,
+    db: &Database,
+    query_text: &str,
+) -> Result<(), CoreError> {
+    if cards.is_empty() {
+        return Ok(());
+    }
+    let chunk_ids: Vec<String> = cards.iter().map(|c| c.chunk_id.to_string()).collect();
+    let adjustments = db.get_feedback_adjustments(query_text, &chunk_ids)?;
+    if adjustments.is_empty() {
+        return Ok(());
+    }
+    for card in cards.iter_mut() {
+        if let Some(&adj) = adjustments.get(&card.chunk_id.to_string()) {
+            card.score = (card.score + adj).clamp(0.0, 1.0);
+        }
+    }
+    cards.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(())
+}
 
 /// Build an FTS5 MATCH expression from raw user input.
 ///
@@ -1281,5 +1318,199 @@ mod tests {
         let query = vec![1.0, 0.0];
         let results = vector_search_top_k(&db, &query, "tfidf-v1", 0).unwrap();
         assert!(results.is_empty());
+    }
+
+    // ── Feedback re-ranking tests ───────────────────────────────────
+
+    #[test]
+    fn test_feedback_boosts_search_ranking() {
+        use crate::feedback::FeedbackAction;
+
+        let db = test_db();
+        let chunk_b;
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            let _chunk_a = insert_chunk(&conn, &did, "deploy application to production server");
+            chunk_b = insert_chunk(&conn, &did, "deploy service to staging environment");
+        }
+
+        // Search without feedback — record baseline score for chunk_b.
+        let result_before = search(&db, &default_query("deploy")).unwrap();
+        assert_eq!(result_before.evidence_cards.len(), 2);
+        let score_b_before = result_before
+            .evidence_cards
+            .iter()
+            .find(|c| c.chunk_id.to_string() == chunk_b)
+            .unwrap()
+            .score;
+
+        // Upvote + pin chunk_b (+0.15 + 0.25 = +0.40 adjustment).
+        db.add_feedback(&chunk_b, "deploy", FeedbackAction::Upvote)
+            .unwrap();
+        db.add_feedback(&chunk_b, "deploy", FeedbackAction::Pin)
+            .unwrap();
+
+        // Search again — chunk_b should have a higher score.
+        let result_after = search(&db, &default_query("deploy")).unwrap();
+        assert_eq!(result_after.evidence_cards.len(), 2);
+        let score_b_after = result_after
+            .evidence_cards
+            .iter()
+            .find(|c| c.chunk_id.to_string() == chunk_b)
+            .unwrap()
+            .score;
+
+        assert!(
+            score_b_after > score_b_before,
+            "upvoted chunk score should increase: before={score_b_before}, after={score_b_after}"
+        );
+
+        // chunk_b should now rank first (it received a boost, chunk_a did not).
+        assert_eq!(
+            result_after.evidence_cards[0].chunk_id.to_string(),
+            chunk_b,
+            "upvoted chunk should rank first"
+        );
+    }
+
+    #[test]
+    fn test_feedback_penalizes_downvoted() {
+        use crate::feedback::FeedbackAction;
+
+        let db = test_db();
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            insert_chunk(&conn, &did, "configure server networking rules");
+            insert_chunk(&conn, &did, "configure network firewall settings");
+        }
+
+        // Search without feedback — record baseline score for chunk_a.
+        let result_before = search(&db, &default_query("configure")).unwrap();
+        assert_eq!(result_before.evidence_cards.len(), 2);
+        let first_id_before = result_before.evidence_cards[0].chunk_id.to_string();
+        let score_first_before = result_before.evidence_cards[0].score;
+
+        // Downvote whichever chunk ranked first.
+        db.add_feedback(&first_id_before, "configure", FeedbackAction::Downvote)
+            .unwrap();
+        db.add_feedback(&first_id_before, "configure", FeedbackAction::Downvote)
+            .unwrap();
+
+        // Search again — the downvoted chunk's score should decrease.
+        let result_after = search(&db, &default_query("configure")).unwrap();
+        let score_first_after = result_after
+            .evidence_cards
+            .iter()
+            .find(|c| c.chunk_id.to_string() == first_id_before)
+            .unwrap()
+            .score;
+
+        assert!(
+            score_first_after < score_first_before,
+            "downvoted chunk score should decrease: before={score_first_before}, after={score_first_after}"
+        );
+    }
+
+    #[test]
+    fn test_apply_feedback_reranking_direct() {
+        use crate::feedback::FeedbackAction;
+
+        let db = test_db();
+        let chunk_a;
+        let chunk_b;
+        let chunk_c;
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            chunk_a = insert_chunk(&conn, &did, "alpha content");
+            chunk_b = insert_chunk(&conn, &did, "beta content");
+            chunk_c = insert_chunk(&conn, &did, "gamma content");
+        }
+
+        // Seed feedback for query "test".
+        db.add_feedback(&chunk_c, "test", FeedbackAction::Pin).unwrap();   // +0.25
+        db.add_feedback(&chunk_a, "test", FeedbackAction::Downvote).unwrap(); // -0.15
+
+        // Build cards with known scores.
+        let mut cards = vec![
+            EvidenceCard {
+                chunk_id: Uuid::parse_str(&chunk_a).unwrap(),
+                document_id: Uuid::nil(),
+                source_name: String::new(),
+                document_path: String::new(),
+                document_title: String::new(),
+                content: String::new(),
+                heading_path: Vec::new(),
+                score: 0.80,
+                highlights: Vec::new(),
+            },
+            EvidenceCard {
+                chunk_id: Uuid::parse_str(&chunk_b).unwrap(),
+                document_id: Uuid::nil(),
+                source_name: String::new(),
+                document_path: String::new(),
+                document_title: String::new(),
+                content: String::new(),
+                heading_path: Vec::new(),
+                score: 0.50,
+                highlights: Vec::new(),
+            },
+            EvidenceCard {
+                chunk_id: Uuid::parse_str(&chunk_c).unwrap(),
+                document_id: Uuid::nil(),
+                source_name: String::new(),
+                document_path: String::new(),
+                document_title: String::new(),
+                content: String::new(),
+                heading_path: Vec::new(),
+                score: 0.40,
+                highlights: Vec::new(),
+            },
+        ];
+
+        apply_feedback_reranking(&mut cards, &db, "test").unwrap();
+
+        // chunk_a: 0.80 + (-0.15) = 0.65
+        // chunk_b: 0.50 (no feedback)
+        // chunk_c: 0.40 + 0.25 = 0.65
+        // Sorted DESC: chunk_a(0.65) == chunk_c(0.65), then chunk_b(0.50)
+        assert!((cards[0].score - 0.65).abs() < 1e-6, "first score: {}", cards[0].score);
+        assert!((cards[1].score - 0.65).abs() < 1e-6, "second score: {}", cards[1].score);
+        assert!((cards[2].score - 0.50).abs() < 1e-6, "third score: {}", cards[2].score);
+        // chunk_b should be last
+        assert_eq!(cards[2].chunk_id.to_string(), chunk_b);
+    }
+
+    #[test]
+    fn test_feedback_adjustment_clamped_to_half() {
+        use crate::feedback::FeedbackAction;
+
+        let db = test_db();
+        let chunk_id;
+        {
+            let conn = db.conn();
+            let sid = insert_source(&conn);
+            let did = insert_document(&conn, &sid, "text/markdown");
+            chunk_id = insert_chunk(&conn, &did, "clamp test content");
+        }
+
+        // 4 upvotes = 4 * 0.15 = 0.60 → clamped to 0.50
+        for _ in 0..4 {
+            db.add_feedback(&chunk_id, "clamp", FeedbackAction::Upvote).unwrap();
+        }
+
+        let adjustments = db
+            .get_feedback_adjustments("clamp", &[chunk_id.clone()])
+            .unwrap();
+        let adj = adjustments.get(&chunk_id).copied().unwrap_or(0.0);
+        assert!(
+            (adj - 0.5).abs() < 1e-6,
+            "adjustment should be clamped to 0.5, got {adj}"
+        );
     }
 }

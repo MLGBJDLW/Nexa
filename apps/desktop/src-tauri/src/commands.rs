@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Mutex;
+use std::thread;
+use std::time::{Duration, Instant};
+
 use ask_core::db::Database;
 use ask_core::embed::EmbedderConfig;
 use ask_core::feedback::{Feedback, FeedbackAction};
@@ -10,10 +16,141 @@ use ask_core::playbook::QueryLog;
 use ask_core::privacy::PrivacyConfig;
 use ask_core::search::{self, SearchResult};
 use ask_core::sources::{CreateSourceInput, UpdateSourceInput};
+use ask_core::watcher::FileWatcher;
+use log::{info, warn};
+use serde::Serialize;
+use tauri::{Emitter, Manager};
 
 /// Application state holding the database connection.
 pub struct AppState {
     pub db: Database,
+}
+
+/// State for the file watcher.
+pub struct WatcherState {
+    pub watcher: Mutex<FileWatcher>,
+    /// Map of source_id → root_path for actively watched sources.
+    pub watched: Mutex<HashMap<String, String>>,
+}
+
+/// Info about a watched source, returned to the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedSourceInfo {
+    pub source_id: String,
+    pub root_path: String,
+}
+
+/// Initialise the file watcher, start watching all sources with
+/// `watch_enabled = true`, and spawn a background thread that processes
+/// file-change events (debounced, auto-scan, emit to frontend).
+pub fn init_watcher(
+    app_handle: tauri::AppHandle,
+    db: &Database,
+) {
+    let (file_watcher, rx) = match FileWatcher::new() {
+        Ok(pair) => pair,
+        Err(e) => {
+            warn!("Failed to initialise file watcher: {e}");
+            return;
+        }
+    };
+
+    let mut watcher_guard = file_watcher;
+    let mut watched_map: HashMap<String, String> = HashMap::new();
+
+    // Watch all sources where watch_enabled = true.
+    if let Ok(sources) = db.list_sources() {
+        for source in &sources {
+            if source.watch_enabled {
+                let path = Path::new(&source.root_path);
+                if path.exists() {
+                    if let Err(e) = watcher_guard.watch(path) {
+                        warn!("Failed to watch {}: {e}", source.root_path);
+                    } else {
+                        watched_map.insert(source.id.clone(), source.root_path.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Split watcher_guard back into WatcherState so we can share it.
+    // We need a temporary trick: FileWatcher doesn't derive Clone, but
+    // we can wrap it in Mutex after setup.
+    let watcher_state = WatcherState {
+        watcher: Mutex::new(watcher_guard),
+        watched: Mutex::new(watched_map),
+    };
+    app_handle.manage(watcher_state);
+
+    // Clone what we need for the background thread.
+    let handle = app_handle.clone();
+
+    thread::spawn(move || {
+        // Debounce: collect events for 2 seconds before acting.
+        let debounce = Duration::from_secs(2);
+        let mut pending: HashMap<String, Instant> = HashMap::new(); // source_id → last event time
+
+        loop {
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(event) => {
+                    // Find which watched source owns this path.
+                    let ws = match handle.try_state::<WatcherState>() {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    let watched = ws.watched.lock().unwrap();
+                    let matched: Option<&String> = watched.iter()
+                        .find(|(_, root)| event.path.starts_with(root.as_str()))
+                        .map(|(sid, _)| sid);
+                    if let Some(sid) = matched {
+                        let sid = sid.clone();
+                        drop(watched);
+                        pending.insert(sid, Instant::now());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Check if any pending source has been quiet for `debounce`.
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    info!("Watcher channel disconnected, stopping watcher thread");
+                    break;
+                }
+            }
+
+            // Process debounced sources.
+            let now = Instant::now();
+            let ready: Vec<String> = pending
+                .iter()
+                .filter(|(_, ts)| now.duration_since(**ts) >= debounce)
+                .map(|(sid, _)| sid.clone())
+                .collect();
+
+            for source_id in ready {
+                pending.remove(&source_id);
+                let app_state = match handle.try_state::<AppState>() {
+                    Some(s) => s,
+                    None => continue,
+                };
+                info!("Auto-scanning source {source_id} due to file changes");
+                match ingest::scan_source(&app_state.db, &source_id) {
+                    Ok(result) => {
+                        let payload = serde_json::json!({
+                            "sourceId": source_id,
+                            "filesScanned": result.files_scanned,
+                            "filesAdded": result.files_added,
+                            "filesUpdated": result.files_updated,
+                        });
+                        let _ = handle.emit("file-changed", payload);
+                    }
+                    Err(e) => {
+                        warn!("Auto-scan failed for source {source_id}: {e}");
+                    }
+                }
+            }
+        }
+    });
 }
 
 // ── Source Commands ──────────────────────────────────────────────────────
@@ -431,4 +568,142 @@ pub fn check_local_model_cmd() -> Result<bool, String> {
 #[tauri::command]
 pub fn download_local_model_cmd() -> Result<(), String> {
     ask_core::embed::download_local_model(None).map_err(|e| e.to_string())
+}
+
+// ── File Commands ───────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn open_file_in_default_app(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File not found: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", &path])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn show_in_file_explorer(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File not found: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer")
+        .args(["/select,", &path])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .args(["-R", &path])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let parent = p
+            .parent()
+            .unwrap_or(p)
+            .to_str()
+            .unwrap_or(&path);
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+// ── Watcher Commands ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn start_watching(
+    app_state: tauri::State<'_, AppState>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    source_id: String,
+) -> Result<(), String> {
+    let source = app_state.db.get_source(&source_id).map_err(|e| e.to_string())?;
+    let path = std::path::Path::new(&source.root_path);
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", source.root_path));
+    }
+    let mut watcher = watcher_state.watcher.lock().map_err(|e| e.to_string())?;
+    watcher.watch(path).map_err(|e| e.to_string())?;
+    let mut watched = watcher_state.watched.lock().map_err(|e| e.to_string())?;
+    watched.insert(source_id.clone(), source.root_path.clone());
+
+    // Persist watch_enabled = true in the database.
+    let input = UpdateSourceInput {
+        include_globs: None,
+        exclude_globs: None,
+        watch_enabled: Some(true),
+    };
+    app_state
+        .db
+        .update_source(&source_id, input)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_watching(
+    app_state: tauri::State<'_, AppState>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    source_id: String,
+) -> Result<(), String> {
+    let mut watched = watcher_state.watched.lock().map_err(|e| e.to_string())?;
+    if let Some(root_path) = watched.remove(&source_id) {
+        let path = std::path::Path::new(&root_path);
+        let mut watcher = watcher_state.watcher.lock().map_err(|e| e.to_string())?;
+        let _ = watcher.unwatch(path); // best-effort
+    }
+
+    // Persist watch_enabled = false in the database.
+    let input = UpdateSourceInput {
+        include_globs: None,
+        exclude_globs: None,
+        watch_enabled: Some(false),
+    };
+    app_state
+        .db
+        .update_source(&source_id, input)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_watcher_status(
+    watcher_state: tauri::State<'_, WatcherState>,
+) -> Result<Vec<WatchedSourceInfo>, String> {
+    let watched = watcher_state.watched.lock().map_err(|e| e.to_string())?;
+    Ok(watched
+        .iter()
+        .map(|(id, path)| WatchedSourceInfo {
+            source_id: id.clone(),
+            root_path: path.clone(),
+        })
+        .collect())
 }

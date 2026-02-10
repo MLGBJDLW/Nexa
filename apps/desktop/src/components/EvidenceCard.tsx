@@ -9,11 +9,13 @@ import {
   FolderOpen,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
 } from 'lucide-react';
 import type { EvidenceCard as EvidenceCardType, Highlight } from '../types/evidence';
 import { Badge } from './ui/Badge';
 import { Tooltip } from './ui/Tooltip';
 import { useTranslation } from '../i18n';
+import { openFileInDefaultApp, showInFileExplorer } from '../lib/api';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -242,6 +244,37 @@ export function EvidenceCardComponent({
               <Badge>{ext}</Badge>
             </>
           )}
+        </div>
+
+        {/* File actions */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Tooltip content={t('card.openFile')}>
+            <button
+              onClick={() => {
+                openFileInDefaultApp(card.documentPath).catch(() =>
+                  alert(t('card.fileNotFound')),
+                );
+              }}
+              className="cursor-pointer rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-secondary"
+            >
+              <ExternalLink size={14} />
+            </button>
+          </Tooltip>
+
+          <Tooltip content={t('card.showInFolder')}>
+            <button
+              onClick={() => {
+                showInFileExplorer(card.documentPath).catch(() =>
+                  alert(t('card.fileNotFound')),
+                );
+              }}
+              className="cursor-pointer rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-secondary"
+            >
+              <FolderOpen size={14} />
+            </button>
+          </Tooltip>
+
+          <span className="mx-0.5 h-4 w-px bg-border" />
         </div>
 
         {/* Feedback */}

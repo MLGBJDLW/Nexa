@@ -53,6 +53,7 @@ export const ru: TranslationKeys = {
   'search.saveError': 'Ошибка сохранения',
   'search.plaintext': 'Обычный текст',
   'search.log': 'Журналы',
+  'search.pdf': 'PDF',
   'search.optional': 'необязательно',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const ru: TranslationKeys = {
   'card.pin': 'Закрепить',
   'card.expand': 'Показать больше',
   'card.collapse': 'Свернуть',
+  'card.openFile': 'Открыть файл',
+  'card.showInFolder': 'Показать в папке',
+  'card.fileNotFound': 'Файл не найден',
 
   // Sources
   'sources.title': 'Управление источниками',
@@ -108,6 +112,10 @@ export const ru: TranslationKeys = {
   'sources.scanSkipped': '{count} пропущено',
   'sources.scanFailed': '{count} с ошибками',
   'sources.embedResult': 'Встроено {embedded} фрагментов, пропущено {skipped} ({model})',
+  'sources.watcherStart': 'Наблюдение запущено',
+  'sources.watcherStop': 'Наблюдение остановлено',
+  'sources.watcherActive': 'Наблюдение',
+  'sources.watcherFileChanged': 'Файл изменён: {path}',
 
   // Playbooks
   'playbooks.title': 'Сборники',

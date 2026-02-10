@@ -53,6 +53,13 @@ const MIN_CHUNK_CHARS: usize = 50;
 /// blake3 content hash, and splits the content into chunks using the
 /// appropriate strategy (markdown-aware or plain-text).
 pub fn parse_file(path: &Path) -> Result<ParsedDocument, CoreError> {
+    let mime_type = detect_mime_type(path);
+
+    // PDF files are binary — use a dedicated extractor.
+    if mime_type == "application/pdf" {
+        return parse_pdf(path);
+    }
+
     let content = std::fs::read_to_string(path)?;
     let metadata = std::fs::metadata(path)?;
 
@@ -61,7 +68,6 @@ pub fn parse_file(path: &Path) -> Result<ParsedDocument, CoreError> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let mime_type = detect_mime_type(path);
     let file_size = metadata.len() as i64;
     let content_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
 
@@ -80,6 +86,37 @@ pub fn parse_file(path: &Path) -> Result<ParsedDocument, CoreError> {
     })
 }
 
+/// Parse a PDF file by extracting its text content.
+///
+/// Reads the raw bytes, extracts text with `pdf_extract`, computes a blake3
+/// hash over the original bytes, then chunks the extracted text using the
+/// plain-text strategy.
+pub fn parse_pdf(path: &Path) -> Result<ParsedDocument, CoreError> {
+    let bytes = std::fs::read(path)?;
+    let file_size = bytes.len() as i64;
+    let content_hash = blake3::hash(&bytes).to_hex().to_string();
+
+    let text = pdf_extract::extract_text_from_mem(&bytes)
+        .map_err(|e| CoreError::Parse(format!("PDF extraction failed for {}: {}", path.display(), e)))?;
+
+    // Normalize: replace \r\n with \n, collapse excessive blank lines.
+    let text = text.replace("\r\n", "\n");
+
+    let chunks = chunk_plaintext(&text);
+
+    Ok(ParsedDocument {
+        file_path: path.to_string_lossy().to_string(),
+        file_name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        mime_type: "application/pdf".to_string(),
+        file_size,
+        content_hash,
+        chunks,
+    })
+}
+
 /// Detect MIME type from file extension.
 pub fn detect_mime_type(path: &Path) -> String {
     match path
@@ -91,6 +128,7 @@ pub fn detect_mime_type(path: &Path) -> String {
         Some("md" | "markdown") => "text/markdown".to_string(),
         Some("txt") => "text/plain".to_string(),
         Some("log") => "text/x-log".to_string(),
+        Some("pdf") => "application/pdf".to_string(),
         _ => "application/octet-stream".to_string(),
     }
 }
@@ -349,6 +387,12 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_mime_pdf() {
+        assert_eq!(detect_mime_type(Path::new("report.pdf")), "application/pdf");
+        assert_eq!(detect_mime_type(Path::new("UPPER.PDF")), "application/pdf");
+    }
+
+    #[test]
     fn test_detect_mime_unknown() {
         assert_eq!(
             detect_mime_type(Path::new("image.png")),
@@ -508,5 +552,28 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
     fn test_parse_file_not_found() {
         let result = parse_file(Path::new("/tmp/nonexistent_ask_core_test_file.txt"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_pdf_not_found() {
+        let result = parse_pdf(Path::new("/tmp/nonexistent_report.pdf"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_pdf_invalid_bytes() {
+        // Write non-PDF bytes to a .pdf file — should return a parse error.
+        let mut f = NamedTempFile::with_suffix(".pdf").unwrap();
+        f.write_all(b"this is not a real pdf").unwrap();
+        f.flush().unwrap();
+
+        let result = parse_file(f.path());
+        assert!(result.is_err(), "Corrupt/fake PDF should produce an error");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("PDF extraction failed"),
+            "Error should mention PDF extraction, got: {}",
+            err_msg
+        );
     }
 }

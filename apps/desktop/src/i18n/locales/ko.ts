@@ -53,6 +53,7 @@ export const ko: TranslationKeys = {
   'search.saveError': '저장 실패',
   'search.plaintext': '일반 텍스트',
   'search.log': '로그',
+  'search.pdf': 'PDF',
   'search.optional': '선택 사항',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const ko: TranslationKeys = {
   'card.pin': '고정',
   'card.expand': '더 보기',
   'card.collapse': '접기',
+  'card.openFile': '파일 열기',
+  'card.showInFolder': '폴더에서 보기',
+  'card.fileNotFound': '파일을 찾을 수 없습니다',
 
   // Sources
   'sources.title': '데이터 소스 관리',
@@ -108,6 +112,10 @@ export const ko: TranslationKeys = {
   'sources.scanSkipped': '{count}개 건너뜀',
   'sources.scanFailed': '{count}개 실패',
   'sources.embedResult': '{embedded}개 청크 임베딩, {skipped}개 건너뜀 ({model})',
+  'sources.watcherStart': '감시 시작됨',
+  'sources.watcherStop': '감시 중지됨',
+  'sources.watcherActive': '감시 중',
+  'sources.watcherFileChanged': '파일 변경: {path}',
 
   // Playbooks
   'playbooks.title': '플레이북',

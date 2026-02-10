@@ -53,6 +53,7 @@ export const es: TranslationKeys = {
   'search.saveError': 'Error al guardar',
   'search.plaintext': 'Texto plano',
   'search.log': 'Registros',
+  'search.pdf': 'PDF',
   'search.optional': 'opcional',
 
   // Evidence Card
@@ -62,6 +63,9 @@ export const es: TranslationKeys = {
   'card.pin': 'Fijar',
   'card.expand': 'Ver más',
   'card.collapse': 'Ver menos',
+  'card.openFile': 'Abrir archivo',
+  'card.showInFolder': 'Mostrar en carpeta',
+  'card.fileNotFound': 'Archivo no encontrado',
 
   // Sources
   'sources.title': 'Gestión de fuentes',
@@ -108,6 +112,10 @@ export const es: TranslationKeys = {
   'sources.scanSkipped': '{count} omitidos',
   'sources.scanFailed': '{count} fallidos',
   'sources.embedResult': '{embedded} fragmentos embebidos, {skipped} omitidos ({model})',
+  'sources.watcherStart': 'Vigilancia iniciada',
+  'sources.watcherStop': 'Vigilancia detenida',
+  'sources.watcherActive': 'Vigilando',
+  'sources.watcherFileChanged': 'Archivo modificado: {path}',
 
   // Playbooks
   'playbooks.title': 'Guías',
