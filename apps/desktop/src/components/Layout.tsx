@@ -1,50 +1,180 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useState, type ReactNode } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, FolderOpen, BookOpen, Brain, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Toaster } from 'sonner';
+
+const STORAGE_KEY = 'sidebar-collapsed';
 
 const navItems = [
-  { to: "/", label: "Search", icon: "🔍" },
-  { to: "/sources", label: "Sources", icon: "📁" },
-  { to: "/playbooks", label: "Playbooks", icon: "📋" },
+  { to: '/', label: '搜索', icon: Search },
+  { to: '/sources', label: '数据源', icon: FolderOpen },
+  { to: '/playbooks', label: '剧本集', icon: BookOpen },
 ];
 
-export function Layout() {
+/* ── Right-side tooltip for collapsed sidebar ─────────────────────── */
+function SidebarTooltip({ content, show, children }: { content: string; show: boolean; children: ReactNode }) {
+  const [hovered, setHovered] = useState(false);
+
+  if (!show) return <>{children}</>;
+
   return (
-    <div className="flex h-screen bg-gray-950 text-gray-100">
+    <div
+      className="relative"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {children}
+      <AnimatePresence>
+        {hovered && (
+          <motion.div
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50
+              px-2.5 py-1.5 text-xs font-medium
+              bg-surface-4 text-text-primary rounded-md shadow-md
+              whitespace-nowrap pointer-events-none"
+          >
+            {content}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Layout ───────────────────────────────────────────────────────── */
+export function Layout() {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggle = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(STORAGE_KEY, String(next)); } catch { /* noop */ }
+      return next;
+    });
+  };
+
+  return (
+    <div className="flex h-screen bg-surface-0 text-text-primary">
       {/* Sidebar */}
-      <aside className="flex w-52 shrink-0 flex-col border-r border-gray-800 bg-gray-900">
-        <div className="px-4 py-5">
-          <h1 className="text-lg font-bold tracking-tight">Ask Myself</h1>
-          <p className="text-xs text-gray-500">Evidence recall engine</p>
+      <motion.aside
+        className="flex shrink-0 flex-col border-r border-border bg-surface-1 overflow-hidden"
+        animate={{ width: collapsed ? 56 : 208 }}
+        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        aria-label="主导航"
+      >
+        {/* Branding */}
+        <div className="flex items-center gap-2.5 px-3.5 py-4 overflow-hidden">
+          <Brain className="h-5 w-5 shrink-0 text-accent" />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.div
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 'auto' }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden whitespace-nowrap"
+              >
+                <h1 className="text-sm font-bold tracking-tight text-text-primary">Ask Myself</h1>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        <nav className="flex-1 space-y-1 px-2">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
-                  isActive
-                    ? "bg-gray-800 text-white"
-                    : "text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
-                }`
-              }
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+        {/* Navigation */}
+        <nav className="flex-1 space-y-0.5 px-2" role="navigation">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <SidebarTooltip key={item.to} content={item.label} show={collapsed}>
+                <NavLink
+                  to={item.to}
+                  end={item.to === '/'}
+                  aria-label={item.label}
+                  className={({ isActive }) =>
+                    `relative flex items-center gap-2.5 rounded-md text-sm transition-colors duration-fast ease-out
+                    ${collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2'}
+                    ${isActive
+                      ? 'bg-accent-subtle text-accent-hover'
+                      : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary'
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {/* Active indicator bar */}
+                      <motion.span
+                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent"
+                        initial={false}
+                        animate={{ height: isActive ? 20 : 0, opacity: isActive ? 1 : 0 }}
+                        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                      />
+                      <Icon className="h-[18px] w-[18px] shrink-0" />
+                      <AnimatePresence>
+                        {!collapsed && (
+                          <motion.span
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden whitespace-nowrap"
+                          >
+                            {item.label}
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </>
+                  )}
+                </NavLink>
+              </SidebarTooltip>
+            );
+          })}
         </nav>
 
-        <div className="border-t border-gray-800 px-4 py-3 text-xs text-gray-600">
-          v0.1.0
+        {/* Footer: collapse toggle + version */}
+        <div className="border-t border-border px-2 py-2">
+          <button
+            onClick={toggle}
+            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs
+              text-text-tertiary hover:text-text-secondary hover:bg-surface-2
+              transition-colors duration-fast ease-out cursor-pointer
+              ${collapsed ? 'justify-center' : ''}`}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            ) : (
+              <>
+                <ChevronLeft className="h-4 w-4 shrink-0" />
+                <span className="overflow-hidden whitespace-nowrap">收起</span>
+                <span className="ml-auto text-text-tertiary/60">v0.1.0</span>
+              </>
+            )}
+          </button>
+          {!collapsed && (
+            <div className="mt-1 px-2 py-0.5 text-[11px] text-text-tertiary/60 select-none">
+              {/Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl+'}K 命令面板
+            </div>
+          )}
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+
+      {/* Toast notifications */}
+      <Toaster theme="dark" richColors position="bottom-right" />
     </div>
   );
 }

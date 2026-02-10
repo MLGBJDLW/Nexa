@@ -1,30 +1,98 @@
-import { useState, useEffect, useCallback } from "react";
-import * as api from "../lib/api";
-import type { SearchResult, QueryLog, Feedback } from "../types";
-import { EvidenceCardComponent } from "../components/EvidenceCard";
-import { LoadingSpinner } from "../components/LoadingSpinner";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Search,
+  AlertTriangle,
+  BookmarkPlus,
+  Clock,
+  Filter,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import * as api from '../lib/api';
+import type {
+  SearchResult,
+  QueryLog,
+  Feedback,
+  Source,
+  Playbook,
+  SearchFilters,
+} from '../types';
+import type { FileType } from '../types/document';
+import { EvidenceCardComponent } from '../components/EvidenceCard';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { CardSkeleton } from '../components/ui/Skeleton';
+import { Modal } from '../components/ui/Modal';
+import { EmptyState } from '../components/ui/EmptyState';
+
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+const FILE_TYPE_OPTIONS: { value: FileType; label: string }[] = [
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'plaintext', label: '纯文本' },
+  { value: 'log', label: '日志' },
+];
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
 
 export function SearchPage() {
-  const [query, setQuery] = useState("");
+  // ── Core search state ────────────────────────────────────────────────
+  const [query, setQuery] = useState('');
   const [result, setResult] = useState<SearchResult | null>(null);
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<'fts' | 'hybrid'>('fts');
-  const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({}); // chunkId -> Feedback
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({});
 
-  // ── Save-to-playbook modal state ──────────────────────────────────────
+  // ── Filters ──────────────────────────────────────────────────────────
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [filters, setFilters] = useState<SearchFilters>({
+    sourceIds: [],
+    fileTypes: [],
+    dateFrom: null,
+    dateTo: null,
+  });
+
+  // ── Save-to-playbook modal ───────────────────────────────────────────
   const [savingChunkId, setSavingChunkId] = useState<string | null>(null);
-  const [playbooks, setPlaybooks] = useState<{ id: string; title: string }[]>([]);
-  const [selectedPlaybookId, setSelectedPlaybookId] = useState("");
-  const [citationNote, setCitationNote] = useState("");
+  const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
+  const [selectedPlaybookId, setSelectedPlaybookId] = useState('');
+  const [newPlaybookTitle, setNewPlaybookTitle] = useState('');
+  const [citationNote, setCitationNote] = useState('');
+  const [saveLoading, setSaveLoading] = useState(false);
 
+  // ── Refs ─────────────────────────────────────────────────────────────
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // ── Auto-focus + Ctrl+K shortcut ─────────────────────────────────────
+  useEffect(() => {
+    inputRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // ── Load recent queries on mount ─────────────────────────────────────
   const loadRecentQueries = useCallback(async () => {
     try {
       const recent = await api.getRecentQueries(10);
       setRecentQueries(recent);
     } catch {
-      // non-critical — ignore
+      // non-critical
     }
   }, []);
 
@@ -32,19 +100,26 @@ export function SearchPage() {
     loadRecentQueries();
   }, [loadRecentQueries]);
 
+  // ── Load sources for filters ─────────────────────────────────────────
+  useEffect(() => {
+    api.listSources().then(setSources).catch(() => {});
+  }, []);
+
+  // ── Search handler ───────────────────────────────────────────────────
   const handleSearch = async (text?: string) => {
     const q = text ?? query;
     if (!q.trim()) return;
     setLoading(true);
-    setError(null);
     setFeedbackMap({});
     try {
-      const res = searchMode === 'hybrid'
-        ? await api.hybridSearch(q.trim())
-        : await api.search(q.trim());
+      const res =
+        searchMode === 'hybrid'
+          ? await api.hybridSearch(q.trim())
+          : await api.search(q.trim());
       setResult({ ...res, searchMode });
       loadRecentQueries();
-      // Load existing feedback for this query
+
+      // Load existing feedback
       try {
         const feedbacks = await api.getFeedbackForQuery(q.trim());
         const map: Record<string, Feedback> = {};
@@ -52,18 +127,23 @@ export function SearchPage() {
           map[fb.chunkId] = fb;
         }
         setFeedbackMap(map);
-      } catch { /* non-critical */ }
+      } catch {
+        // non-critical
+      }
     } catch (e) {
-      setError(String(e));
+      toast.error(`搜索出错: ${String(e)}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleFeedback = async (chunkId: string, action: 'upvote' | 'downvote' | 'pin') => {
+  // ── Feedback handler ─────────────────────────────────────────────────
+  const handleFeedback = async (
+    chunkId: string,
+    action: 'upvote' | 'downvote' | 'pin',
+  ) => {
     if (!result) return;
     try {
-      // If same action already exists, delete it (toggle off)
       const existing = feedbackMap[chunkId];
       if (existing && existing.action === action) {
         await api.deleteFeedback(existing.id);
@@ -74,157 +154,416 @@ export function SearchPage() {
         });
         return;
       }
-      // Otherwise, if different action exists, delete old then add new
       if (existing) {
         await api.deleteFeedback(existing.id);
       }
       const fb = await api.addFeedback(chunkId, result.query, action);
       setFeedbackMap((prev) => ({ ...prev, [chunkId]: fb }));
     } catch (e) {
-      setError(String(e));
+      toast.error(`反馈失败: ${String(e)}`);
     }
   };
 
-  const handleSaveToPlaybook = async (chunkId: string) => {
+  // ── Open save modal ──────────────────────────────────────────────────
+  const openSaveModal = async (chunkId: string) => {
     setSavingChunkId(chunkId);
+    setSelectedPlaybookId('');
+    setNewPlaybookTitle('');
+    setCitationNote('');
     try {
       const pbs = await api.listPlaybooks();
-      setPlaybooks(pbs.map((p) => ({ id: p.id, title: p.title })));
+      setPlaybooks(pbs);
       if (pbs.length > 0) setSelectedPlaybookId(pbs[0].id);
     } catch {
-      // ignore
+      setPlaybooks([]);
     }
   };
 
+  // ── Confirm save to playbook ─────────────────────────────────────────
   const confirmSave = async () => {
-    if (!savingChunkId || !selectedPlaybookId) return;
+    if (!savingChunkId) return;
+    setSaveLoading(true);
     try {
-      await api.addCitation(selectedPlaybookId, savingChunkId, citationNote, 0);
+      let targetId = selectedPlaybookId;
+
+      // Create new playbook if needed
+      if (!targetId && newPlaybookTitle.trim()) {
+        const pb = await api.createPlaybook(
+          newPlaybookTitle.trim(),
+          '',
+          result?.query ?? '',
+        );
+        targetId = pb.id;
+      }
+
+      if (!targetId) {
+        toast.error('请选择或创建一个剧本');
+        setSaveLoading(false);
+        return;
+      }
+
+      await api.addCitation(targetId, savingChunkId, citationNote, 0);
+      toast.success('已保存到剧本');
       setSavingChunkId(null);
-      setCitationNote("");
+      setCitationNote('');
+      setNewPlaybookTitle('');
     } catch (e) {
-      setError(String(e));
+      toast.error(`保存失败: ${String(e)}`);
+    } finally {
+      setSaveLoading(false);
     }
   };
 
+  // ── Filter helpers ───────────────────────────────────────────────────
+  const toggleSourceFilter = (id: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      sourceIds: prev.sourceIds.includes(id)
+        ? prev.sourceIds.filter((s) => s !== id)
+        : [...prev.sourceIds, id],
+    }));
+  };
+
+  const toggleFileTypeFilter = (ft: FileType) => {
+    setFilters((prev) => ({
+      ...prev,
+      fileTypes: prev.fileTypes.includes(ft)
+        ? prev.fileTypes.filter((f) => f !== ft)
+        : [...prev.fileTypes, ft],
+    }));
+  };
+
+  const activeFilterCount =
+    filters.sourceIds.length + filters.fileTypes.length;
+
+  // ── Filter results client-side ───────────────────────────────────────
+  const filteredCards = result
+    ? result.evidenceCards.filter((card) => {
+        if (
+          filters.sourceIds.length > 0 &&
+          !filters.sourceIds.includes(card.sourceName)
+        )
+          return false;
+        if (filters.fileTypes.length > 0) {
+          const ext = card.documentPath.match(/\.(\w+)$/)?.[1] ?? '';
+          const ft: FileType =
+            ext === 'md' ? 'markdown' : ext === 'log' ? 'log' : 'plaintext';
+          if (!filters.fileTypes.includes(ft)) return false;
+        }
+        return true;
+      })
+    : [];
+
+  // ── Uncertainty detection ────────────────────────────────────────────
+  const showUncertainty =
+    result !== null &&
+    filteredCards.length > 0 &&
+    filteredCards.length < 3 &&
+    filteredCards.every((c) => c.score < 1);
+
+  // ── Render ───────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      {/* Search input + mode toggle */}
-      <div className="mb-6">
-        <div className="relative">
-          <input
-            type="text"
+    <div className="mx-auto max-w-3xl px-6 py-8">
+      {/* ── Header ── */}
+      <div className="mb-8">
+        <h1 className="mb-1.5 text-lg font-semibold text-text-primary">搜索</h1>
+        <p className="text-xs text-text-tertiary">
+          在你的知识库中查找证据
+          <kbd className="ml-2 inline-flex items-center rounded border border-border bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
+            Ctrl+K
+          </kbd>
+        </p>
+      </div>
+
+      {/* ── Search input ── */}
+      <div className="mb-4">
+        <div className="flex gap-2">
+          <Input
+            ref={inputRef}
+            icon={<Search size={16} />}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder="Search your knowledge..."
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-gray-100 placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="输入关键词搜索..."
+            className="h-11"
           />
-          <button
+          <Button
             onClick={() => handleSearch()}
-            disabled={loading}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+            loading={loading}
+            icon={<Search size={14} />}
+            size="lg"
           >
-            Search
-          </button>
-        </div>
-        {/* Search mode toggle */}
-        <div className="mt-2 flex items-center gap-2">
-          <div className="inline-flex rounded-full border border-gray-700 bg-gray-800 p-0.5 text-xs">
-            <button
-              onClick={() => setSearchMode('fts')}
-              className={`rounded-full px-3 py-1 font-medium transition ${
-                searchMode === 'fts'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              FTS
-            </button>
-            <button
-              onClick={() => setSearchMode('hybrid')}
-              className={`rounded-full px-3 py-1 font-medium transition ${
-                searchMode === 'hybrid'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              Hybrid
-            </button>
-          </div>
-          <span className="text-xs text-gray-500">
-            {searchMode === 'hybrid' ? 'Semantic + keyword search' : 'Full-text keyword search'}
-          </span>
+            搜索
+          </Button>
         </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="mb-4 rounded-md border border-red-800 bg-red-900/30 px-4 py-2 text-sm text-red-300">
-          {error}
+      {/* ── Mode toggle + filters row ── */}
+      <div className="mb-6 flex items-center justify-between gap-3">
+        {/* Pill toggle */}
+        <div className="inline-flex rounded-full border border-border bg-surface-1 p-0.5">
+          <button
+            onClick={() => setSearchMode('fts')}
+            className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-fast ${
+              searchMode === 'fts'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-text-tertiary hover:text-text-secondary'
+            }`}
+          >
+            全文搜索
+          </button>
+          <button
+            onClick={() => setSearchMode('hybrid')}
+            className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-fast ${
+              searchMode === 'hybrid'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-text-tertiary hover:text-text-secondary'
+            }`}
+          >
+            混合搜索
+          </button>
+        </div>
+
+        {/* Filter toggle */}
+        <Button
+          variant={filtersOpen ? 'secondary' : 'ghost'}
+          size="sm"
+          icon={<Filter size={13} />}
+          onClick={() => setFiltersOpen(!filtersOpen)}
+        >
+          筛选
+          {activeFilterCount > 0 && (
+            <Badge variant="info" className="ml-1">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
+      </div>
+
+      {/* ── Collapsible filters ── */}
+      <AnimatePresence>
+        {filtersOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mb-6 rounded-lg border border-border bg-surface-1 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold text-text-primary">搜索筛选</h3>
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={() =>
+                      setFilters({
+                        sourceIds: [],
+                        fileTypes: [],
+                        dateFrom: null,
+                        dateTo: null,
+                      })
+                    }
+                    className="text-[11px] text-text-tertiary hover:text-text-secondary transition-colors"
+                  >
+                    清除全部
+                  </button>
+                )}
+              </div>
+
+              {/* Source filters */}
+              {sources.length > 0 && (
+                <div className="mb-3">
+                  <label className="mb-1.5 block text-[11px] font-medium text-text-tertiary">
+                    来源
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sources.map((s) => {
+                      const active = filters.sourceIds.includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => toggleSourceFilter(s.id)}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all duration-fast ${
+                            active
+                              ? 'border-accent/40 bg-accent-subtle text-accent-hover'
+                              : 'border-border bg-surface-2 text-text-tertiary hover:text-text-secondary hover:border-border-hover'
+                          }`}
+                        >
+                          {active && <X size={10} />}
+                          {s.rootPath.split(/[/\\]/).pop()}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* File type filters */}
+              <div>
+                <label className="mb-1.5 block text-[11px] font-medium text-text-tertiary">
+                  文件类型
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {FILE_TYPE_OPTIONS.map((ft) => {
+                    const active = filters.fileTypes.includes(ft.value);
+                    return (
+                      <button
+                        key={ft.value}
+                        onClick={() => toggleFileTypeFilter(ft.value)}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all duration-fast ${
+                          active
+                            ? 'border-accent/40 bg-accent-subtle text-accent-hover'
+                            : 'border-border bg-surface-2 text-text-tertiary hover:text-text-secondary hover:border-border-hover'
+                        }`}
+                      >
+                        {active && <X size={10} />}
+                        {ft.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Loading skeletons ── */}
+      {loading && (
+        <div className="space-y-3">
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
       )}
 
-      {/* Loading */}
-      {loading && <LoadingSpinner className="py-12" />}
-
-      {/* Results */}
+      {/* ── Results ── */}
       {result && !loading && (
         <>
-          <div className="mb-4 flex items-baseline justify-between text-xs text-gray-500">
-            <span>
-              {result.totalMatches} match{result.totalMatches !== 1 ? "es" : ""}
+          {/* Results header */}
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-text-tertiary">
+              <span>
+                找到 {filteredCards.length} 条结果
+                {filteredCards.length !== result.totalMatches && (
+                  <span className="text-text-tertiary">
+                    {' '}
+                    (共 {result.totalMatches} 条)
+                  </span>
+                )}
+              </span>
               {result.searchMode && (
-                <span className="ml-2 rounded-full border border-gray-700 px-2 py-0.5 text-gray-400">
-                  {result.searchMode === 'hybrid' ? 'Hybrid' : 'FTS'}
-                </span>
+                <Badge variant={result.searchMode === 'hybrid' ? 'info' : 'default'}>
+                  {result.searchMode === 'hybrid' ? '混合搜索' : '全文搜索'}
+                </Badge>
               )}
+            </div>
+            <span className="text-[11px] text-text-tertiary">
+              {result.searchTimeMs}ms
             </span>
-            <span>{result.searchTimeMs}ms</span>
           </div>
 
           {/* Uncertainty banner */}
-          {(result.evidenceCards.length < 3 && result.evidenceCards.length > 0 &&
-            result.evidenceCards.every((c) => c.score < 1)) && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
-              <span className="text-lg">⚠️</span>
-              <span>证据不足 — 现有资料中未找到充分证据，请考虑添加更多来源</span>
-            </div>
+          {showUncertainty && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/8 px-4 py-3"
+            >
+              <AlertTriangle
+                size={16}
+                className="mt-0.5 shrink-0 text-warning"
+              />
+              <div>
+                <p className="text-sm font-medium text-warning">证据不足</p>
+                <p className="mt-0.5 text-xs text-warning/70">
+                  现有资料中未找到充分证据，请考虑添加更多来源
+                </p>
+              </div>
+            </motion.div>
           )}
 
-          <div className="space-y-3">
-            {result.evidenceCards.map((card) => (
-              <EvidenceCardComponent
-                key={card.chunkId}
-                card={card}
-                onSaveToPlaybook={handleSaveToPlaybook}
-                onFeedback={handleFeedback}
-                activeFeedback={feedbackMap[card.chunkId]?.action ?? null}
-              />
-            ))}
-          </div>
+          {/* Evidence cards with staggered animation */}
+          {filteredCards.length > 0 ? (
+            <motion.div
+              className="space-y-3"
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: {},
+                visible: { transition: { staggerChildren: 0.06 } },
+              }}
+            >
+              {filteredCards.map((card) => (
+                <motion.div
+                  key={card.chunkId}
+                  variants={{
+                    hidden: { opacity: 0, y: 16 },
+                    visible: { opacity: 1, y: 0 },
+                  }}
+                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <EvidenceCardComponent
+                    card={card}
+                    onFeedback={handleFeedback}
+                    feedbackState={{
+                      upvoted: feedbackMap[card.chunkId]?.action === 'upvote',
+                      downvoted:
+                        feedbackMap[card.chunkId]?.action === 'downvote',
+                      pinned: feedbackMap[card.chunkId]?.action === 'pin',
+                    }}
+                  />
 
-          {result.evidenceCards.length === 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 rounded-lg border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
-                <span className="text-lg">⚠️</span>
-                <span>证据不足 — 现有资料中未找到充分证据，请考虑添加更多来源</span>
-              </div>
-              <p className="py-8 text-center text-sm text-gray-500">
-                No results found for &ldquo;{result.query}&rdquo;
-              </p>
-            </div>
+                  {/* Save-to-playbook action */}
+                  <div className="mt-1.5 flex justify-end">
+                    <button
+                      onClick={() => openSaveModal(card.chunkId)}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary"
+                    >
+                      <BookmarkPlus size={12} />
+                      保存到剧本
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          ) : (
+            <>
+              {/* Uncertainty banner for zero results */}
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/8 px-4 py-3"
+              >
+                <AlertTriangle
+                  size={16}
+                  className="mt-0.5 shrink-0 text-warning"
+                />
+                <div>
+                  <p className="text-sm font-medium text-warning">证据不足</p>
+                  <p className="mt-0.5 text-xs text-warning/70">
+                    现有资料中未找到充分证据，请考虑添加更多来源
+                  </p>
+                </div>
+              </motion.div>
+              <EmptyState
+                icon={<Search size={32} />}
+                title="未找到结果"
+                description={`未找到与 "${result.query}" 相关的内容，请尝试其他关键词`}
+              />
+            </>
           )}
         </>
       )}
 
-      {/* Recent queries */}
+      {/* ── Recent queries (shown when no results/loading) ── */}
       {!result && !loading && recentQueries.length > 0 && (
-        <div className="mt-8">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500">
-            Recent Searches
-          </h3>
-          <div className="space-y-1">
+        <div className="mt-2">
+          <div className="mb-3 flex items-center gap-2 text-xs font-medium text-text-tertiary">
+            <Clock size={12} />
+            最近搜索
+          </div>
+          <div className="flex flex-wrap gap-2">
             {recentQueries.map((q) => (
               <button
                 key={q.id}
@@ -232,11 +571,11 @@ export function SearchPage() {
                   setQuery(q.queryText);
                   handleSearch(q.queryText);
                 }}
-                className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-300 transition hover:bg-gray-800"
+                className="group inline-flex items-center gap-2 rounded-full border border-border bg-surface-1 px-3 py-1.5 text-xs text-text-secondary transition-all duration-fast hover:border-border-hover hover:bg-surface-2 hover:text-text-primary"
               >
-                <span className="truncate">{q.queryText}</span>
-                <span className="shrink-0 text-xs text-gray-600">
-                  {q.resultCount} results
+                <span className="truncate max-w-[200px]">{q.queryText}</span>
+                <span className="shrink-0 text-[10px] text-text-tertiary group-hover:text-text-secondary">
+                  {q.resultCount}条
                 </span>
               </button>
             ))}
@@ -244,62 +583,123 @@ export function SearchPage() {
         </div>
       )}
 
-      {/* Save to Playbook modal */}
-      {savingChunkId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-full max-w-sm rounded-lg border border-gray-700 bg-gray-900 p-5">
-            <h3 className="mb-4 text-sm font-semibold">Save to Playbook</h3>
-            {playbooks.length === 0 ? (
-              <p className="text-sm text-gray-400">
-                No playbooks yet. Create one on the Playbooks page first.
-              </p>
-            ) : (
-              <>
-                <label className="mb-1 block text-xs text-gray-400">Playbook</label>
-                <select
-                  value={selectedPlaybookId}
-                  onChange={(e) => setSelectedPlaybookId(e.target.value)}
-                  className="mb-3 w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100"
-                >
-                  {playbooks.map((pb) => (
-                    <option key={pb.id} value={pb.id}>
-                      {pb.title}
-                    </option>
-                  ))}
-                </select>
+      {/* ── Initial empty state ── */}
+      {!result && !loading && recentQueries.length === 0 && (
+        <EmptyState
+          icon={<Search size={32} />}
+          title="开始搜索"
+          description="输入关键词，在你的知识库中查找相关证据"
+        />
+      )}
 
-                <label className="mb-1 block text-xs text-gray-400">Note (optional)</label>
-                <input
-                  type="text"
-                  value={citationNote}
-                  onChange={(e) => setCitationNote(e.target.value)}
-                  className="mb-4 w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100"
-                  placeholder="Add a note..."
-                />
-              </>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setSavingChunkId(null);
-                  setCitationNote("");
+      {/* ── Save to Playbook modal ── */}
+      <Modal
+        open={savingChunkId !== null}
+        onClose={() => {
+          setSavingChunkId(null);
+          setCitationNote('');
+          setNewPlaybookTitle('');
+        }}
+        title="保存到剧本"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSavingChunkId(null);
+                setCitationNote('');
+                setNewPlaybookTitle('');
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              onClick={confirmSave}
+              loading={saveLoading}
+              disabled={!selectedPlaybookId && !newPlaybookTitle.trim()}
+            >
+              保存
+            </Button>
+          </>
+        }
+      >
+        {playbooks.length > 0 ? (
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                选择剧本
+              </label>
+              <select
+                value={selectedPlaybookId}
+                onChange={(e) => {
+                  setSelectedPlaybookId(e.target.value);
+                  if (e.target.value) setNewPlaybookTitle('');
                 }}
-                className="rounded px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200"
+                className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
               >
-                Cancel
-              </button>
-              {playbooks.length > 0 && (
-                <button
-                  onClick={confirmSave}
-                  className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
-                >
-                  Save
-                </button>
-              )}
+                {playbooks.map((pb) => (
+                  <option key={pb.id} value={pb.id}>
+                    {pb.title}
+                  </option>
+                ))}
+                <option value="">+ 新建剧本</option>
+              </select>
+            </div>
+
+            {!selectedPlaybookId && (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                  新剧本名称
+                </label>
+                <Input
+                  value={newPlaybookTitle}
+                  onChange={(e) => setNewPlaybookTitle(e.target.value)}
+                  placeholder="输入剧本名称..."
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                备注 <span className="text-text-tertiary">(可选)</span>
+              </label>
+              <Input
+                value={citationNote}
+                onChange={(e) => setCitationNote(e.target.value)}
+                placeholder="添加备注..."
+              />
             </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="space-y-4">
+            <p className="text-xs text-text-tertiary">
+              暂无剧本，创建一个新剧本来保存此证据。
+            </p>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                新剧本名称
+              </label>
+              <Input
+                value={newPlaybookTitle}
+                onChange={(e) => setNewPlaybookTitle(e.target.value)}
+                placeholder="输入剧本名称..."
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-text-secondary">
+                备注 <span className="text-text-tertiary">(可选)</span>
+              </label>
+              <Input
+                value={citationNote}
+                onChange={(e) => setCitationNote(e.target.value)}
+                placeholder="添加备注..."
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

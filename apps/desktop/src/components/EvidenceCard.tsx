@@ -1,18 +1,66 @@
-import type { EvidenceCard as EvidenceCardType, Highlight } from "../types";
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import {
+  ThumbsUp,
+  ThumbsDown,
+  Pin,
+  FileText,
+  Hash,
+  FolderOpen,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
+import type { EvidenceCard as EvidenceCardType, Highlight } from '../types/evidence';
+import { Badge } from './ui/Badge';
+import { Tooltip } from './ui/Tooltip';
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 type FeedbackAction = 'upvote' | 'downvote' | 'pin';
 
-interface Props {
-  card: EvidenceCardType;
-  onSaveToPlaybook?: (chunkId: string) => void;
-  onFeedback?: (chunkId: string, action: FeedbackAction) => void;
-  activeFeedback?: FeedbackAction | null;
+interface FeedbackState {
+  upvoted?: boolean;
+  downvoted?: boolean;
+  pinned?: boolean;
 }
 
-function renderHighlightedContent(content: string, highlights: Highlight[]) {
-  if (highlights.length === 0) {
-    return <span>{content}</span>;
-  }
+interface Props {
+  card: EvidenceCardType;
+  onFeedback?: (chunkId: string, action: FeedbackAction) => void;
+  feedbackState?: FeedbackState;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Constants & helpers                                                */
+/* ------------------------------------------------------------------ */
+
+const TRUNCATE_LENGTH = 200;
+
+function fileExtension(path: string): string {
+  const m = path.match(/\.(\w+)$/);
+  return m ? m[1].toUpperCase() : '';
+}
+
+function directoryPath(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/');
+  parts.pop();
+  return parts.join('/') || '/';
+}
+
+function scoreColor(score: number): string {
+  if (score >= 0.8) return 'var(--color-success)';
+  if (score >= 0.5) return 'var(--color-warning)';
+  return 'var(--color-text-tertiary)';
+}
+
+/* ------------------------------------------------------------------ */
+/*  Highlight renderer                                                 */
+/* ------------------------------------------------------------------ */
+
+function renderHighlights(content: string, highlights: Highlight[]) {
+  if (highlights.length === 0) return <span>{content}</span>;
 
   const sorted = [...highlights].sort((a, b) => a.start - b.start);
   const parts: React.ReactNode[] = [];
@@ -24,7 +72,14 @@ function renderHighlightedContent(content: string, highlights: Highlight[]) {
       parts.push(<span key={`t-${i}`}>{content.slice(cursor, h.start)}</span>);
     }
     parts.push(
-      <mark key={`h-${i}`} className="bg-yellow-500/30 text-yellow-200 rounded px-0.5">
+      <mark
+        key={`h-${i}`}
+        className="rounded-sm px-0.5 py-px"
+        style={{
+          backgroundColor: 'var(--color-accent-subtle)',
+          color: 'var(--color-accent-hover)',
+        }}
+      >
         {content.slice(h.start, h.end)}
       </mark>,
     );
@@ -38,88 +93,208 @@ function renderHighlightedContent(content: string, highlights: Highlight[]) {
   return <>{parts}</>;
 }
 
-function scoreColor(score: number): string {
-  if (score >= 3) return "text-green-400";
-  if (score >= 1) return "text-yellow-400";
-  return "text-gray-400";
-}
+/* ------------------------------------------------------------------ */
+/*  Animation variants                                                 */
+/* ------------------------------------------------------------------ */
 
-export function EvidenceCardComponent({ card, onSaveToPlaybook, onFeedback, activeFeedback }: Props) {
+const cardVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 },
+};
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
+
+export function EvidenceCardComponent({
+  card,
+  onFeedback,
+  feedbackState = {},
+}: Props) {
+  const [expanded, setExpanded] = useState(false);
+
+  const needsTruncation = card.content.length > TRUNCATE_LENGTH;
+  const displayContent =
+    needsTruncation && !expanded
+      ? card.content.slice(0, TRUNCATE_LENGTH) + '…'
+      : card.content;
+
+  const visibleHighlights =
+    expanded || !needsTruncation
+      ? card.highlights
+      : card.highlights.filter((h) => h.end <= TRUNCATE_LENGTH);
+
+  const ext = fileExtension(card.documentPath);
+  const dir = directoryPath(card.documentPath);
+  const pct = Math.min(Math.max(card.score, 0), 1) * 100;
+
   return (
-    <div className="rounded-lg border border-gray-700 bg-gray-800/60 p-4 transition hover:border-gray-600">
-      {/* Header */}
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-gray-400" title={card.documentPath}>
-            {card.documentPath}
-          </p>
-          {card.headingPath.length > 0 && (
-            <p className="mt-0.5 truncate text-xs text-gray-500">
-              {card.headingPath.join(" › ")}
-            </p>
-          )}
+    <motion.div
+      variants={cardVariants}
+      initial="hidden"
+      animate="visible"
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{
+        boxShadow:
+          '0 4px 16px rgba(0,0,0,0.4), 0 0 20px rgba(99,102,241,0.08)',
+        borderColor: 'var(--color-border-hover)',
+      }}
+      className="rounded-lg border border-border bg-surface-2 p-4 transition-colors"
+    >
+      {/* ── Header: filename + score ── */}
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileText size={14} className="shrink-0 text-text-tertiary" />
+          <span
+            className="truncate text-sm font-medium text-text-primary"
+            title={card.documentPath}
+          >
+            {card.documentTitle ||
+              card.documentPath.split(/[/\\]/).pop()}
+          </span>
         </div>
-        <span className={`shrink-0 text-xs font-mono font-semibold ${scoreColor(card.score)}`}>
-          {card.score.toFixed(1)}
-        </span>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[11px] text-text-tertiary">相关度</span>
+          <div className="flex items-center gap-1.5">
+            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-4">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ backgroundColor: scoreColor(card.score) }}
+                initial={{ width: 0 }}
+                animate={{ width: `${pct}%` }}
+                transition={{
+                  duration: 0.6,
+                  ease: [0.16, 1, 0.3, 1],
+                  delay: 0.2,
+                }}
+              />
+            </div>
+            <span
+              className="font-mono text-xs font-semibold"
+              style={{ color: scoreColor(card.score) }}
+            >
+              {card.score.toFixed(2)}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="text-sm leading-relaxed text-gray-200 whitespace-pre-wrap">
-        {renderHighlightedContent(card.content, card.highlights)}
-      </div>
-
-      {/* Feedback buttons */}
-      {onFeedback && (
-        <div className="mt-3 flex items-center gap-1">
-          <button
-            onClick={() => onFeedback(card.chunkId, 'upvote')}
-            className={`rounded px-1.5 py-0.5 text-sm transition ${
-              activeFeedback === 'upvote'
-                ? 'bg-green-500/20 text-green-300'
-                : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
-            }`}
-            title="Upvote"
-          >
-            👍
-          </button>
-          <button
-            onClick={() => onFeedback(card.chunkId, 'downvote')}
-            className={`rounded px-1.5 py-0.5 text-sm transition ${
-              activeFeedback === 'downvote'
-                ? 'bg-red-500/20 text-red-300'
-                : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
-            }`}
-            title="Downvote"
-          >
-            👎
-          </button>
-          <button
-            onClick={() => onFeedback(card.chunkId, 'pin')}
-            className={`rounded px-1.5 py-0.5 text-sm transition ${
-              activeFeedback === 'pin'
-                ? 'bg-blue-500/20 text-blue-300'
-                : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
-            }`}
-            title="Pin"
-          >
-            📌
-          </button>
+      {/* ── Heading breadcrumb ── */}
+      {card.headingPath.length > 0 && (
+        <div className="mb-2 flex items-center gap-1 text-[11px] text-text-tertiary">
+          <Hash size={10} className="shrink-0" />
+          <span className="truncate">
+            {card.headingPath.join(' › ')}
+          </span>
         </div>
       )}
 
-      {/* Footer */}
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs text-gray-500">{card.sourceName}</span>
-        {onSaveToPlaybook && (
-          <button
-            onClick={() => onSaveToPlaybook(card.chunkId)}
-            className="rounded px-2 py-1 text-xs text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 transition"
+      <div className="mb-3 border-t border-border" />
+
+      {/* ── Content snippet ── */}
+      <div className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
+        {renderHighlights(displayContent, visibleHighlights)}
+      </div>
+
+      {/* ── Expand / Collapse ── */}
+      {needsTruncation && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-accent transition-colors hover:text-accent-hover"
+        >
+          {expanded ? (
+            <>
+              收起
+              <ChevronUp size={12} />
+            </>
+          ) : (
+            <>
+              展开更多
+              <ChevronDown size={12} />
+            </>
+          )}
+        </button>
+      )}
+
+      <div className="mt-3 mb-2 border-t border-border" />
+
+      {/* ── Footer: metadata + feedback ── */}
+      <div className="flex items-center justify-between gap-2">
+        {/* Metadata */}
+        <div className="flex min-w-0 items-center gap-2 text-text-tertiary">
+          <div
+            className="flex items-center gap-1 text-[11px]"
+            title={dir}
           >
-            + Save to Playbook
-          </button>
+            <FolderOpen size={11} className="shrink-0" />
+            <span className="max-w-[140px] truncate">{dir}</span>
+          </div>
+          <span className="text-border">┊</span>
+          <span className="max-w-[100px] truncate text-[11px]">
+            {card.sourceName}
+          </span>
+          {ext && (
+            <>
+              <span className="text-border">┊</span>
+              <Badge>{ext}</Badge>
+            </>
+          )}
+        </div>
+
+        {/* Feedback */}
+        {onFeedback && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Tooltip content="点赞">
+              <button
+                onClick={() => onFeedback(card.chunkId, 'upvote')}
+                className={`cursor-pointer rounded-md p-1.5 transition-colors ${
+                  feedbackState.upvoted
+                    ? 'bg-success/15 text-success'
+                    : 'text-text-tertiary hover:bg-surface-3 hover:text-text-secondary'
+                }`}
+              >
+                <ThumbsUp
+                  size={14}
+                  fill={feedbackState.upvoted ? 'currentColor' : 'none'}
+                />
+              </button>
+            </Tooltip>
+
+            <Tooltip content="踩">
+              <button
+                onClick={() => onFeedback(card.chunkId, 'downvote')}
+                className={`cursor-pointer rounded-md p-1.5 transition-colors ${
+                  feedbackState.downvoted
+                    ? 'bg-danger/15 text-danger'
+                    : 'text-text-tertiary hover:bg-surface-3 hover:text-text-secondary'
+                }`}
+              >
+                <ThumbsDown
+                  size={14}
+                  fill={feedbackState.downvoted ? 'currentColor' : 'none'}
+                />
+              </button>
+            </Tooltip>
+
+            <Tooltip content="收藏">
+              <button
+                onClick={() => onFeedback(card.chunkId, 'pin')}
+                className={`cursor-pointer rounded-md p-1.5 transition-colors ${
+                  feedbackState.pinned
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-text-tertiary hover:bg-surface-3 hover:text-text-secondary'
+                }`}
+              >
+                <Pin
+                  size={14}
+                  fill={feedbackState.pinned ? 'currentColor' : 'none'}
+                />
+              </button>
+            </Tooltip>
+          </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
