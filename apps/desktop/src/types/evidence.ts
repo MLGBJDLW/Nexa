@@ -1,0 +1,17 @@
+export interface Highlight {
+  start: number;
+  end: number;
+  term: string;
+}
+
+export interface EvidenceCard {
+  chunkId: string;
+  documentId: string;
+  sourceName: string;
+  documentPath: string;
+  documentTitle: string;
+  content: string;
+  headingPath: string[];
+  score: number;
+  highlights: Highlight[];
+}
