@@ -8,6 +8,11 @@
         "type": "string",
         "description": "Absolute or relative path to the file"
       },
+      "start_line": {
+        "type": "integer",
+        "description": "1-based line number to start reading from (default 1)",
+        "default": 1
+      },
       "max_lines": {
         "type": "integer",
         "description": "Maximum number of lines to return (default 100)",

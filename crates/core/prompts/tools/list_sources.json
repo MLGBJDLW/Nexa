@@ -1,0 +1,9 @@
+{
+  "name": "list_sources",
+  "description": "List all registered knowledge-base sources. Returns each source's ID, root path, document count, and last scan time. Use this to discover available source IDs for filtering searches.",
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}

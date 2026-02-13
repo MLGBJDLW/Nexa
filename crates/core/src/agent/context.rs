@@ -1,5 +1,7 @@
 //! Context management — prepare and trim messages for LLM requests.
 
+use chrono::Utc;
+
 use crate::conversation::memory::{model_context_window, trim_to_context_window};
 use crate::llm::{Message, Role};
 
@@ -23,10 +25,15 @@ pub fn prepare_messages(
 ) -> Vec<Message> {
     let mut messages = Vec::with_capacity(history.len() + 2);
 
-    // System message — always first.
+    // System message — always first, with current date/time appended.
+    let system_with_datetime = format!(
+        "{}\n\nCurrent date and time: {} (UTC)",
+        system_prompt,
+        Utc::now().format("%Y-%m-%d %H:%M UTC")
+    );
     messages.push(Message {
         role: Role::System,
-        content: system_prompt.to_string(),
+        content: system_with_datetime,
         name: None,
         tool_calls: None,
     });
@@ -68,9 +75,9 @@ mod tests {
         ];
         let result = prepare_messages("System prompt", &history, "What's up?", "gpt-4o", 4096, None);
 
-        // System is first.
+        // System is first, with datetime appended.
         assert_eq!(result[0].role, Role::System);
-        assert_eq!(result[0].content, "System prompt");
+        assert!(result[0].content.starts_with("System prompt\n\nCurrent date and time:"));
 
         // Last message is the new user input.
         assert_eq!(result.last().unwrap().content, "What's up?");

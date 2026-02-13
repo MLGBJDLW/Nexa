@@ -1,0 +1,27 @@
+{
+  "name": "list_documents",
+  "description": "List documents in a specific knowledge-base source. Returns file path, title, MIME type, file size, and last modified date for each document.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "source_id": {
+        "type": "string",
+        "description": "The source ID to list documents for. Use list_sources to discover available IDs."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of documents to return (default 50, max 200)",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 200
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Number of documents to skip for pagination (default 0)",
+        "default": 0,
+        "minimum": 0
+      }
+    },
+    "required": ["source_id"]
+  }
+}

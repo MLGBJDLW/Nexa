@@ -1,6 +1,6 @@
 {
   "name": "search_knowledge_base",
-  "description": "Search the local knowledge base using full-text and vector search. Returns evidence cards with content, source paths, and relevance scores.",
+  "description": "Search the local knowledge base using full-text and vector search. Returns evidence cards with content, source paths, and relevance scores. Supports optional filters to narrow results by source, file type, or date range.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -14,6 +14,27 @@
         "default": 5,
         "minimum": 1,
         "maximum": 20
+      },
+      "source_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional list of source IDs to restrict search to. Use list_sources to discover available IDs."
+      },
+      "file_types": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["markdown", "plaintext", "log", "pdf", "docx", "excel", "pptx"]
+        },
+        "description": "Optional list of file types to filter by (e.g. [\"markdown\", \"pdf\"])"
+      },
+      "date_from": {
+        "type": "string",
+        "description": "Optional ISO 8601 date-time string. Only return results modified on or after this date."
+      },
+      "date_to": {
+        "type": "string",
+        "description": "Optional ISO 8601 date-time string. Only return results modified on or before this date."
       }
     },
     "required": ["query"]

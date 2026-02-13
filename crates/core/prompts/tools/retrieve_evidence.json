@@ -1,0 +1,15 @@
+{
+  "name": "retrieve_evidence",
+  "description": "Retrieve specific evidence chunks by their chunk IDs. Returns the raw chunk content together with source path and document title, suitable for citation.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "chunk_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of chunk IDs to retrieve"
+      }
+    },
+    "required": ["chunk_ids"]
+  }
+}

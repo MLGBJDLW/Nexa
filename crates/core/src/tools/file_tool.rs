@@ -23,8 +23,14 @@ pub struct FileTool;
 #[derive(Deserialize)]
 struct FileArgs {
     path: String,
+    #[serde(default = "default_start_line")]
+    start_line: usize,
     #[serde(default = "default_max_lines")]
     max_lines: usize,
+}
+
+fn default_start_line() -> usize {
+    1
 }
 
 fn default_max_lines() -> usize {
@@ -90,11 +96,13 @@ impl Tool for FileTool {
             CoreError::Io(e)
         })?;
 
-        // Truncate to max_lines.
+        // Skip to start_line (1-based) and truncate to max_lines.
+        let start = args.start_line.max(1);
         let max = args.max_lines.max(1);
-        let lines: Vec<&str> = raw.lines().take(max).collect();
         let total_lines = raw.lines().count();
-        let truncated = total_lines > max;
+        let lines: Vec<&str> = raw.lines().skip(start - 1).take(max).collect();
+        let showing_end = (start - 1 + lines.len()).min(total_lines);
+        let truncated = showing_end < total_lines || start > 1;
         let content = lines.join("\n");
 
         // Apply privacy redaction.
@@ -108,7 +116,7 @@ impl Tool for FileTool {
         let mut text = format!("File: {}\n", canonical.display());
         if truncated {
             text.push_str(&format!(
-                "(showing {max} of {total_lines} lines)\n"
+                "(showing lines {start}–{showing_end} of {total_lines})\n"
             ));
         }
         text.push_str("---\n");

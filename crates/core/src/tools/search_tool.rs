@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::db::Database;
 use crate::error::CoreError;
-use crate::models::SearchQuery;
+use crate::models::{FileType, SearchQuery};
 use crate::search;
 
 use super::{Tool, ToolDef, ToolResult};
@@ -24,6 +24,14 @@ struct SearchArgs {
     query: String,
     #[serde(default = "default_limit")]
     limit: u32,
+    #[serde(default)]
+    source_ids: Vec<String>,
+    #[serde(default)]
+    file_types: Vec<String>,
+    #[serde(default)]
+    date_from: Option<String>,
+    #[serde(default)]
+    date_to: Option<String>,
 }
 
 fn default_limit() -> u32 {
@@ -58,11 +66,48 @@ impl Tool for SearchTool {
         let limit = args.limit.min(20).max(1);
 
         let mut filters = crate::models::SearchFilters::default();
-        if !source_scope.is_empty() {
-            filters.source_ids = source_scope
-                .iter()
-                .filter_map(|s| uuid::Uuid::parse_str(s).ok())
-                .collect();
+
+        // Merge agent-supplied source_ids with conversation-level source_scope.
+        let mut all_source_ids: Vec<uuid::Uuid> = args
+            .source_ids
+            .iter()
+            .filter_map(|s| uuid::Uuid::parse_str(s).ok())
+            .collect();
+        for s in source_scope {
+            if let Ok(u) = uuid::Uuid::parse_str(s) {
+                if !all_source_ids.contains(&u) {
+                    all_source_ids.push(u);
+                }
+            }
+        }
+        filters.source_ids = all_source_ids;
+
+        // Map string file type names to the FileType enum.
+        filters.file_types = args
+            .file_types
+            .iter()
+            .filter_map(|ft| match ft.to_lowercase().as_str() {
+                "markdown" => Some(FileType::Markdown),
+                "plaintext" | "plain_text" | "text" => Some(FileType::PlainText),
+                "log" => Some(FileType::Log),
+                "pdf" => Some(FileType::Pdf),
+                "docx" => Some(FileType::Docx),
+                "excel" => Some(FileType::Excel),
+                "pptx" => Some(FileType::Pptx),
+                _ => None,
+            })
+            .collect();
+
+        // Parse optional date range filters.
+        if let Some(ref df) = args.date_from {
+            filters.date_from = chrono::DateTime::parse_from_rfc3339(df)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+        }
+        if let Some(ref dt) = args.date_to {
+            filters.date_to = chrono::DateTime::parse_from_rfc3339(dt)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc));
         }
 
         let sq = SearchQuery {

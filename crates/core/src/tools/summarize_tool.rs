@@ -1,4 +1,4 @@
-//! SummarizeTool — retrieves and formats evidence cards by chunk IDs.
+//! RetrieveEvidenceTool — retrieves and formats evidence cards by chunk IDs.
 
 use std::sync::OnceLock;
 
@@ -13,21 +13,21 @@ use crate::error::CoreError;
 use super::{Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
-const DEF_JSON: &str = include_str!("../../prompts/tools/summarize_evidence.json");
+const DEF_JSON: &str = include_str!("../../prompts/tools/retrieve_evidence.json");
 
 /// Tool that looks up specific chunks by their IDs and returns formatted
 /// content suitable for citation in LLM responses.
-pub struct SummarizeTool;
+pub struct RetrieveEvidenceTool;
 
 #[derive(Deserialize)]
-struct SummarizeArgs {
+struct RetrieveEvidenceArgs {
     chunk_ids: Vec<String>,
 }
 
 #[async_trait]
-impl Tool for SummarizeTool {
+impl Tool for RetrieveEvidenceTool {
     fn name(&self) -> &str {
-        "summarize_evidence"
+        "retrieve_evidence"
     }
 
     fn description(&self) -> &str {
@@ -45,8 +45,8 @@ impl Tool for SummarizeTool {
         db: &Database,
         _source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
-        let args: SummarizeArgs = serde_json::from_str(arguments).map_err(|e| {
-            CoreError::InvalidInput(format!("Invalid summarize_evidence arguments: {e}"))
+        let args: RetrieveEvidenceArgs = serde_json::from_str(arguments).map_err(|e| {
+            CoreError::InvalidInput(format!("Invalid retrieve_evidence arguments: {e}"))
         })?;
 
         if args.chunk_ids.is_empty() {

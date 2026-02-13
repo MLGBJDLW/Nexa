@@ -179,6 +179,7 @@ impl AgentExecutor {
 
         let mut total_usage = Usage::default();
         let mut sort_order = next_sort_order;
+        let mut accumulated_content = String::new();
 
         // --- 4. ReAct loop ----------------------------------------------------
         for iteration in 0..self.config.max_iterations {
@@ -207,6 +208,7 @@ impl AgentExecutor {
                         // Forward text deltas.
                         if !chunk.delta.is_empty() {
                             full_content.push_str(&chunk.delta);
+                            accumulated_content.push_str(&chunk.delta);
                             let _ = tx
                                 .send(AgentEvent::TextDelta {
                                     delta: chunk.delta,
@@ -386,17 +388,53 @@ impl AgentExecutor {
             // Loop back → next LLM call with tool results.
         }
 
-        let err_msg = format!(
-            "Agent exceeded maximum iterations ({})",
+        // Graceful fallback: return partial answer instead of hard error.
+        warn!(
+            "Agent reached max iterations ({}); returning partial answer",
             self.config.max_iterations
         );
-        warn!("{}", err_msg);
+
+        if !accumulated_content.is_empty() {
+            let note = "\n\n*[Note: I used all available tool calls. The answer above may be incomplete.]*";
+            let _ = tx
+                .send(AgentEvent::TextDelta {
+                    delta: note.to_string(),
+                })
+                .await;
+            accumulated_content.push_str(note);
+        }
+
+        let final_msg = Message {
+            role: Role::Assistant,
+            content: accumulated_content,
+            name: None,
+            tool_calls: None,
+        };
+
+        if let Some(cid) = conversation_id {
+            let conv_msg = ConversationMessage {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: cid.to_string(),
+                role: Role::Assistant,
+                content: final_msg.content.clone(),
+                tool_call_id: None,
+                tool_calls: vec![],
+                token_count: (final_msg.content.len() / 4) as u32,
+                created_at: String::new(),
+                sort_order,
+            };
+            if let Err(e) = db.add_message(&conv_msg) {
+                warn!("Failed to save final assistant message: {e}");
+            }
+        }
+
         let _ = tx
-            .send(AgentEvent::Error {
-                message: err_msg.clone(),
+            .send(AgentEvent::Done {
+                message: final_msg.clone(),
+                usage_total: total_usage,
             })
             .await;
-        Err(CoreError::Agent(err_msg))
+        Ok(final_msg)
     }
 }
 

@@ -37,6 +37,8 @@ impl ToolDef {
 }
 
 pub mod file_tool;
+pub mod list_documents_tool;
+pub mod list_sources_tool;
 pub mod playbook_tool;
 pub mod search_tool;
 pub mod summarize_tool;
@@ -158,6 +160,8 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(search_tool::SearchTool));
     registry.register(Box::new(playbook_tool::PlaybookTool));
     registry.register(Box::new(file_tool::FileTool));
-    registry.register(Box::new(summarize_tool::SummarizeTool));
+    registry.register(Box::new(summarize_tool::RetrieveEvidenceTool));
+    registry.register(Box::new(list_sources_tool::ListSourcesTool));
+    registry.register(Box::new(list_documents_tool::ListDocumentsTool));
     registry
 }
