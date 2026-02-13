@@ -73,6 +73,7 @@ export interface AgentEvent {
   content?: string;
   isError?: boolean;
   artifacts?: Record<string, unknown>;
-  message?: ConversationMessage;
+  // `Done` events carry a full ConversationMessage; `Error` events carry a plain string.
+  message?: ConversationMessage | string;
   usageTotal?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }

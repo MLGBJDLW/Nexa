@@ -79,7 +79,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           }
           break;
         case 'error':
-          setError(data.content || data.delta || 'Unknown error');
+          setError((data.message as unknown as string) || 'Unknown error');
           setIsStreaming(false);
           if (unlistenRef.current) {
             unlistenRef.current();

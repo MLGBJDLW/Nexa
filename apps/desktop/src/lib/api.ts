@@ -141,19 +141,19 @@ export const savePrivacyConfig = (config: PrivacyConfig) =>
 // ── Embedder Config ──────────────────────────────────────────────────
 
 export const getEmbedderConfig = () =>
-  invoke<EmbedderConfig>('get_embedder_config');
+  invoke<EmbedderConfig>('get_embedder_config_cmd');
 
 export const saveEmbedderConfig = (config: EmbedderConfig) =>
-  invoke<void>('save_embedder_config', { config });
+  invoke<void>('save_embedder_config_cmd', { config });
 
 export const testApiConnection = (apiKey: string, baseUrl: string) =>
-  invoke<boolean>('test_api_connection', { apiKey, baseUrl });
+  invoke<boolean>('test_api_connection_cmd', { apiKey, baseUrl });
 
 export const checkLocalModel = () =>
-  invoke<boolean>('check_local_model');
+  invoke<boolean>('check_local_model_cmd');
 
 export const downloadLocalModel = () =>
-  invoke<void>('download_local_model');
+  invoke<void>('download_local_model_cmd');
 
 // ── File ────────────────────────────────────────────────────────────────
 
