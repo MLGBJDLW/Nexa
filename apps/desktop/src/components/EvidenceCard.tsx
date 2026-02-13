@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  BotMessageSquare,
 } from 'lucide-react';
 import type { EvidenceCard as EvidenceCardType, Highlight } from '../types/evidence';
 import { Badge } from './ui/Badge';
@@ -33,6 +34,7 @@ interface Props {
   card: EvidenceCardType;
   onFeedback?: (chunkId: string, action: FeedbackAction) => void;
   feedbackState?: FeedbackState;
+  onAskAbout?: (context: string) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -113,6 +115,7 @@ export function EvidenceCardComponent({
   card,
   onFeedback,
   feedbackState = {},
+  onAskAbout,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation();
@@ -275,6 +278,21 @@ export function EvidenceCardComponent({
           </Tooltip>
 
           <span className="mx-0.5 h-4 w-px bg-border" />
+
+          {onAskAbout && (
+            <Tooltip content={t('chat.askAboutThis')}>
+              <button
+                onClick={() => {
+                  const title = card.documentTitle || card.documentPath.split(/[/\\]/).pop() || '';
+                  const preview = card.content.slice(0, 120).replace(/\n/g, ' ');
+                  onAskAbout(t('chat.askAboutPrompt', { title }) + `\n\n> ${preview}...`);
+                }}
+                className="cursor-pointer rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-accent/10 hover:text-accent"
+              >
+                <BotMessageSquare size={14} />
+              </button>
+            </Tooltip>
+          )}
         </div>
 
         {/* Feedback */}

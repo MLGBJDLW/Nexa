@@ -16,16 +16,25 @@ import {
   Loader2,
   KeyRound,
   AlertTriangle,
+  Bot,
+  Star,
+  Pencil,
+  Settings2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { IndexStats } from '../types/index-stats';
 import type { PrivacyConfig, RedactRule } from '../types/privacy';
 import type { EmbedderConfig } from '../types/embedder';
+import type { AgentConfig, SaveAgentConfigInput } from '../types/conversation';
 import { useTranslation } from '../i18n';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { AgentConfigForm } from '../components/settings/AgentConfigForm';
+import { PROVIDER_PRESETS, type ProviderPreset } from '../lib/providerPresets';
 
 /* ── Section wrapper ──────────────────────────────────────────────── */
 function Section({
@@ -66,8 +75,11 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
 }
 
 /* ── Settings page ────────────────────────────────────────────────── */
+type SettingsTab = 'embedding' | 'index' | 'privacy' | 'language' | 'providers';
+
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
+  const [activeTab, setActiveTab] = useState<SettingsTab>('embedding');
   /* ── Index state ─────────────────────────────────────────────────── */
   const [stats, setStats] = useState<IndexStats | null>(null);
   const [rebuildLoading, setRebuildLoading] = useState(false);
@@ -250,6 +262,84 @@ export function SettingsPage() {
     }
   };
 
+  /* ── AI Providers state ──────────────────────────────────────────── */
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
+  type ProviderView = 'list' | 'selector' | 'form';
+  const [providerView, setProviderView] = useState<ProviderView>('list');
+  const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
+  const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
+  const [agentSaveLoading, setAgentSaveLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AgentConfig | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const loadAgentConfigs = useCallback(() => {
+    api.listAgentConfigs().then(setAgentConfigs).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadAgentConfigs();
+  }, [loadAgentConfigs]);
+
+  const handleSaveAgent = async (input: SaveAgentConfigInput) => {
+    setAgentSaveLoading(true);
+    try {
+      await api.saveAgentConfig(input);
+      toast.success(t('settings.providerSaved'));
+      setProviderView('list');
+      setEditingConfig(undefined);
+      setSelectedPreset(null);
+      loadAgentConfigs();
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setAgentSaveLoading(false);
+    }
+  };
+
+  const handleDeleteAgent = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
+    try {
+      await api.deleteAgentConfig(deleteTarget.id);
+      toast.success(t('settings.providerDeleted'));
+      setDeleteTarget(null);
+      loadAgentConfigs();
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleSetDefault = async (id: string) => {
+    try {
+      await api.setDefaultAgentConfig(id);
+      toast.success(t('settings.defaultSet'));
+      loadAgentConfigs();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const PROVIDER_LABELS: Record<string, string> = {
+    open_ai: 'OpenAI',
+    anthropic: 'Anthropic',
+    google: 'Google',
+    deep_seek: 'DeepSeek',
+    ollama: 'Ollama',
+    lm_studio: 'LM Studio',
+    azure_open_ai: 'Azure',
+    custom: 'Custom',
+  };
+
+  const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'embedding', label: t('settings.embeddingSection'), icon: <Brain size={16} /> },
+    { id: 'providers', label: t('settings.aiProviders'), icon: <Bot size={16} /> },
+    { id: 'index', label: t('settings.indexSection'), icon: <Database size={16} /> },
+    { id: 'privacy', label: t('settings.privacySection'), icon: <Shield size={16} /> },
+    { id: 'language', label: t('settings.languageSection'), icon: <Languages size={16} /> },
+  ];
+
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -263,7 +353,26 @@ export function SettingsPage() {
         <p className="mt-1 text-sm text-text-secondary">{t('settings.subtitle')}</p>
       </motion.div>
 
-      {/* ── Section 0: AI Embedding ─────────────────────────────────── */}
+      {/* Tab Navigation */}
+      <div className="flex gap-1 rounded-lg border border-border bg-surface-1 p-1 overflow-x-auto">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-fast cursor-pointer whitespace-nowrap ${
+              activeTab === tab.id
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Tab: AI Embedding ─────────────────────────────────────── */}
+      {activeTab === 'embedding' && (
       <Section icon={<Brain size={20} />} title={t('settings.embeddingSection')} delay={0.03}>
         {embedConfig && (
           <div className="space-y-5">
@@ -299,12 +408,12 @@ export function SettingsPage() {
                     <Loader2 size={14} className="animate-spin text-text-tertiary" />
                   ) : localModelReady ? (
                     <Badge variant="default" className="gap-1">
-                      <CheckCircle size={12} className="text-green-500" />
+                      <CheckCircle size={12} className="text-success" />
                       {t('settings.embeddingDownloaded')}
                     </Badge>
                   ) : (
                     <Badge variant="default" className="gap-1">
-                      <XCircle size={12} className="text-red-400" />
+                      <XCircle size={12} className="text-danger" />
                       {t('settings.embeddingNotDownloaded')}
                     </Badge>
                   )}
@@ -370,17 +479,17 @@ export function SettingsPage() {
 
             {/* TF-IDF warning */}
             {embedConfig.provider === 'tfidf' && (
-              <div className="flex items-start gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-yellow-500" />
-                <p className="text-sm text-yellow-600 dark:text-yellow-400">{t('settings.embeddingTfidfWarning')}</p>
+              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
+                <p className="text-sm text-warning">{t('settings.embeddingTfidfWarning')}</p>
               </div>
             )}
 
             {/* Provider change warning + actions */}
             <div className="space-y-3 border-t border-border pt-4">
-              <div className="flex items-start gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-yellow-500" />
-                <p className="text-sm text-yellow-600 dark:text-yellow-400">{t('settings.embeddingProviderChangeWarning')}</p>
+              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
+                <p className="text-sm text-warning">{t('settings.embeddingProviderChangeWarning')}</p>
               </div>
               <div className="flex items-center gap-3">
                 <Button
@@ -406,8 +515,154 @@ export function SettingsPage() {
           </div>
         )}
       </Section>
+      )}
 
-      {/* ── Section 1: 索引管理 ──────────────────────────────────────── */}
+      {/* ── Tab: AI Providers ──────────────────────────────────────── */}
+      {activeTab === 'providers' && (
+      <Section icon={<Bot size={20} />} title={t('settings.aiProviders')} delay={0.03}>
+        {providerView === 'form' ? (
+          <AgentConfigForm
+            config={editingConfig}
+            preset={editingConfig ? undefined : selectedPreset}
+            onSave={handleSaveAgent}
+            onCancel={() => { setProviderView('list'); setEditingConfig(undefined); setSelectedPreset(null); }}
+            isSaving={agentSaveLoading}
+          />
+        ) : providerView === 'selector' ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-medium text-text-primary">{t('settings.selectProvider')}</h3>
+              <button
+                onClick={() => setProviderView('list')}
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-text-tertiary hover:text-text-secondary hover:bg-surface-3/50 transition-colors cursor-pointer"
+              >
+                <X size={16} /> {t('common.cancel')}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {PROVIDER_PRESETS.map(preset => (
+                <button
+                  key={preset.id}
+                  onClick={() => { setSelectedPreset(preset); setProviderView('form'); }}
+                  className="flex items-start gap-3 rounded-lg border border-border bg-surface-2 p-4 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50 cursor-pointer"
+                >
+                  <span className="text-2xl">{preset.icon}</span>
+                  <div>
+                    <div className="font-medium text-text-primary">{preset.name}</div>
+                    <div className="text-sm text-text-tertiary">{preset.description}</div>
+                  </div>
+                </button>
+              ))}
+              {/* Custom / Manual option */}
+              <button
+                onClick={() => { setSelectedPreset(null); setProviderView('form'); }}
+                className="flex items-start gap-3 rounded-lg border border-dashed border-border bg-surface-2 p-4 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50 cursor-pointer"
+              >
+                <Settings2 className="mt-0.5 text-text-tertiary" size={24} />
+                <div>
+                  <div className="font-medium text-text-primary">{t('settings.customProvider')}</div>
+                  <div className="text-sm text-text-tertiary">{t('settings.customProviderDesc')}</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Add button */}
+            <div className="flex justify-end">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus size={14} />}
+                onClick={() => { setEditingConfig(undefined); setSelectedPreset(null); setProviderView('selector'); }}
+              >
+                {t('settings.addProvider')}
+              </Button>
+            </div>
+
+            {/* Config list */}
+            {agentConfigs.length === 0 ? (
+              <div className="py-8 text-center">
+                <Bot size={32} className="mx-auto mb-3 text-text-tertiary" />
+                <p className="text-sm font-medium text-text-secondary">{t('settings.noProviders')}</p>
+                <p className="mt-1 text-xs text-text-tertiary">{t('settings.noProvidersDesc')}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {agentConfigs.map((cfg) => (
+                  <div
+                    key={cfg.id}
+                    className="flex items-center justify-between rounded-lg border border-border bg-surface-2 p-4 transition-colors hover:bg-surface-3/50"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {cfg.isDefault && (
+                        <Star size={14} className="shrink-0 fill-warning text-warning" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-text-primary truncate">{cfg.name}</p>
+                          <Badge variant="default" className="text-[10px] shrink-0">
+                            {PROVIDER_LABELS[cfg.provider] ?? cfg.provider}
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 text-xs text-text-tertiary truncate">
+                          {cfg.model}
+                          {cfg.baseUrl ? ` · ${cfg.baseUrl}` : ''}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0 ml-3">
+                      {!cfg.isDefault && (
+                        <button
+                          onClick={() => handleSetDefault(cfg.id)}
+                          className="rounded p-1.5 text-text-tertiary hover:text-warning hover:bg-warning/10 transition-colors cursor-pointer"
+                          aria-label={t('settings.setDefault')}
+                          title={t('settings.setDefault')}
+                        >
+                          <Star size={14} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setEditingConfig(cfg); setProviderView('form'); }}
+                        className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                        aria-label={t('common.edit')}
+                        title={t('common.edit')}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(cfg)}
+                        className="rounded p-1.5 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                        aria-label={t('common.delete')}
+                        title={t('common.delete')}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+      )}
+
+      {/* Delete confirm dialog */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteAgent}
+        title={t('settings.deleteProvider')}
+        message={t('settings.deleteProviderConfirm')}
+        confirmText={t('common.delete')}
+        variant="danger"
+        loading={deleteLoading}
+      />
+
+      {/* ── Tab: Index ─────────────────────────────────────────────── */}
+      {activeTab === 'index' && (
       <Section icon={<Database size={20} />} title={t('settings.indexSection')} delay={0.05}>
         {/* Stats grid */}
         <div className="mb-5 grid grid-cols-3 gap-3">
@@ -438,8 +693,10 @@ export function SettingsPage() {
           </Button>
         </div>
       </Section>
+      )}
 
-      {/* ── Section 2: 隐私配置 ──────────────────────────────────────── */}
+      {/* ── Tab: Privacy ───────────────────────────────────────────── */}
+      {activeTab === 'privacy' && (
       <Section icon={<Shield size={20} />} title={t('settings.privacySection')} delay={0.1}>
         {privacyConfig && (
           <div className="space-y-6">
@@ -576,8 +833,10 @@ export function SettingsPage() {
           </div>
         )}
       </Section>
+      )}
 
-      {/* ── Section 3: Language ──────────────────────────────────────── */}
+      {/* ── Tab: Language ──────────────────────────────────────────── */}
+      {activeTab === 'language' && (
       <Section icon={<Languages size={20} />} title={t('settings.languageSection')} delay={0.15}>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
           {availableLocales.map((l) => (
@@ -595,6 +854,7 @@ export function SettingsPage() {
           ))}
         </div>
       </Section>
+      )}
     </div>
   );
 }

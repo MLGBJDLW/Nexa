@@ -43,11 +43,6 @@ impl Database {
         self.conn.lock().expect("Database mutex poisoned")
     }
 
-    /// Returns the on-disk path, if any.
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
     fn configure_connection(conn: &Connection) -> Result<(), CoreError> {
         // Use prepare + query for each PRAGMA individually.
         // Some PRAGMAs return result rows (journal_mode, journal_size_limit)

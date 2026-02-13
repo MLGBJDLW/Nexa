@@ -322,6 +322,7 @@ fn rebuild_embeddings_tfidf(db: &Database) -> Result<EmbedResult, CoreError> {
 ///
 /// Much faster than calling `insert_document` per file, as SQLite transactions
 /// are expensive per-call. Returns the number of documents inserted.
+// TODO: integrate — batch ingestion optimization, currently inserting one-at-a-time
 pub fn batch_insert_documents(
     db: &Database,
     source_id: &str,
@@ -490,6 +491,19 @@ impl Database {
             params![source_id],
         )?;
         Ok(count)
+    }
+
+    /// Delete a document (and its chunks via CASCADE) by file path.
+    ///
+    /// Returns `true` if a document was found and deleted, `false` if no
+    /// document matched the given path.
+    pub fn delete_document_by_path(&self, file_path: &str) -> Result<bool, CoreError> {
+        let conn = self.conn();
+        let deleted = conn.execute(
+            "DELETE FROM documents WHERE path = ?1",
+            params![file_path],
+        )?;
+        Ok(deleted > 0)
     }
 }
 

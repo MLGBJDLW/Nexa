@@ -396,6 +396,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
 /// min-heap to maintain top-k results without loading all embeddings at once.
 ///
 /// Returns `(chunk_id, cosine_similarity)` pairs sorted by similarity DESC.
+// TODO: integrate — batched vector search, more scalable than vector_search()
 pub fn vector_search_top_k(
     db: &Database,
     query_vec: &[f32],
@@ -597,6 +598,10 @@ fn file_type_to_mime(ft: &FileType) -> String {
         FileType::Markdown => "text/markdown".to_string(),
         FileType::PlainText => "text/plain".to_string(),
         FileType::Log => "text/x-log".to_string(),
+        FileType::Pdf => "application/pdf".to_string(),
+        FileType::Docx => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+        FileType::Excel => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
+        FileType::Pptx => "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string(),
     }
 }
 

@@ -7,6 +7,7 @@ import {
   Clock,
   Filter,
   X,
+  BotMessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
@@ -20,12 +21,14 @@ import type {
 } from '../types';
 import type { FileType } from '../types/document';
 import { EvidenceCardComponent } from '../components/EvidenceCard';
+import { ChatPanel } from '../components/chat/ChatPanel';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { CardSkeleton } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
+import { Tooltip } from '../components/ui/Tooltip';
 import { useTranslation } from '../i18n';
 
 /* ------------------------------------------------------------------ */
@@ -74,7 +77,16 @@ export function SearchPage() {
   // ── Refs ─────────────────────────────────────────────────────────────
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ── Auto-focus + Ctrl+K shortcut ─────────────────────────────────────
+  // ── Chat panel state ────────────────────────────────────────────────
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInitialMessage, setChatInitialMessage] = useState<string>('');
+
+  const openChatWithMessage = useCallback((message: string) => {
+    setChatInitialMessage(message);
+    setChatOpen(true);
+  }, []);
+
+  // ── Auto-focus + Ctrl+K shortcut + Ctrl+Shift+A chat toggle ──────
   useEffect(() => {
     inputRef.current?.focus();
 
@@ -83,6 +95,10 @@ export function SearchPage() {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        setChatOpen((prev) => !prev);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
@@ -248,7 +264,10 @@ export function SearchPage() {
 
   // ── Render ───────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    <div className="flex h-full">
+      {/* ── Main search area ── */}
+      <div className={`flex-1 transition-all duration-300 ${chatOpen ? 'mr-[420px]' : ''}`}>
+        <div className="mx-auto max-w-3xl px-6 py-8">
       {/* ── Header ── */}
       <div className="mb-8">
         <h1 className="mb-1.5 text-lg font-semibold text-text-primary">{t('nav.search')}</h1>
@@ -280,6 +299,20 @@ export function SearchPage() {
           >
             {t('nav.search')}
           </Button>
+          <Tooltip content={`${t('chat.askAi')} (Ctrl+Shift+A)`}>
+            <Button
+              variant="ghost"
+              size="lg"
+              icon={<BotMessageSquare size={16} />}
+              onClick={() => {
+                const msg = query.trim() || '';
+                openChatWithMessage(msg);
+              }}
+              className="shrink-0"
+            >
+              {t('chat.askAi')}
+            </Button>
+          </Tooltip>
         </div>
       </div>
 
@@ -289,6 +322,7 @@ export function SearchPage() {
         <div className="inline-flex rounded-full border border-border bg-surface-1 p-0.5">
           <button
             onClick={() => setSearchMode('fts')}
+            aria-pressed={searchMode === 'fts'}
             className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-fast ${
               searchMode === 'fts'
                 ? 'bg-accent text-white shadow-sm'
@@ -299,6 +333,7 @@ export function SearchPage() {
           </button>
           <button
             onClick={() => setSearchMode('hybrid')}
+            aria-pressed={searchMode === 'hybrid'}
             className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-fast ${
               searchMode === 'hybrid'
                 ? 'bg-accent text-white shadow-sm'
@@ -444,7 +479,7 @@ export function SearchPage() {
               )}
             </div>
             <span className="text-[11px] text-text-tertiary">
-              {result.searchTimeMs}ms
+              {result.searchTimeMs} {t('search.ms')}
             </span>
           </div>
 
@@ -497,6 +532,7 @@ export function SearchPage() {
                         feedbackMap[card.chunkId]?.action === 'downvote',
                       pinned: feedbackMap[card.chunkId]?.action === 'pin',
                     }}
+                    onAskAbout={openChatWithMessage}
                   />
 
                   {/* Save-to-playbook action */}
@@ -685,6 +721,26 @@ export function SearchPage() {
           </div>
         )}
       </Modal>
+        </div>
+      </div>
+
+      {/* ── Sliding chat panel ── */}
+      <AnimatePresence>
+        {chatOpen && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed right-0 top-0 h-full w-[420px] bg-surface-1 border-l border-border shadow-lg z-30"
+          >
+            <ChatPanel
+              initialMessage={chatInitialMessage}
+              onClose={() => setChatOpen(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

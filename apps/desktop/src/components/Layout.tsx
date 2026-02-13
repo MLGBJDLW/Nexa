@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, Settings, Brain, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, MessageCircle, Settings, Brain, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Toaster } from 'sonner';
 import { useTranslation } from '../i18n';
 import type { TranslationKey } from '../i18n';
@@ -12,6 +12,7 @@ const navItems: { to: string; labelKey: TranslationKey; icon: typeof Search }[] 
   { to: '/', labelKey: 'nav.search', icon: Search },
   { to: '/sources', labelKey: 'nav.sources', icon: FolderOpen },
   { to: '/playbooks', labelKey: 'nav.playbooks', icon: BookOpen },
+  { to: '/chat', labelKey: 'nav.chat', icon: MessageCircle },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 

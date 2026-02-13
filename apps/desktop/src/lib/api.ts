@@ -14,6 +14,12 @@ import type {
 } from "../types";
 import type { PrivacyConfig } from "../types/privacy";
 import type { EmbedderConfig } from "../types/embedder";
+import type {
+  AgentConfig,
+  SaveAgentConfigInput,
+  Conversation,
+  ConversationMessage,
+} from "../types/conversation";
 
 // ── Sources ─────────────────────────────────────────────────────────────
 
@@ -185,3 +191,43 @@ export const stopWatching = (sourceId: string) =>
 
 export const getWatcherStatus = () =>
   invoke<WatchedSourceInfo[]>('get_watcher_status');
+
+// ── Agent Config ────────────────────────────────────────────────────────
+
+export const listAgentConfigs = () => invoke<AgentConfig[]>('list_agent_configs_cmd');
+
+export const saveAgentConfig = (config: SaveAgentConfigInput) =>
+  invoke<AgentConfig>('save_agent_config_cmd', { config });
+
+export const deleteAgentConfig = (id: string) =>
+  invoke<void>('delete_agent_config_cmd', { id });
+
+export const setDefaultAgentConfig = (id: string) =>
+  invoke<void>('set_default_agent_config_cmd', { id });
+
+export const testAgentConnection = (config: SaveAgentConfigInput) =>
+  invoke<string[]>('test_agent_connection_cmd', { config });
+
+// ── Conversations ───────────────────────────────────────────────────────
+
+export const createConversation = (provider: string, model: string, systemPrompt?: string) =>
+  invoke<Conversation>('create_conversation_cmd', { provider, model, systemPrompt });
+
+export const listConversations = () => invoke<Conversation[]>('list_conversations_cmd');
+
+export const getConversation = (id: string) =>
+  invoke<[Conversation, ConversationMessage[]]>('get_conversation_cmd', { id });
+
+export const deleteConversation = (id: string) =>
+  invoke<void>('delete_conversation_cmd', { id });
+
+export const renameConversation = (id: string, title: string) =>
+  invoke<void>('rename_conversation_cmd', { id, title });
+
+// ── Agent Chat ──────────────────────────────────────────────────────────
+
+export const agentChat = (conversationId: string, message: string) =>
+  invoke<void>('agent_chat_cmd', { conversationId, message });
+
+export const agentStop = (conversationId: string) =>
+  invoke<void>('agent_stop_cmd', { conversationId });

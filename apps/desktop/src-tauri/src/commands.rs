@@ -1,14 +1,20 @@
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use ask_core::agent::{AgentConfig as ExecutorConfig, AgentEvent, AgentExecutor};
+use ask_core::conversation::{
+    AgentConfig as DbAgentConfig, Conversation, ConversationMessage,
+    CreateConversationInput, SaveAgentConfigInput,
+};
 use ask_core::db::Database;
 use ask_core::embed::EmbedderConfig;
 use ask_core::feedback::{Feedback, FeedbackAction};
 use ask_core::index::IndexStats;
 use ask_core::ingest::{self, EmbedResult, IngestResult};
+use ask_core::llm::{create_provider, Message, ProviderConfig, ProviderType, Role};
 use ask_core::models::{
     EvidenceCard, Playbook, PlaybookCitation, SearchFilters, SearchQuery, Source,
 };
@@ -16,14 +22,23 @@ use ask_core::playbook::QueryLog;
 use ask_core::privacy::PrivacyConfig;
 use ask_core::search::{self, SearchResult};
 use ask_core::sources::{CreateSourceInput, UpdateSourceInput};
-use ask_core::watcher::FileWatcher;
+use ask_core::tools::default_tool_registry;
+use ask_core::watcher::{FileWatcher, WatcherEventKind};
 use log::{info, warn};
 use serde::Serialize;
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::Mutex as TokioMutex;
+use uuid::Uuid;
 
 /// Application state holding the database connection.
 pub struct AppState {
-    pub db: Database,
+    pub db: Arc<Database>,
+}
+
+/// State for tracking running agent tasks (for cancellation).
+pub struct AgentState {
+    /// Map of conversation_id → running agent task handle.
+    pub running: TokioMutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 /// State for the file watcher.
@@ -90,7 +105,8 @@ pub fn init_watcher(
     thread::spawn(move || {
         // Debounce: collect events for 2 seconds before acting.
         let debounce = Duration::from_secs(2);
-        let mut pending: HashMap<String, Instant> = HashMap::new(); // source_id → last event time
+        // source_id → (last_event_time, paths_removed)
+        let mut pending: HashMap<String, (Instant, HashSet<PathBuf>)> = HashMap::new();
 
         loop {
             match rx.recv_timeout(Duration::from_millis(500)) {
@@ -107,7 +123,13 @@ pub fn init_watcher(
                     if let Some(sid) = matched {
                         let sid = sid.clone();
                         drop(watched);
-                        pending.insert(sid, Instant::now());
+                        let entry = pending
+                            .entry(sid)
+                            .or_insert_with(|| (Instant::now(), HashSet::new()));
+                        entry.0 = Instant::now();
+                        if event.kind == WatcherEventKind::Removed {
+                            entry.1.insert(event.path.clone());
+                        }
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -123,16 +145,28 @@ pub fn init_watcher(
             let now = Instant::now();
             let ready: Vec<String> = pending
                 .iter()
-                .filter(|(_, ts)| now.duration_since(**ts) >= debounce)
+                .filter(|(_, (ts, _))| now.duration_since(*ts) >= debounce)
                 .map(|(sid, _)| sid.clone())
                 .collect();
 
             for source_id in ready {
-                pending.remove(&source_id);
+                let (_ts, removed_paths) = pending.remove(&source_id).unwrap();
                 let app_state = match handle.try_state::<AppState>() {
                     Some(s) => s,
                     None => continue,
                 };
+
+                // Handle removed files: delete their documents from the DB.
+                for removed in &removed_paths {
+                    let path_str = removed.to_string_lossy();
+                    match app_state.db.delete_document_by_path(&path_str) {
+                        Ok(true) => info!("Removed document for deleted file: {path_str}"),
+                        Ok(false) => { /* file wasn't indexed, nothing to do */ }
+                        Err(e) => warn!("Failed to remove document for {path_str}: {e}"),
+                    }
+                }
+
+                // Re-scan the source to pick up created/modified files.
                 info!("Auto-scanning source {source_id} due to file changes");
                 match ingest::scan_source(&app_state.db, &source_id) {
                     Ok(result) => {
@@ -141,6 +175,7 @@ pub fn init_watcher(
                             "filesScanned": result.files_scanned,
                             "filesAdded": result.files_added,
                             "filesUpdated": result.files_updated,
+                            "filesRemoved": removed_paths.len(),
                         });
                         let _ = handle.emit("file-changed", payload);
                     }
@@ -706,4 +741,305 @@ pub fn get_watcher_status(
             root_path: path.clone(),
         })
         .collect())
+}
+
+// ── Agent Helpers ───────────────────────────────────────────────────────
+
+/// Map a provider string from the DB to a [`ProviderType`] enum variant.
+fn parse_provider_type(s: &str) -> ProviderType {
+    match s.to_lowercase().as_str() {
+        "openai" | "open_ai" => ProviderType::OpenAi,
+        "anthropic" => ProviderType::Anthropic,
+        "google" | "gemini" => ProviderType::Google,
+        "deepseek" | "deep_seek" => ProviderType::DeepSeek,
+        "ollama" => ProviderType::Ollama,
+        "lmstudio" | "lm_studio" => ProviderType::LmStudio,
+        "azure" | "azure_openai" | "azure_open_ai" | "azureopenai" => ProviderType::AzureOpenAi,
+        _ => ProviderType::Custom,
+    }
+}
+
+/// Convert a DB [`DbAgentConfig`] to a [`ProviderConfig`] suitable for
+/// [`create_provider`].
+fn db_config_to_provider_config(config: &DbAgentConfig) -> ProviderConfig {
+    ProviderConfig {
+        provider_type: parse_provider_type(&config.provider),
+        api_key: Some(config.api_key.clone()),
+        base_url: config.base_url.clone(),
+        org_id: None,
+    }
+}
+
+/// Convert a DB [`ConversationMessage`] to an LLM [`Message`].
+fn conv_message_to_llm(msg: &ConversationMessage) -> Message {
+    Message {
+        role: msg.role.clone(),
+        content: msg.content.clone(),
+        name: msg.tool_call_id.clone(),
+        tool_calls: if msg.tool_calls.is_empty() {
+            None
+        } else {
+            Some(msg.tool_calls.clone())
+        },
+    }
+}
+
+// ── Conversation Commands ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn create_conversation_cmd(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+    model: String,
+    system_prompt: Option<String>,
+) -> Result<Conversation, String> {
+    let input = CreateConversationInput {
+        provider,
+        model,
+        system_prompt,
+    };
+    state
+        .db
+        .create_conversation(&input)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_conversations_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Conversation>, String> {
+    state.db.list_conversations().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_conversation_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(Conversation, Vec<ConversationMessage>), String> {
+    let conv = state.db.get_conversation(&id).map_err(|e| e.to_string())?;
+    let msgs = state.db.get_messages(&id).map_err(|e| e.to_string())?;
+    Ok((conv, msgs))
+}
+
+#[tauri::command]
+pub async fn delete_conversation_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .delete_conversation(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rename_conversation_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    title: String,
+) -> Result<(), String> {
+    state
+        .db
+        .update_conversation_title(&id, &title)
+        .map_err(|e| e.to_string())
+}
+
+// ── Agent Config Commands ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_agent_configs_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<DbAgentConfig>, String> {
+    state.db.list_agent_configs().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_agent_config_cmd(
+    state: tauri::State<'_, AppState>,
+    config: SaveAgentConfigInput,
+) -> Result<DbAgentConfig, String> {
+    state
+        .db
+        .save_agent_config(&config)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_agent_config_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .delete_agent_config(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_default_agent_config_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .set_default_agent_config(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn test_agent_connection_cmd(
+    config: SaveAgentConfigInput,
+) -> Result<Vec<String>, String> {
+    let provider_config = ProviderConfig {
+        provider_type: parse_provider_type(&config.provider),
+        api_key: Some(config.api_key.clone()),
+        base_url: config.base_url.clone(),
+        org_id: None,
+    };
+    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+    provider
+        .health_check()
+        .await
+        .map_err(|e| e.to_string())?;
+    let models = provider
+        .list_models()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(models)
+}
+
+// ── Agent Chat Command (streaming) ──────────────────────────────────────
+
+#[tauri::command]
+pub async fn agent_chat_cmd(
+    state: tauri::State<'_, AppState>,
+    agent_state: tauri::State<'_, AgentState>,
+    app_handle: AppHandle,
+    conversation_id: String,
+    message: String,
+) -> Result<(), String> {
+    // 1. Get default agent config from DB.
+    let db_config = state
+        .db
+        .get_default_agent_config()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No default agent config set. Please configure an LLM provider first.".to_string())?;
+
+    // 2. Create LLM provider.
+    let provider_config = db_config_to_provider_config(&db_config);
+    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+
+    // 3. Load conversation history and convert to LLM messages.
+    let existing_msgs = state
+        .db
+        .get_messages(&conversation_id)
+        .map_err(|e| e.to_string())?;
+    let history: Vec<Message> = existing_msgs.iter().map(conv_message_to_llm).collect();
+    let next_sort_order = existing_msgs.len() as i64;
+
+    // 4. Save user message to DB.
+    let user_msg = ConversationMessage {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: conversation_id.clone(),
+        role: Role::User,
+        content: message.clone(),
+        tool_call_id: None,
+        tool_calls: vec![],
+        token_count: (message.len() / 4) as u32,
+        created_at: String::new(),
+        sort_order: next_sort_order,
+    };
+    state
+        .db
+        .add_message(&user_msg)
+        .map_err(|e| e.to_string())?;
+
+    // 5. Build executor config from DB config.
+    let executor_config = ExecutorConfig {
+        max_iterations: 10,
+        system_prompt: ExecutorConfig::default().system_prompt,
+        model: Some(db_config.model.clone()),
+        temperature: db_config.temperature.map(|t| t as f32),
+        max_tokens: db_config.max_tokens.map(|t| t as u32),
+        context_window: db_config.context_window.map(|w| w as u32),
+    };
+
+    // 6. Create tool registry.
+    let tools = default_tool_registry();
+
+    // 7. Spawn the agent loop in a background task.
+    let db = state.db.clone();
+    let conv_id = conversation_id.clone();
+    let handle = app_handle.clone();
+    let assistant_sort_order = next_sort_order + 1;
+
+    let task = tokio::spawn(async move {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
+
+        // Forward events to the frontend in a separate task.
+        let event_handle = handle.clone();
+        let event_forwarder = tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                let _ = event_handle.emit("agent:event", &event);
+            }
+        });
+
+        // Run the agent.
+        let executor = AgentExecutor::new(provider, tools, executor_config);
+        let result = executor.run(history, message, &db, tx).await;
+
+        // Wait for event forwarder to finish.
+        let _ = event_forwarder.await;
+
+        // Save assistant message to DB.
+        match result {
+            Ok(assistant_msg) => {
+                let conv_msg = ConversationMessage {
+                    id: Uuid::new_v4().to_string(),
+                    conversation_id: conv_id,
+                    role: Role::Assistant,
+                    content: assistant_msg.content.clone(),
+                    tool_call_id: None,
+                    tool_calls: assistant_msg
+                        .tool_calls
+                        .unwrap_or_default(),
+                    token_count: (assistant_msg.content.len() / 4) as u32,
+                    created_at: String::new(),
+                    sort_order: assistant_sort_order,
+                };
+                if let Err(e) = db.add_message(&conv_msg) {
+                    warn!("Failed to save assistant message: {e}");
+                }
+            }
+            Err(e) => {
+                warn!("Agent execution failed for conversation {conv_id}: {e}");
+            }
+        }
+    });
+
+    // 8. Track the running task for potential cancellation.
+    {
+        let mut running = agent_state.running.lock().await;
+        // Cancel any existing task for this conversation.
+        if let Some(prev) = running.remove(&conversation_id) {
+            prev.abort();
+        }
+        running.insert(conversation_id, task);
+    }
+
+    Ok(())
+}
+
+// ── Agent Stop Command ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn agent_stop_cmd(
+    agent_state: tauri::State<'_, AgentState>,
+    conversation_id: String,
+) -> Result<(), String> {
+    let mut running = agent_state.running.lock().await;
+    if let Some(task) = running.remove(&conversation_id) {
+        task.abort();
+    }
+    Ok(())
 }

@@ -51,14 +51,6 @@ impl FeedbackAction {
         }
     }
 
-    fn score(&self) -> f32 {
-        match self {
-            Self::Upvote => 1.0,
-            Self::Downvote => -1.0,
-            Self::Pin => 2.0,
-        }
-    }
-
     /// Per-event search boost adjustment.
     ///
     /// Upvote → +0.15, Downvote → −0.15, Pin → +0.25.
@@ -122,6 +114,7 @@ impl Database {
     }
 
     /// Get all feedback entries for a specific chunk.
+    // TODO: integrate — per-chunk feedback query, not yet exposed in UI
     pub fn get_feedback_for_chunk(
         &self,
         chunk_id: &str,
@@ -154,21 +147,6 @@ impl Database {
             )));
         }
         Ok(())
-    }
-
-    /// Compute aggregate feedback scores per chunk for a given query.
-    ///
-    /// Returns `chunk_id → score` where upvote = +1, downvote = −1, pin = +2.
-    pub fn get_feedback_scores(
-        &self,
-        query_text: &str,
-    ) -> Result<HashMap<String, f32>, CoreError> {
-        let feedbacks = self.get_feedback_for_query(query_text)?;
-        let mut scores: HashMap<String, f32> = HashMap::new();
-        for fb in feedbacks {
-            *scores.entry(fb.chunk_id).or_insert(0.0) += fb.action.score();
-        }
-        Ok(scores)
     }
 
     /// Compute per-chunk feedback adjustments for search re-ranking.
@@ -210,23 +188,6 @@ fn row_to_feedback(row: &rusqlite::Row<'_>) -> rusqlite::Result<Feedback> {
         action,
         created_at: row.get(4)?,
     })
-}
-
-/// Apply feedback-based score boosts to search results, then re-sort descending.
-///
-/// For each `(chunk_id, score)` pair, if the chunk has a feedback score the
-/// result score is adjusted by `feedback_score * boost_weight`.
-pub fn apply_feedback_boost(
-    results: &mut Vec<(String, f32)>,
-    feedback_scores: &HashMap<String, f32>,
-    boost_weight: f32,
-) {
-    for (chunk_id, score) in results.iter_mut() {
-        if let Some(&fb_score) = feedback_scores.get(chunk_id.as_str()) {
-            *score += fb_score * boost_weight;
-        }
-    }
-    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -303,69 +264,4 @@ mod tests {
         assert!(err.is_err());
     }
 
-    #[test]
-    fn test_feedback_scores() {
-        let (db, chunk_id) = setup_db_with_chunk();
-
-        db.add_feedback(&chunk_id, "q", FeedbackAction::Upvote).unwrap();
-        db.add_feedback(&chunk_id, "q", FeedbackAction::Pin).unwrap();
-        db.add_feedback(&chunk_id, "q", FeedbackAction::Downvote).unwrap();
-
-        let scores = db.get_feedback_scores("q").unwrap();
-        // +1.0 + 2.0 + (-1.0) = 2.0
-        assert_eq!(scores.get(&chunk_id), Some(&2.0));
-    }
-
-    #[test]
-    fn test_multiple_chunks_aggregate() {
-        let (db, chunk_id_a) = setup_db_with_chunk();
-
-        // Create a second chunk in the same document.
-        let chunk_id_b = uuid::Uuid::new_v4().to_string();
-        {
-            let conn = db.conn();
-            let doc_id: String = conn
-                .query_row("SELECT document_id FROM chunks LIMIT 1", [], |r| r.get(0))
-                .unwrap();
-            conn.execute(
-                "INSERT INTO chunks (id, document_id, chunk_index, kind, content, start_offset, end_offset, line_start, line_end, content_hash)
-                 VALUES (?1, ?2, 1, 'text', 'other content', 12, 25, 2, 2, 'chunkhash2')",
-                params![&chunk_id_b, &doc_id],
-            )
-            .unwrap();
-        }
-
-        db.add_feedback(&chunk_id_a, "q", FeedbackAction::Upvote).unwrap();
-        db.add_feedback(&chunk_id_a, "q", FeedbackAction::Upvote).unwrap();
-        db.add_feedback(&chunk_id_b, "q", FeedbackAction::Downvote).unwrap();
-
-        let scores = db.get_feedback_scores("q").unwrap();
-        assert_eq!(scores.get(&chunk_id_a), Some(&2.0));
-        assert_eq!(scores.get(&chunk_id_b), Some(&-1.0));
-    }
-
-    #[test]
-    fn test_apply_feedback_boost() {
-        let mut results = vec![
-            ("chunk-a".to_string(), 0.5),
-            ("chunk-b".to_string(), 0.8),
-            ("chunk-c".to_string(), 0.3),
-        ];
-        let mut feedback_scores = HashMap::new();
-        feedback_scores.insert("chunk-a".to_string(), 2.0);  // upvote+pin
-        feedback_scores.insert("chunk-c".to_string(), -1.0); // downvote
-
-        apply_feedback_boost(&mut results, &feedback_scores, 0.1);
-
-        // chunk-a: 0.5 + 2.0*0.1 = 0.7
-        // chunk-b: 0.8 (no feedback)
-        // chunk-c: 0.3 + (-1.0)*0.1 = 0.2
-        // Sorted DESC: chunk-b(0.8), chunk-a(0.7), chunk-c(0.2)
-        assert_eq!(results[0].0, "chunk-b");
-        assert!((results[0].1 - 0.8).abs() < 1e-6);
-        assert_eq!(results[1].0, "chunk-a");
-        assert!((results[1].1 - 0.7).abs() < 1e-6);
-        assert_eq!(results[2].0, "chunk-c");
-        assert!((results[2].1 - 0.2).abs() < 1e-6);
-    }
 }

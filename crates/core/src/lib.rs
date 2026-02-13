@@ -1,6 +1,9 @@
+pub mod agent;
+pub mod conversation;
 pub mod db;
 pub mod embed;
 pub mod error;
+pub mod llm;
 pub mod feedback;
 pub mod index;
 pub mod ingest;
@@ -11,4 +14,5 @@ pub mod playbook;
 pub mod privacy;
 pub mod search;
 pub mod sources;
+pub mod tools;
 pub mod watcher;

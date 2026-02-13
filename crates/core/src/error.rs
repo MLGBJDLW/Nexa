@@ -24,4 +24,16 @@ pub enum CoreError {
 
     #[error("Embedding error: {0}")]
     Embedding(String),
+
+    #[error("LLM error: {0}")]
+    Llm(String),
+
+    #[error("LLM rate limited, retry after {retry_after_secs}s")]
+    RateLimited { retry_after_secs: u64 },
+
+    #[error("LLM context window exceeded: {0} tokens > {1} max")]
+    ContextOverflow(u32, u32),
+
+    #[error("Agent error: {0}")]
+    Agent(String),
 }

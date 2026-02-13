@@ -6,8 +6,7 @@ import { Layout } from "./components/Layout";
 import { SearchPage } from "./pages/SearchPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { PlaybooksPage } from "./pages/PlaybooksPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { CommandPalette } from "./components/CommandPalette";
+import { SettingsPage } from "./pages/SettingsPage";import { ChatPage } from './pages/ChatPage';import { CommandPalette } from "./components/CommandPalette";
 
 /* ── Page transition wrapper ─────────────────────────────────────── */
 function PageTransition({ children }: { children: ReactNode }) {
@@ -31,6 +30,8 @@ function App() {
           <Route path="/" element={<PageTransition><SearchPage /></PageTransition>} />
           <Route path="/sources" element={<PageTransition><SourcesPage /></PageTransition>} />
           <Route path="/playbooks" element={<PageTransition><PlaybooksPage /></PageTransition>} />
+          <Route path="/chat" element={<PageTransition><ChatPage /></PageTransition>} />
+          <Route path="/chat/:conversationId" element={<PageTransition><ChatPage /></PageTransition>} />
           <Route path="/settings" element={<PageTransition><SettingsPage /></PageTransition>} />
         </Route>
       </Routes>

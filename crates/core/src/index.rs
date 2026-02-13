@@ -70,6 +70,7 @@ impl Database {
     ///
     /// Returns `true` when the index is consistent with the content
     /// table, `false` otherwise.
+    // TODO: integrate — FTS5 integrity diagnostic, not yet exposed as Tauri command
     pub fn integrity_check(&self) -> Result<bool, CoreError> {
         let conn = self.conn();
         let result = conn.execute(

@@ -2,13 +2,18 @@
 
 mod commands;
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use ask_core::db::Database;
-use commands::AppState;
+use commands::{AgentState, AppState};
 use tauri::Manager;
+use tokio::sync::Mutex as TokioMutex;
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -20,8 +25,12 @@ fn main() {
             let db_path = data_dir.join("ask-myself.db");
             let db =
                 Database::new(&db_path).expect("failed to initialize database");
+            let db = Arc::new(db);
 
-            app.manage(AppState { db });
+            app.manage(AppState { db: db.clone() });
+            app.manage(AgentState {
+                running: TokioMutex::new(HashMap::new()),
+            });
 
             // Initialise the file watcher for auto-indexing.
             let handle = app.handle().clone();
@@ -88,6 +97,21 @@ fn main() {
             commands::start_watching,
             commands::stop_watching,
             commands::get_watcher_status,
+            // Conversations
+            commands::create_conversation_cmd,
+            commands::list_conversations_cmd,
+            commands::get_conversation_cmd,
+            commands::delete_conversation_cmd,
+            commands::rename_conversation_cmd,
+            // Agent configs
+            commands::list_agent_configs_cmd,
+            commands::save_agent_config_cmd,
+            commands::delete_agent_config_cmd,
+            commands::set_default_agent_config_cmd,
+            commands::test_agent_connection_cmd,
+            // Agent chat
+            commands::agent_chat_cmd,
+            commands::agent_stop_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -55,9 +55,18 @@ const MIN_CHUNK_CHARS: usize = 50;
 pub fn parse_file(path: &Path) -> Result<ParsedDocument, CoreError> {
     let mime_type = detect_mime_type(path);
 
-    // PDF files are binary — use a dedicated extractor.
+    // Binary / Office files — use dedicated extractors.
     if mime_type == "application/pdf" {
         return parse_pdf(path);
+    }
+    if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+        return parse_docx(path);
+    }
+    if mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+        return parse_xlsx(path);
+    }
+    if mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation" {
+        return parse_pptx(path);
     }
 
     let content = std::fs::read_to_string(path)?;
@@ -117,6 +126,124 @@ pub fn parse_pdf(path: &Path) -> Result<ParsedDocument, CoreError> {
     })
 }
 
+/// Parse a .docx file by extracting its text content.
+pub fn parse_docx(path: &Path) -> Result<ParsedDocument, CoreError> {
+    use dotext::*;
+    use std::io::Read;
+
+    let bytes = std::fs::read(path)?;
+    let file_size = bytes.len() as i64;
+    let content_hash = blake3::hash(&bytes).to_hex().to_string();
+
+    let mut file = Docx::open(path)
+        .map_err(|e| CoreError::Parse(format!("DOCX open failed for {}: {}", path.display(), e)))?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .map_err(|e| CoreError::Parse(format!("DOCX read failed for {}: {}", path.display(), e)))?;
+
+    let text = text.replace("\r\n", "\n");
+    let chunks = chunk_plaintext(&text);
+
+    Ok(ParsedDocument {
+        file_path: path.to_string_lossy().to_string(),
+        file_name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            .to_string(),
+        file_size,
+        content_hash,
+        chunks,
+    })
+}
+
+/// Parse an Excel file (.xlsx / .xls) by extracting text from all sheets.
+pub fn parse_xlsx(path: &Path) -> Result<ParsedDocument, CoreError> {
+    use calamine::{open_workbook_auto, Data, Reader};
+
+    let bytes = std::fs::read(path)?;
+    let file_size = bytes.len() as i64;
+    let content_hash = blake3::hash(&bytes).to_hex().to_string();
+
+    let mut wb = open_workbook_auto(path)
+        .map_err(|e| CoreError::Parse(format!("Excel open failed for {}: {}", path.display(), e)))?;
+
+    let sheet_names = wb.sheet_names().to_vec();
+    let mut all_text = String::new();
+
+    for name in &sheet_names {
+        if let Ok(range) = wb.worksheet_range(name) {
+            all_text.push_str(&format!("Sheet: {}\n", name));
+            for row in range.rows() {
+                let cells: Vec<String> = row
+                    .iter()
+                    .map(|cell| match cell {
+                        Data::Empty => String::new(),
+                        Data::String(s) => s.clone(),
+                        Data::Float(f) => f.to_string(),
+                        Data::Int(i) => i.to_string(),
+                        Data::Bool(b) => b.to_string(),
+                        Data::Error(e) => format!("#ERR:{:?}", e),
+                        Data::DateTime(dt) => dt.to_string(),
+                        Data::DateTimeIso(s) => s.clone(),
+                        Data::DurationIso(s) => s.clone(),
+                    })
+                    .collect();
+                all_text.push_str(&cells.join("\t"));
+                all_text.push('\n');
+            }
+            all_text.push('\n');
+        }
+    }
+
+    let chunks = chunk_plaintext(&all_text);
+
+    Ok(ParsedDocument {
+        file_path: path.to_string_lossy().to_string(),
+        file_name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
+        file_size,
+        content_hash,
+        chunks,
+    })
+}
+
+/// Parse a .pptx file by extracting its text content.
+pub fn parse_pptx(path: &Path) -> Result<ParsedDocument, CoreError> {
+    use dotext::*;
+    use std::io::Read;
+
+    let bytes = std::fs::read(path)?;
+    let file_size = bytes.len() as i64;
+    let content_hash = blake3::hash(&bytes).to_hex().to_string();
+
+    let mut file = Pptx::open(path)
+        .map_err(|e| CoreError::Parse(format!("PPTX open failed for {}: {}", path.display(), e)))?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .map_err(|e| CoreError::Parse(format!("PPTX read failed for {}: {}", path.display(), e)))?;
+
+    let text = text.replace("\r\n", "\n");
+    let chunks = chunk_plaintext(&text);
+
+    Ok(ParsedDocument {
+        file_path: path.to_string_lossy().to_string(),
+        file_name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        mime_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            .to_string(),
+        file_size,
+        content_hash,
+        chunks,
+    })
+}
+
 /// Detect MIME type from file extension.
 pub fn detect_mime_type(path: &Path) -> String {
     match path
@@ -129,6 +256,9 @@ pub fn detect_mime_type(path: &Path) -> String {
         Some("txt") => "text/plain".to_string(),
         Some("log") => "text/x-log".to_string(),
         Some("pdf") => "application/pdf".to_string(),
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
+        Some("xlsx" | "xls") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string(),
         _ => "application/octet-stream".to_string(),
     }
 }

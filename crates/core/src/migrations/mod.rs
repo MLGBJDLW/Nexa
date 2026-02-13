@@ -13,6 +13,8 @@ const V003_PLAYBOOKS: &str = include_str!("v003_playbooks.sql");
 const V004_EMBEDDINGS_FEEDBACK: &str = include_str!("v004_embeddings_feedback.sql");
 const V005_PRIVACY_CONFIG: &str = include_str!("v005_privacy_config.sql");
 const V006_EMBEDDER_CONFIG: &str = include_str!("v006_embedder_config.sql");
+const V007_CONVERSATIONS: &str = include_str!("v007_conversations.sql");
+const V008_AGENT_CONFIG_CONTEXT_WINDOW: &str = include_str!("v008_agent_config_context_window.sql");
 
 /// Ordered list of migrations to apply.
 const MIGRATIONS: &[(&str, &str)] = &[
@@ -22,6 +24,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("v004_embeddings_feedback", V004_EMBEDDINGS_FEEDBACK),
     ("v005_privacy_config", V005_PRIVACY_CONFIG),
     ("v006_embedder_config", V006_EMBEDDER_CONFIG),
+    ("v007_conversations", V007_CONVERSATIONS),
+    ("v008_agent_config_context_window", V008_AGENT_CONFIG_CONTEXT_WINDOW),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

@@ -11,3 +11,12 @@ export type { Feedback } from "./feedback";
 export type { EmbedResult } from "./embed";
 export type { PrivacyConfig, RedactRule } from "./privacy";
 export type { EmbedderConfig } from "./embedder";
+export type {
+  Conversation,
+  ConversationMessage,
+  ToolCallRequest,
+  AgentConfig,
+  SaveAgentConfigInput,
+  ProviderType,
+  AgentEvent,
+} from "./conversation";

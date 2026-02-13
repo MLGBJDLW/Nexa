@@ -55,6 +55,7 @@ export interface TranslationKeys {
   'search.log': string;
   'search.pdf': string;
   'search.optional': string;
+  'search.ms': string;
 
   // Evidence Card
   'card.relevance': string;
@@ -225,6 +226,83 @@ export interface TranslationKeys {
   'cmd.rebuildComplete': string;
   'cmd.rebuildError': string;
 
+  // Chat
+  'nav.chat': string;
+  'chat.title': string;
+  'chat.newChat': string;
+  'chat.send': string;
+  'chat.placeholder': string;
+  'chat.noConversations': string;
+  'chat.noConversationsDesc': string;
+  'chat.deleteConfirm': string;
+  'chat.deleteConfirmDesc': string;
+  'chat.toolRunning': string;
+  'chat.toolDone': string;
+  'chat.toolError': string;
+  'chat.thinking': string;
+  'chat.stop': string;
+  'chat.retry': string;
+  'chat.copyMessage': string;
+  'chat.noProvider': string;
+  'chat.noProviderDesc': string;
+  'chat.configureProvider': string;
+  'chat.askAi': string;
+  'chat.askAboutThis': string;
+  'chat.aiAssistant': string;
+  'chat.closePanel': string;
+  'chat.newChatShort': string;
+  'chat.loadError': string;
+  'chat.deleteError': string;
+  'chat.renameError': string;
+  'chat.createError': string;
+  'chat.newConversation': string;
+  'chat.askAboutPrompt': string;
+
+  // Time
+  'time.justNow': string;
+  'time.minuteShort': string;
+  'time.hourShort': string;
+  'time.dayShort': string;
+  'time.monthShort': string;
+
+  // Settings - AI Providers
+  'settings.aiProviders': string;
+  'settings.addProvider': string;
+  'settings.editProvider': string;
+  'settings.providerName': string;
+  'settings.providerType': string;
+  'settings.apiKey': string;
+  'settings.baseUrl': string;
+  'settings.defaultModel': string;
+  'settings.temperature': string;
+  'settings.maxTokens': string;
+  'settings.testConnection': string;
+  'settings.connectionSuccess': string;
+  'settings.connectionFailed': string;
+  'settings.setDefault': string;
+  'settings.isDefault': string;
+  'settings.deleteProvider': string;
+  'settings.deleteProviderConfirm': string;
+  'settings.modelsFound': string;
+  'settings.noProviders': string;
+  'settings.noProvidersDesc': string;
+  'settings.providerSaved': string;
+  'settings.providerDeleted': string;
+  'settings.defaultSet': string;
+  'settings.testing': string;
+  'settings.selectProvider': string;
+  'settings.customProvider': string;
+  'settings.customProviderDesc': string;
+  'settings.useCustomModel': string;
+  'settings.usePresetModels': string;
+  'settings.advancedSettings': string;
+  'settings.quickSetup': string;
+  'settings.contextWindow': string;
+  'settings.contextWindowPlaceholder': string;
+  'settings.contextWindowHelp': string;
+  'settings.hideKey': string;
+  'settings.showKey': string;
+
   // Common
   'common.save': string;
   'common.cancel': string;
@@ -238,6 +316,8 @@ export interface TranslationKeys {
   'common.add': string;
   'common.create': string;
   'common.remove': string;
+  'common.collapse': string;
+  'common.expand': string;
 }
 
 export type TranslationKey = keyof TranslationKeys;

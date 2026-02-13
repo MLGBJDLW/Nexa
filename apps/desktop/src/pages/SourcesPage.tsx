@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   FolderOpen,
   FolderPlus,
+  FolderSearch,
   File,
   Globe,
   ScanSearch,
@@ -16,12 +17,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../lib/api';
 import type { Source, IngestResult, EmbedResult } from '../types';
 import { useTranslation } from '../i18n';
 import type { TranslationKeys } from '../i18n/types';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { TagInput, parseTags } from '../components/ui/TagInput';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { CardSkeleton } from '../components/ui/Skeleton';
@@ -199,14 +202,8 @@ export function SourcesPage() {
     if (!formPath.trim()) return;
     setAdding(true);
     try {
-      const includeGlobs = formInclude
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const excludeGlobs = formExclude
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const includeGlobs = parseTags(formInclude);
+      const excludeGlobs = parseTags(formExclude);
       await api.addSource(formPath.trim(), includeGlobs, excludeGlobs);
       toast.success(t('sources.added'));
       resetForm();
@@ -249,14 +246,8 @@ export function SourcesPage() {
     if (!editTarget) return;
     setEditing(true);
     try {
-      const includeGlobs = editInclude
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const excludeGlobs = editExclude
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const includeGlobs = parseTags(editInclude);
+      const excludeGlobs = parseTags(editExclude);
       await api.updateSource(editTarget.id, includeGlobs, excludeGlobs, editWatch);
       toast.success(t('sources.updated'));
       setEditTarget(null);
@@ -544,31 +535,75 @@ export function SourcesPage() {
           {/* Root path */}
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.rootPath')}</label>
-            <Input
-              value={formPath}
-              onChange={(e) => setFormPath(e.target.value)}
-              placeholder="C:\Users\you\notes  /  /home/user/notes"
-              icon={<FolderOpen size={15} />}
-            />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Input
+                  value={formPath}
+                  onChange={(e) => setFormPath(e.target.value)}
+                  placeholder={formKind === 'web' ? 'https://example.com' : 'C:\\Users\\you\\notes  /  /home/user/notes'}
+                  icon={formKind === 'web' ? <Globe size={15} /> : <FolderOpen size={15} />}
+                />
+              </div>
+              {formKind !== 'web' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 h-10"
+                  onClick={async () => {
+                    const selected = await open({
+                      directory: formKind === 'local_folder',
+                      multiple: false,
+                      title: t('sources.addModal.rootPath'),
+                    });
+                    if (selected) {
+                      setFormPath(typeof selected === 'string' ? selected : selected[0]);
+                    }
+                  }}
+                >
+                  <FolderSearch size={15} className="mr-1" />
+                  Browse
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Include globs */}
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.includeGlobs')}</label>
-            <Input
+            <TagInput
               value={formInclude}
-              onChange={(e) => setFormInclude(e.target.value)}
-              placeholder="**/*.md, **/*.txt"
+              onChange={setFormInclude}
+              presets={[
+                { label: 'Markdown', value: '**/*.md' },
+                { label: 'Text', value: '**/*.txt' },
+                { label: 'HTML', value: '**/*.html' },
+                { label: 'Word', value: '**/*.docx' },
+                { label: 'Excel', value: '**/*.{xlsx,xls}' },
+                { label: 'PowerPoint', value: '**/*.pptx' },
+                { label: 'PDF', value: '**/*.pdf' },
+                { label: 'JSON', value: '**/*.json' },
+                { label: 'YAML', value: '**/*.{yml,yaml}' },
+                { label: 'Code', value: '**/*.{ts,js,py,rs}' },
+              ]}
+              placeholder="Add glob pattern..."
             />
           </div>
 
           {/* Exclude globs */}
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.excludeGlobs')}</label>
-            <Input
+            <TagInput
               value={formExclude}
-              onChange={(e) => setFormExclude(e.target.value)}
-              placeholder="**/node_modules/**, **/.git/**"
+              onChange={setFormExclude}
+              presets={[
+                { label: 'node_modules', value: '**/node_modules/**' },
+                { label: '.git', value: '**/.git/**' },
+                { label: '.obsidian', value: '**/.obsidian/**' },
+                { label: 'dist', value: '**/dist/**' },
+                { label: 'build', value: '**/build/**' },
+                { label: 'target', value: '**/target/**' },
+              ]}
+              placeholder="Add exclude pattern..."
             />
           </div>
         </div>
@@ -605,20 +640,40 @@ export function SourcesPage() {
           {/* Include globs */}
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.includeGlobs')}</label>
-            <Input
+            <TagInput
               value={editInclude}
-              onChange={(e) => setEditInclude(e.target.value)}
-              placeholder="**/*.md, **/*.txt"
+              onChange={setEditInclude}
+              presets={[
+                { label: 'Markdown', value: '**/*.md' },
+                { label: 'Text', value: '**/*.txt' },
+                { label: 'HTML', value: '**/*.html' },
+                { label: 'Word', value: '**/*.docx' },
+                { label: 'Excel', value: '**/*.{xlsx,xls}' },
+                { label: 'PowerPoint', value: '**/*.pptx' },
+                { label: 'PDF', value: '**/*.pdf' },
+                { label: 'JSON', value: '**/*.json' },
+                { label: 'YAML', value: '**/*.{yml,yaml}' },
+                { label: 'Code', value: '**/*.{ts,js,py,rs}' },
+              ]}
+              placeholder="Add glob pattern..."
             />
           </div>
 
           {/* Exclude globs */}
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('sources.addModal.excludeGlobs')}</label>
-            <Input
+            <TagInput
               value={editExclude}
-              onChange={(e) => setEditExclude(e.target.value)}
-              placeholder="**/node_modules/**, **/.git/**"
+              onChange={setEditExclude}
+              presets={[
+                { label: 'node_modules', value: '**/node_modules/**' },
+                { label: '.git', value: '**/.git/**' },
+                { label: '.obsidian', value: '**/.obsidian/**' },
+                { label: 'dist', value: '**/dist/**' },
+                { label: 'build', value: '**/build/**' },
+                { label: 'target', value: '**/target/**' },
+              ]}
+              placeholder="Add exclude pattern..."
             />
           </div>
 

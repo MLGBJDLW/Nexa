@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "tauri": "npm run tauri --prefix apps/desktop --"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^17.3.8"
+  }
+}

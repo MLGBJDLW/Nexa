@@ -18,22 +18,6 @@ pub struct Source {
     pub updated_at: String,
 }
 
-/// Represents a single document (file) ingested from a source.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Document {
-    pub id: Uuid,
-    pub source_id: Uuid,
-    pub path: String,
-    pub title: String,
-    pub content_hash: String,
-    pub file_type: FileType,
-    pub size_bytes: u64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub indexed_at: Option<DateTime<Utc>>,
-}
-
 /// Supported file types for ingestion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -41,20 +25,10 @@ pub enum FileType {
     Markdown,
     PlainText,
     Log,
-}
-
-/// A chunk is a segment of a document used for indexing and retrieval.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Chunk {
-    pub id: Uuid,
-    pub document_id: Uuid,
-    pub content: String,
-    pub chunk_index: u32,
-    pub start_byte: u64,
-    pub end_byte: u64,
-    pub heading_path: Vec<String>,
-    pub created_at: DateTime<Utc>,
+    Pdf,
+    Docx,
+    Excel,
+    Pptx,
 }
 
 /// An evidence card surfaced by a search query.

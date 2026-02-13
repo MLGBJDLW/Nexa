@@ -370,6 +370,7 @@ pub fn blob_to_vector(blob: &[u8]) -> Vec<f32> {
 
 impl Database {
     /// Store (upsert) a vector embedding for a chunk.
+    // TODO: integrate — single-row insert, production uses batch_store_embeddings()
     pub fn store_embedding(
         &self,
         chunk_id: &str,
@@ -419,6 +420,7 @@ impl Database {
     }
 
     /// Retrieve the embedding vector for a specific chunk + model.
+    // TODO: integrate — single-row retrieval, production uses batch versions
     pub fn get_embedding(
         &self,
         chunk_id: &str,
@@ -492,6 +494,7 @@ impl Database {
     }
 
     /// Delete all embeddings belonging to chunks of a given document.
+    // TODO: integrate — per-document cleanup for incremental re-indexing
     pub fn delete_embeddings_for_document(
         &self,
         document_id: &str,
