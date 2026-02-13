@@ -68,6 +68,7 @@ export const zhCN: TranslationKeys = {
   'search.previous': '上一页',
   'search.next': '下一页',
   'search.showingResults': '显示 {from}-{to} / 共 {total}',
+  'search.clearHistory': '清除历史',
 
   // Evidence Card
   'card.relevance': '相关度',

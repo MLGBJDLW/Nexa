@@ -295,6 +295,13 @@ impl Database {
         Ok(())
     }
 
+    /// Delete all query logs.
+    pub fn clear_query_logs(&self) -> Result<(), CoreError> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM query_logs", [])?;
+        Ok(())
+    }
+
     /// Return the most recent query logs, ordered by `created_at` DESC.
     pub fn get_recent_queries(&self, limit: u32) -> Result<Vec<QueryLog>, CoreError> {
         let conn = self.conn();

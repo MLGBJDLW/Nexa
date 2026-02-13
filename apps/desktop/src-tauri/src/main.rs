@@ -67,6 +67,7 @@ fn main() {
             commands::remove_citation,
             // Query log
             commands::get_recent_queries,
+            commands::clear_recent_queries,
             // Hybrid search
             commands::hybrid_search,
             // Embeddings

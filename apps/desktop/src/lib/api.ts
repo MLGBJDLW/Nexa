@@ -94,6 +94,9 @@ export const removeCitation = (citationId: string) =>
 export const getRecentQueries = (limit?: number) =>
   invoke<QueryLog[]>("get_recent_queries", { limit });
 
+export const clearRecentQueries = () =>
+  invoke<void>("clear_recent_queries");
+
 // ── Hybrid Search ───────────────────────────────────────────────────────
 
 export const hybridSearch = (queryText: string, limit?: number, offset?: number, filters?: SearchFilters) =>

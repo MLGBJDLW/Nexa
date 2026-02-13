@@ -68,6 +68,7 @@ export const ko: TranslationKeys = {
   'search.previous': '이전',
   'search.next': '다음',
   'search.showingResults': '{from}-{to} / 전체 {total}',
+  'search.clearHistory': '기록 삭제',
 
   // Evidence Card
   'card.relevance': '관련도',

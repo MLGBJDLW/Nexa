@@ -152,13 +152,18 @@ export function EvidenceCardComponent({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <FileText size={14} className="shrink-0 text-text-tertiary" />
-          <span
-            className="truncate text-sm font-medium text-text-primary"
+          <button
+            onClick={() => {
+              openFileInDefaultApp(card.documentPath).catch(() =>
+                alert(t('card.fileNotFound')),
+              );
+            }}
+            className="cursor-pointer truncate text-sm font-medium text-text-primary transition-colors hover:text-accent hover:underline"
             title={card.documentPath}
           >
             {card.documentTitle ||
               card.documentPath.split(/[/\\]/).pop()}
-          </span>
+          </button>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -230,13 +235,18 @@ export function EvidenceCardComponent({
       <div className="flex items-center justify-between gap-2">
         {/* Metadata */}
         <div className="flex min-w-0 items-center gap-2 text-text-tertiary">
-          <div
-            className="flex items-center gap-1 text-[11px]"
+          <button
+            onClick={() => {
+              showInFileExplorer(card.documentPath).catch(() =>
+                alert(t('card.fileNotFound')),
+              );
+            }}
+            className="flex cursor-pointer items-center gap-1 text-[11px] transition-colors hover:text-accent"
             title={dir}
           >
             <FolderOpen size={11} className="shrink-0" />
             <span className="max-w-[140px] truncate">{dir}</span>
-          </div>
+          </button>
           <span className="text-border">┊</span>
           <span className="max-w-[100px] truncate text-[11px]">
             {card.sourceName}

@@ -68,6 +68,7 @@ export interface TranslationKeys {
   'search.previous': string;
   'search.next': string;
   'search.showingResults': string;
+  'search.clearHistory': string;
 
   // Evidence Card
   'card.relevance': string;

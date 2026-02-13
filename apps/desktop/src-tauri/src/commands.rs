@@ -435,6 +435,16 @@ pub fn get_recent_queries(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn clear_recent_queries(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .db
+        .clear_query_logs()
+        .map_err(|e| e.to_string())
+}
+
 // ── Hybrid Search Commands ──────────────────────────────────────────────
 
 #[tauri::command]

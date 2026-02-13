@@ -68,6 +68,7 @@ export const ja: TranslationKeys = {
   'search.previous': '前へ',
   'search.next': '次へ',
   'search.showingResults': '{from}-{to} / 全{total}件',
+  'search.clearHistory': '履歴をクリア',
 
   // Evidence Card
   'card.relevance': '関連度',

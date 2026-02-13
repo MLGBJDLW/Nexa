@@ -68,6 +68,7 @@ export const ru: TranslationKeys = {
   'search.previous': 'Назад',
   'search.next': 'Далее',
   'search.showingResults': 'Показано {from}-{to} из {total}',
+  'search.clearHistory': 'Очистить историю',
 
   // Evidence Card
   'card.relevance': 'Релевантность',

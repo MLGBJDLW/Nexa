@@ -68,6 +68,7 @@ export const pt: TranslationKeys = {
   'search.previous': 'Anterior',
   'search.next': 'Próximo',
   'search.showingResults': 'Exibindo {from}-{to} de {total}',
+  'search.clearHistory': 'Limpar histórico',
 
   // Evidence Card
   'card.relevance': 'Relevância',

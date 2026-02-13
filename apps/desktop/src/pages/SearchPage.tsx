@@ -7,6 +7,7 @@ import {
   Clock,
   Filter,
   X,
+  Trash2,
   BotMessageSquare,
   ChevronLeft,
   ChevronRight,
@@ -122,6 +123,15 @@ export function SearchPage() {
       // non-critical
     }
   }, []);
+
+  const clearRecentQueries = useCallback(async () => {
+    try {
+      await api.clearRecentQueries();
+      setRecentQueries([]);
+    } catch {
+      toast.error(t('search.searchError'));
+    }
+  }, [t]);
 
   useEffect(() => {
     loadRecentQueries();
@@ -713,9 +723,18 @@ export function SearchPage() {
       {/* ── Recent queries (shown when no results/loading) ── */}
       {!result && !loading && recentQueries.length > 0 && (
         <div className="mt-2">
-          <div className="mb-3 flex items-center gap-2 text-xs font-medium text-text-tertiary">
-            <Clock size={12} />
-            {t('search.recentQueries')}
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-medium text-text-tertiary">
+              <Clock size={12} />
+              {t('search.recentQueries')}
+            </div>
+            <button
+              onClick={clearRecentQueries}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary"
+            >
+              <Trash2 size={11} />
+              {t('search.clearHistory')}
+            </button>
           </div>
           <div className="flex flex-wrap gap-2">
             {recentQueries.map((q) => (

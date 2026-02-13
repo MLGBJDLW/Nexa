@@ -68,6 +68,7 @@ export const zhTW: TranslationKeys = {
   'search.previous': '上一頁',
   'search.next': '下一頁',
   'search.showingResults': '顯示 {from}-{to} / 共 {total}',
+  'search.clearHistory': '清除歷史',
 
   // Evidence Card
   'card.relevance': '相關度',
