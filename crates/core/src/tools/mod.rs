@@ -1,11 +1,40 @@
 //! Tool system — trait, registry, and built-in tools for the agent framework.
 
+use std::sync::OnceLock;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::ToolDefinition;
+
+// ---------------------------------------------------------------------------
+// Shared tool-definition helper (parsed from JSON once via OnceLock)
+// ---------------------------------------------------------------------------
+
+/// Cached tool definition loaded from a JSON file at compile time.
+pub(crate) struct ToolDef {
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+impl ToolDef {
+    /// Parse a tool-definition JSON blob (`include_str!` output) exactly once.
+    pub fn from_json<'a>(lock: &'a OnceLock<ToolDef>, json_str: &str) -> &'a ToolDef {
+        lock.get_or_init(|| {
+            let v: serde_json::Value =
+                serde_json::from_str(json_str).expect("invalid tool definition JSON");
+            ToolDef {
+                description: v["description"]
+                    .as_str()
+                    .expect("tool JSON missing 'description'")
+                    .to_string(),
+                parameters: v["parameters"].clone(),
+            }
+        })
+    }
+}
 
 pub mod file_tool;
 pub mod playbook_tool;

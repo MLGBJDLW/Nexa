@@ -1,5 +1,7 @@
 //! SummarizeTool — retrieves and formats evidence cards by chunk IDs.
 
+use std::sync::OnceLock;
+
 use async_trait::async_trait;
 use rusqlite::params;
 use serde::Deserialize;
@@ -8,7 +10,10 @@ use serde_json::json;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolResult};
+use super::{Tool, ToolDef, ToolResult};
+
+static DEF: OnceLock<ToolDef> = OnceLock::new();
+const DEF_JSON: &str = include_str!("../../prompts/tools/summarize_evidence.json");
 
 /// Tool that looks up specific chunks by their IDs and returns formatted
 /// content suitable for citation in LLM responses.
@@ -26,22 +31,11 @@ impl Tool for SummarizeTool {
     }
 
     fn description(&self) -> &str {
-        "Retrieve and format specific evidence cards by their chunk IDs for citation. \
-         Returns the chunk content together with source path and document title."
+        &ToolDef::from_json(&DEF, DEF_JSON).description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "chunk_ids": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "List of chunk IDs to retrieve and format"
-                }
-            },
-            "required": ["chunk_ids"]
-        })
+        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
     }
 
     async fn execute(

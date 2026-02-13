@@ -1,0 +1,21 @@
+{
+  "name": "search_knowledge_base",
+  "description": "Search the local knowledge base using full-text and vector search. Returns evidence cards with content, source paths, and relevance scores.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The search query text"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of results to return (default 5, max 20)",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 20
+      }
+    },
+    "required": ["query"]
+  }
+}

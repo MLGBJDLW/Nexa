@@ -1,13 +1,17 @@
 //! PlaybookTool — wraps existing playbook CRUD operations for agent use.
 
+use std::sync::OnceLock;
+
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolResult};
+use super::{Tool, ToolDef, ToolResult};
+
+static DEF: OnceLock<ToolDef> = OnceLock::new();
+const DEF_JSON: &str = include_str!("../../prompts/tools/manage_playbook.json");
 
 /// Tool that creates, lists, gets details of, adds citations to, or deletes playbooks.
 pub struct PlaybookTool;
@@ -29,42 +33,11 @@ impl Tool for PlaybookTool {
     }
 
     fn description(&self) -> &str {
-        "Create, list, get details of, add citations to, or delete a playbook. \
-         A playbook is a composable collection of evidence cards with annotations."
+        &ToolDef::from_json(&DEF, DEF_JSON).description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["create", "add_citation", "list", "get", "delete"],
-                    "description": "The operation to perform"
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Title for creating a playbook"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Description for creating a playbook"
-                },
-                "playbook_id": {
-                    "type": "string",
-                    "description": "Playbook ID for get, delete, or add_citation"
-                },
-                "chunk_id": {
-                    "type": "string",
-                    "description": "Chunk ID to cite"
-                },
-                "annotation": {
-                    "type": "string",
-                    "description": "Annotation text for the citation"
-                }
-            },
-            "required": ["action"]
-        })
+        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
     }
 
     async fn execute(

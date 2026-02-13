@@ -1,0 +1,19 @@
+{
+  "name": "read_file",
+  "description": "Read a file from the knowledge base by path. The file must reside within a registered source directory.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute or relative path to the file"
+      },
+      "max_lines": {
+        "type": "integer",
+        "description": "Maximum number of lines to return (default 100)",
+        "default": 100
+      }
+    },
+    "required": ["path"]
+  }
+}

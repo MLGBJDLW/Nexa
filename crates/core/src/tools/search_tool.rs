@@ -1,15 +1,19 @@
 //! SearchTool — wraps the existing hybrid/FTS search for agent use.
 
+use std::sync::OnceLock;
+
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::models::SearchQuery;
 use crate::search;
 
-use super::{Tool, ToolResult};
+use super::{Tool, ToolDef, ToolResult};
+
+static DEF: OnceLock<ToolDef> = OnceLock::new();
+const DEF_JSON: &str = include_str!("../../prompts/tools/search_knowledge_base.json");
 
 /// Tool that searches the local knowledge base using full-text and vector
 /// search, returning evidence cards with content, source paths, and scores.
@@ -33,28 +37,11 @@ impl Tool for SearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the local knowledge base using full-text and vector search. \
-         Returns evidence cards with content, source paths, and relevance scores."
+        &ToolDef::from_json(&DEF, DEF_JSON).description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query text"
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (default 5, max 20)",
-                    "default": 5,
-                    "minimum": 1,
-                    "maximum": 20
-                }
-            },
-            "required": ["query"]
-        })
+        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
     }
 
     async fn execute(

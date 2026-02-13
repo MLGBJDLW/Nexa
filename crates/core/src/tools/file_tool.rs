@@ -1,16 +1,19 @@
 //! FileTool — reads files from managed source directories.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::privacy;
 
-use super::{Tool, ToolResult};
+use super::{Tool, ToolDef, ToolResult};
+
+static DEF: OnceLock<ToolDef> = OnceLock::new();
+const DEF_JSON: &str = include_str!("../../prompts/tools/read_file.json");
 
 /// Tool that reads a file from the knowledge base, validating that it
 /// belongs to a registered source root and optionally applying privacy
@@ -35,26 +38,11 @@ impl Tool for FileTool {
     }
 
     fn description(&self) -> &str {
-        "Read a file from the knowledge base by path. \
-         The file must reside within a registered source directory."
+        &ToolDef::from_json(&DEF, DEF_JSON).description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Absolute or relative path to the file"
-                },
-                "max_lines": {
-                    "type": "integer",
-                    "description": "Maximum number of lines to return (default 100)",
-                    "default": 100
-                }
-            },
-            "required": ["path"]
-        })
+        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
     }
 
     async fn execute(
