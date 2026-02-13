@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { open } from '@tauri-apps/plugin-shell';
 import { useTranslation } from '../../i18n';
+import { useTypewriter } from '../../lib/useTypewriter';
 import { ToolCallCard } from './ToolCallCard';
 import type { ConversationMessage } from '../../types/conversation';
 
@@ -238,6 +239,10 @@ export function ChatMessages({ messages, streamText, toolCalls, isStreaming }: C
   const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Typewriter: gradually reveal streamed text for a smooth typing feel
+  const displayedText = useTypewriter(streamText, isStreaming, { charsPerTick: 5, intervalMs: 30 });
+  const isRevealing = isStreaming || displayedText.length < streamText.length;
+
   // Build tool call map from messages for completed tool calls
   const messageToolCalls = useMemo(() => {
     const map = new Map<number, ConversationMessage[]>();
@@ -336,12 +341,17 @@ export function ChatMessages({ messages, streamText, toolCalls, isStreaming }: C
           animate={{ opacity: 1 }}
           className="flex justify-start mb-3"
         >
-          <div className="max-w-[80%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed bg-surface-2 text-text-primary">
+          <div
+            className="max-w-[80%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed bg-surface-2 text-text-primary"
+            style={streamText.length > 2000 ? { willChange: 'contents' } : undefined}
+          >
             <div className="prose-chat">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {streamText}
+                {displayedText}
               </ReactMarkdown>
-              <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom rounded-sm" />
+              {isRevealing && (
+                <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom rounded-sm" />
+              )}
             </div>
           </div>
         </motion.div>

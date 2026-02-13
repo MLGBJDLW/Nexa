@@ -96,8 +96,8 @@ export const getRecentQueries = (limit?: number) =>
 
 // ── Hybrid Search ───────────────────────────────────────────────────────
 
-export const hybridSearch = (queryText: string, filters?: SearchFilters) =>
-  invoke<SearchResult>('hybrid_search', { queryText, filters });
+export const hybridSearch = (queryText: string, limit?: number, offset?: number, filters?: SearchFilters) =>
+  invoke<SearchResult>('hybrid_search', { queryText, filters, limit, offset });
 
 // ── Embeddings ──────────────────────────────────────────────────────────
 

@@ -442,12 +442,14 @@ pub fn hybrid_search(
     state: tauri::State<'_, AppState>,
     query_text: String,
     filters: Option<SearchFilters>,
+    limit: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<SearchResult, String> {
     let query = SearchQuery {
         text: query_text,
         filters: filters.unwrap_or_default(),
-        limit: 20,
-        offset: 0,
+        limit: limit.unwrap_or(20),
+        offset: offset.unwrap_or(0),
     };
     search::hybrid_search(&state.db, &query).map_err(|e| e.to_string())
 }
@@ -991,20 +993,31 @@ pub async fn agent_chat_cmd(
         .add_message(&user_msg)
         .map_err(|e| e.to_string())?;
 
-    // 5. Build executor config from DB config.
+    // 5. Load conversation to check for custom system prompt.
+    let conv = state
+        .db
+        .get_conversation(&conversation_id)
+        .map_err(|e| e.to_string())?;
+    let system_prompt = if conv.system_prompt.is_empty() {
+        ExecutorConfig::default().system_prompt
+    } else {
+        conv.system_prompt.clone()
+    };
+
+    // 6. Build executor config from DB config.
     let executor_config = ExecutorConfig {
         max_iterations: 10,
-        system_prompt: ExecutorConfig::default().system_prompt,
+        system_prompt,
         model: Some(db_config.model.clone()),
         temperature: db_config.temperature.map(|t| t as f32),
         max_tokens: db_config.max_tokens.map(|t| t as u32),
         context_window: db_config.context_window.map(|w| w as u32),
     };
 
-    // 6. Create tool registry.
+    // 7. Create tool registry.
     let tools = default_tool_registry();
 
-    // 7. Spawn the agent loop in a background task.
+    // 8. Spawn the agent loop in a background task.
     let db = state.db.clone();
     let conv_id = conversation_id.clone();
     let handle = app_handle.clone();
@@ -1021,36 +1034,19 @@ pub async fn agent_chat_cmd(
             }
         });
 
-        // Run the agent.
+        // Run the agent.  The executor now saves ALL messages (intermediate
+        // tool-call assistants, tool results, and the final answer) to the DB
+        // using incrementing sort_order starting at `assistant_sort_order`.
         let executor = AgentExecutor::new(provider, tools, executor_config);
-        let result = executor.run(history, message, &db, Some(&conv_id), tx).await;
+        let result = executor
+            .run(history, message, &db, Some(&conv_id), tx, assistant_sort_order)
+            .await;
 
         // Wait for event forwarder to finish.
         let _ = event_forwarder.await;
 
-        // Save assistant message to DB.
-        match result {
-            Ok(assistant_msg) => {
-                let conv_msg = ConversationMessage {
-                    id: Uuid::new_v4().to_string(),
-                    conversation_id: conv_id,
-                    role: Role::Assistant,
-                    content: assistant_msg.content.clone(),
-                    tool_call_id: None,
-                    tool_calls: assistant_msg
-                        .tool_calls
-                        .unwrap_or_default(),
-                    token_count: (assistant_msg.content.len() / 4) as u32,
-                    created_at: String::new(),
-                    sort_order: assistant_sort_order,
-                };
-                if let Err(e) = db.add_message(&conv_msg) {
-                    warn!("Failed to save assistant message: {e}");
-                }
-            }
-            Err(e) => {
-                warn!("Agent execution failed for conversation {conv_id}: {e}");
-            }
+        if let Err(e) = result {
+            warn!("Agent execution failed for conversation {conv_id}: {e}");
         }
     });
 

@@ -4,7 +4,9 @@ use futures::StreamExt;
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
+use crate::conversation::ConversationMessage;
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::{
@@ -139,6 +141,9 @@ impl AgentExecutor {
     /// * `db` — database handle passed through to tools and privacy config.
     /// * `conversation_id` — optional conversation ID for source scoping.
     /// * `tx` — channel for streaming [`AgentEvent`]s to the caller (e.g. Tauri).
+    /// * `next_sort_order` — the sort_order to use for the first message saved
+    ///   by the executor (intermediate + final). The caller should set this to
+    ///   one past the last message it already persisted (e.g. the user message).
     ///
     /// Returns the final assistant [`Message`] on success.
     pub async fn run(
@@ -148,6 +153,7 @@ impl AgentExecutor {
         db: &Database,
         conversation_id: Option<&str>,
         tx: mpsc::Sender<AgentEvent>,
+        next_sort_order: i64,
     ) -> Result<Message, CoreError> {
         let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
         let max_response_tokens = self.config.max_tokens.unwrap_or(4096);
@@ -188,6 +194,7 @@ impl AgentExecutor {
         };
 
         let mut total_usage = Usage::default();
+        let mut sort_order = next_sort_order;
 
         // --- 4. ReAct loop ----------------------------------------------------
         for iteration in 0..self.config.max_iterations {
@@ -268,6 +275,27 @@ impl AgentExecutor {
             if tool_calls.is_empty()
                 || matches!(finish_reason, Some(FinishReason::Stop) | Some(FinishReason::Length))
             {
+                // Save final assistant message to DB.
+                if let Some(cid) = conversation_id {
+                    let conv_msg = ConversationMessage {
+                        id: Uuid::new_v4().to_string(),
+                        conversation_id: cid.to_string(),
+                        role: Role::Assistant,
+                        content: assistant_msg.content.clone(),
+                        tool_call_id: None,
+                        tool_calls: assistant_msg
+                            .tool_calls
+                            .clone()
+                            .unwrap_or_default(),
+                        token_count: (assistant_msg.content.len() / 4) as u32,
+                        created_at: String::new(),
+                        sort_order,
+                    };
+                    if let Err(e) = db.add_message(&conv_msg) {
+                        warn!("Failed to save final assistant message: {e}");
+                    }
+                }
+
                 let _ = tx
                     .send(AgentEvent::Done {
                         message: assistant_msg.clone(),
@@ -275,6 +303,25 @@ impl AgentExecutor {
                     })
                     .await;
                 return Ok(assistant_msg);
+            }
+
+            // -- 4d'. Save intermediate assistant message (with tool_calls) ----
+            if let Some(cid) = conversation_id {
+                let conv_msg = ConversationMessage {
+                    id: Uuid::new_v4().to_string(),
+                    conversation_id: cid.to_string(),
+                    role: Role::Assistant,
+                    content: assistant_msg.content.clone(),
+                    tool_call_id: None,
+                    tool_calls: tool_calls.clone(),
+                    token_count: (assistant_msg.content.len() / 4) as u32,
+                    created_at: String::new(),
+                    sort_order,
+                };
+                if let Err(e) = db.add_message(&conv_msg) {
+                    warn!("Failed to save intermediate assistant message: {e}");
+                }
+                sort_order += 1;
             }
 
             // -- 4e. Execute tool calls ----------------------------------------
@@ -325,6 +372,25 @@ impl AgentExecutor {
                 } else {
                     tool_msg
                 };
+
+                // Save tool result message to DB.
+                if let Some(cid) = conversation_id {
+                    let tool_conv_msg = ConversationMessage {
+                        id: Uuid::new_v4().to_string(),
+                        conversation_id: cid.to_string(),
+                        role: Role::Tool,
+                        content: content.clone(),
+                        tool_call_id: Some(tc.id.clone()),
+                        tool_calls: vec![],
+                        token_count: (content.len() / 4) as u32,
+                        created_at: String::new(),
+                        sort_order,
+                    };
+                    if let Err(e) = db.add_message(&tool_conv_msg) {
+                        warn!("Failed to save tool result message: {e}");
+                    }
+                    sort_order += 1;
+                }
 
                 messages.push(Message {
                     role: Role::Tool,

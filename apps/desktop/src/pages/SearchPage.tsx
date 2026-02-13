@@ -146,11 +146,16 @@ export function SearchPage() {
     setLoading(true);
     setFeedbackMap({});
     const offset = (targetPage - 1) * PAGE_SIZE;
+    const apiFilters = {
+      ...filters,
+      dateFrom: filters.dateFrom ? filters.dateFrom + "T00:00:00Z" : null,
+      dateTo: filters.dateTo ? filters.dateTo + "T23:59:59Z" : null,
+    };
     try {
       const res =
         searchMode === 'hybrid'
-          ? await api.hybridSearch(q.trim(), filters)
-          : await api.search(q.trim(), PAGE_SIZE, offset, filters);
+          ? await api.hybridSearch(q.trim(), PAGE_SIZE, offset, filters)
+          : await api.search(q.trim(), PAGE_SIZE, offset, apiFilters);
       setResult({ ...res, searchMode });
       loadRecentQueries();
 
