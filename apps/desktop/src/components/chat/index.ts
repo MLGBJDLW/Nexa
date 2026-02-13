@@ -4,3 +4,4 @@ export { ChatInput } from './ChatInput';
 export { ToolCallCard } from './ToolCallCard';
 export { ChatPanel } from './ChatPanel';
 export { SourceSelector } from './SourceSelector';
+export { SystemPromptEditor } from './SystemPromptEditor';

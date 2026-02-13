@@ -1,16 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings, MessageCircle } from 'lucide-react';
-import { SourceSelector } from '../components/chat/SourceSelector';
-import { SystemPromptEditor } from '../components/chat/SystemPromptEditor';
+import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatMessages, ChatInput } from '../components/chat';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import { useAgentStream } from '../lib/useAgentStream';
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
-import { ChatSidebar } from '../components/chat/ChatSidebar';
-import { ChatMessages } from '../components/chat/ChatMessages';
-import { ChatInput } from '../components/chat/ChatInput';
 import type { Conversation, ConversationMessage, AgentConfig } from '../types/conversation';
 
 /* ------------------------------------------------------------------ */
