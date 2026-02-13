@@ -12,6 +12,7 @@ use crate::error::CoreError;
 /// and all pending schema migrations are applied automatically.
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
+    #[allow(dead_code)]
     path: Option<PathBuf>,
 }
 
