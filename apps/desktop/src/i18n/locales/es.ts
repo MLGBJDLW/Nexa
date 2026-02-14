@@ -289,6 +289,9 @@ export const es: TranslationKeys = {
   'chat.createError': 'Error al crear conversaci\u00f3n',
   'chat.newConversation': 'Nueva conversaci\u00f3n',
   'chat.askAboutPrompt': 'Cu\u00e9ntame m\u00e1s sobre: {title}',
+  'chat.feedbackGood': 'Buena respuesta',
+  'chat.feedbackBad': 'Mala respuesta',
+  'chat.openFullChat': 'Abrir chat completo',
   'chat.searchConversations': 'Buscar conversaciones',
   'chat.pinned': 'Fijadas',
   'chat.today': 'Hoy',
@@ -306,6 +309,10 @@ export const es: TranslationKeys = {
   'chat.defaultPrompt': 'Usando prompt del sistema predeterminado',
   'chat.customPrompt': 'Prompt del sistema personalizado activo',
   'chat.savePrompt': 'Guardar',
+  'chat.thinkingElapsed': 'Pensando... ({seconds}s)',
+  'chat.thoughtFor': 'Pensó durante {seconds}s',
+  'chat.thinkingCompleted': 'Pensamiento completado',
+  'chat.tokenEstimate': '~{count} tokens',
 
   // Time
   'time.justNow': 'ahora',
@@ -351,6 +358,15 @@ export const es: TranslationKeys = {
   'settings.contextWindowHelp': 'Déjelo vacío para detectar automáticamente. También puede ingresar manualmente.',
   'settings.hideKey': 'Ocultar clave',
   'settings.showKey': 'Mostrar clave',
+  'settings.reasoningSection': 'Razonamiento / Pensamiento',
+  'settings.enableReasoning': 'Activar razonamiento / pensamiento',
+  'settings.thinkingBudget': 'Presupuesto de pensamiento (tokens)',
+  'settings.thinkingBudgetHelp': 'Presupuesto de tokens para el pensamiento. Usado por modelos Anthropic y Gemini.',
+  'settings.reasoningEffort': 'Esfuerzo de razonamiento',
+  'settings.reasoningLow': 'Bajo',
+  'settings.reasoningMedium': 'Medio',
+  'settings.reasoningHigh': 'Alto',
+  'settings.reasoningEffortHelp': 'Nivel de esfuerzo de razonamiento. Usado por modelos OpenAI serie o.',
 
   // Common
   'common.save': 'Guardar',

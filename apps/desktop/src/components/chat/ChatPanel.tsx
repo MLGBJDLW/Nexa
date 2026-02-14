@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Plus, Settings } from 'lucide-react';
+import { X, Plus, Settings, Maximize2 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../../lib/api';
 import { useAgentStream } from '../../lib/useAgentStream';
@@ -37,7 +37,7 @@ export function ChatPanel({ initialMessage, onClose, className }: ChatPanelProps
   const [configLoading, setConfigLoading] = useState(true);
   const [conversationId, setConversationId] = useState<string | null>(null);
 
-  const { send, stop, isStreaming, streamText, toolCalls, error, reset } = useAgentStream();
+  const { send, stop, isStreaming, streamText, thinkingText, isThinking, toolCalls, error, reset } = useAgentStream();
 
   // Track the last initialMessage we auto-sent, to avoid re-sending
   const sentInitialRef = useRef<string | null>(null);
@@ -194,6 +194,15 @@ export function ChatPanel({ initialMessage, onClose, className }: ChatPanelProps
             <Plus size={13} />
             {t('chat.newChatShort')}
           </button>
+          {conversationId && (
+            <button
+              onClick={() => { navigate(`/chat/${conversationId}`); onClose(); }}
+              className="rounded-md px-2 py-1.5 text-xs font-medium text-text-tertiary hover:bg-surface-3 hover:text-text-secondary transition-colors cursor-pointer flex items-center gap-1"
+              title={t('chat.openFullChat')}
+            >
+              <Maximize2 size={13} />
+            </button>
+          )}
           <button
             onClick={onClose}
             className="rounded-md p-1.5 text-text-tertiary hover:bg-surface-3 hover:text-text-secondary transition-colors cursor-pointer"
@@ -208,6 +217,8 @@ export function ChatPanel({ initialMessage, onClose, className }: ChatPanelProps
       <ChatMessages
         messages={messages}
         streamText={streamText}
+        thinkingText={thinkingText}
+        isThinking={isThinking}
         toolCalls={toolCalls}
         isStreaming={isStreaming}
       />

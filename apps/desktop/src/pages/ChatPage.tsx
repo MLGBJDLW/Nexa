@@ -42,7 +42,7 @@ export function ChatPage() {
   const [loadingConvos, setLoadingConvos] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
 
-  const { send, stop, isStreaming, streamText, toolCalls, error, reset } = useAgentStream();
+  const { send, stop, isStreaming, streamText, thinkingText, isThinking, toolCalls, error, reset } = useAgentStream();
 
   const activeId = conversationId ?? null;
 
@@ -296,6 +296,8 @@ export function ChatPage() {
             <ChatMessages
               messages={messages}
               streamText={streamText}
+              thinkingText={thinkingText}
+              isThinking={isThinking}
               toolCalls={toolCalls}
               isStreaming={isStreaming}
             />

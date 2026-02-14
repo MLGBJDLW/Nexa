@@ -2,9 +2,68 @@
 
 use crate::llm::{Message, Role};
 
-/// Approximate token count: ~4 chars per token for English.
+/// Approximate token count using character-based heuristics.
+///
+/// - ASCII-heavy (English, code, JSON): ~4 chars per token
+/// - CJK-heavy: ~1.5 chars per token (most CJK chars = 1 token)
+/// - Mixed: weighted average
+/// - Adds overhead for message formatting (~4 tokens per message)
 pub fn estimate_tokens(text: &str) -> u32 {
-    (text.len() as f64 / 4.0).ceil() as u32
+    if text.is_empty() {
+        return 0;
+    }
+
+    let mut ascii_chars: u32 = 0;
+    let mut cjk_chars: u32 = 0;
+    let mut other_chars: u32 = 0;
+
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            ascii_chars += 1;
+        } else if is_cjk(ch) {
+            cjk_chars += 1;
+        } else {
+            other_chars += 1;
+        }
+    }
+
+    // ASCII text: ~4 chars per token
+    // CJK text: ~1.5 chars per token (most CJK characters = 1 token in GPT tokenizers)
+    // Other (emoji, accented, etc.): ~2 chars per token
+    let ascii_tokens = (ascii_chars as f64 / 4.0).ceil() as u32;
+    let cjk_tokens = (cjk_chars as f64 / 1.5).ceil() as u32;
+    let other_tokens = (other_chars as f64 / 2.0).ceil() as u32;
+
+    // Add per-message overhead (role label, formatting)
+    ascii_tokens + cjk_tokens + other_tokens + 4
+}
+
+/// Check if a character is in the CJK Unified Ideographs range.
+fn is_cjk(ch: char) -> bool {
+    matches!(ch,
+        '\u{4E00}'..='\u{9FFF}'   // CJK Unified Ideographs
+        | '\u{3400}'..='\u{4DBF}' // CJK Extension A
+        | '\u{F900}'..='\u{FAFF}' // CJK Compatibility Ideographs
+        | '\u{3000}'..='\u{303F}' // CJK Symbols and Punctuation
+        | '\u{3040}'..='\u{309F}' // Hiragana
+        | '\u{30A0}'..='\u{30FF}' // Katakana
+        | '\u{AC00}'..='\u{D7AF}' // Hangul Syllables
+    )
+}
+
+/// Estimate the total token cost of a message, including tool_calls.
+pub fn estimate_message_tokens(msg: &Message) -> u32 {
+    let mut tokens = estimate_tokens(&msg.content);
+    if let Some(ref calls) = msg.tool_calls {
+        for tc in calls {
+            // Each tool call: id + name + arguments JSON
+            tokens += estimate_tokens(&tc.id);
+            tokens += estimate_tokens(&tc.name);
+            tokens += estimate_tokens(&tc.arguments);
+            tokens += 4; // overhead per tool call
+        }
+    }
+    tokens
 }
 
 /// Known model context windows, mapped by exact API model ID.
@@ -150,10 +209,20 @@ fn prefix_model_context_window(m: &str) -> u32 {
     }
 }
 
+/// A contiguous group of messages that must be kept or dropped together.
+struct MessageBlock {
+    messages: Vec<Message>,
+    token_cost: u32,
+}
+
 /// Trim conversation history to fit within context window.
 ///
 /// Keeps the system prompt (first message if role == System) plus the
 /// newest messages that fit within `max_tokens - reserved_for_response`.
+///
+/// Tool-call pairs (an assistant message with `tool_calls` and its
+/// subsequent `Tool` result messages) are treated as atomic blocks and
+/// will never be split.
 pub fn trim_to_context_window(
     messages: &[Message],
     max_tokens: u32,
@@ -167,13 +236,13 @@ pub fn trim_to_context_window(
     let mut result: Vec<Message> = Vec::new();
     let mut used: u32 = 0;
 
-    // Separate system message (if present) from the rest.
+    // Separate system messages from the rest.
     let (system_msgs, conversation): (Vec<&Message>, Vec<&Message>) =
         messages.iter().partition(|m| m.role == Role::System);
 
     // Always include system messages first — they are non-negotiable.
     for msg in &system_msgs {
-        let cost = estimate_tokens(&msg.content);
+        let cost = estimate_message_tokens(msg);
         used = used.saturating_add(cost);
         result.push((*msg).clone());
     }
@@ -183,30 +252,79 @@ pub fn trim_to_context_window(
         return result;
     }
 
-    // Walk conversation from newest to oldest, accumulating until budget.
+    // Group conversation into atomic blocks
+    let blocks = build_message_blocks(&conversation);
+
     let remaining_budget = budget.saturating_sub(used);
-    let mut tail: Vec<Message> = Vec::new();
+    let mut kept_blocks: Vec<&MessageBlock> = Vec::new();
     let mut tail_tokens: u32 = 0;
 
-    for msg in conversation.iter().rev() {
-        let cost = estimate_tokens(&msg.content);
-        if tail_tokens.saturating_add(cost) > remaining_budget {
+    // Walk from newest block to oldest
+    for block in blocks.iter().rev() {
+        if tail_tokens.saturating_add(block.token_cost) > remaining_budget {
             break;
         }
-        tail_tokens = tail_tokens.saturating_add(cost);
-        tail.push((*msg).clone());
+        tail_tokens = tail_tokens.saturating_add(block.token_cost);
+        kept_blocks.push(block);
     }
 
-    // Reverse so oldest-kept message comes first.
-    tail.reverse();
-    result.extend(tail);
+    // Reverse to restore chronological order
+    kept_blocks.reverse();
+    for block in kept_blocks {
+        result.extend(block.messages.iter().cloned());
+    }
 
     result
+}
+
+/// Group messages into atomic blocks.
+///
+/// An assistant message with `tool_calls` + its following `Tool` messages
+/// form one indivisible block. Everything else is its own block.
+fn build_message_blocks(conversation: &[&Message]) -> Vec<MessageBlock> {
+    let mut blocks: Vec<MessageBlock> = Vec::new();
+    let mut i = 0;
+
+    while i < conversation.len() {
+        let msg = conversation[i];
+
+        // Check if this is an assistant message with tool calls
+        if msg.role == Role::Assistant
+            && msg.tool_calls.as_ref().map_or(false, |tc| !tc.is_empty())
+        {
+            let mut block_msgs = vec![msg.clone()];
+            let mut cost = estimate_message_tokens(msg);
+
+            // Collect following tool result messages
+            let mut j = i + 1;
+            while j < conversation.len() && conversation[j].role == Role::Tool {
+                cost += estimate_message_tokens(conversation[j]);
+                block_msgs.push(conversation[j].clone());
+                j += 1;
+            }
+
+            blocks.push(MessageBlock {
+                messages: block_msgs,
+                token_cost: cost,
+            });
+            i = j;
+        } else {
+            // Standalone message
+            blocks.push(MessageBlock {
+                messages: vec![msg.clone()],
+                token_cost: estimate_message_tokens(msg),
+            });
+            i += 1;
+        }
+    }
+
+    blocks
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::ToolCallRequest;
 
     fn msg(role: Role, content: &str) -> Message {
         Message {
@@ -220,8 +338,34 @@ mod tests {
     #[test]
     fn test_estimate_tokens() {
         assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("abcd"), 1); // 4 chars = 1 token
-        assert_eq!(estimate_tokens("abcde"), 2); // ceil(5/4) = 2
+        // 4 ASCII chars → ceil(4/4) + 4 overhead = 5
+        assert_eq!(estimate_tokens("abcd"), 5);
+        // 5 ASCII chars → ceil(5/4) + 4 overhead = 6
+        assert_eq!(estimate_tokens("abcde"), 6);
+    }
+
+    #[test]
+    fn test_estimate_tokens_cjk() {
+        // "你好世界" = 4 CJK chars → ceil(4/1.5) + 4 = 3 + 4 = 7
+        let tokens = estimate_tokens("你好世界");
+        assert_eq!(tokens, 7);
+        assert!(tokens > 4, "CJK should produce more tokens than naive byte/4");
+    }
+
+    #[test]
+    fn test_estimate_message_tokens_with_tool_calls() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: String::new(),
+            name: None,
+            tool_calls: Some(vec![ToolCallRequest {
+                id: "call_123".to_string(),
+                name: "search".to_string(),
+                arguments: r#"{"query": "test"}"#.to_string(),
+            }]),
+        };
+        let tokens = estimate_message_tokens(&msg);
+        assert!(tokens > 10, "Tool calls should contribute to token count");
     }
 
     #[test]
@@ -314,8 +458,9 @@ mod tests {
             msg(Role::Assistant, "Hi there!"),
             msg(Role::User, "How are you?"),
         ];
-        // Budget is tiny: system + only newest should fit
-        let result = trim_to_context_window(&messages, 20, 5);
+        // With +4 overhead per message, system ≈ 8, each msg ≈ 5-7
+        // Budget of 20 should fit system + only newest
+        let result = trim_to_context_window(&messages, 30, 5);
         assert_eq!(result[0].role, Role::System);
         // Last message should be present
         assert_eq!(result.last().unwrap().content, "How are you?");
@@ -330,5 +475,48 @@ mod tests {
         ];
         let result = trim_to_context_window(&messages, 100_000, 512);
         assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_trim_preserves_tool_call_pairs() {
+        let messages = vec![
+            msg(Role::System, "You are helpful."),
+            msg(Role::User, "first question"),
+            Message {
+                role: Role::Assistant,
+                content: "Let me search.".to_string(),
+                name: None,
+                tool_calls: Some(vec![ToolCallRequest {
+                    id: "tc1".to_string(),
+                    name: "search".to_string(),
+                    arguments: "{}".to_string(),
+                }]),
+            },
+            Message {
+                role: Role::Tool,
+                content: "Result: found something".to_string(),
+                name: Some("tc1".to_string()),
+                tool_calls: None,
+            },
+            msg(Role::Assistant, "Based on the search, here is the answer."),
+            msg(Role::User, "second question"),
+            msg(Role::Assistant, "Here is the second answer."),
+        ];
+
+        // Give enough budget for system + last 2 messages but NOT the tool call block
+        let result = trim_to_context_window(&messages, 60, 10);
+
+        // Verify that if the tool call assistant is present, the tool result is too
+        let has_tool_call_assistant = result.iter().any(|m| {
+            m.role == Role::Assistant
+                && m.tool_calls.as_ref().map_or(false, |tc| !tc.is_empty())
+        });
+        let has_tool_result = result.iter().any(|m| m.role == Role::Tool);
+
+        // Either both present or both absent — never split
+        assert_eq!(
+            has_tool_call_assistant, has_tool_result,
+            "Tool call assistant and tool result must be kept or dropped together"
+        );
     }
 }

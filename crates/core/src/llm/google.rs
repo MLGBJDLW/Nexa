@@ -29,6 +29,12 @@ const DEFAULT_TIMEOUT_SECS: u64 = 120;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 enum GeminiPartV2 {
+    // Thought must come BEFORE Text for serde untagged matching:
+    // {"text":"…","thought":true} matches Thought first, {"text":"…"} falls through to Text.
+    Thought {
+        text: String,
+        thought: bool,
+    },
     Text {
         text: String,
     },
@@ -91,6 +97,13 @@ struct GeminiFunctionDeclaration {
     parameters: serde_json::Value,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiThinkingConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_budget: Option<i32>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiGenerationConfig {
@@ -100,6 +113,8 @@ struct GeminiGenerationConfig {
     max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<GeminiThinkingConfig>,
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +146,8 @@ struct GeminiUsageMetadata {
     prompt_token_count: Option<u32>,
     candidates_token_count: Option<u32>,
     total_token_count: Option<u32>,
+    #[serde(default)]
+    thoughts_token_count: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -287,14 +304,22 @@ fn build_request_body(
     system_instruction: Option<GeminiSystemInstructionV2>,
     contents: Vec<GeminiContentV2>,
 ) -> GeminiRequestV2 {
+    let thinking_config = request.thinking_budget.map(|budget| GeminiThinkingConfig {
+        thinking_budget: Some(budget as i32),
+    });
+    let has_thinking = thinking_config.is_some();
+
     let generation_config = if request.temperature.is_some()
         || request.max_tokens.is_some()
         || request.stop.is_some()
+        || thinking_config.is_some()
     {
         Some(GeminiGenerationConfig {
-            temperature: request.temperature,
+            // Gemini requires temperature unset when thinking is enabled.
+            temperature: if has_thinking { None } else { request.temperature },
             max_output_tokens: request.max_tokens,
             stop_sequences: request.stop.clone(),
+            thinking_config,
         })
     } else {
         None
@@ -309,10 +334,13 @@ fn build_request_body(
 }
 
 /// Extract text, tool calls, finish reason, and usage from a Gemini response.
-fn extract_response(resp: &GeminiResponse) -> (String, Vec<ToolCallRequest>, FinishReason, Usage) {
+fn extract_response(
+    resp: &GeminiResponse,
+) -> (String, Vec<ToolCallRequest>, FinishReason, Usage, Option<String>) {
     let candidate = resp.candidates.as_ref().and_then(|c| c.first());
 
     let mut text_parts = Vec::new();
+    let mut thinking_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
     if let Some(candidate) = candidate {
@@ -320,7 +348,13 @@ fn extract_response(resp: &GeminiResponse) -> (String, Vec<ToolCallRequest>, Fin
             if let Some(ref parts) = content.parts {
                 for (idx, part) in parts.iter().enumerate() {
                     match part {
-                        GeminiPartV2::Text { text } => text_parts.push(text.clone()),
+                        GeminiPartV2::Thought { text, thought } if *thought => {
+                            thinking_parts.push(text.clone());
+                        }
+                        GeminiPartV2::Thought { text, .. }
+                        | GeminiPartV2::Text { text } => {
+                            text_parts.push(text.clone());
+                        }
                         GeminiPartV2::FunctionCall { function_call } => {
                             tool_calls.push(ToolCallRequest {
                                 id: format!("call_{idx}"),
@@ -355,7 +389,13 @@ fn extract_response(resp: &GeminiResponse) -> (String, Vec<ToolCallRequest>, Fin
         })
         .unwrap_or_default();
 
-    (text_parts.join(""), tool_calls, finish_reason, usage)
+    let thinking = if thinking_parts.is_empty() {
+        None
+    } else {
+        Some(thinking_parts.join(""))
+    };
+
+    (text_parts.join(""), tool_calls, finish_reason, usage, thinking)
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +448,8 @@ async fn parse_gemini_stream(
                 }
             };
 
-            let (text_content, tool_calls, finish_reason, usage) = extract_response(&resp);
+            let (text_content, tool_calls, finish_reason, usage, thinking) =
+                extract_response(&resp);
 
             let has_finish = finish_reason != FinishReason::Other;
 
@@ -425,6 +466,7 @@ async fn parse_gemini_stream(
                 } else {
                     None
                 },
+                thinking_delta: thinking,
             };
 
             if tx.send(Ok(chunk)).await.is_err() {
@@ -445,6 +487,7 @@ async fn parse_gemini_stream(
                     }),
                     finish_reason: None,
                     usage: None,
+                    thinking_delta: None,
                 };
                 if tx.send(Ok(delta_chunk)).await.is_err() {
                     return Ok(());
@@ -583,7 +626,7 @@ impl LlmProvider for GeminiProvider {
             .await
             .map_err(|e| CoreError::Llm(format!("Failed to parse response: {e}")))?;
 
-        let (content, tool_calls, finish_reason, usage) = extract_response(&resp);
+        let (content, tool_calls, finish_reason, usage, thinking) = extract_response(&resp);
 
         Ok(CompletionResponse {
             content,
@@ -594,6 +637,7 @@ impl LlmProvider for GeminiProvider {
             },
             finish_reason,
             usage,
+            thinking,
         })
     }
 

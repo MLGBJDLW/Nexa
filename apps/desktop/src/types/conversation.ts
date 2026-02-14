@@ -37,6 +37,9 @@ export interface AgentConfig {
   maxTokens: number | null;
   contextWindow: number | null;
   isDefault: boolean;
+  reasoningEnabled: boolean | null;
+  thinkingBudget: number | null;
+  reasoningEffort: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +55,9 @@ export interface SaveAgentConfigInput {
   maxTokens: number | null;
   contextWindow: number | null;
   isDefault: boolean;
+  reasoningEnabled: boolean | null;
+  thinkingBudget: number | null;
+  reasoningEffort: string | null;
 }
 
 export type ProviderType =

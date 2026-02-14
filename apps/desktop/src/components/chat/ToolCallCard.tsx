@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -17,10 +17,19 @@ import {
   PenLine,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
+import { FileBadge } from '../ui/FileBadge';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
+
+interface SearchResultItem {
+  score: number;
+  source: string;
+  path: string;
+  title: string;
+  preview: string;
+}
 
 interface ToolCallCardProps {
   toolName?: string;
@@ -54,6 +63,29 @@ function getToolIcon(name?: string) {
   return Wrench;
 }
 
+function parseSearchResults(content: string): SearchResultItem[] | null {
+  const blocks = content.split(/---\s*Result\s+\d+\s*\(score:\s*([\d.]+)\)\s*---/);
+  // blocks[0] is preamble (e.g. "Found N results:"), then pairs of [score, body]
+  if (blocks.length < 3) return null;
+
+  const items: SearchResultItem[] = [];
+  for (let i = 1; i < blocks.length; i += 2) {
+    const score = parseFloat(blocks[i]);
+    const body = (blocks[i + 1] || '').trim();
+
+    const get = (key: string): string => {
+      const m = body.match(new RegExp(`^${key}:\\s*(.+)`, 'm'));
+      return m ? m[1].trim() : '';
+    };
+
+    const contentMatch = body.match(/^Content:\s*\n([\s\S]*)/m);
+    const preview = contentMatch ? contentMatch[1].trim().slice(0, 200) : '';
+
+    items.push({ score, source: get('Source'), path: get('Path'), title: get('Title'), preview });
+  }
+  return items.length > 0 ? items : null;
+}
+
 function formatArgs(raw?: string): string {
   if (!raw) return '';
   try {
@@ -64,6 +96,52 @@ function formatArgs(raw?: string): string {
   } catch {
     return raw;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sub-components                                                     */
+/* ------------------------------------------------------------------ */
+
+function SearchResultCards({ items }: { items: SearchResultItem[] }) {
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div
+          key={i}
+          className="flex items-start gap-2 p-2 rounded-md bg-surface-0/50 border border-border/50"
+        >
+          {/* Score indicator */}
+          <div
+            className={`shrink-0 w-1 h-8 rounded-full ${
+              item.score >= 0.8
+                ? 'bg-success'
+                : item.score >= 0.5
+                  ? 'bg-warning'
+                  : 'bg-text-tertiary'
+            }`}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-0.5">
+              <FileBadge path={item.path} />
+              <span className="text-[11px] text-text-tertiary">
+                {(item.score * 100).toFixed(0)}%
+              </span>
+            </div>
+            {item.title && (
+              <div className="text-xs font-medium text-text-primary truncate">
+                {item.title}
+              </div>
+            )}
+            {item.preview && (
+              <div className="text-[11px] text-text-secondary line-clamp-2 mt-0.5">
+                {item.preview}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -78,7 +156,6 @@ export function ToolCallCard({
   isError,
   artifacts,
 }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation();
   const safeToolName =
     typeof toolName === 'string' && toolName.trim().length > 0
@@ -86,6 +163,22 @@ export function ToolCallCard({
       : 'unknown_tool';
   const Icon = getToolIcon(safeToolName);
   const formattedArgs = formatArgs(args);
+
+  const isSearchDone =
+    safeToolName.toLowerCase().includes('search') && status === 'done' && !!content;
+  const searchItems = useMemo(
+    () => (isSearchDone ? parseSearchResults(content!) : null),
+    [isSearchDone, content],
+  );
+
+  const [expanded, setExpanded] = useState(!!searchItems);
+
+  // Auto-expand when search results arrive (streaming: status transitions to 'done')
+  useEffect(() => {
+    if (searchItems) {
+      setExpanded(true);
+    }
+  }, [searchItems]);
 
   const statusConfig = {
     running: { icon: Loader2, text: t('chat.toolRunning'), color: 'text-accent', spin: true },
@@ -138,12 +231,16 @@ export function ToolCallCard({
             className="overflow-hidden"
           >
             <div className="border-t border-border px-3 py-2">
-              <pre
-                className={`text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto
-                  ${isError ? 'text-danger' : 'text-text-secondary'}`}
-              >
-                {content}
-              </pre>
+              {searchItems ? (
+                <SearchResultCards items={searchItems} />
+              ) : (
+                <pre
+                  className={`text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto
+                    ${isError ? 'text-danger' : 'text-text-secondary'}`}
+                >
+                  {content}
+                </pre>
+              )}
               {artifacts && (
                 <div className="mt-2 text-[11px] text-text-tertiary">
                   {JSON.stringify(artifacts, null, 2).slice(0, 500)}

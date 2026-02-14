@@ -12,6 +12,7 @@ use crate::db::Database;
 use crate::embed::{cosine_similarity, create_embedder, Embedder, TfIdfEmbedder, ONNX_MODEL_NAME};
 use crate::error::CoreError;
 use crate::models::{EvidenceCard, FileType, Highlight, SearchQuery};
+use crate::personalization;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -51,8 +52,8 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
         });
     }
 
-    let fts_query = build_fts_query(trimmed);
-    if fts_query.is_empty() {
+    let base_fts = build_fts_query(trimmed);
+    if base_fts.is_empty() {
         return Ok(SearchResult {
             query: query.text.clone(),
             total_matches: 0,
@@ -61,6 +62,20 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
             search_mode: "fts".to_string(),
         });
     }
+
+    // Query expansion from feedback history.
+    let extra_terms = db.get_related_feedback_terms(trimmed, 5).unwrap_or_default();
+    let fts_query = if extra_terms.is_empty() {
+        base_fts
+    } else {
+        let extras = extra_terms
+            .iter()
+            .map(|t| format!("\"{}\"", t))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        format!("({}) OR ({})", base_fts, extras)
+    };
+
     let limit = if query.limit == 0 { 20 } else { query.limit };
     let terms = extract_terms(trimmed);
 
@@ -572,11 +587,84 @@ pub fn vector_search_top_k(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Apply feedback-based score adjustments and re-sort results.
+/// Returns a small score boost based on document recency.
+/// < 3 days: +0.08, < 7 days: +0.05, < 30 days: +0.02, older: 0.0
+fn recency_boost(modified_at: &str) -> f64 {
+    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(modified_at) {
+        let age = chrono::Utc::now().signed_duration_since(ts);
+        if age.num_days() < 3 {
+            0.08
+        } else if age.num_days() < 7 {
+            0.05
+        } else if age.num_days() < 30 {
+            0.02
+        } else {
+            0.0
+        }
+    } else {
+        // Try parsing as SQLite datetime format (YYYY-MM-DD HH:MM:SS)
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(modified_at, "%Y-%m-%d %H:%M:%S") {
+            let ts = naive.and_utc();
+            let age = chrono::Utc::now().signed_duration_since(ts);
+            if age.num_days() < 3 {
+                0.08
+            } else if age.num_days() < 7 {
+                0.05
+            } else if age.num_days() < 30 {
+                0.02
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Query document modified_at timestamps and compute per-document recency boosts.
+fn get_document_recency_boosts(
+    db: &Database,
+    doc_ids: &[String],
+) -> Result<HashMap<String, f64>, CoreError> {
+    if doc_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let conn = db.conn();
+    let placeholders: Vec<String> = (1..=doc_ids.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "SELECT id, modified_at FROM documents WHERE id IN ({})",
+        placeholders.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<Box<dyn rusqlite::types::ToSql>> = doc_ids
+        .iter()
+        .map(|id| Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>)
+        .collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut boosts = HashMap::new();
+    let rows = stmt.query_map(&*param_refs, |row| {
+        let id: String = row.get(0)?;
+        let modified_at: String = row.get(1)?;
+        Ok((id, modified_at))
+    })?;
+    for row in rows {
+        let (id, modified_at) = row?;
+        let boost = recency_boost(&modified_at);
+        if boost > 0.0 {
+            boosts.insert(id, boost);
+        }
+    }
+    Ok(boosts)
+}
+
+/// Apply feedback-based score adjustments, document-level feedback propagation,
+/// recency boost, source preference injection, and re-sort results.
 ///
-/// Looks up feedback for the given query, applies per-chunk adjustments
-/// (upvote +0.15, downvote −0.15, pin +0.25, clamped to ±0.5 per chunk),
-/// clamps final scores to [0.0, 1.0], and re-sorts descending.
+/// Layers applied:
+/// 1. Direct chunk/query feedback (upvote +0.15, downvote −0.15, pin +0.25, clamped ±0.5)
+/// 2. Document-level feedback propagation (+0.03*N/-0.02*N, only if no direct feedback)
+/// 3. Recency boost based on document modified_at
+/// 4. Source preference boost (+0.05 for preferred sources)
 fn apply_feedback_reranking(
     cards: &mut Vec<EvidenceCard>,
     db: &Database,
@@ -586,12 +674,44 @@ fn apply_feedback_reranking(
         return Ok(());
     }
     let chunk_ids: Vec<String> = cards.iter().map(|c| c.chunk_id.to_string()).collect();
+
+    // Layer 1: Direct chunk/query feedback
     let adjustments = db.get_feedback_adjustments(query_text, &chunk_ids)?;
-    if adjustments.is_empty() {
-        return Ok(());
-    }
+
+    // Layer 2: Document-level feedback propagation
+    let doc_adjustments = db.get_document_feedback_adjustments(&chunk_ids)?;
+
+    // Layer 3: Recency boost
+    let doc_ids: Vec<String> = cards.iter().map(|c| c.document_id.to_string()).collect();
+    let recency_boosts = get_document_recency_boosts(db, &doc_ids)?;
+
+    // Layer 4: Source preference
+    let preferred_sources = personalization::get_preferred_source_paths(db, 5)
+        .unwrap_or_default();
+    let preferred_names: Vec<String> = preferred_sources
+        .iter()
+        .map(|p| extract_source_name(p))
+        .collect();
+
     for card in cards.iter_mut() {
-        if let Some(&adj) = adjustments.get(&card.chunk_id.to_string()) {
+        let id = card.chunk_id.to_string();
+        let mut adj = adjustments.get(&id).copied().unwrap_or(0.0);
+
+        // Only add doc-level boost if this chunk has no direct feedback
+        if !adjustments.contains_key(&id) {
+            adj += doc_adjustments.get(&id).copied().unwrap_or(0.0);
+        }
+
+        // Add recency boost
+        let doc_id = card.document_id.to_string();
+        adj += recency_boosts.get(&doc_id).copied().unwrap_or(0.0);
+
+        // Add source preference boost
+        if preferred_names.contains(&card.source_name) {
+            adj += 0.05;
+        }
+
+        if adj.abs() > 1e-9 {
             card.score = (card.score + adj).clamp(0.0, 1.0);
         }
     }
@@ -804,7 +924,12 @@ mod tests {
     // ── helpers ──────────────────────────────────────────────────────────
 
     fn test_db() -> Database {
-        Database::open_memory().expect("open in-memory db")
+        let db = Database::open_memory().expect("open in-memory db");
+        db.save_embedder_config(&crate::embed::EmbedderConfig {
+            provider: "tfidf".into(),
+            ..crate::embed::EmbedderConfig::default()
+        }).expect("set tfidf config for test");
+        db
     }
 
     fn new_id() -> String {
@@ -1624,9 +1749,10 @@ mod tests {
         apply_feedback_reranking(&mut cards, &db, "test").unwrap();
 
         // chunk_a: 0.80 + (-0.15) = 0.65
-        // chunk_b: 0.50 (no feedback)
+        // chunk_b: 0.50 + doc-level(0.03*1 - 0.02*1 = 0.01) = 0.51
+        //   (doc has 1 pin on chunk_c + 1 downvote on chunk_a; chunk_b has no direct feedback)
         // chunk_c: 0.40 + 0.25 = 0.65
-        // Sorted DESC: chunk_a(0.65) == chunk_c(0.65), then chunk_b(0.50)
+        // Sorted DESC: chunk_a(0.65), chunk_c(0.65), then chunk_b(0.51)
         assert!(
             (cards[0].score - 0.65).abs() < 1e-6,
             "first score: {}",
@@ -1638,7 +1764,7 @@ mod tests {
             cards[1].score
         );
         assert!(
-            (cards[2].score - 0.50).abs() < 1e-6,
+            (cards[2].score - 0.51).abs() < 1e-6,
             "third score: {}",
             cards[2].score
         );
@@ -1673,5 +1799,29 @@ mod tests {
             (adj - 0.5).abs() < 1e-6,
             "adjustment should be clamped to 0.5, got {adj}"
         );
+    }
+
+    #[test]
+    fn test_recency_boost_values() {
+        use chrono::{Utc, Duration};
+
+        // Less than 3 days old → +0.08
+        let recent = (Utc::now() - Duration::hours(24)).to_rfc3339();
+        assert!((recency_boost(&recent) - 0.08).abs() < 1e-6, "1-day-old doc");
+
+        // 5 days old → +0.05
+        let five_days = (Utc::now() - Duration::days(5)).to_rfc3339();
+        assert!((recency_boost(&five_days) - 0.05).abs() < 1e-6, "5-day-old doc");
+
+        // 15 days old → +0.02
+        let fifteen_days = (Utc::now() - Duration::days(15)).to_rfc3339();
+        assert!((recency_boost(&fifteen_days) - 0.02).abs() < 1e-6, "15-day-old doc");
+
+        // 60 days old → 0.0
+        let old = (Utc::now() - Duration::days(60)).to_rfc3339();
+        assert!((recency_boost(&old)).abs() < 1e-6, "60-day-old doc");
+
+        // Invalid date → 0.0
+        assert!((recency_boost("not-a-date")).abs() < 1e-6, "invalid date");
     }
 }

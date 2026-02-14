@@ -8,6 +8,7 @@ import {
   X,
   CheckCircle,
   ChevronDown,
+  BrainCircuit,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/Button';
@@ -63,6 +64,9 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
   const [maxTokens, setMaxTokens] = useState(config?.maxTokens ?? 4096);
   const [contextWindow, setContextWindow] = useState<number | null>(config?.contextWindow ?? null);
   const [isDefault, setIsDefault] = useState(config?.isDefault ?? false);
+  const [reasoningEnabled, setReasoningEnabled] = useState<boolean | null>(config?.reasoningEnabled ?? null);
+  const [thinkingBudget, setThinkingBudget] = useState<number | null>(config?.thinkingBudget ?? null);
+  const [reasoningEffort, setReasoningEffort] = useState<string | null>(config?.reasoningEffort ?? null);
   const [showKey, setShowKey] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -87,7 +91,10 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
     maxTokens,
     contextWindow: contextWindow,
     isDefault,
-  }), [config?.id, name, provider, apiKey, baseUrl, model, temperature, maxTokens, contextWindow, isDefault, isLocal]);
+    reasoningEnabled,
+    thinkingBudget,
+    reasoningEffort,
+  }), [config?.id, name, provider, apiKey, baseUrl, model, temperature, maxTokens, contextWindow, isDefault, reasoningEnabled, thinkingBudget, reasoningEffort, isLocal]);
 
   const handleTest = async () => {
     setTestLoading(true);
@@ -276,6 +283,64 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
       </div>
       </div>
       )}
+
+      {/* Reasoning / Thinking */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <BrainCircuit size={16} className="text-accent" />
+          {t('settings.reasoningSection')}
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={reasoningEnabled === true}
+            onChange={(e) => setReasoningEnabled(e.target.checked ? true : null)}
+            className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
+          />
+          <span className="text-sm text-text-primary">{t('settings.enableReasoning')}</span>
+        </label>
+
+        {reasoningEnabled && (
+          <div className="space-y-4 rounded-lg border border-border bg-surface-2 p-4 ml-1">
+            {/* Thinking Budget */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text-primary">{t('settings.thinkingBudget')}</label>
+              <Input
+                type="number"
+                value={thinkingBudget ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value.trim();
+                  setThinkingBudget(val ? parseInt(val) || null : null);
+                }}
+                placeholder="10000"
+                min={1}
+                step={1000}
+              />
+              <p className="text-xs text-text-tertiary">
+                {t('settings.thinkingBudgetHelp')}
+              </p>
+            </div>
+
+            {/* Reasoning Effort */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text-primary">{t('settings.reasoningEffort')}</label>
+              <select
+                value={reasoningEffort ?? 'medium'}
+                onChange={(e) => setReasoningEffort(e.target.value)}
+                className="w-full h-10 bg-surface-1 border border-border rounded-md text-sm text-text-primary px-3.5 transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none cursor-pointer"
+              >
+                <option value="low">{t('settings.reasoningLow')}</option>
+                <option value="medium">{t('settings.reasoningMedium')}</option>
+                <option value="high">{t('settings.reasoningHigh')}</option>
+              </select>
+              <p className="text-xs text-text-tertiary">
+                {t('settings.reasoningEffortHelp')}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Set as Default */}
       <label className="flex items-center gap-2 cursor-pointer">

@@ -289,6 +289,9 @@ export const ja: TranslationKeys = {
   'chat.createError': '会話の作成に失敗しました',
   'chat.newConversation': '新しい会話',
   'chat.askAboutPrompt': '詳しく教えてください：{title}',
+  'chat.feedbackGood': '良い回答',
+  'chat.feedbackBad': '悪い回答',
+  'chat.openFullChat': 'フルチャットで開く',
   'chat.searchConversations': '会話を検索',
   'chat.pinned': 'ピン留め',
   'chat.today': '今日',
@@ -306,6 +309,10 @@ export const ja: TranslationKeys = {
   'chat.defaultPrompt': 'デフォルトのシステムプロンプトを使用',
   'chat.customPrompt': 'カスタムシステムプロンプトが有効',
   'chat.savePrompt': '保存',
+  'chat.thinkingElapsed': '思考中... ({seconds}秒)',
+  'chat.thoughtFor': '{seconds}秒間思考しました',
+  'chat.thinkingCompleted': '思考完了',
+  'chat.tokenEstimate': '約{count}トークン',
 
   // Time
   'time.justNow': 'たった今',
@@ -351,6 +358,15 @@ export const ja: TranslationKeys = {
   'settings.contextWindowHelp': '空のままにするとモデル名から自動検出します。手動で上書きも可能です。',
   'settings.hideKey': 'キーを隠す',
   'settings.showKey': 'キーを表示',
+  'settings.reasoningSection': '推論 / 思考',
+  'settings.enableReasoning': '推論 / 思考を有効にする',
+  'settings.thinkingBudget': '思考バジェット（トークン数）',
+  'settings.thinkingBudgetHelp': '思考のトークンバジェット。AnthropicとGeminiモデルで使用されます。',
+  'settings.reasoningEffort': '推論の強度',
+  'settings.reasoningLow': '低',
+  'settings.reasoningMedium': '中',
+  'settings.reasoningHigh': '高',
+  'settings.reasoningEffortHelp': '推論強度レベル。OpenAI oシリーズモデルで使用されます。',
 
   // Common
   'common.save': '保存',

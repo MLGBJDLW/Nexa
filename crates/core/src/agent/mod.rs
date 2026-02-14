@@ -12,12 +12,40 @@ use crate::conversation::ConversationMessage;
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::{
-    CompletionRequest, LlmProvider, Message, Role, ToolCallDelta, ToolCallRequest, Usage,
+    CompletionRequest, LlmProvider, Message, ReasoningEffort, Role, ToolCallDelta,
+    ToolCallRequest, Usage,
 };
 use crate::privacy;
 use crate::tools::ToolRegistry;
 
 pub mod context;
+
+/// Maximum characters to keep in a tool result for LLM context.
+/// ~4K tokens ≈ 16K chars for English text.
+const MAX_TOOL_RESULT_CHARS: usize = 16_000;
+
+/// Truncate tool result content to fit within a character budget.
+/// If truncated, appends a note indicating truncation.
+fn truncate_tool_result(content: &str, max_chars: usize) -> String {
+    if content.len() <= max_chars {
+        return content.to_string();
+    }
+
+    // Find a char-boundary–safe cut point, then try to land on a line break.
+    let mut cut = max_chars;
+    while !content.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    if let Some(nl) = content[..cut].rfind('\n') {
+        cut = nl;
+    }
+
+    format!(
+        "{}\n\n[... truncated: {} more characters not shown. The full result was saved.]",
+        &content[..cut],
+        content.len() - cut
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Events
@@ -80,6 +108,12 @@ pub struct AgentConfig {
     pub max_tokens: Option<u32>,
     /// Override context window size (auto-detected from model when `None`).
     pub context_window: Option<u32>,
+    /// Whether to enable reasoning/thinking for models that support it.
+    pub reasoning_enabled: Option<bool>,
+    /// Thinking budget in tokens (Anthropic, Gemini).
+    pub thinking_budget: Option<u32>,
+    /// Reasoning effort level (OpenAI o-series).
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 impl Default for AgentConfig {
@@ -91,6 +125,9 @@ impl Default for AgentConfig {
             temperature: Some(0.3),
             max_tokens: Some(4096),
             context_window: None,
+            reasoning_enabled: None,
+            thinking_budget: None,
+            reasoning_effort: None,
         }
     }
 }
@@ -202,6 +239,17 @@ impl AgentExecutor {
                 max_tokens: self.config.max_tokens,
                 tools: tools_param.clone(),
                 stop: None,
+                thinking_budget: if self.config.reasoning_enabled.unwrap_or(false) {
+                    self.config.thinking_budget
+                } else {
+                    None
+                },
+                reasoning_effort: if self.config.reasoning_enabled.unwrap_or(false) {
+                    self.config.reasoning_effort.clone()
+                } else {
+                    None
+                },
+                provider_type: None,
             };
 
             // -- 4a. Stream LLM response --------------------------------------
@@ -224,6 +272,16 @@ impl AgentExecutor {
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
                     Ok(chunk) => {
+                        // Forward thinking deltas.
+                        if let Some(ref thinking) = chunk.thinking_delta {
+                            if !thinking.is_empty() {
+                                let _ = tx
+                                    .send(AgentEvent::Thinking {
+                                        content: thinking.clone(),
+                                    })
+                                    .await;
+                            }
+                        }
                         // Forward text deltas.
                         if !chunk.delta.is_empty() {
                             full_content.push_str(&chunk.delta);
@@ -411,9 +469,13 @@ impl AgentExecutor {
                     sort_order += 1;
                 }
 
+                // Truncate large tool results for LLM context to prevent
+                // crowding out conversation history.
+                let context_content = truncate_tool_result(&content, MAX_TOOL_RESULT_CHARS);
+
                 messages.push(Message {
                     role: Role::Tool,
-                    content,
+                    content: context_content,
                     name: Some(tc.id.clone()),
                     tool_calls: None,
                 });
@@ -703,6 +765,7 @@ mod tests {
                     // Some providers return `stop` even when tool calls are present.
                     finish_reason: Some(crate::llm::FinishReason::Stop),
                     usage: None,
+                    thinking_delta: None,
                 })]
             } else {
                 vec![Ok(StreamChunk {
@@ -710,6 +773,7 @@ mod tests {
                     tool_call_delta: None,
                     finish_reason: Some(crate::llm::FinishReason::Stop),
                     usage: None,
+                    thinking_delta: None,
                 })]
             };
             Ok(Box::pin(stream::iter(chunks)))

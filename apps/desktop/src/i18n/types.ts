@@ -289,6 +289,9 @@ export interface TranslationKeys {
   'chat.createError': string;
   'chat.newConversation': string;
   'chat.askAboutPrompt': string;
+  'chat.feedbackGood': string;
+  'chat.feedbackBad': string;
+  'chat.openFullChat': string;
   'chat.searchConversations': string;
   'chat.pinned': string;
   'chat.today': string;
@@ -306,6 +309,10 @@ export interface TranslationKeys {
   'chat.defaultPrompt': string;
   'chat.customPrompt': string;
   'chat.savePrompt': string;
+  'chat.thinkingElapsed': string;
+  'chat.thoughtFor': string;
+  'chat.thinkingCompleted': string;
+  'chat.tokenEstimate': string;
 
   // Time
   'time.justNow': string;
@@ -351,6 +358,15 @@ export interface TranslationKeys {
   'settings.contextWindowHelp': string;
   'settings.hideKey': string;
   'settings.showKey': string;
+  'settings.reasoningSection': string;
+  'settings.enableReasoning': string;
+  'settings.thinkingBudget': string;
+  'settings.thinkingBudgetHelp': string;
+  'settings.reasoningEffort': string;
+  'settings.reasoningLow': string;
+  'settings.reasoningMedium': string;
+  'settings.reasoningHigh': string;
+  'settings.reasoningEffortHelp': string;
 
   // Common
   'common.save': string;

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, MessageCircle, Settings, Brain, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, MessageCircle, Settings, Brain, ChevronLeft, ChevronRight, BotMessageSquare } from 'lucide-react';
 import { Toaster } from 'sonner';
 import { useTranslation } from '../i18n';
 import type { TranslationKey } from '../i18n';
@@ -52,6 +52,8 @@ function SidebarTooltip({ content, show, children }: { content: string; show: bo
 /* ── Layout ───────────────────────────────────────────────────────── */
 export function Layout() {
   const { t } = useTranslation();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === 'true';
@@ -178,6 +180,22 @@ export function Layout() {
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+
+      {/* Floating AI button */}
+      {!location.pathname.startsWith('/chat') && (
+        <motion.button
+          onClick={() => navigate('/chat')}
+          className="fixed bottom-6 right-6 z-40 p-3 rounded-full
+            bg-accent text-white shadow-lg
+            hover:bg-accent-hover hover:scale-110
+            active:scale-95 transition-all duration-200 cursor-pointer"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+          title={t('chat.askAi')}
+        >
+          <BotMessageSquare size={22} />
+        </motion.button>
+      )}
 
       {/* Toast notifications */}
       <Toaster theme="dark" richColors position="bottom-right" />

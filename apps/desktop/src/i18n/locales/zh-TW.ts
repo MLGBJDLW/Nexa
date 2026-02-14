@@ -289,6 +289,9 @@ export const zhTW: TranslationKeys = {
   'chat.createError': '建立對話失敗',
   'chat.newConversation': '新對話',
   'chat.askAboutPrompt': '深入了解：{title}',
+  'chat.feedbackGood': '回答有幫助',
+  'chat.feedbackBad': '回答無幫助',
+  'chat.openFullChat': '在完整聊天中開啟',
   'chat.searchConversations': '搜尋對話',
   'chat.pinned': '已釘選',
   'chat.today': '今天',
@@ -306,6 +309,10 @@ export const zhTW: TranslationKeys = {
   'chat.defaultPrompt': '使用預設系統提示',
   'chat.customPrompt': '自訂系統提示已啟用',
   'chat.savePrompt': '儲存',
+  'chat.thinkingElapsed': '思考中... ({seconds}秒)',
+  'chat.thoughtFor': '思考了 {seconds}秒',
+  'chat.thinkingCompleted': '思考完成',
+  'chat.tokenEstimate': '約{count}個token',
 
   // Time
   'time.justNow': '剛剛',
@@ -351,6 +358,15 @@ export const zhTW: TranslationKeys = {
   'settings.contextWindowHelp': '留空將根據模型名自動偵測，也可手動覆寫。',
   'settings.hideKey': '隱藏密鑰',
   'settings.showKey': '顯示密鑰',
+  'settings.reasoningSection': '推理 / 思維鏈',
+  'settings.enableReasoning': '啟用推理 / 思維鏈',
+  'settings.thinkingBudget': '思考預算 (token數)',
+  'settings.thinkingBudgetHelp': '思考的token預算。適用於Anthropic和Gemini模型。',
+  'settings.reasoningEffort': '推理強度',
+  'settings.reasoningLow': '低',
+  'settings.reasoningMedium': '中',
+  'settings.reasoningHigh': '高',
+  'settings.reasoningEffortHelp': '推理強度等級。適用於OpenAI o系列模型。',
 
   // Common
   'common.save': '儲存',

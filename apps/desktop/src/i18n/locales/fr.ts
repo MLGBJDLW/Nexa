@@ -289,6 +289,9 @@ export const fr: TranslationKeys = {
   'chat.createError': '\u00c9chec de la cr\u00e9ation de la conversation',
   'chat.newConversation': 'Nouvelle conversation',
   'chat.askAboutPrompt': 'En savoir plus sur : {title}',
+  'chat.feedbackGood': 'Bonne réponse',
+  'chat.feedbackBad': 'Mauvaise réponse',
+  'chat.openFullChat': 'Ouvrir le chat complet',
   'chat.searchConversations': 'Rechercher des conversations',
   'chat.pinned': 'Épinglées',
   'chat.today': 'Aujourd\'hui',
@@ -306,6 +309,10 @@ export const fr: TranslationKeys = {
   'chat.defaultPrompt': 'Utilisation du prompt système par défaut',
   'chat.customPrompt': 'Prompt système personnalisé actif',
   'chat.savePrompt': 'Enregistrer',
+  'chat.thinkingElapsed': 'Réflexion... ({seconds}s)',
+  'chat.thoughtFor': 'Réflexion pendant {seconds}s',
+  'chat.thinkingCompleted': 'Réflexion terminée',
+  'chat.tokenEstimate': '~{count} tokens',
 
   // Time
   'time.justNow': '\u00e0 l\'instant',
@@ -350,8 +357,15 @@ export const fr: TranslationKeys = {
   'settings.contextWindowPlaceholder': 'D\u00e9tection auto du mod\u00e8le',
   'settings.contextWindowHelp': 'Laissez vide pour d\u00e9tecter automatiquement. Vous pouvez aussi saisir manuellement.',
   'settings.hideKey': 'Masquer la cl\u00e9',
-  'settings.showKey': 'Afficher la cl\u00e9',
-
+  'settings.showKey': 'Afficher la cl\u00e9',  'settings.reasoningSection': 'Raisonnement / Réflexion',
+  'settings.enableReasoning': 'Activer le raisonnement / la réflexion',
+  'settings.thinkingBudget': 'Budget de réflexion (tokens)',
+  'settings.thinkingBudgetHelp': 'Budget de tokens pour la réflexion. Utilisé par les modèles Anthropic et Gemini.',
+  'settings.reasoningEffort': 'Effort de raisonnement',
+  'settings.reasoningLow': 'Faible',
+  'settings.reasoningMedium': 'Moyen',
+  'settings.reasoningHigh': 'Élevé',
+  'settings.reasoningEffortHelp': "Niveau d'effort de raisonnement. Utilisé par les modèles OpenAI série o.",
   // Common
   'common.save': 'Enregistrer',
   'common.cancel': 'Annuler',

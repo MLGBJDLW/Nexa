@@ -26,6 +26,7 @@ struct SseChoice {
 struct SseDelta {
     content: Option<String>,
     tool_calls: Option<Vec<SseToolCallDelta>>,
+    reasoning_content: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -137,14 +138,24 @@ pub async fn parse_sse_stream(
                         total_tokens: u.total_tokens,
                     });
 
+                    // Emit reasoning_content (thinking) delta if present.
+                    let thinking_delta = choice
+                        .and_then(|c| c.delta.reasoning_content.clone())
+                        .filter(|s| !s.is_empty());
+
                     // Emit text/finish/usage metadata as one chunk.
-                    if !delta.is_empty() || finish_reason.is_some() || usage.is_some() {
+                    if !delta.is_empty()
+                        || finish_reason.is_some()
+                        || usage.is_some()
+                        || thinking_delta.is_some()
+                    {
                         if tx
                             .send(Ok(StreamChunk {
                                 delta,
                                 tool_call_delta: None,
                                 finish_reason,
                                 usage,
+                                thinking_delta,
                             }))
                             .await
                             .is_err()
@@ -163,6 +174,7 @@ pub async fn parse_sse_stream(
                                     tool_call_delta: Some(map_tool_call_delta(tc)),
                                     finish_reason: None,
                                     usage: None,
+                                    thinking_delta: None,
                                 }))
                                 .await
                                 .is_err()

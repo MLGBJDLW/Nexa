@@ -1,13 +1,30 @@
 import { useRef, useEffect, useMemo, useCallback, useState, type ComponentPropsWithoutRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Copy, Check } from 'lucide-react';
+import { MessageCircle, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { open } from '@tauri-apps/plugin-shell';
 import { useTranslation } from '../../i18n';
 import { useTypewriter } from '../../lib/useTypewriter';
 import { ToolCallCard } from './ToolCallCard';
+import { ThinkingBlock } from './ThinkingBlock';
+import { FileBadge } from '../ui/FileBadge';
+import * as api from '../../lib/api';
 import type { ConversationMessage } from '../../types/conversation';
+
+/* ------------------------------------------------------------------ */
+/*  File-path detection constants                                      */
+/* ------------------------------------------------------------------ */
+
+const FILE_EXT =
+  'md|markdown|txt|log|pdf|docx|xlsx|xls|pptx|ts|tsx|js|jsx|rs|' +
+  'json|toml|yaml|yml|css|scss|sass|less|html|py|go|java|c|cpp|' +
+  'h|hpp|sh|bat|sql|xml|csv';
+
+const FILE_PATH_REGEX = new RegExp(
+  `^(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|\\/|[\\w.-]+[\\\\/])?[\\w .,()\\\\/~\\-\\u4e00-\\u9fff]*\\.(?:${FILE_EXT})$`,
+  'i',
+);
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -26,6 +43,8 @@ interface ToolCallEvent {
 interface ChatMessagesProps {
   messages: ConversationMessage[];
   streamText: string;
+  thinkingText: string;
+  isThinking: boolean;
   toolCalls: ToolCallEvent[];
   isStreaming: boolean;
 }
@@ -55,6 +74,55 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
   );
 }
 
+/**
+ * Pre-process AI citations like [source: D:\path\to\file.docx]
+ * into backtick-wrapped paths so the `code` component renders them as FileBadge.
+ */
+function preprocessCitations(content: string): string {
+  return content.replace(/\[source:\s*([^\]]+)\]/gi, (_match, path: string) => `\`${path.trim()}\``);
+}
+
+/**
+ * Detects bare file paths in markdown prose and wraps them in backticks
+ * so they get rendered as FileBadge components by the code component.
+ * Uses a 3-phase protect→match→restore approach to avoid breaking
+ * existing markdown constructs.
+ */
+function preprocessFilePaths(content: string): string {
+  // Phase 1: Protect constructs that must not be modified
+  const saved: string[] = [];
+  const protect = (m: string) => {
+    saved.push(m);
+    return `\x00${saved.length - 1}\x00`;
+  };
+
+  let s = content
+    .replace(/```[\s\S]*?```/g, protect)                // fenced code blocks
+    .replace(/`[^`\n]+`/g, protect)                      // inline code (already wrapped)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, protect)           // image links
+    .replace(/\[[^\]]*\]\([^)]*\)/g, protect)            // markdown links
+    .replace(/\[[^\]]*\]\[[^\]]*\]/g, protect)           // reference links
+    .replace(/(?:https?|ftp):\/\/[^\s)>\]]+/gi, protect); // URLs
+
+  // Phase 2: Wrap bare file paths in backticks
+  const withSep =
+    `(?:[A-Za-z]:[/\\\\]|\\.{1,2}[/\\\\]|[\\w\\-][\\w.\\-]*[/\\\\])` +
+    `(?:[\\w .,()/\\\\~\\-\\u4e00-\\u9fff])*` +
+    `\\.(?:${FILE_EXT})`;
+
+  const bare = `[\\w][\\w.\\-]*\\.(?:${FILE_EXT})`;
+
+  const filePathRx = new RegExp(
+    `(?<![\\w\`/\\\\])(?:${withSep}|${bare})(?![\\w/\\\\]|\\.\\w)`,
+    'gi',
+  );
+
+  s = s.replace(filePathRx, '`$&`');
+
+  // Phase 3: Restore protected constructs
+  return s.replace(/\x00(\d+)\x00/g, (_, i) => saved[+i]);
+}
+
 /** Shared markdown component map for ReactMarkdown */
 const markdownComponents: Record<string, React.ComponentType<ComponentPropsWithoutRef<any>>> = {
   a: MarkdownLink,
@@ -77,6 +145,15 @@ const markdownComponents: Record<string, React.ComponentType<ComponentPropsWitho
           {children}
         </code>
       );
+    }
+    // Detect file paths in inline code and render as FileBadge
+    const text = typeof children === 'string' ? children : Array.isArray(children) ? children.join('') : '';
+    if (
+      typeof text === 'string' &&
+      text.length > 0 &&
+      FILE_PATH_REGEX.test(text)
+    ) {
+      return <FileBadge path={text} />;
     }
     return (
       <code
@@ -162,9 +239,20 @@ const markdownComponents: Record<string, React.ComponentType<ComponentPropsWitho
 /*  Message bubble                                                     */
 /* ------------------------------------------------------------------ */
 
-function CopyButton({ text }: { text: string }) {
+type FeedbackState = 'up' | 'down' | null;
+
+interface MessageActionsProps {
+  text: string;
+  showFeedback: boolean;
+  chunkIds?: string[];
+  queryText?: string;
+}
+
+function MessageActions({ text, showFeedback, chunkIds = [], queryText = '' }: MessageActionsProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -176,28 +264,77 @@ function CopyButton({ text }: { text: string }) {
     }
   }, [text]);
 
+  const handleFeedback = useCallback(async (type: 'up' | 'down') => {
+    if (feedback === type) {
+      setFeedback(null);
+      return;
+    }
+    if (chunkIds.length === 0 || !queryText) {
+      setFeedback(type);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const action = type === 'up' ? 'upvote' : 'downvote';
+      await Promise.all(chunkIds.map((id) => api.addFeedback(id, queryText, action)));
+      setFeedback(type);
+    } catch {
+      // Silently fail — feedback is best-effort
+    } finally {
+      setSubmitting(false);
+    }
+  }, [feedback, chunkIds, queryText]);
+
+  const actionBtn =
+    'p-1 rounded-md bg-surface-0/80 border border-border/50 text-text-tertiary hover:text-text-primary transition-colors cursor-pointer';
+
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      title={copied ? t('chat.copied') : t('chat.copyMessage')}
-      className="absolute top-1.5 right-1.5 p-1 rounded-md
-        bg-surface-0/80 border border-border/50
-        text-text-tertiary hover:text-text-primary
-        opacity-0 group-hover:opacity-100
-        transition-opacity duration-150
-        cursor-pointer"
-    >
-      {copied ? (
-        <Check className="h-3.5 w-3.5 text-green-500" />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
+    <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={copied ? t('chat.copied') : t('chat.copyMessage')}
+        className={actionBtn}
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-green-500" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </button>
+      {showFeedback && (
+        <>
+          <button
+            type="button"
+            onClick={() => handleFeedback('up')}
+            disabled={submitting}
+            title={t('chat.feedbackGood')}
+            className={`${actionBtn} ${feedback === 'up' ? 'text-success' : ''} ${submitting ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <ThumbsUp className="h-3.5 w-3.5" fill={feedback === 'up' ? 'currentColor' : 'none'} />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleFeedback('down')}
+            disabled={submitting}
+            title={t('chat.feedbackBad')}
+            className={`${actionBtn} ${feedback === 'down' ? 'text-danger' : ''} ${submitting ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            <ThumbsDown className="h-3.5 w-3.5" fill={feedback === 'down' ? 'currentColor' : 'none'} />
+          </button>
+        </>
       )}
-    </button>
+    </div>
   );
 }
 
-function MessageBubble({ msg }: { msg: ConversationMessage }) {
+interface MessageBubbleProps {
+  msg: ConversationMessage;
+  chunkIds?: string[];
+  queryText?: string;
+}
+
+function MessageBubble({ msg, chunkIds, queryText }: MessageBubbleProps) {
   const isUser = msg.role === 'user';
 
   if (msg.role === 'tool' || msg.role === 'system') return null;
@@ -216,13 +353,13 @@ function MessageBubble({ msg }: { msg: ConversationMessage }) {
             : 'bg-surface-2 text-text-primary'
           }`}
       >
-        <CopyButton text={msg.content} />
+        <MessageActions text={msg.content} showFeedback={!isUser} chunkIds={chunkIds} queryText={queryText} />
         {isUser ? (
           <span className="whitespace-pre-wrap">{msg.content}</span>
         ) : (
           <div className="prose-chat">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {msg.content}
+              {preprocessFilePaths(preprocessCitations(msg.content))}
             </ReactMarkdown>
           </div>
         )}
@@ -235,9 +372,46 @@ function MessageBubble({ msg }: { msg: ConversationMessage }) {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function ChatMessages({ messages, streamText, toolCalls, isStreaming }: ChatMessagesProps) {
+export function ChatMessages({ messages, streamText, thinkingText, isThinking, toolCalls, isStreaming }: ChatMessagesProps) {
   const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ── Feedback: chunk-ID tracking ───────────────────────────────────────
+  const chunkIdCacheRef = useRef<Map<string, string[]>>(new Map());
+  const pendingChunkIdsRef = useRef<string[]>([]);
+
+  // Collect chunk IDs from streaming tool-call artifacts
+  useEffect(() => {
+    const ids: string[] = [];
+    for (const tc of toolCalls) {
+      if (tc.status === 'done' && tc.artifacts) {
+        const arr = Array.isArray(tc.artifacts) ? tc.artifacts : Object.values(tc.artifacts);
+        for (const item of arr) {
+          if (item && typeof item === 'object' && 'chunkId' in (item as Record<string, unknown>)) {
+            ids.push((item as Record<string, unknown>).chunkId as string);
+          }
+        }
+      }
+    }
+    if (ids.length > 0) {
+      pendingChunkIdsRef.current = ids;
+    }
+  }, [toolCalls]);
+
+  // When streaming ends and a new assistant message appears, persist chunk IDs
+  const prevMessagesLenRef = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length > prevMessagesLenRef.current && pendingChunkIdsRef.current.length > 0) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          chunkIdCacheRef.current.set(messages[i].id, [...pendingChunkIdsRef.current]);
+          pendingChunkIdsRef.current = [];
+          break;
+        }
+      }
+    }
+    prevMessagesLenRef.current = messages.length;
+  }, [messages]);
 
   // Typewriter: gradually reveal streamed text for a smooth typing feel
   const displayedText = useTypewriter(streamText, isStreaming, { charsPerTick: 5, intervalMs: 30 });
@@ -289,9 +463,15 @@ export function ChatMessages({ messages, streamText, toolCalls, isStreaming }: C
           // Skip tool result messages (rendered inline with tool calls)
           if (msg.role === 'tool' || msg.role === 'system') return null;
 
+          // Resolve feedback context for assistant messages
+          const queryText = msg.role === 'assistant'
+            ? (messages.slice(0, idx).reverse().find((m) => m.role === 'user')?.content ?? '')
+            : '';
+          const chunkIds = chunkIdCacheRef.current.get(msg.id) ?? [];
+
           return (
             <div key={msg.id}>
-              <MessageBubble msg={msg} />
+              <MessageBubble msg={msg} chunkIds={chunkIds} queryText={queryText} />
 
               {/* Show tool call cards after assistant messages with tool calls */}
               {msg.role === 'assistant' && msg.toolCalls.length > 0 && (
@@ -316,6 +496,19 @@ export function ChatMessages({ messages, streamText, toolCalls, isStreaming }: C
           );
         })}
       </AnimatePresence>
+
+      {/* Streaming thinking block */}
+      {isStreaming && thinkingText && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex justify-start mb-3"
+        >
+          <div className="max-w-[80%]">
+            <ThinkingBlock content={thinkingText} isStreaming={isThinking} />
+          </div>
+        </motion.div>
+      )}
 
       {/* Streaming tool calls */}
       {isStreaming && toolCalls.length > 0 && (
@@ -347,7 +540,7 @@ export function ChatMessages({ messages, streamText, toolCalls, isStreaming }: C
           >
             <div className="prose-chat">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {displayedText}
+                {preprocessFilePaths(preprocessCitations(displayedText))}
               </ReactMarkdown>
               {isRevealing && (
                 <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom rounded-sm" />

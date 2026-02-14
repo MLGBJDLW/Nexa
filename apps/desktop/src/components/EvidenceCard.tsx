@@ -294,8 +294,20 @@ export function EvidenceCardComponent({
               <button
                 onClick={() => {
                   const title = card.documentTitle || card.documentPath.split(/[/\\]/).pop() || '';
-                  const preview = card.content.slice(0, 120).replace(/\n/g, ' ');
-                  onAskAbout(t('chat.askAboutPrompt', { title }) + `\n\n> ${preview}...`);
+                  const heading = card.headingPath?.length ? card.headingPath.join(' > ') : '';
+                  const meta = [
+                    card.sourceName && `Source: ${card.sourceName}`,
+                    card.documentPath && `Path: ${card.documentPath}`,
+                    heading && `Section: ${heading}`,
+                  ].filter(Boolean).join('\n');
+                  const content = card.content.length > 1500
+                    ? card.content.slice(0, 1500) + '…'
+                    : card.content;
+                  onAskAbout(
+                    t('chat.askAboutPrompt', { title }) +
+                    (meta ? `\n\n${meta}` : '') +
+                    `\n\n> ${content}`
+                  );
                 }}
                 className="cursor-pointer rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-accent/10 hover:text-accent"
               >

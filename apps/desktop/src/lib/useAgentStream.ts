@@ -35,6 +35,8 @@ interface UseAgentStreamReturn {
   stop: (conversationId: string) => Promise<void>;
   isStreaming: boolean;
   streamText: string;
+  thinkingText: string;
+  isThinking: boolean;
   toolCalls: ToolCallEvent[];
   error: string | null;
   reset: () => void;
@@ -43,6 +45,8 @@ interface UseAgentStreamReturn {
 export function useAgentStream(): UseAgentStreamReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamText, setStreamText] = useState('');
+  const [thinkingText, setThinkingText] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
   const [toolCalls, setToolCalls] = useState<ToolCallEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
@@ -81,6 +85,8 @@ export function useAgentStream(): UseAgentStreamReturn {
 
   const reset = useCallback(() => {
     setStreamText('');
+    setThinkingText('');
+    setIsThinking(false);
     setToolCalls([]);
     setError(null);
   }, []);
@@ -92,6 +98,8 @@ export function useAgentStream(): UseAgentStreamReturn {
     setIsStreaming(true);
     setError(null);
     setStreamText('');
+    setThinkingText('');
+    setIsThinking(false);
     setToolCalls([]);
     activeConversationRef.current = conversationId;
     toolCallSeqRef.current = 0;
@@ -113,7 +121,12 @@ export function useAgentStream(): UseAgentStreamReturn {
       resetStreamTimeout();
 
       switch (data.type) {
+        case 'thinking':
+          setIsThinking(true);
+          setThinkingText(prev => prev + (data.content || ''));
+          break;
         case 'textDelta':
+          setIsThinking(false);
           setStreamText(prev => prev + (data.delta || ''));
           break;
         case 'toolCallStart':
@@ -194,6 +207,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           setStreamText('');
           break;
         case 'done':
+          setIsThinking(false);
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
               ? { ...tc, status: 'done', content: tc.content || 'Completed without explicit output.' }
@@ -245,5 +259,5 @@ export function useAgentStream(): UseAgentStreamReturn {
     cleanup();
   }, [cleanup]);
 
-  return { send, stop, isStreaming, streamText, toolCalls, error, reset };
+  return { send, stop, isStreaming, streamText, thinkingText, isThinking, toolCalls, error, reset };
 }

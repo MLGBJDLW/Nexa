@@ -50,6 +50,25 @@ pub struct ToolCallRequest {
     pub arguments: String,
 }
 
+/// Reasoning effort level for OpenAI o-series models.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+impl std::fmt::Display for ReasoningEffort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Request / response types
 // ---------------------------------------------------------------------------
@@ -68,6 +87,15 @@ pub struct CompletionRequest {
     pub tools: Option<Vec<ToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
+    /// Anthropic extended thinking budget (token count).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_budget: Option<u32>,
+    /// OpenAI o-series reasoning effort.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
+    /// Provider type hint — lets providers apply model-specific logic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_type: Option<ProviderType>,
 }
 
 /// Definition of a tool the model may call.
@@ -89,6 +117,9 @@ pub struct CompletionResponse {
     pub tool_calls: Option<Vec<ToolCallRequest>>,
     pub finish_reason: FinishReason,
     pub usage: Usage,
+    /// Thinking / chain-of-thought text (if the model supports it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 /// Token usage statistics.
@@ -127,6 +158,9 @@ pub struct StreamChunk {
     pub finish_reason: Option<FinishReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// Thinking text delta (streamed chain-of-thought).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_delta: Option<String>,
 }
 
 /// Incremental tool call data received during streaming.

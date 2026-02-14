@@ -14,7 +14,7 @@ use ask_core::embed::EmbedderConfig;
 use ask_core::feedback::{Feedback, FeedbackAction};
 use ask_core::index::IndexStats;
 use ask_core::ingest::{self, EmbedResult, IngestResult};
-use ask_core::llm::{create_provider, Message, ProviderConfig, ProviderType, Role};
+use ask_core::llm::{create_provider, Message, ProviderConfig, ProviderType, ReasoningEffort, Role};
 use ask_core::models::{
     EvidenceCard, Playbook, PlaybookCitation, SearchFilters, SearchQuery, Source,
 };
@@ -974,10 +974,17 @@ pub async fn agent_chat_cmd(
         .db
         .get_conversation(&conversation_id)
         .map_err(|e| e.to_string())?;
-    let system_prompt = if conv.system_prompt.is_empty() {
+    let base_prompt = if conv.system_prompt.is_empty() {
         ExecutorConfig::default().system_prompt
     } else {
         conv.system_prompt.clone()
+    };
+    let preference_section = ask_core::personalization::build_preference_summary(&state.db)
+        .unwrap_or_default();
+    let system_prompt = if preference_section.is_empty() {
+        base_prompt
+    } else {
+        format!("{}{}", base_prompt, preference_section)
     };
 
     // 6. Build executor config from DB config.
@@ -988,6 +995,14 @@ pub async fn agent_chat_cmd(
         temperature: db_config.temperature.map(|t| t as f32),
         max_tokens: db_config.max_tokens.map(|t| t as u32),
         context_window: db_config.context_window.map(|w| w as u32),
+        reasoning_enabled: db_config.reasoning_enabled,
+        thinking_budget: db_config.thinking_budget.map(|v| v as u32),
+        reasoning_effort: db_config.reasoning_effort.as_ref().and_then(|s| match s.as_str() {
+            "low" => Some(ReasoningEffort::Low),
+            "medium" => Some(ReasoningEffort::Medium),
+            "high" => Some(ReasoningEffort::High),
+            _ => None,
+        }),
     };
 
     // 7. Create tool registry.

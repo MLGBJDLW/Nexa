@@ -31,6 +31,10 @@ struct OaiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OaiTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop: Option<Vec<String>>,
@@ -104,6 +108,7 @@ struct OaiChoice {
 struct OaiResponseMessage {
     content: Option<String>,
     tool_calls: Option<Vec<OaiToolCallIn>>,
+    reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +148,22 @@ struct OaiErrorResponse {
 #[derive(Deserialize)]
 struct OaiErrorBody {
     message: String,
+}
+
+// ---------------------------------------------------------------------------
+// Model detection helpers
+// ---------------------------------------------------------------------------
+
+/// Check if the model is an OpenAI reasoning model (o1/o3/o4 series).
+fn is_reasoning_model(model: &str) -> bool {
+    let m = model.to_lowercase();
+    m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4")
+}
+
+/// Check if the model is a DeepSeek reasoner.
+fn is_deepseek_reasoner(model: &str) -> bool {
+    let m = model.to_lowercase();
+    m.contains("deepseek-reasoner") || m.contains("deepseek-r1")
 }
 
 // ---------------------------------------------------------------------------
@@ -220,11 +241,25 @@ fn convert_tools(tools: &[ToolDefinition]) -> Vec<OaiTool> {
 }
 
 fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
+    let is_reasoning = is_reasoning_model(&request.model);
+
     OaiRequest {
         model: request.model.clone(),
         messages: request.messages.iter().map(convert_message).collect(),
-        temperature: request.temperature,
-        max_tokens: request.max_tokens,
+        temperature: if is_reasoning { None } else { request.temperature },
+        max_tokens: if is_reasoning { None } else { request.max_tokens },
+        max_completion_tokens: if is_reasoning { request.max_tokens } else { None },
+        reasoning_effort: if is_reasoning {
+            Some(
+                request
+                    .reasoning_effort
+                    .as_ref()
+                    .map(|r| r.to_string())
+                    .unwrap_or_else(|| "medium".to_string()),
+            )
+        } else {
+            None
+        },
         tools: request.tools.as_ref().map(|t| convert_tools(t)),
         stop: request.stop.clone(),
         stream: if stream { Some(true) } else { None },
@@ -395,6 +430,7 @@ impl LlmProvider for OpenAiProvider {
             tool_calls,
             finish_reason,
             usage,
+            thinking: choice.message.reasoning_content,
         })
     }
 

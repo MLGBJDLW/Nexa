@@ -643,7 +643,12 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_db() -> Database {
-        Database::open_memory().expect("open in-memory db")
+        let db = Database::open_memory().expect("open in-memory db");
+        db.save_embedder_config(&crate::embed::EmbedderConfig {
+            provider: "tfidf".into(),
+            ..crate::embed::EmbedderConfig::default()
+        }).expect("set tfidf config for test");
+        db
     }
 
     fn create_test_source(

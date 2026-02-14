@@ -6,7 +6,7 @@
     "properties": {
       "query": {
         "type": "string",
-        "description": "The search query text"
+        "description": "The search query text. For best results, use the same language as the indexed content. If the user asks in a different language, translate key terms to match the content language."
       },
       "limit": {
         "type": "integer",

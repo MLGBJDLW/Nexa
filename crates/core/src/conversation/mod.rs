@@ -55,6 +55,9 @@ pub struct AgentConfig {
     pub max_tokens: Option<i64>,
     pub context_window: Option<i64>,
     pub is_default: bool,
+    pub reasoning_enabled: Option<bool>,
+    pub thinking_budget: Option<i64>,
+    pub reasoning_effort: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -87,6 +90,9 @@ pub struct SaveAgentConfigInput {
     pub max_tokens: Option<i64>,
     pub context_window: Option<i64>,
     pub is_default: bool,
+    pub reasoning_enabled: Option<bool>,
+    pub thinking_budget: Option<i64>,
+    pub reasoning_effort: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -339,8 +345,8 @@ impl Database {
         let id = input.id.clone().unwrap_or_else(new_id);
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 provider = excluded.provider,
@@ -351,6 +357,9 @@ impl Database {
                 max_tokens = excluded.max_tokens,
                 context_window = excluded.context_window,
                 is_default = excluded.is_default,
+                reasoning_enabled = excluded.reasoning_enabled,
+                thinking_budget = excluded.thinking_budget,
+                reasoning_effort = excluded.reasoning_effort,
                 updated_at = datetime('now')",
             rusqlite::params![
                 &id,
@@ -363,6 +372,9 @@ impl Database {
                 input.max_tokens,
                 input.context_window,
                 input.is_default as i32,
+                input.reasoning_enabled,
+                input.thinking_budget,
+                &input.reasoning_effort,
             ],
         )?;
         drop(conn);
@@ -373,7 +385,7 @@ impl Database {
     pub fn list_agent_configs(&self) -> Result<Vec<AgentConfig>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, created_at, updated_at
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at
              FROM agent_configs ORDER BY name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -388,8 +400,11 @@ impl Database {
                 max_tokens: row.get(7)?,
                 context_window: row.get(8)?,
                 is_default: row.get::<_, i32>(9)? != 0,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                reasoning_enabled: row.get(10)?,
+                thinking_budget: row.get(11)?,
+                reasoning_effort: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })?;
         let mut results = Vec::new();
@@ -403,7 +418,7 @@ impl Database {
     pub fn get_agent_config(&self, id: &str) -> Result<AgentConfig, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, created_at, updated_at
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at
              FROM agent_configs WHERE id = ?1",
             rusqlite::params![id],
             |row| {
@@ -418,8 +433,11 @@ impl Database {
                     max_tokens: row.get(7)?,
                     context_window: row.get(8)?,
                     is_default: row.get::<_, i32>(9)? != 0,
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
+                    reasoning_enabled: row.get(10)?,
+                    thinking_budget: row.get(11)?,
+                    reasoning_effort: row.get(12)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
                 })
             },
         )
@@ -468,7 +486,7 @@ impl Database {
     pub fn get_default_agent_config(&self) -> Result<Option<AgentConfig>, CoreError> {
         let conn = self.conn();
         let result = conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, created_at, updated_at
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at
              FROM agent_configs WHERE is_default = 1 LIMIT 1",
             [],
             |row| {
@@ -483,8 +501,11 @@ impl Database {
                     max_tokens: row.get(7)?,
                     context_window: row.get(8)?,
                     is_default: row.get::<_, i32>(9)? != 0,
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
+                    reasoning_enabled: row.get(10)?,
+                    thinking_budget: row.get(11)?,
+                    reasoning_effort: row.get(12)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
                 })
             },
         );
@@ -715,6 +736,9 @@ mod tests {
                 max_tokens: Some(4096),
                 context_window: None,
                 is_default: false,
+                reasoning_enabled: None,
+                thinking_budget: None,
+                reasoning_effort: None,
             })
             .unwrap();
         assert_eq!(config.name, "My GPT-4");
@@ -736,6 +760,9 @@ mod tests {
                 max_tokens: Some(8192),
                 context_window: None,
                 is_default: false,
+                reasoning_enabled: None,
+                thinking_budget: None,
+                reasoning_effort: None,
             })
             .unwrap();
         assert_eq!(updated.name, "Renamed");
@@ -765,6 +792,9 @@ mod tests {
                 max_tokens: None,
                 context_window: None,
                 is_default: false,
+                reasoning_enabled: None,
+                thinking_budget: None,
+                reasoning_effort: None,
             })
             .unwrap();
 
@@ -780,6 +810,9 @@ mod tests {
                 max_tokens: None,
                 context_window: None,
                 is_default: false,
+                reasoning_enabled: None,
+                thinking_budget: None,
+                reasoning_effort: None,
             })
             .unwrap();
 

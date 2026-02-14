@@ -289,6 +289,9 @@ export const en: TranslationKeys = {
   'chat.createError': 'Failed to create conversation',
   'chat.newConversation': 'New Conversation',
   'chat.askAboutPrompt': 'Tell me more about: {title}',
+  'chat.feedbackGood': 'Good response',
+  'chat.feedbackBad': 'Bad response',
+  'chat.openFullChat': 'Open in full chat',
   'chat.searchConversations': 'Search conversations',
   'chat.pinned': 'Pinned',
   'chat.today': 'Today',
@@ -306,6 +309,10 @@ export const en: TranslationKeys = {
   'chat.defaultPrompt': 'Using default system prompt',
   'chat.customPrompt': 'Custom system prompt active',
   'chat.savePrompt': 'Save',
+  'chat.thinkingElapsed': 'Thinking... ({seconds}s)',
+  'chat.thoughtFor': 'Thought for {seconds}s',
+  'chat.thinkingCompleted': 'Thinking completed',
+  'chat.tokenEstimate': '~{count} tokens',
 
   // Time
   'time.justNow': 'just now',
@@ -351,6 +358,15 @@ export const en: TranslationKeys = {
   'settings.contextWindowHelp': 'Leave empty to auto-detect based on model name. Override if needed.',
   'settings.hideKey': 'Hide API key',
   'settings.showKey': 'Show API key',
+  'settings.reasoningSection': 'Reasoning / Thinking',
+  'settings.enableReasoning': 'Enable Reasoning / Thinking',
+  'settings.thinkingBudget': 'Thinking Budget (tokens)',
+  'settings.thinkingBudgetHelp': 'Token budget for thinking. Used by Anthropic and Gemini models.',
+  'settings.reasoningEffort': 'Reasoning Effort',
+  'settings.reasoningLow': 'Low',
+  'settings.reasoningMedium': 'Medium',
+  'settings.reasoningHigh': 'High',
+  'settings.reasoningEffortHelp': 'Reasoning effort level. Used by OpenAI o-series models.',
 
   // Common
   'common.save': 'Save',

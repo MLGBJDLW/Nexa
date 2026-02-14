@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Trash2, X, Pencil, FileText, Calendar, ChevronUp, ChevronDown, Check } from 'lucide-react';
+import { BookOpen, Plus, Trash2, X, Pencil, FileText, Calendar, ChevronUp, ChevronDown, Check, BotMessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { Playbook, PlaybookCitation } from '../types';
@@ -12,6 +12,7 @@ import { Modal } from '../components/ui/Modal';
 import { Skeleton, CardSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { ChatPanel } from '../components/chat/ChatPanel';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -72,6 +73,10 @@ export function PlaybooksPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [saving, setSaving] = useState(false);
+
+  /* ── Chat panel ─────────────────────────────────────────────────── */
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessage, setChatMessage] = useState('');
 
   /* ── Remove citation confirm ────────────────────────────────────── */
   const [removeCitTarget, setRemoveCitTarget] = useState<string | null>(null);
@@ -225,6 +230,13 @@ export function PlaybooksPage() {
     }
   };
 
+  /* ── Ask AI handler ──────────────────────────────────────────────── */
+
+  const handleAskAI = (context: string) => {
+    setChatMessage(context);
+    setChatOpen(true);
+  };
+
   /* ── Citation reordering ────────────────────────────────────────── */
 
   const handleMoveCitation = async (index: number, direction: 'up' | 'down') => {
@@ -272,7 +284,8 @@ export function PlaybooksPage() {
   /* ================================================================ */
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    <div className="flex h-full">
+    <div className="mx-auto max-w-6xl p-6 flex-1 min-w-0 overflow-y-auto">
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-lg font-semibold text-text-primary">{t('playbooks.title')}</h1>
@@ -408,6 +421,24 @@ export function PlaybooksPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => {
+                            const citationContext = citations.length > 0
+                              ? '\n\nSaved citations:\n' + citations
+                                  .sort((a, b) => a.order - b.order)
+                                  .map((c, i) => `${i + 1}. ${c.annotation || '(no note)'}`)
+                                  .join('\n')
+                              : '';
+                            handleAskAI(
+                              `Tell me about the playbook "${selectedPlaybook.title}": ${selectedPlaybook.description || ''}${citationContext}`
+                            );
+                          }}
+                          className="rounded-md px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition-colors cursor-pointer flex items-center gap-1.5"
+                          title={t('chat.askAboutThis')}
+                        >
+                          <BotMessageSquare size={14} />
+                          <span>{t('chat.askAi')}</span>
+                        </button>
                         <Button variant="ghost" size="sm" icon={<Pencil size={14} />} onClick={startEdit}>
                           {t('common.edit')}
                         </Button>
@@ -647,6 +678,26 @@ export function PlaybooksPage() {
         confirmText={t('common.remove')}
         variant="danger"
       />
+    </div>
+
+    {/* ── Chat side panel ────────────────────────────────────── */}
+    <AnimatePresence>
+      {chatOpen && (
+        <motion.div
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 400, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          className="shrink-0 border-l border-border h-full overflow-hidden"
+        >
+          <ChatPanel
+            initialMessage={chatMessage}
+            onClose={() => setChatOpen(false)}
+            className="h-full"
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
     </div>
   );
 }

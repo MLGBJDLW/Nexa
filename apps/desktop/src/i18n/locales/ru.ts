@@ -289,6 +289,9 @@ export const ru: TranslationKeys = {
   'chat.createError': 'Не удалось создать разговор',
   'chat.newConversation': 'Новый разговор',
   'chat.askAboutPrompt': 'Расскажите подробнее о: {title}',
+  'chat.feedbackGood': 'Хороший ответ',
+  'chat.feedbackBad': 'Плохой ответ',
+  'chat.openFullChat': 'Открыть полный чат',
   'chat.searchConversations': 'Поиск разговоров',
   'chat.pinned': 'Закреплённые',
   'chat.today': 'Сегодня',
@@ -306,6 +309,10 @@ export const ru: TranslationKeys = {
   'chat.defaultPrompt': 'Используется системный промпт по умолчанию',
   'chat.customPrompt': 'Пользовательский системный промпт активен',
   'chat.savePrompt': 'Сохранить',
+  'chat.thinkingElapsed': 'Думает... ({seconds}с)',
+  'chat.thoughtFor': 'Думал {seconds}с',
+  'chat.thinkingCompleted': 'Размышление завершено',
+  'chat.tokenEstimate': '~{count} токенов',
 
   // Time
   'time.justNow': 'только что',
@@ -351,6 +358,15 @@ export const ru: TranslationKeys = {
   'settings.contextWindowHelp': 'Оставьте пустым для автоматического определения. Можно указать вручную.',
   'settings.hideKey': 'Скрыть ключ',
   'settings.showKey': 'Показать ключ',
+  'settings.reasoningSection': 'Рассуждение / Мышление',
+  'settings.enableReasoning': 'Включить рассуждение / мышление',
+  'settings.thinkingBudget': 'Бюджет на размышление (токены)',
+  'settings.thinkingBudgetHelp': 'Бюджет токенов для размышления. Используется моделями Anthropic и Gemini.',
+  'settings.reasoningEffort': 'Интенсивность рассуждения',
+  'settings.reasoningLow': 'Низкая',
+  'settings.reasoningMedium': 'Средняя',
+  'settings.reasoningHigh': 'Высокая',
+  'settings.reasoningEffortHelp': 'Уровень интенсивности рассуждения. Используется моделями OpenAI серии o.',
 
   // Common
   'common.save': 'Сохранить',

@@ -13,6 +13,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  BotMessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
@@ -29,6 +30,7 @@ import { Modal } from '../components/ui/Modal';
 import { CardSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { ChatPanel } from '../components/chat/ChatPanel';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -108,6 +110,10 @@ export function SourcesPage() {
   const [editExclude, setEditExclude] = useState('');
   const [editWatch, setEditWatch] = useState(false);
   const [editing, setEditing] = useState(false);
+
+  // Chat panel
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessage, setChatMessage] = useState('');
 
   // Watcher
   const [togglingWatch, setTogglingWatch] = useState<string | null>(null);
@@ -333,6 +339,13 @@ export function SourcesPage() {
     }
   };
 
+  /* ── Ask AI handler ────────────────────────────────────────────────── */
+
+  const handleAskAI = (context: string) => {
+    setChatMessage(context);
+    setChatOpen(true);
+  };
+
   /* ── Loading skeleton ──────────────────────────────────────────────── */
 
   if (loading) {
@@ -352,7 +365,8 @@ export function SourcesPage() {
   /* ── Render ─────────────────────────────────────────────────────────── */
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
+    <div className="flex h-full">
+    <div className="mx-auto max-w-3xl p-6 flex-1 min-w-0 overflow-y-auto">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-text-primary">{t('sources.title')}</h2>
@@ -497,6 +511,13 @@ export function SourcesPage() {
                     >
                       {t('common.delete')}
                     </Button>
+                    <button
+                      onClick={() => handleAskAI(`Tell me about the source at "${source.rootPath}". Include globs: ${source.includeGlobs.join(', ')}. Exclude globs: ${source.excludeGlobs.join(', ')}.`)}
+                      className="rounded-md p-1.5 text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                      title={t('chat.askAboutThis')}
+                    >
+                      <BotMessageSquare size={14} />
+                    </button>
                   </div>
                 </div>
               </motion.div>
@@ -708,6 +729,26 @@ export function SourcesPage() {
         variant="danger"
         loading={deleting}
       />
+    </div>
+
+    {/* ── Chat side panel ────────────────────────────────────── */}
+    <AnimatePresence>
+      {chatOpen && (
+        <motion.div
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 400, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          className="shrink-0 border-l border-border h-full overflow-hidden"
+        >
+          <ChatPanel
+            initialMessage={chatMessage}
+            onClose={() => setChatOpen(false)}
+            className="h-full"
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
     </div>
   );
 }

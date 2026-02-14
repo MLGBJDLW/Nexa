@@ -289,6 +289,9 @@ export const ko: TranslationKeys = {
   'chat.createError': '대화 생성 실패',
   'chat.newConversation': '새 대화',
   'chat.askAboutPrompt': '자세히 알려주세요: {title}',
+  'chat.feedbackGood': '좋은 응답',
+  'chat.feedbackBad': '나쁜 응답',
+  'chat.openFullChat': '전체 채팅에서 열기',
   'chat.searchConversations': '대화 검색',
   'chat.pinned': '고정됨',
   'chat.today': '오늘',
@@ -306,6 +309,10 @@ export const ko: TranslationKeys = {
   'chat.defaultPrompt': '기본 시스템 프롬프트 사용 중',
   'chat.customPrompt': '사용자 정의 시스템 프롬프트 활성화',
   'chat.savePrompt': '저장',
+  'chat.thinkingElapsed': '생각 중... ({seconds}초)',
+  'chat.thoughtFor': '{seconds}초 동안 생각했습니다',
+  'chat.thinkingCompleted': '사고 완료',
+  'chat.tokenEstimate': '약 {count} 토큰',
 
   // Time
   'time.justNow': '방금',
@@ -351,6 +358,15 @@ export const ko: TranslationKeys = {
   'settings.contextWindowHelp': '비워두면 모델명에서 자동 감지합니다. 수동 설정도 가능합니다.',
   'settings.hideKey': '키 숨기기',
   'settings.showKey': '키 보기',
+  'settings.reasoningSection': '추론 / 사고',
+  'settings.enableReasoning': '추론 / 사고 활성화',
+  'settings.thinkingBudget': '사고 예산 (토큰)',
+  'settings.thinkingBudgetHelp': '사고를 위한 토큰 예산. Anthropic 및 Gemini 모델에서 사용됩니다.',
+  'settings.reasoningEffort': '추론 강도',
+  'settings.reasoningLow': '낮음',
+  'settings.reasoningMedium': '보통',
+  'settings.reasoningHigh': '높음',
+  'settings.reasoningEffortHelp': '추론 강도 수준. OpenAI o 시리즈 모델에서 사용됩니다.',
 
   // Common
   'common.save': '저장',

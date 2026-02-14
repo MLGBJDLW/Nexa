@@ -206,6 +206,33 @@ fn build_request_body(request: &CompletionRequest, stream: bool) -> OllamaReques
     }
 }
 
+/// Extracts `<think>...</think>` blocks from content.
+/// Returns `(thinking_text, remaining_content)`.
+fn extract_think_blocks(content: &str) -> (Option<String>, String) {
+    let mut thinking_parts = Vec::new();
+    let mut remaining = content.to_string();
+
+    while let Some(start) = remaining.find("<think>") {
+        if let Some(end) = remaining.find("</think>") {
+            let think_content = remaining[start + 7..end].trim().to_string();
+            if !think_content.is_empty() {
+                thinking_parts.push(think_content);
+            }
+            remaining = format!("{}{}", &remaining[..start], &remaining[end + 8..]);
+        } else {
+            break; // Unclosed tag — leave as-is
+        }
+    }
+
+    let thinking = if thinking_parts.is_empty() {
+        None
+    } else {
+        Some(thinking_parts.join("\n\n"))
+    };
+
+    (thinking, remaining.trim().to_string())
+}
+
 fn parse_finish_reason(resp: &OllamaResponse) -> FinishReason {
     if let Some(ref reason) = resp.done_reason {
         match reason.as_str() {
@@ -240,6 +267,9 @@ async fn parse_ollama_ndjson_stream(
 ) -> Result<(), CoreError> {
     let mut byte_stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut in_think_block = false;
+    // Buffer for detecting `<think>` / `</think>` tags that may be split across chunks.
+    let mut tag_buffer = String::new();
 
     while let Some(chunk_result) = byte_stream.next().await {
         let chunk = chunk_result.map_err(|e| CoreError::Llm(format!("Stream read error: {e}")))?;
@@ -266,11 +296,61 @@ async fn parse_ollama_ndjson_stream(
                 }
             };
 
-            let delta = resp
+            let raw_delta = resp
                 .message
                 .as_ref()
                 .and_then(|m| m.content.clone())
                 .unwrap_or_default();
+
+            // ── Think-block state machine ──────────────────────────
+            // Accumulate into tag_buffer so we can detect tags split
+            // across NDJSON lines.
+            let mut delta = String::new();
+            let mut thinking_delta: Option<String> = None;
+
+            tag_buffer.push_str(&raw_delta);
+
+            loop {
+                if in_think_block {
+                    if let Some(end_pos) = tag_buffer.find("</think>") {
+                        // Everything before the closing tag is thinking.
+                        let think_part = &tag_buffer[..end_pos];
+                        if !think_part.is_empty() {
+                            thinking_delta
+                                .get_or_insert_with(String::new)
+                                .push_str(think_part);
+                        }
+                        tag_buffer = tag_buffer[end_pos + 8..].to_string();
+                        in_think_block = false;
+                        // Continue loop – remaining text may contain another <think>.
+                    } else {
+                        // Still inside think block; emit entire buffer as thinking.
+                        if !tag_buffer.is_empty() {
+                            thinking_delta
+                                .get_or_insert_with(String::new)
+                                .push_str(&tag_buffer);
+                            tag_buffer.clear();
+                        }
+                        break;
+                    }
+                } else {
+                    if let Some(start_pos) = tag_buffer.find("<think>") {
+                        // Text before the tag is normal content.
+                        let before = &tag_buffer[..start_pos];
+                        if !before.is_empty() {
+                            delta.push_str(before);
+                        }
+                        tag_buffer = tag_buffer[start_pos + 7..].to_string();
+                        in_think_block = true;
+                        // Continue loop – the rest may contain </think>.
+                    } else {
+                        // No opening tag; emit as normal content.
+                        delta.push_str(&tag_buffer);
+                        tag_buffer.clear();
+                        break;
+                    }
+                }
+            }
 
             let (finish_reason, usage) = if resp.done {
                 let reason = parse_finish_reason(&resp);
@@ -293,6 +373,7 @@ async fn parse_ollama_ndjson_stream(
                 tool_call_delta: None,
                 finish_reason,
                 usage,
+                thinking_delta,
             };
 
             if tx.send(Ok(chunk)).await.is_err() {
@@ -312,6 +393,7 @@ async fn parse_ollama_ndjson_stream(
                         }),
                         finish_reason: None,
                         usage: None,
+                        thinking_delta: None,
                     };
                     if tx.send(Ok(tc_chunk)).await.is_err() {
                         return Ok(());
@@ -433,11 +515,13 @@ impl LlmProvider for OllamaProvider {
             .await
             .map_err(|e| CoreError::Llm(format!("Failed to parse response: {e}")))?;
 
-        let content = resp
+        let raw_content = resp
             .message
             .as_ref()
             .and_then(|m| m.content.clone())
             .unwrap_or_default();
+
+        let (thinking, content) = extract_think_blocks(&raw_content);
 
         let tool_calls = resp
             .message
@@ -470,6 +554,7 @@ impl LlmProvider for OllamaProvider {
             tool_calls,
             finish_reason,
             usage,
+            thinking,
         })
     }
 

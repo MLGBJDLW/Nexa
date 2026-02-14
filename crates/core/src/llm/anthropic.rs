@@ -25,6 +25,12 @@ const DEFAULT_MAX_TOKENS: u32 = 4096;
 // Anthropic API wire types — request
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Serialize)]
+struct AnthropicThinking {
+    r#type: String,
+    budget_tokens: u32,
+}
+
 #[derive(Serialize)]
 struct AnthropicRequest {
     model: String,
@@ -40,6 +46,8 @@ struct AnthropicRequest {
     stop_sequences: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<AnthropicThinking>,
 }
 
 #[derive(Serialize)]
@@ -103,6 +111,9 @@ enum AnthropicResponseBlock {
         id: String,
         name: String,
         input: serde_json::Value,
+    },
+    Thinking {
+        thinking: String,
     },
 }
 
@@ -174,6 +185,10 @@ enum AnthropicStreamContentBlock {
         id: String,
         name: String,
     },
+    Thinking {
+        #[allow(dead_code)]
+        thinking: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -182,6 +197,7 @@ enum AnthropicStreamContentBlock {
 enum AnthropicStreamDelta {
     TextDelta { text: String },
     InputJsonDelta { partial_json: String },
+    ThinkingDelta { thinking: String },
 }
 
 #[derive(Deserialize)]
@@ -320,15 +336,28 @@ fn build_request_body(
     messages: Vec<AnthropicMessage>,
     stream: bool,
 ) -> AnthropicRequest {
+    let (thinking, temperature) = if let Some(budget) = request.thinking_budget {
+        (
+            Some(AnthropicThinking {
+                r#type: "enabled".to_string(),
+                budget_tokens: budget,
+            }),
+            None, // Anthropic requires temperature unset when thinking is enabled
+        )
+    } else {
+        (None, request.temperature)
+    };
+
     AnthropicRequest {
         model: request.model.clone(),
         max_tokens: request.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
         system,
         messages,
-        temperature: request.temperature,
+        temperature,
         tools: request.tools.as_ref().map(|t| convert_tools(t)),
         stop_sequences: request.stop.clone(),
         stream: if stream { Some(true) } else { None },
+        thinking,
     }
 }
 
@@ -352,6 +381,7 @@ async fn parse_anthropic_stream(
     // Track current tool call id/name from content_block_start.
     let mut current_tool_id = String::new();
     let mut current_tool_name: Option<String> = None;
+
 
     while let Some(chunk_result) = byte_stream.next().await {
         let chunk = chunk_result.map_err(|e| CoreError::Llm(format!("Stream read error: {e}")))?;
@@ -404,6 +434,10 @@ async fn parse_anthropic_stream(
                             current_tool_id.clear();
                             current_tool_name = None;
                         }
+                        AnthropicStreamContentBlock::Thinking { .. } => {
+                            current_tool_id.clear();
+                            current_tool_name = None;
+                        }
                         AnthropicStreamContentBlock::ToolUse { id, name } => {
                             current_tool_id = id.clone();
                             current_tool_name = Some(name.clone());
@@ -418,6 +452,7 @@ async fn parse_anthropic_stream(
                                 }),
                                 finish_reason: None,
                                 usage: None,
+                                thinking_delta: None,
                             };
                             if tx.send(Ok(chunk)).await.is_err() {
                                 return Ok(());
@@ -432,6 +467,19 @@ async fn parse_anthropic_stream(
                             tool_call_delta: None,
                             finish_reason: None,
                             usage: None,
+                            thinking_delta: None,
+                        };
+                        if tx.send(Ok(chunk)).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    AnthropicStreamDelta::ThinkingDelta { thinking } => {
+                        let chunk = StreamChunk {
+                            delta: String::new(),
+                            tool_call_delta: None,
+                            finish_reason: None,
+                            usage: None,
+                            thinking_delta: Some(thinking),
                         };
                         if tx.send(Ok(chunk)).await.is_err() {
                             return Ok(());
@@ -448,6 +496,7 @@ async fn parse_anthropic_stream(
                             }),
                             finish_reason: None,
                             usage: None,
+                            thinking_delta: None,
                         };
                         if tx.send(Ok(chunk)).await.is_err() {
                             return Ok(());
@@ -466,6 +515,7 @@ async fn parse_anthropic_stream(
                         tool_call_delta: None,
                         finish_reason: finish,
                         usage: usage_info,
+                        thinking_delta: None,
                     };
                     if tx.send(Ok(chunk)).await.is_err() {
                         return Ok(());
@@ -585,13 +635,15 @@ impl LlmProvider for AnthropicProvider {
             .await
             .map_err(|e| CoreError::Llm(format!("Failed to parse response: {e}")))?;
 
-        // Extract text and tool calls from content blocks.
+        // Extract text, thinking, and tool calls from content blocks.
         let mut text_parts = Vec::new();
         let mut tool_calls = Vec::new();
+        let mut thinking_parts = Vec::new();
 
         for block in resp.content {
             match block {
                 AnthropicResponseBlock::Text { text } => text_parts.push(text),
+                AnthropicResponseBlock::Thinking { thinking } => thinking_parts.push(thinking),
                 AnthropicResponseBlock::ToolUse { id, name, input } => {
                     tool_calls.push(ToolCallRequest {
                         id,
@@ -626,6 +678,11 @@ impl LlmProvider for AnthropicProvider {
             },
             finish_reason,
             usage,
+            thinking: if thinking_parts.is_empty() {
+                None
+            } else {
+                Some(thinking_parts.join(""))
+            },
         })
     }
 
