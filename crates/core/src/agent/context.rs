@@ -3,7 +3,7 @@
 use chrono::Utc;
 
 use crate::conversation::memory::{model_context_window, trim_to_context_window};
-use crate::llm::{Message, Role};
+use crate::llm::{ContentPart, Message, Role};
 
 /// Build a complete message list for an LLM request, trimmed to fit the
 /// model's context window.
@@ -18,7 +18,7 @@ use crate::llm::{Message, Role};
 pub fn prepare_messages(
     system_prompt: &str,
     history: &[Message],
-    user_message: &str,
+    user_parts: &[ContentPart],
     model: &str,
     max_tokens_response: u32,
     context_window_override: Option<u32>,
@@ -31,20 +31,15 @@ pub fn prepare_messages(
         system_prompt,
         Utc::now().format("%Y-%m-%d %H:%M UTC")
     );
-    messages.push(Message {
-        role: Role::System,
-        content: system_with_datetime,
-        name: None,
-        tool_calls: None,
-    });
+    messages.push(Message::text(Role::System, system_with_datetime));
 
     // Prior conversation turns.
     messages.extend_from_slice(history);
 
-    // New user input.
+    // New user input (may include image parts for multimodal messages).
     messages.push(Message {
         role: Role::User,
-        content: user_message.to_string(),
+        parts: user_parts.to_vec(),
         name: None,
         tool_calls: None,
     });
@@ -69,7 +64,9 @@ pub fn prepare_messages(
         let recap = build_evicted_recap(&evicted);
         if !recap.is_empty() {
             if let Some(sys) = trimmed.iter_mut().find(|m| m.role == Role::System) {
-                sys.content = format!("{}\n\n{}", sys.content, recap);
+                if let Some(ContentPart::Text { text }) = sys.parts.first_mut() {
+                    *text = format!("{}\n\n{}", text, recap);
+                }
             }
         }
     }
@@ -94,7 +91,7 @@ fn build_evicted_recap(evicted: &[&Message]) -> String {
 
         match msg.role {
             Role::User => {
-                let summary = truncate_text(&msg.content, 100);
+                let summary = truncate_text(&msg.text_content(), 100);
                 let line = format!("- User asked: {}", summary);
                 total_chars += line.len();
                 parts.push(line);
@@ -104,7 +101,7 @@ fn build_evicted_recap(evicted: &[&Message]) -> String {
                 if msg.tool_calls.as_ref().map_or(false, |tc| !tc.is_empty()) {
                     continue;
                 }
-                let summary = truncate_text(&msg.content, 80);
+                let summary = truncate_text(&msg.text_content(), 80);
                 let line = format!("- You answered: {}", summary);
                 total_chars += line.len();
                 parts.push(line);
@@ -141,12 +138,7 @@ mod tests {
     use super::*;
 
     fn msg(role: Role, content: &str) -> Message {
-        Message {
-            role,
-            content: content.to_string(),
-            name: None,
-            tool_calls: None,
-        }
+        Message::text(role, content)
     }
 
     #[test]
@@ -155,14 +147,14 @@ mod tests {
             msg(Role::User, "Hi"),
             msg(Role::Assistant, "Hello!"),
         ];
-        let result = prepare_messages("System prompt", &history, "What's up?", "gpt-4o", 4096, None);
+        let result = prepare_messages("System prompt", &history, &[ContentPart::Text { text: "What's up?".to_string() }], "gpt-4o", 4096, None);
 
         // System is first, with datetime appended.
         assert_eq!(result[0].role, Role::System);
-        assert!(result[0].content.starts_with("System prompt\n\nCurrent date and time:"));
+        assert!(result[0].text_content().starts_with("System prompt\n\nCurrent date and time:"));
 
         // Last message is the new user input.
-        assert_eq!(result.last().unwrap().content, "What's up?");
+        assert_eq!(result.last().unwrap().text_content(), "What's up?");
         assert_eq!(result.last().unwrap().role, Role::User);
     }
 
@@ -179,7 +171,7 @@ mod tests {
             })
             .collect();
         // Force a small context window (8192) so trimming is guaranteed.
-        let result = prepare_messages("Sys", &history, "New", "some-model", 512, Some(8192));
+        let result = prepare_messages("Sys", &history, &[ContentPart::Text { text: "New".to_string() }], "some-model", 512, Some(8192));
 
         // System message must survive.
         assert_eq!(result[0].role, Role::System);
@@ -187,11 +179,11 @@ mod tests {
         assert!(result.len() < 202, "expected trimming, got {} messages", result.len());
         assert!(result.len() > 2, "expected more than just sys+user");
         // Last message is the new user input.
-        assert_eq!(result.last().unwrap().content, "New");
+        assert_eq!(result.last().unwrap().text_content(), "New");
 
         // System message should contain the evicted recap.
         assert!(
-            result[0].content.contains("Earlier conversation context"),
+            result[0].text_content().contains("Earlier conversation context"),
             "System message should contain evicted recap"
         );
     }
@@ -202,18 +194,18 @@ mod tests {
             msg(Role::User, "Hi"),
             msg(Role::Assistant, "Hello!"),
         ];
-        let result = prepare_messages("Sys", &history, "What's up?", "gpt-4o", 4096, None);
+        let result = prepare_messages("Sys", &history, &[ContentPart::Text { text: "What's up?".to_string() }], "gpt-4o", 4096, None);
 
         // No trimming happened, so no recap.
-        assert!(!result[0].content.contains("Earlier conversation context"));
+        assert!(!result[0].text_content().contains("Earlier conversation context"));
     }
 
     #[test]
     fn test_prepare_messages_empty_history() {
-        let result = prepare_messages("Sys", &[], "Hello", "gpt-4o", 4096, None);
+        let result = prepare_messages("Sys", &[], &[ContentPart::Text { text: "Hello".to_string() }], "gpt-4o", 4096, None);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].role, Role::System);
         assert_eq!(result[1].role, Role::User);
-        assert_eq!(result[1].content, "Hello");
+        assert_eq!(result[1].text_content(), "Hello");
     }
 }

@@ -10,11 +10,11 @@ use ask_core::conversation::{
     SaveAgentConfigInput,
 };
 use ask_core::db::Database;
-use ask_core::embed::EmbedderConfig;
+use ask_core::embed::{EmbedderConfig, LocalEmbeddingModel};
 use ask_core::feedback::{Feedback, FeedbackAction};
 use ask_core::index::IndexStats;
 use ask_core::ingest::{self, EmbedResult, IngestResult};
-use ask_core::llm::{create_provider, Message, ProviderConfig, ProviderType, ReasoningEffort, Role};
+use ask_core::llm::{create_provider, ContentPart, Message, ProviderConfig, ProviderType, ReasoningEffort, Role};
 use ask_core::models::{
     EvidenceCard, Playbook, PlaybookCitation, SearchFilters, SearchQuery, Source,
 };
@@ -111,8 +111,8 @@ pub fn init_watcher(app_handle: tauri::AppHandle, db: &Database) {
     thread::spawn(move || {
         // Debounce: collect events for 2 seconds before acting.
         let debounce = Duration::from_secs(2);
-        // source_id → (last_event_time, paths_removed)
-        let mut pending: HashMap<String, (Instant, HashSet<PathBuf>)> = HashMap::new();
+        // source_id → (last_event_time, changed_paths, removed_paths)
+        let mut pending: HashMap<String, (Instant, HashSet<PathBuf>, HashSet<PathBuf>)> = HashMap::new();
 
         loop {
             match rx.recv_timeout(Duration::from_millis(500)) {
@@ -132,9 +132,12 @@ pub fn init_watcher(app_handle: tauri::AppHandle, db: &Database) {
                         drop(watched);
                         let entry = pending
                             .entry(sid)
-                            .or_insert_with(|| (Instant::now(), HashSet::new()));
+                            .or_insert_with(|| (Instant::now(), HashSet::new(), HashSet::new()));
                         entry.0 = Instant::now();
                         if event.kind == WatcherEventKind::Removed {
+                            entry.2.insert(event.path.clone());
+                        } else {
+                            // Created or Modified
                             entry.1.insert(event.path.clone());
                         }
                     }
@@ -152,12 +155,12 @@ pub fn init_watcher(app_handle: tauri::AppHandle, db: &Database) {
             let now = Instant::now();
             let ready: Vec<String> = pending
                 .iter()
-                .filter(|(_, (ts, _))| now.duration_since(*ts) >= debounce)
+                .filter(|(_, (ts, _, _))| now.duration_since(*ts) >= debounce)
                 .map(|(sid, _)| sid.clone())
                 .collect();
 
             for source_id in ready {
-                let (_ts, removed_paths) = pending.remove(&source_id).unwrap();
+                let (_ts, changed_paths, removed_paths) = pending.remove(&source_id).unwrap();
                 let app_state = match handle.try_state::<AppState>() {
                     Some(s) => s,
                     None => continue,
@@ -173,23 +176,34 @@ pub fn init_watcher(app_handle: tauri::AppHandle, db: &Database) {
                     }
                 }
 
-                // Re-scan the source to pick up created/modified files.
-                info!("Auto-scanning source {source_id} due to file changes");
-                match ingest::scan_source(&app_state.db, &source_id) {
-                    Ok(result) => {
-                        let payload = serde_json::json!({
-                            "sourceId": source_id,
-                            "filesScanned": result.files_scanned,
-                            "filesAdded": result.files_added,
-                            "filesUpdated": result.files_updated,
-                            "filesRemoved": removed_paths.len(),
-                        });
-                        let _ = handle.emit("file-changed", payload);
-                    }
-                    Err(e) => {
-                        warn!("Auto-scan failed for source {source_id}: {e}");
+                // Incrementally ingest only the changed files instead of
+                // re-scanning the entire source directory.
+                let mut files_added = 0usize;
+                let mut files_updated = 0usize;
+                for path in &changed_paths {
+                    match ingest::ingest_single_file(&app_state.db, &source_id, path) {
+                        Ok(ingest::IngestFileResult::Added) => files_added += 1,
+                        Ok(ingest::IngestFileResult::Updated) => files_updated += 1,
+                        Ok(ingest::IngestFileResult::Unchanged) => {}
+                        Err(e) => warn!("Incremental ingest failed for {}: {e}", path.display()),
                     }
                 }
+
+                // Embed any new un-embedded chunks.
+                if files_added > 0 || files_updated > 0 {
+                    info!("Auto-embedding after incremental ingest for source {source_id}");
+                    if let Err(e) = ingest::embed_source(&app_state.db, &source_id) {
+                        warn!("Auto-embed failed for source {source_id}: {e}");
+                    }
+                }
+
+                let payload = serde_json::json!({
+                    "sourceId": source_id,
+                    "filesAdded": files_added,
+                    "filesUpdated": files_updated,
+                    "filesRemoved": removed_paths.len(),
+                });
+                let _ = handle.emit("file-changed", payload);
             }
         }
     });
@@ -257,22 +271,37 @@ pub fn delete_source(state: tauri::State<'_, AppState>, source_id: String) -> Re
 // ── Ingest Commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn scan_source(
+pub async fn scan_source(
     state: tauri::State<'_, AppState>,
+    app_handle: AppHandle,
     source_id: String,
 ) -> Result<IngestResult, String> {
-    ingest::scan_source(&state.db, &source_id).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    let sid = source_id.clone();
+    tokio::task::spawn_blocking(move || {
+        ingest::scan_source_with_progress(&db, &sid, |progress| {
+            let _ = app_handle.emit("source:scan-progress", &progress);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn scan_all_sources(state: tauri::State<'_, AppState>) -> Result<Vec<IngestResult>, String> {
-    let sources = state.db.list_sources().map_err(|e| e.to_string())?;
-    let mut results = Vec::with_capacity(sources.len());
-    for source in &sources {
-        let result = ingest::scan_source(&state.db, &source.id).map_err(|e| e.to_string())?;
-        results.push(result);
-    }
-    Ok(results)
+pub async fn scan_all_sources(state: tauri::State<'_, AppState>) -> Result<Vec<IngestResult>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let sources = db.list_sources().map_err(|e| e.to_string())?;
+        let mut results = Vec::with_capacity(sources.len());
+        for source in &sources {
+            let result = ingest::scan_source(&db, &source.id).map_err(|e| e.to_string())?;
+            results.push(result);
+        }
+        Ok::<_, String>(results)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── Search Commands ─────────────────────────────────────────────────────
@@ -456,11 +485,21 @@ pub fn hybrid_search(
 // ── Embedding Commands ──────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn embed_source(
+pub async fn embed_source(
     state: tauri::State<'_, AppState>,
+    app_handle: AppHandle,
     source_id: String,
 ) -> Result<EmbedResult, String> {
-    ingest::embed_source(&state.db, &source_id).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    let sid = source_id.clone();
+    tokio::task::spawn_blocking(move || {
+        ingest::embed_source_with_progress(&db, &sid, |progress| {
+            let _ = app_handle.emit("source:scan-progress", &progress);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -588,13 +627,59 @@ pub fn test_api_connection_cmd(api_key: String, base_url: String) -> Result<bool
 }
 
 #[tauri::command]
-pub fn check_local_model_cmd() -> Result<bool, String> {
-    Ok(ask_core::embed::check_local_model_exists(None))
+pub fn check_local_model_cmd(local_model: Option<String>) -> Result<bool, String> {
+    let model = local_model
+        .map(|s| LocalEmbeddingModel::from_config_str(&s))
+        .unwrap_or_default();
+    Ok(ask_core::embed::check_local_model_exists_for(None, &model))
 }
 
 #[tauri::command]
-pub fn download_local_model_cmd() -> Result<(), String> {
-    ask_core::embed::download_local_model(None).map_err(|e| e.to_string())
+pub fn download_local_model_cmd(local_model: Option<String>) -> Result<(), String> {
+    let model = local_model
+        .map(|s| LocalEmbeddingModel::from_config_str(&s))
+        .unwrap_or_default();
+    ask_core::embed::download_local_model_for(None, &model).map_err(|e| e.to_string())
+}
+
+// ── Image Attachment Commands ───────────────────────────────────────────
+
+/// An image attachment prepared for LLM submission.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageAttachment {
+    pub base64_data: String,
+    pub media_type: String,
+    pub original_name: String,
+}
+
+#[tauri::command]
+pub async fn prepare_image_attachment(path: String) -> Result<ImageAttachment, String> {
+    let file_path = std::path::Path::new(&path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {path}"));
+    }
+
+    let bytes = std::fs::read(file_path).map_err(|e| format!("Failed to read file: {e}"))?;
+    let mime = ask_core::parse::detect_mime_type(file_path);
+
+    if !ask_core::media::is_supported_image(&mime) {
+        return Err(format!("Unsupported image type: {mime}"));
+    }
+
+    let (base64_data, media_type) =
+        ask_core::media::prepare_image_for_llm(&bytes, &mime).map_err(|e| e.to_string())?;
+
+    let original_name = file_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "image".to_string());
+
+    Ok(ImageAttachment {
+        base64_data,
+        media_type,
+        original_name,
+    })
 }
 
 // ── File Commands ───────────────────────────────────────────────────────
@@ -763,16 +848,14 @@ fn db_config_to_provider_config(config: &DbAgentConfig) -> ProviderConfig {
 
 /// Convert a DB [`ConversationMessage`] to an LLM [`Message`].
 fn conv_message_to_llm(msg: &ConversationMessage) -> Message {
-    Message {
-        role: msg.role.clone(),
-        content: msg.content.clone(),
-        name: msg.tool_call_id.clone(),
-        tool_calls: if msg.tool_calls.is_empty() {
-            None
-        } else {
-            Some(msg.tool_calls.clone())
-        },
-    }
+    let mut m = Message::text(msg.role.clone(), &msg.content);
+    m.name = msg.tool_call_id.clone();
+    m.tool_calls = if msg.tool_calls.is_empty() {
+        None
+    } else {
+        Some(msg.tool_calls.clone())
+    };
+    m
 }
 
 // ── Conversation Commands ───────────────────────────────────────────────
@@ -933,6 +1016,7 @@ pub async fn agent_chat_cmd(
     app_handle: AppHandle,
     conversation_id: String,
     message: String,
+    attachments: Option<Vec<ImageAttachment>>,
 ) -> Result<(), String> {
     // 1. Get default agent config from DB.
     let db_config = state
@@ -966,6 +1050,7 @@ pub async fn agent_chat_cmd(
         token_count: (message.len() / 4) as u32,
         created_at: String::new(),
         sort_order: next_sort_order,
+        thinking: None,
     };
     state.db.add_message(&user_msg).map_err(|e| e.to_string())?;
 
@@ -1003,10 +1088,22 @@ pub async fn agent_chat_cmd(
             "high" => Some(ReasoningEffort::High),
             _ => None,
         }),
+        provider_type: Some(parse_provider_type(&db_config.provider)),
     };
 
     // 7. Create tool registry.
     let tools = default_tool_registry();
+
+    // 7b. Build user content parts (text + optional image attachments).
+    let mut user_parts = vec![ContentPart::Text { text: message.clone() }];
+    if let Some(atts) = &attachments {
+        for att in atts {
+            user_parts.push(ContentPart::Image {
+                media_type: att.media_type.clone(),
+                data: att.base64_data.clone(),
+            });
+        }
+    }
 
     // 8. Spawn the agent loop in a background task.
     let db = state.db.clone();
@@ -1036,7 +1133,7 @@ pub async fn agent_chat_cmd(
         let executor = AgentExecutor::new(provider, tools, executor_config);
         let run_future = executor.run(
             history,
-            message,
+            user_parts,
             &db,
             Some(&conv_id),
             tx,

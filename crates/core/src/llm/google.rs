@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use super::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmProvider, Message, ProviderConfig,
-    Role, StreamChunk, ToolCallDelta, ToolCallRequest, ToolDefinition, Usage,
+    CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
+    ProviderConfig, Role, StreamChunk, ToolCallDelta, ToolCallRequest, ToolDefinition, Usage,
 };
 use crate::error::CoreError;
 
@@ -46,6 +46,17 @@ enum GeminiPartV2 {
         #[serde(rename = "functionResponse")]
         function_response: GeminiFunctionResponse,
     },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: GeminiBlob,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct GeminiBlob {
+    mime_type: String,
+    data: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -198,22 +209,38 @@ fn convert_messages(
         match msg.role {
             Role::System => {
                 system_parts.push(GeminiPartV2::Text {
-                    text: msg.content.clone(),
+                    text: msg.text_content(),
                 });
             }
             Role::User => {
+                let parts: Vec<GeminiPartV2> = msg
+                    .parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        ContentPart::Text { text } => {
+                            Some(GeminiPartV2::Text { text: text.clone() })
+                        }
+                        ContentPart::Image { media_type, data } => {
+                            Some(GeminiPartV2::InlineData {
+                                inline_data: GeminiBlob {
+                                    mime_type: media_type.clone(),
+                                    data: data.clone(),
+                                },
+                            })
+                        }
+                    })
+                    .collect();
                 contents.push(GeminiContentV2 {
                     role: "user".to_string(),
-                    parts: vec![GeminiPartV2::Text {
-                        text: msg.content.clone(),
-                    }],
+                    parts,
                 });
             }
             Role::Assistant => {
                 let mut parts: Vec<GeminiPartV2> = Vec::new();
-                if !msg.content.is_empty() {
+                let text = msg.text_content();
+                if !text.is_empty() {
                     parts.push(GeminiPartV2::Text {
-                        text: msg.content.clone(),
+                        text,
                     });
                 }
                 if let Some(ref calls) = msg.tool_calls {
@@ -240,8 +267,9 @@ fn convert_messages(
                 let tool_name = tool_id_to_name.get(&tool_ref).cloned().unwrap_or(tool_ref);
 
                 // Gemini requires an object-like payload for functionResponse.response.
-                let mut response_val: serde_json::Value = serde_json::from_str(&msg.content)
-                    .unwrap_or_else(|_| serde_json::json!({ "content": msg.content }));
+                let text = msg.text_content();
+                let mut response_val: serde_json::Value = serde_json::from_str(&text)
+                    .unwrap_or_else(|_| serde_json::json!({ "content": text }));
                 if !response_val.is_object() {
                     response_val = serde_json::json!({ "content": response_val });
                 }
@@ -299,14 +327,49 @@ fn convert_tools(tools: &[ToolDefinition]) -> Vec<GeminiToolSet> {
     }]
 }
 
+/// Returns `true` if the model supports extended thinking (`thinking_config`).
+/// Currently only Gemini 2.5+ models support it.
+fn supports_thinking(model: &str) -> bool {
+    // Normalise: "models/gemini-2.5-flash" → "gemini-2.5-flash"
+    let name = model
+        .strip_prefix("models/")
+        .unwrap_or(model)
+        .to_lowercase();
+
+    // Quick check: contains "2.5" (covers gemini-2.5-flash, gemini-2.5-pro, previews, etc.)
+    if name.contains("2.5") {
+        return true;
+    }
+
+    // Forward-compat: any gemini-<major>. where major >= 3
+    if let Some(rest) = name.strip_prefix("gemini-") {
+        if let Some(major_str) = rest.split('.').next() {
+            if let Ok(major) = major_str.parse::<u32>() {
+                return major >= 3;
+            }
+        }
+    }
+
+    false
+}
+
 fn build_request_body(
     request: &CompletionRequest,
     system_instruction: Option<GeminiSystemInstructionV2>,
     contents: Vec<GeminiContentV2>,
 ) -> GeminiRequestV2 {
-    let thinking_config = request.thinking_budget.map(|budget| GeminiThinkingConfig {
-        thinking_budget: Some(budget as i32),
-    });
+    // Only send thinking_config to models that support it (Gemini 2.5+).
+    let thinking_config = if supports_thinking(&request.model) {
+        request.thinking_budget.map(|budget| {
+            // Gemini API requires budget in 128..=32768. Clamp to avoid API errors.
+            let clamped = budget.clamp(128, 32_768) as i32;
+            GeminiThinkingConfig {
+                thinking_budget: Some(clamped),
+            }
+        })
+    } else {
+        None
+    };
     let has_thinking = thinking_config.is_some();
 
     let generation_config = if request.temperature.is_some()
@@ -363,7 +426,8 @@ fn extract_response(
                                     .unwrap_or_default(),
                             });
                         }
-                        GeminiPartV2::FunctionResponse { .. } => {}
+                        GeminiPartV2::FunctionResponse { .. }
+                        | GeminiPartV2::InlineData { .. } => {}
                     }
                 }
             }
@@ -697,7 +761,7 @@ mod tests {
         let messages = vec![
             Message {
                 role: Role::Assistant,
-                content: String::new(),
+                parts: vec![],
                 name: None,
                 tool_calls: Some(vec![ToolCallRequest {
                     id: "call_0".to_string(),
@@ -705,12 +769,7 @@ mod tests {
                     arguments: r#"{"query":"rust"}"#.to_string(),
                 }]),
             },
-            Message {
-                role: Role::Tool,
-                content: r#"{"ok":true}"#.to_string(),
-                name: Some("call_0".to_string()),
-                tool_calls: None,
-            },
+            Message::text_with_name(Role::Tool, r#"{"ok":true}"#, "call_0"),
         ];
 
         let (_system, contents) = convert_messages(&messages);
@@ -730,7 +789,7 @@ mod tests {
         let messages = vec![
             Message {
                 role: Role::Assistant,
-                content: String::new(),
+                parts: vec![],
                 name: None,
                 tool_calls: Some(vec![ToolCallRequest {
                     id: "call_0".to_string(),
@@ -738,12 +797,7 @@ mod tests {
                     arguments: r#"{"filename":"a.md"}"#.to_string(),
                 }]),
             },
-            Message {
-                role: Role::Tool,
-                content: "plain text result".to_string(),
-                name: Some("call_0".to_string()),
-                tool_calls: None,
-            },
+            Message::text_with_name(Role::Tool, "plain text result", "call_0"),
         ];
 
         let (_system, contents) = convert_messages(&messages);

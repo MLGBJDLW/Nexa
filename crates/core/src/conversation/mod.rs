@@ -39,6 +39,7 @@ pub struct ConversationMessage {
     pub token_count: u32,
     pub created_at: String,
     pub sort_order: i64,
+    pub thinking: Option<String>,
 }
 
 /// Saved LLM provider configuration.
@@ -260,8 +261,8 @@ impl Database {
 
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, tool_call_id, tool_calls_json, token_count, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO messages (id, conversation_id, role, content, tool_call_id, tool_calls_json, token_count, sort_order, thinking)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
                 &msg.id,
                 &msg.conversation_id,
@@ -271,6 +272,7 @@ impl Database {
                 &tool_calls_json,
                 msg.token_count,
                 msg.sort_order,
+                &msg.thinking,
             ],
         )?;
 
@@ -290,7 +292,7 @@ impl Database {
     ) -> Result<Vec<ConversationMessage>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, role, content, tool_call_id, tool_calls_json, token_count, created_at, sort_order
+            "SELECT id, conversation_id, role, content, tool_call_id, tool_calls_json, token_count, created_at, sort_order, thinking
              FROM messages WHERE conversation_id = ?1 ORDER BY sort_order ASC",
         )?;
         let rows = stmt.query_map(rusqlite::params![conversation_id], |row| {
@@ -306,12 +308,13 @@ impl Database {
                 row.get::<_, u32>(6)?,
                 row.get::<_, String>(7)?,
                 row.get::<_, i64>(8)?,
+                row.get::<_, Option<String>>(9)?,
             ))
         })?;
 
         let mut results = Vec::new();
         for row in rows {
-            let (id, conv_id, role_str, content, tool_call_id, tc_json, token_count, created_at, sort_order) = row?;
+            let (id, conv_id, role_str, content, tool_call_id, tc_json, token_count, created_at, sort_order, thinking) = row?;
             let tool_calls: Vec<ToolCallRequest> = match tc_json {
                 Some(json) => serde_json::from_str(&json)?,
                 None => Vec::new(),
@@ -326,6 +329,7 @@ impl Database {
                 token_count,
                 created_at,
                 sort_order,
+                thinking,
             });
         }
         Ok(results)
@@ -661,6 +665,7 @@ mod tests {
             token_count: 2,
             created_at: String::new(),
             sort_order: 0,
+            thinking: None,
         };
         db.add_message(&msg).unwrap();
 
@@ -680,6 +685,7 @@ mod tests {
             token_count: 10,
             created_at: String::new(),
             sort_order: 1,
+            thinking: None,
         };
         db.add_message(&msg2).unwrap();
 
@@ -710,6 +716,7 @@ mod tests {
             token_count: 1,
             created_at: String::new(),
             sort_order: 0,
+            thinking: None,
         };
         db.add_message(&msg).unwrap();
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ComponentPropsWithoutRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Brain } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from '../../i18n';
@@ -64,9 +64,22 @@ const thinkingMarkdownComponents: Record<string, React.ComponentType<ComponentPr
 
 export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(isStreaming);
   const startTimeRef = useRef<number>(Date.now());
+  const autoOpenedRef = useRef(false);
   const [elapsed, setElapsed] = useState(0);
+
+  // Auto-open once when live reasoning content starts arriving.
+  useEffect(() => {
+    const hasContent = content.trim().length > 0;
+    if (isStreaming && hasContent && !autoOpenedRef.current) {
+      setExpanded(true);
+      autoOpenedRef.current = true;
+    }
+    if (!isStreaming) {
+      autoOpenedRef.current = false;
+    }
+  }, [content, isStreaming]);
 
   // Track elapsed thinking time
   useEffect(() => {
@@ -103,7 +116,7 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
           className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
         <span className="flex items-center gap-1.5">
-          <span>💭</span>
+          <Brain size={12} />
           <span>{summaryText}</span>
           {isStreaming && (
             <span className="flex gap-0.5 ml-0.5">
@@ -113,7 +126,7 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
             </span>
           )}
           {!isStreaming && tokenEstimate > 0 && (
-            <span className="text-text-tertiary/60">·  {t('chat.tokenEstimate', { count: tokenEstimate.toString() })}</span>
+            <span className="text-text-tertiary/60">. {t('chat.tokenEstimate', { count: tokenEstimate.toString() })}</span>
           )}
         </span>
       </button>

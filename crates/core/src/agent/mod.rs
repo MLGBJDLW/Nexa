@@ -12,7 +12,7 @@ use crate::conversation::ConversationMessage;
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::{
-    CompletionRequest, LlmProvider, Message, ReasoningEffort, Role, ToolCallDelta,
+    CompletionRequest, LlmProvider, Message, ContentPart, ProviderType, ReasoningEffort, Role, ToolCallDelta,
     ToolCallRequest, Usage,
 };
 use crate::privacy;
@@ -114,6 +114,8 @@ pub struct AgentConfig {
     pub thinking_budget: Option<u32>,
     /// Reasoning effort level (OpenAI o-series).
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Provider type hint — passed through to CompletionRequest.
+    pub provider_type: Option<ProviderType>,
 }
 
 impl Default for AgentConfig {
@@ -128,6 +130,7 @@ impl Default for AgentConfig {
             reasoning_enabled: None,
             thinking_budget: None,
             reasoning_effort: None,
+            provider_type: None,
         }
     }
 }
@@ -164,7 +167,7 @@ impl AgentExecutor {
     /// Run the agent loop for a single user turn.
     ///
     /// * `history` — prior conversation messages (already stored in DB).
-    /// * `user_message` — the new user input.
+    /// * `user_parts` — content parts for the new user input (text + optional images).
     /// * `db` — database handle passed through to tools and privacy config.
     /// * `conversation_id` — optional conversation ID for source scoping.
     /// * `tx` — channel for streaming [`AgentEvent`]s to the caller (e.g. Tauri).
@@ -176,7 +179,7 @@ impl AgentExecutor {
     pub async fn run(
         &self,
         history: Vec<Message>,
-        user_message: String,
+        user_parts: Vec<ContentPart>,
         db: &Database,
         conversation_id: Option<&str>,
         tx: mpsc::Sender<AgentEvent>,
@@ -189,7 +192,7 @@ impl AgentExecutor {
         let mut messages = context::prepare_messages(
             &self.config.system_prompt,
             &history,
-            &user_message,
+            &user_parts,
             model,
             max_response_tokens,
             self.config.context_window,
@@ -200,8 +203,11 @@ impl AgentExecutor {
         if privacy_cfg.enabled {
             for msg in &mut messages {
                 if msg.role == Role::User {
-                    msg.content =
-                        privacy::redact_content(&msg.content, &privacy_cfg.redact_patterns);
+                    for part in &mut msg.parts {
+                        if let ContentPart::Text { text } = part {
+                            *text = privacy::redact_content(text, &privacy_cfg.redact_patterns);
+                        }
+                    }
                 }
             }
         }
@@ -223,6 +229,7 @@ impl AgentExecutor {
         let mut total_usage = Usage::default();
         let mut sort_order = next_sort_order;
         let mut accumulated_content = String::new();
+        let mut thinking_buffer = String::new();
 
         // --- 4. ReAct loop ----------------------------------------------------
         for iteration in 0..self.config.max_iterations {
@@ -240,7 +247,7 @@ impl AgentExecutor {
                 tools: tools_param.clone(),
                 stop: None,
                 thinking_budget: if self.config.reasoning_enabled.unwrap_or(false) {
-                    self.config.thinking_budget
+                    Some(self.config.thinking_budget.unwrap_or(10_000))
                 } else {
                     None
                 },
@@ -249,7 +256,7 @@ impl AgentExecutor {
                 } else {
                     None
                 },
-                provider_type: None,
+                provider_type: self.config.provider_type.clone(),
             };
 
             // -- 4a. Stream LLM response --------------------------------------
@@ -268,6 +275,7 @@ impl AgentExecutor {
             let mut full_content = String::new();
             let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
             let mut chunk_usage: Option<Usage> = None;
+            let mut iteration_thinking = String::new();
 
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
@@ -275,6 +283,7 @@ impl AgentExecutor {
                         // Forward thinking deltas.
                         if let Some(ref thinking) = chunk.thinking_delta {
                             if !thinking.is_empty() {
+                                iteration_thinking.push_str(thinking);
                                 let _ = tx
                                     .send(AgentEvent::Thinking {
                                         content: thinking.clone(),
@@ -314,10 +323,18 @@ impl AgentExecutor {
                 total_usage.total_tokens += u.total_tokens;
             }
 
+            // Merge iteration thinking into buffer
+            if !iteration_thinking.is_empty() {
+                if !thinking_buffer.is_empty() {
+                    thinking_buffer.push('\n');
+                }
+                thinking_buffer.push_str(&iteration_thinking);
+            }
+
             // -- 4c. Build assistant message -----------------------------------
             let assistant_msg = Message {
                 role: Role::Assistant,
-                content: full_content,
+                parts: vec![ContentPart::Text { text: full_content }],
                 name: None,
                 tool_calls: if tool_calls.is_empty() {
                     None
@@ -335,12 +352,13 @@ impl AgentExecutor {
                         id: Uuid::new_v4().to_string(),
                         conversation_id: cid.to_string(),
                         role: Role::Assistant,
-                        content: assistant_msg.content.clone(),
+                        content: assistant_msg.text_content(),
                         tool_call_id: None,
                         tool_calls: assistant_msg.tool_calls.clone().unwrap_or_default(),
-                        token_count: (assistant_msg.content.len() / 4) as u32,
+                        token_count: (assistant_msg.text_content().len() / 4) as u32,
                         created_at: String::new(),
                         sort_order,
+                        thinking: if thinking_buffer.is_empty() { None } else { Some(thinking_buffer.clone()) },
                     };
                     if let Err(e) = db.add_message(&conv_msg) {
                         warn!("Failed to save final assistant message: {e}");
@@ -362,12 +380,13 @@ impl AgentExecutor {
                     id: Uuid::new_v4().to_string(),
                     conversation_id: cid.to_string(),
                     role: Role::Assistant,
-                    content: assistant_msg.content.clone(),
+                    content: assistant_msg.text_content(),
                     tool_call_id: None,
                     tool_calls: tool_calls.clone(),
-                    token_count: (assistant_msg.content.len() / 4) as u32,
+                    token_count: (assistant_msg.text_content().len() / 4) as u32,
                     created_at: String::new(),
                     sort_order,
+                    thinking: if iteration_thinking.is_empty() { None } else { Some(iteration_thinking.clone()) },
                 };
                 if let Err(e) = db.add_message(&conv_msg) {
                     warn!("Failed to save intermediate assistant message: {e}");
@@ -462,6 +481,7 @@ impl AgentExecutor {
                         token_count: (content.len() / 4) as u32,
                         created_at: String::new(),
                         sort_order,
+                        thinking: None,
                     };
                     if let Err(e) = db.add_message(&tool_conv_msg) {
                         warn!("Failed to save tool result message: {e}");
@@ -473,12 +493,7 @@ impl AgentExecutor {
                 // crowding out conversation history.
                 let context_content = truncate_tool_result(&content, MAX_TOOL_RESULT_CHARS);
 
-                messages.push(Message {
-                    role: Role::Tool,
-                    content: context_content,
-                    name: Some(tc.id.clone()),
-                    tool_calls: None,
-                });
+                messages.push(Message::text_with_name(Role::Tool, context_content, tc.id.clone()));
             }
             // Loop back → next LLM call with tool results.
         }
@@ -499,24 +514,20 @@ impl AgentExecutor {
             accumulated_content.push_str(note);
         }
 
-        let final_msg = Message {
-            role: Role::Assistant,
-            content: accumulated_content,
-            name: None,
-            tool_calls: None,
-        };
+        let final_msg = Message::text(Role::Assistant, accumulated_content);
 
         if let Some(cid) = conversation_id {
             let conv_msg = ConversationMessage {
                 id: Uuid::new_v4().to_string(),
                 conversation_id: cid.to_string(),
                 role: Role::Assistant,
-                content: final_msg.content.clone(),
+                content: final_msg.text_content(),
                 tool_call_id: None,
                 tool_calls: vec![],
-                token_count: (final_msg.content.len() / 4) as u32,
+                token_count: (final_msg.text_content().len() / 4) as u32,
                 created_at: String::new(),
                 sort_order,
+                thinking: if thinking_buffer.is_empty() { None } else { Some(thinking_buffer.clone()) },
             };
             if let Err(e) = db.add_message(&conv_msg) {
                 warn!("Failed to save final assistant message: {e}");
@@ -844,13 +855,13 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(32);
 
         let final_msg = executor
-            .run(vec![], "hello".to_string(), &db, None, tx, 0)
+            .run(vec![], vec![ContentPart::Text { text: "hello".to_string() }], &db, None, tx, 0)
             .await
             .expect("run should succeed");
 
         // Should perform two LLM calls: one for tool request, one after tool result.
         assert_eq!(stream_calls.load(Ordering::SeqCst), 2);
-        assert_eq!(final_msg.content, "final answer");
+        assert_eq!(final_msg.text_content(), "final answer");
 
         // Drain events and assert tool call lifecycle happened.
         let mut saw_start = false;

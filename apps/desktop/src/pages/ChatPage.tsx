@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Settings, MessageCircle } from 'lucide-react';
+import { Settings } from 'lucide-react';
+import { Logo } from '../components/Logo';
 import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatMessages, ChatInput } from '../components/chat';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import { useAgentStream } from '../lib/useAgentStream';
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
-import type { Conversation, ConversationMessage, AgentConfig } from '../types/conversation';
+import type { Conversation, ConversationMessage, AgentConfig, ImageAttachment } from '../types/conversation';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -188,7 +189,7 @@ export function ChatPage() {
   );
 
   const handleSendMessage = useCallback(
-    async (message: string) => {
+    async (message: string, attachments?: ImageAttachment[]) => {
       if (!defaultConfig) return;
 
       let convId = activeId;
@@ -221,10 +222,12 @@ export function ChatPage() {
         tokenCount: 0,
         createdAt: new Date().toISOString(),
         sortOrder: messages.length,
+        thinking: null,
+        imageAttachments: attachments ?? null,
       };
       setMessages((prev) => [...prev, optimisticMsg]);
 
-      await send(convId, message);
+      await send(convId, message, attachments);
     },
     [activeId, defaultConfig, customSystemPrompt, messages.length, navigate, send],
   );
@@ -240,7 +243,7 @@ export function ChatPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <EmptyState
-          icon={<Settings className="h-8 w-8" />}
+          icon={<><Logo size={48} className="mx-auto mb-2" /><Settings className="h-8 w-8" /></>}
           title={t('chat.noProvider')}
           description={t('chat.noProviderDesc')}
           action={{
@@ -272,7 +275,7 @@ export function ChatPage() {
         {!activeId && !isStreaming ? (
           <div className="flex-1 flex items-center justify-center">
             <EmptyState
-              icon={<MessageCircle className="h-8 w-8" />}
+              icon={<Logo size={64} />}
               title={t('chat.noConversations')}
               description={t('chat.noConversationsDesc')}
               action={{

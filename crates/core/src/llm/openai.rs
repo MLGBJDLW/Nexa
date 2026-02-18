@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::error::CoreError;
 use super::{
-    streaming::parse_sse_stream, CompletionRequest, CompletionResponse, FinishReason,
+    streaming::parse_sse_stream, CompletionRequest, CompletionResponse, ContentPart, FinishReason,
     LlmProvider, Message, ProviderConfig, Role, StreamChunk, ToolCallRequest, ToolDefinition,
     Usage,
 };
@@ -53,11 +53,37 @@ struct OaiStreamOptions {
 struct OaiMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: Option<OaiContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OaiToolCallOut>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
+}
+
+/// OpenAI content: either a plain string or an array of content parts.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum OaiContent {
+    Text(String),
+    Parts(Vec<OaiContentPart>),
+}
+
+/// A single part in the OpenAI content array format.
+#[derive(Serialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum OaiContentPart {
+    Text {
+        text: String,
+    },
+    ImageUrl {
+        image_url: OaiImageUrl,
+    },
+}
+
+#[derive(Serialize)]
+struct OaiImageUrl {
+    url: String,
 }
 
 #[derive(Serialize)]
@@ -190,9 +216,34 @@ fn parse_finish_reason(s: &str) -> FinishReason {
 }
 
 fn convert_message(msg: &Message) -> OaiMessage {
+    let has_images = msg.has_images();
+
+    // Build content: use array format when images are present, plain string otherwise.
+    let content: Option<OaiContent> = if has_images {
+        let parts: Vec<OaiContentPart> = msg
+            .parts
+            .iter()
+            .filter_map(|p| match p {
+                ContentPart::Text { text } => Some(OaiContentPart::Text {
+                    text: text.clone(),
+                }),
+                ContentPart::Image { media_type, data } => {
+                    let url = format!("data:{media_type};base64,{data}");
+                    Some(OaiContentPart::ImageUrl {
+                        image_url: OaiImageUrl { url },
+                    })
+                }
+            })
+            .collect();
+        if parts.is_empty() { None } else { Some(OaiContent::Parts(parts)) }
+    } else {
+        let text = msg.text_content();
+        if text.is_empty() { None } else { Some(OaiContent::Text(text)) }
+    };
+
     let mut oai = OaiMessage {
         role: role_str(&msg.role).to_string(),
-        content: Some(msg.content.clone()),
+        content,
         tool_calls: None,
         tool_call_id: None,
     };
@@ -212,15 +263,13 @@ fn convert_message(msg: &Message) -> OaiMessage {
                 })
                 .collect(),
         );
-        // OpenAI accepts null content when tool_calls is present.
-        if msg.content.is_empty() {
-            oai.content = None;
-        }
     }
 
     // Tool-result messages carry the originating tool_call_id.
     if msg.role == Role::Tool {
         oai.tool_call_id = msg.name.clone();
+        // Tool results must be plain string content.
+        oai.content = Some(OaiContent::Text(msg.text_content()));
     }
 
     oai
@@ -242,13 +291,16 @@ fn convert_tools(tools: &[ToolDefinition]) -> Vec<OaiTool> {
 
 fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
     let is_reasoning = is_reasoning_model(&request.model);
+    let is_deepseek = is_deepseek_reasoner(&request.model);
+    let needs_completion_tokens = is_reasoning || is_deepseek;
+    let suppress_temperature = is_reasoning || is_deepseek;
 
     OaiRequest {
         model: request.model.clone(),
         messages: request.messages.iter().map(convert_message).collect(),
-        temperature: if is_reasoning { None } else { request.temperature },
-        max_tokens: if is_reasoning { None } else { request.max_tokens },
-        max_completion_tokens: if is_reasoning { request.max_tokens } else { None },
+        temperature: if suppress_temperature { None } else { request.temperature },
+        max_tokens: if needs_completion_tokens { None } else { request.max_tokens },
+        max_completion_tokens: if needs_completion_tokens { request.max_tokens } else { None },
         reasoning_effort: if is_reasoning {
             Some(
                 request

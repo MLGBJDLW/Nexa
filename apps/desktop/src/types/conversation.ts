@@ -18,12 +18,21 @@ export interface ConversationMessage {
   tokenCount: number;
   createdAt: string;
   sortOrder: number;
+  thinking: string | null;
+  /** Optimistic-only: image attachments sent with this user message. */
+  imageAttachments?: ImageAttachment[] | null;
 }
 
 export interface ToolCallRequest {
   id: string;
   name: string;
   arguments: string;
+}
+
+export interface ImageAttachment {
+  base64Data: string;
+  mediaType: string;
+  originalName: string;
 }
 
 export interface AgentConfig {

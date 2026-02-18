@@ -26,7 +26,14 @@ struct SseChoice {
 struct SseDelta {
     content: Option<String>,
     tool_calls: Option<Vec<SseToolCallDelta>>,
-    reasoning_content: Option<String>,
+    #[serde(default, alias = "reasoningContent")]
+    reasoning_content: Option<serde_json::Value>,
+    #[serde(default)]
+    reasoning: Option<serde_json::Value>,
+    #[serde(default, alias = "thinkingContent", alias = "thinking_content")]
+    thinking: Option<serde_json::Value>,
+    #[serde(default, alias = "reasoningText", alias = "reasoning_text")]
+    reasoning_text: Option<serde_json::Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -74,6 +81,66 @@ fn map_tool_call_delta(tc: &SseToolCallDelta) -> ToolCallDelta {
             .unwrap_or_default(),
         index: tc.index,
     }
+}
+
+fn json_value_to_text(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Array(items) => {
+            let joined = items
+                .iter()
+                .filter_map(json_value_to_text)
+                .collect::<Vec<_>>()
+                .join("");
+            if joined.is_empty() {
+                None
+            } else {
+                Some(joined)
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for key in [
+                "reasoning_content",
+                "reasoningContent",
+                "thinking",
+                "thinking_content",
+                "thinkingContent",
+                "reasoning_text",
+                "reasoningText",
+                "text",
+                "content",
+                "summary",
+            ] {
+                if let Some(v) = map.get(key) {
+                    if let Some(text) = json_value_to_text(v) {
+                        if !text.is_empty() {
+                            return Some(text);
+                        }
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn extract_reasoning_delta(delta: &SseDelta) -> Option<String> {
+    for value in [
+        delta.reasoning_content.as_ref(),
+        delta.reasoning.as_ref(),
+        delta.thinking.as_ref(),
+        delta.reasoning_text.as_ref(),
+    ] {
+        if let Some(v) = value {
+            if let Some(text) = json_value_to_text(v) {
+                if !text.is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -138,9 +205,9 @@ pub async fn parse_sse_stream(
                         total_tokens: u.total_tokens,
                     });
 
-                    // Emit reasoning_content (thinking) delta if present.
+                    // Emit provider-specific reasoning/thinking deltas if present.
                     let thinking_delta = choice
-                        .and_then(|c| c.delta.reasoning_content.clone())
+                        .and_then(|c| extract_reasoning_delta(&c.delta))
                         .filter(|s| !s.is_empty());
 
                     // Emit text/finish/usage metadata as one chunk.

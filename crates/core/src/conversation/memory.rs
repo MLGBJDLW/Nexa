@@ -53,7 +53,7 @@ fn is_cjk(ch: char) -> bool {
 
 /// Estimate the total token cost of a message, including tool_calls.
 pub fn estimate_message_tokens(msg: &Message) -> u32 {
-    let mut tokens = estimate_tokens(&msg.content);
+    let mut tokens = estimate_tokens(&msg.text_content());
     if let Some(ref calls) = msg.tool_calls {
         for tc in calls {
             // Each tool call: id + name + arguments JSON
@@ -324,15 +324,10 @@ fn build_message_blocks(conversation: &[&Message]) -> Vec<MessageBlock> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::ToolCallRequest;
+    use crate::llm::{ToolCallRequest, ContentPart};
 
     fn msg(role: Role, content: &str) -> Message {
-        Message {
-            role,
-            content: content.to_string(),
-            name: None,
-            tool_calls: None,
-        }
+        Message::text(role, content)
     }
 
     #[test]
@@ -356,7 +351,7 @@ mod tests {
     fn test_estimate_message_tokens_with_tool_calls() {
         let msg = Message {
             role: Role::Assistant,
-            content: String::new(),
+            parts: vec![],
             name: None,
             tool_calls: Some(vec![ToolCallRequest {
                 id: "call_123".to_string(),
@@ -463,7 +458,7 @@ mod tests {
         let result = trim_to_context_window(&messages, 30, 5);
         assert_eq!(result[0].role, Role::System);
         // Last message should be present
-        assert_eq!(result.last().unwrap().content, "How are you?");
+        assert_eq!(result.last().unwrap().text_content(), "How are you?");
     }
 
     #[test]
@@ -484,7 +479,7 @@ mod tests {
             msg(Role::User, "first question"),
             Message {
                 role: Role::Assistant,
-                content: "Let me search.".to_string(),
+                parts: vec![ContentPart::Text { text: "Let me search.".to_string() }],
                 name: None,
                 tool_calls: Some(vec![ToolCallRequest {
                     id: "tc1".to_string(),
@@ -492,12 +487,7 @@ mod tests {
                     arguments: "{}".to_string(),
                 }]),
             },
-            Message {
-                role: Role::Tool,
-                content: "Result: found something".to_string(),
-                name: Some("tc1".to_string()),
-                tool_calls: None,
-            },
+            Message::text_with_name(Role::Tool, "Result: found something", "tc1"),
             msg(Role::Assistant, "Based on the search, here is the answer."),
             msg(Role::User, "second question"),
             msg(Role::Assistant, "Here is the second answer."),

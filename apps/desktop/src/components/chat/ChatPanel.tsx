@@ -8,7 +8,7 @@ import { useTranslation } from '../../i18n';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { EmptyState } from '../ui/EmptyState';
-import type { ConversationMessage, AgentConfig } from '../../types/conversation';
+import type { ConversationMessage, AgentConfig, ImageAttachment } from '../../types/conversation';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -92,7 +92,7 @@ export function ChatPanel({ initialMessage, onClose, className }: ChatPanelProps
   /* ── Handlers ───────────────────────────────────────────────────── */
 
   const handleSendMessage = useCallback(
-    async (message: string) => {
+    async (message: string, attachments?: ImageAttachment[]) => {
       if (!defaultConfig) return;
 
       let convId = conversationId;
@@ -123,10 +123,12 @@ export function ChatPanel({ initialMessage, onClose, className }: ChatPanelProps
         tokenCount: 0,
         createdAt: new Date().toISOString(),
         sortOrder: messages.length,
+        thinking: null,
+        imageAttachments: attachments ?? null,
       };
       setMessages((prev) => [...prev, optimisticMsg]);
 
-      await send(convId, message);
+      await send(convId, message, attachments);
     },
     [conversationId, defaultConfig, messages.length, send],
   );

@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use super::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmProvider, Message, ProviderConfig,
-    Role, StreamChunk, ToolCallDelta, ToolCallRequest, ToolDefinition, Usage,
+    CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
+    ProviderConfig, Role, StreamChunk, ToolCallDelta, ToolCallRequest, ToolDefinition, Usage,
 };
 use crate::error::CoreError;
 
@@ -71,6 +71,9 @@ enum AnthropicContentBlock {
     Text {
         text: String,
     },
+    Image {
+        source: AnthropicImageSource,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -80,6 +83,13 @@ enum AnthropicContentBlock {
         tool_use_id: String,
         content: String,
     },
+}
+
+#[derive(Serialize)]
+struct AnthropicImageSource {
+    r#type: String,
+    media_type: String,
+    data: String,
 }
 
 #[derive(Serialize)]
@@ -237,27 +247,54 @@ fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessa
         match msg.role {
             Role::System => {
                 // Anthropic only supports a single system prompt; concat if multiple.
+                let text = msg.text_content();
                 match &mut system {
                     Some(existing) => {
                         existing.push('\n');
-                        existing.push_str(&msg.content);
+                        existing.push_str(&text);
                     }
-                    None => system = Some(msg.content.clone()),
+                    None => system = Some(text),
                 }
             }
             Role::User => {
-                out.push(AnthropicMessage {
-                    role: "user".to_string(),
-                    content: AnthropicContent::Text(msg.content.clone()),
-                });
+                if msg.has_images() {
+                    let blocks: Vec<AnthropicContentBlock> = msg
+                        .parts
+                        .iter()
+                        .filter_map(|p| match p {
+                            ContentPart::Text { text } => {
+                                Some(AnthropicContentBlock::Text { text: text.clone() })
+                            }
+                            ContentPart::Image { media_type, data } => {
+                                Some(AnthropicContentBlock::Image {
+                                    source: AnthropicImageSource {
+                                        r#type: "base64".to_string(),
+                                        media_type: media_type.clone(),
+                                        data: data.clone(),
+                                    },
+                                })
+                            }
+                        })
+                        .collect();
+                    out.push(AnthropicMessage {
+                        role: "user".to_string(),
+                        content: AnthropicContent::Blocks(blocks),
+                    });
+                } else {
+                    out.push(AnthropicMessage {
+                        role: "user".to_string(),
+                        content: AnthropicContent::Text(msg.text_content()),
+                    });
+                }
             }
             Role::Assistant => {
                 if let Some(ref calls) = msg.tool_calls {
                     // Build content blocks: text (if any) + tool_use blocks.
                     let mut blocks = Vec::new();
-                    if !msg.content.is_empty() {
+                    let text = msg.text_content();
+                    if !text.is_empty() {
                         blocks.push(AnthropicContentBlock::Text {
-                            text: msg.content.clone(),
+                            text,
                         });
                     }
                     for tc in calls {
@@ -276,7 +313,7 @@ fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessa
                 } else {
                     out.push(AnthropicMessage {
                         role: "assistant".to_string(),
-                        content: AnthropicContent::Text(msg.content.clone()),
+                        content: AnthropicContent::Text(msg.text_content()),
                     });
                 }
             }
@@ -288,7 +325,7 @@ fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessa
                         if let AnthropicContent::Blocks(ref mut blocks) = last.content {
                             blocks.push(AnthropicContentBlock::ToolResult {
                                 tool_use_id: msg.name.clone().unwrap_or_default(),
-                                content: msg.content.clone(),
+                                content: msg.text_content(),
                             });
                             true
                         } else {
@@ -307,7 +344,7 @@ fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessa
                         content: AnthropicContent::Blocks(vec![
                             AnthropicContentBlock::ToolResult {
                                 tool_use_id: msg.name.clone().unwrap_or_default(),
-                                content: msg.content.clone(),
+                                content: msg.text_content(),
                             },
                         ]),
                     });
@@ -336,21 +373,34 @@ fn build_request_body(
     messages: Vec<AnthropicMessage>,
     stream: bool,
 ) -> AnthropicRequest {
-    let (thinking, temperature) = if let Some(budget) = request.thinking_budget {
+    // NOTE: Anthropic's API returns a clear error for models that don't support
+    // thinking, so no model-gating is applied here (unlike Gemini).
+    let (thinking, temperature, effective_max_tokens) = if let Some(budget) =
+        request.thinking_budget
+    {
+        let budget = budget.max(1024); // Anthropic requires budget_tokens >= 1024
+        let base_max = request.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
+        // Ensure max_tokens > budget_tokens, with headroom for the response
+        let effective_max = base_max.max(budget + 4096);
         (
             Some(AnthropicThinking {
                 r#type: "enabled".to_string(),
                 budget_tokens: budget,
             }),
             None, // Anthropic requires temperature unset when thinking is enabled
+            effective_max,
         )
     } else {
-        (None, request.temperature)
+        (
+            None,
+            request.temperature,
+            request.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
+        )
     };
 
     AnthropicRequest {
         model: request.model.clone(),
-        max_tokens: request.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
+        max_tokens: effective_max_tokens,
         system,
         messages,
         temperature,

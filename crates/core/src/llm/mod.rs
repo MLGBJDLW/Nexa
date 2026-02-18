@@ -26,18 +26,78 @@ pub enum Role {
     Tool,
 }
 
+/// A single part of a multimodal message content.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ContentPart {
+    /// Plain text content.
+    #[serde(rename = "text")]
+    Text { text: String },
+    /// Base64-encoded image data.
+    #[serde(rename = "image")]
+    Image {
+        /// MIME type (e.g., "image/jpeg", "image/png", "image/webp", "image/gif")
+        media_type: String,
+        /// Base64-encoded image data
+        data: String,
+    },
+}
+
 /// A single message in a conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     pub role: Role,
-    pub content: String,
+    pub parts: Vec<ContentPart>,
     /// Optional name for tool messages (the tool-call id).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Tool calls requested by the assistant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallRequest>>,
+}
+
+impl Message {
+    /// Create a text-only message.
+    pub fn text(role: Role, content: impl Into<String>) -> Self {
+        Self {
+            role,
+            parts: vec![ContentPart::Text { text: content.into() }],
+            name: None,
+            tool_calls: None,
+        }
+    }
+
+    /// Create a text message with a name.
+    pub fn text_with_name(role: Role, content: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            role,
+            parts: vec![ContentPart::Text { text: content.into() }],
+            name: Some(name.into()),
+            tool_calls: None,
+        }
+    }
+
+    /// Get the combined text content from all text parts.
+    pub fn text_content(&self) -> String {
+        self.parts.iter()
+            .filter_map(|p| match p {
+                ContentPart::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Check if this message has any image parts.
+    pub fn has_images(&self) -> bool {
+        self.parts.iter().any(|p| matches!(p, ContentPart::Image { .. }))
+    }
+
+    /// Get all image parts.
+    pub fn image_parts(&self) -> Vec<&ContentPart> {
+        self.parts.iter().filter(|p| matches!(p, ContentPart::Image { .. })).collect()
+    }
 }
 
 /// A tool invocation requested by the model.

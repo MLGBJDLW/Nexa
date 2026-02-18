@@ -355,7 +355,21 @@ function MessageBubble({ msg, chunkIds, queryText }: MessageBubbleProps) {
       >
         <MessageActions text={msg.content} showFeedback={!isUser} chunkIds={chunkIds} queryText={queryText} />
         {isUser ? (
-          <span className="whitespace-pre-wrap">{msg.content}</span>
+          <>
+            <span className="whitespace-pre-wrap">{msg.content}</span>
+            {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {msg.imageAttachments.map((att, i) => (
+                  <img
+                    key={i}
+                    src={`data:${att.mediaType};base64,${att.base64Data}`}
+                    alt={att.originalName}
+                    className="max-w-[200px] max-h-[200px] object-contain rounded-md border border-border"
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : (
           <div className="prose-chat">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -416,6 +430,7 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
   // Typewriter: gradually reveal streamed text for a smooth typing feel
   const displayedText = useTypewriter(streamText, isStreaming, { charsPerTick: 5, intervalMs: 30 });
   const isRevealing = isStreaming || displayedText.length < streamText.length;
+  const streamingThinkingContent = thinkingText || t('chat.thinking');
 
   // Build tool call map from messages for completed tool calls
   const messageToolCalls = useMemo(() => {
@@ -471,6 +486,15 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
 
           return (
             <div key={msg.id}>
+              {/* Persisted thinking block for assistant messages */}
+              {msg.role === 'assistant' && msg.thinking && (
+                <div className="flex justify-start mb-3">
+                  <div className="max-w-[80%]">
+                    <ThinkingBlock content={msg.thinking} isStreaming={false} />
+                  </div>
+                </div>
+              )}
+
               <MessageBubble msg={msg} chunkIds={chunkIds} queryText={queryText} />
 
               {/* Show tool call cards after assistant messages with tool calls */}
@@ -498,14 +522,14 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
       </AnimatePresence>
 
       {/* Streaming thinking block */}
-      {isStreaming && thinkingText && (
+      {isStreaming && (thinkingText || isThinking) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="flex justify-start mb-3"
         >
           <div className="max-w-[80%]">
-            <ThinkingBlock content={thinkingText} isStreaming={isThinking} />
+            <ThinkingBlock content={streamingThinkingContent} isStreaming={isThinking} />
           </div>
         </motion.div>
       )}
@@ -551,7 +575,7 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
       )}
 
       {/* Thinking indicator */}
-      {isStreaming && !streamText && toolCalls.length === 0 && (
+      {isStreaming && !streamText && toolCalls.length === 0 && !isThinking && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

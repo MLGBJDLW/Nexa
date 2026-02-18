@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import * as api from './api';
 import type { AgentFrontendEvent } from '../types';
+import type { ImageAttachment } from '../types/conversation';
 
 const STREAM_TIMEOUT_MS = 120_000; // 120 seconds
 
@@ -13,6 +14,35 @@ interface ToolCallEvent {
   content?: string;
   isError?: boolean;
   artifacts?: Record<string, unknown>;
+}
+
+type AgentEventType = AgentFrontendEvent['type'];
+
+function normalizeAgentEventType(value: unknown): AgentEventType | null {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const lowered = raw
+    .replace(/[_\s-]+([a-zA-Z0-9])/g, (_m, ch: string) => ch.toUpperCase())
+    .replace(/^([A-Z])/, (_m, ch: string) => ch.toLowerCase());
+
+  switch (lowered) {
+    case 'thinking':
+      return 'thinking';
+    case 'textDelta':
+      return 'textDelta';
+    case 'toolCallStart':
+      return 'toolCallStart';
+    case 'toolCallResult':
+      return 'toolCallResult';
+    case 'done':
+      return 'done';
+    case 'error':
+      return 'error';
+    default:
+      return null;
+  }
 }
 
 function finalizeToolCall(
@@ -31,7 +61,7 @@ function finalizeToolCall(
 }
 
 interface UseAgentStreamReturn {
-  send: (conversationId: string, message: string) => Promise<void>;
+  send: (conversationId: string, message: string, attachments?: ImageAttachment[]) => Promise<void>;
   stop: (conversationId: string) => Promise<void>;
   isStreaming: boolean;
   streamText: string;
@@ -91,7 +121,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     setError(null);
   }, []);
 
-  const send = useCallback(async (conversationId: string, message: string) => {
+  const send = useCallback(async (conversationId: string, message: string, attachments?: ImageAttachment[]) => {
     // Cleanup previous listener and timeout
     cleanup();
 
@@ -111,23 +141,24 @@ export function useAgentStream(): UseAgentStreamReturn {
     unlistenRef.current = await listen<AgentFrontendEvent>('agent:event', (event) => {
       const data = event.payload;
       const raw = data as AgentFrontendEvent & Record<string, unknown>;
+      const eventType = normalizeAgentEventType(raw.type);
       const eventConversationId = data?.conversationId
         || (typeof raw.conversation_id === 'string' ? raw.conversation_id : '');
-      if (!data || eventConversationId !== activeConversationRef.current) {
+      if (!data || !eventType || eventConversationId !== activeConversationRef.current) {
         return;
       }
 
       // Reset timeout on every received event
       resetStreamTimeout();
 
-      switch (data.type) {
+      switch (eventType) {
         case 'thinking':
           setIsThinking(true);
-          setThinkingText(prev => prev + (data.content || ''));
+          setThinkingText(prev => prev + (typeof data.content === 'string' ? data.content : (typeof raw.content === 'string' ? raw.content : '')));
           break;
         case 'textDelta':
           setIsThinking(false);
-          setStreamText(prev => prev + (data.delta || ''));
+          setStreamText(prev => prev + (typeof data.delta === 'string' ? data.delta : (typeof raw.delta === 'string' ? raw.delta : '')));
           break;
         case 'toolCallStart':
           setToolCalls(prev => {
@@ -172,11 +203,16 @@ export function useAgentStream(): UseAgentStreamReturn {
               || '';
             const resultIsError = (typeof data.isError === 'boolean' ? data.isError : undefined)
               ?? (typeof raw.is_error === 'boolean' ? raw.is_error : undefined);
+            const resultContent = (typeof data.content === 'string' ? data.content : undefined)
+              ?? (typeof raw.content === 'string' ? raw.content : undefined);
+            const resultArtifacts = (data.artifacts && typeof data.artifacts === 'object')
+              ? data.artifacts
+              : ((raw.artifacts && typeof raw.artifacts === 'object') ? raw.artifacts as Record<string, unknown> : undefined);
             let matched = false;
             const updated = prev.map(tc => {
               if (tc.callId === resultCallId) {
                 matched = true;
-                return finalizeToolCall(tc, resultIsError, data.content, data.artifacts);
+                return finalizeToolCall(tc, resultIsError, resultContent, resultArtifacts);
               }
               return tc;
             });
@@ -195,8 +231,8 @@ export function useAgentStream(): UseAgentStreamReturn {
                 copy[fallbackIndex] = finalizeToolCall(
                   copy[fallbackIndex],
                   resultIsError,
-                  data.content,
-                  data.artifacts,
+                  resultContent,
+                  resultArtifacts,
                 );
                 return copy;
               }
@@ -222,7 +258,7 @@ export function useAgentStream(): UseAgentStreamReturn {
               ? { ...tc, status: 'error', content: tc.content || 'Tool call interrupted by agent error.', isError: true }
               : tc,
           ));
-          setError((data.message as unknown as string) || 'Unknown error');
+          setError((typeof data.message === 'string' ? data.message : (typeof raw.message === 'string' ? raw.message : 'Unknown error')));
           setIsStreaming(false);
           cleanup();
           break;
@@ -231,7 +267,7 @@ export function useAgentStream(): UseAgentStreamReturn {
 
     // Send the message
     try {
-      await api.agentChat(conversationId, message);
+      await api.agentChat(conversationId, message, attachments);
     } catch (err) {
       setToolCalls(prev => prev.map(tc =>
         tc.status === 'running'

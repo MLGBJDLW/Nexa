@@ -295,7 +295,15 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
           <input
             type="checkbox"
             checked={reasoningEnabled === true}
-            onChange={(e) => setReasoningEnabled(e.target.checked ? true : null)}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              setReasoningEnabled(enabled ? true : null);
+              if (enabled && !thinkingBudget) {
+                setThinkingBudget(10000);
+              } else if (!enabled) {
+                setThinkingBudget(null);
+              }
+            }}
             className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
           />
           <span className="text-sm text-text-primary">{t('settings.enableReasoning')}</span>
