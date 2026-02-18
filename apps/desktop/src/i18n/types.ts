@@ -224,6 +224,12 @@ export interface TranslationKeys {
   'settings.embeddingApi': string;
   'settings.embeddingTfidf': string;
   'settings.embeddingLocalModel': string;
+  'settings.embeddingLocalModelSelect': string;
+  'settings.embeddingModelLight': string;
+  'settings.embeddingModelLightDesc': string;
+  'settings.embeddingModelQuality': string;
+  'settings.embeddingModelQualityDesc': string;
+  'settings.embeddingModelChangeWarning': string;
   'settings.embeddingLocalStatus': string;
   'settings.embeddingDownloaded': string;
   'settings.embeddingNotDownloaded': string;

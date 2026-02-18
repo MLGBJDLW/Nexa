@@ -138,21 +138,22 @@ export function SettingsPage() {
     api.getEmbedderConfig().then((cfg) => {
       setEmbedConfig(cfg);
       if (cfg.provider === 'local') {
-        api.checkLocalModel().then(setLocalModelReady).catch(() => setLocalModelReady(false));
+        api.checkLocalModel(cfg.localModel).then(setLocalModelReady).catch(() => setLocalModelReady(false));
       }
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (embedConfig?.provider === 'local') {
-      api.checkLocalModel().then(setLocalModelReady).catch(() => setLocalModelReady(false));
+      api.checkLocalModel(embedConfig.localModel).then(setLocalModelReady).catch(() => setLocalModelReady(false));
     }
-  }, [embedConfig?.provider]);
+  }, [embedConfig?.provider, embedConfig?.localModel]);
 
   const handleDownloadModel = async () => {
+    if (!embedConfig) return;
     setDownloadLoading(true);
     try {
-      await api.downloadLocalModel();
+      await api.downloadLocalModel(embedConfig.localModel);
       setLocalModelReady(true);
       toast.success(t('settings.embeddingDownloaded'));
     } catch (e) {
@@ -398,10 +399,49 @@ export function SettingsPage() {
 
             {/* Local model panel */}
             {embedConfig.provider === 'local' && (
-              <div className="rounded-lg border border-border bg-surface-2 p-4 space-y-3">
-                <p className="text-sm text-text-primary">
-                  {t('settings.embeddingLocalModel')}
-                </p>
+              <div className="rounded-lg border border-border bg-surface-2 p-4 space-y-4">
+                {/* Model selector */}
+                <div>
+                  <p className="mb-2 text-sm font-medium text-text-primary">
+                    {t('settings.embeddingLocalModelSelect')}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {([
+                      {
+                        id: 'MultilingualMiniLM' as const,
+                        label: t('settings.embeddingModelLight'),
+                        desc: t('settings.embeddingModelLightDesc'),
+                      },
+                      {
+                        id: 'MultilingualE5Base' as const,
+                        label: t('settings.embeddingModelQuality'),
+                        desc: t('settings.embeddingModelQualityDesc'),
+                      },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => {
+                          setEmbedConfig({ ...embedConfig, localModel: opt.id });
+                          setLocalModelReady(null);
+                        }}
+                        className={`rounded-lg border p-3 text-left transition-all duration-fast cursor-pointer ${
+                          embedConfig.localModel === opt.id
+                            ? 'border-accent bg-accent-subtle ring-1 ring-accent/20'
+                            : 'border-border bg-surface-1 hover:border-border-hover hover:bg-surface-3/50'
+                        }`}
+                      >
+                        <div className="text-sm font-medium text-text-primary">{opt.label}</div>
+                        <div className="mt-1 text-xs text-text-tertiary">{opt.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0 text-info" />
+                    <p className="text-xs text-info">{t('settings.embeddingModelChangeWarning')}</p>
+                  </div>
+                </div>
+
+                {/* Download status */}
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-text-secondary">{t('settings.embeddingLocalStatus')}:</span>
                   {localModelReady === null ? (

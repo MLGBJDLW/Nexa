@@ -18,6 +18,20 @@ export function useTypewriter(
   const [displayed, setDisplayed] = useState('');
   const revealIdx = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const latestSourceRef = useRef(sourceText);
+  const hasSource = sourceText.length > 0;
+
+  // Keep latest source text available to the interval callback without
+  // recreating the timer on every streamed chunk.
+  useEffect(() => {
+    latestSourceRef.current = sourceText;
+
+    // Source may reset mid-stream (e.g., between tool-call phases).
+    if (isActive && sourceText.length === 0) {
+      revealIdx.current = 0;
+      setDisplayed('');
+    }
+  }, [isActive, sourceText]);
 
   // When streaming finishes, flush everything immediately.
   useEffect(() => {
@@ -26,29 +40,34 @@ export function useTypewriter(
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
-      revealIdx.current = sourceText.length;
-      setDisplayed(sourceText);
+      const finalText = latestSourceRef.current;
+      revealIdx.current = finalText.length;
+      setDisplayed(finalText);
     }
-  }, [isActive, sourceText]);
+  }, [isActive]);
 
   // Tick-based reveal while active.
   useEffect(() => {
     if (!isActive) return;
-
     // If there's nothing to show yet, reset.
-    if (!sourceText) {
+    if (!hasSource) {
       revealIdx.current = 0;
       setDisplayed('');
       return;
     }
 
-    // Start interval if not already running.
-    if (timerRef.current) return;
-
     timerRef.current = setInterval(() => {
-      const src = sourceText; // closed-over in state setter below anyway
+      const src = latestSourceRef.current;
       setDisplayed((prev) => {
         let idx = revealIdx.current;
+
+        // Source replaced with shorter content while streaming.
+        if (idx > src.length) {
+          idx = src.length;
+          revealIdx.current = idx;
+          return src;
+        }
+
         if (idx >= src.length) return prev;
 
         const gap = src.length - idx;
@@ -72,9 +91,7 @@ export function useTypewriter(
         timerRef.current = null;
       }
     };
-    // Re-run when sourceText grows so the interval captures the new length.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, sourceText, charsPerTick, intervalMs]);
+  }, [isActive, hasSource, charsPerTick, intervalMs]);
 
   // Cleanup on unmount.
   useEffect(() => {
