@@ -69,6 +69,11 @@ pub fn parse_file(path: &Path) -> Result<ParsedDocument, CoreError> {
         return parse_pptx(path);
     }
 
+    // Image files — store metadata-only chunk (binary, not text-parseable).
+    if mime_type.starts_with("image/") {
+        return parse_image(path, &mime_type);
+    }
+
     let content = std::fs::read_to_string(path)?;
     let metadata = std::fs::metadata(path)?;
 
@@ -244,6 +249,51 @@ pub fn parse_pptx(path: &Path) -> Result<ParsedDocument, CoreError> {
     })
 }
 
+/// Parse an image file by storing its metadata as a single text chunk.
+///
+/// Images are binary and cannot be text-parsed, so we create a minimal
+/// metadata chunk containing filename, path, and file size. This allows
+/// images to appear in search results and be referenced in multimodal
+/// queries later.
+pub fn parse_image(path: &Path, mime_type: &str) -> Result<ParsedDocument, CoreError> {
+    let metadata = std::fs::metadata(path)?;
+    let file_size = metadata.len() as i64;
+    let bytes = std::fs::read(path)?;
+    let content_hash = blake3::hash(&bytes).to_hex().to_string();
+
+    let file_path = path.to_string_lossy().to_string();
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("unknown");
+
+    let description = format!(
+        "[Image: {file_name}] type={ext} size={file_size} bytes path={file_path}"
+    );
+
+    let chunks = vec![ParsedChunk {
+        content: description,
+        chunk_index: 0,
+        start_offset: 0,
+        end_offset: file_size,
+        heading_context: None,
+    }];
+
+    Ok(ParsedDocument {
+        file_path,
+        file_name,
+        mime_type: mime_type.to_string(),
+        file_size,
+        content_hash,
+        chunks,
+    })
+}
+
 /// Detect MIME type from file extension.
 pub fn detect_mime_type(path: &Path) -> String {
     match path
@@ -259,8 +309,23 @@ pub fn detect_mime_type(path: &Path) -> String {
         Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
         Some("xlsx" | "xls") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
         Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string(),
+        Some("jpg" | "jpeg") => "image/jpeg".to_string(),
+        Some("png") => "image/png".to_string(),
+        Some("gif") => "image/gif".to_string(),
+        Some("webp") => "image/webp".to_string(),
         _ => "application/octet-stream".to_string(),
     }
+}
+
+/// Check if a file at `path` is a supported image based on its extension.
+pub fn is_image_file(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("jpg" | "jpeg" | "png" | "gif" | "webp")
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -523,11 +588,32 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_mime_image() {
+        assert_eq!(detect_mime_type(Path::new("photo.jpg")), "image/jpeg");
+        assert_eq!(detect_mime_type(Path::new("photo.jpeg")), "image/jpeg");
+        assert_eq!(detect_mime_type(Path::new("image.png")), "image/png");
+        assert_eq!(detect_mime_type(Path::new("anim.gif")), "image/gif");
+        assert_eq!(detect_mime_type(Path::new("pic.webp")), "image/webp");
+    }
+
+    #[test]
     fn test_detect_mime_unknown() {
         assert_eq!(
-            detect_mime_type(Path::new("image.png")),
+            detect_mime_type(Path::new("data.bin")),
             "application/octet-stream"
         );
+    }
+
+    #[test]
+    fn test_is_image_file() {
+        assert!(is_image_file(Path::new("photo.jpg")));
+        assert!(is_image_file(Path::new("photo.jpeg")));
+        assert!(is_image_file(Path::new("image.png")));
+        assert!(is_image_file(Path::new("anim.gif")));
+        assert!(is_image_file(Path::new("pic.webp")));
+        assert!(is_image_file(Path::new("UPPER.PNG")));
+        assert!(!is_image_file(Path::new("notes.md")));
+        assert!(!is_image_file(Path::new("data.bin")));
     }
 
     // -- Content hash -------------------------------------------------------

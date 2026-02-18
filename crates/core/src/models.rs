@@ -29,6 +29,7 @@ pub enum FileType {
     Docx,
     Excel,
     Pptx,
+    Image,
 }
 
 /// An evidence card surfaced by a search query.

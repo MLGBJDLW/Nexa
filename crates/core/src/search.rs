@@ -9,7 +9,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 
 use crate::db::Database;
-use crate::embed::{cosine_similarity, create_embedder, Embedder, TfIdfEmbedder, ONNX_MODEL_NAME};
+use crate::embed::{cosine_similarity, create_embedder, Embedder, TfIdfEmbedder};
 use crate::error::CoreError;
 use crate::models::{EvidenceCard, FileType, Highlight, SearchQuery};
 use crate::personalization;
@@ -353,13 +353,11 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                 "local" | "api" => {
                     // Determine model name for DB embedding lookup.
                     let model_name = if config.provider == "local" {
-                        ONNX_MODEL_NAME.to_string()
+                        config.local_embedding_model().model_name().to_string()
+                    } else if config.api_model.is_empty() {
+                        "text-embedding-3-small".to_string()
                     } else {
-                        if config.api_model.is_empty() {
-                            "text-embedding-3-small".to_string()
-                        } else {
-                            config.api_model.clone()
-                        }
+                        config.api_model.clone()
                     };
 
                     match create_embedder(&config) {
@@ -536,8 +534,10 @@ pub fn vector_search_top_k(
     }
 
     const BATCH_SIZE: usize = 10_000;
+    /// Minimum cosine similarity to include a result — filters pure noise.
+    const MIN_SIMILARITY: f32 = 0.2;
     let mut top_k: Vec<(String, f32)> = Vec::with_capacity(k + 1);
-    let mut threshold: f32 = 0.0;
+    let mut threshold: f32 = MIN_SIMILARITY;
 
     let mut offset = 0usize;
     loop {
@@ -549,7 +549,7 @@ pub fn vector_search_top_k(
 
         for (chunk_id, vec) in batch {
             let sim = cosine_similarity(query_vec, &vec);
-            if sim <= 0.0 {
+            if sim <= MIN_SIMILARITY {
                 continue;
             }
 
@@ -839,6 +839,7 @@ fn file_type_to_mime(ft: &FileType) -> String {
         FileType::Pptx => {
             "application/vnd.openxmlformats-officedocument.presentationml.presentation".to_string()
         }
+        FileType::Image => "image/jpeg".to_string(),
     }
 }
 

@@ -94,6 +94,7 @@ impl Tool for SearchTool {
                 "docx" => Some(FileType::Docx),
                 "excel" => Some(FileType::Excel),
                 "pptx" => Some(FileType::Pptx),
+                "image" => Some(FileType::Image),
                 _ => None,
             })
             .collect();

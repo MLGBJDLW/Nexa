@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../lib/api';
-import type { Source, IngestResult, EmbedResult } from '../types';
+import type { Source, IngestResult, EmbedResult, ScanProgress } from '../types';
 import { useTranslation } from '../i18n';
 import type { TranslationKeys } from '../i18n/types';
 import { Button } from '../components/ui/Button';
@@ -118,6 +118,9 @@ export function SourcesPage() {
   // Watcher
   const [togglingWatch, setTogglingWatch] = useState<string | null>(null);
 
+  // Scan/embed progress
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+
   /* ── Load ─────────────────────────────────────────────────────────── */
 
   const loadSources = useCallback(async () => {
@@ -164,6 +167,29 @@ export function SourcesPage() {
       unlisten?.();
     };
   }, [sources, loadSources, t]);
+
+  /* ── Scan/embed progress event listener ───────────────────────────── */
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen<ScanProgress>('source:scan-progress', (event) => {
+      if (cancelled) return;
+      setScanProgress(event.payload);
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   /* ── Watch toggle ────────────────────────────────────────────────── */
 
@@ -278,6 +304,7 @@ export function SourcesPage() {
 
   const handleScan = async (sourceId: string) => {
     setScanningId(sourceId);
+    setScanProgress(null);
     try {
       const result = await api.scanSource(sourceId);
       toast.success(formatScanResult(result, t));
@@ -285,6 +312,7 @@ export function SourcesPage() {
       toast.error(`${t('sources.scanError')}: ${String(e)}`);
     } finally {
       setScanningId(null);
+      setScanProgress(null);
     }
   };
 
@@ -317,6 +345,7 @@ export function SourcesPage() {
 
   const handleEmbed = async (sourceId: string) => {
     setEmbeddingId(sourceId);
+    setScanProgress(null);
     try {
       const result = await api.embedSource(sourceId);
       toast.success(formatEmbedResult(result, t));
@@ -324,6 +353,7 @@ export function SourcesPage() {
       toast.error(`${t('sources.embedError')}: ${String(e)}`);
     } finally {
       setEmbeddingId(null);
+      setScanProgress(null);
     }
   };
 
@@ -445,6 +475,27 @@ export function SourcesPage() {
                           </Badge>
                         )}
                       </div>
+
+                      {/* Scan/embed progress bar */}
+                      {scanProgress && scanProgress.sourceId === source.id && (scanningId === source.id || embeddingId === source.id || indexingIds.has(source.id)) && scanProgress.total > 0 && (
+                        <div className="mb-1.5">
+                          <div className="flex items-center gap-2 text-[11px] text-text-secondary mb-0.5">
+                            <span className="capitalize">{scanProgress.phase}</span>
+                            <span>{scanProgress.current}/{scanProgress.total}</span>
+                          </div>
+                          {scanProgress.currentFile && (
+                            <div className="text-[10px] text-text-tertiary truncate mb-0.5 max-w-xs">
+                              {scanProgress.currentFile}
+                            </div>
+                          )}
+                          <div className="w-full bg-surface-3 rounded h-1">
+                            <div
+                              className="bg-accent h-1 rounded transition-all duration-300"
+                              style={{ width: `${Math.min(100, (scanProgress.current / scanProgress.total) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {/* Globs */}
                       <div className="flex flex-wrap gap-1 mb-1.5">
@@ -606,6 +657,7 @@ export function SourcesPage() {
                 { label: 'Excel', value: '**/*.{xlsx,xls}' },
                 { label: 'PowerPoint', value: '**/*.pptx' },
                 { label: 'PDF', value: '**/*.pdf' },
+                { label: 'Image', value: '**/*.{jpg,jpeg,png,gif,webp}' },
                 { label: 'JSON', value: '**/*.json' },
                 { label: 'YAML', value: '**/*.{yml,yaml}' },
                 { label: 'Code', value: '**/*.{ts,js,py,rs}' },
@@ -676,6 +728,7 @@ export function SourcesPage() {
                 { label: 'Excel', value: '**/*.{xlsx,xls}' },
                 { label: 'PowerPoint', value: '**/*.pptx' },
                 { label: 'PDF', value: '**/*.pdf' },
+                { label: 'Image', value: '**/*.{jpg,jpeg,png,gif,webp}' },
                 { label: 'JSON', value: '**/*.json' },
                 { label: 'YAML', value: '**/*.{yml,yaml}' },
                 { label: 'Code', value: '**/*.{ts,js,py,rs}' },

@@ -19,6 +19,7 @@ import type {
   SaveAgentConfigInput,
   Conversation,
   ConversationMessage,
+  ImageAttachment,
 } from "../types/conversation";
 
 // ── Sources ─────────────────────────────────────────────────────────────
@@ -152,11 +153,11 @@ export const saveEmbedderConfig = (config: EmbedderConfig) =>
 export const testApiConnection = (apiKey: string, baseUrl: string) =>
   invoke<boolean>('test_api_connection_cmd', { apiKey, baseUrl });
 
-export const checkLocalModel = () =>
-  invoke<boolean>('check_local_model_cmd');
+export const checkLocalModel = (localModel?: string) =>
+  invoke<boolean>('check_local_model_cmd', { localModel });
 
-export const downloadLocalModel = () =>
-  invoke<void>('download_local_model_cmd');
+export const downloadLocalModel = (localModel?: string) =>
+  invoke<void>('download_local_model_cmd', { localModel });
 
 // ── File ────────────────────────────────────────────────────────────────
 
@@ -232,11 +233,16 @@ export const updateConversationSystemPrompt = (id: string, systemPrompt: string)
 
 // ── Agent Chat ──────────────────────────────────────────────────────────
 
-export const agentChat = (conversationId: string, message: string) =>
-  invoke<void>('agent_chat_cmd', { conversationId, message });
+export const agentChat = (conversationId: string, message: string, attachments?: ImageAttachment[]) =>
+  invoke<void>('agent_chat_cmd', { conversationId, message, attachments: attachments ?? null });
 
 export const agentStop = (conversationId: string) =>
   invoke<void>('agent_stop_cmd', { conversationId });
+
+// ── Image Attachment ────────────────────────────────────────────────────
+
+export const prepareImageAttachment = (path: string) =>
+  invoke<ImageAttachment>('prepare_image_attachment', { path });
 
 // ── Conversation Sources ────────────────────────────────────────────────
 

@@ -117,6 +117,8 @@ fn main() {
             // Agent chat
             commands::agent_chat_cmd,
             commands::agent_stop_cmd,
+            // Image attachment
+            commands::prepare_image_attachment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

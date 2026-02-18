@@ -5,6 +5,7 @@ pub mod embed;
 pub mod error;
 pub mod llm;
 pub mod feedback;
+pub mod media;
 pub mod index;
 pub mod ingest;
 pub mod migrations;

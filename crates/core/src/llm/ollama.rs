@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use super::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmProvider, Message, ProviderConfig,
-    Role, StreamChunk, ToolCallDelta, ToolCallRequest, ToolDefinition, Usage,
+    CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
+    ProviderConfig, Role, StreamChunk, ToolCallDelta, ToolCallRequest, ToolDefinition, Usage,
 };
 use crate::error::CoreError;
 
@@ -48,6 +48,8 @@ struct OllamaOptions {
 struct OllamaMessage {
     role: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OllamaToolCallOut>>,
 }
@@ -142,9 +144,20 @@ fn role_str(role: &Role) -> &'static str {
 }
 
 fn convert_message(msg: &Message) -> OllamaMessage {
+    // Extract base64 image data into the `images` array.
+    let images: Vec<String> = msg
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            ContentPart::Image { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .collect();
+
     let mut ollama_msg = OllamaMessage {
         role: role_str(&msg.role).to_string(),
-        content: msg.content.clone(),
+        content: msg.text_content(),
+        images: if images.is_empty() { None } else { Some(images) },
         tool_calls: None,
     };
 
