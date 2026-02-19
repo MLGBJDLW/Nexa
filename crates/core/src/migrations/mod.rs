@@ -18,6 +18,8 @@ const V008_AGENT_CONFIG_CONTEXT_WINDOW: &str = include_str!("v008_agent_config_c
 const V009_CONVERSATION_SOURCES: &str = include_str!("v009_conversation_sources.sql");
 const V010_AGENT_CONFIG_REASONING: &str = include_str!("v010_agent_config_reasoning.sql");
 const V011_MESSAGE_THINKING: &str = include_str!("v011_message_thinking.sql");
+const V012_AGENT_CONFIG_MAX_ITERATIONS: &str =
+    include_str!("v012_agent_config_max_iterations.sql");
 
 /// Ordered list of migrations to apply.
 const MIGRATIONS: &[(&str, &str)] = &[
@@ -32,6 +34,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("v009_conversation_sources", V009_CONVERSATION_SOURCES),
     ("v010_agent_config_reasoning", V010_AGENT_CONFIG_REASONING),
     ("v011_message_thinking", V011_MESSAGE_THINKING),
+    ("v012_agent_config_max_iterations", V012_AGENT_CONFIG_MAX_ITERATIONS),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

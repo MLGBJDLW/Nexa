@@ -325,7 +325,7 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
                 }}
                 placeholder="10000"
                 min={1}
-                step={1000}
+                step={1}
               />
               <p className="text-xs text-text-tertiary">
                 {t('settings.thinkingBudgetHelp')}

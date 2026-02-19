@@ -113,6 +113,8 @@ struct GeminiFunctionDeclaration {
 struct GeminiThinkingConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking_budget: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_thoughts: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -365,6 +367,8 @@ fn build_request_body(
             let clamped = budget.clamp(128, 32_768) as i32;
             GeminiThinkingConfig {
                 thinking_budget: Some(clamped),
+                // Required to receive `thought: true` parts in streaming/non-streaming responses.
+                include_thoughts: Some(true),
             }
         })
     } else {
@@ -463,6 +467,23 @@ fn extract_response(
     (text_parts.join(""), tool_calls, finish_reason, usage, thinking)
 }
 
+/// Convert provider chunk content to incremental deltas.
+///
+/// Some Gemini stream chunks are cumulative while others are already delta-like.
+/// This helper emits only the new suffix when cumulative text is detected.
+fn to_incremental_delta(previous: &mut String, current: String) -> String {
+    if current.is_empty() {
+        return String::new();
+    }
+    let delta = if current.starts_with(previous.as_str()) {
+        current[previous.len()..].to_string()
+    } else {
+        current.clone()
+    };
+    *previous = current;
+    delta
+}
+
 // ---------------------------------------------------------------------------
 // Gemini SSE stream parser
 // ---------------------------------------------------------------------------
@@ -476,6 +497,9 @@ async fn parse_gemini_stream(
 ) -> Result<(), CoreError> {
     let mut byte_stream = response.bytes_stream();
     let mut buffer = String::new();
+    let mut event_data_lines: Vec<String> = Vec::new();
+    let mut emitted_text = String::new();
+    let mut emitted_thinking = String::new();
 
     while let Some(chunk_result) = byte_stream.next().await {
         let chunk = chunk_result.map_err(|e| CoreError::Llm(format!("Stream read error: {e}")))?;
@@ -488,54 +512,141 @@ async fn parse_gemini_stream(
             let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
             buffer = buffer[newline_pos + 1..].to_string();
 
+            // Empty line marks the end of an SSE event; process buffered `data:` lines.
             if line.is_empty() {
+                if event_data_lines.is_empty() {
+                    continue;
+                }
+
+                let data = event_data_lines.join("\n");
+                event_data_lines.clear();
+                let data = data.trim();
+                if data.is_empty() {
+                    continue;
+                }
+                if data == "[DONE]" {
+                    return Ok(());
+                }
+
+                let resp: GeminiResponse = match serde_json::from_str(data) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::debug!("Gemini SSE parse skip: {e}");
+                        continue;
+                    }
+                };
+
+                let (text_content, tool_calls, finish_reason, usage, thinking) =
+                    extract_response(&resp);
+                let text_delta = to_incremental_delta(&mut emitted_text, text_content);
+                let thinking_delta = thinking
+                    .map(|t| to_incremental_delta(&mut emitted_thinking, t))
+                    .filter(|s| !s.is_empty());
+                let has_finish = finish_reason != FinishReason::Other;
+
+                if !text_delta.is_empty()
+                    || has_finish
+                    || usage.total_tokens > 0
+                    || thinking_delta.is_some()
+                {
+                    let chunk = StreamChunk {
+                        delta: text_delta,
+                        tool_call_delta: None,
+                        finish_reason: if has_finish {
+                            Some(finish_reason)
+                        } else {
+                            None
+                        },
+                        usage: if usage.total_tokens > 0 {
+                            Some(usage)
+                        } else {
+                            None
+                        },
+                        thinking_delta,
+                    };
+
+                    if tx.send(Ok(chunk)).await.is_err() {
+                        return Ok(());
+                    }
+                }
+
+                for tc in &tool_calls {
+                    let delta_chunk = StreamChunk {
+                        delta: String::new(),
+                        tool_call_delta: Some(ToolCallDelta {
+                            id: tc.id.clone(),
+                            name: Some(tc.name.clone()),
+                            arguments_delta: tc.arguments.clone(),
+                            index: tc
+                                .id
+                                .strip_prefix("call_")
+                                .and_then(|s| s.parse::<u32>().ok()),
+                        }),
+                        finish_reason: None,
+                        usage: None,
+                        thinking_delta: None,
+                    };
+                    if tx.send(Ok(delta_chunk)).await.is_err() {
+                        return Ok(());
+                    }
+                }
                 continue;
             }
 
-            // Extract data from SSE `data: ` lines.
-            let Some(data) = line
+            // Accumulate `data:` lines (Gemini may split one JSON event across multiple lines).
+            if let Some(data) = line
                 .strip_prefix("data: ")
                 .or_else(|| line.strip_prefix("data:"))
-            else {
-                continue;
-            };
-
-            let data = data.trim();
-            if data.is_empty() || data == "[DONE]" {
-                continue;
+            {
+                event_data_lines.push(data.to_string());
             }
+        }
+    }
 
+    // Flush a trailing event if the stream ended without a blank line.
+    if !event_data_lines.is_empty() {
+        let data = event_data_lines.join("\n");
+        let data = data.trim();
+        if !data.is_empty() && data != "[DONE]" {
             let resp: GeminiResponse = match serde_json::from_str(data) {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::debug!("Gemini SSE parse skip: {e}");
-                    continue;
+                    tracing::debug!("Gemini SSE trailing parse skip: {e}");
+                    return Ok(());
                 }
             };
 
             let (text_content, tool_calls, finish_reason, usage, thinking) =
                 extract_response(&resp);
-
+            let text_delta = to_incremental_delta(&mut emitted_text, text_content);
+            let thinking_delta = thinking
+                .map(|t| to_incremental_delta(&mut emitted_thinking, t))
+                .filter(|s| !s.is_empty());
             let has_finish = finish_reason != FinishReason::Other;
 
-            let chunk = StreamChunk {
-                delta: text_content,
-                tool_call_delta: None,
-                finish_reason: if has_finish {
-                    Some(finish_reason)
-                } else {
-                    None
-                },
-                usage: if usage.total_tokens > 0 {
-                    Some(usage)
-                } else {
-                    None
-                },
-                thinking_delta: thinking,
-            };
-
-            if tx.send(Ok(chunk)).await.is_err() {
-                return Ok(());
+            if !text_delta.is_empty()
+                || has_finish
+                || usage.total_tokens > 0
+                || thinking_delta.is_some()
+            {
+                let chunk = StreamChunk {
+                    delta: text_delta,
+                    tool_call_delta: None,
+                    finish_reason: if has_finish {
+                        Some(finish_reason)
+                    } else {
+                        None
+                    },
+                    usage: if usage.total_tokens > 0 {
+                        Some(usage)
+                    } else {
+                        None
+                    },
+                    thinking_delta,
+                };
+                if tx.send(Ok(chunk)).await.is_err() {
+                    return Ok(());
+                }
             }
 
             for tc in &tool_calls {
@@ -815,5 +926,47 @@ mod tests {
             }
             _ => panic!("expected FunctionResponse part"),
         }
+    }
+
+    #[test]
+    fn test_to_incremental_delta_handles_cumulative_and_delta_chunks() {
+        let mut previous = String::new();
+
+        // Cumulative chunk: first full snapshot.
+        assert_eq!(
+            to_incremental_delta(&mut previous, "Hello".to_string()),
+            "Hello"
+        );
+        // Cumulative chunk: emit only appended suffix.
+        assert_eq!(
+            to_incremental_delta(&mut previous, "Hello world".to_string()),
+            " world"
+        );
+        // Already-delta chunk: preserve as-is.
+        assert_eq!(
+            to_incremental_delta(&mut previous, "!".to_string()),
+            "!"
+        );
+    }
+
+    #[test]
+    fn test_build_request_body_enables_include_thoughts_when_thinking_enabled() {
+        let request = CompletionRequest {
+            model: "gemini-2.5-pro".to_string(),
+            messages: vec![Message::text(Role::User, "hello")],
+            temperature: Some(0.2),
+            max_tokens: Some(256),
+            tools: None,
+            stop: None,
+            thinking_budget: Some(2048),
+            reasoning_effort: None,
+            provider_type: None,
+        };
+
+        let body = build_request_body(&request, None, vec![]);
+        let gc = body.generation_config.expect("generation config");
+        let tc = gc.thinking_config.expect("thinking config");
+        assert_eq!(tc.include_thoughts, Some(true));
+        assert_eq!(tc.thinking_budget, Some(2048));
     }
 }

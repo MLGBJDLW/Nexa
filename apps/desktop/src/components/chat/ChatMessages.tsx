@@ -492,6 +492,8 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
             ? (messages.slice(0, idx).reverse().find((m) => m.role === 'user')?.content ?? '')
             : '';
           const chunkIds = chunkIdCacheRef.current.get(msg.id) ?? [];
+          const hasRenderableAssistantContent =
+            msg.role !== 'assistant' || msg.content.trim().length > 0;
 
           return (
             <div key={msg.id}>
@@ -504,7 +506,9 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
                 </div>
               )}
 
-              <MessageBubble msg={msg} chunkIds={chunkIds} queryText={queryText} />
+              {hasRenderableAssistantContent && (
+                <MessageBubble msg={msg} chunkIds={chunkIds} queryText={queryText} />
+              )}
 
               {/* Show tool call cards after assistant messages with tool calls */}
               {msg.role === 'assistant' && msg.toolCalls.length > 0 && (
@@ -584,7 +588,7 @@ export function ChatMessages({ messages, streamText, thinkingText, isThinking, t
       )}
 
       {/* Thinking indicator */}
-      {isStreaming && !streamText && toolCalls.length === 0 && !isThinking && (
+      {isStreaming && !streamText && toolCalls.length === 0 && !thinkingText && !isThinking && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

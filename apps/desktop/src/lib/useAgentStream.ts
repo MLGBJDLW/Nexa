@@ -90,6 +90,7 @@ export function useAgentStream(): UseAgentStreamReturn {
   const [lastUsage, setLastUsage] = useState<UsageTotal | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeConversationRef = useRef<string | null>(null);
   const toolCallSeqRef = useRef(0);
 
@@ -100,13 +101,21 @@ export function useAgentStream(): UseAgentStreamReturn {
     }
   }, []);
 
+  const clearThinkingTimeout = useCallback(() => {
+    if (thinkingTimeoutRef.current) {
+      clearTimeout(thinkingTimeoutRef.current);
+      thinkingTimeoutRef.current = null;
+    }
+  }, []);
+
   const cleanup = useCallback(() => {
     clearStreamTimeout();
+    clearThinkingTimeout();
     if (unlistenRef.current) {
       unlistenRef.current();
       unlistenRef.current = null;
     }
-  }, [clearStreamTimeout]);
+  }, [clearStreamTimeout, clearThinkingTimeout]);
 
   const resetStreamTimeout = useCallback(() => {
     clearStreamTimeout();
@@ -129,7 +138,8 @@ export function useAgentStream(): UseAgentStreamReturn {
     setToolCalls([]);
     setError(null);
     setLastUsage(null);
-  }, []);
+    clearThinkingTimeout();
+  }, [clearThinkingTimeout]);
 
   const send = useCallback(async (conversationId: string, message: string, attachments?: ImageAttachment[]) => {
     // Cleanup previous listener and timeout
@@ -165,9 +175,12 @@ export function useAgentStream(): UseAgentStreamReturn {
         case 'thinking':
           setIsThinking(true);
           setThinkingText(prev => prev + (typeof data.content === 'string' ? data.content : (typeof raw.content === 'string' ? raw.content : '')));
+          clearThinkingTimeout();
+          thinkingTimeoutRef.current = setTimeout(() => {
+            setIsThinking(false);
+          }, 900);
           break;
         case 'textDelta':
-          setIsThinking(false);
           setStreamText(prev => prev + (typeof data.delta === 'string' ? data.delta : (typeof raw.delta === 'string' ? raw.delta : '')));
           break;
         case 'toolCallStart':
@@ -253,6 +266,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           setStreamText('');
           break;
         case 'done': {
+          clearThinkingTimeout();
           setIsThinking(false);
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
@@ -268,6 +282,8 @@ export function useAgentStream(): UseAgentStreamReturn {
           break;
         }
         case 'error':
+          clearThinkingTimeout();
+          setIsThinking(false);
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
               ? { ...tc, status: 'error', content: tc.content || 'Tool call interrupted by agent error.', isError: true }
@@ -284,6 +300,8 @@ export function useAgentStream(): UseAgentStreamReturn {
     try {
       await api.agentChat(conversationId, message, attachments);
     } catch (err) {
+      clearThinkingTimeout();
+      setIsThinking(false);
       setToolCalls(prev => prev.map(tc =>
         tc.status === 'running'
           ? { ...tc, status: 'error', content: tc.content || 'Agent request failed.', isError: true }
@@ -293,7 +311,7 @@ export function useAgentStream(): UseAgentStreamReturn {
       setIsStreaming(false);
       cleanup();
     }
-  }, [cleanup, resetStreamTimeout]);
+  }, [cleanup, resetStreamTimeout, clearThinkingTimeout]);
 
   const stop = useCallback(async (conversationId: string) => {
     try {
@@ -301,6 +319,8 @@ export function useAgentStream(): UseAgentStreamReturn {
     } catch (err) {
       // Ignore errors on stop
     }
+    clearThinkingTimeout();
+    setIsThinking(false);
     setToolCalls(prev => prev.map(tc =>
       tc.status === 'running'
         ? { ...tc, status: 'error', content: tc.content || 'Stopped by user.', isError: true }
@@ -308,7 +328,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     ));
     setIsStreaming(false);
     cleanup();
-  }, [cleanup]);
+  }, [cleanup, clearThinkingTimeout]);
 
   return { send, stop, isStreaming, streamText, thinkingText, isThinking, toolCalls, error, lastUsage, reset };
 }
