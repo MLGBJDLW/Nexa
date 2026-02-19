@@ -39,12 +39,9 @@ build/
 coverage/
 tarpaulin-report.html
 
-# Debug/test output
-terr.txt
-test-output*.txt
-test[0-9]*.txt
-tfb.txt
-tout.txt
+# Debug/test output — scratch files in root
+/*.txt
+$null
 
 # Github agents
 .github/agents/
