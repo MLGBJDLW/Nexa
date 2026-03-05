@@ -2,24 +2,17 @@ import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ScanSearch, Database, Clock, Moon, Sun, Star } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ScanSearch, Database, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { QueryLog } from '../types';
 import { useTranslation } from '../i18n';
-import { useTheme } from '../lib/ThemeProvider';
-import type { ThemeId } from '../lib/theme';
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { setTheme } = useTheme();
-
-  const switchTheme = (id: ThemeId) => {
-    select(() => setTheme(id));
-  };
 
   /* ── Ctrl/Cmd+K toggle ───────────────────────────────────────────── */
   useEffect(() => {
@@ -155,23 +148,6 @@ export function CommandPalette() {
                   <Command.Item onSelect={handleRebuildEmbeddings}>
                     <Database className="h-4 w-4 shrink-0 text-text-tertiary" />
                     {t('cmd.rebuildEmbeddings')}
-                  </Command.Item>
-                </Command.Group>
-
-                {/* Theme */}
-                <Command.Separator className="mx-2 my-1 h-px bg-border" />
-                <Command.Group heading="Theme">
-                  <Command.Item onSelect={() => switchTheme('dark')}>
-                    <Moon className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    Switch to Dark theme
-                  </Command.Item>
-                  <Command.Item onSelect={() => switchTheme('light')}>
-                    <Sun className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    Switch to Light theme
-                  </Command.Item>
-                  <Command.Item onSelect={() => switchTheme('midnight')}>
-                    <Star className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    Switch to Midnight theme
                   </Command.Item>
                 </Command.Group>
 

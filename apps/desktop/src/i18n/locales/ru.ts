@@ -308,6 +308,17 @@ export const ru: TranslationKeys = {
   'settings.memorySaved': 'Заметка сохранена.',
   'settings.memoryUpdated': 'Заметка обновлена.',
 
+  // Settings - Appearance
+  'settings.appearance': 'Внешний вид',
+  'settings.appearance.description': 'Настройка темы и языка',
+  'settings.appearance.theme': 'Тема',
+  'settings.appearance.theme.description': 'Выбрать цветовую тему интерфейса',
+  'settings.appearance.theme.dark': 'Тёмная',
+  'settings.appearance.theme.light': 'Светлая',
+  'settings.appearance.theme.midnight': 'Полночь',
+  'settings.appearance.language': 'Язык',
+  'settings.appearance.language.description': 'Выбрать язык отображения',
+
   // Command Palette
   'cmd.placeholder': 'Введите команду...',
   'cmd.noResults': 'Команды не найдены',

@@ -308,6 +308,17 @@ export const en: TranslationKeys = {
   'settings.memorySaved': 'Memory saved.',
   'settings.memoryUpdated': 'Memory updated.',
 
+  // Settings - Appearance
+  'settings.appearance': 'Appearance',
+  'settings.appearance.description': 'Customize theme and language settings',
+  'settings.appearance.theme': 'Theme',
+  'settings.appearance.theme.description': 'Choose a color theme for the interface',
+  'settings.appearance.theme.dark': 'Dark',
+  'settings.appearance.theme.light': 'Light',
+  'settings.appearance.theme.midnight': 'Midnight',
+  'settings.appearance.language': 'Language',
+  'settings.appearance.language.description': 'Choose your preferred display language',
+
   // Command Palette
   'cmd.placeholder': 'Type a command...',
   'cmd.noResults': 'No matching commands',

@@ -308,6 +308,17 @@ export const zhCN: TranslationKeys = {
   'settings.memorySaved': '记忆已保存。',
   'settings.memoryUpdated': '记忆已更新。',
 
+  // Settings - Appearance
+  'settings.appearance': '外观',
+  'settings.appearance.description': '自定义主题和语言设置',
+  'settings.appearance.theme': '主题',
+  'settings.appearance.theme.description': '选择界面配色方案',
+  'settings.appearance.theme.dark': '深色',
+  'settings.appearance.theme.light': '浅色',
+  'settings.appearance.theme.midnight': '午夜',
+  'settings.appearance.language': '语言',
+  'settings.appearance.language.description': '选择显示语言',
+
   // Command Palette
   'cmd.placeholder': '输入命令...',
   'cmd.noResults': '未找到匹配命令',

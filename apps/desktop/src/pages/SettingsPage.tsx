@@ -8,7 +8,6 @@ import {
   Plus,
   Trash2,
   Save,
-  Languages,
   Brain,
   Download,
   CheckCircle,
@@ -87,7 +86,7 @@ function formatBytes(bytes: number): string {
 }
 
 /* ── Settings page ────────────────────────────────────────────────── */
-type SettingsTab = 'appearance' | 'embedding' | 'index' | 'privacy' | 'language' | 'providers' | 'ocr';
+type SettingsTab = 'appearance' | 'embedding' | 'index' | 'privacy' | 'providers' | 'ocr';
 const MEMORY_CHAR_LIMIT = 240;
 
 export function SettingsPage() {
@@ -561,13 +560,12 @@ export function SettingsPage() {
   };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'appearance', label: 'Appearance', icon: <Star size={16} /> },
+    { id: 'appearance', label: t('settings.appearance'), icon: <Star size={16} /> },
     { id: 'embedding', label: t('settings.embeddingSection'), icon: <Brain size={16} /> },
     { id: 'providers', label: t('settings.aiProviders'), icon: <Bot size={16} /> },
     { id: 'ocr', label: t('settings.ocrTab'), icon: <ScanLine size={16} /> },
     { id: 'index', label: t('settings.indexSection'), icon: <Database size={16} /> },
     { id: 'privacy', label: t('settings.privacySection'), icon: <Shield size={16} /> },
-    { id: 'language', label: t('settings.languageSection'), icon: <Languages size={16} /> },
   ];
 
   /* ── Render ──────────────────────────────────────────────────────── */
@@ -603,12 +601,37 @@ export function SettingsPage() {
 
       {/* ── Tab: Appearance ─────────────────────────────────────── */}
       {activeTab === 'appearance' && (
-        <Section icon={<Star size={20} />} title="Appearance" delay={0.03}>
-          <div className="space-y-4">
+        <Section icon={<Star size={20} />} title={t('settings.appearance')} delay={0.03}>
+          <div className="space-y-6">
+            {/* Theme section */}
             <div>
-              <p className="mb-2 text-sm font-medium text-text-primary">Theme</p>
-              <p className="mb-3 text-xs text-text-tertiary">Choose a color theme for the interface.</p>
+              <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.appearance.theme')}</p>
+              <p className="mb-3 text-xs text-text-tertiary">{t('settings.appearance.theme.description')}</p>
               <ThemeSwitcher />
+            </div>
+
+            {/* Separator */}
+            <div className="border-t border-border" />
+
+            {/* Language section */}
+            <div>
+              <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.appearance.language')}</p>
+              <p className="mb-3 text-xs text-text-tertiary">{t('settings.appearance.language.description')}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                {availableLocales.map((l) => (
+                  <button
+                    key={l.code}
+                    onClick={() => setLocale(l.code)}
+                    className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-all duration-fast cursor-pointer ${
+                      locale === l.code
+                        ? 'border-accent bg-accent-subtle text-accent ring-1 ring-accent/20'
+                        : 'border-border bg-surface-2 text-text-secondary hover:border-border-hover hover:bg-surface-3'
+                    }`}
+                  >
+                    {l.name}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </Section>
@@ -1288,27 +1311,6 @@ export function SettingsPage() {
             </div>
           </div>
         )}
-      </Section>
-      )}
-
-      {/* ── Tab: Language ──────────────────────────────────────────── */}
-      {activeTab === 'language' && (
-      <Section icon={<Languages size={20} />} title={t('settings.languageSection')} delay={0.15}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-          {availableLocales.map((l) => (
-            <button
-              key={l.code}
-              onClick={() => setLocale(l.code)}
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-all duration-fast cursor-pointer ${
-                locale === l.code
-                  ? 'border-accent bg-accent-subtle text-accent ring-1 ring-accent/20'
-                  : 'border-border bg-surface-2 text-text-secondary hover:border-border-hover hover:bg-surface-3'
-              }`}
-            >
-              {l.name}
-            </button>
-          ))}
-        </div>
       </Section>
       )}
 

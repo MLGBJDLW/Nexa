@@ -306,6 +306,17 @@ export const ja: TranslationKeys = {
   'settings.memorySaved': 'メモリを保存しました。',
   'settings.memoryUpdated': 'メモリを更新しました。',
 
+  // Settings - Appearance
+  'settings.appearance': '外観',
+  'settings.appearance.description': 'テーマと言語の設定',
+  'settings.appearance.theme': 'テーマ',
+  'settings.appearance.theme.description': 'インターフェースの配色を選択',
+  'settings.appearance.theme.dark': 'ダーク',
+  'settings.appearance.theme.light': 'ライト',
+  'settings.appearance.theme.midnight': 'ミッドナイト',
+  'settings.appearance.language': '言語',
+  'settings.appearance.language.description': '表示言語を選択',
+
   // Command Palette
   'cmd.placeholder': 'コマンドを入力...',
   'cmd.noResults': '一致するコマンドがありません',

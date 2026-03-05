@@ -308,6 +308,17 @@ export interface TranslationKeys {
   'settings.memorySaved': string;
   'settings.memoryUpdated': string;
 
+  // Settings - Appearance
+  'settings.appearance': string;
+  'settings.appearance.description': string;
+  'settings.appearance.theme': string;
+  'settings.appearance.theme.description': string;
+  'settings.appearance.theme.dark': string;
+  'settings.appearance.theme.light': string;
+  'settings.appearance.theme.midnight': string;
+  'settings.appearance.language': string;
+  'settings.appearance.language.description': string;
+
   // Command Palette
   'cmd.placeholder': string;
   'cmd.noResults': string;

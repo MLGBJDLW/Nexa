@@ -306,6 +306,17 @@ export const zhTW: TranslationKeys = {
   'settings.memorySaved': '記憶已儲存。',
   'settings.memoryUpdated': '記憶已更新。',
 
+  // Settings - Appearance
+  'settings.appearance': '外觀',
+  'settings.appearance.description': '自訂主題和語言設定',
+  'settings.appearance.theme': '主題',
+  'settings.appearance.theme.description': '選擇介面配色方案',
+  'settings.appearance.theme.dark': '深色',
+  'settings.appearance.theme.light': '淺色',
+  'settings.appearance.theme.midnight': '午夜',
+  'settings.appearance.language': '語言',
+  'settings.appearance.language.description': '選擇顯示語言',
+
   // Command Palette
   'cmd.placeholder': '輸入命令...',
   'cmd.noResults': '未找到匹配命令',

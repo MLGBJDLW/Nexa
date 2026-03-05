@@ -308,6 +308,17 @@ export const ko: TranslationKeys = {
   'settings.memorySaved': '메모리가 저장되었습니다.',
   'settings.memoryUpdated': '메모리가 업데이트되었습니다.',
 
+  // Settings - Appearance
+  'settings.appearance': '외관',
+  'settings.appearance.description': '테마 및 언어 설정',
+  'settings.appearance.theme': '테마',
+  'settings.appearance.theme.description': '인터페이스 색상 테마 선택',
+  'settings.appearance.theme.dark': '다크',
+  'settings.appearance.theme.light': '라이트',
+  'settings.appearance.theme.midnight': '미드나이트',
+  'settings.appearance.language': '언어',
+  'settings.appearance.language.description': '표시 언어 선택',
+
   // Command Palette
   'cmd.placeholder': '명령 입력...',
   'cmd.noResults': '일치하는 명령이 없습니다',
