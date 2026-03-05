@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -84,20 +84,20 @@ const listItem = {
 /*  Shared preset definitions                                          */
 /* ------------------------------------------------------------------ */
 
-const INCLUDE_PRESETS = [
-  { label: 'Markdown', value: '**/*.md' },
-  { label: 'Text', value: '**/*.txt' },
-  { label: 'HTML', value: '**/*.html' },
-  { label: 'Word', value: '**/*.docx' },
-  { label: 'Excel', value: '**/*.{xlsx,xls}' },
-  { label: 'PowerPoint', value: '**/*.pptx' },
-  { label: 'PDF', value: '**/*.pdf' },
-  { label: 'Image', value: '**/*.{jpg,jpeg,png,gif,webp}' },
-  { label: 'JSON', value: '**/*.json' },
-  { label: 'YAML', value: '**/*.{yml,yaml}' },
-  { label: 'Code', value: '**/*.{ts,js,py,rs}' },
-  { label: 'Log', value: '**/*.log' },
-];
+const INCLUDE_PRESET_KEYS = [
+  { labelKey: 'sources.presetMarkdown', value: '**/*.md' },
+  { labelKey: 'sources.presetText', value: '**/*.txt' },
+  { labelKey: 'sources.presetHtml', value: '**/*.html' },
+  { labelKey: 'sources.presetWord', value: '**/*.docx' },
+  { labelKey: 'sources.presetExcel', value: '**/*.{xlsx,xls}' },
+  { labelKey: 'sources.presetPowerpoint', value: '**/*.pptx' },
+  { labelKey: 'sources.presetPdf', value: '**/*.pdf' },
+  { labelKey: 'sources.presetImage', value: '**/*.{jpg,jpeg,png,gif,webp}' },
+  { labelKey: 'sources.presetJson', value: '**/*.json' },
+  { labelKey: 'sources.presetYaml', value: '**/*.{yml,yaml}' },
+  { labelKey: 'sources.presetCode', value: '**/*.{ts,js,py,rs}' },
+  { labelKey: 'sources.presetLog', value: '**/*.log' },
+] as const;
 
 const EXCLUDE_PRESETS = [
   { label: 'node_modules', value: '**/node_modules/**' },
@@ -115,6 +115,11 @@ const EXCLUDE_PRESETS = [
 export function SourcesPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+
+  const includePresets = useMemo(
+    () => INCLUDE_PRESET_KEYS.map(p => ({ label: t(p.labelKey as any), value: p.value })),
+    [t],
+  );
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanningId, setScanningId] = useState<string | null>(null);
@@ -741,7 +746,7 @@ export function SourcesPage() {
                 <Input
                   value={formPath}
                   onChange={(e) => setFormPath(e.target.value)}
-                  placeholder="C:\\Users\\you\\notes  /  /home/user/notes"
+                  placeholder={t('sources.pathPlaceholder')}
                   icon={<FolderOpen size={15} />}
                 />
               </div>
@@ -772,9 +777,9 @@ export function SourcesPage() {
             <TagInput
               value={formInclude}
               onChange={setFormInclude}
-              presets={INCLUDE_PRESETS}
+              presets={includePresets}
               showSelectAll
-              placeholder="Add glob pattern..."
+              placeholder={t('sources.addIncludePattern')}
             />
           </div>
 
@@ -786,7 +791,7 @@ export function SourcesPage() {
               onChange={setFormExclude}
               presets={EXCLUDE_PRESETS}
               showSelectAll
-              placeholder="Add exclude pattern..."
+              placeholder={t('sources.addExcludePattern')}
             />
           </div>
 
@@ -840,9 +845,9 @@ export function SourcesPage() {
             <TagInput
               value={editInclude}
               onChange={setEditInclude}
-              presets={INCLUDE_PRESETS}
+              presets={includePresets}
               showSelectAll
-              placeholder="Add glob pattern..."
+              placeholder={t('sources.addIncludePattern')}
             />
           </div>
 
@@ -854,7 +859,7 @@ export function SourcesPage() {
               onChange={setEditExclude}
               presets={EXCLUDE_PRESETS}
               showSelectAll
-              placeholder="Add exclude pattern..."
+              placeholder={t('sources.addExcludePattern')}
             />
           </div>
 

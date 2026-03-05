@@ -369,7 +369,7 @@ export function SettingsPage() {
     const trimmed = newMemory.trim();
     if (!trimmed) return;
     if (trimmed.length > MEMORY_CHAR_LIMIT) {
-      toast.error(`Memory too long (max ${MEMORY_CHAR_LIMIT} chars).`);
+      toast.error(t('settings.memoryTooLong', { limit: String(MEMORY_CHAR_LIMIT) }));
       return;
     }
     setMemoryLoading(true);
@@ -377,7 +377,7 @@ export function SettingsPage() {
       const created = await api.createUserMemory(trimmed);
       setUserMemories((prev) => [created, ...prev]);
       setNewMemory('');
-      toast.success('Memory saved.');
+      toast.success(t('settings.memorySaved'));
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -416,7 +416,7 @@ export function SettingsPage() {
     const trimmed = editingMemoryDraft.trim();
     if (!id || !trimmed) return;
     if (trimmed.length > MEMORY_CHAR_LIMIT) {
-      toast.error(`Memory too long (max ${MEMORY_CHAR_LIMIT} chars).`);
+      toast.error(t('settings.memoryTooLong', { limit: String(MEMORY_CHAR_LIMIT) }));
       return;
     }
 
@@ -426,7 +426,7 @@ export function SettingsPage() {
       setUserMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
       setEditingMemoryId(null);
       setEditingMemoryDraft('');
-      toast.success('Memory updated.');
+      toast.success(t('settings.memoryUpdated'));
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -549,14 +549,14 @@ export function SettingsPage() {
   };
 
   const PROVIDER_LABELS: Record<string, string> = {
-    open_ai: 'OpenAI',
-    anthropic: 'Anthropic',
-    google: 'Google',
-    deep_seek: 'DeepSeek',
-    ollama: 'Ollama',
-    lm_studio: 'LM Studio',
-    azure_open_ai: 'Azure',
-    custom: 'Custom',
+    open_ai: t('settings.providerOpenAI'),
+    anthropic: t('settings.providerAnthropic'),
+    google: t('settings.providerGoogle'),
+    deep_seek: t('settings.providerDeepSeek'),
+    ollama: t('settings.providerOllama'),
+    lm_studio: t('settings.providerLMStudio'),
+    azure_open_ai: t('settings.providerAzure'),
+    custom: t('settings.providerCustom'),
   };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -1155,15 +1155,15 @@ export function SettingsPage() {
 
             {/* Local user memory */}
             <div>
-              <h3 className="mb-2 text-sm font-medium text-text-primary">Local Memory</h3>
+              <h3 className="mb-2 text-sm font-medium text-text-primary">{t('settings.memorySection')}</h3>
               <p className="mb-3 text-xs text-text-tertiary">
-                Persistent notes stored on this device and injected progressively based on relevance.
+                {t('settings.memoryDescription')}
               </p>
 
               <div className="space-y-2 mb-3">
                 {userMemories.length === 0 && (
                   <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-text-tertiary">
-                    No memory saved yet.
+                    {t('settings.memoryEmpty')}
                   </div>
                 )}
                 {userMemories.map((memory) => (
@@ -1236,7 +1236,7 @@ export function SettingsPage() {
 
               <div className="flex gap-2">
                 <Input
-                  placeholder="Example: My preferred answer language is Chinese."
+                  placeholder={t('settings.memoryPlaceholder')}
                   value={newMemory}
                   onChange={(e) => setNewMemory(e.target.value)}
                   maxLength={MEMORY_CHAR_LIMIT}
@@ -1251,11 +1251,11 @@ export function SettingsPage() {
                   loading={memoryLoading}
                   disabled={!newMemory.trim()}
                 >
-                  Add Memory
+                  {t('settings.addMemory')}
                 </Button>
               </div>
               <p className="mt-2 text-xs text-text-tertiary">
-                {newMemory.length}/{MEMORY_CHAR_LIMIT} chars. Keep each note short for lower token usage.
+                {t('settings.memoryCharHelper', { length: String(newMemory.length), limit: String(MEMORY_CHAR_LIMIT) })}
               </p>
             </div>
 

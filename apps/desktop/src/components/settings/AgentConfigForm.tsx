@@ -13,7 +13,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { useTranslation } from '../../i18n';
+import { useTranslation, type TranslationKey } from '../../i18n';
 import * as api from '../../lib/api';
 import type { AgentConfig, SaveAgentConfigInput, ProviderType } from '../../types/conversation';
 import type { ProviderPreset } from '../../lib/providerPresets';
@@ -26,15 +26,15 @@ interface AgentConfigFormProps {
   isSaving: boolean;
 }
 
-const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
-  { value: 'open_ai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'google', label: 'Google Gemini' },
-  { value: 'deep_seek', label: 'DeepSeek' },
-  { value: 'ollama', label: 'Ollama' },
-  { value: 'lm_studio', label: 'LM Studio' },
-  { value: 'azure_open_ai', label: 'Azure OpenAI' },
-  { value: 'custom', label: 'Custom' },
+const PROVIDER_LABEL_KEYS: { value: ProviderType; labelKey: string }[] = [
+  { value: 'open_ai', labelKey: 'settings.providerOpenAI' },
+  { value: 'anthropic', labelKey: 'settings.providerAnthropic' },
+  { value: 'google', labelKey: 'settings.providerGoogleGemini' },
+  { value: 'deep_seek', labelKey: 'settings.providerDeepSeek' },
+  { value: 'ollama', labelKey: 'settings.providerOllama' },
+  { value: 'lm_studio', labelKey: 'settings.providerLMStudio' },
+  { value: 'azure_open_ai', labelKey: 'settings.providerAzureOpenAI' },
+  { value: 'custom', labelKey: 'settings.providerCustom' },
 ];
 
 const BASE_URL_PLACEHOLDERS: Record<ProviderType, string> = {
@@ -148,8 +148,8 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
           onChange={(e) => setProvider(e.target.value as ProviderType)}
           className="w-full h-10 bg-surface-1 border border-border rounded-md text-sm text-text-primary px-3.5 transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none cursor-pointer"
         >
-          {PROVIDER_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          {PROVIDER_LABEL_KEYS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{t(opt.labelKey as any)}</option>
           ))}
         </select>
       </div>
@@ -199,7 +199,7 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
           >
             {preset.models.map(m => (
               <option key={m.id} value={m.id}>
-                {m.name}{m.recommended ? ' ★' : ''}
+                {m.tagKey ? `${m.name} (${t(m.tagKey as TranslationKey)})` : m.name}{m.recommended ? ' ★' : ''}
               </option>
             ))}
           </select>
@@ -390,7 +390,7 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
           <Input
             value={summarizationModel ?? ''}
             onChange={(e) => setSummarizationModel(e.target.value || null)}
-            placeholder="gpt-4o-mini, deepseek-chat, etc."
+            placeholder={t('settings.summarizationModelPlaceholder')}
           />
         </div>
         <div className="space-y-2">
@@ -401,8 +401,8 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving }: 
             className="w-full h-10 bg-surface-1 border border-border rounded-md text-sm text-text-primary px-3.5 transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none cursor-pointer"
           >
             <option value="">{t('settings.sameAsMain')}</option>
-            {PROVIDER_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            {PROVIDER_LABEL_KEYS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{t(opt.labelKey as any)}</option>
             ))}
           </select>
           <p className="text-xs text-text-tertiary">

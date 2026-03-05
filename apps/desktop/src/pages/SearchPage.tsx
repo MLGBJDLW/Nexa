@@ -48,14 +48,14 @@ import { useTranslation } from '../i18n';
 
 const PAGE_SIZE = 20;
 
-const FILE_TYPE_OPTIONS: { value: FileType; label: string; labelKey: 'search.markdown' | 'search.plaintext' | 'search.log' | 'search.pdf' | 'search.docx' | 'search.excel' | 'search.pptx' }[] = [
-  { value: 'markdown', label: 'Markdown', labelKey: 'search.markdown' },
-  { value: 'plaintext', label: 'Plain text', labelKey: 'search.plaintext' },
-  { value: 'log', label: 'Log', labelKey: 'search.log' },
-  { value: 'pdf', label: 'PDF', labelKey: 'search.pdf' },
-  { value: 'docx', label: 'Word Document', labelKey: 'search.docx' },
-  { value: 'excel', label: 'Excel Spreadsheet', labelKey: 'search.excel' },
-  { value: 'pptx', label: 'PowerPoint', labelKey: 'search.pptx' },
+const FILE_TYPE_OPTIONS: { value: FileType; labelKey: 'search.markdown' | 'search.plaintext' | 'search.log' | 'search.pdf' | 'search.docx' | 'search.excel' | 'search.pptx' }[] = [
+  { value: 'markdown', labelKey: 'search.markdown' },
+  { value: 'plaintext', labelKey: 'search.plaintext' },
+  { value: 'log', labelKey: 'search.log' },
+  { value: 'pdf', labelKey: 'search.pdf' },
+  { value: 'docx', labelKey: 'search.docx' },
+  { value: 'excel', labelKey: 'search.excel' },
+  { value: 'pptx', labelKey: 'search.pptx' },
 ];
 
 /* ------------------------------------------------------------------ */

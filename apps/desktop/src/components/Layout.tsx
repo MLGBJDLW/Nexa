@@ -92,7 +92,7 @@ export function Layout() {
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden whitespace-nowrap"
               >
-                <h1 className="text-sm font-bold tracking-tight text-text-primary">Ask Myself</h1>
+                <h1 className="text-sm font-bold tracking-tight text-text-primary">{t('app.name')}</h1>
               </motion.div>
             )}
           </AnimatePresence>

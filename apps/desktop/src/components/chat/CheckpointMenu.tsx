@@ -159,7 +159,7 @@ export function CheckpointMenu({ conversationId, onRestore }: CheckpointMenuProp
                           {cp.label}
                         </p>
                         <p className="text-[10px] text-text-tertiary mt-0.5">
-                          {cp.messageCount} msgs · {formatDate(cp.createdAt)}
+                          {t('chat.messagesShort', { count: cp.messageCount })} · {formatDate(cp.createdAt)}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">

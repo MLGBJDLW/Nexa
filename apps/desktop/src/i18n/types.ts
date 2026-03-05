@@ -142,6 +142,21 @@ export interface TranslationKeys {
   'sources.scanningAll': string;
   'sources.rebuildingEmbeddings_progress': string;
   'sources.sourceProgress': string;
+  'sources.presetMarkdown': string;
+  'sources.presetText': string;
+  'sources.presetHtml': string;
+  'sources.presetWord': string;
+  'sources.presetExcel': string;
+  'sources.presetPowerpoint': string;
+  'sources.presetPdf': string;
+  'sources.presetImage': string;
+  'sources.presetJson': string;
+  'sources.presetYaml': string;
+  'sources.presetCode': string;
+  'sources.presetLog': string;
+  'sources.pathPlaceholder': string;
+  'sources.addIncludePattern': string;
+  'sources.addExcludePattern': string;
 
   // Playbooks
   'playbooks.title': string;
@@ -282,6 +297,17 @@ export interface TranslationKeys {
   'settings.ocrSaveError': string;
   'settings.ocrLoadError': string;
 
+  // Settings - Memory
+  'settings.memorySection': string;
+  'settings.memoryDescription': string;
+  'settings.memoryEmpty': string;
+  'settings.memoryPlaceholder': string;
+  'settings.addMemory': string;
+  'settings.memoryCharHelper': string;
+  'settings.memoryTooLong': string;
+  'settings.memorySaved': string;
+  'settings.memoryUpdated': string;
+
   // Command Palette
   'cmd.placeholder': string;
   'cmd.noResults': string;
@@ -388,6 +414,13 @@ export interface TranslationKeys {
   'chat.contextOverflow': string;
   'chat.contextOverflowHint': string;
   'chat.rateLimited': string;
+  'chat.toolTimeout': string;
+  'chat.connectionLost': string;
+  'chat.toolNoOutput': string;
+  'chat.toolInterrupted': string;
+  'chat.unknownError': string;
+  'chat.agentRequestFailed': string;
+  'chat.stoppedByUser': string;
   'chat.checkpoints': string;
   'chat.restoreCheckpoint': string;
   'chat.deleteCheckpoint': string;
@@ -395,6 +428,7 @@ export interface TranslationKeys {
   'chat.checkpointRestored': string;
   'chat.autoCompacted': string;
   'chat.confirmRestore': string;
+  'chat.messagesShort': string;
 
   // Citations
   'citation.evidence': string;
@@ -465,7 +499,34 @@ export interface TranslationKeys {
   'settings.summarizationModel': string;
   'settings.summarizationProvider': string;
   'settings.sameAsMain': string;
+  'settings.summarizationModelPlaceholder': string;
   'settings.summarizationProviderHelp': string;
+  'settings.providerOpenAI': string;
+  'settings.providerAnthropic': string;
+  'settings.providerGoogle': string;
+  'settings.providerGoogleGemini': string;
+  'settings.providerDeepSeek': string;
+  'settings.providerOllama': string;
+  'settings.providerLMStudio': string;
+  'settings.providerAzure': string;
+  'settings.providerAzureOpenAI': string;
+  'settings.providerCustom': string;
+
+  // Provider Model Tags
+  'providers.tagLatest': string;
+  'providers.tagCoding': string;
+  'providers.tagReasoning': string;
+  'providers.tagMostIntelligent': string;
+  'providers.tagBestBalance': string;
+  'providers.tagFastest': string;
+  'providers.tagBest': string;
+  'providers.tagFast': string;
+  'providers.tagCheapest': string;
+  'providers.tagPreview': string;
+  'providers.tagThinking': string;
+  'providers.tagFlagship': string;
+  'providers.tagCode': string;
+  'providers.tagRecommended': string;
 
   // Common
   'common.save': string;

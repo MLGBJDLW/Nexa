@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import * as api from './api';
 import type { AgentFrontendEvent } from '../types';
+import { useTranslation } from '../i18n';
 import type { ImageAttachment } from '../types/conversation';
 
 const STREAM_TIMEOUT_MS = 30_000; // 30-second inactivity watchdog
@@ -141,6 +142,7 @@ interface UseAgentStreamReturn {
 }
 
 export function useAgentStream(): UseAgentStreamReturn {
+  const { t } = useTranslation();
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamText, setStreamText] = useState('');
   const [streamRounds, setStreamRounds] = useState<StreamRoundEvent[]>([]);
@@ -192,26 +194,26 @@ export function useAgentStream(): UseAgentStreamReturn {
     timeoutRef.current = setTimeout(() => {
       setToolCalls(prev => prev.map(tc =>
         tc.status === 'running'
-          ? { ...tc, status: 'error', content: tc.content || 'Tool call timed out.', isError: true }
+          ? { ...tc, status: 'error', content: tc.content || t('chat.toolTimeout'), isError: true }
           : tc,
       ));
       setStreamRounds(prev => prev.map(round => ({
         ...round,
         toolCalls: round.toolCalls.map(tc =>
           tc.status === 'running'
-            ? { ...tc, status: 'error', content: tc.content || 'Tool call timed out.', isError: true }
+            ? { ...tc, status: 'error', content: tc.content || t('chat.toolTimeout'), isError: true }
             : tc,
         ),
       })));
       setThinkingText('');
       thinkingTextRef.current = '';
       setIsThinking(false);
-      setError('Connection lost \u2014 no response received for 30 seconds. You can retry your message.');
+      setError(t('chat.connectionLost'));
       setIsStreaming(false);
       activeRoundIdRef.current = null;
       cleanup();
     }, STREAM_TIMEOUT_MS);
-  }, [clearStreamTimeout, cleanup]);
+  }, [clearStreamTimeout, cleanup, t]);
 
   const reset = useCallback(() => {
     setStreamText('');
@@ -470,14 +472,14 @@ export function useAgentStream(): UseAgentStreamReturn {
           }
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
-              ? { ...tc, status: 'done', content: tc.content || 'Completed without explicit output.' }
+              ? { ...tc, status: 'done', content: tc.content || t('chat.toolNoOutput') }
               : tc,
           ));
           setStreamRounds(prev => prev.map(round => ({
             ...round,
             toolCalls: round.toolCalls.map(tc =>
               tc.status === 'running'
-                ? { ...tc, status: 'done', content: tc.content || 'Completed without explicit output.' }
+                ? { ...tc, status: 'done', content: tc.content || t('chat.toolNoOutput') }
                 : tc,
             ),
           })));
@@ -514,18 +516,18 @@ export function useAgentStream(): UseAgentStreamReturn {
           thinkingTextRef.current = '';
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
-              ? { ...tc, status: 'error', content: tc.content || 'Tool call interrupted by agent error.', isError: true }
+              ? { ...tc, status: 'error', content: tc.content || t('chat.toolInterrupted'), isError: true }
               : tc,
           ));
           setStreamRounds(prev => prev.map(round => ({
             ...round,
             toolCalls: round.toolCalls.map(tc =>
               tc.status === 'running'
-                ? { ...tc, status: 'error', content: tc.content || 'Tool call interrupted by agent error.', isError: true }
+                ? { ...tc, status: 'error', content: tc.content || t('chat.toolInterrupted'), isError: true }
                 : tc,
             ),
           })));
-          const errMsg = (typeof data.message === 'string' ? data.message : (typeof raw.message === 'string' ? raw.message : 'Unknown error'));
+          const errMsg = (typeof data.message === 'string' ? data.message : (typeof raw.message === 'string' ? raw.message : t('chat.unknownError')));
           // Detect context overflow
           if (/context.*(window|overflow|exceeded)|ContextOverflow/i.test(errMsg)) {
             setContextOverflow(true);
@@ -533,7 +535,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           // Detect rate limiting
           if (/rate.?limit/i.test(errMsg)) {
             setRateLimited(true);
-            setError('Rate limited by provider. Please wait and try again.');
+            setError(t('chat.rateLimited'));
           } else {
             setError(errMsg);
           }
@@ -555,14 +557,14 @@ export function useAgentStream(): UseAgentStreamReturn {
       thinkingTextRef.current = '';
       setToolCalls(prev => prev.map(tc =>
         tc.status === 'running'
-          ? { ...tc, status: 'error', content: tc.content || 'Agent request failed.', isError: true }
+          ? { ...tc, status: 'error', content: tc.content || t('chat.agentRequestFailed'), isError: true }
           : tc,
       ));
       setStreamRounds(prev => prev.map(round => ({
         ...round,
         toolCalls: round.toolCalls.map(tc =>
           tc.status === 'running'
-            ? { ...tc, status: 'error', content: tc.content || 'Agent request failed.', isError: true }
+            ? { ...tc, status: 'error', content: tc.content || t('chat.agentRequestFailed'), isError: true }
             : tc,
         ),
       })));
@@ -571,7 +573,7 @@ export function useAgentStream(): UseAgentStreamReturn {
       activeRoundIdRef.current = null;
       cleanup();
     }
-  }, [cleanup, resetStreamTimeout, clearThinkingTimeout, consumeThinkingSegment]);
+  }, [cleanup, resetStreamTimeout, clearThinkingTimeout, consumeThinkingSegment, t]);
 
   const stop = useCallback(async (conversationId: string) => {
     try {
@@ -585,21 +587,21 @@ export function useAgentStream(): UseAgentStreamReturn {
     thinkingTextRef.current = '';
     setToolCalls(prev => prev.map(tc =>
       tc.status === 'running'
-        ? { ...tc, status: 'error', content: tc.content || 'Stopped by user.', isError: true }
+        ? { ...tc, status: 'error', content: tc.content || t('chat.stoppedByUser'), isError: true }
         : tc,
     ));
     setStreamRounds(prev => prev.map(round => ({
       ...round,
       toolCalls: round.toolCalls.map(tc =>
         tc.status === 'running'
-          ? { ...tc, status: 'error', content: tc.content || 'Stopped by user.', isError: true }
+          ? { ...tc, status: 'error', content: tc.content || t('chat.stoppedByUser'), isError: true }
           : tc,
       ),
     })));
     setIsStreaming(false);
     activeRoundIdRef.current = null;
     cleanup();
-  }, [cleanup, clearThinkingTimeout]);
+  }, [cleanup, clearThinkingTimeout, t]);
 
   // Clean up listeners and timeouts on unmount to prevent memory leaks
   useEffect(() => {
