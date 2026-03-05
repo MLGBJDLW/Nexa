@@ -1225,6 +1225,46 @@ pub async fn get_conversation_sources_cmd(
         .map_err(|e| e.to_string())
 }
 
+// ── User Memory Commands ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_user_memories_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ask_core::personalization::UserMemory>, String> {
+    state.db.list_user_memories().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_user_memory_cmd(
+    state: tauri::State<'_, AppState>,
+    content: String,
+) -> Result<ask_core::personalization::UserMemory, String> {
+    state
+        .db
+        .create_user_memory(&content)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_user_memory_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<ask_core::personalization::UserMemory, String> {
+    state
+        .db
+        .update_user_memory(&id, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_user_memory_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state.db.delete_user_memory(&id).map_err(|e| e.to_string())
+}
+
 // ── Agent Config Commands (LLM providers) ───────────────────────────────
 
 #[tauri::command]
@@ -1337,13 +1377,13 @@ pub async fn agent_chat_cmd(
     } else {
         conv.system_prompt.clone()
     };
+    let memory_section =
+        ask_core::personalization::build_memory_summary_for_query(&state.db, Some(&message))
+            .unwrap_or_default();
     let preference_section =
-        ask_core::personalization::build_preference_summary(&state.db).unwrap_or_default();
-    let system_prompt = if preference_section.is_empty() {
-        base_prompt
-    } else {
-        format!("{}{}", base_prompt, preference_section)
-    };
+        ask_core::personalization::build_preference_summary_for_query(&state.db, Some(&message))
+            .unwrap_or_default();
+    let system_prompt = format!("{}{}{}", base_prompt, memory_section, preference_section);
 
     // 6. Build executor config from DB config.
     let executor_config = ExecutorConfig {

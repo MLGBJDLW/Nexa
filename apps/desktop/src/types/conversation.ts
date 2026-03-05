@@ -133,3 +133,10 @@ export interface Checkpoint {
   estimatedTokens: number;
   createdAt: string;
 }
+
+export interface UserMemory {
+  id: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}

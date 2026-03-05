@@ -63,6 +63,15 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );",
     ),
+    (
+        "v018_user_memories",
+        "CREATE TABLE IF NOT EXISTS user_memories (
+          id TEXT PRIMARY KEY NOT NULL,
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

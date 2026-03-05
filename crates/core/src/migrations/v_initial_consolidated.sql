@@ -148,6 +148,14 @@ CREATE TABLE IF NOT EXISTS privacy_config (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- User-authored long-term memory notes
+CREATE TABLE IF NOT EXISTS user_memories (
+    id TEXT PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Embedder configuration
 CREATE TABLE IF NOT EXISTS embedder_config (
     key TEXT PRIMARY KEY,

@@ -116,6 +116,11 @@ fn main() {
             // Conversation sources
             commands::set_conversation_sources_cmd,
             commands::get_conversation_sources_cmd,
+            // User memories
+            commands::list_user_memories_cmd,
+            commands::create_user_memory_cmd,
+            commands::update_user_memory_cmd,
+            commands::delete_user_memory_cmd,
             // Agent configs
             commands::list_agent_configs_cmd,
             commands::save_agent_config_cmd,

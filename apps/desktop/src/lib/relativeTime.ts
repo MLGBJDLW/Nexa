@@ -1,4 +1,5 @@
 import type { TranslationKey } from '../i18n';
+import { appTimeMs, parseAppDate } from './dateTime';
 
 type TranslationFn = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
@@ -6,7 +7,9 @@ type TranslationFn = (key: TranslationKey, params?: Record<string, string | numb
  * Compact relative time for sidebar use: "just now", "2m", "1h", "3d", "2mo"
  */
 export function relativeTime(iso: string, t: TranslationFn): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const ts = appTimeMs(iso);
+  if (Number.isNaN(ts)) return t('time.justNow');
+  const diff = Math.max(0, Date.now() - ts);
   const secs = Math.floor(diff / 1000);
   if (secs < 60) return t('time.justNow');
   const mins = Math.floor(secs / 60);
@@ -24,9 +27,10 @@ export function relativeTime(iso: string, t: TranslationFn): string {
  * "just now", "2m ago", "1h ago", "yesterday", "Feb 20"
  */
 export function messageTimestamp(iso: string, t: TranslationFn): string {
-  const date = new Date(iso);
+  const date = parseAppDate(iso);
+  if (Number.isNaN(date.getTime())) return t('time.justNow');
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
+  const diff = Math.max(0, now.getTime() - date.getTime());
   const secs = Math.floor(diff / 1000);
 
   if (secs < 60) return t('time.justNow');
@@ -58,5 +62,8 @@ export function hasTimeGap(
   thresholdMs = 5 * 60 * 1000,
 ): boolean {
   if (!isoA) return false;
-  return Math.abs(new Date(isoB).getTime() - new Date(isoA).getTime()) > thresholdMs;
+  const a = appTimeMs(isoA);
+  const b = appTimeMs(isoB);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return Math.abs(b - a) > thresholdMs;
 }

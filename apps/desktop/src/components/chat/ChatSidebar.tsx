@@ -4,6 +4,7 @@ import { Plus, Trash2, Pencil, MessageCircle, Check, X, Search, Star } from 'luc
 import { useTranslation } from '../../i18n';
 import type { TranslationKey } from '../../i18n';
 import { relativeTime } from '../../lib/relativeTime';
+import { parseAppDate } from '../../lib/dateTime';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { EmptyState } from '../ui/EmptyState';
@@ -51,7 +52,8 @@ function savePinnedIds(ids: Set<string>) {
 
 function getTimeGroup(iso: string): TimeGroup {
   const now = new Date();
-  const date = new Date(iso);
+  const date = parseAppDate(iso);
+  if (Number.isNaN(date.getTime())) return 'older';
 
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfYesterday = new Date(startOfToday.getTime() - 86_400_000);

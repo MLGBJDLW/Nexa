@@ -4,6 +4,7 @@ import * as api from './api';
 import { useAgentStream, UsageTotal } from './useAgentStream';
 import { useTranslation } from '../i18n';
 import type { Conversation, ConversationMessage, AgentConfig, ImageAttachment } from '../types/conversation';
+import { appTimeMs } from './dateTime';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -124,7 +125,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const loadConversations = useCallback(async () => {
     try {
       const list = await api.listConversations();
-      list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      list.sort((a, b) => appTimeMs(b.updatedAt) - appTimeMs(a.updatedAt));
       setConversations(list);
     } catch (e) {
       toast.error(`${t('chat.loadError')}: ${String(e)}`);

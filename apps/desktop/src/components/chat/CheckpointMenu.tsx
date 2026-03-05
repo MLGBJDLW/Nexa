@@ -4,6 +4,7 @@ import { Bookmark, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
 import * as api from '../../lib/api';
+import { appTimeMs, parseAppDate } from '../../lib/dateTime';
 import type { Checkpoint } from '../../types/conversation';
 
 /* ------------------------------------------------------------------ */
@@ -22,7 +23,8 @@ interface CheckpointMenuProps {
 
 function formatDate(iso: string): string {
   try {
-    const d = new Date(iso);
+    const d = parseAppDate(iso);
+    if (Number.isNaN(d.getTime())) return iso;
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
       + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   } catch {
@@ -47,7 +49,7 @@ export function CheckpointMenu({ conversationId, onRestore }: CheckpointMenuProp
     setLoading(true);
     try {
       const list = await api.listCheckpoints(conversationId);
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      list.sort((a, b) => appTimeMs(b.createdAt) - appTimeMs(a.createdAt));
       setCheckpoints(list);
     } catch {
       setCheckpoints([]);

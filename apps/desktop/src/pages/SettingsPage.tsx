@@ -29,7 +29,7 @@ import * as api from '../lib/api';
 import type { IndexStats } from '../types/index-stats';
 import type { PrivacyConfig, RedactRule } from '../types/privacy';
 import type { EmbedderConfig } from '../types/embedder';
-import type { AgentConfig, SaveAgentConfigInput } from '../types/conversation';
+import type { AgentConfig, SaveAgentConfigInput, UserMemory } from '../types/conversation';
 import type { ScanProgress, FtsProgress, DownloadProgress } from '../types/ingest';
 import type { OcrConfig, OcrDownloadProgress } from '../types/ocr';
 import { useTranslation } from '../i18n';
@@ -87,6 +87,7 @@ function formatBytes(bytes: number): string {
 
 /* ── Settings page ────────────────────────────────────────────────── */
 type SettingsTab = 'embedding' | 'index' | 'privacy' | 'language' | 'providers' | 'ocr';
+const MEMORY_CHAR_LIMIT = 240;
 
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
@@ -184,6 +185,11 @@ export function SettingsPage() {
   const [newPattern, setNewPattern] = useState('');
   const [newRule, setNewRule] = useState<RedactRule>({ name: '', pattern: '', replacement: '' });
   const [saveLoading, setSaveLoading] = useState(false);
+  const [userMemories, setUserMemories] = useState<UserMemory[]>([]);
+  const [newMemory, setNewMemory] = useState('');
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editingMemoryDraft, setEditingMemoryDraft] = useState('');
+  const [memoryLoading, setMemoryLoading] = useState(false);
 
   /* ── Embedding state ─────────────────────────────────────────────── */
   const [embedConfig, setEmbedConfig] = useState<EmbedderConfig | null>(null);
@@ -345,6 +351,88 @@ export function SettingsPage() {
       toast.error(t('settings.loadPrivacyError'));
     });
   }, []);
+
+  const loadUserMemories = useCallback(async () => {
+    try {
+      const list = await api.listUserMemories();
+      setUserMemories(list);
+    } catch (e) {
+      console.error('Failed to load user memories:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUserMemories();
+  }, [loadUserMemories]);
+
+  const handleAddUserMemory = async () => {
+    const trimmed = newMemory.trim();
+    if (!trimmed) return;
+    if (trimmed.length > MEMORY_CHAR_LIMIT) {
+      toast.error(`Memory too long (max ${MEMORY_CHAR_LIMIT} chars).`);
+      return;
+    }
+    setMemoryLoading(true);
+    try {
+      const created = await api.createUserMemory(trimmed);
+      setUserMemories((prev) => [created, ...prev]);
+      setNewMemory('');
+      toast.success('Memory saved.');
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setMemoryLoading(false);
+    }
+  };
+
+  const handleDeleteUserMemory = async (id: string) => {
+    setMemoryLoading(true);
+    try {
+      await api.deleteUserMemory(id);
+      setUserMemories((prev) => prev.filter((m) => m.id !== id));
+      if (editingMemoryId === id) {
+        setEditingMemoryId(null);
+        setEditingMemoryDraft('');
+      }
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setMemoryLoading(false);
+    }
+  };
+
+  const handleStartEditUserMemory = (memory: UserMemory) => {
+    setEditingMemoryId(memory.id);
+    setEditingMemoryDraft(memory.content);
+  };
+
+  const handleCancelEditUserMemory = () => {
+    setEditingMemoryId(null);
+    setEditingMemoryDraft('');
+  };
+
+  const handleUpdateUserMemory = async () => {
+    const id = editingMemoryId;
+    const trimmed = editingMemoryDraft.trim();
+    if (!id || !trimmed) return;
+    if (trimmed.length > MEMORY_CHAR_LIMIT) {
+      toast.error(`Memory too long (max ${MEMORY_CHAR_LIMIT} chars).`);
+      return;
+    }
+
+    setMemoryLoading(true);
+    try {
+      const updated = await api.updateUserMemory(id, trimmed);
+      setUserMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      setEditingMemoryId(null);
+      setEditingMemoryDraft('');
+      toast.success('Memory updated.');
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setMemoryLoading(false);
+    }
+  };
 
   const addPattern = () => {
     const trimmed = newPattern.trim();
@@ -1063,6 +1151,112 @@ export function SettingsPage() {
                   {t('settings.addRule')}
                 </Button>
               </div>
+            </div>
+
+            {/* Local user memory */}
+            <div>
+              <h3 className="mb-2 text-sm font-medium text-text-primary">Local Memory</h3>
+              <p className="mb-3 text-xs text-text-tertiary">
+                Persistent notes stored on this device and injected progressively based on relevance.
+              </p>
+
+              <div className="space-y-2 mb-3">
+                {userMemories.length === 0 && (
+                  <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-text-tertiary">
+                    No memory saved yet.
+                  </div>
+                )}
+                {userMemories.map((memory) => (
+                  <div key={memory.id} className="flex items-start gap-2 rounded-md border border-border bg-surface-2 px-3 py-2">
+                    {editingMemoryId === memory.id ? (
+                      <div className="flex-1 space-y-2">
+                        <Input
+                          value={editingMemoryDraft}
+                          onChange={(e) => setEditingMemoryDraft(e.target.value)}
+                          maxLength={MEMORY_CHAR_LIMIT}
+                          disabled={memoryLoading}
+                          className="w-full"
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-text-tertiary">
+                            {editingMemoryDraft.length}/{MEMORY_CHAR_LIMIT}
+                          </p>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={handleUpdateUserMemory}
+                              disabled={!editingMemoryDraft.trim() || memoryLoading}
+                              className="rounded p-1 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              aria-label={t('common.save')}
+                            >
+                              <Save size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditUserMemory}
+                              disabled={memoryLoading}
+                              className="rounded p-1 text-text-tertiary hover:text-text-primary hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              aria-label={t('common.cancel')}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="flex-1 text-sm text-text-primary whitespace-pre-wrap break-words">
+                          {memory.content}
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditUserMemory(memory)}
+                            disabled={memoryLoading}
+                            className="mt-0.5 rounded p-1 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label={t('common.edit')}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUserMemory(memory.id)}
+                            disabled={memoryLoading}
+                            className="mt-0.5 rounded p-1 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label={t('common.delete')}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Example: My preferred answer language is Chinese."
+                  value={newMemory}
+                  onChange={(e) => setNewMemory(e.target.value)}
+                  maxLength={MEMORY_CHAR_LIMIT}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUserMemory(); } }}
+                  className="flex-1"
+                />
+                <Button
+                  variant="ghost"
+                  size="md"
+                  icon={<Plus size={16} />}
+                  onClick={handleAddUserMemory}
+                  loading={memoryLoading}
+                  disabled={!newMemory.trim()}
+                >
+                  Add Memory
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-text-tertiary">
+                {newMemory.length}/{MEMORY_CHAR_LIMIT} chars. Keep each note short for lower token usage.
+              </p>
             </div>
 
             {/* Save button */}

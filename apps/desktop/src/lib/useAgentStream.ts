@@ -18,6 +18,7 @@ export interface ToolCallEvent {
 
 export interface StreamRoundEvent {
   id: string;
+  thinking?: string;
   reply: string;
   toolCalls: ToolCallEvent[];
 }
@@ -161,6 +162,7 @@ export function useAgentStream(): UseAgentStreamReturn {
   const roundSeqRef = useRef(0);
   const activeRoundIdRef = useRef<string | null>(null);
   const streamTextRef = useRef('');
+  const thinkingTextRef = useRef('');
 
   const clearStreamTimeout = useCallback(() => {
     if (timeoutRef.current) {
@@ -201,6 +203,9 @@ export function useAgentStream(): UseAgentStreamReturn {
             : tc,
         ),
       })));
+      setThinkingText('');
+      thinkingTextRef.current = '';
+      setIsThinking(false);
       setError('Connection lost \u2014 no response received for 30 seconds. You can retry your message.');
       setIsStreaming(false);
       activeRoundIdRef.current = null;
@@ -213,6 +218,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     streamTextRef.current = '';
     setStreamRounds([]);
     setThinkingText('');
+    thinkingTextRef.current = '';
     setIsThinking(false);
     setToolCalls([]);
     setError(null);
@@ -226,6 +232,16 @@ export function useAgentStream(): UseAgentStreamReturn {
     clearThinkingTimeout();
   }, [clearThinkingTimeout]);
 
+  const consumeThinkingSegment = useCallback(() => {
+    const captured = thinkingTextRef.current;
+    if (!captured.trim()) {
+      return '';
+    }
+    thinkingTextRef.current = '';
+    setThinkingText('');
+    return captured;
+  }, []);
+
   const send = useCallback(async (conversationId: string, message: string, attachments?: ImageAttachment[]) => {
     // Cleanup previous listener and timeout
     cleanup();
@@ -236,6 +252,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     streamTextRef.current = '';
     setStreamRounds([]);
     setThinkingText('');
+    thinkingTextRef.current = '';
     setIsThinking(false);
     setToolCalls([]);
     setLastCached(false);
@@ -267,14 +284,22 @@ export function useAgentStream(): UseAgentStreamReturn {
 
       switch (eventType) {
         case 'thinking':
+          const thinkingDelta = (typeof data.content === 'string' ? data.content : (typeof raw.content === 'string' ? raw.content : ''));
+          if (!thinkingDelta) break;
           setIsThinking(true);
-          setThinkingText(prev => prev + (typeof data.content === 'string' ? data.content : (typeof raw.content === 'string' ? raw.content : '')));
+          setThinkingText(prev => {
+            const next = prev + thinkingDelta;
+            thinkingTextRef.current = next;
+            return next;
+          });
           clearThinkingTimeout();
           thinkingTimeoutRef.current = setTimeout(() => {
             setIsThinking(false);
           }, 900);
           break;
         case 'textDelta':
+          clearThinkingTimeout();
+          setIsThinking(false);
           if (activeRoundIdRef.current) {
             // New assistant text after a tool round should start a fresh preview segment.
             activeRoundIdRef.current = null;
@@ -287,7 +312,9 @@ export function useAgentStream(): UseAgentStreamReturn {
           });
           break;
         case 'toolCallStart':
+          clearThinkingTimeout();
           setIsThinking(false);
+          const roundThinking = consumeThinkingSegment();
           const incomingCallIdRaw = (typeof data.callId === 'string' && data.callId)
             || (typeof raw.call_id === 'string' ? raw.call_id : '');
           const incomingCallId = incomingCallIdRaw.trim();
@@ -314,6 +341,7 @@ export function useAgentStream(): UseAgentStreamReturn {
             activeRoundIdRef.current = roundId;
             setStreamRounds(prev => [...prev, {
               id: roundId,
+              thinking: roundThinking || undefined,
               reply: currentReply,
               toolCalls: [nextCall],
             }]);
@@ -333,9 +361,17 @@ export function useAgentStream(): UseAgentStreamReturn {
                         arguments: nextCall.arguments,
                         status: 'running',
                       };
-                      return { ...round, toolCalls: nextToolCalls };
+                      return {
+                        ...round,
+                        thinking: round.thinking || roundThinking || undefined,
+                        toolCalls: nextToolCalls,
+                      };
                     }
-                    return { ...round, toolCalls: [...round.toolCalls, nextCall] };
+                    return {
+                      ...round,
+                      thinking: round.thinking || roundThinking || undefined,
+                      toolCalls: [...round.toolCalls, nextCall],
+                    };
                   })()
                   : round,
                 );
@@ -344,6 +380,7 @@ export function useAgentStream(): UseAgentStreamReturn {
               activeRoundIdRef.current = roundId;
               return [...prev, {
                 id: roundId,
+                thinking: roundThinking || undefined,
                 reply: '',
                 toolCalls: [nextCall],
               }];
@@ -421,6 +458,8 @@ export function useAgentStream(): UseAgentStreamReturn {
         case 'done': {
           clearThinkingTimeout();
           setIsThinking(false);
+          setThinkingText('');
+          thinkingTextRef.current = '';
           const doneMessage = data.message ?? raw.message;
           if (doneMessage && typeof doneMessage === 'object' && 'content' in doneMessage) {
             const content = (doneMessage as { content?: unknown }).content;
@@ -471,6 +510,8 @@ export function useAgentStream(): UseAgentStreamReturn {
         case 'error': {
           clearThinkingTimeout();
           setIsThinking(false);
+          setThinkingText('');
+          thinkingTextRef.current = '';
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
               ? { ...tc, status: 'error', content: tc.content || 'Tool call interrupted by agent error.', isError: true }
@@ -510,6 +551,8 @@ export function useAgentStream(): UseAgentStreamReturn {
     } catch (err) {
       clearThinkingTimeout();
       setIsThinking(false);
+      setThinkingText('');
+      thinkingTextRef.current = '';
       setToolCalls(prev => prev.map(tc =>
         tc.status === 'running'
           ? { ...tc, status: 'error', content: tc.content || 'Agent request failed.', isError: true }
@@ -528,7 +571,7 @@ export function useAgentStream(): UseAgentStreamReturn {
       activeRoundIdRef.current = null;
       cleanup();
     }
-  }, [cleanup, resetStreamTimeout, clearThinkingTimeout]);
+  }, [cleanup, resetStreamTimeout, clearThinkingTimeout, consumeThinkingSegment]);
 
   const stop = useCallback(async (conversationId: string) => {
     try {
@@ -538,6 +581,8 @@ export function useAgentStream(): UseAgentStreamReturn {
     }
     clearThinkingTimeout();
     setIsThinking(false);
+    setThinkingText('');
+    thinkingTextRef.current = '';
     setToolCalls(prev => prev.map(tc =>
       tc.status === 'running'
         ? { ...tc, status: 'error', content: tc.content || 'Stopped by user.', isError: true }

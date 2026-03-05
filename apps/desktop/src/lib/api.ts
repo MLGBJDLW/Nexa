@@ -23,6 +23,7 @@ import type {
   ConversationStats,
   ImageAttachment,
   Checkpoint,
+  UserMemory,
 } from "../types/conversation";
 
 // ── Sources ─────────────────────────────────────────────────────────────
@@ -279,6 +280,20 @@ export const restoreCheckpoint = (checkpointId: string) =>
 
 export const deleteCheckpoint = (checkpointId: string) =>
   invoke<void>('delete_checkpoint_cmd', { checkpointId });
+
+// ── User Memory ────────────────────────────────────────────────────────
+
+export const listUserMemories = () =>
+  invoke<UserMemory[]>('list_user_memories_cmd');
+
+export const createUserMemory = (content: string) =>
+  invoke<UserMemory>('create_user_memory_cmd', { content });
+
+export const updateUserMemory = (id: string, content: string) =>
+  invoke<UserMemory>('update_user_memory_cmd', { id, content });
+
+export const deleteUserMemory = (id: string) =>
+  invoke<void>('delete_user_memory_cmd', { id });
 
 // ── OCR ─────────────────────────────────────────────────────────────
 
