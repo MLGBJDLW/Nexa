@@ -67,7 +67,7 @@ export function ChatInput({
       ? t('chat.contextNearlyFull', { percent: usagePercentRounded })
       : t('chat.contextFillingUp', { percent: usagePercentRounded }))
     : null;
-  const usageBarColor = usageCritical ? '#ef4444' : usageNearLimit ? '#f97316' : usagePercent >= 60 ? '#eab308' : '#3b82f6';
+  const usageBarColor = usageCritical ? 'var(--color-danger)' : usageNearLimit ? 'var(--color-warning)' : usagePercent >= 60 ? '#eab308' : 'var(--color-info)';
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {

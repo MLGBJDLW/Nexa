@@ -33,6 +33,7 @@ import type { AgentConfig, SaveAgentConfigInput, UserMemory } from '../types/con
 import type { ScanProgress, FtsProgress, DownloadProgress } from '../types/ingest';
 import type { OcrConfig, OcrDownloadProgress } from '../types/ocr';
 import { useTranslation } from '../i18n';
+import { ThemeSwitcher } from '../components/ui/ThemeSwitcher';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
@@ -86,7 +87,7 @@ function formatBytes(bytes: number): string {
 }
 
 /* ── Settings page ────────────────────────────────────────────────── */
-type SettingsTab = 'embedding' | 'index' | 'privacy' | 'language' | 'providers' | 'ocr';
+type SettingsTab = 'appearance' | 'embedding' | 'index' | 'privacy' | 'language' | 'providers' | 'ocr';
 const MEMORY_CHAR_LIMIT = 240;
 
 export function SettingsPage() {
@@ -560,6 +561,7 @@ export function SettingsPage() {
   };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'appearance', label: 'Appearance', icon: <Star size={16} /> },
     { id: 'embedding', label: t('settings.embeddingSection'), icon: <Brain size={16} /> },
     { id: 'providers', label: t('settings.aiProviders'), icon: <Bot size={16} /> },
     { id: 'ocr', label: t('settings.ocrTab'), icon: <ScanLine size={16} /> },
@@ -598,6 +600,19 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
+
+      {/* ── Tab: Appearance ─────────────────────────────────────── */}
+      {activeTab === 'appearance' && (
+        <Section icon={<Star size={20} />} title="Appearance" delay={0.03}>
+          <div className="space-y-4">
+            <div>
+              <p className="mb-2 text-sm font-medium text-text-primary">Theme</p>
+              <p className="mb-3 text-xs text-text-tertiary">Choose a color theme for the interface.</p>
+              <ThemeSwitcher />
+            </div>
+          </div>
+        </Section>
+      )}
 
       {/* ── Tab: Embedding ──────────────────────────────────────── */}
       {activeTab === 'embedding' && (

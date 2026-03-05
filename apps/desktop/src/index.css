@@ -1,53 +1,115 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
 
+/* ── Default theme (Dark) — Tailwind class generation base ────────── */
 @theme {
-  /* Use Inter as the primary font */
   --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
-  
-  /* Semantic colors for dark/light theme */
+
   --color-surface-0: #0a0a0f;
   --color-surface-1: #12121a;
   --color-surface-2: #1a1a25;
   --color-surface-3: #242430;
   --color-surface-4: #2e2e3a;
-  
+
   --color-text-primary: #f0f0f5;
   --color-text-secondary: #a0a0b0;
   --color-text-tertiary: #606070;
   --color-text-inverse: #0a0a0f;
-  
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-accent-subtle: #6366f120;
-  
+
+  --color-accent: #14B8A6;
+  --color-accent-hover: #2DD4BF;
+  --color-accent-subtle: #14B8A620;
+
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
   --color-danger-hover: #f87171;
   --color-info: #3b82f6;
-  
+
   --color-border: #ffffff10;
   --color-border-hover: #ffffff20;
-  --color-border-active: #6366f180;
-  
-  /* Elevation shadows */
+  --color-border-active: #14B8A680;
+
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
-  --shadow-glow: 0 0 20px rgba(99,102,241,0.15);
-  
-  /* Spacing scale */
+  --shadow-glow: 0 0 20px rgba(20,184,166,0.15);
+
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-full: 9999px;
-  
-  /* Transitions */
+
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 150ms;
   --duration-normal: 250ms;
   --duration-slow: 400ms;
+}
+
+/* ── Light theme ──────────────────────────────────────────────────── */
+.theme-light {
+  --color-surface-0: #f8fafc;
+  --color-surface-1: #f1f5f9;
+  --color-surface-2: #e2e8f0;
+  --color-surface-3: #cbd5e1;
+  --color-surface-4: #94a3b8;
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #94a3b8;
+  --color-text-inverse: #f8fafc;
+
+  --color-accent: #0d9488;
+  --color-accent-hover: #14B8A6;
+  --color-accent-subtle: #0d948820;
+
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-danger-hover: #ef4444;
+  --color-info: #2563eb;
+
+  --color-border: #0f172a10;
+  --color-border-hover: #0f172a20;
+  --color-border-active: #0d948880;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+  --shadow-glow: 0 0 20px rgba(13,148,136,0.1);
+}
+
+/* ── Midnight theme ───────────────────────────────────────────────── */
+.theme-midnight {
+  --color-surface-0: #0f172a;
+  --color-surface-1: #1e293b;
+  --color-surface-2: #283548;
+  --color-surface-3: #334155;
+  --color-surface-4: #475569;
+
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary: #64748b;
+  --color-text-inverse: #0f172a;
+
+  --color-accent: #14B8A6;
+  --color-accent-hover: #2DD4BF;
+  --color-accent-subtle: #14B8A620;
+
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-danger-hover: #f87171;
+  --color-info: #3b82f6;
+
+  --color-border: #f8fafc10;
+  --color-border-hover: #f8fafc20;
+  --color-border-active: #14B8A680;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+  --shadow-glow: 0 0 20px rgba(20,184,166,0.12);
 }
 
 /* Global base styles */

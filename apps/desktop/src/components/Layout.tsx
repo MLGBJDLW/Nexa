@@ -3,8 +3,10 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ChevronLeft, ChevronRight, BotMessageSquare } from 'lucide-react';
 import { Logo } from './Logo';
+import { ThemeSwitcher } from './ui/ThemeSwitcher';
 import { Toaster } from 'sonner';
 import { useTranslation } from '../i18n';
+import { useTheme } from '../lib/ThemeProvider';
 import type { TranslationKey } from '../i18n';
 
 const STORAGE_KEY = 'sidebar-collapsed';
@@ -53,6 +55,7 @@ function SidebarTooltip({ content, show, children }: { content: string; show: bo
 /* ── Layout ───────────────────────────────────────────────────────── */
 export function Layout() {
   const { t } = useTranslation();
+  const { theme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(() => {
@@ -149,6 +152,11 @@ export function Layout() {
           })}
         </nav>
 
+        {/* Theme switcher */}
+        <div className="px-2 pb-1">
+          <ThemeSwitcher showLabels={!collapsed} />
+        </div>
+
         {/* Footer: collapse toggle + version */}
         <div className="border-t border-border px-2 py-2">
           <button
@@ -199,7 +207,7 @@ export function Layout() {
       )}
 
       {/* Toast notifications */}
-      <Toaster theme="dark" richColors position="bottom-right" />
+      <Toaster theme={theme === 'light' ? 'light' : 'dark'} richColors position="bottom-right" />
     </div>
   );
 }

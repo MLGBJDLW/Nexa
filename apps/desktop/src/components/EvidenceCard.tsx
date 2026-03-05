@@ -143,7 +143,7 @@ export function EvidenceCardComponent({
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       whileHover={{
         boxShadow:
-          '0 4px 16px rgba(0,0,0,0.4), 0 0 20px rgba(99,102,241,0.08)',
+          '0 4px 16px rgba(0,0,0,0.4), 0 0 20px var(--color-accent-subtle)',
         borderColor: 'var(--color-border-hover)',
       }}
       className="rounded-lg border border-border bg-surface-2 p-4 transition-colors"
