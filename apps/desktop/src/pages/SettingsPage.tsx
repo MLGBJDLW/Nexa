@@ -92,6 +92,26 @@ const MEMORY_CHAR_LIMIT = 240;
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>('embedding');
+  const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
+
+  const markDirty = useCallback((tab: string) => {
+    setDirtyTabs((prev) => {
+      if (prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
+  }, []);
+
+  const markClean = useCallback((tab: string) => {
+    setDirtyTabs((prev) => {
+      if (!prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.delete(tab);
+      return next;
+    });
+  }, []);
+
   /* ── Index state ─────────────────────────────────────────────────── */
   const [stats, setStats] = useState<IndexStats | null>(null);
   const [rebuildLoading, setRebuildLoading] = useState(false);
@@ -278,6 +298,7 @@ export function SettingsPage() {
     setEmbedSaveLoading(true);
     try {
       await api.saveEmbedderConfig(embedConfig);
+      markClean('embedding');
       toast.success(t('settings.privacySaved'));
     } catch {
       toast.error(t('settings.privacySaveError'));
@@ -338,6 +359,7 @@ export function SettingsPage() {
     setOcrSaveLoading(true);
     try {
       await api.saveOcrConfig(ocrConfig);
+      markClean('ocr');
       toast.success(t('settings.ocrSaved'));
     } catch {
       toast.error(t('settings.ocrSaveError'));
@@ -445,6 +467,7 @@ export function SettingsPage() {
       ...privacyConfig,
       excludePatterns: [...privacyConfig.excludePatterns, trimmed],
     });
+    markDirty('privacy');
     setNewPattern('');
   };
 
@@ -454,6 +477,7 @@ export function SettingsPage() {
       ...privacyConfig,
       excludePatterns: privacyConfig.excludePatterns.filter((_, i) => i !== idx),
     });
+    markDirty('privacy');
   };
 
   const addRule = () => {
@@ -462,6 +486,7 @@ export function SettingsPage() {
       ...privacyConfig,
       redactPatterns: [...privacyConfig.redactPatterns, { ...newRule }],
     });
+    markDirty('privacy');
     setNewRule({ name: '', pattern: '', replacement: '' });
   };
 
@@ -471,6 +496,7 @@ export function SettingsPage() {
       ...privacyConfig,
       redactPatterns: privacyConfig.redactPatterns.filter((_, i) => i !== idx),
     });
+    markDirty('privacy');
   };
 
   const handleSavePrivacy = async () => {
@@ -478,6 +504,7 @@ export function SettingsPage() {
     setSaveLoading(true);
     try {
       await api.savePrivacyConfig(privacyConfig);
+      markClean('privacy');
       toast.success(t('settings.privacySaved'));
     } catch {
       toast.error(t('settings.privacySaveError'));
@@ -586,7 +613,12 @@ export function SettingsPage() {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              if (dirtyTabs.has(activeTab)) {
+                toast.warning('You have unsaved changes', { duration: 3000 });
+              }
+              setActiveTab(tab.id);
+            }}
             className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-fast cursor-pointer whitespace-nowrap ${
               activeTab === tab.id
                 ? 'bg-accent text-white shadow-sm'
@@ -595,6 +627,9 @@ export function SettingsPage() {
           >
             {tab.icon}
             {tab.label}
+            {dirtyTabs.has(tab.id) && (
+              <span className="w-1.5 h-1.5 rounded-full bg-warning" />
+            )}
           </button>
         ))}
       </div>
@@ -649,7 +684,7 @@ export function SettingsPage() {
                 {(['local', 'api', 'tfidf'] as const).map((p) => (
                   <button
                     key={p}
-                    onClick={() => setEmbedConfig({ ...embedConfig, provider: p })}
+                    onClick={() => { setEmbedConfig({ ...embedConfig, provider: p }); markDirty('embedding'); }}
                     className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-fast cursor-pointer ${
                       embedConfig.provider === p
                         ? 'bg-accent text-white shadow-sm'
@@ -688,6 +723,7 @@ export function SettingsPage() {
                         onClick={() => {
                           setEmbedConfig({ ...embedConfig, localModel: opt.id });
                           setLocalModelReady(null);
+                          markDirty('embedding');
                         }}
                         className={`rounded-lg border p-3 text-left transition-all duration-fast cursor-pointer ${
                           embedConfig.localModel === opt.id
@@ -779,7 +815,7 @@ export function SettingsPage() {
                     <Input
                       type="password"
                       value={embedConfig.apiKey}
-                      onChange={(e) => setEmbedConfig({ ...embedConfig, apiKey: e.target.value })}
+                      onChange={(e) => { setEmbedConfig({ ...embedConfig, apiKey: e.target.value }); markDirty('embedding'); }}
                       className="pl-9"
                       placeholder="sk-..."
                     />
@@ -789,7 +825,7 @@ export function SettingsPage() {
                   <label className="text-sm font-medium text-text-primary">{t('settings.embeddingBaseUrl')}</label>
                   <Input
                     value={embedConfig.apiBaseUrl}
-                    onChange={(e) => setEmbedConfig({ ...embedConfig, apiBaseUrl: e.target.value })}
+                    onChange={(e) => { setEmbedConfig({ ...embedConfig, apiBaseUrl: e.target.value }); markDirty('embedding'); }}
                     placeholder="https://api.openai.com/v1"
                   />
                 </div>
@@ -797,7 +833,7 @@ export function SettingsPage() {
                   <label className="text-sm font-medium text-text-primary">{t('settings.embeddingModel')}</label>
                   <Input
                     value={embedConfig.apiModel}
-                    onChange={(e) => setEmbedConfig({ ...embedConfig, apiModel: e.target.value })}
+                    onChange={(e) => { setEmbedConfig({ ...embedConfig, apiModel: e.target.value }); markDirty('embedding'); }}
                     placeholder="text-embedding-3-small"
                   />
                 </div>
@@ -1326,7 +1362,7 @@ export function SettingsPage() {
                 <p className="text-xs text-text-tertiary">{t('settings.ocrEnabledDesc')}</p>
               </div>
               <button
-                onClick={() => setOcrConfig({ ...ocrConfig, enabled: !ocrConfig.enabled })}
+                onClick={() => { setOcrConfig({ ...ocrConfig, enabled: !ocrConfig.enabled }); markDirty('ocr'); }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
                   ocrConfig.enabled ? 'bg-accent' : 'bg-surface-3'
                 }`}
@@ -1422,7 +1458,7 @@ export function SettingsPage() {
                 max="1"
                 step="0.05"
                 value={ocrConfig.confidenceThreshold}
-                onChange={(e) => setOcrConfig({ ...ocrConfig, confidenceThreshold: parseFloat(e.target.value) })}
+                onChange={(e) => { setOcrConfig({ ...ocrConfig, confidenceThreshold: parseFloat(e.target.value) }); markDirty('ocr'); }}
                 className="w-full accent-accent"
               />
             </div>
@@ -1434,7 +1470,7 @@ export function SettingsPage() {
                 <p className="text-xs text-text-tertiary">{t('settings.ocrLlmFallbackDesc')}</p>
               </div>
               <button
-                onClick={() => setOcrConfig({ ...ocrConfig, llmFallbackEnabled: !ocrConfig.llmFallbackEnabled })}
+                onClick={() => { setOcrConfig({ ...ocrConfig, llmFallbackEnabled: !ocrConfig.llmFallbackEnabled }); markDirty('ocr'); }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
                   ocrConfig.llmFallbackEnabled ? 'bg-accent' : 'bg-surface-3'
                 }`}
@@ -1454,7 +1490,7 @@ export function SettingsPage() {
               <Input
                 type="number"
                 value={ocrConfig.detLimitSideLen}
-                onChange={(e) => setOcrConfig({ ...ocrConfig, detLimitSideLen: parseInt(e.target.value) || 960 })}
+                onChange={(e) => { setOcrConfig({ ...ocrConfig, detLimitSideLen: parseInt(e.target.value) || 960 }); markDirty('ocr'); }}
                 className="w-32"
               />
             </div>
@@ -1466,7 +1502,7 @@ export function SettingsPage() {
                 <p className="text-xs text-text-tertiary">{t('settings.ocrUseClsDesc')}</p>
               </div>
               <button
-                onClick={() => setOcrConfig({ ...ocrConfig, useCls: !ocrConfig.useCls })}
+                onClick={() => { setOcrConfig({ ...ocrConfig, useCls: !ocrConfig.useCls }); markDirty('ocr'); }}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
                   ocrConfig.useCls ? 'bg-accent' : 'bg-surface-3'
                 }`}

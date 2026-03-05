@@ -37,6 +37,7 @@ impl ToolDef {
 }
 
 pub mod chunk_context_tool;
+pub mod edit_file_tool;
 pub mod fetch_url_tool;
 pub mod file_tool;
 pub mod list_dir_tool;
@@ -173,5 +174,6 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(fetch_url_tool::FetchUrlTool));
     registry.register(Box::new(write_note_tool::WriteNoteTool));
     registry.register(Box::new(search_playbooks_tool::SearchPlaybooksTool));
+    registry.register(Box::new(edit_file_tool::EditFileTool));
     registry
 }

@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ScanSearch, Database, Clock } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ScanSearch, Database, Clock, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
 import type { QueryLog } from '../types';
 import { useTranslation } from '../i18n';
+import { SHORTCUTS, formatKeys } from '../lib/shortcuts';
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -129,7 +130,10 @@ export function CommandPalette() {
                   </Command.Item>
                   <Command.Item onSelect={() => select(() => navigate('/chat'))}>
                     <MessageCircle className="h-4 w-4 shrink-0 text-text-tertiary" />
-                    {t('nav.chat')}
+                    <span className="flex-1">{t('nav.chat')}</span>
+                    <kbd className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+                      {formatKeys(SHORTCUTS[1])}
+                    </kbd>
                   </Command.Item>
                   <Command.Item onSelect={() => select(() => navigate('/settings'))}>
                     <Settings className="h-4 w-4 shrink-0 text-text-tertiary" />
@@ -160,7 +164,7 @@ export function CommandPalette() {
                         <Command.Item
                           key={q.id}
                           value={q.queryText}
-                          onSelect={() => select(() => navigate('/'))}
+                          onSelect={() => select(() => navigate('/', { state: { query: q.queryText } }))}
                         >
                           <Clock className="h-4 w-4 shrink-0 text-text-tertiary" />
                           <span className="truncate">{q.queryText}</span>
@@ -169,6 +173,18 @@ export function CommandPalette() {
                     </Command.Group>
                   </>
                 )}
+                <Command.Separator className="mx-2 my-1 h-px bg-border" />
+                <Command.Group heading={t('cmd.shortcuts')}>
+                  {SHORTCUTS.map((s) => (
+                    <Command.Item key={s.keys} value={`shortcut ${s.description} ${s.keys}`}>
+                      <Keyboard className="h-4 w-4 shrink-0 text-text-tertiary" />
+                      <span className="flex-1">{t(s.description)}</span>
+                      <kbd className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
+                        {formatKeys(s)}
+                      </kbd>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
               </Command.List>
             </Command>
           </motion.div>

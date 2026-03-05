@@ -334,6 +334,12 @@ export const es: TranslationKeys = {
   'cmd.rebuildComplete': 'Reconstrucción vectorial completada',
   'cmd.rebuildError': 'Error en la reconstrucción vectorial',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'Atajos de teclado',
+  'shortcuts.commandPalette': 'Abrir paleta de comandos',
+  'shortcuts.toggleSidebar': 'Alternar barra lateral',
+  'shortcuts.askAi': 'Preguntar a la IA',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const es: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': 'Error al cargar conversaciones',
   'chat.deleteError': 'Error al eliminar',
+  'chat.conversation.deleted': 'Conversación eliminada',
   'chat.renameError': 'Error al renombrar',
   'chat.createError': 'Error al crear conversaci\u00f3n',
   'chat.noConfigError': 'Modelo no configurado. Revise su configuraci\u00f3n (modelo y clave API).',
@@ -449,6 +456,16 @@ export const es: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'Esto eliminará permanentemente las {count} conversaciones y sus mensajes. Esta acción no se puede deshacer.',
   'chat.deleteBatchConfirm': '¿Eliminar las conversaciones seleccionadas?',
   'chat.deleteBatchConfirmDesc': 'Esto eliminará permanentemente {count} conversaciones y sus mensajes. Esta acción no se puede deshacer.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'Buscar conocimiento',
+  'chat.suggestions.search.prompt': 'Buscar en mis notas...',
+  'chat.suggestions.summarize': 'Resumir',
+  'chat.suggestions.summarize.prompt': 'Resumir los puntos clave de...',
+  'chat.suggestions.connections': 'Encontrar conexiones',
+  'chat.suggestions.connections.prompt': '¿Cuáles son las conexiones entre...?',
+  'chat.suggestions.question': 'Hacer pregunta',
+  'chat.suggestions.question.prompt': 'Según mis documentos, ¿qué...?',
 
   // Citations
   'citation.evidence': 'Evidencia',
@@ -566,4 +583,5 @@ export const es: TranslationKeys = {
   'common.clear': 'Borrar',
   'common.selectAll': 'Seleccionar todo',
   'common.clearAll': 'Borrar todo',
+  'common.undo': 'Deshacer',
 };

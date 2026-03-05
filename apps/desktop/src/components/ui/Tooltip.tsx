@@ -1,20 +1,31 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, useCallback, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface TooltipProps {
   content: string;
   children: ReactNode;
   side?: 'top' | 'bottom';
+  delay?: number;
 }
 
-export function Tooltip({ content, children, side = 'top' }: TooltipProps) {
+export function Tooltip({ content, children, side = 'top', delay = 300 }: TooltipProps) {
   const [show, setShow] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleEnter = useCallback(() => {
+    timerRef.current = setTimeout(() => setShow(true), delay);
+  }, [delay]);
+
+  const handleLeave = useCallback(() => {
+    clearTimeout(timerRef.current);
+    setShow(false);
+  }, []);
 
   return (
     <div
       className="relative inline-flex"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
     >
       {children}
       <AnimatePresence>

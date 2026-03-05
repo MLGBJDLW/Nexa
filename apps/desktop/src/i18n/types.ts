@@ -334,6 +334,12 @@ export interface TranslationKeys {
   'cmd.rebuildComplete': string;
   'cmd.rebuildError': string;
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': string;
+  'shortcuts.commandPalette': string;
+  'shortcuts.toggleSidebar': string;
+  'shortcuts.askAi': string;
+
   // Chat
   'nav.chat': string;
   'chat.title': string;
@@ -363,6 +369,7 @@ export interface TranslationKeys {
   'chat.newChatShort': string;
   'chat.loadError': string;
   'chat.deleteError': string;
+  'chat.conversation.deleted': string;
   'chat.renameError': string;
   'chat.createError': string;
   'chat.noConfigError': string;
@@ -449,6 +456,16 @@ export interface TranslationKeys {
   'chat.deleteAllConfirmDesc': string;
   'chat.deleteBatchConfirm': string;
   'chat.deleteBatchConfirmDesc': string;
+
+  // Chat Suggestions
+  'chat.suggestions.search': string;
+  'chat.suggestions.search.prompt': string;
+  'chat.suggestions.summarize': string;
+  'chat.suggestions.summarize.prompt': string;
+  'chat.suggestions.connections': string;
+  'chat.suggestions.connections.prompt': string;
+  'chat.suggestions.question': string;
+  'chat.suggestions.question.prompt': string;
 
   // Citations
   'citation.evidence': string;
@@ -566,6 +583,7 @@ export interface TranslationKeys {
   'common.clear': string;
   'common.selectAll': string;
   'common.clearAll': string;
+  'common.undo': string;
 }
 
 export type TranslationKey = keyof TranslationKeys;

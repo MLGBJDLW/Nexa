@@ -334,6 +334,12 @@ export const fr: TranslationKeys = {
   'cmd.rebuildComplete': 'Reconstruction vectorielle terminée',
   'cmd.rebuildError': 'Échec de la reconstruction vectorielle',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'Raccourcis clavier',
+  'shortcuts.commandPalette': 'Ouvrir la palette de commandes',
+  'shortcuts.toggleSidebar': 'Basculer la barre latérale',
+  'shortcuts.askAi': 'Demander à l\'IA',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const fr: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': '\u00c9chec du chargement des conversations',
   'chat.deleteError': '\u00c9chec de la suppression',
+  'chat.conversation.deleted': 'Conversation supprim\u00e9e',
   'chat.renameError': '\u00c9chec du renommage',
   'chat.createError': '\u00c9chec de la cr\u00e9ation de la conversation',
   'chat.noConfigError': 'Mod\u00e8le non configur\u00e9. V\u00e9rifiez vos param\u00e8tres (mod\u00e8le et cl\u00e9 API).',
@@ -449,6 +456,16 @@ export const fr: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'Cela supprimera définitivement les {count} conversations et leurs messages. Cette action est irréversible.',
   'chat.deleteBatchConfirm': 'Supprimer les conversations sélectionnées ?',
   'chat.deleteBatchConfirmDesc': 'Cela supprimera définitivement {count} conversations et leurs messages. Cette action est irréversible.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'Rechercher',
+  'chat.suggestions.search.prompt': 'Rechercher dans mes notes...',
+  'chat.suggestions.summarize': 'Résumer',
+  'chat.suggestions.summarize.prompt': 'Résumer les points clés de...',
+  'chat.suggestions.connections': 'Trouver des liens',
+  'chat.suggestions.connections.prompt': 'Quels sont les liens entre...',
+  'chat.suggestions.question': 'Poser une question',
+  'chat.suggestions.question.prompt': 'D’après mes documents, que...',
 
   // Citations
   'citation.evidence': 'Preuve',
@@ -565,4 +582,5 @@ export const fr: TranslationKeys = {
   'common.clear': 'Effacer',
   'common.selectAll': 'Tout sélectionner',
   'common.clearAll': 'Tout effacer',
+  'common.undo': 'Annuler',
 };

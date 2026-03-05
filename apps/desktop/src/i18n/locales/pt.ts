@@ -334,6 +334,12 @@ export const pt: TranslationKeys = {
   'cmd.rebuildComplete': 'Reconstrução vetorial concluída',
   'cmd.rebuildError': 'Falha na reconstrução vetorial',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'Atalhos de teclado',
+  'shortcuts.commandPalette': 'Abrir paleta de comandos',
+  'shortcuts.toggleSidebar': 'Alternar barra lateral',
+  'shortcuts.askAi': 'Perguntar à IA',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const pt: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': 'Falha ao carregar conversas',
   'chat.deleteError': 'Falha ao excluir',
+  'chat.conversation.deleted': 'Conversa excluída',
   'chat.renameError': 'Falha ao renomear',
   'chat.createError': 'Falha ao criar conversa',
   'chat.noConfigError': 'Modelo não configurado. Verifique suas configurações (modelo e chave API).',
@@ -449,6 +456,16 @@ export const pt: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'Isso excluirá permanentemente todas as {count} conversas e suas mensagens. Esta ação não pode ser desfeita.',
   'chat.deleteBatchConfirm': 'Excluir as conversas selecionadas?',
   'chat.deleteBatchConfirmDesc': 'Isso excluirá permanentemente {count} conversas e suas mensagens. Esta ação não pode ser desfeita.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'Pesquisar conhecimento',
+  'chat.suggestions.search.prompt': 'Pesquisar nas minhas notas...',
+  'chat.suggestions.summarize': 'Resumir',
+  'chat.suggestions.summarize.prompt': 'Resumir os pontos-chave de...',
+  'chat.suggestions.connections': 'Encontrar conexões',
+  'chat.suggestions.connections.prompt': 'Quais são as conexões entre...?',
+  'chat.suggestions.question': 'Fazer pergunta',
+  'chat.suggestions.question.prompt': 'Com base nos meus documentos, o que...?',
 
   // Citations
   'citation.evidence': 'Evidência',
@@ -566,4 +583,5 @@ export const pt: TranslationKeys = {
   'common.clear': 'Limpar',
   'common.selectAll': 'Selecionar tudo',
   'common.clearAll': 'Limpar tudo',
+  'common.undo': 'Desfazer',
 };

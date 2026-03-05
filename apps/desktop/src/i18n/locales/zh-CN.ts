@@ -334,6 +334,12 @@ export const zhCN: TranslationKeys = {
   'cmd.rebuildComplete': '向量重建完成',
   'cmd.rebuildError': '向量重建失败',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': '快捷键',
+  'shortcuts.commandPalette': '打开命令面板',
+  'shortcuts.toggleSidebar': '切换侧边栏',
+  'shortcuts.askAi': '问 AI',
+
   // Chat
   'nav.chat': '对话',
   'chat.title': '对话',
@@ -363,6 +369,7 @@ export const zhCN: TranslationKeys = {
   'chat.newChatShort': '新建',
   'chat.loadError': '加载对话失败',
   'chat.deleteError': '删除失败',
+  'chat.conversation.deleted': '对话已删除',
   'chat.renameError': '重命名失败',
   'chat.createError': '创建对话失败',
   'chat.noConfigError': '未配置模型，请检查设置（模型和 API 密钥）。',
@@ -449,6 +456,16 @@ export const zhCN: TranslationKeys = {
   'chat.deleteAllConfirmDesc': '这将永久删除全部 {count} 个对话及其消息，此操作不可撤销。',
   'chat.deleteBatchConfirm': '删除选中的对话？',
   'chat.deleteBatchConfirmDesc': '这将永久删除 {count} 个对话及其消息，此操作不可撤销。',
+
+  // Chat Suggestions
+  'chat.suggestions.search': '搜索知识',
+  'chat.suggestions.search.prompt': '在我的笔记中搜索……',
+  'chat.suggestions.summarize': '总结归纳',
+  'chat.suggestions.summarize.prompt': '总结以下内容的要点……',
+  'chat.suggestions.connections': '发现关联',
+  'chat.suggestions.connections.prompt': '……之间有什么关联？',
+  'chat.suggestions.question': '提问',
+  'chat.suggestions.question.prompt': '根据我的文档，……',
 
   // Citations
   'citation.evidence': '证据',
@@ -566,4 +583,5 @@ export const zhCN: TranslationKeys = {
   'common.clear': '清除',
   'common.selectAll': '全选',
   'common.clearAll': '清除全部',
+  'common.undo': '撤销',
 };

@@ -31,7 +31,7 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { CardSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { undoableAction } from '../lib/undoToast';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -135,10 +135,6 @@ export function SourcesPage() {
   const [formExclude, setFormExclude] = useState('');
   const [formWatch, setFormWatch] = useState(true);
   const [adding, setAdding] = useState(false);
-
-  // Delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<Source | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   // Edit source modal
   const [editTarget, setEditTarget] = useState<Source | null>(null);
@@ -346,19 +342,20 @@ export function SourcesPage() {
 
   /* 鈹€鈹€ Delete 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await api.deleteSource(deleteTarget.id);
-      toast.success(t('sources.deleted'));
-      setDeleteTarget(null);
-      await loadSources();
-    } catch (e) {
-      toast.error(`${t('sources.deleteError')}: ${String(e)}`);
-    } finally {
-      setDeleting(false);
-    }
+  const handleDelete = (source: Source) => {
+    setSources((prev) => prev.filter((s) => s.id !== source.id));
+    undoableAction({
+      message: t('sources.deleted'),
+      undoLabel: t('common.undo'),
+      onConfirm: async () => {
+        try {
+          await api.deleteSource(source.id);
+        } catch (e) {
+          toast.error(`${t('sources.deleteError')}: ${String(e)}`);
+          await loadSources();
+        }
+      },
+    });
   };
 
   /* 鈹€鈹€ Edit 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
@@ -606,19 +603,25 @@ export function SourcesPage() {
 
                       {/* Scan/embed progress bar */}
                       {scanProgress && scanProgress.sourceId === source.id && (scanningId === source.id || embeddingId === source.id || indexingIds.has(source.id)) && scanProgress.total > 0 && (
-                        <div className="mb-1.5">
-                          <div className="flex items-center gap-2 text-[11px] text-text-secondary mb-0.5">
-                            <span className="capitalize">{scanProgress.phase}</span>
-                            <span>{scanProgress.current}/{scanProgress.total}</span>
+                        <div className="mb-2 mt-1 p-2 rounded-md bg-surface-1 border border-border">
+                          <div className="flex items-center justify-between text-xs text-text-secondary mb-1.5">
+                            <span className="flex items-center gap-1.5">
+                              <RefreshCw size={12} className="animate-spin text-accent" />
+                              <span className="capitalize font-medium">{scanProgress.phase}</span>
+                              <span className="text-text-tertiary">{scanProgress.current}/{scanProgress.total}</span>
+                            </span>
+                            <span className="text-[11px] font-medium text-accent">
+                              {Math.round((scanProgress.current / scanProgress.total) * 100)}%
+                            </span>
                           </div>
                           {scanProgress.currentFile && (
-                            <div className="text-[10px] text-text-tertiary truncate mb-0.5 max-w-xs">
+                            <div className="text-[10px] text-text-tertiary truncate mb-1.5 max-w-xs">
                               {scanProgress.currentFile}
                             </div>
                           )}
-                          <div className="w-full bg-surface-3 rounded h-1">
+                          <div className="w-full bg-surface-3 rounded-full h-2">
                             <div
-                              className="bg-accent h-1 rounded transition-all duration-300"
+                              className="bg-accent h-2 rounded-full transition-all duration-300 ease-out"
                               style={{ width: `${Math.min(100, (scanProgress.current / scanProgress.total) * 100)}%` }}
                             />
                           </div>
@@ -686,7 +689,7 @@ export function SourcesPage() {
                       variant="danger"
                       size="sm"
                       icon={<Trash2 size={14} />}
-                      onClick={() => setDeleteTarget(source)}
+                      onClick={() => handleDelete(source)}
                     >
                       {t('common.delete')}
                     </Button>
@@ -879,17 +882,7 @@ export function SourcesPage() {
         </div>
       </Modal>
 
-      {/* 鈹€鈹€ Delete Confirm Dialog 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */}
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title={t('sources.deleteConfirm')}
-        message={t('sources.deleteConfirmMsg', { name: deleteTarget?.rootPath ?? '' })}
-        confirmText={t('common.delete')}
-        variant="danger"
-        loading={deleting}
-      />
+
     </div>
 
     </div>

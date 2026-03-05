@@ -334,6 +334,12 @@ export const en: TranslationKeys = {
   'cmd.rebuildComplete': 'Vector rebuild complete',
   'cmd.rebuildError': 'Vector rebuild failed',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'Keyboard Shortcuts',
+  'shortcuts.commandPalette': 'Open command palette',
+  'shortcuts.toggleSidebar': 'Toggle sidebar',
+  'shortcuts.askAi': 'Ask AI',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const en: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': 'Failed to load conversations',
   'chat.deleteError': 'Delete failed',
+  'chat.conversation.deleted': 'Conversation deleted',
   'chat.renameError': 'Rename failed',
   'chat.createError': 'Failed to create conversation',
   'chat.noConfigError': 'No AI model configured. Please check Settings and add a provider with a valid API key.',
@@ -449,6 +456,16 @@ export const en: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'This will permanently delete all {count} conversations and their messages. This action cannot be undone.',
   'chat.deleteBatchConfirm': 'Delete selected conversations?',
   'chat.deleteBatchConfirmDesc': 'This will permanently delete {count} conversations and their messages. This action cannot be undone.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'Search Knowledge',
+  'chat.suggestions.search.prompt': 'Search my notes for...',
+  'chat.suggestions.summarize': 'Summarize',
+  'chat.suggestions.summarize.prompt': 'Summarize the key points from...',
+  'chat.suggestions.connections': 'Find Connections',
+  'chat.suggestions.connections.prompt': 'What are the connections between...',
+  'chat.suggestions.question': 'Ask Question',
+  'chat.suggestions.question.prompt': 'Based on my documents, what...',
 
   // Citations
   'citation.evidence': 'Evidence',
@@ -566,4 +583,5 @@ export const en: TranslationKeys = {
   'common.clear': 'Clear',
   'common.selectAll': 'Select All',
   'common.clearAll': 'Clear All',
+  'common.undo': 'Undo',
 };

@@ -1,0 +1,27 @@
+{
+  "name": "edit_file",
+  "description": "Edit an existing file or create a new file within registered source directories. Supports string replacement and file creation. All text-based file types are supported.\n\nUse this tool when:\n- You need to modify an existing file (use str_replace with the exact text to find and its replacement)\n- You need to create a new file (use create with the file content)\n\nFor str_replace: old_str must match exactly once in the file. Include enough context lines to ensure uniqueness.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path to the file (absolute or relative to a source directory)"
+      },
+      "action": {
+        "type": "string",
+        "enum": ["str_replace", "create"],
+        "description": "Edit action: 'str_replace' to find-and-replace text in an existing file, 'create' to create a new file"
+      },
+      "old_str": {
+        "type": "string",
+        "description": "For str_replace: exact string to find in the file (must match exactly once)"
+      },
+      "new_str": {
+        "type": "string",
+        "description": "For str_replace: replacement string. For create: file content"
+      }
+    },
+    "required": ["path", "action"]
+  }
+}

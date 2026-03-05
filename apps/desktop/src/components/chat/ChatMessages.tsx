@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, ChevronDown, AlertCircle, RotateCcw, X } from 'lucide-react';
+import { MessageCircle, ChevronDown, AlertCircle, RotateCcw, X, Search, FileText, Link2, HelpCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from '../../i18n';
@@ -34,17 +34,27 @@ interface ChatMessagesProps {
   onEditAndResend?: (messageId: string, newContent: string) => void;
   loadingMsgs?: boolean;
   lastCached?: boolean;
+  onSuggestionClick?: (text: string) => void;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function ChatMessages({ messages, streamText, streamRounds, thinkingText, isThinking, toolCalls, isStreaming, error, onRetry, onDismissError, onDeleteMessage, onEditAndResend, loadingMsgs, lastCached }: ChatMessagesProps) {
+const SUGGESTIONS: { icon: typeof Search; labelKey: keyof import('../../i18n').TranslationKeys; promptKey: keyof import('../../i18n').TranslationKeys }[] = [
+  { icon: Search, labelKey: 'chat.suggestions.search', promptKey: 'chat.suggestions.search.prompt' },
+  { icon: FileText, labelKey: 'chat.suggestions.summarize', promptKey: 'chat.suggestions.summarize.prompt' },
+  { icon: Link2, labelKey: 'chat.suggestions.connections', promptKey: 'chat.suggestions.connections.prompt' },
+  { icon: HelpCircle, labelKey: 'chat.suggestions.question', promptKey: 'chat.suggestions.question.prompt' },
+];
+
+export function ChatMessages({ messages, streamText, streamRounds, thinkingText, isThinking, toolCalls, isStreaming, error, onRetry, onDismissError, onDeleteMessage, onEditAndResend, loadingMsgs, lastCached, onSuggestionClick }: ChatMessagesProps) {
   const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const prevMsgCountRef = useRef(messages.length);
 
   // ── Feedback: chunk-ID tracking ───────────────────────────────────────
   const chunkIdCacheRef = useRef<Map<string, string[]>>(new Map());
@@ -148,8 +158,19 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   }, []);
 
   const handleScroll = useCallback(() => {
-    setIsNearBottom(checkNearBottom());
+    const near = checkNearBottom();
+    setIsNearBottom(near);
+    if (near) setUnreadCount(0);
   }, [checkNearBottom]);
+
+  // Track new messages while scrolled up
+  useEffect(() => {
+    const newCount = messages.length - prevMsgCountRef.current;
+    if (newCount > 0 && !isNearBottom) {
+      setUnreadCount((c) => c + newCount);
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages.length, isNearBottom]);
 
   // Auto-scroll only when near bottom
   useEffect(() => {
@@ -161,6 +182,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setIsNearBottom(true);
+    setUnreadCount(0);
   }, []);
 
   // Find the last assistant message index for retry button
@@ -182,11 +204,34 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   if (messages.length === 0 && !isStreaming && !loadingMsgs) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md w-full px-4">
           <div className="p-4 rounded-2xl bg-surface-2 text-text-tertiary inline-block mb-4">
             <MessageCircle className="h-8 w-8" />
           </div>
-          <p className="text-sm text-text-tertiary">{t('chat.placeholder')}</p>
+          <p className="text-sm text-text-tertiary mb-6">{t('chat.placeholder')}</p>
+          {onSuggestionClick && (
+            <div className="grid grid-cols-2 gap-3">
+              {SUGGESTIONS.map((s, i) => {
+                const Icon = s.icon;
+                const prompt = t(s.promptKey);
+                return (
+                  <motion.button
+                    key={s.labelKey}
+                    type="button"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.07, duration: 0.3, ease: 'easeOut' }}
+                    onClick={() => onSuggestionClick(prompt)}
+                    className="bg-surface-1 hover:bg-surface-2 border border-border rounded-lg p-4 cursor-pointer transition-colors text-left"
+                  >
+                    <Icon className="h-4 w-4 text-accent mb-2" />
+                    <p className="text-sm font-medium text-text-primary mb-1">{t(s.labelKey)}</p>
+                    <p className="text-xs text-text-tertiary truncate">{prompt}</p>
+                  </motion.button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -455,16 +500,19 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
       <AnimatePresence>
         {!isNearBottom && (
           <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.15 }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
             type="button"
             onClick={scrollToBottom}
             title={t('chat.scrollToBottom')}
-            className="sticky bottom-3 left-1/2 -translate-x-1/2 mx-auto block p-2 rounded-full bg-surface-2 border border-border shadow-lg text-text-tertiary hover:text-text-primary hover:bg-surface-3 transition-colors cursor-pointer z-10"
+            className="sticky bottom-3 left-1/2 -translate-x-1/2 mx-auto flex items-center gap-1.5 rounded-full bg-surface-3 hover:bg-surface-4 text-text-primary shadow-md px-3 py-2 transition-colors cursor-pointer z-10"
           >
             <ChevronDown className="h-4 w-4" />
+            {unreadCount > 0 && (
+              <span className="text-xs font-medium tabular-nums">{unreadCount}</span>
+            )}
           </motion.button>
         )}
       </AnimatePresence>

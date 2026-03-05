@@ -8,7 +8,7 @@ import { parseAppDate } from '../../lib/dateTime';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { EmptyState } from '../ui/EmptyState';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
+
 import type { Conversation } from '../../types/conversation';
 
 /* ------------------------------------------------------------------ */
@@ -304,15 +304,12 @@ export function ChatSidebar({
   onDeleteAll,
 }: ChatSidebarProps) {
   const { t } = useTranslation();
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(getPinnedIds);
 
   // Selection mode state
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
-  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -424,7 +421,7 @@ export function ChatSidebar({
                       transition-colors cursor-pointer"
                     onClick={() => {
                       setMenuOpen(false);
-                      setShowDeleteAllConfirm(true);
+                      onDeleteAll();
                     }}
                   >
                     {t('chat.deleteAll')}
@@ -504,7 +501,7 @@ export function ChatSidebar({
                       isSelected={selectedIds.has(conv.id)}
                       index={startIdx + idx}
                       onSelect={() => onSelect(conv.id)}
-                      onDelete={() => setDeleteTarget(conv.id)}
+                      onDelete={() => onDelete(conv.id)}
                       onRename={(title) => onRename(conv.id, title)}
                       onTogglePin={() => togglePin(conv.id)}
                       onToggleSelect={() => toggleSelect(conv.id)}
@@ -539,7 +536,10 @@ export function ChatSidebar({
           </button>
           <button
             disabled={selectedIds.size === 0}
-            onClick={() => setShowBatchConfirm(true)}
+            onClick={() => {
+              onDeleteBatch([...selectedIds]);
+              exitSelectMode();
+            }}
             className="px-2 py-1 text-[10px] rounded-md bg-danger text-white hover:bg-danger/80
               disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
@@ -548,45 +548,7 @@ export function ChatSidebar({
         </div>
       )}
 
-      {/* Delete single confirm */}
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (deleteTarget) {
-            onDelete(deleteTarget);
-            setDeleteTarget(null);
-          }
-        }}
-        title={t('chat.deleteConfirm')}
-        message={t('chat.deleteConfirmDesc')}
-      />
 
-      {/* Delete batch confirm */}
-      <ConfirmDialog
-        open={showBatchConfirm}
-        onClose={() => setShowBatchConfirm(false)}
-        onConfirm={() => {
-          onDeleteBatch([...selectedIds]);
-          setShowBatchConfirm(false);
-          exitSelectMode();
-        }}
-        title={t('chat.deleteBatchConfirm')}
-        message={t('chat.deleteBatchConfirmDesc', { count: selectedIds.size })}
-      />
-
-      {/* Delete all confirm */}
-      <ConfirmDialog
-        open={showDeleteAllConfirm}
-        onClose={() => setShowDeleteAllConfirm(false)}
-        onConfirm={() => {
-          onDeleteAll();
-          setShowDeleteAllConfirm(false);
-          exitSelectMode();
-        }}
-        title={t('chat.deleteAllConfirm')}
-        message={t('chat.deleteAllConfirmDesc', { count: conversations.length })}
-      />
     </div>
   );
 }

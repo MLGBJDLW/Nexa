@@ -1,0 +1,504 @@
+//! EditFileTool — edits or creates files within managed source directories.
+
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use async_trait::async_trait;
+use serde::Deserialize;
+
+use crate::db::Database;
+use crate::error::CoreError;
+
+use super::{Tool, ToolDef, ToolResult};
+
+static DEF: OnceLock<ToolDef> = OnceLock::new();
+const DEF_JSON: &str = include_str!("../../prompts/tools/edit_file.json");
+
+#[derive(Deserialize)]
+struct EditFileArgs {
+    path: String,
+    action: String,
+    old_str: Option<String>,
+    new_str: Option<String>,
+}
+
+pub struct EditFileTool;
+
+/// Try to read the file as UTF-8 text. Returns an error message if the file
+/// appears to be binary (contains null bytes in the first 8 KB).
+fn read_text_utf8(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("Cannot read file: {e}"))?;
+
+    // Heuristic: check first 8 KB for null bytes to detect binary files.
+    let check_len = bytes.len().min(8192);
+    if bytes[..check_len].contains(&0) {
+        return Err(format!(
+            "File appears to be binary: {}",
+            path.display()
+        ));
+    }
+
+    String::from_utf8(bytes)
+        .map_err(|_| format!("File is not valid UTF-8: {}", path.display()))
+}
+
+/// Resolve the requested path against registered source roots and validate
+/// that it falls within one of them. Returns the canonicalized path.
+fn resolve_and_validate(
+    requested: &Path,
+    sources: &[crate::models::Source],
+) -> Result<PathBuf, String> {
+    // First try to canonicalize directly (works for existing files).
+    if let Ok(canonical) = std::fs::canonicalize(requested) {
+        let allowed = sources.iter().any(|s| {
+            std::fs::canonicalize(Path::new(&s.root_path))
+                .map(|root| canonical.starts_with(&root))
+                .unwrap_or(false)
+        });
+        if allowed {
+            return Ok(canonical);
+        }
+        return Err(format!(
+            "Access denied: '{}' is not within any registered source directory.",
+            requested.display()
+        ));
+    }
+
+    // For new files, canonicalize the parent directory and append the filename.
+    if let Some(parent) = requested.parent() {
+        if let Ok(canonical_parent) = std::fs::canonicalize(parent) {
+            let full = canonical_parent.join(
+                requested
+                    .file_name()
+                    .ok_or_else(|| "Invalid file path".to_string())?,
+            );
+            let allowed = sources.iter().any(|s| {
+                std::fs::canonicalize(Path::new(&s.root_path))
+                    .map(|root| full.starts_with(&root))
+                    .unwrap_or(false)
+            });
+            if allowed {
+                return Ok(full);
+            }
+        }
+    }
+
+    Err(format!(
+        "Access denied: '{}' is not within any registered source directory.",
+        requested.display()
+    ))
+}
+
+/// Return a few lines of context around the replacement site.
+fn snippet_around(content: &str, byte_offset: usize, replacement_len: usize) -> String {
+    let context_lines = 3;
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Find the line containing the start of the replacement.
+    let mut cumulative = 0usize;
+    let mut start_line = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        let line_end = cumulative + line.len() + 1; // +1 for newline
+        if byte_offset < line_end {
+            start_line = i;
+            break;
+        }
+        cumulative = line_end;
+    }
+
+    // Find the line containing the end of the replacement.
+    let end_byte = byte_offset + replacement_len;
+    let mut end_line = start_line;
+    cumulative = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let line_end = cumulative + line.len() + 1;
+        if end_byte <= line_end {
+            end_line = i;
+            break;
+        }
+        cumulative = line_end;
+        end_line = i;
+    }
+
+    let from = start_line.saturating_sub(context_lines);
+    let to = (end_line + context_lines + 1).min(lines.len());
+
+    let mut out = String::new();
+    for i in from..to {
+        out.push_str(&format!("{:>4} | {}\n", i + 1, lines[i]));
+    }
+    out
+}
+
+#[async_trait]
+impl Tool for EditFileTool {
+    fn name(&self) -> &str {
+        "edit_file"
+    }
+
+    fn description(&self) -> &str {
+        &ToolDef::from_json(&DEF, DEF_JSON).description
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
+    }
+
+    async fn execute(
+        &self,
+        call_id: &str,
+        arguments: &str,
+        db: &Database,
+        _source_scope: &[String],
+    ) -> Result<ToolResult, CoreError> {
+        let args: EditFileArgs = serde_json::from_str(arguments)
+            .map_err(|e| CoreError::InvalidInput(format!("Invalid edit_file arguments: {e}")))?;
+
+        let db = db.clone();
+        let call_id = call_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let sources = db.list_sources()?;
+            if sources.is_empty() {
+                return Ok(ToolResult {
+                    call_id: call_id.clone(),
+                    content: "No sources registered. Add a source directory first.".to_string(),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+
+            let requested = PathBuf::from(&args.path);
+
+            match args.action.as_str() {
+                "str_replace" => {
+                    let old_str = match args.old_str.as_deref() {
+                        Some(s) if !s.is_empty() => s,
+                        _ => {
+                            return Ok(ToolResult {
+                                call_id: call_id.clone(),
+                                content: "str_replace requires a non-empty 'old_str' parameter."
+                                    .to_string(),
+                                is_error: true,
+                                artifacts: None,
+                            });
+                        }
+                    };
+                    let new_str = args.new_str.as_deref().unwrap_or("");
+
+                    let canonical = match resolve_and_validate(&requested, &sources) {
+                        Ok(p) => p,
+                        Err(msg) => {
+                            return Ok(ToolResult {
+                                call_id: call_id.clone(),
+                                content: msg,
+                                is_error: true,
+                                artifacts: None,
+                            });
+                        }
+                    };
+
+                    if !canonical.is_file() {
+                        return Ok(ToolResult {
+                            call_id: call_id.clone(),
+                            content: format!(
+                                "File not found: '{}'",
+                                args.path
+                            ),
+                            is_error: true,
+                            artifacts: None,
+                        });
+                    }
+
+                    let content = match read_text_utf8(&canonical) {
+                        Ok(c) => c,
+                        Err(msg) => {
+                            return Ok(ToolResult {
+                                call_id: call_id.clone(),
+                                content: msg,
+                                is_error: true,
+                                artifacts: None,
+                            });
+                        }
+                    };
+
+                    // Count occurrences of old_str.
+                    let matches: Vec<_> = content.match_indices(old_str).collect();
+
+                    if matches.is_empty() {
+                        return Ok(ToolResult {
+                            call_id: call_id.clone(),
+                            content: format!(
+                                "old_str not found in '{}'. Make sure the string matches exactly, including whitespace and newlines.",
+                                args.path
+                            ),
+                            is_error: true,
+                            artifacts: None,
+                        });
+                    }
+
+                    if matches.len() > 1 {
+                        return Ok(ToolResult {
+                            call_id: call_id.clone(),
+                            content: format!(
+                                "old_str found {} times in '{}'. It must match exactly once. Include more surrounding context to make it unique.",
+                                matches.len(),
+                                args.path
+                            ),
+                            is_error: true,
+                            artifacts: None,
+                        });
+                    }
+
+                    let byte_offset = matches[0].0;
+                    let new_content = format!(
+                        "{}{}{}",
+                        &content[..byte_offset],
+                        new_str,
+                        &content[byte_offset + old_str.len()..]
+                    );
+
+                    std::fs::write(&canonical, &new_content).map_err(CoreError::Io)?;
+
+                    let snippet = snippet_around(&new_content, byte_offset, new_str.len());
+                    Ok(ToolResult {
+                        call_id,
+                        content: format!(
+                            "Successfully replaced text in '{}'.\n\nContext around edit:\n{}",
+                            args.path, snippet
+                        ),
+                        is_error: false,
+                        artifacts: None,
+                    })
+                }
+
+                "create" => {
+                    let file_content = args.new_str.as_deref().unwrap_or("");
+
+                    let canonical = match resolve_and_validate(&requested, &sources) {
+                        Ok(p) => {
+                            // File path resolved — check it doesn't already exist.
+                            if p.exists() {
+                                return Ok(ToolResult {
+                                    call_id: call_id.clone(),
+                                    content: format!(
+                                        "File already exists: '{}'. Use str_replace to edit it instead.",
+                                        args.path
+                                    ),
+                                    is_error: true,
+                                    artifacts: None,
+                                });
+                            }
+                            p
+                        }
+                        Err(msg) => {
+                            // For new files the parent might exist but the file doesn't yet.
+                            // resolve_and_validate already handles this, so propagate the error.
+                            return Ok(ToolResult {
+                                call_id: call_id.clone(),
+                                content: msg,
+                                is_error: true,
+                                artifacts: None,
+                            });
+                        }
+                    };
+
+                    // Create parent directories if needed.
+                    if let Some(parent) = canonical.parent() {
+                        if !parent.exists() {
+                            std::fs::create_dir_all(parent).map_err(CoreError::Io)?;
+                        }
+                    }
+
+                    std::fs::write(&canonical, file_content).map_err(CoreError::Io)?;
+
+                    let size = file_content.len();
+                    Ok(ToolResult {
+                        call_id,
+                        content: format!(
+                            "Created file '{}' ({} bytes).",
+                            args.path, size
+                        ),
+                        is_error: false,
+                        artifacts: None,
+                    })
+                }
+
+                other => Ok(ToolResult {
+                    call_id,
+                    content: format!(
+                        "Unknown action '{}'. Must be 'str_replace' or 'create'.",
+                        other
+                    ),
+                    is_error: true,
+                    artifacts: None,
+                }),
+            }
+        })
+        .await
+        .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sources::CreateSourceInput;
+
+    fn setup_db_with_source(root: &Path) -> Database {
+        let db = Database::open_memory().expect("open in-memory db");
+        db.add_source(CreateSourceInput {
+            root_path: root.to_string_lossy().to_string(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .expect("register source root");
+        db
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world\ngoodbye world\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "str_replace",
+            "old_str": "hello world",
+            "new_str": "hi world"
+        });
+
+        let result = tool
+            .execute("c1", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(result.content.contains("Successfully replaced"));
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hi world\ngoodbye world\n");
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "str_replace",
+            "old_str": "does not exist",
+            "new_str": "replacement"
+        });
+
+        let result = tool
+            .execute("c2", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("old_str not found"));
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_multiple_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "aaa\naaa\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "str_replace",
+            "old_str": "aaa",
+            "new_str": "bbb"
+        });
+
+        let result = tool
+            .execute("c3", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("found 2 times"));
+    }
+
+    #[tokio::test]
+    async fn test_create_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("new_file.md");
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "create",
+            "new_str": "# New File\nContent here."
+        });
+
+        let result = tool
+            .execute("c4", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(result.content.contains("Created file"));
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "# New File\nContent here.");
+    }
+
+    #[tokio::test]
+    async fn test_create_already_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("existing.txt");
+        std::fs::write(&file, "existing content").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "create",
+            "new_str": "new content"
+        });
+
+        let result = tool
+            .execute("c5", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn test_path_outside_sandbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let other_dir = tempfile::tempdir().unwrap();
+        let file = other_dir.path().join("secret.txt");
+        std::fs::write(&file, "secret").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "str_replace",
+            "old_str": "secret",
+            "new_str": "hacked"
+        });
+
+        let result = tool
+            .execute("c6", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Access denied"));
+
+        // Verify file was not modified.
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "secret");
+    }
+}

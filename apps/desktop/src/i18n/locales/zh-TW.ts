@@ -332,6 +332,12 @@ export const zhTW: TranslationKeys = {
   'cmd.rebuildComplete': '向量重建完成',
   'cmd.rebuildError': '向量重建失敗',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': '鍵盤快捷鍵',
+  'shortcuts.commandPalette': '開啟命令面板',
+  'shortcuts.toggleSidebar': '切換側邊欄',
+  'shortcuts.askAi': '詢問 AI',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -361,6 +367,7 @@ export const zhTW: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': '載入對話失敗',
   'chat.deleteError': '刪除失敗',
+  'chat.conversation.deleted': '對話已刪除',
   'chat.renameError': '重新命名失敗',
   'chat.createError': '建立對話失敗',
   'chat.noConfigError': '未設定模型，請檢查設定（模型和 API 金鑰）。',
@@ -447,6 +454,16 @@ export const zhTW: TranslationKeys = {
   'chat.deleteAllConfirmDesc': '這將永久刪除全部 {count} 個對話及其訊息，此操作不可撤銷。',
   'chat.deleteBatchConfirm': '刪除選取的對話？',
   'chat.deleteBatchConfirmDesc': '這將永久刪除 {count} 個對話及其訊息，此操作不可撤銷。',
+
+  // Chat Suggestions
+  'chat.suggestions.search': '搜尋知識',
+  'chat.suggestions.search.prompt': '在我的筆記中搜尋……',
+  'chat.suggestions.summarize': '摘要歸納',
+  'chat.suggestions.summarize.prompt': '總結以下內容的要點……',
+  'chat.suggestions.connections': '探索關聯',
+  'chat.suggestions.connections.prompt': '……之間有什麼關聯？',
+  'chat.suggestions.question': '提問',
+  'chat.suggestions.question.prompt': '根據我的文件，……',
 
   // Citations
   'citation.evidence': '證據',
@@ -564,4 +581,5 @@ export const zhTW: TranslationKeys = {
   'common.clear': '清除',
   'common.selectAll': '全選',
   'common.clearAll': '清除全部',
+  'common.undo': '撤銷',
 };

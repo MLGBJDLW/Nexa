@@ -334,6 +334,12 @@ export const de: TranslationKeys = {
   'cmd.rebuildComplete': 'Vektorneuerstellung abgeschlossen',
   'cmd.rebuildError': 'Vektorneuerstellung fehlgeschlagen',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'Tastaturkürzel',
+  'shortcuts.commandPalette': 'Befehlspalette öffnen',
+  'shortcuts.toggleSidebar': 'Seitenleiste umschalten',
+  'shortcuts.askAi': 'KI fragen',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const de: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': 'Konversationen konnten nicht geladen werden',
   'chat.deleteError': 'L\u00f6schen fehlgeschlagen',
+  'chat.conversation.deleted': 'Unterhaltung gel\u00f6scht',
   'chat.renameError': 'Umbenennung fehlgeschlagen',
   'chat.createError': 'Konversation konnte nicht erstellt werden',
   'chat.noConfigError': 'Kein Modell konfiguriert. Bitte überprüfen Sie Ihre Einstellungen (Modell & API-Schlüssel).',
@@ -447,6 +454,16 @@ export const de: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'Dies löscht dauerhaft alle {count} Unterhaltungen und deren Nachrichten. Diese Aktion kann nicht rückgängig gemacht werden.',
   'chat.deleteBatchConfirm': 'Ausgewählte Unterhaltungen löschen?',
   'chat.deleteBatchConfirmDesc': 'Dies löscht dauerhaft {count} Unterhaltungen und deren Nachrichten. Diese Aktion kann nicht rückgängig gemacht werden.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'Wissen durchsuchen',
+  'chat.suggestions.search.prompt': 'In meinen Notizen suchen nach...',
+  'chat.suggestions.summarize': 'Zusammenfassen',
+  'chat.suggestions.summarize.prompt': 'Die wichtigsten Punkte zusammenfassen von...',
+  'chat.suggestions.connections': 'Verbindungen finden',
+  'chat.suggestions.connections.prompt': 'Welche Verbindungen gibt es zwischen...',
+  'chat.suggestions.question': 'Frage stellen',
+  'chat.suggestions.question.prompt': 'Basierend auf meinen Dokumenten, was...',
 
   // Citations
   'citation.evidence': 'Beleg',
@@ -563,4 +580,5 @@ export const de: TranslationKeys = {
   'common.clear': 'Löschen',
   'common.selectAll': 'Alle auswählen',
   'common.clearAll': 'Alle löschen',
+  'common.undo': 'Rückgängig',
 };

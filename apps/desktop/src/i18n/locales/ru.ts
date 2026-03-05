@@ -334,6 +334,12 @@ export const ru: TranslationKeys = {
   'cmd.rebuildComplete': 'Пересоздание вектора завершено',
   'cmd.rebuildError': 'Ошибка пересоздания вектора',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'Горячие клавиши',
+  'shortcuts.commandPalette': 'Открыть палитру команд',
+  'shortcuts.toggleSidebar': 'Переключить боковую панель',
+  'shortcuts.askAi': 'Спросить ИИ',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const ru: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': 'Не удалось загрузить разговоры',
   'chat.deleteError': 'Ошибка удаления',
+  'chat.conversation.deleted': 'Разговор удалён',
   'chat.renameError': 'Ошибка переименования',
   'chat.createError': 'Не удалось создать разговор',
   'chat.noConfigError': 'Модель не настроена. Проверьте настройки (модель и ключ API).',
@@ -449,6 +456,16 @@ export const ru: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'Это навсегда удалит все {count} диалогов и их сообщения. Это действие нельзя отменить.',
   'chat.deleteBatchConfirm': 'Удалить выбранные диалоги?',
   'chat.deleteBatchConfirmDesc': 'Это навсегда удалит {count} диалогов и их сообщения. Это действие нельзя отменить.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'Поиск знаний',
+  'chat.suggestions.search.prompt': 'Найти в моих заметках...',
+  'chat.suggestions.summarize': 'Резюме',
+  'chat.suggestions.summarize.prompt': 'Обобщить ключевые моменты из...',
+  'chat.suggestions.connections': 'Найти связи',
+  'chat.suggestions.connections.prompt': 'Какие связи между...?',
+  'chat.suggestions.question': 'Задать вопрос',
+  'chat.suggestions.question.prompt': 'На основе моих документов, что...?',
 
   // Citations
   'citation.evidence': 'Доказательство',
@@ -566,4 +583,5 @@ export const ru: TranslationKeys = {
   'common.clear': 'Очистить',
   'common.selectAll': 'Выбрать все',
   'common.clearAll': 'Очистить все',
+  'common.undo': 'Отменить',
 };

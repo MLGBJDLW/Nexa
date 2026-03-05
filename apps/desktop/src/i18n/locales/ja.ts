@@ -332,6 +332,12 @@ export const ja: TranslationKeys = {
   'cmd.rebuildComplete': 'ベクトル再構築完了',
   'cmd.rebuildError': 'ベクトル再構築に失敗しました',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': 'キーボードショートカット',
+  'shortcuts.commandPalette': 'コマンドパレットを開く',
+  'shortcuts.toggleSidebar': 'サイドバーの切り替え',
+  'shortcuts.askAi': 'AIに質問',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -361,6 +367,7 @@ export const ja: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': '会話の読み込みに失敗しました',
   'chat.deleteError': '削除に失敗しました',
+  'chat.conversation.deleted': '会話を削除しました',
   'chat.renameError': '名前変更に失敗しました',
   'chat.createError': '会話の作成に失敗しました',
   'chat.noConfigError': 'モデルが設定されていません。設定を確認してください（モデルとAPIキー）。',
@@ -447,6 +454,16 @@ export const ja: TranslationKeys = {
   'chat.deleteAllConfirmDesc': 'すべての {count} 件の会話とメッセージが完全に削除されます。この操作は元に戻せません。',
   'chat.deleteBatchConfirm': '選択した会話を削除しますか？',
   'chat.deleteBatchConfirmDesc': '{count} 件の会話とメッセージが完全に削除されます。この操作は元に戻せません。',
+
+  // Chat Suggestions
+  'chat.suggestions.search': 'ナレッジ検索',
+  'chat.suggestions.search.prompt': 'ノートから検索…',
+  'chat.suggestions.summarize': '要約',
+  'chat.suggestions.summarize.prompt': '以下の要点をまとめて…',
+  'chat.suggestions.connections': '関連を探す',
+  'chat.suggestions.connections.prompt': '…の間にどんな関連がありますか？',
+  'chat.suggestions.question': '質問する',
+  'chat.suggestions.question.prompt': 'ドキュメントに基づいて…',
 
   // Citations
   'citation.evidence': '証拠',
@@ -564,4 +581,5 @@ export const ja: TranslationKeys = {
   'common.clear': 'クリア',
   'common.selectAll': 'すべて選択',
   'common.clearAll': 'すべてクリア',
+  'common.undo': '元に戻す',
 };

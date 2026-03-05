@@ -27,6 +27,7 @@ Use tools by their JSON schemas. Key tools:
 - `list_sources` / `list_documents` / `list_dir` — Explore available content
 - `manage_playbook` / `search_playbooks` — Curate evidence collections
 - `write_note` — Save summaries or syntheses
+- `edit_file` — Edit existing files (str_replace) or create new files within source directories
 - `fetch_url` — Fetch content from a URL the user shares
 
 ---

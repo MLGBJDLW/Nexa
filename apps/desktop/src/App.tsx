@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { I18nProvider } from "./i18n";
 import { Layout } from "./components/Layout";
@@ -36,6 +36,17 @@ function App() {
           <Route path="/chat" element={<PageTransition><ChatPage /></PageTransition>} />
           <Route path="/chat/:conversationId" element={<PageTransition><ChatPage /></PageTransition>} />
           <Route path="/settings" element={<PageTransition><SettingsPage /></PageTransition>} />
+          <Route path="*" element={
+            <PageTransition>
+              <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                <p className="text-4xl font-bold text-text-primary">404</p>
+                <p className="text-sm text-text-tertiary">Page not found</p>
+                <Link to="/" className="px-4 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent/90 transition-colors">
+                  Go Home
+                </Link>
+              </div>
+            </PageTransition>
+          } />
         </Route>
       </Routes>
     </I18nProvider>

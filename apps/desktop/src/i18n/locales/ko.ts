@@ -334,6 +334,12 @@ export const ko: TranslationKeys = {
   'cmd.rebuildComplete': '벡터 재구축 완료',
   'cmd.rebuildError': '벡터 재구축 실패',
 
+  // Keyboard Shortcuts
+  'cmd.shortcuts': '키보드 단축키',
+  'shortcuts.commandPalette': '명령 팔레트 열기',
+  'shortcuts.toggleSidebar': '사이드바 전환',
+  'shortcuts.askAi': 'AI에게 질문',
+
   // Chat
   'nav.chat': 'Chat',
   'chat.title': 'Chat',
@@ -363,6 +369,7 @@ export const ko: TranslationKeys = {
   'chat.newChatShort': 'New',
   'chat.loadError': '대화 로드 실패',
   'chat.deleteError': '삭제 실패',
+  'chat.conversation.deleted': '대화가 삭제되었습니다',
   'chat.renameError': '이름 변경 실패',
   'chat.createError': '대화 생성 실패',
   'chat.noConfigError': '모델이 구성되지 않았습니다. 설정을 확인하세요 (모델 및 API 키).',
@@ -449,6 +456,16 @@ export const ko: TranslationKeys = {
   'chat.deleteAllConfirmDesc': '모든 {count}개의 대화와 메시지가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
   'chat.deleteBatchConfirm': '선택한 대화를 삭제하시겠습니까?',
   'chat.deleteBatchConfirmDesc': '{count}개의 대화와 메시지가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
+
+  // Chat Suggestions
+  'chat.suggestions.search': '지식 검색',
+  'chat.suggestions.search.prompt': '내 노트에서 검색...',
+  'chat.suggestions.summarize': '요약',
+  'chat.suggestions.summarize.prompt': '핵심 내용을 요약해 주세요...',
+  'chat.suggestions.connections': '연관 찾기',
+  'chat.suggestions.connections.prompt': '...사이의 연관성은 무엇인가요?',
+  'chat.suggestions.question': '질문하기',
+  'chat.suggestions.question.prompt': '내 문서에 기반하여...',
 
   // Citations
   'citation.evidence': '증거',
@@ -566,4 +583,5 @@ export const ko: TranslationKeys = {
   'common.clear': '지우기',
   'common.selectAll': '모두 선택',
   'common.clearAll': '모두 지우기',
+  'common.undo': '실행 취소',
 };

@@ -13,6 +13,7 @@ import { Modal } from '../components/ui/Modal';
 import { Skeleton, CardSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { undoableAction } from '../lib/undoToast';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -66,8 +67,6 @@ export function PlaybooksPage() {
   const [loadingCitations, setLoadingCitations] = useState(false);
 
   /* 鈹€鈹€ Delete confirmation 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
-  const [deleteTarget, setDeleteTarget] = useState<Playbook | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   /* 鈹€鈹€ Inline edit 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
   const [editMode, setEditMode] = useState(false);
@@ -125,23 +124,24 @@ export function PlaybooksPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await api.deletePlaybook(deleteTarget.id);
-      if (selectedPlaybook?.id === deleteTarget.id) {
-        setSelectedPlaybook(null);
-        setCitations([]);
-      }
-      toast.success(t('playbooks.deleted'));
-      await loadPlaybooks();
-    } catch (e) {
-      toast.error(`${t('playbooks.deleteError')}: ${String(e)}`);
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
+  const handleDelete = (target: Playbook) => {
+    setPlaybooks((prev) => prev.filter((p) => p.id !== target.id));
+    if (selectedPlaybook?.id === target.id) {
+      setSelectedPlaybook(null);
+      setCitations([]);
     }
+    undoableAction({
+      message: t('playbooks.deleted'),
+      undoLabel: t('common.undo'),
+      onConfirm: async () => {
+        try {
+          await api.deletePlaybook(target.id);
+        } catch (e) {
+          toast.error(`${t('playbooks.deleteError')}: ${String(e)}`);
+          await loadPlaybooks();
+        }
+      },
+    });
   };
 
   const handleSelect = async (playbook: Playbook) => {
@@ -446,7 +446,7 @@ export function PlaybooksPage() {
                           variant="danger"
                           size="sm"
                           icon={<Trash2 size={14} />}
-                          onClick={() => setDeleteTarget(selectedPlaybook)}
+                          onClick={() => handleDelete(selectedPlaybook)}
                         >
                           {t('playbooks.delete')}
                         </Button>
@@ -655,18 +655,6 @@ export function PlaybooksPage() {
           </div>
         </div>
       </Modal>
-
-      {/* 鈹€鈹€ Delete confirm dialog 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */}
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title={t('playbooks.deleteConfirm')}
-        message={t('playbooks.deleteConfirmMsg', { name: deleteTarget?.title ?? '' })}
-        confirmText={t('playbooks.delete')}
-        variant="danger"
-        loading={deleting}
-      />
 
       {/* 鈹€鈹€ Remove citation confirm dialog 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */}
       <ConfirmDialog

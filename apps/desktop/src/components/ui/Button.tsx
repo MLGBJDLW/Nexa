@@ -9,12 +9,14 @@ interface ButtonProps {
   size?: ButtonSize;
   loading?: boolean;
   icon?: React.ReactNode;
+  iconOnly?: boolean;
   children?: React.ReactNode;
   className?: string;
   disabled?: boolean;
   onClick?: React.MouseEventHandler<HTMLButtonElement>;
   type?: 'button' | 'submit' | 'reset';
   title?: string;
+  'aria-label'?: string;
 }
 
 const variants: Record<ButtonVariant, string> = {
@@ -30,8 +32,15 @@ const sizes: Record<ButtonSize, string> = {
   lg: 'h-11 px-5 text-sm gap-2.5',
 };
 
+const iconOnlySizes: Record<ButtonSize, string> = {
+  sm: 'h-8 w-8 text-xs',
+  md: 'h-9 w-9 text-sm',
+  lg: 'h-10 w-10 text-sm',
+};
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', loading, icon, children, className = '', disabled, ...props }, ref) => {
+  ({ variant = 'primary', size = 'md', loading, icon, iconOnly, children, className = '', disabled, ...props }, ref) => {
+    const sizeClass = iconOnly ? iconOnlySizes[size] : sizes[size];
     return (
       <motion.button
         ref={ref}
@@ -41,7 +50,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           rounded-md transition-colors duration-fast ease-out
           disabled:opacity-40 disabled:pointer-events-none
           cursor-pointer select-none
-          ${variants[variant]} ${sizes[size]} ${className}
+          ${variants[variant]} ${sizeClass} ${iconOnly ? 'p-0' : ''} ${className}
         `}
         disabled={disabled || loading}
         {...props}
@@ -54,7 +63,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ) : icon ? (
           <span className="shrink-0">{icon}</span>
         ) : null}
-        {children && <span>{children}</span>}
+        {!iconOnly && children && <span>{children}</span>}
       </motion.button>
     );
   }

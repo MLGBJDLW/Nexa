@@ -27,6 +27,7 @@ interface ChatInputProps {
   rateLimited?: boolean;
   conversationId?: string;
   onRestoreCheckpoint?: () => void;
+  prefillText?: string;
 }
 
 function formatTokens(n: number): string {
@@ -48,6 +49,7 @@ export function ChatInput({
   rateLimited,
   conversationId,
   onRestoreCheckpoint,
+  prefillText,
 }: ChatInputProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState('');
@@ -56,6 +58,14 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
+
+  // Accept prefilled text from outside (e.g. suggestion cards)
+  useEffect(() => {
+    if (prefillText != null && prefillText !== '') {
+      setValue(prefillText);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [prefillText]);
 
   const usage = tokenUsage && tokenUsage.contextWindow > 0 ? tokenUsage : null;
   const usagePercent = usage ? Math.min(100, (usage.promptTokens / usage.contextWindow) * 100) : 0;

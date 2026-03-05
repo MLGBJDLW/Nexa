@@ -8,6 +8,7 @@ import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatMessages, ChatInpu
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useChatSession } from '../lib/useChatSession';
+import { undoableAction } from '../lib/undoToast';
 import * as api from '../lib/api';
 
 /* ------------------------------------------------------------------ */
@@ -135,29 +136,77 @@ export function ChatPage() {
   ]);
 
   const handleDeleteConversation = useCallback(
-    async (id: string) => {
-      await chat.deleteConversation(id);
-      if (chat.activeId === id) {
-        navigate('/chat');
-      }
+    (id: string) => {
+      const prev = chat.conversations;
+      const removed = prev.find((c) => c.id === id);
+      chat.setConversations(prev.filter((c) => c.id !== id));
+      if (chat.activeId === id) navigate('/chat');
+      undoableAction({
+        message: t('chat.conversation.deleted'),
+        undoLabel: t('common.undo'),
+        onConfirm: async () => {
+          try {
+            await api.deleteConversation(id);
+          } catch (e) {
+            toast.error(`${t('chat.deleteError')}: ${String(e)}`);
+            if (removed) chat.setConversations((c) => [...c, removed]);
+          }
+        },
+      });
+      return () => { if (removed) chat.setConversations((c) => [...c, removed]); };
     },
-    [chat.deleteConversation, chat.activeId, navigate],
+    [chat.conversations, chat.setConversations, chat.activeId, navigate, t],
   );
 
   const handleDeleteBatch = useCallback(
-    async (ids: string[]) => {
-      await chat.deleteConversationsBatch(ids);
-      if (chat.activeId && ids.includes(chat.activeId)) {
-        navigate('/chat');
-      }
+    (ids: string[]) => {
+      const prev = chat.conversations;
+      const idSet = new Set(ids);
+      const removed = prev.filter((c) => idSet.has(c.id));
+      chat.setConversations(prev.filter((c) => !idSet.has(c.id)));
+      if (chat.activeId && idSet.has(chat.activeId)) navigate('/chat');
+      undoableAction({
+        message: t('chat.conversation.deleted'),
+        undoLabel: t('common.undo'),
+        onConfirm: async () => {
+          try {
+            await api.deleteConversationsBatch(ids);
+          } catch (e) {
+            toast.error(`${t('chat.deleteError')}: ${String(e)}`);
+            chat.setConversations((c) => [...c, ...removed]);
+          }
+        },
+      });
     },
-    [chat.deleteConversationsBatch, chat.activeId, navigate],
+    [chat.conversations, chat.setConversations, chat.activeId, navigate, t],
   );
 
-  const handleDeleteAll = useCallback(async () => {
-    await chat.deleteAllConversations();
+  const handleDeleteAll = useCallback(() => {
+    const prev = chat.conversations;
+    chat.setConversations([]);
     navigate('/chat');
-  }, [chat.deleteAllConversations, navigate]);
+    undoableAction({
+      message: t('chat.conversation.deleted'),
+      undoLabel: t('common.undo'),
+      onConfirm: async () => {
+        try {
+          await api.deleteAllConversations();
+        } catch (e) {
+          toast.error(`${t('chat.deleteError')}: ${String(e)}`);
+          chat.setConversations(prev);
+        }
+      },
+    });
+  }, [chat.conversations, chat.setConversations, navigate, t]);
+
+  /* ── Suggestion prefill ─────────────────────────────────────────── */
+
+  const [prefillText, setPrefillText] = useState<string>('');
+  const prefillKey = useRef(0);
+  const handleSuggestionClick = useCallback((text: string) => {
+    prefillKey.current += 1;
+    setPrefillText(text);
+  }, []);
 
   /* ── No provider configured ─────────────────────────────────────── */
   if (!chat.loadingConfig && !chat.agentConfig) {
@@ -276,6 +325,7 @@ export function ChatPage() {
               onEditAndResend={chat.editAndResend}
               loadingMsgs={chat.loadingMsgs}
               lastCached={chat.lastCached}
+              onSuggestionClick={handleSuggestionClick}
             />
             <ChatInput
               onSend={chat.send}
@@ -288,6 +338,7 @@ export function ChatPage() {
               contextOverflow={chat.contextOverflow}
               rateLimited={chat.rateLimited}
               conversationId={chat.activeId ?? undefined}
+              prefillText={prefillText}
               onRestoreCheckpoint={chat.activeId ? async () => {
                 await chat.reloadMessages();
               } : undefined}

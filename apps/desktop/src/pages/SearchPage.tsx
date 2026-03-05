@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -41,6 +41,7 @@ import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useTranslation } from '../i18n';
+import { useDebounce } from '../lib/useDebounce';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -65,6 +66,7 @@ const FILE_TYPE_OPTIONS: { value: FileType; labelKey: 'search.markdown' | 'searc
 export function SearchPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   // 鈹€鈹€ Core search state 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -94,6 +96,14 @@ export function SearchPage() {
 
   // 鈹€鈹€ Refs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── Recent queries dropdown ────────────────────────────────────────
+  const [inputFocused, setInputFocused] = useState(false);
+
+  // ── Debounced search ──────────────────────────────────────────────
+  const debouncedQuery = useDebounce(query, 400);
+  const isDebouncing = query !== debouncedQuery && query.trim().length >= 2;
 
   // 鈹€鈹€ Knowledge Base stats 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
@@ -148,6 +158,37 @@ export function SearchPage() {
   useEffect(() => {
     loadRecentQueries();
   }, [loadRecentQueries]);
+
+  // ── Auto-trigger search on debounced value change ────────────────
+  useEffect(() => {
+    if (debouncedQuery.trim().length >= 2) {
+      handleSearch(debouncedQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+
+  // ── Filtered recent queries for dropdown ──────────────────────────
+  const filteredRecent = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? recentQueries.filter((r) => r.queryText.toLowerCase().includes(q))
+      : recentQueries;
+    return list.slice(0, 5);
+  }, [query, recentQueries]);
+
+  const showDropdown = inputFocused && filteredRecent.length > 0 && !loading && !result;
+
+  // ── Auto-execute search from command palette ──────────────────────
+  useEffect(() => {
+    const incoming = (location.state as { query?: string } | null)?.query;
+    if (incoming) {
+      // Clear the state so refreshing / navigating back won't re-trigger
+      window.history.replaceState({}, '');
+      setQuery(incoming);
+      handleSearch(incoming);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   // 鈹€鈹€ Load sources for filters 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   useEffect(() => {
@@ -423,15 +464,62 @@ export function SearchPage() {
       {/* 鈹€鈹€ Search input 鈹€鈹€ */}
       <div className="mb-4">
         <div className="flex gap-2">
+          <div className="relative w-full" ref={dropdownRef}>
           <Input
             ref={inputRef}
             icon={<Search size={16} />}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch();
+            }}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => {
+              // Delay to allow click on dropdown item
+              setTimeout(() => setInputFocused(false), 150);
+            }}
             placeholder={t('search.placeholder')}
-            className="h-11"
+            className={`h-11 ${isDebouncing ? 'animate-pulse !border-accent/50' : ''}`}
           />
+
+          {/* Recent queries dropdown */}
+          {showDropdown && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-border bg-surface-1 shadow-lg">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-text-tertiary">
+                  <Clock size={11} />
+                  {t('search.recentQueries')}
+                </span>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={clearRecentQueries}
+                  className="flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-secondary transition-colors"
+                >
+                  <Trash2 size={10} />
+                  {t('search.clearHistory')}
+                </button>
+              </div>
+              {filteredRecent.map((rq) => (
+                <button
+                  key={rq.id}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setQuery(rq.queryText);
+                    handleSearch(rq.queryText);
+                    setInputFocused(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-text-secondary hover:bg-surface-2 transition-colors duration-fast"
+                >
+                  <Clock size={11} className="shrink-0 text-text-tertiary" />
+                  <span className="truncate">{rq.queryText}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-text-tertiary">
+                    {t('search.resultSuffix', { count: rq.resultCount })}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          </div>
           <Button
             onClick={() => handleSearch()}
             loading={loading}
@@ -829,44 +917,8 @@ export function SearchPage() {
         </>
       )}
 
-      {/* 鈹€鈹€ Recent queries (shown when no results/loading) 鈹€鈹€ */}
-      {!result && !loading && recentQueries.length > 0 && (
-        <div className="mt-2">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-medium text-text-tertiary">
-              <Clock size={12} />
-              {t('search.recentQueries')}
-            </div>
-            <button
-              onClick={clearRecentQueries}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-secondary"
-            >
-              <Trash2 size={11} />
-              {t('search.clearHistory')}
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {recentQueries.map((q) => (
-              <button
-                key={q.id}
-                onClick={() => {
-                  setQuery(q.queryText);
-                  handleSearch(q.queryText);
-                }}
-                className="group inline-flex items-center gap-2 rounded-full border border-border bg-surface-1 px-3 py-1.5 text-xs text-text-secondary transition-all duration-fast hover:border-border-hover hover:bg-surface-2 hover:text-text-primary"
-              >
-                <span className="truncate max-w-[200px]">{q.queryText}</span>
-                <span className="shrink-0 text-[10px] text-text-tertiary group-hover:text-text-secondary">
-                  {t('search.resultSuffix', { count: q.resultCount })}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* 鈹€鈹€ Initial empty state 鈹€鈹€ */}
-      {!result && !loading && recentQueries.length === 0 && (
+      {!result && !loading && (
         <EmptyState
           icon={<Logo size={64} />}
           title={t('search.initialTitle')}
