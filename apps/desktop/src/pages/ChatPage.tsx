@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Settings, AlertTriangle, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
+import { Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Logo } from '../components/Logo';
@@ -202,20 +202,21 @@ export function ChatPage() {
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
-        {/* Sidebar toggle */}
-        <div className="absolute top-2 left-2 z-20">
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            className="p-1.5 rounded-md bg-surface-2/80 backdrop-blur border border-border/50
-              text-text-tertiary hover:text-text-primary hover:bg-surface-3
-              transition-colors cursor-pointer"
-            title={t('chat.toggleSidebar')}
-            aria-label={t('chat.toggleSidebar')}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
-        </div>
+        {!chat.activeId && (
+          <div className="absolute top-2 left-2 z-20">
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-md bg-surface-2/80 backdrop-blur border border-border/50
+                text-text-tertiary hover:text-text-primary hover:bg-surface-3
+                transition-colors cursor-pointer"
+              title={t('chat.toggleSidebar')}
+              aria-label={t('chat.toggleSidebar')}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+          </div>
+        )}
         {!chat.activeId && !chat.isStreaming ? (
           <div className="flex-1 flex items-center justify-center">
             <EmptyState
@@ -231,18 +232,33 @@ export function ChatPage() {
         ) : (
           <>
             {chat.activeId && (
-              <div className="shrink-0 border-b border-border px-4 py-2 flex items-center gap-2">
-                {chat.agentConfig && (
-                  <span className="text-[10px] text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded-md truncate max-w-[160px]" title={`${chat.agentConfig.provider} / ${chat.agentConfig.model}`}>
-                    {chat.agentConfig.model}
-                  </span>
-                )}
-                <SourceSelector conversationId={chat.activeId} />
-                <SystemPromptEditor
-                  conversationId={chat.activeId}
-                  systemPrompt={chat.customSystemPrompt}
-                  onSaved={(newPrompt) => chat.setCustomSystemPrompt(newPrompt)}
-                />
+              <div className="sticky top-0 z-10 shrink-0 border-b border-border bg-surface-1/90 backdrop-blur px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleSidebar}
+                    className="p-1.5 rounded-md bg-surface-2/80 border border-border/50
+                      text-text-tertiary hover:text-text-primary hover:bg-surface-3
+                      transition-colors cursor-pointer"
+                    title={t('chat.toggleSidebar')}
+                    aria-label={t('chat.toggleSidebar')}
+                  >
+                    {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+                  </button>
+                  {chat.agentConfig && (
+                    <span className="text-[10px] text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded-md truncate max-w-[160px]" title={`${chat.agentConfig.provider} / ${chat.agentConfig.model}`}>
+                      {chat.agentConfig.model}
+                    </span>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <SourceSelector conversationId={chat.activeId} />
+                    <SystemPromptEditor
+                      conversationId={chat.activeId}
+                      systemPrompt={chat.customSystemPrompt}
+                      onSaved={(newPrompt) => chat.setCustomSystemPrompt(newPrompt)}
+                    />
+                  </div>
+                </div>
               </div>
             )}
             <ChatMessages
@@ -261,44 +277,13 @@ export function ChatPage() {
               loadingMsgs={chat.loadingMsgs}
               lastCached={chat.lastCached}
             />
-            {chat.tokenUsage && chat.tokenUsage.contextWindow > 0 && (() => {
-              // Keep warning logic aligned with the token bar:
-              // use lastPromptTokens (already normalized in tokenUsage) as context occupancy.
-              const pct = (chat.tokenUsage.promptTokens / chat.tokenUsage.contextWindow) * 100;
-              if (pct < 80) return null;
-              const isRed = pct > 95;
-              return (
-                <div className={`mx-3 mb-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2 ${
-                  isRed ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
-                }`}>
-                  <AlertTriangle size={14} />
-                  <span className="flex-1">
-                    {isRed
-                      ? t('chat.contextNearlyFull', { percent: Math.round(pct) })
-                      : t('chat.contextFillingUp', { percent: Math.round(pct) })
-                    }
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleNewConversation}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer shrink-0 ${
-                      isRed
-                        ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30'
-                        : 'bg-yellow-500/20 text-yellow-600 hover:bg-yellow-500/30'
-                    }`}
-                  >
-                    <Plus size={12} />
-                    {t('chat.startNewChat')}
-                  </button>
-                </div>
-              );
-            })()}
             <ChatInput
               onSend={chat.send}
               onStop={chat.stop}
               isStreaming={chat.isStreaming}
               disabled={!chat.agentConfig || chat.loadingMsgs}
               tokenUsage={chat.tokenUsage}
+              onStartNewChat={handleNewConversation}
               finishReason={chat.finishReason}
               contextOverflow={chat.contextOverflow}
               rateLimited={chat.rateLimited}

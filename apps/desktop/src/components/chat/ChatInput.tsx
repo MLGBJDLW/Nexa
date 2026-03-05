@@ -1,13 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Square, Paperclip, X, Scissors } from 'lucide-react';
+import { Send, Square, Paperclip, X, Scissors, AlertTriangle, Gauge, Brain, Clock3, Plus } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { ImageAttachment } from '../../types/conversation';
 import { CheckpointMenu } from './CheckpointMenu';
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
 
 interface TokenUsage {
   promptTokens: number;
@@ -15,6 +11,7 @@ interface TokenUsage {
   contextWindow: number;
   completionTokens: number;
   thinkingTokens: number;
+  isEstimated: boolean;
 }
 
 interface ChatInputProps {
@@ -24,6 +21,7 @@ interface ChatInputProps {
   disabled: boolean;
   tokenUsage?: TokenUsage | null;
   onCompact?: () => void;
+  onStartNewChat?: () => void;
   finishReason?: string | null;
   contextOverflow?: boolean;
   rateLimited?: boolean;
@@ -31,17 +29,26 @@ interface ChatInputProps {
   onRestoreCheckpoint?: () => void;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
   return String(n);
 }
 
-export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, onCompact, finishReason, contextOverflow, rateLimited, conversationId, onRestoreCheckpoint }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  onStop,
+  isStreaming,
+  disabled,
+  tokenUsage,
+  onCompact,
+  onStartNewChat,
+  finishReason,
+  contextOverflow,
+  rateLimited,
+  conversationId,
+  onRestoreCheckpoint,
+}: ChatInputProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
@@ -50,13 +57,25 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
 
+  const usage = tokenUsage && tokenUsage.contextWindow > 0 ? tokenUsage : null;
+  const usagePercent = usage ? Math.min(100, (usage.promptTokens / usage.contextWindow) * 100) : 0;
+  const usagePercentRounded = Math.round(usagePercent);
+  const usageNearLimit = usagePercent >= 80;
+  const usageCritical = contextOverflow || usagePercent >= 95;
+  const usageHint = usageNearLimit
+    ? (usageCritical
+      ? t('chat.contextNearlyFull', { percent: usagePercentRounded })
+      : t('chat.contextFillingUp', { percent: usagePercentRounded }))
+    : null;
+  const usageBarColor = usageCritical ? '#ef4444' : usageNearLimit ? '#f97316' : usagePercent >= 60 ? '#eab308' : '#3b82f6';
+
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     const lineHeight = 22;
-    const maxHeight = lineHeight * 6 + 16; // ~6 lines + padding
+    const maxHeight = lineHeight * 6 + 16;
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, []);
 
@@ -70,13 +89,12 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
     onSend(trimmed || t('chat.imageMessage'), attachments.length > 0 ? attachments : undefined);
     setValue('');
     setAttachments([]);
-    // Reset height after send
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
     }, 0);
-  }, [value, attachments, onSend]);
+  }, [value, attachments, onSend, t]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -95,20 +113,17 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
     if (!files) return;
     for (const file of Array.from(files)) {
       try {
-        // Use Tauri's file path if available (from drag/drop or file dialog)
-        // For input[type=file], we read as base64 in the frontend
         const reader = new FileReader();
         const result = await new Promise<string>((resolve, reject) => {
           reader.onload = () => resolve(reader.result as string);
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-        // Extract base64 and media type from data URL
         const match = result.match(/^data:([^;]+);base64,(.+)$/);
         if (!match) continue;
         const [, mediaType, base64Data] = match;
         if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mediaType)) continue;
-        setAttachments(prev => [...prev, {
+        setAttachments((prev) => [...prev, {
           base64Data,
           mediaType,
           originalName: file.name,
@@ -117,12 +132,11 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
         // Silently skip files that fail to read
       }
     }
-    // Reset the input so the same file can be re-selected
     e.target.value = '';
   }, []);
 
   const removeAttachment = useCallback((index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -168,7 +182,7 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
         const match = result.match(/^data:([^;]+);base64,(.+)$/);
         if (!match) continue;
         const [, mediaType, base64Data] = match;
-        setAttachments(prev => [...prev, {
+        setAttachments((prev) => [...prev, {
           base64Data,
           mediaType,
           originalName: file.name,
@@ -181,6 +195,7 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
 
   return (
     <div
+      data-testid="chat-input"
       className={`relative border-t border-border bg-surface-1 px-4 py-3 transition-colors ${
         isDragging ? 'ring-2 ring-accent/50 bg-accent-subtle' : ''
       }`}
@@ -189,84 +204,132 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drag overlay */}
       {isDragging && (
-        <div className="absolute inset-0 flex items-center justify-center bg-accent-subtle/50 border-2 border-dashed border-accent rounded-lg z-10 pointer-events-none">
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-accent bg-accent-subtle/50 pointer-events-none">
           <span className="text-sm font-medium text-accent">{t('chat.dragDropHint')}</span>
         </div>
       )}
-      {/* Finish reason warnings */}
+
       {finishReason === 'length' && !isStreaming && (
-        <div className="flex items-center gap-1.5 px-1 pb-2 text-[10px] text-yellow-500">
-          <span>⚠️ {t('chat.truncated')}</span>
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-2.5 py-1.5 text-xs text-yellow-600">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>{t('chat.truncated')}</span>
         </div>
       )}
       {finishReason === 'contentfilter' && !isStreaming && (
-        <div className="flex items-center gap-1.5 px-1 pb-2 text-[10px] text-red-400">
-          <span>⚠️ {t('chat.contentFiltered')}</span>
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-400">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>{t('chat.contentFiltered')}</span>
         </div>
       )}
-      {/* Context overflow banner */}
       {contextOverflow && !isStreaming && (
-        <div className="flex items-center gap-2 px-2 pb-2 text-xs text-orange-400 bg-orange-500/10 rounded-md py-1.5 mb-1">
-          <span className="flex-1">✂️ {t('chat.contextOverflow')}</span>
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-orange-500/25 bg-orange-500/10 px-2.5 py-1.5 text-xs text-orange-400">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span className="flex-1">{t('chat.contextOverflow')}</span>
           {onCompact && (
             <button
               onClick={onCompact}
-              className="px-2 py-0.5 rounded text-[10px] font-medium bg-orange-500/20 hover:bg-orange-500/30 transition-colors cursor-pointer"
+              className="rounded-md bg-orange-500/20 px-2 py-0.5 text-[11px] font-medium hover:bg-orange-500/30 transition-colors cursor-pointer"
             >
               {t('chat.compact')}
             </button>
           )}
         </div>
       )}
-      {/* Rate limited banner */}
       {rateLimited && !isStreaming && (
-        <div className="flex items-center gap-1.5 px-2 pb-2 text-xs text-yellow-500 bg-yellow-500/10 rounded-md py-1.5 mb-1">
-          <span>⏳ {t('chat.rateLimited')}</span>
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-2.5 py-1.5 text-xs text-yellow-600">
+          <Clock3 className="h-3.5 w-3.5" />
+          <span>{t('chat.rateLimited')}</span>
         </div>
       )}
-      {/* Token usage bar */}
-      {tokenUsage && tokenUsage.contextWindow > 0 && (() => {
-        const percentage = Math.min(100, (tokenUsage.promptTokens / tokenUsage.contextWindow) * 100);
-        const color = percentage > 90 ? '#ef4444' : percentage > 75 ? '#f97316' : percentage > 50 ? '#eab308' : undefined;
-        return (
-          <div className="flex items-center gap-2 px-1 pb-2 text-[10px] text-muted/60">
-            <div className="flex-1 bg-surface-3 rounded h-1">
+
+      {usage && (
+        <div
+          data-testid="context-usage-card"
+          className={`mb-2 rounded-xl border px-3 py-2 ${
+          usageCritical
+            ? 'border-red-500/25 bg-red-500/10'
+            : usageNearLimit
+              ? 'border-yellow-500/20 bg-yellow-500/10'
+              : 'border-border/70 bg-surface-0/70'
+        }`}
+        >
+          <div className="flex items-center gap-2">
+            <Gauge className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+            <span data-testid="context-usage-percent" className="shrink-0 text-[11px] tabular-nums text-text-secondary">
+              {t('chat.tokenUsagePercent', { percent: usagePercentRounded })}
+            </span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3/80">
               <div
-                className={`h-1 rounded transition-all duration-500 ${
-                  !color ? 'bg-accent' : ''
-                }`}
-                style={{ width: `${Math.max(percentage, 0.5)}%`, ...(color ? { backgroundColor: color } : {}) }}
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(usagePercent, 0.8)}%`, backgroundColor: usageBarColor }}
               />
             </div>
-            <span className="shrink-0 tabular-nums">
-              ↑{formatTokens(tokenUsage.promptTokens)} ↓{formatTokens(tokenUsage.completionTokens)} / {formatTokens(tokenUsage.contextWindow)} {t('chat.tokensLabel')}
-            </span>
-            {tokenUsage.thinkingTokens > 0 && (
-              <span className="shrink-0 tabular-nums text-accent/70" title={t('chat.thinkingTokens', { tokens: String(tokenUsage.thinkingTokens) })}>
-                🧠{formatTokens(tokenUsage.thinkingTokens)}
+            {usage.isEstimated && (
+              <span className="shrink-0 rounded bg-surface-3 px-1 py-0.5 text-[10px] text-text-tertiary" title="Estimated">
+                ~
               </span>
             )}
-            {percentage > 60 && onCompact && (
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+            <span className="tabular-nums text-text-secondary">
+              {t('chat.tokenUsage', {
+                used: formatTokens(usage.promptTokens),
+                total: formatTokens(usage.contextWindow),
+              })}
+            </span>
+            <span className="tabular-nums text-text-tertiary">
+              in {formatTokens(usage.promptTokens)} out {formatTokens(usage.completionTokens)}
+            </span>
+            {usage.thinkingTokens > 0 && (
+              <span
+                className="inline-flex items-center gap-1 tabular-nums text-accent/80"
+                title={t('chat.thinkingTokens', { tokens: String(usage.thinkingTokens) })}
+              >
+                <Brain className="h-3 w-3" />
+                {formatTokens(usage.thinkingTokens)}
+              </span>
+            )}
+            {onCompact && (usagePercent >= 60 || contextOverflow) && (
               <button
                 onClick={onCompact}
-                className="p-0.5 rounded hover:bg-surface-3 text-muted/60 hover:text-text-secondary transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-text-tertiary hover:bg-surface-3 hover:text-text-secondary transition-colors cursor-pointer"
                 title={t('chat.compact')}
               >
                 <Scissors size={12} />
+                <span>{t('chat.compact')}</span>
               </button>
             )}
             {conversationId && onRestoreCheckpoint && (
-              <CheckpointMenu
-                conversationId={conversationId}
-                onRestore={onRestoreCheckpoint}
-              />
+              <CheckpointMenu conversationId={conversationId} onRestore={onRestoreCheckpoint} />
             )}
           </div>
-        );
-      })()}
-      {/* Attachment preview */}
+
+          {usageHint && !contextOverflow && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+              <span className={usageCritical ? 'text-red-400' : 'text-yellow-600'}>
+                {usageHint}
+              </span>
+              {onStartNewChat && (
+                <button
+                  type="button"
+                  onClick={onStartNewChat}
+                  className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                    usageCritical
+                      ? 'bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                      : 'bg-yellow-500/15 text-yellow-700 hover:bg-yellow-500/25'
+                  }`}
+                >
+                  <Plus size={12} />
+                  {t('chat.startNewChat')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 pb-2">
           {attachments.map((att, i) => (
@@ -274,18 +337,16 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
               <img
                 src={`data:${att.mediaType};base64,${att.base64Data}`}
                 alt={att.originalName}
-                className="w-16 h-16 object-cover rounded-md border border-border"
+                className="h-16 w-16 rounded-md border border-border object-cover"
               />
               <button
                 onClick={() => removeAttachment(i)}
-                className="absolute -top-1.5 -right-1.5 bg-danger text-white rounded-full
-                  w-4 h-4 flex items-center justify-center text-[10px] leading-none
-                  opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[10px] leading-none text-white opacity-0 transition-opacity cursor-pointer group-hover:opacity-100"
                 aria-label={t('chat.removeAttachment')}
               >
-                <X className="w-3 h-3" />
+                <X className="h-3 w-3" />
               </button>
-              <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate rounded-b-md">
+              <span className="absolute bottom-0 left-0 right-0 truncate rounded-b-md bg-black/50 px-1 text-[9px] text-white">
                 {att.originalName}
               </span>
             </div>
@@ -294,15 +355,11 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
       )}
 
       <div className="flex items-end gap-2">
-        {/* Attachment button */}
         <motion.button
           whileTap={{ scale: 0.95 }}
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || isStreaming}
-          className="shrink-0 h-10 w-10 flex items-center justify-center
-            rounded-lg text-text-tertiary hover:bg-surface-2 hover:text-text-secondary
-            transition-colors duration-fast ease-out cursor-pointer
-            disabled:opacity-40 disabled:pointer-events-none"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-colors duration-fast ease-out cursor-pointer hover:bg-surface-2 hover:text-text-secondary disabled:pointer-events-none disabled:opacity-40"
           aria-label={t('chat.attachImage')}
         >
           <Paperclip className="h-4 w-4" />
@@ -317,6 +374,7 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
         />
 
         <textarea
+          data-testid="chat-input-textarea"
           ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -324,22 +382,14 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
           placeholder={t('chat.placeholder')}
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none bg-surface-0 border border-border rounded-lg
-            text-sm text-text-primary placeholder:text-text-tertiary
-            px-3.5 py-2.5 outline-none
-            transition-all duration-fast ease-out
-            hover:border-border-hover
-            focus:border-accent focus:ring-1 focus:ring-accent/30
-            disabled:opacity-40 disabled:pointer-events-none"
+          className="flex-1 resize-none rounded-lg border border-border bg-surface-0 px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 disabled:pointer-events-none disabled:opacity-40"
         />
 
         {isStreaming ? (
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={onStop}
-            className="shrink-0 h-10 w-10 flex items-center justify-center
-              rounded-lg bg-danger/10 text-danger hover:bg-danger/20
-              transition-colors duration-fast ease-out cursor-pointer"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger transition-colors duration-fast ease-out cursor-pointer hover:bg-danger/20"
             aria-label={t('chat.stop')}
           >
             <Square className="h-4 w-4" />
@@ -349,10 +399,8 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled, tokenUsage, o
             whileTap={{ scale: 0.95 }}
             onClick={handleSend}
             disabled={disabled || (!value.trim() && attachments.length === 0)}
-            className="shrink-0 h-10 w-10 flex items-center justify-center
-              rounded-lg bg-accent text-white hover:bg-accent-hover
-              transition-colors duration-fast ease-out cursor-pointer
-              disabled:opacity-40 disabled:pointer-events-none"
+            data-testid="chat-send"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors duration-fast ease-out cursor-pointer hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-40"
             aria-label={t('chat.send')}
           >
             <Send className="h-4 w-4" />

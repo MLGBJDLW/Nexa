@@ -13,15 +13,15 @@ import { ru } from './locales/ru';
 
 const translations: Record<Locale, TranslationKeys> = {
   'zh-CN': zhCN,
-  'en': en,
-  'ja': ja,
-  'ko': ko,
+  en,
+  ja,
+  ko,
   'zh-TW': zhTW,
-  'fr': fr,
-  'de': de,
-  'es': es,
-  'pt': pt,
-  'ru': ru,
+  fr,
+  de,
+  es,
+  pt,
+  ru,
 };
 
 const STORAGE_KEY = 'ask-myself-locale';
@@ -61,7 +61,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const t = useCallback((key: keyof TranslationKeys, params?: Record<string, string | number>) => {
-    let text = translations[locale]?.[key] ?? translations['en']?.[key] ?? key;
+    let text = translations[locale]?.[key] ?? translations.en?.[key] ?? key;
     if (params) {
       for (const [k, v] of Object.entries(params)) {
         text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));

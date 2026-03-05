@@ -37,7 +37,7 @@ export function SourceSelector({ conversationId, onUpdate }: SourceSelectorProps
       setSources(allSources);
       setLinkedIds(new Set(linked));
     } catch {
-      // Silently fail — sources list may just be empty
+      // Silently fail - sources list may just be empty
     } finally {
       setLoading(false);
     }
@@ -106,7 +106,7 @@ export function SourceSelector({ conversationId, onUpdate }: SourceSelectorProps
       >
         <Database size={13} />
         <span>{t('chat.knowledgeSources')}</span>
-        <span className="text-text-tertiary">·</span>
+        <span className="text-text-tertiary">/</span>
         <span className={selectedCount === 0 ? 'text-text-tertiary' : 'text-accent'}>
           {label}
         </span>
@@ -145,7 +145,7 @@ export function SourceSelector({ conversationId, onUpdate }: SourceSelectorProps
               </div>
             ) : sources.length === 0 ? (
               <div className="px-3 py-4 text-xs text-text-tertiary text-center">
-                —
+                {t('sources.emptyTitle')}
               </div>
             ) : (
               <ul className="py-1">
@@ -205,3 +205,4 @@ export function SourceSelector({ conversationId, onUpdate }: SourceSelectorProps
     </div>
   );
 }
+

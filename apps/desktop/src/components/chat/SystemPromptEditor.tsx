@@ -158,7 +158,7 @@ export function SystemPromptEditor({
                 disabled={saving || !isDirty}
                 className="
                   flex items-center gap-1 px-3 py-1 rounded text-xs
-                  bg-accent text-on-accent
+                  bg-accent text-white
                   hover:bg-accent/90 transition-colors
                   disabled:opacity-50 disabled:cursor-not-allowed
                 "
