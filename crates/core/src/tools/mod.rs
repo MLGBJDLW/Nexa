@@ -47,6 +47,7 @@ pub mod list_dir_tool;
 pub mod list_documents_tool;
 pub mod list_sources_tool;
 pub mod manage_source_tool;
+pub mod mcp_tool;
 pub mod playbook_tool;
 pub mod reindex_tool;
 pub mod search_playbooks_tool;
@@ -139,6 +140,11 @@ impl ToolRegistry {
             .iter()
             .find(|t| t.name() == name)
             .map(|t| t.as_ref())
+    }
+
+    /// Check whether a tool name is already registered.
+    pub fn contains(&self, name: &str) -> bool {
+        self.tools.iter().any(|tool| tool.name() == name)
     }
 
     /// Execute a tool by name, returning an error if the tool is not found.

@@ -127,7 +127,10 @@ fn execute_update(
 
     let playbook = db.update_playbook(playbook_id, title, description)?;
 
-    let content = format!("Updated playbook \"{}\" (id: {})", playbook.title, playbook.id);
+    let content = format!(
+        "Updated playbook \"{}\" (id: {})",
+        playbook.title, playbook.id
+    );
     let artifacts = serde_json::to_value(&playbook).ok();
 
     Ok(ToolResult {

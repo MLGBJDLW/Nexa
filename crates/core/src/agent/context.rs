@@ -2,8 +2,9 @@
 
 use chrono::Utc;
 
-use crate::conversation::memory::{model_context_window, trim_to_context_window};
-use crate::llm::{ContentPart, Message, Role};
+use crate::conversation::memory::{estimate_tokens, model_context_window, trim_to_context_window};
+use crate::llm::{ContentPart, Message, Role, ToolDefinition};
+use crate::skills::Skill;
 
 /// Approximate character limit for the system prompt (~4 000 tokens).
 const MAX_SYSTEM_PROMPT_CHARS: usize = 16_000;
@@ -25,16 +26,35 @@ pub fn prepare_messages(
     model: &str,
     max_tokens_response: u32,
     context_window_override: Option<u32>,
+    skills: &[Skill],
+    tool_definitions: &[ToolDefinition],
 ) -> Vec<Message> {
     let mut messages = Vec::with_capacity(history.len() + 2);
 
-    // System message — always first, with current date/time appended.
-    let system_with_datetime = format!(
+    // System message — always first, with current date/time and skills appended.
+    let skills_section = crate::skills::build_skills_section(skills);
+    let mut full_prompt = format!(
         "{}\n\nCurrent date and time: {} (UTC)",
         system_prompt,
         Utc::now().format("%Y-%m-%d %H:%M UTC")
     );
-    let system_with_datetime = cap_system_prompt(system_with_datetime);
+    // Inject skills before capping.
+    if !skills_section.is_empty() {
+        // Reserve space for the base prompt; truncate skills if they would exceed the cap.
+        let remaining = MAX_SYSTEM_PROMPT_CHARS.saturating_sub(full_prompt.len());
+        if remaining > 0 {
+            let truncated_skills = if skills_section.len() > remaining {
+                format!(
+                    "{}\n...[skills truncated]",
+                    &skills_section[..remaining.saturating_sub(25)]
+                )
+            } else {
+                skills_section
+            };
+            full_prompt.push_str(&truncated_skills);
+        }
+    }
+    let system_with_datetime = cap_system_prompt(full_prompt);
     messages.push(Message::text(Role::System, system_with_datetime));
 
     // Prior conversation turns.
@@ -49,9 +69,11 @@ pub fn prepare_messages(
         reasoning_content: None,
     });
 
-    // Trim to fit context window.
+    // Trim to fit context window, accounting for tool definition overhead.
     let max_context = context_window_override.unwrap_or_else(|| model_context_window(model));
-    let mut trimmed = trim_to_context_window(&messages, max_context, max_tokens_response);
+    let tool_overhead = estimate_tool_tokens(tool_definitions);
+    let effective_context = max_context.saturating_sub(tool_overhead);
+    let mut trimmed = trim_to_context_window(&messages, effective_context, max_tokens_response);
 
     // If messages were evicted, inject an extractive recap into the system prompt
     // so the LLM retains awareness of earlier conversation topics.
@@ -150,6 +172,17 @@ pub fn build_evicted_recap_from_messages(evicted: &[Message]) -> String {
     build_evicted_recap(&refs)
 }
 
+/// Estimate tokens occupied by tool definitions in the LLM request.
+pub fn estimate_tool_tokens(tools: &[ToolDefinition]) -> u32 {
+    let mut total = 0u32;
+    for tool in tools {
+        let tool_text = format!("{} {} {}", tool.name, tool.description, tool.parameters);
+        total += estimate_tokens(&tool_text);
+        total += 10; // overhead per tool (formatting, type annotations)
+    }
+    total
+}
+
 /// Enforce `MAX_SYSTEM_PROMPT_CHARS` on the system prompt.
 ///
 /// If the prompt exceeds the limit it is truncated on a word boundary and
@@ -198,6 +231,8 @@ mod tests {
             "gpt-4o",
             4096,
             None,
+            &[],
+            &[],
         );
 
         // System is first, with datetime appended.
@@ -237,6 +272,8 @@ mod tests {
             "some-model",
             512,
             Some(8192),
+            &[],
+            &[],
         );
 
         // System message must survive.
@@ -272,6 +309,8 @@ mod tests {
             "gpt-4o",
             4096,
             None,
+            &[],
+            &[],
         );
 
         // No trimming happened, so no recap.
@@ -291,10 +330,53 @@ mod tests {
             "gpt-4o",
             4096,
             None,
+            &[],
+            &[],
         );
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].role, Role::System);
         assert_eq!(result[1].role, Role::User);
         assert_eq!(result[1].text_content(), "Hello");
+    }
+
+    #[test]
+    fn test_prepare_messages_with_skills() {
+        let skills = vec![Skill {
+            id: "1".into(),
+            name: "Be Concise".into(),
+            content: "Always answer briefly.".into(),
+            enabled: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }];
+        let result = prepare_messages(
+            "System prompt",
+            &[],
+            &[ContentPart::Text {
+                text: "Hi".to_string(),
+            }],
+            "gpt-4o",
+            4096,
+            None,
+            &skills,
+            &[],
+        );
+        let sys_text = result[0].text_content();
+        assert!(
+            sys_text.contains("Active Skills"),
+            "Skills should be in system prompt"
+        );
+        assert!(sys_text.contains("Be Concise"));
+    }
+
+    #[test]
+    fn test_estimate_tool_tokens() {
+        let tools = vec![ToolDefinition {
+            name: "search".into(),
+            description: "Search the knowledge base".into(),
+            parameters: serde_json::json!({"type": "object", "properties": {"query": {"type": "string"}}}),
+        }];
+        let tokens = estimate_tool_tokens(&tools);
+        assert!(tokens > 10, "Tool tokens should be non-trivial");
     }
 }

@@ -457,6 +457,10 @@ export interface TranslationKeys {
   'chat.deleteBatchConfirm': string;
   'chat.deleteBatchConfirmDesc': string;
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': string;
+  'chat.skillsSummary': string;
+
   // Chat Suggestions
   'chat.suggestions.search': string;
   'chat.suggestions.search.prompt': string;
@@ -548,6 +552,36 @@ export interface TranslationKeys {
   'settings.providerAzure': string;
   'settings.providerAzureOpenAI': string;
   'settings.providerCustom': string;
+
+  // Settings - Extensions
+  'settings.extensionsTab': string;
+  'settings.skills': string;
+  'settings.skillsDescription': string;
+  'settings.addSkill': string;
+  'settings.editSkill': string;
+  'settings.skillName': string;
+  'settings.skillContent': string;
+  'settings.skillContentPlaceholder': string;
+  'settings.skillTokenEstimate': string;
+  'settings.noSkills': string;
+  'settings.mcpServers': string;
+  'settings.mcpServersDescription': string;
+  'settings.addMcpServer': string;
+  'settings.editMcpServer': string;
+  'settings.mcpServerName': string;
+  'settings.mcpTransport': string;
+  'settings.mcpCommand': string;
+  'settings.mcpArgs': string;
+  'settings.mcpUrl': string;
+  'settings.mcpEnvVars': string;
+  'settings.mcpHeaders': string;
+  'settings.mcpTestConnection': string;
+  'settings.mcpTestSuccess': string;
+  'settings.mcpTestFailed': string;
+  'settings.mcpDiscoveredTools': string;
+  'settings.noMcpServers': string;
+  'settings.deleteSkillConfirm': string;
+  'settings.deleteMcpServerConfirm': string;
 
   // Provider Model Tags
   'providers.tagLatest': string;

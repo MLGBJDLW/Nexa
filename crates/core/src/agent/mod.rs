@@ -422,6 +422,8 @@ impl AgentExecutor {
             .await;
 
         // --- 1. Build initial messages with context-window trimming -----------
+        let skills = db.get_enabled_skills().unwrap_or_default();
+        let tool_defs = self.tools.definitions();
         let mut messages = context::prepare_messages(
             &self.config.system_prompt,
             &history,
@@ -429,6 +431,8 @@ impl AgentExecutor {
             model,
             max_response_tokens,
             self.config.context_window,
+            &skills,
+            &tool_defs,
         );
 
         // --- 2. Privacy redaction on outgoing user content --------------------
@@ -446,7 +450,6 @@ impl AgentExecutor {
         }
 
         // --- 3. Prepare tool definitions -------------------------------------
-        let tool_defs = self.tools.definitions();
         let tools_param = if tool_defs.is_empty() {
             None
         } else {

@@ -20,12 +20,14 @@ use ask_core::ingest::{self, EmbedResult, IngestResult};
 use ask_core::llm::{
     create_provider, ContentPart, Message, ProviderConfig, ProviderType, ReasoningEffort, Role,
 };
+use ask_core::mcp::{McpServer, McpToolInfo, SaveMcpServerInput};
 use ask_core::models::{
     EvidenceCard, Playbook, PlaybookCitation, SearchFilters, SearchQuery, Source,
 };
 use ask_core::playbook::QueryLog;
 use ask_core::privacy::PrivacyConfig;
 use ask_core::search::{self, SearchResult};
+use ask_core::skills::{SaveSkillInput, Skill};
 use ask_core::sources::{CreateSourceInput, UpdateSourceInput};
 use ask_core::tools::default_tool_registry;
 use ask_core::watcher::{FileWatcher, WatcherEventKind};
@@ -44,6 +46,19 @@ pub struct AppState {
 pub struct AgentState {
     /// Map of conversation_id → (cancellation token, task handle).
     pub running: TokioMutex<HashMap<String, (CancellationToken, tokio::task::JoinHandle<()>)>>,
+}
+
+/// State for the MCP server manager.
+pub struct McpManagerState {
+    pub manager: TokioMutex<ask_core::mcp::McpManager>,
+}
+
+async fn sync_enabled_mcp_servers(
+    db: &Database,
+    manager: &mut ask_core::mcp::McpManager,
+) -> Result<HashMap<String, String>, String> {
+    let enabled_servers = db.get_enabled_mcp_servers().map_err(|e| e.to_string())?;
+    Ok(manager.sync_servers(&enabled_servers).await)
 }
 
 /// State for the file watcher.
@@ -1347,6 +1362,7 @@ pub async fn test_agent_connection_cmd(
 pub async fn agent_chat_cmd(
     state: tauri::State<'_, AppState>,
     agent_state: tauri::State<'_, AgentState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
     app_handle: AppHandle,
     conversation_id: String,
     message: String,
@@ -1404,7 +1420,14 @@ pub async fn agent_chat_cmd(
     let preference_section =
         ask_core::personalization::build_preference_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
-    let system_prompt = format!("{}{}{}", base_prompt, memory_section, preference_section);
+    let skills_section = {
+        let skills = state.db.get_enabled_skills().unwrap_or_default();
+        ask_core::skills::build_skills_section(&skills)
+    };
+    let system_prompt = format!(
+        "{}{}{}{}",
+        base_prompt, memory_section, preference_section, skills_section
+    );
 
     // 6. Build executor config from DB config.
     let executor_config = ExecutorConfig {
@@ -1446,8 +1469,24 @@ pub async fn agent_chat_cmd(
             None
         };
 
-    // 7. Create tool registry.
-    let tools = default_tool_registry();
+    // 7. Create tool registry with built-in + MCP tools.
+    let mut tools = default_tool_registry();
+
+    // Register MCP tools from currently enabled servers.
+    {
+        let mut mcp_manager = mcp_state.manager.lock().await;
+        match sync_enabled_mcp_servers(&state.db, &mut mcp_manager).await {
+            Ok(errors) => {
+                for (server_id, error) in errors {
+                    warn!("Failed to sync MCP server {server_id}: {error}");
+                }
+            }
+            Err(error) => warn!("Failed to load enabled MCP servers: {error}"),
+        }
+        if let Err(e) = mcp_manager.register_tools(&mut tools).await {
+            warn!("Failed to register MCP tools: {e}");
+        }
+    }
 
     // 7b. Build user content parts (text + optional image attachments).
     let mut user_parts = vec![ContentPart::Text {
@@ -1609,4 +1648,185 @@ pub async fn download_ocr_models_cmd(
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ── Skills Commands ─────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_skills_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Skill>, String> {
+    state.db.list_skills().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_skill_cmd(
+    state: tauri::State<'_, AppState>,
+    input: SaveSkillInput,
+) -> Result<Skill, String> {
+    state.db.save_skill(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_skill_cmd(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state.db.delete_skill(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn toggle_skill_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_skill(&id, enabled)
+        .map_err(|e| e.to_string())
+}
+
+// ── MCP Commands ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_mcp_servers_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<McpServer>, String> {
+    state.db.list_mcp_servers().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_mcp_server_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    input: SaveMcpServerInput,
+) -> Result<McpServer, String> {
+    let saved = state
+        .db
+        .save_mcp_server(&input)
+        .map_err(|e| e.to_string())?;
+    let mut manager = mcp_state.manager.lock().await;
+    match sync_enabled_mcp_servers(&state.db, &mut manager).await {
+        Ok(errors) => {
+            for (server_id, error) in errors {
+                warn!("Failed to sync MCP server {server_id} after save: {error}");
+            }
+        }
+        Err(error) => warn!("Failed to refresh enabled MCP servers after save: {error}"),
+    }
+    Ok(saved)
+}
+
+#[tauri::command]
+pub async fn delete_mcp_server_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    id: String,
+) -> Result<(), String> {
+    state.db.delete_mcp_server(&id).map_err(|e| e.to_string())?;
+    let mut manager = mcp_state.manager.lock().await;
+    manager.disconnect_server(&id).await.ok();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_mcp_server_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_mcp_server(&id, enabled)
+        .map_err(|e| e.to_string())?;
+
+    let mut manager = mcp_state.manager.lock().await;
+    if enabled {
+        match sync_enabled_mcp_servers(&state.db, &mut manager).await {
+            Ok(errors) => {
+                for (server_id, error) in errors {
+                    warn!("Failed to sync MCP server {server_id} after enable: {error}");
+                }
+            }
+            Err(error) => warn!("Failed to refresh enabled MCP servers after enable: {error}"),
+        }
+    } else {
+        manager.disconnect_server(&id).await.ok();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_mcp_server_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    id: String,
+) -> Result<Vec<McpToolInfo>, String> {
+    let servers = state.db.list_mcp_servers().map_err(|e| e.to_string())?;
+    let server = servers
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| format!("MCP server {id} not found"))?;
+    let mut manager = mcp_state.manager.lock().await;
+    // connect_server stores the client so list_mcp_tools_cmd can reuse it.
+    let tools = manager
+        .connect_server(&server)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(tools)
+}
+
+#[tauri::command]
+pub async fn test_mcp_server_direct_cmd(
+    mcp_state: tauri::State<'_, McpManagerState>,
+    name: String,
+    transport: String,
+    command: Option<String>,
+    args: Option<String>,
+    url: Option<String>,
+    env_json: Option<String>,
+    headers_json: Option<String>,
+) -> Result<Vec<McpToolInfo>, String> {
+    let server = McpServer {
+        id: "__test__".to_string(),
+        name,
+        transport,
+        command,
+        args,
+        url,
+        env_json,
+        headers_json,
+        enabled: true,
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let mut manager = mcp_state.manager.lock().await;
+    let tools = manager
+        .connect_server(&server)
+        .await
+        .map_err(|e| e.to_string())?;
+    manager.disconnect_server("__test__").await.ok();
+    Ok(tools)
+}
+
+#[tauri::command]
+pub async fn list_mcp_tools_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    server_id: String,
+) -> Result<Vec<McpToolInfo>, String> {
+    let mut manager = mcp_state.manager.lock().await;
+    // If already connected, list tools from existing client.
+    if let Some(client) = manager.get_client(&server_id) {
+        let mut guard = client.lock().await;
+        return guard.list_tools().await.map_err(|e| e.to_string());
+    }
+    // Otherwise, connect first.
+    let servers = state.db.list_mcp_servers().map_err(|e| e.to_string())?;
+    let server = servers
+        .into_iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("MCP server {server_id} not found"))?;
+    manager
+        .connect_server(&server)
+        .await
+        .map_err(|e| e.to_string())
 }

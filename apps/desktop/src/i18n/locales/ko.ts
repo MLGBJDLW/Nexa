@@ -457,6 +457,10 @@ export const ko: TranslationKeys = {
   'chat.deleteBatchConfirm': '선택한 대화를 삭제하시겠습니까?',
   'chat.deleteBatchConfirmDesc': '{count}개의 대화와 메시지가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP ({servers}개 서버, {tools}개 도구)',
+  'chat.skillsSummary': '스킬 ({count}개 활성)',
+
   // Chat Suggestions
   'chat.suggestions.search': '지식 검색',
   'chat.suggestions.search.prompt': '내 노트에서 검색...',
@@ -548,6 +552,36 @@ export const ko: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': '사용자 정의',
+
+  // Settings - Extensions
+  'settings.extensionsTab': '확장 기능',
+  'settings.skills': '스킬',
+  'settings.skillsDescription': '에이전트 동작을 수정하는 사용자 정의 지시사항',
+  'settings.addSkill': '스킬 추가',
+  'settings.editSkill': '스킬 편집',
+  'settings.skillName': '스킬 이름',
+  'settings.skillContent': '지시 내용',
+  'settings.skillContentPlaceholder': '에이전트를 위한 지시사항 입력...',
+  'settings.skillTokenEstimate': '예상 토큰 수: {{count}}',
+  'settings.noSkills': '설정된 스킬이 없습니다. 스킬을 추가하여 에이전트 동작을 사용자 정의하세요.',
+  'settings.mcpServers': 'MCP 서버',
+  'settings.mcpServersDescription': 'Model Context Protocol을 통해 외부 도구 서버에 연결',
+  'settings.addMcpServer': '서버 추가',
+  'settings.editMcpServer': '서버 편집',
+  'settings.mcpServerName': '서버 이름',
+  'settings.mcpTransport': '전송 방식',
+  'settings.mcpCommand': '명령어',
+  'settings.mcpArgs': '인수',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': '환경 변수',
+  'settings.mcpHeaders': '헤더',
+  'settings.mcpTestConnection': '연결 테스트',
+  'settings.mcpTestSuccess': '연결 성공! {{count}}개의 도구 발견',
+  'settings.mcpTestFailed': '연결 실패',
+  'settings.mcpDiscoveredTools': '발견된 도구',
+  'settings.noMcpServers': 'MCP 서버가 설정되지 않았습니다. 서버를 추가하여 에이전트 기능을 확장하세요.',
+  'settings.deleteSkillConfirm': '이 스킬을 삭제하시겠습니까?',
+  'settings.deleteMcpServerConfirm': '이 MCP 서버를 삭제하시겠습니까?',
 
   // Provider Model Tags
   'providers.tagLatest': '최신',

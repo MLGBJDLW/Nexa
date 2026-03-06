@@ -4,7 +4,7 @@ import { Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Logo } from '../components/Logo';
-import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatMessages, ChatInput } from '../components/chat';
+import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatMessages, ChatInput, ActiveExtensions } from '../components/chat';
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useChatSession } from '../lib/useChatSession';
@@ -306,6 +306,7 @@ export function ChatPage() {
                       systemPrompt={chat.customSystemPrompt}
                       onSaved={(newPrompt) => chat.setCustomSystemPrompt(newPrompt)}
                     />
+                    <ActiveExtensions conversationId={chat.activeId ?? undefined} />
                   </div>
                 </div>
               </div>

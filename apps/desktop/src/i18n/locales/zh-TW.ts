@@ -455,6 +455,10 @@ export const zhTW: TranslationKeys = {
   'chat.deleteBatchConfirm': '刪除選取的對話？',
   'chat.deleteBatchConfirmDesc': '這將永久刪除 {count} 個對話及其訊息，此操作不可撤銷。',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP（{servers} 個伺服器，{tools} 個工具）',
+  'chat.skillsSummary': '技能（{count} 個已啟用）',
+
   // Chat Suggestions
   'chat.suggestions.search': '搜尋知識',
   'chat.suggestions.search.prompt': '在我的筆記中搜尋……',
@@ -546,6 +550,36 @@ export const zhTW: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': '自訂',
+
+  // Settings - Extensions
+  'settings.extensionsTab': '擴充功能',
+  'settings.skills': '技能',
+  'settings.skillsDescription': '自訂指令以調整代理行為',
+  'settings.addSkill': '新增技能',
+  'settings.editSkill': '編輯技能',
+  'settings.skillName': '技能名稱',
+  'settings.skillContent': '指令內容',
+  'settings.skillContentPlaceholder': '輸入代理指令...',
+  'settings.skillTokenEstimate': '預估 Token 數: {{count}}',
+  'settings.noSkills': '尚未設定技能。新增技能以自訂代理行為。',
+  'settings.mcpServers': 'MCP 伺服器',
+  'settings.mcpServersDescription': '透過 Model Context Protocol 連接外部工具伺服器',
+  'settings.addMcpServer': '新增伺服器',
+  'settings.editMcpServer': '編輯伺服器',
+  'settings.mcpServerName': '伺服器名稱',
+  'settings.mcpTransport': '傳輸方式',
+  'settings.mcpCommand': '命令',
+  'settings.mcpArgs': '參數',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': '環境變數',
+  'settings.mcpHeaders': '標頭',
+  'settings.mcpTestConnection': '測試連線',
+  'settings.mcpTestSuccess': '連線成功！發現 {{count}} 個工具',
+  'settings.mcpTestFailed': '連線失敗',
+  'settings.mcpDiscoveredTools': '已發現的工具',
+  'settings.noMcpServers': '尚未設定 MCP 伺服器。新增伺服器以擴展代理功能。',
+  'settings.deleteSkillConfirm': '確定要刪除此技能嗎？',
+  'settings.deleteMcpServerConfirm': '確定要刪除此 MCP 伺服器嗎？',
 
   // Provider Model Tags
   'providers.tagLatest': '最新',

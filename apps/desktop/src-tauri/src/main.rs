@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ask_core::db::Database;
-use commands::{AgentState, AppState};
+use commands::{AgentState, AppState, McpManagerState};
 use tauri::Manager;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -28,6 +28,9 @@ fn main() {
             app.manage(AppState { db: db.clone() });
             app.manage(AgentState {
                 running: TokioMutex::new(HashMap::new()),
+            });
+            app.manage(McpManagerState {
+                manager: TokioMutex::new(ask_core::mcp::McpManager::new()),
             });
 
             // Initialise the file watcher for auto-indexing.
@@ -141,6 +144,19 @@ fn main() {
             commands::save_ocr_config_cmd,
             commands::check_ocr_models_cmd,
             commands::download_ocr_models_cmd,
+            // Skills
+            commands::list_skills_cmd,
+            commands::save_skill_cmd,
+            commands::delete_skill_cmd,
+            commands::toggle_skill_cmd,
+            // MCP
+            commands::list_mcp_servers_cmd,
+            commands::save_mcp_server_cmd,
+            commands::delete_mcp_server_cmd,
+            commands::toggle_mcp_server_cmd,
+            commands::test_mcp_server_cmd,
+            commands::test_mcp_server_direct_cmd,
+            commands::list_mcp_tools_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

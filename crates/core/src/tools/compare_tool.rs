@@ -27,7 +27,10 @@ struct CompareArgs {
 }
 
 /// Read a file after validating it lives inside a registered source root.
-fn read_validated_file(path_str: &str, sources: &[crate::models::Source]) -> Result<String, String> {
+fn read_validated_file(
+    path_str: &str,
+    sources: &[crate::models::Source],
+) -> Result<String, String> {
     let requested = PathBuf::from(path_str);
     let canonical = std::fs::canonicalize(&requested)
         .map_err(|e| format!("Cannot resolve path '{}': {e}", path_str))?;
@@ -44,8 +47,7 @@ fn read_validated_file(path_str: &str, sources: &[crate::models::Source]) -> Res
         ));
     }
 
-    crate::parse::read_text_file(&canonical)
-        .map_err(|e| format!("Cannot read '{}': {e}", path_str))
+    crate::parse::read_text_file(&canonical).map_err(|e| format!("Cannot read '{}': {e}", path_str))
 }
 
 /// Retrieve chunk content from the database.
@@ -86,12 +88,7 @@ fn compare_lines(text_a: &str, text_b: &str) -> (usize, Vec<String>, Vec<String>
 }
 
 /// Format the comparison output.
-fn format_comparison(
-    label_a: &str,
-    label_b: &str,
-    text_a: &str,
-    text_b: &str,
-) -> String {
+fn format_comparison(label_a: &str, label_b: &str, text_a: &str, text_b: &str) -> String {
     let (common, only_a, only_b) = compare_lines(text_a, text_b);
     let total_a = text_a.lines().count();
     let total_b = text_b.lines().count();
@@ -102,9 +99,7 @@ fn format_comparison(
         "| Metric | A ({label_a}) | B ({label_b}) |\n|---|---|---|\n"
     ));
     out.push_str(&format!("| Total lines | {total_a} | {total_b} |\n"));
-    out.push_str(&format!(
-        "| Common lines | {common} | {common} |\n"
-    ));
+    out.push_str(&format!("| Common lines | {common} | {common} |\n"));
     out.push_str(&format!(
         "| Unique lines | {} | {} |\n\n",
         only_a.len(),
@@ -120,7 +115,10 @@ fn format_comparison(
             out.push('\n');
         }
         if only_a.len() > MAX_DISPLAY {
-            out.push_str(&format!("... and {} more lines\n", only_a.len() - MAX_DISPLAY));
+            out.push_str(&format!(
+                "... and {} more lines\n",
+                only_a.len() - MAX_DISPLAY
+            ));
         }
         out.push_str("```\n\n");
     }
@@ -132,7 +130,10 @@ fn format_comparison(
             out.push('\n');
         }
         if only_b.len() > MAX_DISPLAY {
-            out.push_str(&format!("... and {} more lines\n", only_b.len() - MAX_DISPLAY));
+            out.push_str(&format!(
+                "... and {} more lines\n",
+                only_b.len() - MAX_DISPLAY
+            ));
         }
         out.push_str("```\n\n");
     }
@@ -258,7 +259,10 @@ mod tests {
             .expect("execute");
 
         assert!(!result.is_error, "unexpected error: {}", result.content);
-        assert!(result.content.contains("Common lines"), "missing common-lines section");
+        assert!(
+            result.content.contains("Common lines"),
+            "missing common-lines section"
+        );
         assert!(result.content.contains("foo"), "missing line only in A");
         assert!(result.content.contains("bar"), "missing line only in B");
     }

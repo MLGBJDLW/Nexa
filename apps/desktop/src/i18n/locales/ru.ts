@@ -457,6 +457,10 @@ export const ru: TranslationKeys = {
   'chat.deleteBatchConfirm': 'Удалить выбранные диалоги?',
   'chat.deleteBatchConfirmDesc': 'Это навсегда удалит {count} диалогов и их сообщения. Это действие нельзя отменить.',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP ({servers} серверов, {tools} инструментов)',
+  'chat.skillsSummary': 'Навыки ({count} активных)',
+
   // Chat Suggestions
   'chat.suggestions.search': 'Поиск знаний',
   'chat.suggestions.search.prompt': 'Найти в моих заметках...',
@@ -548,6 +552,36 @@ export const ru: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': 'Пользовательский',
+
+  // Settings - Extensions
+  'settings.extensionsTab': 'Расширения',
+  'settings.skills': 'Навыки',
+  'settings.skillsDescription': 'Пользовательские инструкции для изменения поведения агента',
+  'settings.addSkill': 'Добавить навык',
+  'settings.editSkill': 'Редактировать навык',
+  'settings.skillName': 'Название навыка',
+  'settings.skillContent': 'Инструкции',
+  'settings.skillContentPlaceholder': 'Введите инструкции для агента...',
+  'settings.skillTokenEstimate': 'Оценка токенов: {{count}}',
+  'settings.noSkills': 'Навыки не настроены. Добавьте навык для настройки поведения агента.',
+  'settings.mcpServers': 'MCP-серверы',
+  'settings.mcpServersDescription': 'Подключение внешних серверов инструментов через Model Context Protocol',
+  'settings.addMcpServer': 'Добавить сервер',
+  'settings.editMcpServer': 'Редактировать сервер',
+  'settings.mcpServerName': 'Имя сервера',
+  'settings.mcpTransport': 'Транспорт',
+  'settings.mcpCommand': 'Команда',
+  'settings.mcpArgs': 'Аргументы',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': 'Переменные среды',
+  'settings.mcpHeaders': 'Заголовки',
+  'settings.mcpTestConnection': 'Тест соединения',
+  'settings.mcpTestSuccess': 'Подключено! Найдено {{count}} инструментов',
+  'settings.mcpTestFailed': 'Сбой подключения',
+  'settings.mcpDiscoveredTools': 'Обнаруженные инструменты',
+  'settings.noMcpServers': 'MCP-серверы не настроены. Добавьте сервер для расширения возможностей агента.',
+  'settings.deleteSkillConfirm': 'Удалить этот навык?',
+  'settings.deleteMcpServerConfirm': 'Удалить этот MCP-сервер?',
 
   // Provider Model Tags
   'providers.tagLatest': 'Новейший',

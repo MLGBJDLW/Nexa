@@ -48,4 +48,7 @@ pub enum CoreError {
 
     #[error("Stream ended without completion marker — response may be truncated")]
     StreamIncomplete,
+
+    #[error("MCP error: {0}")]
+    Mcp(String),
 }

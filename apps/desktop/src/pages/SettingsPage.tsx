@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Database,
   Shield,
@@ -21,6 +21,10 @@ import {
   Settings2,
   X,
   ScanLine,
+  Blocks,
+  Plug,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { listen } from '@tauri-apps/api/event';
@@ -31,6 +35,7 @@ import type { EmbedderConfig } from '../types/embedder';
 import type { AgentConfig, SaveAgentConfigInput, UserMemory } from '../types/conversation';
 import type { ScanProgress, FtsProgress, DownloadProgress } from '../types/ingest';
 import type { OcrConfig, OcrDownloadProgress } from '../types/ocr';
+import type { Skill, McpServer, McpToolInfo, SaveSkillInput, SaveMcpServerInput } from '../types/extensions';
 import { useTranslation } from '../i18n';
 import { ThemeSwitcher } from '../components/ui/ThemeSwitcher';
 import { Button } from '../components/ui/Button';
@@ -38,6 +43,8 @@ import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { AgentConfigForm } from '../components/settings/AgentConfigForm';
+import { SkillEditor } from '../components/settings/SkillEditor';
+import { McpServerForm } from '../components/settings/McpServerForm';
 import { PROVIDER_PRESETS, type ProviderPreset } from '../lib/providerPresets';
 
 /* ── Section wrapper ──────────────────────────────────────────────── */
@@ -85,12 +92,28 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  let tokens = 0;
+  for (let i = 0; i < text.length; i++) {
+    tokens += text.charCodeAt(i) > 0x2fff ? 1.5 : 0.25;
+  }
+  return Math.ceil(tokens);
+}
+
 /* ── Settings page ────────────────────────────────────────────────── */
-type SettingsTab = 'appearance' | 'embedding' | 'index' | 'privacy' | 'providers' | 'ocr';
+type SettingsTab = 'appearance' | 'embedding' | 'index' | 'privacy' | 'providers' | 'ocr' | 'extensions';
 const MEMORY_CHAR_LIMIT = 240;
 
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
+  const isChinese = locale.startsWith('zh');
+  const extensionCopy = {
+    toolCount: (count: number) => (isChinese ? `${count} 个工具` : `${count} ${count === 1 ? 'tool' : 'tools'}`),
+    connectionFailed: isChinese ? '连接失败' : 'Connection failed',
+    availableTools: isChinese ? '可用工具' : 'Available tools',
+    toggleTools: isChinese ? '展开或收起工具列表' : 'Toggle tool list',
+  };
   const [activeTab, setActiveTab] = useState<SettingsTab>('embedding');
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
 
@@ -513,6 +536,166 @@ export function SettingsPage() {
     }
   };
 
+  /* ── Extensions state ────────────────────────────────────────────── */
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+  const [editingMcpServer, setEditingMcpServer] = useState<McpServer | null>(null);
+  const [showSkillForm, setShowSkillForm] = useState(false);
+  const [showMcpForm, setShowMcpForm] = useState(false);
+  const [deleteSkillTarget, setDeleteSkillTarget] = useState<Skill | null>(null);
+  const [deleteMcpTarget, setDeleteMcpTarget] = useState<McpServer | null>(null);
+  const [mcpTestLoading, setMcpTestLoading] = useState<string | null>(null);
+  const [mcpToolCounts, setMcpToolCounts] = useState<Record<string, { tools: McpToolInfo[]; loading: boolean; error?: string }>>({});
+  const [mcpToolsExpanded, setMcpToolsExpanded] = useState<Record<string, boolean>>({});
+
+  const loadSkills = useCallback(() => {
+    api.listSkills().then(setSkills).catch(() => {
+      toast.error(t('common.error'));
+    });
+  }, []);
+
+  const loadMcpServers = useCallback(() => {
+    api.listMcpServers().then(setMcpServers).catch(() => {
+      toast.error(t('common.error'));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'extensions') {
+      loadSkills();
+      loadMcpServers();
+    }
+  }, [activeTab, loadSkills, loadMcpServers]);
+
+  const handleSaveSkill = async (input: SaveSkillInput) => {
+    try {
+      await api.saveSkill(input);
+      toast.success(t('common.success'));
+      setShowSkillForm(false);
+      setEditingSkill(null);
+      loadSkills();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleDeleteSkill = async () => {
+    if (!deleteSkillTarget) return;
+    try {
+      await api.deleteSkill(deleteSkillTarget.id);
+      toast.success(t('common.success'));
+      setDeleteSkillTarget(null);
+      loadSkills();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleToggleSkill = async (id: string, enabled: boolean) => {
+    try {
+      await api.toggleSkill(id, enabled);
+      setSkills((prev) => prev.map((s) => s.id === id ? { ...s, enabled } : s));
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleSaveMcpServer = async (input: SaveMcpServerInput) => {
+    try {
+      const saved = await api.saveMcpServer(input);
+      toast.success(t('common.success'));
+      setShowMcpForm(false);
+      setEditingMcpServer(null);
+      setMcpToolCounts((prev) => {
+        const next = { ...prev };
+        delete next[saved.id];
+        return next;
+      });
+      loadMcpServers();
+      if (saved.enabled) {
+        void fetchMcpTools(saved.id);
+      }
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleDeleteMcpServer = async () => {
+    if (!deleteMcpTarget) return;
+    try {
+      await api.deleteMcpServer(deleteMcpTarget.id);
+      toast.success(t('common.success'));
+      setMcpToolCounts((prev) => {
+        const next = { ...prev };
+        delete next[deleteMcpTarget.id];
+        return next;
+      });
+      setMcpToolsExpanded((prev) => {
+        const next = { ...prev };
+        delete next[deleteMcpTarget.id];
+        return next;
+      });
+      setDeleteMcpTarget(null);
+      loadMcpServers();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleToggleMcpServer = async (id: string, enabled: boolean) => {
+    try {
+      await api.toggleMcpServer(id, enabled);
+      setMcpServers((prev) => prev.map((s) => s.id === id ? { ...s, enabled } : s));
+      if (!enabled) {
+        setMcpToolCounts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setMcpToolsExpanded((prev) => ({ ...prev, [id]: false }));
+      } else {
+        void fetchMcpTools(id);
+      }
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleTestMcpServer = async (id: string) => {
+    setMcpTestLoading(id);
+    try {
+      const tools = await api.testMcpServer(id);
+      toast.success(t('settings.mcpTestSuccess', { count: String(tools.length) }));
+      setMcpToolCounts((prev) => ({ ...prev, [id]: { tools, loading: false } }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMcpToolCounts((prev) => ({ ...prev, [id]: { tools: [], loading: false, error: msg } }));
+      toast.error(`${t('settings.mcpTestFailed')}: ${msg}`, { duration: 8000 });
+    } finally {
+      setMcpTestLoading(null);
+    }
+  };
+
+  const fetchMcpTools = useCallback(async (id: string) => {
+    setMcpToolCounts((prev) => ({ ...prev, [id]: { tools: prev[id]?.tools ?? [], loading: true } }));
+    try {
+      const tools = await api.listMcpTools(id);
+      setMcpToolCounts((prev) => ({ ...prev, [id]: { tools, loading: false } }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMcpToolCounts((prev) => ({ ...prev, [id]: { tools: [], loading: false, error: msg } }));
+    }
+  }, []);
+
+  // Auto-fetch tools for enabled servers when tab is opened
+  useEffect(() => {
+    if (activeTab !== 'extensions') return;
+    mcpServers.filter((s) => s.enabled).forEach((s) => {
+      if (!mcpToolCounts[s.id]) fetchMcpTools(s.id);
+    });
+  }, [mcpServers, activeTab, fetchMcpTools, mcpToolCounts]);
+
   /* ── AI Providers state ──────────────────────────────────────────── */
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   type ProviderView = 'list' | 'selector' | 'form';
@@ -593,6 +776,7 @@ export function SettingsPage() {
     { id: 'ocr', label: t('settings.ocrTab'), icon: <ScanLine size={16} /> },
     { id: 'index', label: t('settings.indexSection'), icon: <Database size={16} /> },
     { id: 'privacy', label: t('settings.privacySection'), icon: <Shield size={16} /> },
+    { id: 'extensions', label: t('settings.extensionsTab'), icon: <Blocks size={16} /> },
   ];
 
   /* ── Render ──────────────────────────────────────────────────────── */
@@ -1531,6 +1715,246 @@ export function SettingsPage() {
         )}
       </Section>
       )}
+
+      {/* ── Tab: Extensions ────────────────────────────────────────── */}
+      {activeTab === 'extensions' && (
+        <>
+          {/* Skills */}
+          <Section icon={<Blocks size={20} />} title={t('settings.skills')} delay={0.03}>
+            <p className="mb-4 text-xs text-text-tertiary">{t('settings.skillsDescription')}</p>
+            {showSkillForm ? (
+              <SkillEditor
+                skill={editingSkill ?? undefined}
+                onSave={handleSaveSkill}
+                onCancel={() => { setShowSkillForm(false); setEditingSkill(null); }}
+              />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => { setEditingSkill(null); setShowSkillForm(true); }}>
+                    {t('settings.addSkill')}
+                  </Button>
+                </div>
+                {skills.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Blocks size={32} className="mx-auto mb-3 text-text-tertiary" />
+                    <p className="text-sm text-text-secondary">{t('settings.noSkills')}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {skills.map((skill) => (
+                      <motion.div
+                        key={skill.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center justify-between rounded-lg border border-border bg-surface-2 p-4 transition-colors hover:bg-surface-3/50"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-text-primary truncate">{skill.name}</p>
+                            <Badge variant="default" className="text-[10px] shrink-0">
+                              ~{estimateTokens(skill.content)} tok
+                            </Badge>
+                          </div>
+                          <p className="mt-0.5 text-xs text-text-tertiary truncate">
+                            {skill.content.slice(0, 80)}{skill.content.length > 80 ? '\u2026' : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 ml-3">
+                          <button
+                            onClick={() => handleToggleSkill(skill.id, !skill.enabled)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
+                              skill.enabled ? 'bg-accent' : 'bg-surface-3'
+                            }`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
+                              skill.enabled ? 'translate-x-6' : 'translate-x-1'
+                            }`} />
+                          </button>
+                          <button
+                            onClick={() => { setEditingSkill(skill); setShowSkillForm(true); }}
+                            className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                            aria-label={t('common.edit')}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => setDeleteSkillTarget(skill)}
+                            className="rounded p-1.5 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                            aria-label={t('common.delete')}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+
+          {/* MCP Servers */}
+          <Section icon={<Plug size={20} />} title={t('settings.mcpServers')} delay={0.06}>
+            <p className="mb-4 text-xs text-text-tertiary">{t('settings.mcpServersDescription')}</p>
+            {showMcpForm ? (
+              <McpServerForm
+                server={editingMcpServer ?? undefined}
+                onSave={handleSaveMcpServer}
+                onCancel={() => { setShowMcpForm(false); setEditingMcpServer(null); }}
+              />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => { setEditingMcpServer(null); setShowMcpForm(true); }}>
+                    {t('settings.addMcpServer')}
+                  </Button>
+                </div>
+                {mcpServers.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Plug size={32} className="mx-auto mb-3 text-text-tertiary" />
+                    <p className="text-sm text-text-secondary">{t('settings.noMcpServers')}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {mcpServers.map((server) => (
+                      <motion.div
+                        key={server.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="rounded-lg border border-border bg-surface-2 transition-colors hover:bg-surface-3/50"
+                      >
+                        <div className="flex items-center justify-between p-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-text-primary truncate">{server.name}</p>
+                              <Badge variant="default" className="text-[10px] shrink-0">{server.transport}</Badge>
+                              {server.enabled && mcpToolCounts[server.id] && !mcpToolCounts[server.id].loading && !mcpToolCounts[server.id].error && (
+                                <Badge variant="default" className="text-[10px] shrink-0 bg-accent/10 text-accent border-accent/20">
+                                  {extensionCopy.toolCount(mcpToolCounts[server.id].tools.length)}
+                                </Badge>
+                              )}
+                              {server.enabled && mcpToolCounts[server.id]?.error && !mcpToolCounts[server.id].loading && (
+                                <Badge
+                                  variant="default"
+                                  className="text-[10px] shrink-0 bg-danger/10 text-danger border-danger/20 cursor-help max-w-[180px] truncate"
+                                  title={mcpToolCounts[server.id].error}
+                                >
+                                  <AlertTriangle size={10} className="inline mr-0.5 -mt-px" />
+                                  {extensionCopy.connectionFailed}
+                                </Badge>
+                              )}
+                              {server.enabled && mcpToolCounts[server.id]?.loading && (
+                                <Loader2 size={12} className="animate-spin text-text-tertiary" />
+                              )}
+                            </div>
+                            <p className="mt-0.5 text-xs text-text-tertiary truncate">
+                              {server.transport === 'stdio' ? server.command : server.url}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0 ml-3">
+                            {server.enabled && mcpToolCounts[server.id]?.tools.length > 0 && (
+                              <button
+                                onClick={() => setMcpToolsExpanded((prev) => ({ ...prev, [server.id]: !prev[server.id] }))}
+                                className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                                aria-label={extensionCopy.toggleTools}
+                              >
+                                {mcpToolsExpanded[server.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleToggleMcpServer(server.id, !server.enabled)}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
+                                server.enabled ? 'bg-accent' : 'bg-surface-3'
+                              }`}
+                            >
+                              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
+                                server.enabled ? 'translate-x-6' : 'translate-x-1'
+                              }`} />
+                            </button>
+                            <button
+                              onClick={() => handleTestMcpServer(server.id)}
+                              disabled={mcpTestLoading === server.id}
+                              className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer disabled:opacity-50"
+                              aria-label={t('settings.mcpTestConnection')}
+                            >
+                              {mcpTestLoading === server.id ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                            </button>
+                            <button
+                              onClick={() => { setEditingMcpServer(server); setShowMcpForm(true); }}
+                              className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                              aria-label={t('common.edit')}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteMcpTarget(server)}
+                              className="rounded p-1.5 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                              aria-label={t('common.delete')}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        {/* Expandable tool list */}
+                        <AnimatePresence initial={false}>
+                          {mcpToolsExpanded[server.id] && mcpToolCounts[server.id]?.tools.length > 0 && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                              className="overflow-hidden"
+                            >
+                              <div className="px-4 pb-3 border-t border-border/50">
+                                <p className="text-[10px] text-text-tertiary uppercase tracking-wider mt-2 mb-1.5">{extensionCopy.availableTools}</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {mcpToolCounts[server.id].tools.map((tool) => (
+                                    <span
+                                      key={tool.name}
+                                      title={tool.description ?? tool.name}
+                                      className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono
+                                        bg-surface-3 text-text-secondary border border-border/50"
+                                    >
+                                      {tool.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        </>
+      )}
+
+      {/* Delete skill confirm */}
+      <ConfirmDialog
+        open={!!deleteSkillTarget}
+        onClose={() => setDeleteSkillTarget(null)}
+        onConfirm={handleDeleteSkill}
+        title={t('common.delete')}
+        message={t('settings.deleteSkillConfirm')}
+        confirmText={t('common.delete')}
+        variant="danger"
+      />
+
+      {/* Delete MCP server confirm */}
+      <ConfirmDialog
+        open={!!deleteMcpTarget}
+        onClose={() => setDeleteMcpTarget(null)}
+        onConfirm={handleDeleteMcpServer}
+        title={t('common.delete')}
+        message={t('settings.deleteMcpServerConfirm')}
+        confirmText={t('common.delete')}
+        variant="danger"
+      />
     </div>
   );
 }

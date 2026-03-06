@@ -455,6 +455,10 @@ export const de: TranslationKeys = {
   'chat.deleteBatchConfirm': 'Ausgewählte Unterhaltungen löschen?',
   'chat.deleteBatchConfirmDesc': 'Dies löscht dauerhaft {count} Unterhaltungen und deren Nachrichten. Diese Aktion kann nicht rückgängig gemacht werden.',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP ({servers} Server, {tools} Tools)',
+  'chat.skillsSummary': 'Skills ({count} aktiv)',
+
   // Chat Suggestions
   'chat.suggestions.search': 'Wissen durchsuchen',
   'chat.suggestions.search.prompt': 'In meinen Notizen suchen nach...',
@@ -545,6 +549,36 @@ export const de: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': 'Benutzerdefiniert',
+
+  // Settings - Extensions
+  'settings.extensionsTab': 'Erweiterungen',
+  'settings.skills': 'Fähigkeiten',
+  'settings.skillsDescription': 'Benutzerdefinierte Anweisungen zur Anpassung des Agentenverhaltens',
+  'settings.addSkill': 'Fähigkeit hinzufügen',
+  'settings.editSkill': 'Fähigkeit bearbeiten',
+  'settings.skillName': 'Name der Fähigkeit',
+  'settings.skillContent': 'Anweisungen',
+  'settings.skillContentPlaceholder': 'Anweisungen für den Agenten eingeben...',
+  'settings.skillTokenEstimate': 'Geschätzte Token: {{count}}',
+  'settings.noSkills': 'Keine Fähigkeiten konfiguriert. Fügen Sie eine hinzu, um das Agentenverhalten anzupassen.',
+  'settings.mcpServers': 'MCP-Server',
+  'settings.mcpServersDescription': 'Externe Toolserver über das Model Context Protocol verbinden',
+  'settings.addMcpServer': 'Server hinzufügen',
+  'settings.editMcpServer': 'Server bearbeiten',
+  'settings.mcpServerName': 'Servername',
+  'settings.mcpTransport': 'Transport',
+  'settings.mcpCommand': 'Befehl',
+  'settings.mcpArgs': 'Argumente',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': 'Umgebungsvariablen',
+  'settings.mcpHeaders': 'Header',
+  'settings.mcpTestConnection': 'Verbindung testen',
+  'settings.mcpTestSuccess': 'Verbunden! {{count}} Tools gefunden',
+  'settings.mcpTestFailed': 'Verbindung fehlgeschlagen',
+  'settings.mcpDiscoveredTools': 'Erkannte Tools',
+  'settings.noMcpServers': 'Keine MCP-Server konfiguriert. Fügen Sie einen hinzu, um die Agentenfähigkeiten zu erweitern.',
+  'settings.deleteSkillConfirm': 'Diese Fähigkeit löschen?',
+  'settings.deleteMcpServerConfirm': 'Diesen MCP-Server löschen?',
 
   // Provider Model Tags
   'providers.tagLatest': 'Neueste',

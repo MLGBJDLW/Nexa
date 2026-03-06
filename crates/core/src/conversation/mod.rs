@@ -255,8 +255,10 @@ impl Database {
             "DELETE FROM conversations WHERE id IN ({})",
             placeholders.join(", ")
         );
-        let params: Vec<&dyn rusqlite::types::ToSql> =
-            ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let params: Vec<&dyn rusqlite::types::ToSql> = ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
         let affected = conn.execute(&sql, params.as_slice())?;
         Ok(affected)
     }

@@ -133,7 +133,11 @@ mod tests {
             .await
             .expect("execute should succeed");
 
-        assert!(!result.is_error, "result should not be error: {}", result.content);
+        assert!(
+            !result.is_error,
+            "result should not be error: {}",
+            result.content
+        );
         assert!(result.content.contains("upvote"));
         assert!(result.content.contains("chunk-abc-123"));
 

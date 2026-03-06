@@ -455,6 +455,10 @@ export const ja: TranslationKeys = {
   'chat.deleteBatchConfirm': '選択した会話を削除しますか？',
   'chat.deleteBatchConfirmDesc': '{count} 件の会話とメッセージが完全に削除されます。この操作は元に戻せません。',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP（{servers} サーバー、{tools} ツール）',
+  'chat.skillsSummary': 'スキル（{count} 件有効）',
+
   // Chat Suggestions
   'chat.suggestions.search': 'ナレッジ検索',
   'chat.suggestions.search.prompt': 'ノートから検索…',
@@ -546,6 +550,36 @@ export const ja: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': 'カスタム',
+
+  // Settings - Extensions
+  'settings.extensionsTab': '拡張機能',
+  'settings.skills': 'スキル',
+  'settings.skillsDescription': 'エージェントの動作をカスタマイズする指示',
+  'settings.addSkill': 'スキルを追加',
+  'settings.editSkill': 'スキルを編集',
+  'settings.skillName': 'スキル名',
+  'settings.skillContent': '指示内容',
+  'settings.skillContentPlaceholder': 'エージェントへの指示を入力...',
+  'settings.skillTokenEstimate': '推定トークン数: {{count}}',
+  'settings.noSkills': 'スキルが設定されていません。スキルを追加してエージェントの動作をカスタマイズしましょう。',
+  'settings.mcpServers': 'MCPサーバー',
+  'settings.mcpServersDescription': 'Model Context Protocol経由で外部ツールサーバーに接続',
+  'settings.addMcpServer': 'サーバーを追加',
+  'settings.editMcpServer': 'サーバーを編集',
+  'settings.mcpServerName': 'サーバー名',
+  'settings.mcpTransport': 'トランスポート',
+  'settings.mcpCommand': 'コマンド',
+  'settings.mcpArgs': '引数',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': '環境変数',
+  'settings.mcpHeaders': 'ヘッダー',
+  'settings.mcpTestConnection': '接続テスト',
+  'settings.mcpTestSuccess': '接続成功！ {{count}} 個のツールを検出',
+  'settings.mcpTestFailed': '接続失敗',
+  'settings.mcpDiscoveredTools': '検出されたツール',
+  'settings.noMcpServers': 'MCPサーバーが設定されていません。サーバーを追加してエージェントの機能を拡張しましょう。',
+  'settings.deleteSkillConfirm': 'このスキルを削除しますか？',
+  'settings.deleteMcpServerConfirm': 'このMCPサーバーを削除しますか？',
 
   // Provider Model Tags
   'providers.tagLatest': '最新',

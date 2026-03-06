@@ -44,10 +44,9 @@ impl Tool for GetDocumentInfoTool {
         db: &Database,
         _source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
-        let args: GetDocumentInfoArgs =
-            serde_json::from_str(arguments).map_err(|e| {
-                CoreError::InvalidInput(format!("Invalid get_document_info arguments: {e}"))
-            })?;
+        let args: GetDocumentInfoArgs = serde_json::from_str(arguments).map_err(|e| {
+            CoreError::InvalidInput(format!("Invalid get_document_info arguments: {e}"))
+        })?;
 
         if args.path.is_none() && args.document_id.is_none() {
             return Ok(ToolResult {
@@ -65,7 +64,18 @@ impl Tool for GetDocumentInfoTool {
 
             // Query document by id or path.
             let row: Result<
-                (String, String, String, Option<String>, String, i64, String, String, String, String),
+                (
+                    String,
+                    String,
+                    String,
+                    Option<String>,
+                    String,
+                    i64,
+                    String,
+                    String,
+                    String,
+                    String,
+                ),
                 rusqlite::Error,
             > = if let Some(ref id) = args.document_id {
                 conn.query_row(
@@ -76,9 +86,16 @@ impl Tool for GetDocumentInfoTool {
                     params![id],
                     |row| {
                         Ok((
-                            row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
-                            row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?,
-                            row.get(8)?, row.get(9)?,
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
                         ))
                     },
                 )
@@ -92,32 +109,49 @@ impl Tool for GetDocumentInfoTool {
                     params![path],
                     |row| {
                         Ok((
-                            row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
-                            row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?,
-                            row.get(8)?, row.get(9)?,
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
                         ))
                     },
                 )
             };
 
-            let (id, source_id, path, title, mime_type, file_size, modified_at, content_hash, indexed_at, metadata) =
-                match row {
-                    Ok(r) => r,
-                    Err(rusqlite::Error::QueryReturnedNoRows) => {
-                        let lookup = if let Some(ref did) = args.document_id {
-                            format!("id '{did}'")
-                        } else {
-                            format!("path '{}'", args.path.as_ref().unwrap())
-                        };
-                        return Ok(ToolResult {
-                            call_id,
-                            content: format!("Document not found with {lookup}."),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-                    Err(e) => return Err(CoreError::Database(e)),
-                };
+            let (
+                id,
+                source_id,
+                path,
+                title,
+                mime_type,
+                file_size,
+                modified_at,
+                content_hash,
+                indexed_at,
+                metadata,
+            ) = match row {
+                Ok(r) => r,
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    let lookup = if let Some(ref did) = args.document_id {
+                        format!("id '{did}'")
+                    } else {
+                        format!("path '{}'", args.path.as_ref().unwrap())
+                    };
+                    return Ok(ToolResult {
+                        call_id,
+                        content: format!("Document not found with {lookup}."),
+                        is_error: true,
+                        artifacts: None,
+                    });
+                }
+                Err(e) => return Err(CoreError::Database(e)),
+            };
 
             // Count chunks for this document.
             let chunk_count: i64 = conn.query_row(
@@ -218,12 +252,7 @@ mod tests {
         let db = setup_db();
         let tool = GetDocumentInfoTool;
         let result = tool
-            .execute(
-                "call-1",
-                r#"{"path": "/tmp/test/hello.md"}"#,
-                &db,
-                &[],
-            )
+            .execute("call-1", r#"{"path": "/tmp/test/hello.md"}"#, &db, &[])
             .await
             .unwrap();
         assert!(!result.is_error, "unexpected error: {}", result.content);
@@ -253,12 +282,7 @@ mod tests {
         let db = setup_db();
         let tool = GetDocumentInfoTool;
         let result = tool
-            .execute(
-                "call-3",
-                r#"{"path": "/nonexistent/file.md"}"#,
-                &db,
-                &[],
-            )
+            .execute("call-3", r#"{"path": "/nonexistent/file.md"}"#, &db, &[])
             .await
             .unwrap();
         assert!(result.is_error);

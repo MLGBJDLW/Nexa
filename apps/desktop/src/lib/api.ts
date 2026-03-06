@@ -25,6 +25,13 @@ import type {
   Checkpoint,
   UserMemory,
 } from "../types/conversation";
+import type {
+  McpServer,
+  SaveMcpServerInput,
+  McpToolInfo,
+  Skill,
+  SaveSkillInput,
+} from "../types/extensions";
 
 // ── Sources ─────────────────────────────────────────────────────────────
 
@@ -317,3 +324,48 @@ export const downloadOcrModels = (config: OcrConfig) =>
 
 export const clearAnswerCache = () =>
   invoke<number>('clear_answer_cache');
+
+// ── Skills ──────────────────────────────────────────────────────────────
+
+export const listSkills = () =>
+  invoke<Skill[]>('list_skills_cmd');
+
+export const saveSkill = (input: SaveSkillInput) =>
+  invoke<Skill>('save_skill_cmd', { input });
+
+export const deleteSkill = (id: string) =>
+  invoke<void>('delete_skill_cmd', { id });
+
+export const toggleSkill = (id: string, enabled: boolean) =>
+  invoke<void>('toggle_skill_cmd', { id, enabled });
+
+// ── MCP Servers ─────────────────────────────────────────────────────────
+
+export const listMcpServers = () =>
+  invoke<McpServer[]>('list_mcp_servers_cmd');
+
+export const saveMcpServer = (input: SaveMcpServerInput) =>
+  invoke<McpServer>('save_mcp_server_cmd', { input });
+
+export const deleteMcpServer = (id: string) =>
+  invoke<void>('delete_mcp_server_cmd', { id });
+
+export const toggleMcpServer = (id: string, enabled: boolean) =>
+  invoke<void>('toggle_mcp_server_cmd', { id, enabled });
+
+export const testMcpServer = (id: string) =>
+  invoke<McpToolInfo[]>('test_mcp_server_cmd', { id });
+
+export const testMcpServerDirect = (input: {
+  name: string;
+  transport: string;
+  command?: string | null;
+  args?: string | null;
+  url?: string | null;
+  envJson?: string | null;
+  headersJson?: string | null;
+}) =>
+  invoke<McpToolInfo[]>('test_mcp_server_direct_cmd', input);
+
+export const listMcpTools = (serverId: string) =>
+  invoke<McpToolInfo[]>('list_mcp_tools_cmd', { serverId });

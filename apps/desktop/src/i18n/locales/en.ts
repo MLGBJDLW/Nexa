@@ -457,6 +457,10 @@ export const en: TranslationKeys = {
   'chat.deleteBatchConfirm': 'Delete selected conversations?',
   'chat.deleteBatchConfirmDesc': 'This will permanently delete {count} conversations and their messages. This action cannot be undone.',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP ({servers} servers, {tools} tools)',
+  'chat.skillsSummary': 'Skills ({count} active)',
+
   // Chat Suggestions
   'chat.suggestions.search': 'Search Knowledge',
   'chat.suggestions.search.prompt': 'Search my notes for...',
@@ -548,6 +552,36 @@ export const en: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': 'Custom',
+
+  // Settings - Extensions
+  'settings.extensionsTab': 'Extensions',
+  'settings.skills': 'Skills',
+  'settings.skillsDescription': 'Custom instructions to modify agent behavior',
+  'settings.addSkill': 'Add Skill',
+  'settings.editSkill': 'Edit Skill',
+  'settings.skillName': 'Skill Name',
+  'settings.skillContent': 'Instructions',
+  'settings.skillContentPlaceholder': 'Enter instructions for the agent...',
+  'settings.skillTokenEstimate': 'Estimated tokens: {{count}}',
+  'settings.noSkills': 'No skills configured. Add a skill to customize agent behavior.',
+  'settings.mcpServers': 'MCP Servers',
+  'settings.mcpServersDescription': 'Connect external tool servers via the Model Context Protocol',
+  'settings.addMcpServer': 'Add Server',
+  'settings.editMcpServer': 'Edit Server',
+  'settings.mcpServerName': 'Server Name',
+  'settings.mcpTransport': 'Transport',
+  'settings.mcpCommand': 'Command',
+  'settings.mcpArgs': 'Arguments',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': 'Environment Variables',
+  'settings.mcpHeaders': 'Headers',
+  'settings.mcpTestConnection': 'Test Connection',
+  'settings.mcpTestSuccess': 'Connected! Found {{count}} tools',
+  'settings.mcpTestFailed': 'Connection failed',
+  'settings.mcpDiscoveredTools': 'Discovered Tools',
+  'settings.noMcpServers': 'No MCP servers configured. Add a server to extend agent capabilities.',
+  'settings.deleteSkillConfirm': 'Delete this skill?',
+  'settings.deleteMcpServerConfirm': 'Delete this MCP server?',
 
   // Provider Model Tags
   'providers.tagLatest': 'Latest',

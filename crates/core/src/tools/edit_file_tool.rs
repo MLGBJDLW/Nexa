@@ -44,14 +44,10 @@ fn read_text_utf8(path: &Path) -> Result<String, String> {
     // Heuristic: check first 8 KB for null bytes to detect binary files.
     let check_len = bytes.len().min(8192);
     if bytes[..check_len].contains(&0) {
-        return Err(format!(
-            "File appears to be binary: {}",
-            path.display()
-        ));
+        return Err(format!("File appears to be binary: {}", path.display()));
     }
 
-    String::from_utf8(bytes)
-        .map_err(|_| format!("File is not valid UTF-8: {}", path.display()))
+    String::from_utf8(bytes).map_err(|_| format!("File is not valid UTF-8: {}", path.display()))
 }
 
 /// Resolve the requested path against registered source roots and validate

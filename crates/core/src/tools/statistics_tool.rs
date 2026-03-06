@@ -42,9 +42,8 @@ impl Tool for GetStatisticsTool {
         db: &Database,
         _source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
-        let args: GetStatisticsArgs = serde_json::from_str(arguments).unwrap_or(GetStatisticsArgs {
-            source_id: None,
-        });
+        let args: GetStatisticsArgs =
+            serde_json::from_str(arguments).unwrap_or(GetStatisticsArgs { source_id: None });
 
         let db = db.clone();
         let call_id = call_id.to_string();

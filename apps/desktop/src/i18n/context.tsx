@@ -26,6 +26,10 @@ const translations: Record<Locale, TranslationKeys> = {
 
 const STORAGE_KEY = 'ask-myself-locale';
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function detectLocale(): Locale {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved && saved in translations) return saved as Locale;
@@ -64,7 +68,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     let text = translations[locale]?.[key] ?? translations.en?.[key] ?? key;
     if (params) {
       for (const [k, v] of Object.entries(params)) {
-        text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+        const escapedKey = escapeRegExp(k);
+        text = text.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, 'g'), String(v));
+        text = text.replace(new RegExp(`\\{${escapedKey}\\}`, 'g'), String(v));
       }
     }
     return text;

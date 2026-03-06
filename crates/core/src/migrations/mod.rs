@@ -72,6 +72,33 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );",
     ),
+    (
+        "v019_skills",
+        "CREATE TABLE IF NOT EXISTS skills (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );",
+    ),
+    (
+        "v020_mcp_servers",
+        "CREATE TABLE IF NOT EXISTS mcp_servers (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          transport TEXT NOT NULL DEFAULT 'stdio',
+          command TEXT,
+          args TEXT,
+          url TEXT,
+          env_json TEXT,
+          headers_json TEXT,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

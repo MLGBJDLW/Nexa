@@ -341,12 +341,7 @@ mod tests {
         let (db, _doc_id, _doc_path) = setup_db_with_chunks(3);
         let tool = SummarizeDocumentTool;
         let result = tool
-            .execute(
-                "call-1",
-                r#"{"path": "/tmp/test/notes.md"}"#,
-                &db,
-                &[],
-            )
+            .execute("call-1", r#"{"path": "/tmp/test/notes.md"}"#, &db, &[])
             .await
             .unwrap();
         assert!(!result.is_error, "unexpected error: {}", result.content);
@@ -404,12 +399,7 @@ mod tests {
         let (db, _, _) = setup_db_with_chunks(1);
         let tool = SummarizeDocumentTool;
         let result = tool
-            .execute(
-                "call-4",
-                r#"{"path": "/nonexistent.md"}"#,
-                &db,
-                &[],
-            )
+            .execute("call-4", r#"{"path": "/nonexistent.md"}"#, &db, &[])
             .await
             .unwrap();
         assert!(result.is_error);

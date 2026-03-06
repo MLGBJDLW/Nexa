@@ -457,6 +457,10 @@ export const fr: TranslationKeys = {
   'chat.deleteBatchConfirm': 'Supprimer les conversations sélectionnées ?',
   'chat.deleteBatchConfirmDesc': 'Cela supprimera définitivement {count} conversations et leurs messages. Cette action est irréversible.',
 
+  // Chat - Active Extensions
+  'chat.mcpSummary': 'MCP ({servers} serveurs, {tools} outils)',
+  'chat.skillsSummary': 'Compétences ({count} actives)',
+
   // Chat Suggestions
   'chat.suggestions.search': 'Rechercher',
   'chat.suggestions.search.prompt': 'Rechercher dans mes notes...',
@@ -547,6 +551,36 @@ export const fr: TranslationKeys = {
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
   'settings.providerCustom': 'Personnalisé',
+
+  // Settings - Extensions
+  'settings.extensionsTab': 'Extensions',
+  'settings.skills': 'Compétences',
+  'settings.skillsDescription': 'Instructions personnalisées pour modifier le comportement de l\'agent',
+  'settings.addSkill': 'Ajouter une compétence',
+  'settings.editSkill': 'Modifier la compétence',
+  'settings.skillName': 'Nom de la compétence',
+  'settings.skillContent': 'Instructions',
+  'settings.skillContentPlaceholder': 'Entrez les instructions pour l\'agent...',
+  'settings.skillTokenEstimate': 'Tokens estimés : {{count}}',
+  'settings.noSkills': 'Aucune compétence configurée. Ajoutez-en une pour personnaliser le comportement de l\'agent.',
+  'settings.mcpServers': 'Serveurs MCP',
+  'settings.mcpServersDescription': 'Connectez des serveurs d\'outils externes via le Model Context Protocol',
+  'settings.addMcpServer': 'Ajouter un serveur',
+  'settings.editMcpServer': 'Modifier le serveur',
+  'settings.mcpServerName': 'Nom du serveur',
+  'settings.mcpTransport': 'Transport',
+  'settings.mcpCommand': 'Commande',
+  'settings.mcpArgs': 'Arguments',
+  'settings.mcpUrl': 'URL',
+  'settings.mcpEnvVars': 'Variables d\'environnement',
+  'settings.mcpHeaders': 'En-têtes',
+  'settings.mcpTestConnection': 'Tester la connexion',
+  'settings.mcpTestSuccess': 'Connecté ! {{count}} outils trouvés',
+  'settings.mcpTestFailed': 'Échec de la connexion',
+  'settings.mcpDiscoveredTools': 'Outils découverts',
+  'settings.noMcpServers': 'Aucun serveur MCP configuré. Ajoutez-en un pour étendre les capacités de l\'agent.',
+  'settings.deleteSkillConfirm': 'Supprimer cette compétence ?',
+  'settings.deleteMcpServerConfirm': 'Supprimer ce serveur MCP ?',
 
   // Provider Model Tags
   'providers.tagLatest': 'Dernier',

@@ -206,10 +206,13 @@ mod tests {
         let args = serde_json::json!({ "path": file.to_string_lossy() }).to_string();
         let result = tool.execute("c1", &args, &db, &[]).await.expect("execute");
 
-        assert!(!result.is_error, "Expected success, got: {}", result.content);
         assert!(
-            result.content.contains("added (re-indexed)")
-                || result.content.contains("updated"),
+            !result.is_error,
+            "Expected success, got: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("added (re-indexed)") || result.content.contains("updated"),
             "Unexpected message: {}",
             result.content
         );
@@ -226,7 +229,11 @@ mod tests {
         let args = serde_json::json!({ "source_id": source_id }).to_string();
         let result = tool.execute("c2", &args, &db, &[]).await.expect("execute");
 
-        assert!(!result.is_error, "Expected success, got: {}", result.content);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            result.content
+        );
         assert!(result.content.contains("Re-scanned source"));
         assert!(result.content.contains("2 files scanned"));
     }

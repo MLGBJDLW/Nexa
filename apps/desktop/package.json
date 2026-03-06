@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:autoport": "node ./scripts/tauri-dev-autoport.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

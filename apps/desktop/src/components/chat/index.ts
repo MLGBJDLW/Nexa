@@ -5,3 +5,4 @@ export { ToolCallCard } from './ToolCallCard';
 export { ThinkingBlock } from './ThinkingBlock';
 export { SourceSelector } from './SourceSelector';
 export { SystemPromptEditor } from './SystemPromptEditor';
+export { ActiveExtensions } from './ActiveExtensions';
