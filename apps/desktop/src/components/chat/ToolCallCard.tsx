@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Search,
   BookOpen,
@@ -21,9 +21,11 @@ import {
 import { useTranslation } from '../../i18n';
 import { FileBadge } from '../ui/FileBadge';
 import { extractPlanArtifact, extractVerificationArtifact } from '../../lib/taskArtifacts';
+import { extractSubagentArtifact, parseSubagentArguments } from '../../lib/subagentArtifacts';
 import { PlanPanel, VerificationPanel } from './TaskPanels';
 import type { ArtifactPayload } from '../../types/conversation';
 import type { VerificationOverallStatus } from '../../lib/taskArtifacts';
+import { SubagentCard } from './SubagentCard';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -123,6 +125,38 @@ function verificationStatusLabel(
   }
 }
 
+function buildSubagentRun(
+  toolName: string,
+  args: string | undefined,
+  status: 'running' | 'done' | 'error',
+  content: string | undefined,
+  isError: boolean | undefined,
+  artifacts: ArtifactPayload | undefined,
+) {
+  if (toolName !== 'spawn_subagent') return null;
+  const artifact = extractSubagentArtifact(artifacts);
+  const parsedArgs = parseSubagentArguments(args);
+  const task = artifact?.task ?? parsedArgs?.task;
+  if (!task) return null;
+  return {
+    id: `${toolName}-${task}`,
+    status,
+    task,
+    role: artifact?.role ?? parsedArgs?.role ?? null,
+    expectedOutput: artifact?.expectedOutput ?? parsedArgs?.expectedOutput ?? null,
+    result: artifact?.result ?? undefined,
+    finishReason: artifact?.finishReason ?? null,
+    usageTotal: artifact?.usageTotal ?? null,
+    toolEvents: artifact?.toolEvents ?? [],
+    thinking: artifact?.thinking ?? null,
+    sourceScopeApplied: artifact?.sourceScopeApplied ?? false,
+    allowedTools: artifact?.allowedTools ?? null,
+    argumentsText: args,
+    isError,
+    content,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
@@ -182,15 +216,33 @@ export function ToolCallCard({
   artifacts,
 }: ToolCallCardProps) {
   const { t } = useTranslation();
+  const shouldReduceMotion = useReducedMotion();
   const safeToolName =
     typeof toolName === 'string' && toolName.trim().length > 0
       ? toolName
       : 'unknown_tool';
   const Icon = getToolIcon(safeToolName);
   const formattedArgs = formatArgs(args);
+  const subagentRun = useMemo(
+    () => buildSubagentRun(safeToolName, args, status, content, isError, artifacts),
+    [safeToolName, args, status, content, isError, artifacts],
+  );
   const planArtifact = useMemo(() => extractPlanArtifact(artifacts), [artifacts]);
   const verificationArtifact = useMemo(() => extractVerificationArtifact(artifacts), [artifacts]);
   const isStructuredTaskCard = Boolean(planArtifact || verificationArtifact);
+
+  if (subagentRun) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="my-2"
+      >
+        <SubagentCard run={subagentRun} />
+      </motion.div>
+    );
+  }
 
   const isSearchDone =
     safeToolName.toLowerCase().includes('search') && status === 'done' && !!content;
@@ -235,13 +287,17 @@ export function ToolCallCard({
           : statusConfig.text;
 
   const StatusIcon = statusConfig.icon;
+  const traceActive = status === 'running' && !shouldReduceMotion;
+  const traceSoft = status !== 'error';
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-      className="bg-surface-1 border border-border rounded-lg overflow-hidden my-2"
+      className="chat-trace-panel bg-surface-1 border border-border rounded-lg overflow-hidden my-2"
+      data-trace-soft={traceSoft ? 'true' : 'false'}
+      data-trace-active={traceActive ? 'true' : 'false'}
     >
       {/* Header */}
       <button

@@ -186,6 +186,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const lastUserMessageRef = useRef<{ content: string; attachments?: ImageAttachment[] } | null>(null);
   const usageConversationRef = useRef<string | null>(null);
   const usageCacheRef = useRef<Record<string, StoredUsageEntry>>(readUsageCache());
+  const pendingStreamConversationRef = useRef<string | null>(null);
+  const streamingConversationRef = useRef<string | null>(null);
 
   const {
     send: streamSend,
@@ -203,6 +205,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     contextOverflow,
     rateLimited,
     autoCompacted,
+    clearPreview,
     reset,
   } = useAgentStream();
 
@@ -288,6 +291,13 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       setContextWindow(defaultContextWindow);
       return;
     }
+    const isPendingStreamConversation = pendingStreamConversationRef.current === activeId;
+    const isActiveStreamingConversation =
+      streamingConversationRef.current === activeId && isStreaming;
+    if (isPendingStreamConversation || isActiveStreamingConversation) {
+      setLoadingMsgs(false);
+      return;
+    }
     let cancelled = false;
     setLoadingMsgs(true);
     reset();
@@ -326,15 +336,20 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     return () => {
       cancelled = true;
     };
-  }, [activeId, reset, defaultContextWindow]);
+  }, [activeId, reset, defaultContextWindow, isStreaming]);
 
   /* ── Reload messages when streaming completes ───────────────────── */
   useEffect(() => {
     let cancelled = false;
-    if (!isStreaming && activeId && messages.length > 0) {
+    if (!isStreaming && activeId && streamingConversationRef.current === activeId && messages.length > 0) {
       // Re-fetch messages after agent is done.
       api.getConversation(activeId).then(([, msgs]) => {
-        if (!cancelled) setMessages(msgs);
+        if (!cancelled) {
+          setMessages(msgs);
+          if (msgs.some(msg => msg.role === 'assistant' || msg.role === 'tool')) {
+            clearPreview();
+          }
+        }
       }).catch((e) => {
         console.error('Failed to refresh messages after streaming:', e);
       });
@@ -365,9 +380,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       }
     }
     return () => { cancelled = true; };
-    // Only trigger on isStreaming becoming false
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStreaming]);
+  }, [activeId, clearPreview, conversations, isStreaming, loadConversations, messages]);
 
   /* ── Sync stream errors to chatError ────────────────────────────── */
   useEffect(() => {
@@ -376,6 +389,20 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       toast.error(streamError);
     }
   }, [streamError]);
+
+  useEffect(() => {
+    if (isStreaming) {
+      pendingStreamConversationRef.current = null;
+      return;
+    }
+    if (streamText.trim().length > 0) return;
+    if (streamRounds.length > 0) return;
+    if (thinkingText.trim().length > 0) return;
+    if (isThinking) return;
+    if (toolCalls.length > 0) return;
+    pendingStreamConversationRef.current = null;
+    streamingConversationRef.current = null;
+  }, [isStreaming, isThinking, streamRounds.length, streamText, thinkingText, toolCalls.length]);
 
   useEffect(() => {
     if (!activeId || !lastUsage) return;
@@ -405,6 +432,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setCachedUsage(null);
     setContextWindow(defaultContextWindow);
     usageConversationRef.current = null;
+    pendingStreamConversationRef.current = null;
+    streamingConversationRef.current = null;
     reset();
     setChatError(null);
     lastUserMessageRef.current = null;
@@ -422,6 +451,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           setCachedUsage(null);
           setContextWindow(defaultContextWindow);
           usageConversationRef.current = null;
+          pendingStreamConversationRef.current = null;
+          streamingConversationRef.current = null;
         }
       } catch (e) {
         toast.error(`${t('chat.deleteError')}: ${String(e)}`);
@@ -443,6 +474,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           setCachedUsage(null);
           setContextWindow(defaultContextWindow);
           usageConversationRef.current = null;
+          pendingStreamConversationRef.current = null;
+          streamingConversationRef.current = null;
         }
       } catch (e) {
         toast.error(`${t('chat.deleteError')}: ${String(e)}`);
@@ -462,6 +495,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       setCachedUsage(null);
       setContextWindow(defaultContextWindow);
       usageConversationRef.current = null;
+      pendingStreamConversationRef.current = null;
+      streamingConversationRef.current = null;
     } catch (e) {
       toast.error(`${t('chat.deleteError')}: ${String(e)}`);
     }
@@ -531,6 +566,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       };
       setMessages((prev) => [...prev, optimisticMsg]);
       usageConversationRef.current = convId;
+      pendingStreamConversationRef.current = convId;
+      streamingConversationRef.current = convId;
 
       await streamSend(convId, content, attachments);
     },
@@ -538,8 +575,10 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   );
 
   const stop = useCallback(() => {
-    if (activeId) {
-      streamStop(activeId);
+    const targetConversationId =
+      streamingConversationRef.current ?? pendingStreamConversationRef.current ?? activeId;
+    if (targetConversationId) {
+      streamStop(targetConversationId);
     }
   }, [activeId, streamStop]);
 
@@ -573,6 +612,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     };
     setMessages((prev) => [...prev, optimisticMsg]);
     usageConversationRef.current = activeId;
+    pendingStreamConversationRef.current = activeId;
+    streamingConversationRef.current = activeId;
 
     await streamSend(activeId, content, attachments);
   }, [activeId, messages, streamSend]);
@@ -613,6 +654,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     };
     setMessages((prev) => [...prev, optimisticMsg]);
     usageConversationRef.current = activeId;
+    pendingStreamConversationRef.current = activeId;
+    streamingConversationRef.current = activeId;
 
     await streamSend(activeId, newContent);
   }, [activeId, messages, streamSend]);
@@ -628,7 +671,22 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
   /* ── Computed ────────────────────────────────────────────────────── */
 
-  const usageForView = lastUsage ? normalizeUsage(lastUsage) : (cachedUsage ? normalizeUsage(cachedUsage) : null);
+  const isViewingStreamingConversation =
+    activeId != null && streamingConversationRef.current === activeId;
+  const activeIsStreaming = isViewingStreamingConversation && isStreaming;
+  const activeStreamText = isViewingStreamingConversation ? streamText : '';
+  const activeStreamRounds = isViewingStreamingConversation ? streamRounds : [];
+  const activeThinkingText = isViewingStreamingConversation ? thinkingText : '';
+  const activeIsThinking = isViewingStreamingConversation ? isThinking : false;
+  const activeToolCalls = isViewingStreamingConversation ? toolCalls : [];
+  const scopedLastUsage = usageConversationRef.current === activeId ? lastUsage : null;
+  const scopedLastCached = usageConversationRef.current === activeId ? lastCached : false;
+  const scopedFinishReason = usageConversationRef.current === activeId ? finishReason : null;
+  const scopedContextOverflow = usageConversationRef.current === activeId ? contextOverflow : false;
+  const scopedRateLimited = usageConversationRef.current === activeId ? rateLimited : false;
+  const scopedError = usageConversationRef.current === activeId ? chatError : null;
+
+  const usageForView = scopedLastUsage ? normalizeUsage(scopedLastUsage) : (cachedUsage ? normalizeUsage(cachedUsage) : null);
   const estimatedPromptTokens = messages.reduce((sum, msg) => {
     if (!Number.isFinite(msg.tokenCount) || msg.tokenCount <= 0) return sum;
     return sum + msg.tokenCount;
@@ -643,7 +701,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           completionTokens: usageForView.completionTokens,
           thinkingTokens: usageForView.thinkingTokens ?? 0,
           isEstimated: false,
-          source: (lastUsage ? 'live' : 'cached') as 'live' | 'cached',
+          source: (scopedLastUsage ? 'live' : 'cached') as 'live' | 'cached',
         }
       : (estimatedPromptTokens > 0
         ? {
@@ -662,22 +720,22 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     messages,
     conversations,
     setConversations,
-    isStreaming,
-    streamText,
-    streamRounds,
-    thinkingText,
-    isThinking,
-    toolCalls,
+    isStreaming: activeIsStreaming,
+    streamText: activeStreamText,
+    streamRounds: activeStreamRounds,
+    thinkingText: activeThinkingText,
+    isThinking: activeIsThinking,
+    toolCalls: activeToolCalls,
     loadingMsgs,
     loadingConfig: loadingConfig || loadingConvos,
     agentConfig,
     contextWindow,
-    lastUsage,
+    lastUsage: scopedLastUsage,
     tokenUsage,
-    lastCached,
-    finishReason,
-    contextOverflow,
-    rateLimited,
+    lastCached: scopedLastCached,
+    finishReason: scopedFinishReason,
+    contextOverflow: scopedContextOverflow,
+    rateLimited: scopedRateLimited,
     send,
     stop,
     deleteConversation,
@@ -689,7 +747,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     activeId,
     customSystemPrompt,
     setCustomSystemPrompt,
-    error: chatError,
+    error: scopedError,
     retry,
     clearError: () => setChatError(null),
     loadConversations,

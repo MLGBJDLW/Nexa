@@ -114,6 +114,33 @@ function resolveToolCallResult(
   return { next: updated, matched: false };
 }
 
+function extractMessageText(message: unknown): string | null {
+  if (!message || typeof message !== 'object') {
+    return null;
+  }
+
+  const record = message as Record<string, unknown>;
+  if (typeof record.content === 'string' && record.content.trim().length > 0) {
+    return record.content;
+  }
+
+  if (!Array.isArray(record.parts)) {
+    return null;
+  }
+
+  const text = record.parts
+    .map(part => {
+      if (!part || typeof part !== 'object') {
+        return '';
+      }
+      const item = part as Record<string, unknown>;
+      return typeof item.text === 'string' ? item.text : '';
+    })
+    .join('');
+
+  return text.trim().length > 0 ? text : null;
+}
+
 export interface UsageTotal {
   promptTokens: number;
   completionTokens: number;
@@ -138,6 +165,7 @@ interface UseAgentStreamReturn {
   contextOverflow: boolean;
   rateLimited: boolean;
   autoCompacted: AutoCompactedInfo;
+  clearPreview: () => void;
   reset: () => void;
 }
 
@@ -162,6 +190,7 @@ export function useAgentStream(): UseAgentStreamReturn {
   const toolCallSeqRef = useRef(0);
   const roundSeqRef = useRef(0);
   const activeRoundIdRef = useRef<string | null>(null);
+  const activeRoundAcceptingStartsRef = useRef(false);
   const streamTextRef = useRef('');
   const thinkingTextRef = useRef('');
 
@@ -202,11 +231,12 @@ export function useAgentStream(): UseAgentStreamReturn {
       setError(t('chat.connectionLost'));
       setIsStreaming(false);
       activeRoundIdRef.current = null;
+      activeRoundAcceptingStartsRef.current = false;
       cleanup();
     }, STREAM_TIMEOUT_MS);
   }, [clearStreamTimeout, cleanup, t]);
 
-  const reset = useCallback(() => {
+  const clearPreview = useCallback(() => {
     setStreamText('');
     streamTextRef.current = '';
     setStreamRounds([]);
@@ -214,6 +244,12 @@ export function useAgentStream(): UseAgentStreamReturn {
     thinkingTextRef.current = '';
     setIsThinking(false);
     setToolCalls([]);
+    activeRoundIdRef.current = null;
+    activeRoundAcceptingStartsRef.current = false;
+  }, []);
+
+  const reset = useCallback(() => {
+    clearPreview();
     setError(null);
     setLastUsage(null);
     setLastCached(false);
@@ -221,8 +257,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     setContextOverflow(false);
     setRateLimited(false);
     setAutoCompacted(null);
-    activeRoundIdRef.current = null;
-  }, []);
+  }, [clearPreview]);
 
   const consumeThinkingSegment = useCallback(() => {
     const captured = thinkingTextRef.current;
@@ -256,6 +291,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     toolCallSeqRef.current = 0;
     roundSeqRef.current = 0;
     activeRoundIdRef.current = null;
+    activeRoundAcceptingStartsRef.current = false;
 
     // Start the inactivity timeout
     resetStreamTimeout();
@@ -290,6 +326,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           if (activeRoundIdRef.current) {
             // New assistant text after a tool round should start a fresh preview segment.
             activeRoundIdRef.current = null;
+            activeRoundAcceptingStartsRef.current = false;
           }
           setStreamText(prev => {
             const delta = (typeof data.delta === 'string' ? data.delta : (typeof raw.delta === 'string' ? raw.delta : ''));
@@ -325,6 +362,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           if (currentReply.trim().length > 0) {
             const roundId = `stream-round-${Date.now()}-${roundSeqRef.current++}`;
             activeRoundIdRef.current = roundId;
+            activeRoundAcceptingStartsRef.current = true;
             setStreamRounds(prev => [...prev, {
               id: roundId,
               thinking: roundThinking || undefined,
@@ -335,7 +373,7 @@ export function useAgentStream(): UseAgentStreamReturn {
             streamTextRef.current = '';
           } else {
             setStreamRounds(prev => {
-              if (activeRoundIdRef.current) {
+              if (activeRoundIdRef.current && activeRoundAcceptingStartsRef.current) {
                 return prev.map(round => round.id === activeRoundIdRef.current
                   ? (() => {
                     const existingIdx = round.toolCalls.findIndex(tc => tc.callId === nextCall.callId);
@@ -364,6 +402,7 @@ export function useAgentStream(): UseAgentStreamReturn {
               }
               const roundId = `stream-round-${Date.now()}-${roundSeqRef.current++}`;
               activeRoundIdRef.current = roundId;
+              activeRoundAcceptingStartsRef.current = true;
               return [...prev, {
                 id: roundId,
                 thinking: roundThinking || undefined,
@@ -411,6 +450,7 @@ export function useAgentStream(): UseAgentStreamReturn {
             );
             return next;
           });
+          activeRoundAcceptingStartsRef.current = false;
           setStreamRounds(prev => {
             const copy = [...prev];
             for (let i = copy.length - 1; i >= 0; i -= 1) {
@@ -446,12 +486,10 @@ export function useAgentStream(): UseAgentStreamReturn {
           setThinkingText('');
           thinkingTextRef.current = '';
           const doneMessage = data.message ?? raw.message;
-          if (doneMessage && typeof doneMessage === 'object' && 'content' in doneMessage) {
-            const content = (doneMessage as { content?: unknown }).content;
-            if (typeof content === 'string') {
-              setStreamText(content);
-              streamTextRef.current = content;
-            }
+          const doneText = extractMessageText(doneMessage);
+          if (doneText) {
+            setStreamText(doneText);
+            streamTextRef.current = doneText;
           }
           setToolCalls(prev => prev.map(tc =>
             tc.status === 'running'
@@ -483,6 +521,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           setFinishReason(typeof fr === 'string' ? fr : null);
           setIsStreaming(false);
           activeRoundIdRef.current = null;
+          activeRoundAcceptingStartsRef.current = false;
           cleanup();
           break;
         }
@@ -523,6 +562,7 @@ export function useAgentStream(): UseAgentStreamReturn {
           }
           setIsStreaming(false);
           activeRoundIdRef.current = null;
+          activeRoundAcceptingStartsRef.current = false;
           cleanup();
           break;
         }
@@ -552,6 +592,7 @@ export function useAgentStream(): UseAgentStreamReturn {
       setError(String(err));
       setIsStreaming(false);
       activeRoundIdRef.current = null;
+      activeRoundAcceptingStartsRef.current = false;
       cleanup();
     }
   }, [cleanup, resetStreamTimeout, consumeThinkingSegment, t]);
@@ -580,6 +621,7 @@ export function useAgentStream(): UseAgentStreamReturn {
     })));
     setIsStreaming(false);
     activeRoundIdRef.current = null;
+    activeRoundAcceptingStartsRef.current = false;
     cleanup();
   }, [cleanup, t]);
 
@@ -588,5 +630,5 @@ export function useAgentStream(): UseAgentStreamReturn {
     return () => cleanup();
   }, [cleanup]);
 
-  return { send, stop, isStreaming, streamText, streamRounds, thinkingText, isThinking, toolCalls, error, lastUsage, lastCached, finishReason, contextOverflow, rateLimited, autoCompacted, reset };
+  return { send, stop, isStreaming, streamText, streamRounds, thinkingText, isThinking, toolCalls, error, lastUsage, lastCached, finishReason, contextOverflow, rateLimited, autoCompacted, clearPreview, reset };
 }

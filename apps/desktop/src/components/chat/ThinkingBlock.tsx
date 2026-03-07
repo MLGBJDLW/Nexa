@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ComponentPropsWithoutRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronRight, Brain } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -64,6 +64,7 @@ const thinkingMarkdownComponents: Record<string, React.ComponentType<ComponentPr
 
 export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockProps) {
   const { t } = useTranslation();
+  const shouldReduceMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(isStreaming);
   const startTimeRef = useRef<number>(Date.now());
   const autoOpenedRef = useRef(false);
@@ -110,6 +111,7 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
     : elapsed > 0
       ? t('chat.thoughtFor', { seconds: elapsed.toString() })
       : t('chat.thinkingCompleted');
+  const traceActive = isStreaming && !shouldReduceMotion;
 
   return (
     <div className="mb-2">
@@ -150,13 +152,21 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             className="overflow-hidden"
           >
-            <div className="mt-1.5 ml-4 pl-3 border-l-2 border-text-tertiary/20 bg-surface-0/40 rounded-r-md py-2 px-3 text-xs text-text-secondary leading-relaxed max-h-[300px] overflow-y-auto">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
-                {content}
-              </ReactMarkdown>
-              {isStreaming && (
-                <span className="inline-block w-1.5 h-3 bg-text-tertiary/50 animate-pulse ml-0.5 align-text-bottom rounded-sm" />
-              )}
+            <div
+              className="chat-trace-panel mt-1.5 ml-4 rounded-r-md border border-border/60 bg-surface-0/45"
+              data-trace-soft="true"
+              data-trace-active={traceActive ? 'true' : 'false'}
+            >
+              <div className="max-h-[300px] overflow-y-auto rounded-r-md py-2 pl-3 pr-3 text-xs leading-relaxed text-text-secondary">
+                <div className="border-l-2 border-accent/18 pl-3">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
+                    {content}
+                  </ReactMarkdown>
+                  {isStreaming && (
+                    <span className="inline-block w-1.5 h-3 bg-accent/50 animate-pulse ml-0.5 align-text-bottom rounded-sm" />
+                  )}
+                </div>
+              </div>
             </div>
           </motion.div>
         )}

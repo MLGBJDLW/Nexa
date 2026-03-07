@@ -429,6 +429,33 @@ impl AgentExecutor {
         tx: mpsc::Sender<AgentEvent>,
         next_sort_order: i64,
     ) -> Result<Message, CoreError> {
+        self.run_with_source_scope(
+            history,
+            user_parts,
+            db,
+            conversation_id,
+            None,
+            tx,
+            next_sort_order,
+        )
+        .await
+    }
+
+    /// Run the agent loop with an optional explicit source scope override.
+    ///
+    /// This is primarily useful for short-lived delegated workers that should
+    /// inherit the parent's retrieval scope without persisting their internal
+    /// reasoning into the parent's conversation history.
+    pub async fn run_with_source_scope(
+        &self,
+        history: Vec<Message>,
+        user_parts: Vec<ContentPart>,
+        db: &Database,
+        conversation_id: Option<&str>,
+        source_scope_override: Option<Vec<String>>,
+        tx: mpsc::Sender<AgentEvent>,
+        next_sort_order: i64,
+    ) -> Result<Message, CoreError> {
         let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
         let max_response_tokens = self.config.max_tokens.unwrap_or(4096);
 
@@ -488,17 +515,17 @@ impl AgentExecutor {
         };
 
         // --- 3b. Resolve source scope for this conversation ------------------
-        let source_scope: Vec<String> = match conversation_id {
-            Some(cid) => db.get_linked_sources(cid).unwrap_or_default(),
-            None => Vec::new(),
-        };
+        let source_scope: Vec<String> =
+            source_scope_override.unwrap_or_else(|| match conversation_id {
+                Some(cid) => db.get_linked_sources(cid).unwrap_or_default(),
+                None => Vec::new(),
+            });
 
         let mut total_usage = Usage::default();
         let mut last_prompt_tokens: u32 = 0;
         let mut sort_order = next_sort_order;
         let mut accumulated_content = String::new();
         let mut last_iteration_content = String::new();
-        let mut thinking_buffer = String::new();
         let mut last_finish_reason: Option<String> = None;
 
         // --- 3c. Extract user query text and build cache key -----------------
@@ -619,11 +646,7 @@ impl AgentExecutor {
                             token_count: estimate_message_tokens(&final_msg),
                             created_at: String::new(),
                             sort_order,
-                            thinking: if thinking_buffer.is_empty() {
-                                None
-                            } else {
-                                Some(thinking_buffer.clone())
-                            },
+                            thinking: None,
                         };
                         if let Err(e) = db.add_message(&conv_msg) {
                             error!("Failed to persist message: {e}");
@@ -864,14 +887,6 @@ impl AgentExecutor {
                 }
             }
 
-            // Merge iteration thinking into buffer
-            if !iteration_thinking.is_empty() {
-                if !thinking_buffer.is_empty() {
-                    thinking_buffer.push('\n');
-                }
-                thinking_buffer.push_str(&iteration_thinking);
-            }
-
             if !full_content.trim().is_empty() {
                 last_iteration_content = full_content.clone();
             }
@@ -909,10 +924,10 @@ impl AgentExecutor {
                         token_count: estimate_message_tokens(&assistant_msg),
                         created_at: String::new(),
                         sort_order,
-                        thinking: if thinking_buffer.is_empty() {
+                        thinking: if iteration_thinking.is_empty() {
                             None
                         } else {
-                            Some(thinking_buffer.clone())
+                            Some(iteration_thinking.clone())
                         },
                     };
                     if let Err(e) = db.add_message(&conv_msg) {
@@ -992,6 +1007,7 @@ impl AgentExecutor {
                 .map(|tc| {
                     let tool_timeout = match tc.name.as_str() {
                         "retrieve_evidence" => Duration::from_secs(60),
+                        "spawn_subagent" => Duration::from_secs(90),
                         _ => Duration::from_secs(30),
                     };
                     let source_scope = &source_scope;
@@ -1147,11 +1163,7 @@ impl AgentExecutor {
                 token_count: estimate_message_tokens(&final_msg),
                 created_at: String::new(),
                 sort_order,
-                thinking: if thinking_buffer.is_empty() {
-                    None
-                } else {
-                    Some(thinking_buffer.clone())
-                },
+                thinking: None,
             };
             if let Err(e) = db.add_message(&conv_msg) {
                 warn!("Failed to save final assistant message: {e}");
@@ -1986,6 +1998,80 @@ mod tests {
         }
     }
 
+    struct ThinkingMockProvider {
+        stream_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ThinkingMockProvider {
+        fn name(&self) -> &str {
+            "thinking-mock"
+        }
+
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["mock-model".to_string()])
+        }
+
+        async fn complete(
+            &self,
+            _request: &CompletionRequest,
+        ) -> Result<CompletionResponse, CoreError> {
+            Err(CoreError::Llm("not implemented".to_string()))
+        }
+
+        async fn stream(
+            &self,
+            _request: &CompletionRequest,
+        ) -> Result<BoxStream<'_, Result<StreamChunk, CoreError>>, CoreError> {
+            let call_no = self.stream_calls.fetch_add(1, Ordering::SeqCst);
+            let chunks = if call_no == 0 {
+                vec![
+                    Ok(StreamChunk {
+                        delta: String::new(),
+                        tool_call_delta: None,
+                        finish_reason: None,
+                        usage: None,
+                        thinking_delta: Some("first round reasoning".to_string()),
+                    }),
+                    Ok(StreamChunk {
+                        delta: String::new(),
+                        tool_call_delta: Some(ToolCallDelta {
+                            id: "call_1".to_string(),
+                            name: Some("mock_tool".to_string()),
+                            arguments_delta: r#"{"value":"ok"}"#.to_string(),
+                            index: Some(0),
+                        }),
+                        finish_reason: Some(crate::llm::FinishReason::Stop),
+                        usage: None,
+                        thinking_delta: None,
+                    }),
+                ]
+            } else {
+                vec![
+                    Ok(StreamChunk {
+                        delta: String::new(),
+                        tool_call_delta: None,
+                        finish_reason: None,
+                        usage: None,
+                        thinking_delta: Some("second round reasoning".to_string()),
+                    }),
+                    Ok(StreamChunk {
+                        delta: "final answer".to_string(),
+                        tool_call_delta: None,
+                        finish_reason: Some(crate::llm::FinishReason::Stop),
+                        usage: None,
+                        thinking_delta: None,
+                    }),
+                ]
+            };
+            Ok(Box::pin(stream::iter(chunks)))
+        }
+
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
     struct MockTool;
 
     #[async_trait]
@@ -2078,5 +2164,61 @@ mod tests {
 
         assert!(saw_start, "expected ToolCallStart event");
         assert!(saw_result, "expected ToolCallResult event");
+    }
+
+    #[tokio::test]
+    async fn test_persists_only_final_iteration_thinking_on_final_assistant() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(MockTool));
+
+        let stream_calls = Arc::new(AtomicUsize::new(0));
+        let provider = ThinkingMockProvider {
+            stream_calls: Arc::clone(&stream_calls),
+        };
+
+        let executor = AgentExecutor::new(
+            Box::new(provider),
+            registry,
+            AgentConfig {
+                model: Some("mock-model".to_string()),
+                ..AgentConfig::default()
+            },
+        );
+
+        let db = Database::open_memory().expect("in-memory db");
+        let conversation = db
+            .create_conversation(&crate::conversation::CreateConversationInput {
+                provider: "open_ai".to_string(),
+                model: "mock-model".to_string(),
+                system_prompt: None,
+            })
+            .expect("conversation");
+        let (tx, _rx) = mpsc::channel(32);
+
+        let final_msg = executor
+            .run(
+                vec![],
+                vec![ContentPart::Text {
+                    text: "hello".to_string(),
+                }],
+                &db,
+                Some(&conversation.id),
+                tx,
+                0,
+            )
+            .await
+            .expect("run should succeed");
+
+        assert_eq!(final_msg.text_content(), "final answer");
+
+        let messages = db
+            .get_messages(&conversation.id)
+            .expect("messages should load");
+        assert_eq!(messages.len(), 3, "assistant(tool), tool, assistant(final)");
+        assert_eq!(messages[0].thinking.as_deref(), Some("first round reasoning"));
+        assert_eq!(messages[0].tool_calls.len(), 1);
+        assert_eq!(messages[1].role, Role::Tool);
+        assert_eq!(messages[2].content, "final answer");
+        assert_eq!(messages[2].thinking.as_deref(), Some("second round reasoning"));
     }
 }

@@ -51,6 +51,10 @@ const SUGGESTIONS: { icon: typeof Search; labelKey: keyof import('../../i18n').T
 
 const INSTANT_TRANSITION = { duration: 0 };
 
+function normalizeThinking(content: string): string {
+  return content.replace(/\r\n/g, '\n').trim();
+}
+
 export function ChatMessages({ messages, streamText, streamRounds, thinkingText, isThinking, toolCalls, isStreaming, error, onRetry, onDismissError, onDeleteMessage, onEditAndResend, loadingMsgs, lastCached, onSuggestionClick }: ChatMessagesProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
@@ -164,6 +168,48 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
     return map;
   }, [messageToolCalls]);
 
+  const messageThinkingText = useMemo(() => {
+    const map = new Map<number, string>();
+    let lastUserIdx = -1;
+
+    for (let i = 0; i < messages.length; i += 1) {
+      const msg = messages[i];
+      if (msg.role === 'user') {
+        lastUserIdx = i;
+        continue;
+      }
+      if (msg.role !== 'assistant' || !msg.thinking) {
+        continue;
+      }
+
+      let renderableThinking = normalizeThinking(msg.thinking);
+      if (msg.toolCalls.length === 0) {
+        const priorToolRoundThinking: string[] = [];
+        for (let j = lastUserIdx + 1; j < i; j += 1) {
+          const prev = messages[j];
+          if (prev.role !== 'assistant' || !prev.thinking || prev.toolCalls.length === 0) {
+            continue;
+          }
+          const segment = normalizeThinking(prev.thinking);
+          if (segment) {
+            priorToolRoundThinking.push(segment);
+          }
+        }
+
+        const knownPrefix = priorToolRoundThinking.join('\n').trim();
+        if (knownPrefix && renderableThinking.startsWith(knownPrefix)) {
+          renderableThinking = renderableThinking.slice(knownPrefix.length).replace(/^\s+/, '');
+        }
+      }
+
+      if (renderableThinking) {
+        map.set(i, renderableThinking);
+      }
+    }
+
+    return map;
+  }, [messages]);
+
   // ── Smart auto-scroll ─────────────────────────────────────────────
   const NEAR_BOTTOM_THRESHOLD = 100;
 
@@ -210,10 +256,22 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
     return -1;
   }, [messages]);
 
-  const shouldShowStreamingPreview = isStreaming
+  const lastRenderableMessageRole = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === 'tool' || msg.role === 'system') continue;
+      if (msg.role === 'assistant' && msg.content.trim().length === 0) continue;
+      return msg.role;
+    }
+    return null;
+  }, [messages]);
+
+  const shouldRenderStreamRounds = streamRounds.length > 0;
+
+  const shouldShowStreamingText = isStreaming
     || (
       streamText.trim().length > 0
-      && (messages.length === 0 || messages[messages.length - 1].role === 'user')
+      && (lastRenderableMessageRole == null || lastRenderableMessageRole === 'user')
     );
 
   // Empty state
@@ -293,6 +351,9 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
             ? (messages.slice(0, idx).reverse().find((m) => m.role === 'user')?.content ?? '')
             : '';
           const chunkIds = chunkIdCacheRef.current.get(msg.id) ?? [];
+          const renderableThinking = msg.role === 'assistant'
+            ? messageThinkingText.get(idx) ?? null
+            : null;
           // Show text bubble for assistant messages whenever they have content.
           const hasRenderableAssistantContent =
             msg.role !== 'assistant' ||
@@ -300,6 +361,15 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
 
           return (
             <div key={msg.id}>
+              {/* Persisted thinking block for assistant messages */}
+              {msg.role === 'assistant' && renderableThinking && (
+                <div className="flex justify-start mb-3">
+                  <div className="max-w-[80%]">
+                    <ThinkingBlock content={renderableThinking} isStreaming={false} />
+                  </div>
+                </div>
+              )}
+
               {hasRenderableAssistantContent && (
                 <MessageBubble
                   msg={msg}
@@ -322,15 +392,6 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
                   onDeleteMessage={onDeleteMessage}
                   onEditAndResend={onEditAndResend}
                 />
-              )}
-
-              {/* Persisted thinking block for assistant messages */}
-              {msg.role === 'assistant' && msg.thinking && (
-                <div className="flex justify-start mb-3">
-                  <div className="max-w-[80%]">
-                    <ThinkingBlock content={msg.thinking} isStreaming={false} />
-                  </div>
-                </div>
               )}
 
               {/* Show tool call cards after assistant messages with tool calls */}
@@ -359,7 +420,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
       </AnimatePresence>
 
       {/* Streaming timeline: completed rounds stay above the live phase to avoid jumpy reordering. */}
-      {shouldShowStreamingPreview && streamRounds.map((round) => (
+      {shouldRenderStreamRounds && streamRounds.map((round) => (
         <div key={round.id} className="mb-4 space-y-2">
           {round.thinking && (
             <motion.div
@@ -429,7 +490,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
       )}
 
       {/* Streaming text */}
-      {shouldShowStreamingPreview && streamText && (
+      {shouldShowStreamingText && streamText && (
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
