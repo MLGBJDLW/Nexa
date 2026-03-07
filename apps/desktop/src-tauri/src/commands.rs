@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::subagent_tool::SubagentTool;
+use crate::subagent_tool::{
+    DelegationRuntime, JudgeSubagentResultsTool, SubagentBatchTool, SubagentTool,
+};
 use ask_core::agent::{
     build_system_prompt, AgentConfig as ExecutorConfig, AgentEvent, AgentExecutor,
     CancellationToken,
@@ -1158,6 +1160,9 @@ pub async fn compact_conversation_cmd(
         reasoning_effort: None,
         provider_type: Some(parse_provider_type(&db_config.provider)),
         summarization_model: db_config.summarization_model.clone(),
+        subagent_max_parallel: db_config.subagent_max_parallel.map(|v| v as u32),
+        subagent_max_calls_per_turn: db_config.subagent_max_calls_per_turn.map(|v| v as u32),
+        subagent_token_budget: db_config.subagent_token_budget.map(|v| v as u32),
     };
 
     let summarization_provider: Option<Box<dyn ask_core::llm::LlmProvider>> =
@@ -1438,6 +1443,9 @@ pub async fn agent_chat_cmd(
             }),
         provider_type: Some(parse_provider_type(&db_config.provider)),
         summarization_model: db_config.summarization_model.clone(),
+        subagent_max_parallel: db_config.subagent_max_parallel.map(|v| v as u32),
+        subagent_max_calls_per_turn: db_config.subagent_max_calls_per_turn.map(|v| v as u32),
+        subagent_token_budget: db_config.subagent_token_budget.map(|v| v as u32),
     };
 
     // 6b. Create a separate summarization provider if configured.
@@ -1476,10 +1484,19 @@ pub async fn agent_chat_cmd(
         }
     }
 
-    tools.register(Box::new(SubagentTool::new(
+    let delegation_runtime = DelegationRuntime::new(
         provider_config.clone(),
         executor_config.clone(),
         db_config.subagent_allowed_tools.clone(),
+    );
+    tools.register(Box::new(SubagentTool::from_runtime(
+        delegation_runtime.clone(),
+    )));
+    tools.register(Box::new(SubagentBatchTool::from_runtime(
+        delegation_runtime.clone(),
+    )));
+    tools.register(Box::new(JudgeSubagentResultsTool::from_runtime(
+        delegation_runtime,
     )));
 
     // 7b. Build user content parts (text + optional image attachments).

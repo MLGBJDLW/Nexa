@@ -86,6 +86,9 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
   const [subagentAllowedTools, setSubagentAllowedTools] = useState<string[]>(
     normalizeSubagentToolSelection(config?.subagentAllowedTools),
   );
+  const [subagentMaxParallel, setSubagentMaxParallel] = useState<number | null>(config?.subagentMaxParallel ?? 3);
+  const [subagentMaxCallsPerTurn, setSubagentMaxCallsPerTurn] = useState<number | null>(config?.subagentMaxCallsPerTurn ?? 6);
+  const [subagentTokenBudget, setSubagentTokenBudget] = useState<number | null>(config?.subagentTokenBudget ?? 12000);
   const [showKey, setShowKey] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -111,6 +114,9 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
     subagentAllowedTools: usesDefaultSubagentToolSelection(config?.subagentAllowedTools)
       ? null
       : (config?.subagentAllowedTools ?? null),
+    subagentMaxParallel: config?.subagentMaxParallel ?? 3,
+    subagentMaxCallsPerTurn: config?.subagentMaxCallsPerTurn ?? 6,
+    subagentTokenBudget: config?.subagentTokenBudget ?? 12000,
   });
 
   const isLocal = LOCAL_PROVIDERS.includes(provider) || (preset ? !preset.requiresApiKey : false);
@@ -151,7 +157,10 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
     subagentAllowedTools: usesDefaultSubagentToolSelection(subagentAllowedTools)
       ? null
       : subagentAllowedTools,
-  }), [config?.id, name, provider, apiKey, baseUrl, model, temperature, maxTokens, contextWindow, isDefault, reasoningEnabled, thinkingBudget, reasoningEffort, maxIterations, summarizationModel, summarizationProvider, subagentAllowedTools, isLocal]);
+    subagentMaxParallel,
+    subagentMaxCallsPerTurn,
+    subagentTokenBudget,
+  }), [config?.id, name, provider, apiKey, baseUrl, model, temperature, maxTokens, contextWindow, isDefault, reasoningEnabled, thinkingBudget, reasoningEffort, maxIterations, summarizationModel, summarizationProvider, subagentAllowedTools, subagentMaxParallel, subagentMaxCallsPerTurn, subagentTokenBudget, isLocal]);
 
   useEffect(() => {
     if (!onDirtyChange) return;
@@ -484,12 +493,65 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
           <div>
             <h4 className="text-sm font-semibold text-text-primary">Subagents</h4>
             <p className="text-xs text-text-tertiary">
-              Choose which built-in tools delegated subagents may use. Leaving the default safe set selected preserves current behavior.
+              Choose which built-in tools delegated subagents may use, and set concurrency and budget limits for delegated workers and adjudicators.
             </p>
           </div>
           <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
             {subagentAllowedTools.length}/{DEFAULT_SUBAGENT_TOOL_NAMES.length} enabled
           </span>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-text-primary">Max parallel workers</label>
+            <Input
+              type="number"
+              value={subagentMaxParallel ?? ''}
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                setSubagentMaxParallel(val ? parseInt(val) || null : null);
+              }}
+              min={1}
+              max={12}
+              step={1}
+            />
+            <p className="text-xs text-text-tertiary">
+              Hard cap on how many delegated workers may run at the same time.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-text-primary">Max worker calls / turn</label>
+            <Input
+              type="number"
+              value={subagentMaxCallsPerTurn ?? ''}
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                setSubagentMaxCallsPerTurn(val ? parseInt(val) || null : null);
+              }}
+              min={1}
+              max={32}
+              step={1}
+            />
+            <p className="text-xs text-text-tertiary">
+              Limits total delegated worker and judge invocations in one parent turn.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-text-primary">Token budget / turn</label>
+            <Input
+              type="number"
+              value={subagentTokenBudget ?? ''}
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                setSubagentTokenBudget(val ? parseInt(val) || null : null);
+              }}
+              min={256}
+              step={256}
+            />
+            <p className="text-xs text-text-tertiary">
+              Soft total token budget for delegated workers and result adjudication.
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-2 md:grid-cols-2">

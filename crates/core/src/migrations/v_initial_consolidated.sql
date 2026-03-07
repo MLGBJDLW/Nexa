@@ -218,7 +218,10 @@ CREATE TABLE IF NOT EXISTS agent_configs (
     max_iterations          INTEGER,
     summarization_model     TEXT DEFAULT NULL,
     summarization_provider  TEXT DEFAULT NULL,
-    subagent_allowed_tools_json TEXT DEFAULT NULL
+    subagent_allowed_tools_json TEXT DEFAULT NULL,
+    subagent_max_parallel INTEGER DEFAULT NULL,
+    subagent_max_calls_per_turn INTEGER DEFAULT NULL,
+    subagent_token_budget INTEGER DEFAULT NULL
 );
 
 -- Conversation sources

@@ -298,6 +298,12 @@ pub struct AgentConfig {
     /// Optional cheaper model name for summarization (e.g. "gpt-4o-mini").
     /// Falls back to main model when `None`.
     pub summarization_model: Option<String>,
+    /// Maximum number of delegated workers allowed to run concurrently.
+    pub subagent_max_parallel: Option<u32>,
+    /// Maximum number of delegated worker/judge calls allowed per turn.
+    pub subagent_max_calls_per_turn: Option<u32>,
+    /// Soft token budget for delegated workers and adjudication per turn.
+    pub subagent_token_budget: Option<u32>,
 }
 
 impl Default for AgentConfig {
@@ -314,6 +320,9 @@ impl Default for AgentConfig {
             reasoning_effort: None,
             provider_type: None,
             summarization_model: None,
+            subagent_max_parallel: None,
+            subagent_max_calls_per_turn: None,
+            subagent_token_budget: None,
         }
     }
 }

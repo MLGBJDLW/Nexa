@@ -109,6 +109,12 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
         "v022_subagent_allowed_tools",
         "ALTER TABLE agent_configs ADD COLUMN subagent_allowed_tools_json TEXT;",
     ),
+    (
+        "v023_subagent_budget_controls",
+        "ALTER TABLE agent_configs ADD COLUMN subagent_max_parallel INTEGER;
+      ALTER TABLE agent_configs ADD COLUMN subagent_max_calls_per_turn INTEGER;
+      ALTER TABLE agent_configs ADD COLUMN subagent_token_budget INTEGER;",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

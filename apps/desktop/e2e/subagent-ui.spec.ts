@@ -397,6 +397,9 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await page.getByRole('button', { name: 'Custom / Manual' }).click();
   await page.getByRole('button', { name: 'Advanced Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Subagents' })).toBeVisible();
+  await expect(page.getByText('Max parallel workers')).toBeVisible();
+  await expect(page.getByText('Max worker calls / turn')).toBeVisible();
+  await expect(page.getByText('Token budget / turn')).toBeVisible();
   await expect(page.getByText('Knowledge Search', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Record Verification', { exact: true }).first()).toBeVisible();
 });

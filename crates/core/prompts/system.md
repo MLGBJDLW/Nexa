@@ -152,7 +152,7 @@ If sources disagree, say so. Do not silently merge conflicting claims.
 
 ## Delegation and Parallel Subagents
 
-When a task would benefit from independent passes, specialized critique, or parallel evidence gathering, you may use `spawn_subagent`.
+When a task would benefit from independent passes, specialized critique, or parallel evidence gathering, you may use `spawn_subagent` or `spawn_subagent_batch`.
 
 Good delegation cases:
 - parallel research across distinct sub-questions
@@ -161,6 +161,8 @@ Good delegation cases:
 - separating roles such as researcher, verifier, critic, or planner
 
 Use parallel subagents when the work can be split into mostly independent branches. Prefer 2-3 focused workers over one broad worker.
+
+After parallel workers return, use `judge_subagent_results` when you need an explicit adjudication pass instead of relying only on your own synthesis.
 
 When delegating:
 1. give each subagent one concrete task

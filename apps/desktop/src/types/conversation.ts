@@ -60,6 +60,12 @@ export interface AgentConfig {
   summarizationProvider: string | null;
   /** Optional whitelist of built-in tools that delegated subagents may use. */
   subagentAllowedTools: string[] | null;
+  /** Max number of delegated workers allowed to run concurrently. */
+  subagentMaxParallel?: number | null;
+  /** Max number of delegated worker/judge calls allowed per turn. */
+  subagentMaxCallsPerTurn?: number | null;
+  /** Soft token budget for delegated workers and judges per turn. */
+  subagentTokenBudget?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +91,12 @@ export interface SaveAgentConfigInput {
   summarizationProvider: string | null;
   /** Optional whitelist of built-in tools that delegated subagents may use. */
   subagentAllowedTools: string[] | null;
+  /** Max number of delegated workers allowed to run concurrently. */
+  subagentMaxParallel?: number | null;
+  /** Max number of delegated worker/judge calls allowed per turn. */
+  subagentMaxCallsPerTurn?: number | null;
+  /** Soft token budget for delegated workers and judges per turn. */
+  subagentTokenBudget?: number | null;
 }
 
 export type ProviderType =

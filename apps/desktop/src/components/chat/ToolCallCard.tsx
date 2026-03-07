@@ -21,7 +21,12 @@ import {
 import { useTranslation } from '../../i18n';
 import { FileBadge } from '../ui/FileBadge';
 import { extractPlanArtifact, extractVerificationArtifact } from '../../lib/taskArtifacts';
-import { extractSubagentArtifact, parseSubagentArguments } from '../../lib/subagentArtifacts';
+import {
+  extractSubagentArtifact,
+  extractSubagentBatchArtifact,
+  extractSubagentJudgementArtifact,
+  parseSubagentArguments,
+} from '../../lib/subagentArtifacts';
 import { PlanPanel, VerificationPanel } from './TaskPanels';
 import type { ArtifactPayload } from '../../types/conversation';
 import type { VerificationOverallStatus } from '../../lib/taskArtifacts';
@@ -236,6 +241,8 @@ export function ToolCallCard({
     () => buildSubagentRun(safeToolName, args, status, content, isError, artifacts),
     [safeToolName, args, status, content, isError, artifacts],
   );
+  const subagentBatch = useMemo(() => extractSubagentBatchArtifact(artifacts), [artifacts]);
+  const subagentJudgement = useMemo(() => extractSubagentJudgementArtifact(artifacts), [artifacts]);
   const planArtifact = useMemo(() => extractPlanArtifact(artifacts), [artifacts]);
   const verificationArtifact = useMemo(() => extractVerificationArtifact(artifacts), [artifacts]);
   const isStructuredTaskCard = Boolean(planArtifact || verificationArtifact);
@@ -249,6 +256,98 @@ export function ToolCallCard({
         className="my-2"
       >
         <SubagentCard run={subagentRun} />
+      </motion.div>
+    );
+  }
+
+  if (subagentBatch) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="my-2 rounded-xl border border-border/70 bg-surface-1/80 p-3"
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">
+            {subagentBatch.batchGoal || 'Parallel delegated run'}
+          </span>
+          {typeof subagentBatch.effectiveMaxParallel === 'number' && (
+            <span className="rounded-full border border-border/60 bg-surface-0 px-2 py-1">
+              parallel {subagentBatch.effectiveMaxParallel}
+            </span>
+          )}
+          {typeof subagentBatch.completedRuns === 'number' && (
+            <span className="rounded-full border border-border/60 bg-surface-0 px-2 py-1">
+              complete {subagentBatch.completedRuns}
+            </span>
+          )}
+          {typeof subagentBatch.failedRuns === 'number' && subagentBatch.failedRuns > 0 && (
+            <span className="rounded-full border border-danger/25 bg-danger/10 px-2 py-1 text-danger">
+              failed {subagentBatch.failedRuns}
+            </span>
+          )}
+        </div>
+        <div className="space-y-2">
+          {subagentBatch.runs.map(run => (
+            <SubagentCard key={run.id} run={run} compact />
+          ))}
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (subagentJudgement) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="my-2 rounded-xl border border-border/70 bg-surface-1/80 p-3"
+      >
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">
+            {subagentJudgement.task || 'Delegated result adjudication'}
+          </span>
+          <span className="rounded-full border border-border/60 bg-surface-0 px-2 py-1">
+            {subagentJudgement.decisionMode}
+          </span>
+          {subagentJudgement.confidence && (
+            <span className="rounded-full border border-border/60 bg-surface-0 px-2 py-1">
+              confidence {subagentJudgement.confidence}
+            </span>
+          )}
+          {subagentJudgement.winnerIds.length > 0 && (
+            <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-1 text-accent">
+              winners {subagentJudgement.winnerIds.join(', ')}
+            </span>
+          )}
+        </div>
+        <div className="rounded-lg border border-border/60 bg-surface-0/70 px-3 py-2 text-sm text-text-primary">
+          {subagentJudgement.summary}
+        </div>
+        {subagentJudgement.rationale && (
+          <div className="mt-2 rounded-lg border border-border/60 bg-surface-0/55 px-3 py-2 text-xs text-text-secondary">
+            {subagentJudgement.rationale}
+          </div>
+        )}
+        {subagentJudgement.rubric && subagentJudgement.rubric.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+              Rubric
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {subagentJudgement.rubric.map((item, index) => (
+                <span
+                  key={`judge-rubric-${index}`}
+                  className="inline-flex items-center rounded-md border border-border/60 bg-surface-0 px-2 py-1 text-[11px] text-text-secondary"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </motion.div>
     );
   }

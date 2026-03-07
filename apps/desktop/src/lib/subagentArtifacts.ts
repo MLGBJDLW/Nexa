@@ -25,6 +25,16 @@ export interface SubagentEvidenceHandoff {
   excerpt: string;
 }
 
+export interface SubagentBudgetSnapshot {
+  maxParallel: number;
+  maxCallsPerTurn: number;
+  callsStarted: number;
+  remainingCalls: number;
+  tokenBudget: number;
+  tokensSpent: number;
+  remainingTokens: number;
+}
+
 export interface SubagentArtifact {
   kind: 'subagent_result';
   task: string;
@@ -46,6 +56,42 @@ export interface SubagentArtifact {
   thinking?: string[] | null;
   sourceScopeApplied?: boolean;
   allowedTools?: string[] | null;
+}
+
+export interface SubagentBatchArtifact {
+  kind: 'subagent_batch_result';
+  batchGoal?: string | null;
+  parallelGroup?: string | null;
+  requestedMaxParallel?: number | null;
+  effectiveMaxParallel?: number | null;
+  completedRuns?: number;
+  failedRuns?: number;
+  budgetBefore?: SubagentBudgetSnapshot | null;
+  budgetAfter?: SubagentBudgetSnapshot | null;
+  runs: SubagentRun[];
+}
+
+export interface SubagentJudgementArtifact {
+  kind: 'subagent_judgement';
+  task?: string | null;
+  rubric?: string[] | null;
+  decisionMode: string;
+  expectedOutput?: string | null;
+  parallelGroup?: string | null;
+  winnerIds: string[];
+  confidence?: string | null;
+  summary: string;
+  rationale?: string | null;
+  rawResponse: string;
+  candidates: Array<{
+    id: string;
+    label?: string | null;
+    result: string;
+    evidenceSummary?: string | null;
+    concerns?: string[] | null;
+  }>;
+  usageTotal?: SubagentUsage | null;
+  budget?: SubagentBudgetSnapshot | null;
 }
 
 export interface PendingSubagentArgs {
@@ -101,6 +147,42 @@ function asStringArray(value: unknown): string[] | null {
     .map(item => (typeof item === 'string' ? item.trim() : ''))
     .filter(Boolean);
   return items.length > 0 ? items : [];
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function parseBudgetSnapshot(value: unknown): SubagentBudgetSnapshot | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const maxParallel = asNumber(record.maxParallel);
+  const maxCallsPerTurn = asNumber(record.maxCallsPerTurn);
+  const callsStarted = asNumber(record.callsStarted);
+  const remainingCalls = asNumber(record.remainingCalls);
+  const tokenBudget = asNumber(record.tokenBudget);
+  const tokensSpent = asNumber(record.tokensSpent);
+  const remainingTokens = asNumber(record.remainingTokens);
+  if (
+    maxParallel == null
+    || maxCallsPerTurn == null
+    || callsStarted == null
+    || remainingCalls == null
+    || tokenBudget == null
+    || tokensSpent == null
+    || remainingTokens == null
+  ) {
+    return null;
+  }
+  return {
+    maxParallel,
+    maxCallsPerTurn,
+    callsStarted,
+    remainingCalls,
+    tokenBudget,
+    tokensSpent,
+    remainingTokens,
+  };
 }
 
 export function parseSubagentArguments(raw?: string): PendingSubagentArgs | null {
@@ -209,6 +291,118 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
   };
 }
 
+function buildRunFromArtifact(artifact: SubagentArtifact, id: string, content?: string): SubagentRun {
+  return {
+    id,
+    status: 'done',
+    task: artifact.task,
+    role: artifact.role ?? null,
+    expectedOutput: artifact.expectedOutput ?? null,
+    acceptanceCriteria: artifact.acceptanceCriteria ?? null,
+    evidenceChunkIds: artifact.evidenceChunkIds ?? null,
+    evidenceHandoff: artifact.evidenceHandoff ?? null,
+    requestedSourceScope: artifact.requestedSourceScope ?? null,
+    effectiveSourceScope: artifact.effectiveSourceScope ?? null,
+    requestedAllowedTools: artifact.requestedAllowedTools ?? null,
+    parallelGroup: artifact.parallelGroup ?? null,
+    deliverableStyle: artifact.deliverableStyle ?? null,
+    returnSections: artifact.returnSections ?? null,
+    result: artifact.result,
+    finishReason: artifact.finishReason ?? null,
+    usageTotal: artifact.usageTotal ?? null,
+    toolEvents: artifact.toolEvents,
+    thinking: artifact.thinking ?? null,
+    sourceScopeApplied: artifact.sourceScopeApplied ?? false,
+    allowedTools: artifact.allowedTools ?? null,
+    content,
+  };
+}
+
+export function extractSubagentBatchArtifact(value: unknown): SubagentBatchArtifact | null {
+  const record = asRecord(value);
+  if (!record || record.kind !== 'subagent_batch_result') return null;
+  const runsRaw = Array.isArray(record.runs) ? record.runs : [];
+  const runs: SubagentRun[] = [];
+  runsRaw.forEach((item, index) => {
+      const row = asRecord(item);
+      if (!row) return;
+      const artifact = extractSubagentArtifact({ kind: 'subagent_result', ...row });
+      if (!artifact) return;
+      const status = typeof row.status === 'string' ? row.status : 'done';
+      const run = buildRunFromArtifact(
+        artifact,
+        typeof row.id === 'string' ? row.id : `batch-run-${index}`,
+        typeof row.result === 'string' ? row.result : undefined,
+      );
+      runs.push({
+        ...run,
+        status: status === 'error' ? 'error' : status === 'running' ? 'running' : 'done',
+        isError: row.isError === true,
+        content: typeof row.errorMessage === 'string' ? row.errorMessage : run.content,
+      });
+    });
+
+  return {
+    kind: 'subagent_batch_result',
+    batchGoal: typeof record.batchGoal === 'string' ? record.batchGoal : null,
+    parallelGroup: typeof record.parallelGroup === 'string' ? record.parallelGroup : null,
+    requestedMaxParallel: asNumber(record.requestedMaxParallel),
+    effectiveMaxParallel: asNumber(record.effectiveMaxParallel),
+    completedRuns: asNumber(record.completedRuns) ?? undefined,
+    failedRuns: asNumber(record.failedRuns) ?? undefined,
+    budgetBefore: parseBudgetSnapshot(record.budgetBefore),
+    budgetAfter: parseBudgetSnapshot(record.budgetAfter),
+    runs,
+  };
+}
+
+export function extractSubagentJudgementArtifact(value: unknown): SubagentJudgementArtifact | null {
+  const record = asRecord(value);
+  if (!record || record.kind !== 'subagent_judgement') return null;
+  const candidatesRaw = Array.isArray(record.candidates) ? record.candidates : [];
+  const candidates = candidatesRaw
+    .map(item => {
+      const row = asRecord(item);
+      if (!row || typeof row.id !== 'string' || typeof row.result !== 'string') return null;
+      return {
+        id: row.id,
+        label: typeof row.label === 'string' ? row.label : null,
+        result: row.result,
+        evidenceSummary: typeof row.evidenceSummary === 'string' ? row.evidenceSummary : null,
+        concerns: asStringArray(row.concerns),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  const decisionMode = typeof record.decisionMode === 'string' ? record.decisionMode : '';
+  const summary = typeof record.summary === 'string' ? record.summary : '';
+  if (!decisionMode || !summary) return null;
+
+  return {
+    kind: 'subagent_judgement',
+    task: typeof record.task === 'string' ? record.task : null,
+    rubric: asStringArray(record.rubric),
+    decisionMode,
+    expectedOutput: typeof record.expectedOutput === 'string' ? record.expectedOutput : null,
+    parallelGroup: typeof record.parallelGroup === 'string' ? record.parallelGroup : null,
+    winnerIds: asStringArray(record.winnerIds) ?? [],
+    confidence: typeof record.confidence === 'string' ? record.confidence : null,
+    summary,
+    rationale: typeof record.rationale === 'string' ? record.rationale : null,
+    rawResponse: typeof record.rawResponse === 'string' ? record.rawResponse : summary,
+    candidates,
+    usageTotal: asRecord(record.usageTotal)
+      ? {
+          promptTokens: typeof (record.usageTotal as Record<string, unknown>).promptTokens === 'number' ? (record.usageTotal as Record<string, unknown>).promptTokens as number : undefined,
+          completionTokens: typeof (record.usageTotal as Record<string, unknown>).completionTokens === 'number' ? (record.usageTotal as Record<string, unknown>).completionTokens as number : undefined,
+          totalTokens: typeof (record.usageTotal as Record<string, unknown>).totalTokens === 'number' ? (record.usageTotal as Record<string, unknown>).totalTokens as number : undefined,
+          thinkingTokens: typeof (record.usageTotal as Record<string, unknown>).thinkingTokens === 'number' ? (record.usageTotal as Record<string, unknown>).thinkingTokens as number : undefined,
+        }
+      : null,
+    budget: parseBudgetSnapshot(record.budget),
+  };
+}
+
 function buildRunFromToolCall(toolCall: ToolCallEvent): SubagentRun | null {
   if (toolCall.toolName !== 'spawn_subagent') return null;
   const artifact = extractSubagentArtifact(toolCall.artifacts);
@@ -245,30 +439,7 @@ function buildRunFromToolCall(toolCall: ToolCallEvent): SubagentRun | null {
 function buildRunFromMessage(message: ConversationMessage): SubagentRun | null {
   const artifact = extractSubagentArtifact(message.artifacts);
   if (!artifact) return null;
-  return {
-    id: message.toolCallId ?? message.id,
-    status: 'done',
-    task: artifact.task,
-    role: artifact.role ?? null,
-    expectedOutput: artifact.expectedOutput ?? null,
-    acceptanceCriteria: artifact.acceptanceCriteria ?? null,
-    evidenceChunkIds: artifact.evidenceChunkIds ?? null,
-    evidenceHandoff: artifact.evidenceHandoff ?? null,
-    requestedSourceScope: artifact.requestedSourceScope ?? null,
-    effectiveSourceScope: artifact.effectiveSourceScope ?? null,
-    requestedAllowedTools: artifact.requestedAllowedTools ?? null,
-    parallelGroup: artifact.parallelGroup ?? null,
-    deliverableStyle: artifact.deliverableStyle ?? null,
-    returnSections: artifact.returnSections ?? null,
-    result: artifact.result,
-    finishReason: artifact.finishReason ?? null,
-    usageTotal: artifact.usageTotal ?? null,
-    toolEvents: artifact.toolEvents,
-    thinking: artifact.thinking ?? null,
-    sourceScopeApplied: artifact.sourceScopeApplied ?? false,
-    allowedTools: artifact.allowedTools ?? null,
-    content: message.content,
-  };
+  return buildRunFromArtifact(artifact, message.toolCallId ?? message.id, message.content);
 }
 
 export function findVisibleSubagentRuns(
@@ -276,9 +447,12 @@ export function findVisibleSubagentRuns(
   toolCalls: ToolCallEvent[],
   limit = 4,
 ): SubagentRun[] {
-  const liveRuns = toolCalls
-    .map(buildRunFromToolCall)
-    .filter((run): run is SubagentRun => Boolean(run));
+  const liveRuns = toolCalls.flatMap(toolCall => {
+    const direct = buildRunFromToolCall(toolCall);
+    if (direct) return [direct];
+    const batch = extractSubagentBatchArtifact(toolCall.artifacts);
+    return batch?.runs ?? [];
+  });
 
   if (liveRuns.length > 0) {
     return liveRuns.slice(-limit);
@@ -287,9 +461,9 @@ export function findVisibleSubagentRuns(
   const historicalRuns: SubagentRun[] = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const run = buildRunFromMessage(messages[i]);
-    if (run) {
-      historicalRuns.push(run);
-    }
+    if (run) historicalRuns.push(run);
+    const batch = extractSubagentBatchArtifact(messages[i].artifacts);
+    if (batch) historicalRuns.push(...batch.runs.slice().reverse());
     if (historicalRuns.length >= limit) break;
   }
 
