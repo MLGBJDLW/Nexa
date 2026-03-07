@@ -104,7 +104,6 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   // Typewriter: gradually reveal streamed text for a smooth typing feel
   const typewriterText = useTypewriter(streamText, isStreaming, { charsPerTick: 5, intervalMs: 30 });
   const displayedText = shouldReduceMotion ? streamText : typewriterText;
-  const isRevealing = !shouldReduceMotion && (isStreaming || displayedText.length < streamText.length);
   const streamingThinkingContent = thinkingText || t('chat.thinking');
 
   // Debounce displayed text for markdown rendering (~100ms) to avoid re-parsing on every tick
@@ -507,9 +506,6 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
                   {processedMarkdown}
                 </ReactMarkdown>
               </CitationContext.Provider>
-              {isRevealing && (
-                <span className={`inline-block w-1.5 h-4 bg-accent ml-0.5 align-text-bottom rounded-sm ${shouldReduceMotion ? '' : 'animate-pulse'}`} />
-              )}
             </div>
           </div>
         </motion.div>

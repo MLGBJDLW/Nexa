@@ -162,9 +162,6 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
                     {content}
                   </ReactMarkdown>
-                  {isStreaming && (
-                    <span className="inline-block w-1.5 h-3 bg-accent/50 animate-pulse ml-0.5 align-text-bottom rounded-sm" />
-                  )}
                 </div>
               </div>
             </div>
