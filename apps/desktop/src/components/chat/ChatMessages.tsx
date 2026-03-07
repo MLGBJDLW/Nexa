@@ -61,6 +61,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [hasOverflow, setHasOverflow] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevMsgCountRef = useRef(messages.length);
 
@@ -212,33 +213,47 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   // ── Smart auto-scroll ─────────────────────────────────────────────
   const NEAR_BOTTOM_THRESHOLD = 100;
 
-  const checkNearBottom = useCallback(() => {
+  const getScrollMetrics = useCallback(() => {
     const el = scrollContainerRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_THRESHOLD;
+    if (!el) {
+      return { nearBottom: true, overflow: false };
+    }
+    return {
+      nearBottom: el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_THRESHOLD,
+      overflow: el.scrollHeight > el.clientHeight + 8,
+    };
   }, []);
 
   const handleScroll = useCallback(() => {
-    const near = checkNearBottom();
-    setIsNearBottom(near);
-    if (near) setUnreadCount(0);
-  }, [checkNearBottom]);
+    const { nearBottom, overflow } = getScrollMetrics();
+    setHasOverflow(overflow);
+    setIsNearBottom(nearBottom);
+    if (nearBottom) setUnreadCount(0);
+  }, [getScrollMetrics]);
 
   // Track new messages while scrolled up
   useEffect(() => {
     const newCount = messages.length - prevMsgCountRef.current;
-    if (newCount > 0 && !isNearBottom) {
+    if (newCount > 0 && !isNearBottom && hasOverflow) {
       setUnreadCount((c) => c + newCount);
     }
     prevMsgCountRef.current = messages.length;
-  }, [messages.length, isNearBottom]);
+  }, [messages.length, isNearBottom, hasOverflow]);
 
   // Auto-scroll only when near bottom
   useEffect(() => {
+    const { nearBottom, overflow } = getScrollMetrics();
+    setHasOverflow(overflow);
+    if (!overflow) {
+      setIsNearBottom(true);
+      setUnreadCount(0);
+      return;
+    }
     if (isNearBottom) {
       bottomRef.current?.scrollIntoView({ behavior: shouldReduceMotion ? 'auto' : 'smooth' });
     }
-  }, [messages, streamText, streamRounds, toolCalls, isNearBottom, shouldReduceMotion]);
+    setIsNearBottom(nearBottom);
+  }, [messages, streamText, streamRounds, toolCalls, getScrollMetrics, isNearBottom, shouldReduceMotion]);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: shouldReduceMotion ? 'auto' : 'smooth' });
@@ -580,7 +595,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
 
       {/* Scroll-to-bottom floating button */}
       <AnimatePresence>
-        {!isNearBottom && (
+        {hasOverflow && !isNearBottom && (
           <motion.button
             initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
