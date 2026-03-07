@@ -49,6 +49,7 @@ import { AgentConfigForm } from '../components/settings/AgentConfigForm';
 import { SkillEditor } from '../components/settings/SkillEditor';
 import { McpServerForm } from '../components/settings/McpServerForm';
 import { PROVIDER_PRESETS, type ProviderPreset } from '../lib/providerPresets';
+import { DEFAULT_SUBAGENT_TOOL_NAMES } from '../lib/subagentTools';
 
 /* ── Section wrapper ──────────────────────────────────────────────── */
 function Section({
@@ -1419,6 +1420,9 @@ export function SettingsPage() {
                           <p className="text-sm font-medium text-text-primary truncate">{cfg.name}</p>
                           <Badge variant="default" className="text-[10px] shrink-0">
                             {PROVIDER_LABELS[cfg.provider] ?? cfg.provider}
+                          </Badge>
+                          <Badge variant="default" className="text-[10px] shrink-0 bg-accent/10 text-accent border-accent/20">
+                            {`subagents ${(cfg.subagentAllowedTools ?? DEFAULT_SUBAGENT_TOOL_NAMES).length}`}
                           </Badge>
                         </div>
                         <p className="mt-0.5 text-xs text-text-tertiary truncate">

@@ -105,6 +105,10 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
         "ALTER TABLE messages ADD COLUMN artifacts_json TEXT;
       ALTER TABLE archived_messages ADD COLUMN artifacts_json TEXT;",
     ),
+    (
+        "v022_subagent_allowed_tools",
+        "ALTER TABLE agent_configs ADD COLUMN subagent_allowed_tools_json TEXT;",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

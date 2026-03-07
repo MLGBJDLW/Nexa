@@ -58,6 +58,8 @@ export interface AgentConfig {
   summarizationModel: string | null;
   /** Optional provider override for summarization (e.g. "open_ai"). */
   summarizationProvider: string | null;
+  /** Optional whitelist of built-in tools that delegated subagents may use. */
+  subagentAllowedTools: string[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +83,8 @@ export interface SaveAgentConfigInput {
   summarizationModel: string | null;
   /** Optional provider override for summarization (e.g. "open_ai"). */
   summarizationProvider: string | null;
+  /** Optional whitelist of built-in tools that delegated subagents may use. */
+  subagentAllowedTools: string[] | null;
 }
 
 export type ProviderType =

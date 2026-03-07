@@ -217,7 +217,8 @@ CREATE TABLE IF NOT EXISTS agent_configs (
     reasoning_effort        TEXT DEFAULT NULL,
     max_iterations          INTEGER,
     summarization_model     TEXT DEFAULT NULL,
-    summarization_provider  TEXT DEFAULT NULL
+    summarization_provider  TEXT DEFAULT NULL,
+    subagent_allowed_tools_json TEXT DEFAULT NULL
 );
 
 -- Conversation sources

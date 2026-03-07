@@ -91,7 +91,12 @@ pub fn model_context_window(model: &str) -> u32 {
 
     // ── Exact matches for verified model IDs (highest priority) ────
     match m {
+        // OpenAI GPT-5.4 series (1.05M)
+        "gpt-5.4" | "gpt-5.4-2026-03-05" | "gpt-5.4-pro" | "gpt-5.4-pro-2026-03-05" => {
+            1_050_000
+        }
         // OpenAI GPT-5 series (400K)
+        "gpt-5.3-codex" | "gpt-5.3-codex-2025-12-19" => 400_000,
         "gpt-5.2" | "gpt-5.2-codex" | "gpt-5.2-pro" => 400_000,
         "gpt-5.1" | "gpt-5.1-codex" => 400_000,
         "gpt-5" | "gpt-5-mini" | "gpt-5-nano" => 400_000,
@@ -120,12 +125,18 @@ pub fn model_context_window(model: &str) -> u32 {
         // OpenAI Codex
         "codex-mini-latest" => 200_000,
 
-        // Anthropic Claude 4.x (200K)
+        // Anthropic Claude 4.x
+        // Default API context is 200K. Opus 4.6, Sonnet 4.6, Sonnet 4.5, and
+        // Sonnet 4 can reach 1M only when the context-1m-2025-08-07 beta
+        // header is enabled.
         "claude-opus-4-6" => 200_000,
+        "claude-opus-4-5" | "claude-opus-4-5-20251101" => 200_000,
+        "claude-opus-4-1" | "claude-opus-4-1-20250805" => 200_000,
+        "claude-opus-4-0" | "claude-opus-4-20250514" => 200_000,
+        "claude-sonnet-4-6" => 200_000,
         "claude-sonnet-4-5" | "claude-sonnet-4-5-20250929" => 200_000,
+        "claude-sonnet-4-0" | "claude-sonnet-4-20250514" => 200_000,
         "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => 200_000,
-        "claude-opus-4-20250514" => 200_000,
-        "claude-sonnet-4-20250514" => 200_000,
         // Anthropic Claude 3.x
         "claude-3-7-sonnet-20250219" | "claude-3-7-sonnet-latest" => 200_000,
         "claude-3-5-sonnet-20241022" | "claude-3-5-sonnet-latest" => 200_000,
@@ -138,6 +149,9 @@ pub fn model_context_window(model: &str) -> u32 {
         "claude-2.0" => 100_000,
 
         // Google Gemini 3.x (preview)
+        "gemini-3.1-pro-preview" => 1_048_576,
+        "gemini-3-flash-preview" => 1_048_576,
+        "gemini-3.1-flash-lite-preview" => 1_048_576,
         "gemini-3-pro-preview" => 1_048_576,
         "gemini-3-flash" => 1_048_576,
         // Google Gemini 2.5
@@ -155,14 +169,19 @@ pub fn model_context_window(model: &str) -> u32 {
 
         // xAI Grok
         "grok-4" | "grok-4-0709" => 256_000,
-        "grok-4-1-fast" | "grok-4-1-fast-reasoning" => 2_000_000,
+        "grok-4-1-fast" | "grok-4-1-fast-reasoning" | "grok-4-1-fast-non-reasoning" => {
+            2_000_000
+        }
+        "grok-4-fast-reasoning" | "grok-4-fast-non-reasoning" => 2_000_000,
+        "grok-code-fast-1" => 256_000,
         "grok-3" | "grok-3-latest" | "grok-3-mini" => 131_072,
         "grok-2" | "grok-2-latest" => 131_072,
 
         // Mistral
         "mistral-large-2512" => 256_000,
-        "magistral-medium-2509" | "mistral-small-2506" => 128_000,
-        "codestral-2508" | "devstral-2-2512" => 256_000,
+        "mistral-medium-2508" | "magistral-medium-2509" | "mistral-small-2506" => 128_000,
+        "codestral-2508" => 128_000,
+        "devstral-2512" | "devstral-2-2512" => 256_000,
 
         _ => return prefix_model_context_window(m),
     }
@@ -172,6 +191,7 @@ pub fn model_context_window(model: &str) -> u32 {
 fn prefix_model_context_window(m: &str) -> u32 {
     match m {
         // OpenAI
+        _ if m.starts_with("gpt-5.4") => 1_050_000,
         _ if m.starts_with("gpt-5") => 400_000,
         _ if m.starts_with("gpt-4.1") => 1_047_576,
         _ if m.starts_with("gpt-4.5") => 128_000,
@@ -191,11 +211,13 @@ fn prefix_model_context_window(m: &str) -> u32 {
         _ if m.contains("deepseek") => 128_000,
 
         // xAI Grok
+        _ if m.starts_with("grok-4-1-fast") || m.starts_with("grok-4-fast") => 2_000_000,
+        _ if m.starts_with("grok-code-fast") => 256_000,
         _ if m.starts_with("grok-4") => 256_000,
         _ if m.contains("grok") => 131_072,
 
         // Mistral
-        _ if m.contains("codestral") => 256_000,
+        _ if m.contains("codestral") => 128_000,
         _ if m.contains("devstral") => 256_000,
         _ if m.contains("magistral") => 128_000,
         _ if m.contains("mistral") || m.contains("mixtral") => 128_000,
@@ -383,6 +405,9 @@ mod tests {
     #[test]
     fn test_model_context_window_exact_match() {
         // OpenAI GPT-5
+        assert_eq!(model_context_window("gpt-5.4"), 1_050_000);
+        assert_eq!(model_context_window("gpt-5.4-pro"), 1_050_000);
+        assert_eq!(model_context_window("gpt-5.3-codex"), 400_000);
         assert_eq!(model_context_window("gpt-5.2"), 400_000);
         assert_eq!(model_context_window("gpt-5"), 400_000);
         // OpenAI GPT-4.1
@@ -408,12 +433,18 @@ mod tests {
         assert_eq!(model_context_window("codex-mini-latest"), 200_000);
         // Anthropic
         assert_eq!(model_context_window("claude-opus-4-6"), 200_000);
-        assert_eq!(model_context_window("claude-sonnet-4-5"), 200_000);
+        assert_eq!(model_context_window("claude-sonnet-4-6"), 200_000);
+        assert_eq!(model_context_window("claude-opus-4-5"), 200_000);
+        assert_eq!(model_context_window("claude-sonnet-4-5-20250929"), 200_000);
+        assert_eq!(model_context_window("claude-haiku-4-5"), 200_000);
+        assert_eq!(model_context_window("claude-opus-4-1-20250805"), 200_000);
+        assert_eq!(model_context_window("claude-sonnet-4-20250514"), 200_000);
         assert_eq!(model_context_window("claude-3-7-sonnet-20250219"), 200_000);
         assert_eq!(model_context_window("claude-2.1"), 200_000);
         assert_eq!(model_context_window("claude-2.0"), 100_000);
         // Google Gemini
-        assert_eq!(model_context_window("gemini-3-pro-preview"), 1_048_576);
+        assert_eq!(model_context_window("gemini-3.1-pro-preview"), 1_048_576);
+        assert_eq!(model_context_window("gemini-3-flash-preview"), 1_048_576);
         assert_eq!(model_context_window("gemini-2.0-flash"), 1_048_576);
         assert_eq!(model_context_window("gemini-1.5-pro"), 2_097_152);
         assert_eq!(model_context_window("gemini-1.5-flash"), 1_048_576);
@@ -422,23 +453,29 @@ mod tests {
         assert_eq!(model_context_window("deepseek-reasoner"), 128_000);
         // xAI Grok
         assert_eq!(model_context_window("grok-4"), 256_000);
-        assert_eq!(model_context_window("grok-4-1-fast"), 2_000_000);
+        assert_eq!(model_context_window("grok-4-1-fast-reasoning"), 2_000_000);
+        assert_eq!(model_context_window("grok-4-fast-non-reasoning"), 2_000_000);
+        assert_eq!(model_context_window("grok-code-fast-1"), 256_000);
         assert_eq!(model_context_window("grok-3"), 131_072);
         assert_eq!(model_context_window("grok-2"), 131_072);
         // Mistral
         assert_eq!(model_context_window("mistral-large-2512"), 256_000);
-        assert_eq!(model_context_window("codestral-2508"), 256_000);
+        assert_eq!(model_context_window("mistral-medium-2508"), 128_000);
+        assert_eq!(model_context_window("codestral-2508"), 128_000);
+        assert_eq!(model_context_window("devstral-2512"), 256_000);
     }
 
     #[test]
     fn test_model_context_window_prefix_fallback() {
         // These hit prefix/substring matching, not exact match
         assert_eq!(model_context_window("gpt-5-future"), 400_000);
+        assert_eq!(model_context_window("gpt-5.4-chat-latest"), 1_050_000);
         assert_eq!(model_context_window("gpt-4o-something"), 128_000);
         assert_eq!(model_context_window("claude-3-opus"), 200_000);
         assert_eq!(model_context_window("gemini-2.5-future"), 1_048_576);
         assert_eq!(model_context_window("deepseek-something"), 128_000);
         assert_eq!(model_context_window("grok-4-future"), 256_000);
+        assert_eq!(model_context_window("grok-4-fast-anything"), 2_000_000);
         assert_eq!(model_context_window("grok-3-beta"), 131_072);
         assert_eq!(model_context_window("llama-3-70b"), 128_000);
         assert_eq!(model_context_window("codex-future"), 200_000);
@@ -446,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_model_context_window_case_insensitive() {
-        assert_eq!(model_context_window("GPT-5.2"), 400_000);
+        assert_eq!(model_context_window("GPT-5.4"), 1_050_000);
         assert_eq!(model_context_window("Claude-Opus-4-6"), 200_000);
         assert_eq!(model_context_window("GEMINI-2.5-PRO"), 1_048_576);
     }

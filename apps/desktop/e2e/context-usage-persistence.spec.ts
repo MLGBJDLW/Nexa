@@ -133,7 +133,7 @@ test.beforeEach(async ({ page }) => {
       model: 'gpt-4.1',
       temperature: null,
       maxTokens: 4096,
-      contextWindow: 128000,
+      contextWindow: 1047576,
       isDefault: true,
       reasoningEnabled: null,
       thinkingBudget: null,
@@ -141,6 +141,7 @@ test.beforeEach(async ({ page }) => {
       maxIterations: null,
       summarizationModel: null,
       summarizationProvider: null,
+      subagentAllowedTools: null,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -163,7 +164,7 @@ test.beforeEach(async ({ page }) => {
         case 'list_agent_configs_cmd':
           return [defaultAgentConfig];
         case 'get_model_context_window':
-          return 128000;
+          return 1047576;
         case 'list_conversations_cmd':
           return Object.values(conversations)
             .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
@@ -289,27 +290,27 @@ test.beforeEach(async ({ page }) => {
 
 test('context usage card persists after reloading the same conversation', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
+  const usageSummary = page.getByText('7% context used').first();
 
-  await expect(page.getByTestId('context-usage-card')).toHaveCount(0);
+  await expect(usageSummary).toHaveCount(0);
   await page.getByTestId('chat-input-textarea').fill('Please summarize this thread.');
   await page.getByTestId('chat-send').click();
 
-  await expect(page.getByTestId('context-usage-card')).toBeVisible();
-  await expect(page.getByTestId('context-usage-percent')).toContainText('58%');
+  await expect(usageSummary).toBeVisible();
 
   await page.reload();
 
-  await expect(page.getByTestId('context-usage-card')).toBeVisible();
-  await expect(page.getByTestId('context-usage-percent')).toContainText('58%');
+  await expect(page.getByText('7% context used').first()).toBeVisible();
 });
 
 test('usage cache is scoped to conversation id and does not leak to another conversation', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
+  const usageSummary = page.getByText('7% context used').first();
 
   await page.getByTestId('chat-input-textarea').fill('Generate usage for this conversation.');
   await page.getByTestId('chat-send').click();
-  await expect(page.getByTestId('context-usage-card')).toBeVisible();
+  await expect(usageSummary).toBeVisible();
 
   await page.goto('/chat/conv-empty');
-  await expect(page.getByTestId('context-usage-card')).toHaveCount(0);
+  await expect(page.getByText(/context used/i)).toHaveCount(0);
 });

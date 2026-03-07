@@ -66,6 +66,8 @@ pub struct AgentConfig {
     pub summarization_model: Option<String>,
     /// Optional provider override for summarization (e.g. "open_ai").
     pub summarization_provider: Option<String>,
+    /// Optional whitelist of built-in tools that delegated subagents may use.
+    pub subagent_allowed_tools: Option<Vec<String>>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -128,6 +130,8 @@ pub struct SaveAgentConfigInput {
     pub summarization_model: Option<String>,
     /// Optional provider override for summarization (e.g. "open_ai").
     pub summarization_provider: Option<String>,
+    /// Optional whitelist of built-in tools that delegated subagents may use.
+    pub subagent_allowed_tools: Option<Vec<String>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +159,17 @@ fn str_to_role(s: &str) -> Role {
         "tool" => Role::Tool,
         _ => Role::User,
     }
+}
+
+fn serialize_optional_string_list(value: Option<&[String]>) -> Result<Option<String>, CoreError> {
+    match value {
+        Some(items) => Ok(Some(serde_json::to_string(items)?)),
+        None => Ok(None),
+    }
+}
+
+fn parse_optional_string_list(value: Option<String>) -> Option<Vec<String>> {
+    value.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
 }
 
 // ---------------------------------------------------------------------------
@@ -670,10 +685,12 @@ impl Database {
         input: &SaveAgentConfigInput,
     ) -> Result<AgentConfig, CoreError> {
         let id = input.id.clone().unwrap_or_else(new_id);
+        let subagent_allowed_tools_json =
+            serialize_optional_string_list(input.subagent_allowed_tools.as_deref())?;
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, max_iterations, summarization_model, summarization_provider)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+            "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 provider = excluded.provider,
@@ -690,6 +707,7 @@ impl Database {
                 max_iterations = excluded.max_iterations,
                 summarization_model = excluded.summarization_model,
                 summarization_provider = excluded.summarization_provider,
+                subagent_allowed_tools_json = excluded.subagent_allowed_tools_json,
                 updated_at = datetime('now')",
             rusqlite::params![
                 &id,
@@ -708,6 +726,7 @@ impl Database {
                 input.max_iterations,
                 &input.summarization_model,
                 &input.summarization_provider,
+                &subagent_allowed_tools_json,
             ],
         )?;
         drop(conn);
@@ -718,10 +737,11 @@ impl Database {
     pub fn list_agent_configs(&self) -> Result<Vec<AgentConfig>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json
              FROM agent_configs ORDER BY name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
+            let subagent_allowed_tools_json: Option<String> = row.get(18)?;
             Ok(AgentConfig {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -741,6 +761,7 @@ impl Database {
                 max_iterations: row.get(15)?,
                 summarization_model: row.get(16)?,
                 summarization_provider: row.get(17)?,
+                subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
             })
         })?;
         let mut results = Vec::new();
@@ -754,10 +775,11 @@ impl Database {
     pub fn get_agent_config(&self, id: &str) -> Result<AgentConfig, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json
              FROM agent_configs WHERE id = ?1",
             rusqlite::params![id],
             |row| {
+                let subagent_allowed_tools_json: Option<String> = row.get(18)?;
                 Ok(AgentConfig {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -777,6 +799,7 @@ impl Database {
                     max_iterations: row.get(15)?,
                     summarization_model: row.get(16)?,
                     summarization_provider: row.get(17)?,
+                    subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
                 })
             },
         )
@@ -825,10 +848,11 @@ impl Database {
     pub fn get_default_agent_config(&self) -> Result<Option<AgentConfig>, CoreError> {
         let conn = self.conn();
         let result = conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json
              FROM agent_configs WHERE is_default = 1 LIMIT 1",
             [],
             |row| {
+                let subagent_allowed_tools_json: Option<String> = row.get(18)?;
                 Ok(AgentConfig {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -848,6 +872,7 @@ impl Database {
                     max_iterations: row.get(15)?,
                     summarization_model: row.get(16)?,
                     summarization_provider: row.get(17)?,
+                    subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
                 })
             },
         );
@@ -1084,6 +1109,7 @@ mod tests {
                 max_iterations: None,
                 summarization_model: None,
                 summarization_provider: None,
+                subagent_allowed_tools: None,
             })
             .unwrap();
         assert_eq!(config.name, "My GPT-4");
@@ -1111,6 +1137,7 @@ mod tests {
                 max_iterations: None,
                 summarization_model: None,
                 summarization_provider: None,
+                subagent_allowed_tools: None,
             })
             .unwrap();
         assert_eq!(updated.name, "Renamed");
@@ -1146,6 +1173,7 @@ mod tests {
                 max_iterations: None,
                 summarization_model: None,
                 summarization_provider: None,
+                subagent_allowed_tools: None,
             })
             .unwrap();
 
@@ -1167,6 +1195,7 @@ mod tests {
                 max_iterations: None,
                 summarization_model: None,
                 summarization_provider: None,
+                subagent_allowed_tools: None,
             })
             .unwrap();
 

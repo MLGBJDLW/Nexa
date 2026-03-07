@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::subagent_tool::SubagentTool;
 use ask_core::agent::{
     build_system_prompt, AgentConfig as ExecutorConfig, AgentEvent, AgentExecutor,
     CancellationToken,
@@ -1143,7 +1144,7 @@ pub async fn compact_conversation_cmd(
         .ok_or_else(|| "No default agent config set.".to_string())?;
 
     let provider_config = db_config_to_provider_config(&db_config);
-    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+    let provider = create_provider(provider_config.clone()).map_err(|e| e.to_string())?;
 
     let executor_config = ExecutorConfig {
         max_iterations: 1,
@@ -1345,7 +1346,7 @@ pub async fn test_agent_connection_cmd(
         base_url: config.base_url.clone(),
         org_id: None,
     };
-    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+    let provider = create_provider(provider_config.clone()).map_err(|e| e.to_string())?;
     provider.health_check().await.map_err(|e| e.to_string())?;
     let models = provider.list_models().await.map_err(|e| e.to_string())?;
     Ok(models)
@@ -1374,7 +1375,7 @@ pub async fn agent_chat_cmd(
 
     // 2. Create LLM provider.
     let provider_config = db_config_to_provider_config(&db_config);
-    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+    let provider = create_provider(provider_config.clone()).map_err(|e| e.to_string())?;
 
     // 3. Load conversation history and convert to LLM messages.
     let existing_msgs = state
@@ -1474,6 +1475,12 @@ pub async fn agent_chat_cmd(
             warn!("Failed to register MCP tools: {e}");
         }
     }
+
+    tools.register(Box::new(SubagentTool::new(
+        provider_config.clone(),
+        executor_config.clone(),
+        db_config.subagent_allowed_tools.clone(),
+    )));
 
     // 7b. Build user content parts (text + optional image attachments).
     let mut user_parts = vec![ContentPart::Text {

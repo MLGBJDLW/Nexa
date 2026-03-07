@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, ClipboardList, ShieldCheck } from 'lucide-react';
+import { Bot, CheckCircle2, ChevronDown, ClipboardList, ShieldCheck } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from '../../i18n';
 import type { ConversationMessage } from '../../types/conversation';
@@ -8,7 +8,9 @@ import {
   findLatestVerificationArtifact,
   type VerificationOverallStatus,
 } from '../../lib/taskArtifacts';
+import { findVisibleSubagentRuns } from '../../lib/subagentArtifacts';
 import { PlanPanel, VerificationPanel } from './TaskPanels';
+import { SubagentCard } from './SubagentCard';
 
 interface TaskBoardProps {
   messages: ConversationMessage[];
@@ -47,19 +49,35 @@ export function TaskBoard({
     () => findLatestVerificationArtifact(messages, toolCalls),
     [messages, toolCalls],
   );
+  const subagents = useMemo(
+    () => findVisibleSubagentRuns(messages, toolCalls, 4),
+    [messages, toolCalls],
+  );
 
-  if (!plan && !verification) {
+  if (!plan && !verification && subagents.length === 0) {
     return null;
   }
 
   const completed = plan?.steps.filter(step => step.status === 'completed').length ?? 0;
   const total = plan?.steps.length ?? 0;
   const verificationSummary = verification?.overallStatus ?? null;
+  const runningSubagents = subagents.filter(run => run.status === 'running').length;
 
   return (
     <div className="shrink-0 border-b border-border/60 bg-surface-1/70 px-3 py-2 backdrop-blur">
       <details className="group rounded-xl border border-border/60 bg-surface-0/75" open={isStreaming}>
         <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm text-text-secondary [&::-webkit-details-marker]:hidden">
+          {subagents.length > 0 && (
+            <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/60 bg-surface-1/70 px-2 py-1 text-[11px] text-text-primary">
+              <Bot className="h-3 w-3 text-accent" />
+              <span className="truncate">
+                {runningSubagents > 0
+                  ? `Subagents ${runningSubagents}/${subagents.length} active`
+                  : `Subagents ${subagents.length}`}
+              </span>
+            </span>
+          )}
+
           {plan && (
             <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/60 bg-surface-1/70 px-2 py-1 text-[11px] text-text-primary">
               <ClipboardList className="h-3 w-3 text-accent" />
@@ -93,6 +111,18 @@ export function TaskBoard({
         </summary>
 
         <div className="grid gap-2 border-t border-border/60 px-3 pb-3 pt-2.5 md:grid-cols-2">
+          {subagents.length > 0 && (
+            <div className="space-y-2 md:col-span-2">
+              {subagents.map(run => (
+                <SubagentCard
+                  key={run.id}
+                  run={run}
+                  compact
+                  defaultOpen={run.status === 'running'}
+                />
+              ))}
+            </div>
+          )}
           {plan && <PlanPanel plan={plan} compact />}
           {verification && <VerificationPanel verification={verification} compact />}
         </div>
