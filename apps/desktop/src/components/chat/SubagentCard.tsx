@@ -141,6 +141,16 @@ export function SubagentCard({
                 {run.expectedOutput}
               </span>
             )}
+            {run.parallelGroup && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary">
+                parallel: {run.parallelGroup}
+              </span>
+            )}
+            {run.deliverableStyle && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary">
+                style: {run.deliverableStyle}
+              </span>
+            )}
             {run.finishReason && (
               <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary">
                 finish: {run.finishReason}
@@ -156,7 +166,66 @@ export function SubagentCard({
                 source scope inherited
               </span>
             )}
+            {run.evidenceChunkIds && run.evidenceChunkIds.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary">
+                evidence: {run.evidenceChunkIds.length}
+              </span>
+            )}
           </div>
+
+          {run.acceptanceCriteria && run.acceptanceCriteria.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                Acceptance criteria
+              </div>
+              <ul className="space-y-1 text-xs text-text-secondary">
+                {run.acceptanceCriteria.map((criterion, index) => (
+                  <li key={`${run.id}-criterion-${index}`} className="rounded-md border border-border/60 bg-surface-1 px-2.5 py-1.5">
+                    {criterion}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(run.requestedSourceScope || run.effectiveSourceScope) && (
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {run.requestedSourceScope && run.requestedSourceScope.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                    Requested source scope
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {run.requestedSourceScope.map(sourceId => (
+                      <span
+                        key={`${run.id}-requested-source-${sourceId}`}
+                        className="inline-flex items-center rounded-md border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary"
+                      >
+                        {sourceId}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {run.effectiveSourceScope && run.effectiveSourceScope.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                    Effective source scope
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {run.effectiveSourceScope.map(sourceId => (
+                      <span
+                        key={`${run.id}-effective-source-${sourceId}`}
+                        className="inline-flex items-center rounded-md border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary"
+                      >
+                        {sourceId}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {run.allowedTools && (
             <div className="mt-3">
@@ -175,6 +244,72 @@ export function SubagentCard({
                 )) : (
                   <span className="text-xs text-text-tertiary">No tools delegated.</span>
                 )}
+              </div>
+            </div>
+          )}
+
+          {run.requestedAllowedTools && run.requestedAllowedTools.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                Requested tool scope
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {run.requestedAllowedTools.map(toolName => (
+                  <span
+                    key={`${run.id}-requested-tool-${toolName}`}
+                    className="inline-flex items-center rounded-md border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary"
+                    title={toolName}
+                  >
+                    {toolLabel(toolName)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {run.returnSections && run.returnSections.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                Requested sections
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {run.returnSections.map((section, index) => (
+                  <span
+                    key={`${run.id}-section-${index}`}
+                    className="inline-flex items-center rounded-md border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary"
+                  >
+                    {section}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {run.evidenceHandoff && run.evidenceHandoff.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                Evidence handoff
+              </div>
+              <div className="space-y-2">
+                {run.evidenceHandoff.map((evidence) => (
+                  <div
+                    key={`${run.id}-evidence-${evidence.chunkId}`}
+                    className="rounded-lg border border-border/60 bg-surface-1 px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-text-primary">
+                        {evidence.title || evidence.path}
+                      </span>
+                      <span className="rounded-full border border-border/60 bg-surface-0 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.14em] text-text-tertiary">
+                        {evidence.chunkId}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-text-tertiary">{evidence.path}</div>
+                    <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap rounded-md bg-surface-0 px-2 py-1 text-[11px] text-text-tertiary">
+                      {evidence.excerpt}
+                    </pre>
+                  </div>
+                ))}
               </div>
             </div>
           )}

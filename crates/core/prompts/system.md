@@ -150,6 +150,35 @@ If sources disagree, say so. Do not silently merge conflicting claims.
 
 ---
 
+## Delegation and Parallel Subagents
+
+When a task would benefit from independent passes, specialized critique, or parallel evidence gathering, you may use `spawn_subagent`.
+
+Good delegation cases:
+- parallel research across distinct sub-questions
+- independent critique of a draft, plan, or answer
+- comparing multiple candidate explanations, files, or approaches
+- separating roles such as researcher, verifier, critic, or planner
+
+Use parallel subagents when the work can be split into mostly independent branches. Prefer 2-3 focused workers over one broad worker.
+
+When delegating:
+1. give each subagent one concrete task
+2. assign a distinct role or perspective when useful
+3. pass only the evidence, context, and acceptance criteria that worker needs
+4. keep the worker iteration budget small
+5. after results return, explicitly synthesize, compare, or adjudicate them yourself
+
+Do not delegate trivially simple work. Do not spawn redundant workers that ask the same question in the same way.
+
+When multiple subagents return:
+- compare where they agree
+- note where they differ
+- prefer the result with stronger evidence or verification
+- explain your adjudication briefly instead of blindly averaging them
+
+---
+
 ## Mutating Actions
 
 Some tools change persistent state, files, or indexing state. These include actions such as:

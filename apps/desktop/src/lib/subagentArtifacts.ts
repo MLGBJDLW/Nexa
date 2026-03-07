@@ -18,11 +18,27 @@ export interface SubagentToolEvent {
   artifacts?: ArtifactPayload;
 }
 
+export interface SubagentEvidenceHandoff {
+  chunkId: string;
+  path: string;
+  title: string;
+  excerpt: string;
+}
+
 export interface SubagentArtifact {
   kind: 'subagent_result';
   task: string;
   role?: string | null;
   expectedOutput?: string | null;
+  acceptanceCriteria?: string[] | null;
+  evidenceChunkIds?: string[] | null;
+  evidenceHandoff?: SubagentEvidenceHandoff[] | null;
+  requestedSourceScope?: string[] | null;
+  effectiveSourceScope?: string[] | null;
+  requestedAllowedTools?: string[] | null;
+  parallelGroup?: string | null;
+  deliverableStyle?: string | null;
+  returnSections?: string[] | null;
   result: string;
   finishReason?: string | null;
   usageTotal?: SubagentUsage | null;
@@ -38,6 +54,13 @@ export interface PendingSubagentArgs {
   context?: string | null;
   expectedOutput?: string | null;
   maxIterations?: number | null;
+  acceptanceCriteria?: string[] | null;
+  evidenceChunkIds?: string[] | null;
+  sourceIds?: string[] | null;
+  allowedTools?: string[] | null;
+  parallelGroup?: string | null;
+  deliverableStyle?: string | null;
+  returnSections?: string[] | null;
 }
 
 export interface SubagentRun {
@@ -46,6 +69,15 @@ export interface SubagentRun {
   task: string;
   role?: string | null;
   expectedOutput?: string | null;
+  acceptanceCriteria?: string[] | null;
+  evidenceChunkIds?: string[] | null;
+  evidenceHandoff?: SubagentEvidenceHandoff[] | null;
+  requestedSourceScope?: string[] | null;
+  effectiveSourceScope?: string[] | null;
+  requestedAllowedTools?: string[] | null;
+  parallelGroup?: string | null;
+  deliverableStyle?: string | null;
+  returnSections?: string[] | null;
   result?: string;
   finishReason?: string | null;
   usageTotal?: SubagentUsage | null;
@@ -85,6 +117,13 @@ export function parseSubagentArguments(raw?: string): PendingSubagentArgs | null
         ? record.expected_output.trim()
         : null,
       maxIterations: typeof record.max_iterations === 'number' ? record.max_iterations : null,
+      acceptanceCriteria: asStringArray(record.acceptance_criteria),
+      evidenceChunkIds: asStringArray(record.evidence_chunk_ids),
+      sourceIds: asStringArray(record.source_ids),
+      allowedTools: asStringArray(record.allowed_tools),
+      parallelGroup: typeof record.parallel_group === 'string' ? record.parallel_group.trim() : null,
+      deliverableStyle: typeof record.deliverable_style === 'string' ? record.deliverable_style.trim() : null,
+      returnSections: asStringArray(record.return_sections),
     };
   } catch {
     return null;
@@ -119,12 +158,40 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
   const usageRecord = asRecord(record.usageTotal);
   const thinking = asStringArray(record.thinking);
   const allowedTools = asStringArray(record.allowedTools);
+  const requestedAllowedTools = asStringArray(record.requestedAllowedTools);
+  const acceptanceCriteria = asStringArray(record.acceptanceCriteria);
+  const evidenceChunkIds = asStringArray(record.evidenceChunkIds);
+  const requestedSourceScope = asStringArray(record.requestedSourceScope);
+  const effectiveSourceScope = asStringArray(record.effectiveSourceScope);
+  const returnSections = asStringArray(record.returnSections);
+  const evidenceHandoffRaw = Array.isArray(record.evidenceHandoff) ? record.evidenceHandoff : [];
+  const evidenceHandoff: SubagentEvidenceHandoff[] = evidenceHandoffRaw
+    .map(item => {
+      const row = asRecord(item);
+      if (!row) return null;
+      const chunkId = typeof row.chunkId === 'string' ? row.chunkId : '';
+      const path = typeof row.path === 'string' ? row.path : '';
+      const title = typeof row.title === 'string' ? row.title : '';
+      const excerpt = typeof row.excerpt === 'string' ? row.excerpt : '';
+      if (!chunkId || !path || !excerpt) return null;
+      return { chunkId, path, title, excerpt };
+    })
+    .filter((item): item is SubagentEvidenceHandoff => Boolean(item));
 
   return {
     kind: 'subagent_result',
     task: record.task.trim(),
     role: typeof record.role === 'string' ? record.role : null,
     expectedOutput: typeof record.expectedOutput === 'string' ? record.expectedOutput : null,
+    acceptanceCriteria,
+    evidenceChunkIds,
+    evidenceHandoff,
+    requestedSourceScope,
+    effectiveSourceScope,
+    requestedAllowedTools,
+    parallelGroup: typeof record.parallelGroup === 'string' ? record.parallelGroup : null,
+    deliverableStyle: typeof record.deliverableStyle === 'string' ? record.deliverableStyle : null,
+    returnSections,
     result: typeof record.result === 'string' ? record.result : '',
     finishReason: typeof record.finishReason === 'string' ? record.finishReason : null,
     usageTotal: usageRecord
@@ -153,6 +220,15 @@ function buildRunFromToolCall(toolCall: ToolCallEvent): SubagentRun | null {
     task,
     role: artifact?.role ?? parsedArgs?.role ?? null,
     expectedOutput: artifact?.expectedOutput ?? parsedArgs?.expectedOutput ?? null,
+    acceptanceCriteria: artifact?.acceptanceCriteria ?? parsedArgs?.acceptanceCriteria ?? null,
+    evidenceChunkIds: artifact?.evidenceChunkIds ?? parsedArgs?.evidenceChunkIds ?? null,
+    evidenceHandoff: artifact?.evidenceHandoff ?? null,
+    requestedSourceScope: artifact?.requestedSourceScope ?? parsedArgs?.sourceIds ?? null,
+    effectiveSourceScope: artifact?.effectiveSourceScope ?? null,
+    requestedAllowedTools: artifact?.requestedAllowedTools ?? parsedArgs?.allowedTools ?? null,
+    parallelGroup: artifact?.parallelGroup ?? parsedArgs?.parallelGroup ?? null,
+    deliverableStyle: artifact?.deliverableStyle ?? parsedArgs?.deliverableStyle ?? null,
+    returnSections: artifact?.returnSections ?? parsedArgs?.returnSections ?? null,
     result: artifact?.result ?? undefined,
     finishReason: artifact?.finishReason ?? null,
     usageTotal: artifact?.usageTotal ?? null,
@@ -175,6 +251,15 @@ function buildRunFromMessage(message: ConversationMessage): SubagentRun | null {
     task: artifact.task,
     role: artifact.role ?? null,
     expectedOutput: artifact.expectedOutput ?? null,
+    acceptanceCriteria: artifact.acceptanceCriteria ?? null,
+    evidenceChunkIds: artifact.evidenceChunkIds ?? null,
+    evidenceHandoff: artifact.evidenceHandoff ?? null,
+    requestedSourceScope: artifact.requestedSourceScope ?? null,
+    effectiveSourceScope: artifact.effectiveSourceScope ?? null,
+    requestedAllowedTools: artifact.requestedAllowedTools ?? null,
+    parallelGroup: artifact.parallelGroup ?? null,
+    deliverableStyle: artifact.deliverableStyle ?? null,
+    returnSections: artifact.returnSections ?? null,
     result: artifact.result,
     finishReason: artifact.finishReason ?? null,
     usageTotal: artifact.usageTotal ?? null,

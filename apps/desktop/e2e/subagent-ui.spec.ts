@@ -176,12 +176,35 @@ test.beforeEach(async ({ page }) => {
             task: 'Audit the last answer for risks',
             role: 'Critic',
             expected_output: 'Short risk report',
+            acceptance_criteria: ['Identify at least one concrete risk or state that none were found.'],
+            evidence_chunk_ids: ['chunk-retry-1'],
+            source_ids: ['source-research'],
+            allowed_tools: ['search_knowledge_base', 'retrieve_evidence'],
+            parallel_group: 'review-pass',
+            deliverable_style: 'critique',
+            return_sections: ['Conclusion', 'Evidence', 'Risks'],
           });
           const toolArtifact = {
             kind: 'subagent_result',
             task: 'Audit the last answer for risks',
             role: 'Critic',
             expectedOutput: 'Short risk report',
+            acceptanceCriteria: ['Identify at least one concrete risk or state that none were found.'],
+            evidenceChunkIds: ['chunk-retry-1'],
+            evidenceHandoff: [
+              {
+                chunkId: 'chunk-retry-1',
+                path: 'notes/retries.md',
+                title: 'Retry notes',
+                excerpt: 'Retries should stop after the configured threshold.',
+              },
+            ],
+            requestedSourceScope: ['source-research'],
+            effectiveSourceScope: ['source-research'],
+            requestedAllowedTools: ['search_knowledge_base', 'retrieve_evidence'],
+            parallelGroup: 'review-pass',
+            deliverableStyle: 'critique',
+            returnSections: ['Conclusion', 'Evidence', 'Risks'],
             result: '1. Conclusion\\nThe proposed answer is acceptable.\\n\\n2. Key evidence or reasoning\\nThe referenced facts are consistent.\\n\\n3. Risks or open questions\\nDouble-check the edge case around retries.',
             finishReason: 'stop',
             usageTotal: {
@@ -353,13 +376,17 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
 
   const subagentCard = page.getByRole('button', {
     name: /Critic\s+Complete\s+1 tool\s+Audit the last answer for risks/i,
-  });
+  }).first();
   await expect(subagentCard).toBeVisible();
   await subagentCard.click();
 
   const chatLog = page.getByLabel('Chat messages');
   await expect(chatLog.getByText('Allowed tools')).toBeVisible();
-  await expect(chatLog.getByTitle('search_knowledge_base')).toBeVisible();
+  await expect(chatLog.getByTitle('search_knowledge_base').first()).toBeVisible();
+  await expect(chatLog.getByText('Acceptance criteria')).toBeVisible();
+  await expect(chatLog.getByText('Effective source scope')).toBeVisible();
+  await expect(chatLog.getByText('Evidence handoff')).toBeVisible();
+  await expect(chatLog.getByText('parallel: review-pass')).toBeVisible();
   await expect(chatLog.getByText('Inner trace')).toBeVisible();
   await expect(page.getByText('Supervisor synthesis complete.')).toBeVisible();
 

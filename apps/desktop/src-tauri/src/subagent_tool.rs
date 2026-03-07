@@ -1,11 +1,14 @@
+use std::collections::BTreeSet;
+
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use ask_core::agent::{AgentConfig, AgentEvent, AgentExecutor};
 use ask_core::db::Database;
 use ask_core::error::CoreError;
 use ask_core::llm::{create_provider, ContentPart, ProviderConfig, Usage};
+use ask_core::search;
 use ask_core::tools::{
     chunk_context_tool::ChunkContextTool,
     compare_tool::CompareTool,
@@ -25,7 +28,7 @@ use ask_core::tools::{
     Tool, ToolRegistry, ToolResult,
 };
 
-const DESCRIPTION: &str = "Spawn a short-lived subagent to handle an isolated subtask, gather an independent perspective, or critique another result. You can call this tool multiple times in parallel and then synthesize or compare the returned results yourself.";
+const DESCRIPTION: &str = "Spawn a short-lived subagent to handle an isolated subtask, gather an independent perspective, or critique another result. You can call this tool multiple times in parallel, pass it explicit evidence and acceptance criteria, narrow its source scope or tool access, and then synthesize or adjudicate the returned results yourself.";
 
 type ToolFactory = fn() -> Box<dyn Tool>;
 
@@ -149,6 +152,20 @@ struct SpawnSubagentArgs {
     expected_output: Option<String>,
     #[serde(default)]
     max_iterations: Option<u32>,
+    #[serde(default)]
+    acceptance_criteria: Option<Vec<String>>,
+    #[serde(default)]
+    evidence_chunk_ids: Option<Vec<String>>,
+    #[serde(default)]
+    source_ids: Option<Vec<String>>,
+    #[serde(default)]
+    allowed_tools: Option<Vec<String>>,
+    #[serde(default)]
+    parallel_group: Option<String>,
+    #[serde(default)]
+    deliverable_style: Option<String>,
+    #[serde(default)]
+    return_sections: Option<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -159,10 +176,53 @@ struct EventCapture {
     thinking: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct EvidenceHandoffItem {
+    chunk_id: String,
+    path: String,
+    title: String,
+    excerpt: String,
+}
+
 fn trim_optional(value: Option<String>) -> Option<String> {
     value
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
+}
+
+fn normalize_string_list(value: Option<Vec<String>>, limit: usize) -> Option<Vec<String>> {
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for item in value.unwrap_or_default() {
+        let trimmed = item.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+        if normalized.len() >= limit {
+            break;
+        }
+    }
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn truncate_excerpt(content: &str, max_chars: usize) -> String {
+    if content.len() <= max_chars {
+        return content.to_string();
+    }
+
+    let mut cut = max_chars;
+    while cut > 0 && !content.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let trimmed = content[..cut].trim_end();
+    format!("{trimmed}...[truncated]")
 }
 
 fn build_subagent_system_prompt(base_prompt: &str, role: Option<&str>) -> String {
@@ -170,6 +230,9 @@ fn build_subagent_system_prompt(base_prompt: &str, role: Option<&str>) -> String
     prompt.push_str("\n\n## Subagent Instructions\n\n");
     prompt.push_str(
         "You are a short-lived worker spawned by another agent. Focus only on the delegated subtask. Keep your work scoped, use tools only when they materially help, and return a compact result for the supervisor agent rather than addressing the end user directly.",
+    );
+    prompt.push_str(
+        "\n\nTreat supervisor-provided acceptance criteria as requirements. If explicit evidence handoff is provided, ground your answer in that evidence before doing broader retrieval. If you are one of several parallel workers, produce an independent result instead of speculating about what sibling workers might find.",
     );
 
     if let Some(role) = role.map(str::trim).filter(|value| !value.is_empty()) {
@@ -180,7 +243,81 @@ fn build_subagent_system_prompt(base_prompt: &str, role: Option<&str>) -> String
     prompt
 }
 
-fn build_subagent_request(args: &SpawnSubagentArgs) -> String {
+fn build_return_sections(args: &SpawnSubagentArgs) -> Vec<String> {
+    normalize_string_list(args.return_sections.clone(), 8).unwrap_or_else(|| {
+        vec![
+            "Conclusion".to_string(),
+            "Key evidence or reasoning".to_string(),
+            "Risks or open questions".to_string(),
+        ]
+    })
+}
+
+fn resolve_source_scope(parent_scope: &[String], requested_scope: Option<&[String]>) -> Vec<String> {
+    match requested_scope {
+        Some(requested) if !requested.is_empty() => {
+            if parent_scope.is_empty() {
+                requested.to_vec()
+            } else {
+                let parent: BTreeSet<&str> = parent_scope.iter().map(String::as_str).collect();
+                let narrowed: Vec<String> = requested
+                    .iter()
+                    .filter(|id| parent.contains(id.as_str()))
+                    .cloned()
+                    .collect();
+                if narrowed.is_empty() {
+                    parent_scope.to_vec()
+                } else {
+                    narrowed
+                }
+            }
+        }
+        _ => parent_scope.to_vec(),
+    }
+}
+
+fn resolve_allowed_tools(base_allowed_tools: &[String], requested_allowed_tools: Option<&[String]>) -> Vec<String> {
+    match requested_allowed_tools {
+        Some(requested) if !requested.is_empty() => {
+            let allowed: BTreeSet<&str> = base_allowed_tools.iter().map(String::as_str).collect();
+            let narrowed: Vec<String> = requested
+                .iter()
+                .filter(|name| allowed.contains(name.as_str()))
+                .cloned()
+                .collect();
+            if narrowed.is_empty() {
+                base_allowed_tools.to_vec()
+            } else {
+                narrowed
+            }
+        }
+        _ => base_allowed_tools.to_vec(),
+    }
+}
+
+fn build_evidence_handoff(db: &Database, chunk_ids: Option<&[String]>) -> Vec<EvidenceHandoffItem> {
+    chunk_ids
+        .unwrap_or(&[])
+        .iter()
+        .take(8)
+        .filter_map(|chunk_id| {
+            let card = search::get_evidence_card(db, chunk_id).ok()?;
+            Some(EvidenceHandoffItem {
+                chunk_id: card.chunk_id.to_string(),
+                path: card.document_path,
+                title: card.document_title,
+                excerpt: truncate_excerpt(&card.content, 1400),
+            })
+        })
+        .collect()
+}
+
+fn build_subagent_request(
+    args: &SpawnSubagentArgs,
+    effective_source_scope: &[String],
+    effective_allowed_tools: &[String],
+    evidence_handoff: &[EvidenceHandoffItem],
+) -> String {
     let mut request = String::from(
         "Complete the delegated task below. If information is missing, make the smallest reasonable assumption, state it briefly, and continue.\n\nTask:\n",
     );
@@ -194,6 +331,19 @@ fn build_subagent_request(args: &SpawnSubagentArgs) -> String {
     {
         request.push_str("\n\nRequested perspective:\n");
         request.push_str(role);
+    }
+
+    if let Some(group) = args
+        .parallel_group
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request.push_str("\n\nParallel group:\n");
+        request.push_str(group);
+        request.push_str(
+            "\nTreat this as an independent branch of work. Do not assume what sibling workers will conclude.",
+        );
     }
 
     if let Some(context) = args
@@ -216,9 +366,58 @@ fn build_subagent_request(args: &SpawnSubagentArgs) -> String {
         request.push_str(expected_output);
     }
 
-    request.push_str(
-        "\n\nReturn a concise result with these sections:\n1. Conclusion\n2. Key evidence or reasoning\n3. Risks or open questions",
-    );
+    if let Some(style) = args
+        .deliverable_style
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request.push_str("\n\nDeliverable style:\n");
+        request.push_str(style);
+    }
+
+    if let Some(criteria) = args.acceptance_criteria.as_ref().filter(|items| !items.is_empty()) {
+        request.push_str("\n\nAcceptance criteria:\n");
+        for item in criteria {
+            request.push_str("- ");
+            request.push_str(item);
+            request.push('\n');
+        }
+    }
+
+    if !effective_source_scope.is_empty() {
+        request.push_str("\nSource scope restriction:\n");
+        for source_id in effective_source_scope {
+            request.push_str("- ");
+            request.push_str(source_id);
+            request.push('\n');
+        }
+    }
+
+    if !effective_allowed_tools.is_empty() {
+        request.push_str("\nDelegated tool access:\n");
+        for tool_name in effective_allowed_tools {
+            request.push_str("- ");
+            request.push_str(tool_name);
+            request.push('\n');
+        }
+    }
+
+    if !evidence_handoff.is_empty() {
+        request.push_str("\nEvidence handoff:\n");
+        for evidence in evidence_handoff {
+            request.push_str(&format!(
+                "\n--- Evidence ---\n[chunk_id: {}]\nPath: {}\nTitle: {}\nExcerpt:\n{}\n",
+                evidence.chunk_id, evidence.path, evidence.title, evidence.excerpt
+            ));
+        }
+    }
+
+    let sections = build_return_sections(args);
+    request.push_str("\n\nReturn a concise result with these sections:\n");
+    for (index, section) in sections.iter().enumerate() {
+        request.push_str(&format!("{}. {}\n", index + 1, section));
+    }
 
     request
 }
@@ -291,6 +490,39 @@ impl Tool for SubagentTool {
                     "type": "string",
                     "description": "Optional description of the format or deliverable you want back."
                 },
+                "acceptance_criteria": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional checklist the subagent should satisfy before returning."
+                },
+                "evidence_chunk_ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional chunk IDs that should be treated as handed-off evidence from the supervisor."
+                },
+                "source_ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional narrower source scope for this subagent. When omitted, it inherits the supervisor scope."
+                },
+                "allowed_tools": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional narrower tool whitelist for this subagent. Tool names must be from the delegated allowlist."
+                },
+                "parallel_group": {
+                    "type": "string",
+                    "description": "Optional label used when several subagents are exploring sibling branches in parallel."
+                },
+                "deliverable_style": {
+                    "type": "string",
+                    "description": "Optional style hint such as critique, plan, comparison, or verification report."
+                },
+                "return_sections": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional ordered section titles the subagent should use in its response."
+                },
                 "max_iterations": {
                     "type": "integer",
                     "minimum": 1,
@@ -324,6 +556,13 @@ impl Tool for SubagentTool {
         args.role = trim_optional(args.role);
         args.context = trim_optional(args.context);
         args.expected_output = trim_optional(args.expected_output);
+        args.parallel_group = trim_optional(args.parallel_group);
+        args.deliverable_style = trim_optional(args.deliverable_style);
+        args.acceptance_criteria = normalize_string_list(args.acceptance_criteria.take(), 8);
+        args.evidence_chunk_ids = normalize_string_list(args.evidence_chunk_ids.take(), 8);
+        args.source_ids = normalize_string_list(args.source_ids.take(), 16);
+        args.allowed_tools = normalize_string_list(args.allowed_tools.take(), 16);
+        args.return_sections = normalize_string_list(args.return_sections.take(), 8);
 
         let provider = create_provider(self.provider_config.clone())
             .map_err(|e| CoreError::Llm(e.to_string()))?;
@@ -334,10 +573,21 @@ impl Tool for SubagentTool {
         config.system_prompt =
             build_subagent_system_prompt(&config.system_prompt, args.role.as_deref());
 
-        let allowed_tools = normalize_allowed_tools(self.allowed_tools.as_deref());
-        let tools = build_subagent_tool_registry(Some(&allowed_tools));
+        let baseline_allowed_tools = normalize_allowed_tools(self.allowed_tools.as_deref());
+        let effective_allowed_tools =
+            resolve_allowed_tools(&baseline_allowed_tools, args.allowed_tools.as_deref());
+        let effective_source_scope =
+            resolve_source_scope(source_scope, args.source_ids.as_deref());
+        let evidence_handoff = build_evidence_handoff(db, args.evidence_chunk_ids.as_deref());
+
+        let tools = build_subagent_tool_registry(Some(&effective_allowed_tools));
         let executor = AgentExecutor::new(provider, tools, config);
-        let request_text = build_subagent_request(&args);
+        let request_text = build_subagent_request(
+            &args,
+            &effective_source_scope,
+            &effective_allowed_tools,
+            &evidence_handoff,
+        );
 
         let (tx, mut rx) = mpsc::channel::<AgentEvent>(64);
         let event_task = tokio::spawn(async move {
@@ -400,7 +650,7 @@ impl Tool for SubagentTool {
                 vec![ContentPart::Text { text: request_text }],
                 db,
                 None,
-                Some(source_scope.to_vec()),
+                Some(effective_source_scope.clone()),
                 tx,
                 0,
             )
@@ -419,6 +669,15 @@ impl Tool for SubagentTool {
             "task": args.task,
             "role": args.role,
             "expectedOutput": args.expected_output,
+            "acceptanceCriteria": args.acceptance_criteria,
+            "evidenceChunkIds": args.evidence_chunk_ids,
+            "evidenceHandoff": evidence_handoff,
+            "requestedSourceScope": args.source_ids,
+            "effectiveSourceScope": effective_source_scope,
+            "requestedAllowedTools": args.allowed_tools,
+            "parallelGroup": args.parallel_group,
+            "deliverableStyle": args.deliverable_style,
+            "returnSections": args.return_sections,
             "result": result_text,
             "finishReason": capture.finish_reason,
             "usageTotal": capture.usage_total,
@@ -428,8 +687,8 @@ impl Tool for SubagentTool {
             } else {
                 Some(capture.thinking)
             },
-            "sourceScopeApplied": !source_scope.is_empty(),
-            "allowedTools": allowed_tools,
+            "sourceScopeApplied": !effective_source_scope.is_empty(),
+            "allowedTools": effective_allowed_tools,
         });
 
         let mut content = String::from("Subagent result");
