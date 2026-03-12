@@ -198,6 +198,27 @@ fn collapse_whitespace(input: &str) -> String {
     out.trim().to_string()
 }
 
+fn extract_title(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    let start = lower.find("<title")?;
+    let open_end = lower[start..].find('>')? + start + 1;
+    let end = lower[open_end..].find("</title>")? + open_end;
+    let raw = html[open_end..end].trim();
+    if raw.is_empty() {
+        None
+    } else {
+        Some(
+            raw.replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&nbsp;", " "),
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tool implementation
 // ---------------------------------------------------------------------------
@@ -287,7 +308,9 @@ impl Tool for FetchUrlTool {
         };
 
         // Convert HTML to text and truncate.
+        let title = extract_title(&body);
         let mut text = html_to_text(&body);
+        let truncated = text.len() > max_length;
         if text.len() > max_length {
             text.truncate(max_length);
             // Don't break mid-word — find last space.
@@ -299,9 +322,31 @@ impl Tool for FetchUrlTool {
 
         Ok(ToolResult {
             call_id: call_id.to_string(),
-            content: text,
+            content: format!(
+                "URL: {}\nTitle: {}\nSuggested citation: [url:{}|{}]\n---\n{}",
+                args.url,
+                title.as_deref().unwrap_or("(untitled page)"),
+                args.url,
+                title.as_deref().unwrap_or("web page"),
+                text
+            ),
             is_error: false,
-            artifacts: None,
+            artifacts: Some(serde_json::json!({
+                "url": args.url,
+                "title": title,
+                "truncated": truncated,
+            })),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_title_reads_basic_title_tag() {
+        let html = "<html><head><title>Example &amp; Test</title></head><body>ok</body></html>";
+        assert_eq!(extract_title(html).as_deref(), Some("Example & Test"));
     }
 }

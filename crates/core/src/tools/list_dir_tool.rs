@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{scoped_sources, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/list_dir.json");
@@ -63,13 +63,14 @@ impl Tool for ListDirTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: ListDirArgs = serde_json::from_str(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid list_dir arguments: {e}")))?;
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let requested = PathBuf::from(&args.path);
 
@@ -88,7 +89,7 @@ impl Tool for ListDirTool {
             }
 
             // Validate that the directory is inside a registered source root.
-            let sources = db.list_sources()?;
+            let sources = scoped_sources(&db, &source_scope)?;
             let allowed = sources.iter().any(|s| {
                 if let Ok(root) = std::fs::canonicalize(Path::new(&s.root_path)) {
                     canonical.starts_with(&root)
@@ -101,7 +102,7 @@ impl Tool for ListDirTool {
                 return Ok(ToolResult {
                     call_id: call_id.clone(),
                     content: format!(
-                        "Access denied: '{}' is not within any registered source directory.",
+                        "Access denied: '{}' is not within any directory available in the current source scope.",
                         args.path
                     ),
                     is_error: true,

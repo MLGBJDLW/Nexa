@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{ensure_source_in_scope, scope_is_active, scoped_sources, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/get_statistics.json");
@@ -40,18 +40,27 @@ impl Tool for GetStatisticsTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: GetStatisticsArgs =
             serde_json::from_str(arguments).unwrap_or(GetStatisticsArgs { source_id: None });
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
 
         tokio::task::spawn_blocking(move || {
             let conn = db.conn();
 
             if let Some(ref sid) = args.source_id {
+                if let Err(message) = ensure_source_in_scope(sid, &source_scope) {
+                    return Ok(ToolResult {
+                        call_id,
+                        content: message,
+                        is_error: true,
+                        artifacts: None,
+                    });
+                }
                 // --- Per-source statistics ---
                 let source_exists: bool = conn
                     .prepare("SELECT 1 FROM sources WHERE id = ?1")?
@@ -106,6 +115,94 @@ impl Tool for GetStatisticsTool {
                         "chunks": chunk_count,
                         "total_file_size_bytes": total_size,
                         "last_indexed": last_indexed,
+                    })),
+                })
+            } else if scope_is_active(&source_scope) {
+                let sources = scoped_sources(&db, &source_scope)?;
+                let source_count = sources.len() as i64;
+                let mut doc_count = 0_i64;
+                let mut chunk_count = 0_i64;
+                let mut total_size = 0_i64;
+                let mut last_indexed: Option<String> = None;
+                let mut breakdown: Vec<(String, String, i64)> = Vec::new();
+
+                for source in &sources {
+                    let per_source_docs: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM documents WHERE source_id = ?1",
+                        rusqlite::params![&source.id],
+                        |r| r.get(0),
+                    )?;
+                    let per_source_chunks: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM chunks c JOIN documents d ON c.document_id = d.id WHERE d.source_id = ?1",
+                        rusqlite::params![&source.id],
+                        |r| r.get(0),
+                    )?;
+                    let per_source_size: i64 = conn.query_row(
+                        "SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE source_id = ?1",
+                        rusqlite::params![&source.id],
+                        |r| r.get(0),
+                    )?;
+                    let per_source_last_indexed: Option<String> = conn.query_row(
+                        "SELECT MAX(indexed_at) FROM documents WHERE source_id = ?1",
+                        rusqlite::params![&source.id],
+                        |r| r.get(0),
+                    )?;
+
+                    doc_count += per_source_docs;
+                    chunk_count += per_source_chunks;
+                    total_size += per_source_size;
+                    if per_source_last_indexed.as_deref() > last_indexed.as_deref() {
+                        last_indexed = per_source_last_indexed.clone();
+                    }
+                    breakdown.push((
+                        source.id.clone(),
+                        source.root_path.clone(),
+                        per_source_docs,
+                    ));
+                }
+
+                let playbook_count: i64 =
+                    conn.query_row("SELECT COUNT(*) FROM playbooks", [], |r| r.get(0))?;
+                let db_size_str = match db.db_path() {
+                    Some(p) => std::fs::metadata(p)
+                        .map(|m| format_bytes(m.len() as i64))
+                        .unwrap_or_else(|_| "unknown".to_string()),
+                    None => "in-memory".to_string(),
+                };
+
+                let mut text = format!(
+                    "Knowledge base statistics for the current source scope:\n\
+                     - Sources: {source_count}\n\
+                     - Documents: {doc_count}\n\
+                     - Chunks: {chunk_count}\n\
+                     - Playbooks: {playbook_count}\n\
+                     - Total file size: {}\n\
+                     - Database size: {db_size_str}\n\
+                     - Last indexed: {}\n",
+                    format_bytes(total_size),
+                    last_indexed.as_deref().unwrap_or("never"),
+                );
+
+                if !breakdown.is_empty() {
+                    text.push_str("\nDocuments per source:\n");
+                    for (id, root_path, count) in &breakdown {
+                        text.push_str(&format!("  - {root_path} ({id}): {count} docs\n"));
+                    }
+                }
+
+                Ok(ToolResult {
+                    call_id,
+                    content: text,
+                    is_error: false,
+                    artifacts: Some(serde_json::json!({
+                        "sources": source_count,
+                        "documents": doc_count,
+                        "chunks": chunk_count,
+                        "playbooks": playbook_count,
+                        "total_file_size_bytes": total_size,
+                        "database_size": db_size_str,
+                        "last_indexed": last_indexed,
+                        "sourceScope": source_scope,
                     })),
                 })
             } else {

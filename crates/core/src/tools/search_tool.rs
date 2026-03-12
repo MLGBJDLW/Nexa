@@ -1,6 +1,6 @@
 //! SearchTool — wraps the existing hybrid/FTS search for agent use.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -11,7 +11,7 @@ use crate::error::CoreError;
 use crate::models::{EvidenceCard, FileType, SearchQuery};
 use crate::search;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{scope_is_active, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/search_knowledge_base.json");
@@ -119,20 +119,42 @@ impl Tool for SearchTool {
 
         let mut filters = crate::models::SearchFilters::default();
 
-        // Merge agent-supplied source_ids with conversation-level source_scope.
-        let mut all_source_ids: Vec<uuid::Uuid> = args
+        let requested_source_ids: Vec<uuid::Uuid> = args
             .source_ids
             .iter()
             .filter_map(|s| uuid::Uuid::parse_str(s).ok())
             .collect();
-        for s in source_scope {
-            if let Ok(u) = uuid::Uuid::parse_str(s) {
-                if !all_source_ids.contains(&u) {
-                    all_source_ids.push(u);
-                }
+        let scoped_source_ids: Vec<uuid::Uuid> = source_scope
+            .iter()
+            .filter_map(|s| uuid::Uuid::parse_str(s).ok())
+            .collect();
+
+        let requested_scope_filter =
+            scope_is_active(source_scope) && !requested_source_ids.is_empty();
+        filters.source_ids = if scope_is_active(source_scope) {
+            if requested_source_ids.is_empty() {
+                scoped_source_ids
+            } else {
+                let allowed: HashSet<uuid::Uuid> = scoped_source_ids.into_iter().collect();
+                requested_source_ids
+                    .into_iter()
+                    .filter(|id| allowed.contains(id))
+                    .collect()
             }
+        } else {
+            requested_source_ids
+        };
+
+        if requested_scope_filter && filters.source_ids.is_empty() {
+            return Ok(ToolResult {
+                call_id: call_id.to_string(),
+                content:
+                    "None of the requested source_ids are available in the current source scope."
+                        .to_string(),
+                is_error: false,
+                artifacts: Some(serde_json::json!([])),
+            });
         }
-        filters.source_ids = all_source_ids;
 
         // Map string file type names to the FileType enum.
         filters.file_types = args
@@ -250,5 +272,31 @@ impl Tool for SearchTool {
         })
         .await
         .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn search_short_circuits_when_requested_source_is_out_of_scope() {
+        let db = Database::open_memory().unwrap();
+        let tool = SearchTool;
+        let requested = uuid::Uuid::new_v4().to_string();
+        let scoped = uuid::Uuid::new_v4().to_string();
+        let args = serde_json::json!({
+            "query": "hello",
+            "source_ids": [requested]
+        })
+        .to_string();
+
+        let result = tool.execute("call-1", &args, &db, &[scoped]).await.unwrap();
+
+        assert!(!result.is_error);
+        assert!(result
+            .content
+            .contains("None of the requested source_ids are available"));
+        assert_eq!(result.artifacts.unwrap(), serde_json::json!([]));
     }
 }

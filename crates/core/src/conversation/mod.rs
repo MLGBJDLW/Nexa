@@ -3,6 +3,8 @@
 pub mod memory;
 pub mod summarizer;
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -986,6 +988,38 @@ impl Database {
     }
 }
 
+pub fn build_source_scope_prompt_section(
+    db: &Database,
+    source_ids: &[String],
+) -> Result<String, CoreError> {
+    if source_ids.is_empty() {
+        return Ok(String::new());
+    }
+
+    let allowed: HashSet<&str> = source_ids.iter().map(String::as_str).collect();
+    let mut sources = db.list_sources()?;
+    sources.retain(|source| allowed.contains(source.id.as_str()));
+
+    let mut section = String::from(
+        "## Active Source Scope\n\nThis conversation is currently limited to the following sources. Treat this as a hard boundary for document retrieval and evidence claims.\n",
+    );
+
+    if sources.is_empty() {
+        section
+            .push_str("\n- Scope is active, but the linked sources are currently unavailable.\n");
+    } else {
+        section.push('\n');
+        for source in sources {
+            section.push_str(&format!("- {} (`{}`)\n", source.root_path, source.id));
+        }
+    }
+
+    section.push_str(
+        "\nIf something is missing, say you could not find it in the current source scope unless you explicitly searched all sources.",
+    );
+    Ok(section)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -993,6 +1027,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sources::CreateSourceInput;
 
     #[test]
     fn test_conversation_crud() {
@@ -1111,6 +1146,35 @@ mod tests {
         // Messages should be gone (CASCADE)
         let messages = db.get_messages(&conv.id).unwrap();
         assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_build_source_scope_prompt_section_lists_linked_sources() {
+        let db = Database::open_memory().unwrap();
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        db.add_source(CreateSourceInput {
+            root_path: dir_a.path().to_string_lossy().to_string(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .unwrap();
+        db.add_source(CreateSourceInput {
+            root_path: dir_b.path().to_string_lossy().to_string(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .unwrap();
+
+        let sources = db.list_sources().unwrap();
+        let section = build_source_scope_prompt_section(&db, &[sources[0].id.clone()]).unwrap();
+
+        assert!(section.contains("## Active Source Scope"));
+        assert!(section.contains(dir_a.path().to_string_lossy().as_ref()));
+        assert!(!section.contains(dir_b.path().to_string_lossy().as_ref()));
+        assert!(section.contains("current source scope"));
     }
 
     #[test]

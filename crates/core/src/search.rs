@@ -943,7 +943,10 @@ fn file_type_to_mimes(ft: &FileType) -> Vec<String> {
         FileType::Video => {
             #[cfg(feature = "video")]
             {
-                crate::video::VIDEO_MIME_TYPES.iter().map(|s| s.to_string()).collect()
+                crate::video::VIDEO_MIME_TYPES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
             }
             #[cfg(not(feature = "video"))]
             {
@@ -958,7 +961,10 @@ fn file_type_to_mimes(ft: &FileType) -> Vec<String> {
         FileType::Audio => {
             #[cfg(feature = "video")]
             {
-                crate::video::AUDIO_MIME_TYPES.iter().map(|s| s.to_string()).collect()
+                crate::video::AUDIO_MIME_TYPES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
             }
             #[cfg(not(feature = "video"))]
             {

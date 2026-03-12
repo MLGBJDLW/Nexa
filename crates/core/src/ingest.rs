@@ -1310,7 +1310,15 @@ mod tests {
         let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
 
         // Parse and insert.
-        let parsed = parse_file(&file, None, #[cfg(feature = "video")] None, None, None).unwrap();
+        let parsed = parse_file(
+            &file,
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let doc_id = db.insert_document(&sid, &parsed).unwrap();
         assert!(!doc_id.is_empty());
 
@@ -1332,7 +1340,15 @@ mod tests {
              produce a different blake3 content hash value now.",
         )
         .unwrap();
-        let parsed2 = parse_file(&file, None, #[cfg(feature = "video")] None, None, None).unwrap();
+        let parsed2 = parse_file(
+            &file,
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         db.update_document(&doc_id, &parsed2).unwrap();
 
         let (_, new_hash) = db
@@ -1524,7 +1540,17 @@ mod tests {
         for entry in fs::read_dir(tmp.path()).unwrap() {
             let path = entry.unwrap().path();
             if path.is_file() {
-                parsed_docs.push(parse_file(&path, None, #[cfg(feature = "video")] None, None, None).unwrap());
+                parsed_docs.push(
+                    parse_file(
+                        &path,
+                        None,
+                        #[cfg(feature = "video")]
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                );
             }
         }
         assert_eq!(parsed_docs.len(), 100);

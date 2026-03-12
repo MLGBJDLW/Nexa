@@ -2224,10 +2224,16 @@ mod tests {
             .get_messages(&conversation.id)
             .expect("messages should load");
         assert_eq!(messages.len(), 3, "assistant(tool), tool, assistant(final)");
-        assert_eq!(messages[0].thinking.as_deref(), Some("first round reasoning"));
+        assert_eq!(
+            messages[0].thinking.as_deref(),
+            Some("first round reasoning")
+        );
         assert_eq!(messages[0].tool_calls.len(), 1);
         assert_eq!(messages[1].role, Role::Tool);
         assert_eq!(messages[2].content, "final answer");
-        assert_eq!(messages[2].thinking.as_deref(), Some("second round reasoning"));
+        assert_eq!(
+            messages[2].thinking.as_deref(),
+            Some("second round reasoning")
+        );
     }
 }

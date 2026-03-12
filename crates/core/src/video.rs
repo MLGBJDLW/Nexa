@@ -220,12 +220,23 @@ pub struct SubtitleStream {
 fn derive_ffprobe_path(ffmpeg_path: &str) -> String {
     let path = std::path::Path::new(ffmpeg_path);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("ffmpeg");
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("ffmpeg");
     let ffprobe_name = if stem.eq_ignore_ascii_case("ffmpeg") {
-        if ext.is_empty() { "ffprobe".to_string() } else { format!("ffprobe.{ext}") }
+        if ext.is_empty() {
+            "ffprobe".to_string()
+        } else {
+            format!("ffprobe.{ext}")
+        }
     } else {
         let replaced = stem.replace("ffmpeg", "ffprobe");
-        if ext.is_empty() { replaced } else { format!("{replaced}.{ext}") }
+        if ext.is_empty() {
+            replaced
+        } else {
+            format!("{replaced}.{ext}")
+        }
     };
     if let Some(parent) = path.parent() {
         if parent != Path::new("") && parent != Path::new(".") {
@@ -295,7 +306,9 @@ fn run_ffmpeg_command(
                 let _ = child.wait();
                 let _ = stdout_handle.join();
                 let _ = stderr_handle.join();
-                return Err(CoreError::Video(format!("Failed to check process status: {e}")));
+                return Err(CoreError::Video(format!(
+                    "Failed to check process status: {e}"
+                )));
             }
         }
     };
@@ -308,7 +321,11 @@ fn run_ffmpeg_command(
         return Err(CoreError::Video(format!("{program} failed: {stderr_str}")));
     }
 
-    Ok(std::process::Output { status, stdout, stderr })
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 /// Check if FFmpeg is available on the system.
@@ -332,19 +349,23 @@ pub fn extract_audio(
     config: &VideoConfig,
 ) -> Result<(), CoreError> {
     let ffmpeg = config.ffmpeg_path.as_deref().unwrap_or("ffmpeg");
-    let canonical_path = std::fs::canonicalize(video_path)
-        .unwrap_or_else(|_| video_path.to_path_buf());
+    let canonical_path =
+        std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video = canonical_path.to_string_lossy();
     let output = output_wav.to_string_lossy();
     run_ffmpeg_command(
         ffmpeg,
         &[
-            "-i", &video,
-            "-vn",              // No video
-            "-acodec", "pcm_s16le", // 16-bit PCM
-            "-ar", "16000",     // 16kHz (Whisper requirement)
-            "-ac", "1",         // Mono
-            "-y",               // Overwrite
+            "-i",
+            &video,
+            "-vn", // No video
+            "-acodec",
+            "pcm_s16le", // 16-bit PCM
+            "-ar",
+            "16000", // 16kHz (Whisper requirement)
+            "-ac",
+            "1",  // Mono
+            "-y", // Overwrite
             &output,
         ],
         3600,
@@ -366,17 +387,20 @@ pub fn extract_frames(
     let ffmpeg = config.ffmpeg_path.as_deref().unwrap_or("ffmpeg");
     let fps_filter = format!("fps=1/{interval_secs}");
     let output_pattern = output_dir.join("frame_%04d.jpg");
-    let canonical_path = std::fs::canonicalize(video_path)
-        .unwrap_or_else(|_| video_path.to_path_buf());
+    let canonical_path =
+        std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video = canonical_path.to_string_lossy();
     let pattern = output_pattern.to_string_lossy();
 
     run_ffmpeg_command(
         ffmpeg,
         &[
-            "-i", &video,
-            "-vf", &fps_filter,
-            "-q:v", "2", // High quality JPEG
+            "-i",
+            &video,
+            "-vf",
+            &fps_filter,
+            "-q:v",
+            "2", // High quality JPEG
             "-y",
             &pattern,
         ],
@@ -408,8 +432,8 @@ pub fn extract_keyframes(
     let ffmpeg = config.ffmpeg_path.as_deref().unwrap_or("ffmpeg");
     let vf = format!("select='gt(scene,{scene_threshold})'");
     let output_pattern = output_dir.join("scene_%04d.jpg");
-    let canonical_path = std::fs::canonicalize(video_path)
-        .unwrap_or_else(|_| video_path.to_path_buf());
+    let canonical_path =
+        std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video = canonical_path.to_string_lossy();
     let pattern = output_pattern.to_string_lossy();
 
@@ -418,12 +442,7 @@ pub fn extract_keyframes(
     let result = run_ffmpeg_command(
         ffmpeg,
         &[
-            "-i", &video,
-            "-vf", &vf,
-            "-vsync", "vfr",
-            "-q:v", "3",
-            "-y",
-            &pattern,
+            "-i", &video, "-vf", &vf, "-vsync", "vfr", "-q:v", "3", "-y", &pattern,
         ],
         1800,
     );
@@ -452,9 +471,12 @@ pub fn get_video_duration(video_path: &Path, config: &VideoConfig) -> Result<f64
     let output = run_ffmpeg_command(
         &ffprobe,
         &[
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "csv=p=0",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
             &video,
         ],
         30,
@@ -474,16 +496,20 @@ pub fn get_video_duration(video_path: &Path, config: &VideoConfig) -> Result<f64
 /// Check if a video file contains at least one audio stream.
 fn has_audio_stream(ffmpeg_path: &str, video_path: &Path) -> bool {
     let ffprobe = derive_ffprobe_path(ffmpeg_path);
-    let canonical_path = std::fs::canonicalize(video_path)
-        .unwrap_or_else(|_| video_path.to_path_buf());
+    let canonical_path =
+        std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video_str = canonical_path.to_string_lossy();
     match run_ffmpeg_command(
         &ffprobe,
         &[
-            "-v", "quiet",
-            "-select_streams", "a",
-            "-show_entries", "stream=codec_type",
-            "-of", "csv=p=0",
+            "-v",
+            "quiet",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
             &video_str,
         ],
         30,
@@ -504,10 +530,13 @@ pub fn detect_subtitle_streams(
     let output = run_ffmpeg_command(
         &ffprobe,
         &[
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_streams",
-            "-select_streams", "s",
+            "-select_streams",
+            "s",
             &video,
         ],
         30,
@@ -547,8 +576,8 @@ pub fn extract_subtitles(
     stream_index: usize,
     output_path: &Path,
 ) -> Result<String, CoreError> {
-    let canonical_path = std::fs::canonicalize(video_path)
-        .unwrap_or_else(|_| video_path.to_path_buf());
+    let canonical_path =
+        std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video = canonical_path.to_string_lossy();
     let out = output_path.to_string_lossy();
     let map_arg = format!("0:{stream_index}");
@@ -675,17 +704,17 @@ pub fn transcribe_audio(
     // Initialize Whisper context with GPU acceleration
     let mut ctx_params = WhisperContextParameters::default();
     ctx_params.use_gpu(config.use_gpu);
-    let ctx = WhisperContext::new_with_params(
-        &model_path.to_string_lossy(),
-        ctx_params,
-    )
-    .map_err(|e| CoreError::Video(format!("Failed to load Whisper model: {e}")))?;
+    let ctx = WhisperContext::new_with_params(&model_path.to_string_lossy(), ctx_params)
+        .map_err(|e| CoreError::Video(format!("Failed to load Whisper model: {e}")))?;
 
     // Read WAV audio data
     let audio_data = read_wav_pcm(wav_path)?;
 
     // Configure transcription parameters
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: config.beam_size.max(1).min(16) as i32, patience: 1.0 });
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+        beam_size: config.beam_size.max(1).min(16) as i32,
+        patience: 1.0,
+    });
     if let Some(ref lang) = config.language {
         params.set_language(Some(lang));
     }
@@ -878,8 +907,8 @@ pub fn generate_thumbnail(
 ) -> Result<(), CoreError> {
     let ts = format!("{timestamp_secs}");
     let scale = format!("scale={width}:-1");
-    let canonical_path = std::fs::canonicalize(video_path)
-        .unwrap_or_else(|_| video_path.to_path_buf());
+    let canonical_path =
+        std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video = canonical_path.to_string_lossy();
     let out = output_path.to_string_lossy();
     run_ffmpeg_command(
@@ -907,11 +936,14 @@ pub fn extract_video_metadata(
     let output = run_ffmpeg_command(
         &ffprobe,
         &[
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
-            "-select_streams", "v:0",
+            "-select_streams",
+            "v:0",
             &video,
         ],
         30,
@@ -925,14 +957,20 @@ pub fn extract_video_metadata(
 
     let width = stream.and_then(|s| s["width"].as_u64()).map(|v| v as u32);
     let height = stream.and_then(|s| s["height"].as_u64()).map(|v| v as u32);
-    let codec = stream.and_then(|s| s["codec_name"].as_str()).map(|s| s.to_string());
+    let codec = stream
+        .and_then(|s| s["codec_name"].as_str())
+        .map(|s| s.to_string());
     let framerate = stream.and_then(|s| {
         let r_frame_rate = s["r_frame_rate"].as_str()?;
         let parts: Vec<&str> = r_frame_rate.split('/').collect();
         if parts.len() == 2 {
             let num: f64 = parts[0].parse().ok()?;
             let den: f64 = parts[1].parse().ok()?;
-            if den > 0.0 { Some(num / den) } else { None }
+            if den > 0.0 {
+                Some(num / den)
+            } else {
+                None
+            }
         } else {
             r_frame_rate.parse().ok()
         }
@@ -989,7 +1027,8 @@ pub fn analyze_audio(
             let mut hdr = [0u8; 12];
             let mut f = std::fs::File::open(audio_path)
                 .map_err(|e| CoreError::Video(format!("Failed to read WAV file: {e}")))?;
-            let bytes_read = f.read(&mut hdr)
+            let bytes_read = f
+                .read(&mut hdr)
                 .map_err(|e| CoreError::Video(format!("Failed to read WAV header: {e}")))?;
             bytes_read >= 12 && &hdr[0..4] == b"RIFF" && &hdr[8..12] == b"WAVE"
         };
@@ -1101,39 +1140,39 @@ pub fn analyze_video(
         None
     } else {
         match detect_subtitle_streams(ffmpeg, video_path) {
-        Ok(streams) if !streams.is_empty() => {
-            on_progress(VideoProcessingProgress {
-                phase: "extracting_subtitles".into(),
-                progress_pct: 10.0,
-                detail: Some(format!(
-                    "Found {} embedded subtitle stream(s), extracting...",
-                    streams.len()
-                )),
-            });
-            let srt_path = temp_dir.join("subtitles.srt");
-            let stream = &streams[0];
-            match extract_subtitles(ffmpeg, video_path, stream.index, &srt_path) {
-                Ok(srt_content) => {
-                    let parsed = parse_srt(&srt_content);
-                    if parsed.is_empty() {
-                        None
-                    } else {
-                        on_progress(VideoProcessingProgress {
-                            phase: "subtitles_extracted".into(),
-                            progress_pct: 30.0,
-                            detail: Some(format!(
-                                "Extracted {} subtitle segments",
-                                parsed.len()
-                            )),
-                        });
-                        Some(parsed)
+            Ok(streams) if !streams.is_empty() => {
+                on_progress(VideoProcessingProgress {
+                    phase: "extracting_subtitles".into(),
+                    progress_pct: 10.0,
+                    detail: Some(format!(
+                        "Found {} embedded subtitle stream(s), extracting...",
+                        streams.len()
+                    )),
+                });
+                let srt_path = temp_dir.join("subtitles.srt");
+                let stream = &streams[0];
+                match extract_subtitles(ffmpeg, video_path, stream.index, &srt_path) {
+                    Ok(srt_content) => {
+                        let parsed = parse_srt(&srt_content);
+                        if parsed.is_empty() {
+                            None
+                        } else {
+                            on_progress(VideoProcessingProgress {
+                                phase: "subtitles_extracted".into(),
+                                progress_pct: 30.0,
+                                detail: Some(format!(
+                                    "Extracted {} subtitle segments",
+                                    parsed.len()
+                                )),
+                            });
+                            Some(parsed)
+                        }
                     }
+                    Err(_) => None,
                 }
-                Err(_) => None,
             }
+            _ => None,
         }
-        _ => None,
-    }
     };
 
     // 4. Fall back to Whisper transcription if no embedded subtitles
@@ -1177,10 +1216,16 @@ pub fn analyze_video(
 
         // Try scene-change detection first, fall back to fixed-interval
         let frame_paths = {
-            let keyframes = extract_keyframes(video_path, &frames_dir, config.scene_threshold, config)?;
+            let keyframes =
+                extract_keyframes(video_path, &frames_dir, config.scene_threshold, config)?;
             if keyframes.is_empty() {
                 let fallback_dir = temp_dir.join("frames_fixed");
-                extract_frames(video_path, &fallback_dir, config.frame_interval_secs, config)?
+                extract_frames(
+                    video_path,
+                    &fallback_dir,
+                    config.frame_interval_secs,
+                    config,
+                )?
             } else {
                 keyframes
             }

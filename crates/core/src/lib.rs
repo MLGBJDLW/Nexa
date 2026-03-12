@@ -21,8 +21,6 @@ pub mod migrations;
 pub mod models;
 #[cfg(feature = "ocr")]
 pub mod ocr;
-#[cfg(feature = "video")]
-pub mod video;
 pub mod parse;
 pub mod personalization;
 pub mod playbook;
@@ -31,4 +29,6 @@ pub mod search;
 pub mod skills;
 pub mod sources;
 pub mod tools;
+#[cfg(feature = "video")]
+pub mod video;
 pub mod watcher;

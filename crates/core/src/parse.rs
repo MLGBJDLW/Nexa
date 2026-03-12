@@ -189,7 +189,10 @@ pub fn parse_file(
     }
     #[cfg(not(feature = "video"))]
     if mime_type.starts_with("audio/") {
-        tracing::debug!("Skipping audio file (video feature not enabled): {}", path.display());
+        tracing::debug!(
+            "Skipping audio file (video feature not enabled): {}",
+            path.display()
+        );
         let raw_bytes = std::fs::read(path)?;
         let file_name = path
             .file_name()
@@ -216,7 +219,10 @@ pub fn parse_file(
     }
     #[cfg(not(feature = "video"))]
     if mime_type.starts_with("video/") {
-        tracing::debug!("Skipping video file (video feature not enabled): {}", path.display());
+        tracing::debug!(
+            "Skipping video file (video feature not enabled): {}",
+            path.display()
+        );
         let raw_bytes = std::fs::read(path)?;
         let file_name = path
             .file_name()
@@ -583,7 +589,8 @@ fn parse_audio(
     let file_size = metadata.len() as i64;
     let file = std::fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();
-    hasher.update_reader(&mut BufReader::new(file))
+    hasher
+        .update_reader(&mut BufReader::new(file))
         .map_err(|e| CoreError::Parse(format!("Hash error: {e}")))?;
     let content_hash = hasher.finalize().to_hex().to_string();
 
@@ -646,7 +653,10 @@ fn parse_audio(
 /// Normalize whitespace and case for frame OCR text comparison.
 #[cfg(feature = "video")]
 fn normalize_for_comparison(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// Remove consecutive duplicate OCR texts (common for slides/titles held on screen).
@@ -696,7 +706,8 @@ fn parse_video(
     let file_size = metadata.len() as i64;
     let file = std::fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();
-    hasher.update_reader(&mut BufReader::new(file))
+    hasher
+        .update_reader(&mut BufReader::new(file))
         .map_err(|e| CoreError::Parse(format!("Hash error: {e}")))?;
     let content_hash = hasher.finalize().to_hex().to_string();
 
@@ -773,10 +784,7 @@ fn parse_video(
             chunk_index: base_index + i as i32,
             start_offset: ts_secs * 1000, // store as ms like transcript chunks
             end_offset: ts_end * 1000,
-            heading_context: Some(format!(
-                "[Frame OCR @ {:02}:{:02}:{:02}]",
-                ts_h, ts_m, ts_s
-            )),
+            heading_context: Some(format!("[Frame OCR @ {:02}:{:02}:{:02}]", ts_h, ts_m, ts_s)),
             overlap_start: 0,
         });
     }
@@ -1352,8 +1360,24 @@ mod tests {
         writeln!(f, "Hello, world!").unwrap();
         f.flush().unwrap();
 
-        let doc1 = parse_file(f.path(), None, #[cfg(feature = "video")] None, None, None).unwrap();
-        let doc2 = parse_file(f.path(), None, #[cfg(feature = "video")] None, None, None).unwrap();
+        let doc1 = parse_file(
+            f.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let doc2 = parse_file(
+            f.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(doc1.content_hash, doc2.content_hash);
         assert!(!doc1.content_hash.is_empty());
     }
@@ -1368,8 +1392,24 @@ mod tests {
         writeln!(f2, "bbb").unwrap();
         f2.flush().unwrap();
 
-        let d1 = parse_file(f1.path(), None, #[cfg(feature = "video")] None, None, None).unwrap();
-        let d2 = parse_file(f2.path(), None, #[cfg(feature = "video")] None, None, None).unwrap();
+        let d1 = parse_file(
+            f1.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let d2 = parse_file(
+            f2.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_ne!(d1.content_hash, d2.content_hash);
     }
 
@@ -1471,7 +1511,15 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
         write!(f, "{}", body).unwrap();
         f.flush().unwrap();
 
-        let doc = parse_file(f.path(), None, #[cfg(feature = "video")] None, None, None).unwrap();
+        let doc = parse_file(
+            f.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(doc.mime_type, "text/markdown");
         assert_eq!(
             doc.file_name,
@@ -1488,7 +1536,15 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
         write!(f, "{}", body).unwrap();
         f.flush().unwrap();
 
-        let doc = parse_file(f.path(), None, #[cfg(feature = "video")] None, None, None).unwrap();
+        let doc = parse_file(
+            f.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(doc.mime_type, "text/plain");
     }
 
@@ -1521,7 +1577,14 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
         f.write_all(b"this is not a real pdf").unwrap();
         f.flush().unwrap();
 
-        let result = parse_file(f.path(), None, #[cfg(feature = "video")] None, None, None);
+        let result = parse_file(
+            f.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+        );
         // Graceful degradation: parse succeeds but produces empty chunks.
         assert!(
             result.is_ok() || result.is_err(),

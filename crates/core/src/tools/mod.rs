@@ -1,5 +1,6 @@
 //! Tool system — trait, registry, and built-in tools for the agent framework.
 
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::ToolDefinition;
+use crate::models::Source;
 
 // ---------------------------------------------------------------------------
 // Shared tool-definition helper (parsed from JSON once via OnceLock)
@@ -71,6 +73,43 @@ pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
     pub artifacts: Option<serde_json::Value>,
+}
+
+pub(crate) fn scope_is_active(source_scope: &[String]) -> bool {
+    !source_scope.is_empty()
+}
+
+pub(crate) fn source_in_scope(source_id: &str, source_scope: &[String]) -> bool {
+    !scope_is_active(source_scope) || source_scope.iter().any(|id| id == source_id)
+}
+
+pub(crate) fn scoped_sources(
+    db: &Database,
+    source_scope: &[String],
+) -> Result<Vec<Source>, CoreError> {
+    let mut sources = db.list_sources()?;
+    if scope_is_active(source_scope) {
+        let allowed: HashSet<&str> = source_scope.iter().map(String::as_str).collect();
+        sources.retain(|source| allowed.contains(source.id.as_str()));
+    }
+    Ok(sources)
+}
+
+pub(crate) fn ensure_source_in_scope(
+    source_id: &str,
+    source_scope: &[String],
+) -> Result<(), String> {
+    if source_in_scope(source_id, source_scope) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Source '{source_id}' is outside the current source scope."
+        ))
+    }
+}
+
+pub(crate) fn current_scope_miss_message() -> &'static str {
+    "I could not find that in the current source scope."
 }
 
 // ---------------------------------------------------------------------------

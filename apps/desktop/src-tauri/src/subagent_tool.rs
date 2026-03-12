@@ -193,10 +193,7 @@ impl JudgeSubagentResultsTool {
 impl SubagentBudgetController {
     fn new(config: &AgentConfig) -> Self {
         let max_parallel = config.subagent_max_parallel.unwrap_or(3).clamp(1, 12);
-        let max_calls_per_turn = config
-            .subagent_max_calls_per_turn
-            .unwrap_or(6)
-            .clamp(1, 32);
+        let max_calls_per_turn = config.subagent_max_calls_per_turn.unwrap_or(6).clamp(1, 32);
         let token_budget = config
             .subagent_token_budget
             .unwrap_or(12_000)
@@ -249,9 +246,7 @@ impl SubagentBudgetController {
             max_parallel: state.max_parallel,
             max_calls_per_turn: state.max_calls_per_turn,
             calls_started: state.calls_started,
-            remaining_calls: state
-                .max_calls_per_turn
-                .saturating_sub(state.calls_started),
+            remaining_calls: state.max_calls_per_turn.saturating_sub(state.calls_started),
             token_budget: state.token_budget,
             tokens_spent: state.tokens_spent,
             remaining_tokens: state.token_budget.saturating_sub(state.tokens_spent),
@@ -504,7 +499,10 @@ fn build_return_sections(args: &SpawnSubagentArgs) -> Vec<String> {
     })
 }
 
-fn resolve_source_scope(parent_scope: &[String], requested_scope: Option<&[String]>) -> Vec<String> {
+fn resolve_source_scope(
+    parent_scope: &[String],
+    requested_scope: Option<&[String]>,
+) -> Vec<String> {
     match requested_scope {
         Some(requested) if !requested.is_empty() => {
             if parent_scope.is_empty() {
@@ -527,7 +525,10 @@ fn resolve_source_scope(parent_scope: &[String], requested_scope: Option<&[Strin
     }
 }
 
-fn resolve_allowed_tools(base_allowed_tools: &[String], requested_allowed_tools: Option<&[String]>) -> Vec<String> {
+fn resolve_allowed_tools(
+    base_allowed_tools: &[String],
+    requested_allowed_tools: Option<&[String]>,
+) -> Vec<String> {
     match requested_allowed_tools {
         Some(requested) if !requested.is_empty() => {
             let allowed: BTreeSet<&str> = base_allowed_tools.iter().map(String::as_str).collect();
@@ -627,7 +628,11 @@ fn build_subagent_request(
         request.push_str(style);
     }
 
-    if let Some(criteria) = args.acceptance_criteria.as_ref().filter(|items| !items.is_empty()) {
+    if let Some(criteria) = args
+        .acceptance_criteria
+        .as_ref()
+        .filter(|items| !items.is_empty())
+    {
         request.push_str("\n\nAcceptance criteria:\n");
         for item in criteria {
             request.push_str("- ");
@@ -694,7 +699,9 @@ fn normalize_spawn_args(mut args: SpawnSubagentArgs) -> Result<SpawnSubagentArgs
     Ok(args)
 }
 
-fn normalize_batch_task_args(task: BatchSubagentTaskArgs) -> Result<(Option<String>, SpawnSubagentArgs), CoreError> {
+fn normalize_batch_task_args(
+    task: BatchSubagentTaskArgs,
+) -> Result<(Option<String>, SpawnSubagentArgs), CoreError> {
     let worker_id = trim_optional(task.id);
     let args = normalize_spawn_args(SpawnSubagentArgs {
         task: task.task,
@@ -729,7 +736,8 @@ async fn run_subagent_once(
     let mut config = runtime.base_config.clone();
     config.max_iterations = args.max_iterations.unwrap_or(3).clamp(1, 6);
     config.max_tokens = Some(config.max_tokens.unwrap_or(2048).min(2048));
-    config.system_prompt = build_subagent_system_prompt(&config.system_prompt, args.role.as_deref());
+    config.system_prompt =
+        build_subagent_system_prompt(&config.system_prompt, args.role.as_deref());
 
     let baseline_allowed_tools = normalize_allowed_tools(runtime.allowed_tools.as_deref());
     let effective_allowed_tools =
@@ -861,7 +869,12 @@ fn summarize_subagent_run(run: &SubagentRunArtifact) -> String {
         .as_deref()
         .map(|role| format!(" ({role})"))
         .unwrap_or_default();
-    format!("{}{}: {}", run.task, role_suffix, truncate_excerpt(&run.result, 220))
+    format!(
+        "{}{}: {}",
+        run.task,
+        role_suffix,
+        truncate_excerpt(&run.result, 220)
+    )
 }
 
 fn extract_json_block(raw: &str) -> Option<&str> {
@@ -887,7 +900,12 @@ fn build_judge_system_prompt(base_prompt: &str) -> String {
 
 fn build_judge_request(args: &JudgeSubagentResultsArgs) -> String {
     let mut request = String::new();
-    if let Some(task) = args.task.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(task) = args
+        .task
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         request.push_str("Adjudication task:\n");
         request.push_str(task);
         request.push_str("\n\n");
@@ -954,7 +972,11 @@ fn build_judge_request(args: &JudgeSubagentResultsArgs) -> String {
             request.push_str(evidence_summary);
             request.push('\n');
         }
-        if let Some(concerns) = candidate.concerns.as_ref().filter(|items| !items.is_empty()) {
+        if let Some(concerns) = candidate
+            .concerns
+            .as_ref()
+            .filter(|items| !items.is_empty())
+        {
             request.push_str("concerns:\n");
             for concern in concerns {
                 request.push_str("- ");
@@ -1228,7 +1250,10 @@ impl Tool for SubagentBatchTool {
             .collect::<Result<_, _>>()?;
 
         let budget_before = self.runtime.budget.snapshot().await;
-        let requested_parallel = args.max_parallel.unwrap_or(budget_before.max_parallel).clamp(1, 8);
+        let requested_parallel = args
+            .max_parallel
+            .unwrap_or(budget_before.max_parallel)
+            .clamp(1, 8);
         let effective_parallel = requested_parallel.min(budget_before.max_parallel).max(1) as usize;
 
         let runtime = self.runtime.clone();
@@ -1292,10 +1317,7 @@ impl Tool for SubagentBatchTool {
         let budget_after = self.runtime.budget.snapshot().await;
         let completed_runs = runs.iter().filter(|run| !run.is_error).count();
         let failed_runs = runs.len().saturating_sub(completed_runs);
-        let mut content = format!(
-            "Completed {} delegated worker(s) in batch",
-            runs.len()
-        );
+        let mut content = format!("Completed {} delegated worker(s) in batch", runs.len());
         if let Some(goal) = args.batch_goal.as_deref() {
             content.push_str(&format!(" for: {goal}"));
         }
@@ -1390,7 +1412,11 @@ impl Tool for JudgeSubagentResultsTool {
         args.decision_mode = trim_optional(args.decision_mode);
         args.rubric = normalize_string_list(args.rubric.take(), 8);
 
-        let _permit = self.runtime.budget.begin_call("judge_subagent_results").await?;
+        let _permit = self
+            .runtime
+            .budget
+            .begin_call("judge_subagent_results")
+            .await?;
         let provider = create_provider(self.runtime.provider_config.clone())
             .map_err(|e| CoreError::Llm(e.to_string()))?;
         let request = CompletionRequest {

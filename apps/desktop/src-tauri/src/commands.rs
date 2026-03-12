@@ -91,8 +91,7 @@ pub struct WatchedSourceInfo {
 /// Returns the canonicalized path on success.
 #[cfg(feature = "video")]
 fn validate_path_in_scope(db: &Database, path: &str) -> Result<PathBuf, String> {
-    let canonical = std::fs::canonicalize(path)
-        .map_err(|e| format!("Invalid path: {e}"))?;
+    let canonical = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))?;
     let sources = db.list_sources().map_err(|e| format!("DB error: {e}"))?;
     let in_scope = sources.iter().any(|s| {
         if let Ok(source_canonical) = std::fs::canonicalize(&s.root_path) {
@@ -361,8 +360,7 @@ pub async fn scan_source(
         .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
-    ?;
+    .map_err(|e| e.to_string())??;
 
     // Invalidate cached answers that may reference this source.
     let _ = state.db.invalidate_cache_for_source(&source_id);
@@ -1443,6 +1441,13 @@ pub async fn agent_chat_cmd(
         .db
         .get_conversation(&conversation_id)
         .map_err(|e| e.to_string())?;
+    let source_scope_ids = state
+        .db
+        .get_linked_sources(&conversation_id)
+        .unwrap_or_default();
+    let source_scope_section =
+        ask_core::conversation::build_source_scope_prompt_section(&state.db, &source_scope_ids)
+            .unwrap_or_default();
     let memory_section =
         ask_core::personalization::build_memory_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
@@ -1451,7 +1456,7 @@ pub async fn agent_chat_cmd(
             .unwrap_or_default();
     let system_prompt = build_system_prompt(
         Some(&conv.system_prompt),
-        &[&memory_section, &preference_section],
+        &[&source_scope_section, &memory_section, &preference_section],
     );
 
     // 6. Build executor config from DB config.
@@ -1709,7 +1714,10 @@ pub fn save_video_config_cmd(
     state: tauri::State<'_, AppState>,
     config: ask_core::video::VideoConfig,
 ) -> Result<(), String> {
-    state.db.save_video_config(&config).map_err(|e| e.to_string())
+    state
+        .db
+        .save_video_config(&config)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "video")]
@@ -1742,17 +1750,14 @@ pub fn check_ffmpeg_cmd(config: ask_core::video::VideoConfig) -> Result<bool, St
 
 #[cfg(feature = "video")]
 #[tauri::command]
-pub fn delete_whisper_model_cmd(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub fn delete_whisper_model_cmd(state: tauri::State<'_, AppState>) -> Result<(), String> {
     if state.whisper_busy.load(Ordering::SeqCst) {
         return Err("Cannot delete model while transcription is in progress".into());
     }
     let config = state.db.load_video_config().map_err(|e| e.to_string())?;
     let model_path = std::path::Path::new(&config.model_path).join(config.whisper_model.filename());
     if model_path.exists() {
-        std::fs::remove_file(&model_path)
-            .map_err(|e| format!("Failed to delete model: {e}"))?;
+        std::fs::remove_file(&model_path).map_err(|e| format!("Failed to delete model: {e}"))?;
     }
     Ok(())
 }
@@ -1868,8 +1873,14 @@ pub async fn get_video_transcript_cmd(
             let (text, start_ms, end_ms, meta_json) = row.map_err(|e| e.to_string())?;
             let heading: Option<String> = serde_json::from_str::<serde_json::Value>(&meta_json)
                 .ok()
-                .and_then(|v| v.get("heading_context").and_then(|h| h.as_str().map(String::from)));
-            let chunk_type = if heading.as_deref().map_or(false, |h| h.starts_with("[Frame OCR")) {
+                .and_then(|v| {
+                    v.get("heading_context")
+                        .and_then(|h| h.as_str().map(String::from))
+                });
+            let chunk_type = if heading
+                .as_deref()
+                .map_or(false, |h| h.starts_with("[Frame OCR"))
+            {
                 "frame_ocr"
             } else {
                 "transcript"
