@@ -181,6 +181,12 @@ fn scan_source_inner(
         errors: Vec::new(),
     };
 
+    // Derive max chunk size from the configured embedding model.
+    let max_chunk_chars = db
+        .get_embedder_config()
+        .ok()
+        .map(|cfg| cfg.local_embedding_model().max_chunk_chars());
+
     // Collect all files recursively, sorted for deterministic order.
     let files = walk_directory(root)?;
     let total_files = files.len();
@@ -264,6 +270,7 @@ fn scan_source_inner(
             privacy_cfg,
             #[cfg(feature = "video")]
             video_config.as_ref(),
+            max_chunk_chars,
         ) {
             Ok(FileClassification::New(parsed)) => {
                 new_docs.push(parsed);
@@ -877,6 +884,7 @@ fn classify_file(
     existing_docs: &HashMap<String, (String, String)>,
     privacy: &PrivacyConfig,
     #[cfg(feature = "video")] video_config: Option<&crate::video::VideoConfig>,
+    max_chunk_chars: Option<usize>,
 ) -> Result<FileClassification, CoreError> {
     let mut parsed = parse_file(
         path,
@@ -885,6 +893,7 @@ fn classify_file(
         video_config,
         None,
         None,
+        max_chunk_chars,
     )?;
 
     // Apply content redaction when privacy is enabled.
@@ -1008,6 +1017,12 @@ pub fn ingest_single_file(
     #[cfg(feature = "video")]
     let video_config = db.load_video_config().ok();
 
+    // Derive max chunk size from the configured embedding model.
+    let max_chunk_chars = db
+        .get_embedder_config()
+        .ok()
+        .map(|cfg| cfg.local_embedding_model().max_chunk_chars());
+
     let mut parsed = parse_file(
         path,
         None,
@@ -1015,6 +1030,7 @@ pub fn ingest_single_file(
         video_config.as_ref(),
         None,
         None,
+        max_chunk_chars,
     )?;
 
     // Apply content redaction when privacy is enabled.
@@ -1317,6 +1333,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let doc_id = db.insert_document(&sid, &parsed).unwrap();
@@ -1344,6 +1361,7 @@ mod tests {
             &file,
             None,
             #[cfg(feature = "video")]
+            None,
             None,
             None,
             None,
@@ -1545,6 +1563,7 @@ mod tests {
                         &path,
                         None,
                         #[cfg(feature = "video")]
+                        None,
                         None,
                         None,
                         None,

@@ -127,17 +127,17 @@ pub struct ParsedChunk {
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Chunks larger than this (in chars) will be sub-split.
-const MAX_CHUNK_CHARS: usize = 2000;
+/// Default max chunk size (chars) — used as a fallback/cap when no
+/// model-specific value is provided.
+const DEFAULT_MAX_CHUNK_CHARS: usize = 2000;
 
 /// Chunks smaller than this are discarded.
 const MIN_CHUNK_CHARS: usize = 50;
 
-/// Number of bytes of overlap between adjacent chunks.
-///
-/// The ending portion of each chunk is prepended to the next so that
-/// search queries spanning chunk boundaries can still match.
-const CHUNK_OVERLAP_CHARS: usize = 80;
+/// Compute overlap chars proportional to max chunk size (~10%).
+fn overlap_chars_for(max_chunk_chars: usize) -> usize {
+    max_chunk_chars / 10
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -157,28 +157,30 @@ pub fn parse_file(
     #[cfg(feature = "video")] video_config: Option<&crate::video::VideoConfig>,
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
     #[allow(unused_variables)] progress_callback: Option<&dyn Fn(f32)>,
+    max_chunk_chars: Option<usize>,
 ) -> Result<ParsedDocument, CoreError> {
+    let max_chars = max_chunk_chars.unwrap_or(DEFAULT_MAX_CHUNK_CHARS);
     let mime_type = detect_mime_type(path);
 
     // Binary / Office files — use dedicated extractors.
     if mime_type == "application/pdf" {
         let ocr_cfg = ocr_config.cloned().unwrap_or_default();
-        return parse_pdf(path, &ocr_cfg, llm_provider);
+        return parse_pdf(path, &ocr_cfg, llm_provider, max_chars);
     }
     if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
-        return parse_docx(path);
+        return parse_docx(path, max_chars);
     }
     if mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
-        return parse_xlsx(path);
+        return parse_xlsx(path, max_chars);
     }
     if mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation" {
-        return parse_pptx(path);
+        return parse_pptx(path, max_chars);
     }
 
     // Image files — extract text via OCR when available, otherwise metadata stub.
     if mime_type.starts_with("image/") {
         let ocr_cfg = ocr_config.cloned().unwrap_or_default();
-        return parse_image(path, &mime_type, &ocr_cfg, llm_provider);
+        return parse_image(path, &mime_type, &ocr_cfg, llm_provider, max_chars);
     }
 
     // Audio files — transcribe via Whisper (no frame extraction).
@@ -268,9 +270,9 @@ pub fn parse_file(
                 .get("title")
                 .cloned()
                 .unwrap_or_else(|| file_name.clone());
-            (title, chunk_markdown(body))
+            (title, chunk_markdown(body, max_chars))
         }
-        _ => (file_name.clone(), chunk_plaintext(&content)),
+        _ => (file_name.clone(), chunk_plaintext(&content, max_chars)),
     };
 
     Ok(ParsedDocument {
@@ -297,6 +299,7 @@ pub fn parse_pdf(
     path: &Path,
     ocr_config: &crate::ocr::OcrConfig,
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    max_chunk_chars: usize,
 ) -> Result<ParsedDocument, CoreError> {
     let bytes = std::fs::read(path)?;
     let file_size = bytes.len() as i64;
@@ -315,7 +318,7 @@ pub fn parse_pdf(
     // Normalize: replace \r\n with \n, collapse excessive blank lines.
     let text = text.replace("\r\n", "\n");
 
-    let chunks = chunk_plaintext(&text);
+    let chunks = chunk_plaintext(&text, max_chunk_chars);
 
     let file_name = path
         .file_name()
@@ -384,7 +387,7 @@ fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
 }
 
 /// Parse a .docx file by extracting its text content.
-pub fn parse_docx(path: &Path) -> Result<ParsedDocument, CoreError> {
+pub fn parse_docx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
     use dotext::*;
     use std::io::Read;
 
@@ -399,7 +402,7 @@ pub fn parse_docx(path: &Path) -> Result<ParsedDocument, CoreError> {
         .map_err(|e| CoreError::Parse(format!("DOCX read failed for {}: {}", path.display(), e)))?;
 
     let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext(&text);
+    let chunks = chunk_plaintext(&text, max_chunk_chars);
 
     let file_name = path
         .file_name()
@@ -419,7 +422,7 @@ pub fn parse_docx(path: &Path) -> Result<ParsedDocument, CoreError> {
 }
 
 /// Parse an Excel file (.xlsx / .xls) by extracting text from all sheets.
-pub fn parse_xlsx(path: &Path) -> Result<ParsedDocument, CoreError> {
+pub fn parse_xlsx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
     use calamine::{open_workbook_auto, Data, Reader};
 
     let bytes = std::fs::read(path)?;
@@ -458,7 +461,7 @@ pub fn parse_xlsx(path: &Path) -> Result<ParsedDocument, CoreError> {
         }
     }
 
-    let chunks = chunk_plaintext(&all_text);
+    let chunks = chunk_plaintext(&all_text, max_chunk_chars);
 
     let file_name = path
         .file_name()
@@ -477,7 +480,7 @@ pub fn parse_xlsx(path: &Path) -> Result<ParsedDocument, CoreError> {
 }
 
 /// Parse a .pptx file by extracting its text content.
-pub fn parse_pptx(path: &Path) -> Result<ParsedDocument, CoreError> {
+pub fn parse_pptx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
     use dotext::*;
     use std::io::Read;
 
@@ -492,7 +495,7 @@ pub fn parse_pptx(path: &Path) -> Result<ParsedDocument, CoreError> {
         .map_err(|e| CoreError::Parse(format!("PPTX read failed for {}: {}", path.display(), e)))?;
 
     let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext(&text);
+    let chunks = chunk_plaintext(&text, max_chunk_chars);
 
     let file_name = path
         .file_name()
@@ -522,6 +525,7 @@ pub fn parse_image(
     mime_type: &str,
     ocr_config: &crate::ocr::OcrConfig,
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    max_chunk_chars: usize,
 ) -> Result<ParsedDocument, CoreError> {
     let metadata = std::fs::metadata(path)?;
     let file_size = metadata.len() as i64;
@@ -551,7 +555,7 @@ pub fn parse_image(
         };
 
     let chunks = if ocr_source != crate::ocr::OcrSource::None {
-        chunk_plaintext(&text_content)
+        chunk_plaintext(&text_content, max_chunk_chars)
     } else {
         vec![ParsedChunk {
             content: text_content,
@@ -918,7 +922,7 @@ pub fn is_image_file(path: &Path) -> bool {
 
 /// Split markdown content by headings, then by paragraphs if a section is
 /// too large. Each chunk records the heading it falls under.
-pub fn chunk_markdown(content: &str) -> Vec<ParsedChunk> {
+pub fn chunk_markdown(content: &str, max_chunk_chars: usize) -> Vec<ParsedChunk> {
     // Collect (heading, section_text, byte_start) tuples.
     let mut sections: Vec<(Option<String>, String, usize)> = Vec::new();
     let mut current_heading: Option<String> = None;
@@ -958,7 +962,7 @@ pub fn chunk_markdown(content: &str) -> Vec<ParsedChunk> {
             continue;
         }
 
-        if trimmed.len() <= MAX_CHUNK_CHARS {
+        if trimmed.len() <= max_chunk_chars {
             let end = start + text.len();
             chunks.push(make_chunk(
                 trimmed.to_string(),
@@ -969,7 +973,7 @@ pub fn chunk_markdown(content: &str) -> Vec<ParsedChunk> {
             ));
         } else {
             // Sub-split by paragraphs (double newline).
-            let parts = split_by_paragraphs(trimmed, MAX_CHUNK_CHARS);
+            let parts = split_by_paragraphs(trimmed, max_chunk_chars);
             let mut offset = start;
             for part in parts {
                 let len = part.len();
@@ -995,7 +999,7 @@ pub fn chunk_markdown(content: &str) -> Vec<ParsedChunk> {
     }
 
     // Apply overlap from previous chunks for search continuity.
-    apply_chunk_overlap(&mut chunks);
+    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chunk_chars));
 
     chunks
 }
@@ -1006,8 +1010,8 @@ pub fn chunk_markdown(content: &str) -> Vec<ParsedChunk> {
 
 /// Split plain text by double newlines (paragraphs). Large paragraphs are
 /// further split by single newlines.
-pub fn chunk_plaintext(content: &str) -> Vec<ParsedChunk> {
-    let paragraphs = split_by_paragraphs(content, MAX_CHUNK_CHARS);
+pub fn chunk_plaintext(content: &str, max_chunk_chars: usize) -> Vec<ParsedChunk> {
+    let paragraphs = split_by_paragraphs(content, max_chunk_chars);
 
     let mut chunks = Vec::new();
     let mut offset: usize = 0;
@@ -1021,7 +1025,7 @@ pub fn chunk_plaintext(content: &str) -> Vec<ParsedChunk> {
             continue;
         }
 
-        if trimmed.len() <= MAX_CHUNK_CHARS {
+        if trimmed.len() <= max_chunk_chars {
             chunks.push(make_chunk(
                 trimmed.to_string(),
                 0,
@@ -1031,7 +1035,7 @@ pub fn chunk_plaintext(content: &str) -> Vec<ParsedChunk> {
             ));
         } else {
             // Sub-split by single newlines.
-            let sub_parts = split_by_lines(trimmed, MAX_CHUNK_CHARS);
+            let sub_parts = split_by_lines(trimmed, max_chunk_chars);
             let mut sub_offset = offset;
             for part in sub_parts {
                 let plen = part.len();
@@ -1058,7 +1062,7 @@ pub fn chunk_plaintext(content: &str) -> Vec<ParsedChunk> {
     }
 
     // Apply overlap from previous chunks for search continuity.
-    apply_chunk_overlap(&mut chunks);
+    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chunk_chars));
 
     chunks
 }
@@ -1073,7 +1077,7 @@ pub fn chunk_plaintext(content: &str) -> Vec<ParsedChunk> {
 /// The first chunk is left unchanged (`overlap_start` remains 0).
 /// Subsequent chunks receive an overlap prefix and their `overlap_start`
 /// field is set to the byte length of that prefix.
-fn apply_chunk_overlap(chunks: &mut Vec<ParsedChunk>) {
+fn apply_chunk_overlap(chunks: &mut Vec<ParsedChunk>, overlap_chars: usize) {
     if chunks.len() <= 1 {
         return;
     }
@@ -1083,10 +1087,10 @@ fn apply_chunk_overlap(chunks: &mut Vec<ParsedChunk>) {
         .iter()
         .map(|c| {
             let content = &c.content;
-            if content.len() <= CHUNK_OVERLAP_CHARS {
+            if content.len() <= overlap_chars {
                 content.clone()
             } else {
-                let mut start = content.len() - CHUNK_OVERLAP_CHARS;
+                let mut start = content.len() - overlap_chars;
                 // Ensure we land on a valid UTF-8 character boundary.
                 while start < content.len() && !content.is_char_boundary(start) {
                     start += 1;
@@ -1367,12 +1371,14 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let doc2 = parse_file(
             f.path(),
             None,
             #[cfg(feature = "video")]
+            None,
             None,
             None,
             None,
@@ -1399,12 +1405,14 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let d2 = parse_file(
             f2.path(),
             None,
             #[cfg(feature = "video")]
+            None,
             None,
             None,
             None,
@@ -1427,7 +1435,7 @@ Here are details about the topic with enough text to pass the minimum chunk size
 ## Conclusion
 Final thoughts go here with enough text to pass the minimum chunk size threshold of fifty characters easily.
 ";
-        let chunks = chunk_markdown(md);
+        let chunks = chunk_markdown(md, DEFAULT_MAX_CHUNK_CHARS);
 
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0].heading_context.as_deref(), Some("Introduction"));
@@ -1451,7 +1459,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             big_paragraph_b.trim()
         );
 
-        let chunks = chunk_markdown(&md);
+        let chunks = chunk_markdown(&md, DEFAULT_MAX_CHUNK_CHARS);
         assert!(
             chunks.len() >= 2,
             "Expected large section to be split into ≥2 chunks, got {}",
@@ -1465,7 +1473,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
     #[test]
     fn test_markdown_skips_tiny_chunks() {
         let md = "# Heading\nTiny.\n";
-        let chunks = chunk_markdown(md);
+        let chunks = chunk_markdown(md, DEFAULT_MAX_CHUNK_CHARS);
         assert!(chunks.is_empty(), "Chunks < 50 chars should be skipped");
     }
 
@@ -1480,7 +1488,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             "Third paragraph. ".repeat(5).trim(),
         );
 
-        let chunks = chunk_plaintext(&text);
+        let chunks = chunk_plaintext(&text, DEFAULT_MAX_CHUNK_CHARS);
         assert_eq!(chunks.len(), 3);
         assert!(chunks[0].heading_context.is_none());
     }
@@ -1488,17 +1496,17 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
     #[test]
     fn test_plaintext_skips_small() {
         let text = "hi\n\nbye";
-        let chunks = chunk_plaintext(text);
+        let chunks = chunk_plaintext(text, DEFAULT_MAX_CHUNK_CHARS);
         assert!(chunks.is_empty());
     }
 
     #[test]
     fn test_plaintext_large_paragraph_split() {
         let big = "line of text that is reasonably long\n".repeat(100);
-        let chunks = chunk_plaintext(&big);
+        let chunks = chunk_plaintext(&big, DEFAULT_MAX_CHUNK_CHARS);
         assert!(chunks.len() >= 1, "Large paragraph should produce chunks");
         for c in &chunks {
-            assert!(c.content.len() <= MAX_CHUNK_CHARS + 200);
+            assert!(c.content.len() <= DEFAULT_MAX_CHUNK_CHARS + 200);
         }
     }
 
@@ -1515,6 +1523,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             f.path(),
             None,
             #[cfg(feature = "video")]
+            None,
             None,
             None,
             None,
@@ -1543,6 +1552,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(doc.mime_type, "text/plain");
@@ -1557,6 +1567,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             None,
             None,
             None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -1564,7 +1575,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
     #[test]
     fn test_parse_pdf_not_found() {
         let ocr_cfg = crate::ocr::OcrConfig::default();
-        let result = parse_pdf(Path::new("/tmp/nonexistent_report.pdf"), &ocr_cfg, None);
+        let result = parse_pdf(Path::new("/tmp/nonexistent_report.pdf"), &ocr_cfg, None, DEFAULT_MAX_CHUNK_CHARS);
         assert!(result.is_err());
     }
 
@@ -1581,6 +1592,7 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             f.path(),
             None,
             #[cfg(feature = "video")]
+            None,
             None,
             None,
             None,

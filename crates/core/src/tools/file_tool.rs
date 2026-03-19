@@ -86,6 +86,7 @@ fn read_file_content(path: &Path) -> Result<String, CoreError> {
                 None,
                 None,
                 None,
+                None,
             )?;
             Ok(flatten_parsed_document_text(&parsed))
         }
