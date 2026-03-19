@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{scope_is_active, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/list_sources.json");
@@ -34,10 +34,11 @@ impl Tool for ListSourcesTool {
         call_id: &str,
         _arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let conn = db.conn();
             let mut stmt = conn.prepare(
@@ -50,7 +51,7 @@ impl Tool for ListSourcesTool {
                  ORDER BY s.created_at",
             )?;
 
-            let rows: Vec<(String, String, String, String, String, i64, Option<String>)> = stmt
+            let mut rows: Vec<(String, String, String, String, String, i64, Option<String>)> = stmt
                 .query_map([], |row| {
                     Ok((
                         row.get(0)?,
@@ -64,10 +65,18 @@ impl Tool for ListSourcesTool {
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
 
+            if scope_is_active(&source_scope) {
+                rows.retain(|(id, _, _, _, _, _, _)| source_scope.iter().any(|sid| sid == id));
+            }
+
             if rows.is_empty() {
                 return Ok(ToolResult {
                     call_id: call_id.clone(),
-                    content: "No sources registered.".to_string(),
+                    content: if scope_is_active(&source_scope) {
+                        "No sources available in the current source scope.".to_string()
+                    } else {
+                        "No sources registered.".to_string()
+                    },
                     is_error: false,
                     artifacts: None,
                 });

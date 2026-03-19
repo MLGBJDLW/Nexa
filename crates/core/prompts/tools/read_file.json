@@ -1,6 +1,6 @@
 {
   "name": "read_file",
-  "description": "Read a file from the knowledge base by path. The file must reside within a registered source directory.",
+  "description": "Read a file from the knowledge base by path. The file must reside within a registered source directory and current source scope. Returns file metadata plus a suggested citation when available.",
   "parameters": {
     "type": "object",
     "properties": {

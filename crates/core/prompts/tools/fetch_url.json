@@ -1,6 +1,6 @@
 {
   "name": "fetch_url",
-  "description": "Fetch and read the text content of a web page. Use this when the user shares a URL or you need to reference web content. Returns the page text with HTML stripped.",
+  "description": "Fetch and read the text content of a web page. Use this only when the user shares a URL or explicitly asks for web content. Returns the stripped page text plus URL/title provenance and a suggested citation.",
   "parameters": {
     "type": "object",
     "properties": {

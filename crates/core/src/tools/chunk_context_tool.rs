@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{current_scope_miss_message, ensure_source_in_scope, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/get_chunk_context.json");
@@ -49,7 +49,7 @@ impl Tool for ChunkContextTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: ChunkContextArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid get_chunk_context arguments: {e}"))
@@ -57,13 +57,14 @@ impl Tool for ChunkContextTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let context_count = args.context_chunks.min(5);
             let conn = db.conn();
 
             // 1. Look up the target chunk to get its document_id and chunk_index.
             let target = conn.query_row(
-                "SELECT c.id, c.document_id, c.chunk_index, c.content, d.path, d.title
+                "SELECT c.id, c.document_id, c.chunk_index, c.content, d.path, d.title, d.source_id
                  FROM chunks c
                  JOIN documents d ON d.id = c.document_id
                  WHERE c.id = ?1",
@@ -76,23 +77,40 @@ impl Tool for ChunkContextTool {
                         row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?,
                         row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
                     ))
                 },
             );
 
-            let (chunk_id, document_id, target_index, _target_content, doc_path, doc_title) =
-                match target {
-                    Ok(row) => row,
-                    Err(rusqlite::Error::QueryReturnedNoRows) => {
-                        return Ok(ToolResult {
-                            call_id: call_id.clone(),
-                            content: format!("Chunk '{}' not found.", args.chunk_id),
-                            is_error: true,
-                            artifacts: None,
-                        });
-                    }
-                    Err(e) => return Err(CoreError::Database(e)),
-                };
+            let (
+                chunk_id,
+                document_id,
+                target_index,
+                _target_content,
+                doc_path,
+                doc_title,
+                source_id,
+            ) = match target {
+                Ok(row) => row,
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    return Ok(ToolResult {
+                        call_id: call_id.clone(),
+                        content: format!("Chunk '{}' not found.", args.chunk_id),
+                        is_error: true,
+                        artifacts: None,
+                    });
+                }
+                Err(e) => return Err(CoreError::Database(e)),
+            };
+
+            if ensure_source_in_scope(&source_id, &source_scope).is_err() {
+                return Ok(ToolResult {
+                    call_id,
+                    content: current_scope_miss_message().to_string(),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
 
             // 2. Get all chunks for the same document, ordered by chunk_index.
             let mut stmt = conn.prepare(
@@ -173,6 +191,7 @@ impl Tool for ChunkContextTool {
                     "documentId": document_id,
                     "documentPath": doc_path,
                     "documentTitle": doc_title,
+                    "sourceId": source_id,
                     "targetChunkIndex": target_index,
                     "totalChunks": all_chunks.len(),
                     "chunks": artifacts,

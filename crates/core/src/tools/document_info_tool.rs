@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{ensure_source_in_scope, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/get_document_info.json");
@@ -42,7 +42,7 @@ impl Tool for GetDocumentInfoTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: GetDocumentInfoArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid get_document_info arguments: {e}"))
@@ -59,6 +59,7 @@ impl Tool for GetDocumentInfoTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let conn = db.conn();
 
@@ -153,6 +154,15 @@ impl Tool for GetDocumentInfoTool {
                 Err(e) => return Err(CoreError::Database(e)),
             };
 
+            if let Err(message) = ensure_source_in_scope(&source_id, &source_scope) {
+                return Ok(ToolResult {
+                    call_id,
+                    content: message,
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+
             // Count chunks for this document.
             let chunk_count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM chunks WHERE document_id = ?1",
@@ -175,6 +185,7 @@ impl Tool for GetDocumentInfoTool {
                  Title: {title_display}\n\
                  ID: {id}\n\
                  Source ID: {source_id}\n\
+                 Suggested citation: [doc:{id}|{title_display}]\n\
                  Source root: {}\n\
                  MIME type: {mime_type}\n\
                  File size: {file_size} bytes\n\
@@ -199,6 +210,7 @@ impl Tool for GetDocumentInfoTool {
                 "content_hash": content_hash,
                 "chunk_count": chunk_count,
                 "metadata": metadata,
+                "suggestedCitation": format!("[doc:{id}|{title_display}]"),
             });
 
             Ok(ToolResult {

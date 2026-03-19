@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{current_scope_miss_message, ensure_source_in_scope, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/retrieve_evidence.json");
@@ -47,7 +47,7 @@ impl Tool for RetrieveEvidenceTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: RetrieveEvidenceArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid retrieve_evidence arguments: {e}"))
@@ -64,6 +64,7 @@ impl Tool for RetrieveEvidenceTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let conn = db.conn();
 
@@ -73,7 +74,7 @@ impl Tool for RetrieveEvidenceTool {
 
             for chunk_id in &args.chunk_ids {
                 let row = conn.query_row(
-                    "SELECT c.id, c.content, d.path, d.title
+                    "SELECT c.id, c.content, d.path, d.title, d.source_id
                      FROM chunks c
                      JOIN documents d ON d.id = c.document_id
                      WHERE c.id = ?1",
@@ -84,12 +85,21 @@ impl Tool for RetrieveEvidenceTool {
                             row.get::<_, String>(1)?,
                             row.get::<_, String>(2)?,
                             row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
                         ))
                     },
                 );
 
                 match row {
-                    Ok((id, content, path, title)) => {
+                    Ok((id, content, path, title, source_id)) => {
+                        if ensure_source_in_scope(&source_id, &source_scope).is_err() {
+                            text.push_str(&format!(
+                                "--- Chunk {} ---\n{}\n\n",
+                                chunk_id,
+                                current_scope_miss_message()
+                            ));
+                            continue;
+                        }
                         found += 1;
                         text.push_str(&format!(
                             "--- Chunk ---\n\
@@ -103,6 +113,7 @@ impl Tool for RetrieveEvidenceTool {
                             "chunkId": id,
                             "path": path,
                             "title": title,
+                            "sourceId": source_id,
                             "content": content,
                         }));
                     }
@@ -171,7 +182,7 @@ impl Tool for SummarizeDocumentTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: SummarizeDocumentArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid summarize_document arguments: {e}"))
@@ -189,28 +200,29 @@ impl Tool for SummarizeDocumentTool {
         let max_chunks = args.max_chunks.min(500).max(1);
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
 
         tokio::task::spawn_blocking(move || {
             let conn = db.conn();
 
             // 1. Resolve the document.
-            let doc_row: Result<(String, String, Option<String>), rusqlite::Error> =
+            let doc_row: Result<(String, String, Option<String>, String), rusqlite::Error> =
                 if let Some(ref id) = args.document_id {
                     conn.query_row(
-                        "SELECT d.id, d.path, d.title FROM documents d WHERE d.id = ?1",
+                        "SELECT d.id, d.path, d.title, d.source_id FROM documents d WHERE d.id = ?1",
                         params![id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                     )
                 } else {
                     let path = args.path.as_ref().unwrap();
                     conn.query_row(
-                        "SELECT d.id, d.path, d.title FROM documents d WHERE d.path = ?1",
+                        "SELECT d.id, d.path, d.title, d.source_id FROM documents d WHERE d.path = ?1",
                         params![path],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                     )
                 };
 
-            let (doc_id, doc_path, doc_title) = match doc_row {
+            let (doc_id, doc_path, doc_title, source_id) = match doc_row {
                 Ok(r) => r,
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
                     let lookup = if let Some(ref did) = args.document_id {
@@ -227,6 +239,15 @@ impl Tool for SummarizeDocumentTool {
                 }
                 Err(e) => return Err(CoreError::Database(e)),
             };
+
+            if let Err(message) = ensure_source_in_scope(&source_id, &source_scope) {
+                return Ok(ToolResult {
+                    call_id,
+                    content: message,
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
 
             // 2. Count total chunks.
             let total_chunks: usize = conn.query_row(
@@ -261,6 +282,9 @@ impl Tool for SummarizeDocumentTool {
             let mut text = format!(
                 "Document: {doc_path}\n\
                  Title: {title_display}\n\
+                 Document ID: {doc_id}\n\
+                 Source ID: {source_id}\n\
+                 Suggested citation: [doc:{doc_id}|{title_display}]\n\
                  Total chunks: {total_chunks} (showing {shown})\n\n"
             );
 
@@ -294,7 +318,14 @@ impl Tool for SummarizeDocumentTool {
                 call_id,
                 content: text,
                 is_error: false,
-                artifacts: Some(serde_json::to_value(&artifacts).unwrap_or_default()),
+                artifacts: Some(json!({
+                    "documentId": doc_id,
+                    "documentPath": doc_path,
+                    "documentTitle": doc_title,
+                    "sourceId": source_id,
+                    "suggestedCitation": format!("[doc:{doc_id}|{title_display}]"),
+                    "chunks": artifacts,
+                })),
             })
         })
         .await
@@ -347,6 +378,7 @@ mod tests {
         assert!(!result.is_error, "unexpected error: {}", result.content);
         assert!(result.content.contains("Document: /tmp/test/notes.md"));
         assert!(result.content.contains("Title: My Notes"));
+        assert!(result.content.contains("Suggested citation: [doc:"));
         assert!(result.content.contains("Total chunks: 3 (showing 3)"));
         assert!(result.content.contains("Content of chunk 0"));
         assert!(result.content.contains("Content of chunk 1"));
@@ -367,10 +399,11 @@ mod tests {
         assert!(result.content.contains("Content of chunk 1"));
         // Verify artifacts
         let artifacts = result.artifacts.unwrap();
-        let arr = artifacts.as_array().unwrap();
-        assert_eq!(arr.len(), 2);
-        assert_eq!(arr[0]["chunkIndex"], 0);
-        assert_eq!(arr[1]["chunkIndex"], 1);
+        let chunks = artifacts["chunks"].as_array().unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0]["chunkIndex"], 0);
+        assert_eq!(chunks[1]["chunkIndex"], 1);
+        assert_eq!(artifacts["documentId"], doc_id);
     }
 
     #[tokio::test]
@@ -413,5 +446,23 @@ mod tests {
         let result = tool.execute("call-5", r#"{}"#, &db, &[]).await.unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("At least one"));
+    }
+
+    #[tokio::test]
+    async fn test_summarize_document_rejects_out_of_scope_source() {
+        let (db, _doc_id, doc_path) = setup_db_with_chunks(1);
+        let tool = SummarizeDocumentTool;
+        let result = tool
+            .execute(
+                "call-6",
+                &format!(r#"{{"path":"{doc_path}"}}"#),
+                &db,
+                &["different-source".to_string()],
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("outside the current source scope"));
     }
 }

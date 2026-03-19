@@ -11,7 +11,7 @@ use serde::Deserialize;
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{ensure_source_in_scope, scoped_sources, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/compare_documents.json");
@@ -51,12 +51,12 @@ fn read_validated_file(
 }
 
 /// Retrieve chunk content from the database.
-fn read_chunk(db: &Database, chunk_id: &str) -> Result<(String, String), String> {
+fn read_chunk(db: &Database, chunk_id: &str) -> Result<(String, String, String), String> {
     let conn = db.conn();
     conn.query_row(
-        "SELECT c.content, d.path FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.id = ?1",
+        "SELECT c.content, d.path, d.source_id FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.id = ?1",
         params![chunk_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
     )
     .map_err(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => format!("Chunk '{}' not found.", chunk_id),
@@ -164,7 +164,7 @@ impl Tool for CompareTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: CompareArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid compare_documents arguments: {e}"))
@@ -172,12 +172,13 @@ impl Tool for CompareTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             // Determine mode: file paths or chunk IDs.
             let (text_a, label_a, text_b, label_b) =
                 match (&args.path_a, &args.path_b, &args.chunk_id_a, &args.chunk_id_b) {
                     (Some(pa), Some(pb), _, _) => {
-                        let sources = db.list_sources()?;
+                        let sources = scoped_sources(&db, &source_scope)?;
                         let a = read_validated_file(pa, &sources).map_err(|e| {
                             CoreError::InvalidInput(e)
                         })?;
@@ -187,12 +188,16 @@ impl Tool for CompareTool {
                         (a, pa.clone(), b, pb.clone())
                     }
                     (_, _, Some(ca), Some(cb)) => {
-                        let (text_a, path_a) = read_chunk(&db, ca).map_err(|e| {
+                        let (text_a, path_a, source_a) = read_chunk(&db, ca).map_err(|e| {
                             CoreError::InvalidInput(e)
                         })?;
-                        let (text_b, path_b) = read_chunk(&db, cb).map_err(|e| {
+                        let (text_b, path_b, source_b) = read_chunk(&db, cb).map_err(|e| {
                             CoreError::InvalidInput(e)
                         })?;
+                        ensure_source_in_scope(&source_a, &source_scope)
+                            .map_err(CoreError::InvalidInput)?;
+                        ensure_source_in_scope(&source_b, &source_scope)
+                            .map_err(CoreError::InvalidInput)?;
                         let la = format!("chunk {} ({})", &ca[..ca.len().min(8)], path_a);
                         let lb = format!("chunk {} ({})", &cb[..cb.len().min(8)], path_b);
                         (text_a, la, text_b, lb)

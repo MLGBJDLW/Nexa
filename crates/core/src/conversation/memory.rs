@@ -92,9 +92,7 @@ pub fn model_context_window(model: &str) -> u32 {
     // ── Exact matches for verified model IDs (highest priority) ────
     match m {
         // OpenAI GPT-5.4 series (1.05M)
-        "gpt-5.4" | "gpt-5.4-2026-03-05" | "gpt-5.4-pro" | "gpt-5.4-pro-2026-03-05" => {
-            1_050_000
-        }
+        "gpt-5.4" | "gpt-5.4-2026-03-05" | "gpt-5.4-pro" | "gpt-5.4-pro-2026-03-05" => 1_050_000,
         // OpenAI GPT-5 series (400K)
         "gpt-5.3-codex" | "gpt-5.3-codex-2025-12-19" => 400_000,
         "gpt-5.2" | "gpt-5.2-codex" | "gpt-5.2-pro" => 400_000,
@@ -169,9 +167,7 @@ pub fn model_context_window(model: &str) -> u32 {
 
         // xAI Grok
         "grok-4" | "grok-4-0709" => 256_000,
-        "grok-4-1-fast" | "grok-4-1-fast-reasoning" | "grok-4-1-fast-non-reasoning" => {
-            2_000_000
-        }
+        "grok-4-1-fast" | "grok-4-1-fast-reasoning" | "grok-4-1-fast-non-reasoning" => 2_000_000,
         "grok-4-fast-reasoning" | "grok-4-fast-non-reasoning" => 2_000_000,
         "grok-code-fast-1" => 256_000,
         "grok-3" | "grok-3-latest" | "grok-3-mini" => 131_072,

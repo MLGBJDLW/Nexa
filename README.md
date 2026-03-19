@@ -27,7 +27,8 @@ The core loop is: **ingest → index → search → cite → save**. Findings ca
 - **Evidence-first agent** — Every answer is grounded in your documents with `[cite:CHUNK_ID]` citations
 - **Multi-angle recall** — Vague queries trigger synonym expansion, cross-language search, and date-range inference
 - **Tool-using agent** — 20 built-in tools the AI can call autonomously (see [Tools](#-tools-ai-agent) below)
-- **Conversation history** — Persistent chat sessions with context carry-over
+- **Built-in web search** — Free multi-engine search (Bing, Baidu, DuckDuckGo, and more) via a bundled MCP server — no API key required. Enable in Settings → MCP. Requires Node.js/npx
+- **Conversation history** — Persistent chat sessions with context carry-over; automatically repairs corrupted history from interrupted tool calls
 - **Configurable LLM providers** — OpenAI, Anthropic, Google Gemini, Ollama (local)
 - **Custom system prompts** — Override agent behavior per conversation
 - **Personalization** — Learns from feedback to surface preferred sources and adapt responses
@@ -111,6 +112,42 @@ npm run tauri build
 ```
 
 Produces a platform-specific installer in `target/release/bundle/`.
+
+### Feature Flags
+
+The `ask-core` crate uses Cargo features to gate heavy dependencies:
+
+| Feature | Default | Requires |
+|---------|---------|----------|
+| `ocr` | Yes | — |
+| `video` | No | LLVM / libclang |
+
+```bash
+# Default build (OCR only, no external deps)
+cargo build -p ask-core
+
+# With video transcription support
+cargo build -p ask-core --features video
+```
+
+To enable the `video` feature you need libclang installed:
+
+- **macOS** — `brew install llvm`
+- **Ubuntu** — `apt install libclang-dev`
+- **Windows** — Install LLVM from [llvm-project releases](https://github.com/llvm/llvm-project/releases) and set `LIBCLANG_PATH=C:\Program Files\LLVM\bin`
+
+The desktop app builds and runs without LLVM by default (`npm run tauri dev` just works).
+To enable video transcription during development:
+
+```bash
+cd apps/desktop
+# macOS/Linux
+LIBCLANG_PATH="..." npm run tauri dev -- -- --features video
+# Windows (PowerShell)
+$env:LIBCLANG_PATH="C:\Program Files\LLVM\bin"; npm run tauri dev -- -- --features video
+```
+
+Prebuilt releases include all features.
 
 ## Architecture
 

@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "video")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -44,6 +46,11 @@ use uuid::Uuid;
 /// Application state holding the database connection.
 pub struct AppState {
     pub db: Arc<Database>,
+    /// Guard: true while whisper transcription is in progress.
+    #[cfg(feature = "video")]
+    pub whisper_busy: Arc<AtomicBool>,
+    /// Lock to serialize scan operations and prevent duplicate document inserts.
+    pub scan_lock: Arc<Mutex<()>>,
 }
 
 /// State for tracking running agent tasks (for cancellation).
@@ -78,6 +85,25 @@ pub struct WatcherState {
 pub struct WatchedSourceInfo {
     pub source_id: String,
     pub root_path: String,
+}
+
+/// Validates that `path` is within a registered source directory.
+/// Returns the canonicalized path on success.
+#[cfg(feature = "video")]
+fn validate_path_in_scope(db: &Database, path: &str) -> Result<PathBuf, String> {
+    let canonical = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))?;
+    let sources = db.list_sources().map_err(|e| format!("DB error: {e}"))?;
+    let in_scope = sources.iter().any(|s| {
+        if let Ok(source_canonical) = std::fs::canonicalize(&s.root_path) {
+            canonical.starts_with(&source_canonical)
+        } else {
+            false
+        }
+    });
+    if !in_scope {
+        return Err("File is not within a registered source directory".into());
+    }
+    Ok(canonical)
 }
 
 /// Progress for batch operations spanning multiple sources.
@@ -324,15 +350,17 @@ pub async fn scan_source(
     source_id: String,
 ) -> Result<IngestResult, String> {
     let db = state.db.clone();
+    let scan_lock = state.scan_lock.clone();
     let sid = source_id.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let _lock = scan_lock.lock().map_err(|e| format!("scan lock: {e}"))?;
         ingest::scan_source_with_progress(&db, &sid, |progress| {
             let _ = app_handle.emit("source:scan-progress", &progress);
         })
+        .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
 
     // Invalidate cached answers that may reference this source.
     let _ = state.db.invalidate_cache_for_source(&source_id);
@@ -346,7 +374,9 @@ pub async fn scan_all_sources(
     app_handle: AppHandle,
 ) -> Result<Vec<IngestResult>, String> {
     let db = state.db.clone();
+    let scan_lock = state.scan_lock.clone();
     let results = tokio::task::spawn_blocking(move || {
+        let _lock = scan_lock.lock().map_err(|e| format!("scan lock: {e}"))?;
         let sources = db.list_sources().map_err(|e| e.to_string())?;
         let source_count = sources.len();
         let mut results = Vec::with_capacity(source_count);
@@ -1010,6 +1040,172 @@ fn conv_message_to_llm(msg: &ConversationMessage) -> Message {
     m
 }
 
+/// Sanitize conversation history to ensure every assistant message with
+/// `tool_calls` is followed by matching tool response messages.
+///
+/// If an assistant message has orphaned tool_calls (no matching tool responses),
+/// the tool_calls field is stripped to prevent API errors like:
+/// "An assistant message with 'tool_calls' must be followed by tool messages
+/// responding to each 'tool_call_id'."
+fn sanitize_tool_call_history(mut messages: Vec<Message>) -> Vec<Message> {
+    let mut indices_to_remove: HashSet<usize> = HashSet::new();
+
+    let mut i = 0;
+    while i < messages.len() {
+        if messages[i].role == Role::Assistant {
+            if let Some(ref tool_calls) = messages[i].tool_calls {
+                if !tool_calls.is_empty() {
+                    // Collect expected tool_call_ids
+                    let expected_ids: HashSet<&str> =
+                        tool_calls.iter().map(|tc| tc.id.as_str()).collect();
+
+                    // Check following messages for matching tool responses
+                    let mut found_ids = HashSet::new();
+                    let mut j = i + 1;
+                    while j < messages.len() && messages[j].role == Role::Tool {
+                        if let Some(ref name) = messages[j].name {
+                            found_ids.insert(name.as_str());
+                        }
+                        j += 1;
+                    }
+
+                    // If any tool_call_id is missing a response, strip everything
+                    if !expected_ids.is_subset(&found_ids) {
+                        warn!(
+                            "Sanitizing orphaned tool_calls in conversation history: \
+                             expected {:?}, found {:?}",
+                            expected_ids, found_ids
+                        );
+                        messages[i].tool_calls = None;
+
+                        // Add placeholder if content is empty
+                        if messages[i].text_content().trim().is_empty() {
+                            messages[i].parts = vec![ContentPart::Text {
+                                text: "[Tool calls interrupted before completion]".to_string(),
+                            }];
+                        }
+
+                        // Mark ALL following Tool messages for removal
+                        // (they're orphaned since we stripped the tool_calls)
+                        let mut k = i + 1;
+                        while k < messages.len() && messages[k].role == Role::Tool {
+                            indices_to_remove.insert(k);
+                            k += 1;
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+
+    // Additional pass: find any Tool messages whose tool_call_id doesn't
+    // match any preceding assistant's tool_calls
+    for i in 0..messages.len() {
+        if messages[i].role == Role::Tool && !indices_to_remove.contains(&i) {
+            let tool_id = messages[i].name.as_deref().unwrap_or("");
+            let has_match = messages[..i].iter().any(|m| {
+                m.role == Role::Assistant
+                    && m.tool_calls
+                        .as_ref()
+                        .map_or(false, |tcs| tcs.iter().any(|tc| tc.id == tool_id))
+            });
+            if !has_match {
+                indices_to_remove.insert(i);
+            }
+        }
+    }
+
+    // Remove orphaned tool messages
+    if !indices_to_remove.is_empty() {
+        messages = messages
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| !indices_to_remove.contains(idx))
+            .map(|(_, msg)| msg)
+            .collect();
+    }
+
+    // Final pass: fix any assistant messages with neither content nor tool_calls
+    for msg in &mut messages {
+        if msg.role == Role::Assistant
+            && msg.tool_calls.as_ref().map_or(true, |tc| tc.is_empty())
+            && msg.text_content().trim().is_empty()
+        {
+            msg.parts = vec![ContentPart::Text {
+                text: "[Empty assistant message]".to_string(),
+            }];
+        }
+    }
+
+    messages
+}
+
+/// After an interrupted agent execution, check for assistant messages with
+/// `tool_calls` that lack corresponding tool response messages, and insert
+/// synthetic error responses so the conversation history remains valid.
+fn repair_orphaned_tool_calls(db: &Database, conversation_id: &str) {
+    let msgs = match db.get_messages(conversation_id) {
+        Ok(m) => m,
+        Err(e) => {
+            warn!("Failed to load messages for orphan repair: {e}");
+            return;
+        }
+    };
+
+    let mut i = 0;
+    while i < msgs.len() {
+        if msgs[i].role == Role::Assistant && !msgs[i].tool_calls.is_empty() {
+            let mut found_ids = HashSet::new();
+            let mut j = i + 1;
+            while j < msgs.len() && msgs[j].role == Role::Tool {
+                if let Some(ref tc_id) = msgs[j].tool_call_id {
+                    found_ids.insert(tc_id.as_str());
+                }
+                j += 1;
+            }
+
+            // Find the max sort_order among existing tool responses (or the assistant msg)
+            let base_sort = if j > i + 1 {
+                msgs[j - 1].sort_order
+            } else {
+                msgs[i].sort_order
+            };
+
+            let mut extra_sort = 1;
+            for tc in &msgs[i].tool_calls {
+                if !found_ids.contains(tc.id.as_str()) {
+                    warn!(
+                        "Inserting synthetic error response for orphaned tool_call {}",
+                        tc.id
+                    );
+                    let synthetic = ConversationMessage {
+                        id: Uuid::new_v4().to_string(),
+                        conversation_id: conversation_id.to_string(),
+                        role: Role::Tool,
+                        content: format!(
+                            "Error: tool '{}' was interrupted before completing (agent timeout or cancellation).",
+                            tc.name
+                        ),
+                        tool_call_id: Some(tc.id.clone()),
+                        tool_calls: vec![],
+                        artifacts: None,
+                        token_count: 20,
+                        created_at: String::new(),
+                        sort_order: base_sort + extra_sort,
+                        thinking: None,
+                    };
+                    if let Err(e) = db.add_message(&synthetic) {
+                        warn!("Failed to insert synthetic tool response: {e}");
+                    }
+                    extra_sort += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
 // ── Conversation Commands ───────────────────────────────────────────────
 
 #[tauri::command]
@@ -1388,6 +1584,7 @@ pub async fn agent_chat_cmd(
         .get_messages(&conversation_id)
         .map_err(|e| e.to_string())?;
     let history: Vec<Message> = existing_msgs.iter().map(conv_message_to_llm).collect();
+    let history = sanitize_tool_call_history(history);
     let next_sort_order = existing_msgs.len() as i64;
 
     // 4. Save user message to DB.
@@ -1411,6 +1608,13 @@ pub async fn agent_chat_cmd(
         .db
         .get_conversation(&conversation_id)
         .map_err(|e| e.to_string())?;
+    let source_scope_ids = state
+        .db
+        .get_linked_sources(&conversation_id)
+        .unwrap_or_default();
+    let source_scope_section =
+        ask_core::conversation::build_source_scope_prompt_section(&state.db, &source_scope_ids)
+            .unwrap_or_default();
     let memory_section =
         ask_core::personalization::build_memory_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
@@ -1419,7 +1623,7 @@ pub async fn agent_chat_cmd(
             .unwrap_or_default();
     let system_prompt = build_system_prompt(
         Some(&conv.system_prompt),
-        &[&memory_section, &preference_section],
+        &[&source_scope_section, &memory_section, &preference_section],
     );
 
     // 6. Build executor config from DB config.
@@ -1563,7 +1767,7 @@ pub async fn agent_chat_cmd(
 
         match result {
             Ok(Ok(_)) => {}
-            Ok(Err(e)) => {
+            Ok(Err(ref e)) => {
                 warn!("Agent execution failed for conversation {conv_id}: {e}");
                 let payload = AgentFrontendEvent {
                     conversation_id: conv_id.clone(),
@@ -1573,7 +1777,7 @@ pub async fn agent_chat_cmd(
                 };
                 let _ = handle.emit("agent:event", payload);
             }
-            Err(_elapsed) => {
+            Err(ref _elapsed) => {
                 warn!("Agent execution timed out for conversation {conv_id}");
                 let payload = AgentFrontendEvent {
                     conversation_id: conv_id.clone(),
@@ -1583,6 +1787,11 @@ pub async fn agent_chat_cmd(
                 };
                 let _ = handle.emit("agent:event", payload);
             }
+        }
+
+        // Repair orphaned tool_calls in DB after timeout or error.
+        if !matches!(result, Ok(Ok(_))) {
+            repair_orphaned_tool_calls(&db, &conv_id);
         }
     });
 
@@ -1619,7 +1828,13 @@ pub async fn agent_stop_cmd(
         // Signal cooperative cancellation first so the agent can save
         // partial work, then abort the task as a fallback.
         token.cancel();
-        task.abort();
+        // Give cooperative cancellation 2 seconds to save partial state
+        // before forcibly aborting the task.
+        let abort_task = task;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            abort_task.abort();
+        });
     }
     Ok(())
 }
@@ -1656,6 +1871,251 @@ pub async fn download_ocr_models_cmd(
             let _ = app_handle.emit("ocr:download-progress", &progress);
         })
         .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ── Video ───────────────────────────────────────────────────────────
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub fn get_video_config_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<ask_core::video::VideoConfig, String> {
+    state.db.load_video_config().map_err(|e| e.to_string())
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub fn save_video_config_cmd(
+    state: tauri::State<'_, AppState>,
+    config: ask_core::video::VideoConfig,
+) -> Result<(), String> {
+    state
+        .db
+        .save_video_config(&config)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub fn check_whisper_model_cmd(config: ask_core::video::VideoConfig) -> bool {
+    ask_core::video::check_whisper_model_exists(&config)
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub async fn download_whisper_model_cmd(
+    app_handle: AppHandle,
+    config: ask_core::video::VideoConfig,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        ask_core::video::download_whisper_model(&config, |progress| {
+            let _ = app_handle.emit("video:download-progress", &progress);
+        })
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub fn check_ffmpeg_cmd(config: ask_core::video::VideoConfig) -> Result<bool, String> {
+    ask_core::video::check_ffmpeg(&config).map_err(|e| e.to_string())
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub fn delete_whisper_model_cmd(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    if state.whisper_busy.load(Ordering::SeqCst) {
+        return Err("Cannot delete model while transcription is in progress".into());
+    }
+    let config = state.db.load_video_config().map_err(|e| e.to_string())?;
+    let model_path = std::path::Path::new(&config.model_path).join(config.whisper_model.filename());
+    if model_path.exists() {
+        std::fs::remove_file(&model_path).map_err(|e| format!("Failed to delete model: {e}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "video")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptChunk {
+    pub text: String,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub chunk_type: String,
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub async fn analyze_video_cmd(
+    app_handle: AppHandle,
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let db = state.db.clone();
+    let whisper_busy = state.whisper_busy.clone();
+
+    // Validate path is within a registered source directory.
+    validate_path_in_scope(&db, &path)?;
+
+    tokio::task::spawn_blocking(move || {
+        let config = db.load_video_config().map_err(|e| e.to_string())?;
+        let file_path = std::path::Path::new(&path);
+        if !file_path.is_file() {
+            return Err(format!("File not found: {path}"));
+        }
+
+        let file_name = file_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        // Set whisper_busy guard; ensure it resets even on panic.
+        whisper_busy.store(true, Ordering::SeqCst);
+        struct WhisperGuard(Arc<AtomicBool>);
+        impl Drop for WhisperGuard {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+        let _guard = WhisperGuard(whisper_busy);
+
+        let ah = app_handle.clone();
+        let fname = file_name.clone();
+        let result = ask_core::video::analyze_video(file_path, &config, move |progress| {
+            let _ = ah.emit(
+                "video:processing-progress",
+                serde_json::json!({
+                    "progress": progress.progress_pct,
+                    "phase": progress.phase,
+                    "detail": progress.detail,
+                    "fileName": &fname,
+                }),
+            );
+        })
+        .map_err(|e| e.to_string())?;
+
+        Ok(serde_json::json!({
+            "transcript": result.full_transcript,
+            "segmentCount": result.transcript_segments.len(),
+            "durationSecs": result.duration_secs,
+            "frameTextsCount": result.frame_texts.len(),
+            "thumbnailPath": result.thumbnail_path.map(|p| p.to_string_lossy().to_string()),
+            "metadata": result.metadata,
+        }))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub async fn get_video_transcript_cmd(
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+) -> Result<Vec<TranscriptChunk>, String> {
+    let db = state.db.clone();
+
+    // Validate path is within a registered source directory.
+    validate_path_in_scope(&db, &file_path)?;
+
+    tokio::task::spawn_blocking(move || {
+        let conn = db.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.content, c.start_offset, c.end_offset, c.metadata_json
+                 FROM chunks c
+                 JOIN documents d ON d.id = c.document_id
+                 WHERE d.path = ?1
+                 ORDER BY c.chunk_index",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![&file_path], |row| {
+                let content: String = row.get(0)?;
+                let start: i64 = row.get(1)?;
+                let end: i64 = row.get(2)?;
+                let meta_json: String = row.get(3)?;
+                Ok((content, start, end, meta_json))
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut chunks = Vec::new();
+        for row in rows {
+            let (text, start_ms, end_ms, meta_json) = row.map_err(|e| e.to_string())?;
+            let heading: Option<String> = serde_json::from_str::<serde_json::Value>(&meta_json)
+                .ok()
+                .and_then(|v| {
+                    v.get("heading_context")
+                        .and_then(|h| h.as_str().map(String::from))
+                });
+            let chunk_type = if heading
+                .as_deref()
+                .map_or(false, |h| h.starts_with("[Frame OCR"))
+            {
+                "frame_ocr"
+            } else {
+                "transcript"
+            };
+            chunks.push(TranscriptChunk {
+                text,
+                start_ms: Some(start_ms),
+                end_ms: Some(end_ms),
+                chunk_type: chunk_type.to_string(),
+            });
+        }
+
+        Ok(chunks)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(feature = "video")]
+#[tauri::command]
+pub async fn get_video_metadata_cmd(
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+) -> Result<serde_json::Value, String> {
+    let db = state.db.clone();
+
+    // Validate path is within a registered source directory.
+    validate_path_in_scope(&db, &file_path)?;
+
+    tokio::task::spawn_blocking(move || {
+        let conn = db.conn();
+        let result: Result<(String, String), _> = conn.query_row(
+            "SELECT mime_type, metadata FROM documents WHERE path = ?1",
+            rusqlite::params![&file_path],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+
+        match result {
+            Ok((mime_type, metadata_json)) => {
+                let meta: serde_json::Value =
+                    serde_json::from_str(&metadata_json).unwrap_or(serde_json::json!({}));
+                Ok(serde_json::json!({
+                    "mimeType": mime_type,
+                    "durationSecs": meta.get("duration_secs").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))),
+                    "width": meta.get("video_width").and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))),
+                    "height": meta.get("video_height").and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))),
+                    "codec": meta.get("video_codec").and_then(|v| v.as_str()),
+                    "framerate": meta.get("video_framerate").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))),
+                    "thumbnailPath": meta.get("thumbnail_path").and_then(|v| v.as_str()),
+                    "creationTime": meta.get("video_creation_time").and_then(|v| v.as_str()),
+                }))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                Err(format!("No document found for path: {file_path}"))
+            }
+            Err(e) => Err(e.to_string()),
+        }
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -1782,6 +2242,11 @@ pub async fn test_mcp_server_cmd(
         .connect_server(&server)
         .await
         .map_err(|e| e.to_string())?;
+    // For built-in managed servers that aren't enabled, disconnect after
+    // testing to stop the managed process.
+    if server.builtin_id.is_some() && !server.enabled {
+        let _ = manager.disconnect_server(&server.id).await;
+    }
     Ok(tools)
 }
 
@@ -1808,6 +2273,7 @@ pub async fn test_mcp_server_direct_cmd(
         enabled: true,
         created_at: String::new(),
         updated_at: String::new(),
+        builtin_id: None,
     };
     let mut manager = mcp_state.manager.lock().await;
     let tools = manager

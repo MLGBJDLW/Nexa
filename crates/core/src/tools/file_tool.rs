@@ -10,7 +10,7 @@ use crate::db::Database;
 use crate::error::CoreError;
 use crate::privacy;
 
-use super::{Tool, ToolDef, ToolResult};
+use super::{scoped_sources, Tool, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/read_file.json");
@@ -79,7 +79,14 @@ fn read_file_content(path: &Path) -> Result<String, CoreError> {
     match crate::parse::read_text_file(path) {
         Ok(raw) => Ok(raw),
         Err(err) if is_binary_file_error(&err) && supports_document_fallback(path) => {
-            let parsed = crate::parse::parse_file(path, None, None)?;
+            let parsed = crate::parse::parse_file(
+                path,
+                None,
+                #[cfg(feature = "video")]
+                None,
+                None,
+                None,
+            )?;
             Ok(flatten_parsed_document_text(&parsed))
         }
         Err(err) => Err(err),
@@ -105,13 +112,14 @@ impl Tool for FileTool {
         call_id: &str,
         arguments: &str,
         db: &Database,
-        _source_scope: &[String],
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: FileArgs = serde_json::from_str(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid read_file arguments: {e}")))?;
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let requested = PathBuf::from(&args.path);
 
@@ -121,7 +129,7 @@ impl Tool for FileTool {
             })?;
 
             // Validate that the file is inside a registered source root.
-            let sources = db.list_sources()?;
+            let sources = scoped_sources(&db, &source_scope)?;
             let allowed = sources.iter().any(|s| {
                 if let Ok(root) = std::fs::canonicalize(Path::new(&s.root_path)) {
                     canonical.starts_with(&root)
@@ -134,7 +142,7 @@ impl Tool for FileTool {
                 return Ok(ToolResult {
                     call_id: call_id.clone(),
                     content: format!(
-                        "Access denied: '{}' is not within any registered source directory.",
+                        "Access denied: '{}' is not within any directory available in the current source scope.",
                         args.path
                     ),
                     is_error: true,
@@ -153,6 +161,23 @@ impl Tool for FileTool {
             let showing_end = (start - 1 + lines.len()).min(total_lines);
             let truncated = showing_end < total_lines || start > 1;
             let content = lines.join("\n");
+            let canonical_str = canonical.to_string_lossy().to_string();
+            let document_info: Option<(String, Option<String>)> = db
+                .conn()
+                .query_row(
+                    "SELECT id, title FROM documents WHERE path = ?1",
+                    rusqlite::params![&canonical_str],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .ok();
+            let file_label = canonical
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("file");
+            let suggested_citation = match &document_info {
+                Some((document_id, _)) => format!("[doc:{document_id}|{file_label}]"),
+                None => format!("[file:{canonical_str}:{start}-{showing_end}|{file_label}]"),
+            };
 
             // Apply privacy redaction.
             let privacy_config = db.load_privacy_config().unwrap_or_default();
@@ -163,6 +188,12 @@ impl Tool for FileTool {
             };
 
             let mut text = format!("File: {}\n", canonical.display());
+            if let Some((document_id, title)) = &document_info {
+                let title_display = title.as_deref().unwrap_or("(untitled)");
+                text.push_str(&format!("Document ID: {document_id}\n"));
+                text.push_str(&format!("Title: {title_display}\n"));
+            }
+            text.push_str(&format!("Suggested citation: {suggested_citation}\n"));
             if truncated {
                 text.push_str(&format!(
                     "(showing lines {start}–{showing_end} of {total_lines})\n"
@@ -175,7 +206,15 @@ impl Tool for FileTool {
                 call_id,
                 content: text,
                 is_error: false,
-                artifacts: None,
+                artifacts: Some(serde_json::json!({
+                    "path": canonical_str,
+                    "documentId": document_info.as_ref().map(|(id, _)| id.clone()),
+                    "documentTitle": document_info.as_ref().and_then(|(_, title)| title.clone()),
+                    "lineStart": start,
+                    "lineEnd": showing_end,
+                    "totalLines": total_lines,
+                    "suggestedCitation": suggested_citation,
+                })),
             })
         })
         .await
@@ -250,5 +289,59 @@ mod tests {
             }
             other => panic!("expected parse error, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn read_file_returns_suggested_document_citation_when_indexed() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let file_path = dir.path().join("notes.md");
+        std::fs::write(&file_path, "# Notes\nhello world\n").expect("write text file");
+        let canonical_path = std::fs::canonicalize(&file_path).unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        db.conn()
+            .execute(
+                "INSERT INTO documents (id, source_id, path, title, mime_type, file_size, modified_at, content_hash)
+                 VALUES (?1, (SELECT id FROM sources LIMIT 1), ?2, 'Notes', 'text/markdown', 20, '2025-01-01 00:00:00', 'hash-notes')",
+                rusqlite::params!["doc-1", canonical_path.to_string_lossy().to_string()],
+            )
+            .unwrap();
+
+        let tool = FileTool;
+        let args = serde_json::json!({
+            "path": file_path.to_string_lossy().to_string()
+        })
+        .to_string();
+
+        let result = tool.execute("call-3", &args, &db, &[]).await.unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Document ID: doc-1"));
+        assert!(result
+            .content
+            .contains("Suggested citation: [doc:doc-1|notes.md]"));
+        assert_eq!(result.artifacts.unwrap()["documentId"], "doc-1");
+    }
+
+    #[tokio::test]
+    async fn read_file_respects_source_scope() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let file_path = dir.path().join("notes.md");
+        std::fs::write(&file_path, "hello world\n").expect("write text file");
+
+        let db = setup_db_with_source(dir.path());
+        let tool = FileTool;
+        let args = serde_json::json!({
+            "path": file_path.to_string_lossy().to_string()
+        })
+        .to_string();
+
+        let result = tool
+            .execute("call-4", &args, &db, &["out-of-scope".to_string()])
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("current source scope"));
     }
 }

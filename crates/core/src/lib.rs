@@ -29,4 +29,6 @@ pub mod search;
 pub mod skills;
 pub mod sources;
 pub mod tools;
+#[cfg(feature = "video")]
+pub mod video;
 pub mod watcher;
