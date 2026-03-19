@@ -27,7 +27,8 @@ The core loop is: **ingest → index → search → cite → save**. Findings ca
 - **Evidence-first agent** — Every answer is grounded in your documents with `[cite:CHUNK_ID]` citations
 - **Multi-angle recall** — Vague queries trigger synonym expansion, cross-language search, and date-range inference
 - **Tool-using agent** — 20 built-in tools the AI can call autonomously (see [Tools](#-tools-ai-agent) below)
-- **Conversation history** — Persistent chat sessions with context carry-over
+- **Built-in web search** — Free multi-engine search (Bing, Baidu, DuckDuckGo, and more) via a bundled MCP server — no API key required. Enable in Settings → MCP. Requires Node.js/npx
+- **Conversation history** — Persistent chat sessions with context carry-over; automatically repairs corrupted history from interrupted tool calls
 - **Configurable LLM providers** — OpenAI, Anthropic, Google Gemini, Ollama (local)
 - **Custom system prompts** — Override agent behavior per conversation
 - **Personalization** — Learns from feedback to surface preferred sources and adapt responses
