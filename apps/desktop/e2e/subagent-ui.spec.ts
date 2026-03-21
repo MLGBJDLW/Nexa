@@ -162,8 +162,37 @@ test.beforeEach(async ({ page }) => {
         case 'list_user_memories_cmd':
           return [];
         case 'list_skills_cmd':
-          return [];
+          return [{
+            id: 'skill-critic-format',
+            name: 'Critic Format',
+            content: 'Always return a compact critique with explicit risks.',
+            enabled: true,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          }];
         case 'list_mcp_servers_cmd':
+          return [{
+            id: 'mcp-web',
+            name: 'Web Search',
+            transport: 'streamable_http',
+            command: null,
+            args: null,
+            url: 'https://example.com/mcp',
+            envJson: null,
+            headersJson: null,
+            enabled: true,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            builtinId: 'open-websearch',
+          }];
+        case 'list_mcp_tools_cmd':
+          if (String(args.serverId ?? '') === 'mcp-web') {
+            return [{
+              name: 'mcp__web_search__search',
+              description: 'Search the public web.',
+              inputSchema: { type: 'object' },
+            }];
+          }
           return [];
         case 'clear_answer_cache':
           return 0;
@@ -179,7 +208,7 @@ test.beforeEach(async ({ page }) => {
             acceptance_criteria: ['Identify at least one concrete risk or state that none were found.'],
             evidence_chunk_ids: ['chunk-retry-1'],
             source_ids: ['source-research'],
-            allowed_tools: ['search_knowledge_base', 'retrieve_evidence'],
+            allowed_tools: ['search_knowledge_base', 'mcp__web_search__search'],
             parallel_group: 'review-pass',
             deliverable_style: 'critique',
             return_sections: ['Conclusion', 'Evidence', 'Risks'],
@@ -201,7 +230,13 @@ test.beforeEach(async ({ page }) => {
             ],
             requestedSourceScope: ['source-research'],
             effectiveSourceScope: ['source-research'],
-            requestedAllowedTools: ['search_knowledge_base', 'retrieve_evidence'],
+            requestedAllowedTools: ['search_knowledge_base', 'mcp__web_search__search'],
+            allowedSkills: [
+              {
+                id: 'skill-critic-format',
+                name: 'Critic Format',
+              },
+            ],
             parallelGroup: 'review-pass',
             deliverableStyle: 'critique',
             returnSections: ['Conclusion', 'Evidence', 'Risks'],
@@ -231,7 +266,7 @@ test.beforeEach(async ({ page }) => {
             ],
             thinking: ['Checked whether the answer missed operational risks.'],
             sourceScopeApplied: true,
-            allowedTools: ['search_knowledge_base', 'retrieve_evidence'],
+            allowedTools: ['search_knowledge_base', 'mcp__web_search__search'],
           };
 
           const userMessage: Message = {
@@ -383,6 +418,8 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   const chatLog = page.getByLabel('Chat messages');
   await expect(chatLog.getByText('Allowed tools')).toBeVisible();
   await expect(chatLog.getByTitle('search_knowledge_base').first()).toBeVisible();
+  await expect(chatLog.getByText('Allowed skills')).toBeVisible();
+  await expect(chatLog.getByText('Critic Format')).toBeVisible();
   await expect(chatLog.getByText('Acceptance criteria')).toBeVisible();
   await expect(chatLog.getByText('Effective source scope')).toBeVisible();
   await expect(chatLog.getByText('Evidence handoff')).toBeVisible();
@@ -402,4 +439,6 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await expect(page.getByText('Token budget / turn')).toBeVisible();
   await expect(page.getByText('Knowledge Search', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Record Verification', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('mcp__web_search__search').first()).toBeVisible();
+  await expect(page.getByText('Critic Format')).toBeVisible();
 });

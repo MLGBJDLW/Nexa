@@ -68,8 +68,10 @@ pub struct AgentConfig {
     pub summarization_model: Option<String>,
     /// Optional provider override for summarization (e.g. "open_ai").
     pub summarization_provider: Option<String>,
-    /// Optional whitelist of built-in tools that delegated subagents may use.
+    /// Optional whitelist of delegated tool names that subagents may use.
     pub subagent_allowed_tools: Option<Vec<String>>,
+    /// Optional whitelist of enabled skill IDs that delegated subagents may inherit.
+    pub subagent_allowed_skill_ids: Option<Vec<String>>,
     /// Maximum number of subagents that may run concurrently.
     pub subagent_max_parallel: Option<i64>,
     /// Maximum number of subagent or adjudication calls allowed per turn.
@@ -152,8 +154,10 @@ pub struct SaveAgentConfigInput {
     pub summarization_model: Option<String>,
     /// Optional provider override for summarization (e.g. "open_ai").
     pub summarization_provider: Option<String>,
-    /// Optional whitelist of built-in tools that delegated subagents may use.
+    /// Optional whitelist of delegated tool names that subagents may use.
     pub subagent_allowed_tools: Option<Vec<String>>,
+    /// Optional whitelist of enabled skill IDs that delegated subagents may inherit.
+    pub subagent_allowed_skill_ids: Option<Vec<String>>,
     /// Maximum number of subagents that may run concurrently.
     pub subagent_max_parallel: Option<i64>,
     /// Maximum number of subagent or adjudication calls allowed per turn.
@@ -825,10 +829,12 @@ impl Database {
         let id = input.id.clone().unwrap_or_else(new_id);
         let subagent_allowed_tools_json =
             serialize_optional_string_list(input.subagent_allowed_tools.as_deref())?;
+        let subagent_allowed_skill_ids_json =
+            serialize_optional_string_list(input.subagent_allowed_skill_ids.as_deref())?;
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+            "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 provider = excluded.provider,
@@ -846,6 +852,7 @@ impl Database {
                 summarization_model = excluded.summarization_model,
                 summarization_provider = excluded.summarization_provider,
                 subagent_allowed_tools_json = excluded.subagent_allowed_tools_json,
+                subagent_allowed_skill_ids_json = excluded.subagent_allowed_skill_ids_json,
                 subagent_max_parallel = excluded.subagent_max_parallel,
                 subagent_max_calls_per_turn = excluded.subagent_max_calls_per_turn,
                 subagent_token_budget = excluded.subagent_token_budget,
@@ -870,6 +877,7 @@ impl Database {
                 &input.summarization_model,
                 &input.summarization_provider,
                 &subagent_allowed_tools_json,
+                &subagent_allowed_skill_ids_json,
                 input.subagent_max_parallel,
                 input.subagent_max_calls_per_turn,
                 input.subagent_token_budget,
@@ -885,11 +893,12 @@ impl Database {
     pub fn list_agent_configs(&self) -> Result<Vec<AgentConfig>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
              FROM agent_configs ORDER BY name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
             let subagent_allowed_tools_json: Option<String> = row.get(18)?;
+            let subagent_allowed_skill_ids_json: Option<String> = row.get(19)?;
             Ok(AgentConfig {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -910,11 +919,14 @@ impl Database {
                 summarization_model: row.get(16)?,
                 summarization_provider: row.get(17)?,
                 subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
-                subagent_max_parallel: row.get(19)?,
-                subagent_max_calls_per_turn: row.get(20)?,
-                subagent_token_budget: row.get(21)?,
-                tool_timeout_secs: row.get(22)?,
-                agent_timeout_secs: row.get(23)?,
+                subagent_allowed_skill_ids: parse_optional_string_list(
+                    subagent_allowed_skill_ids_json,
+                ),
+                subagent_max_parallel: row.get(20)?,
+                subagent_max_calls_per_turn: row.get(21)?,
+                subagent_token_budget: row.get(22)?,
+                tool_timeout_secs: row.get(23)?,
+                agent_timeout_secs: row.get(24)?,
             })
         })?;
         let mut results = Vec::new();
@@ -928,11 +940,12 @@ impl Database {
     pub fn get_agent_config(&self, id: &str) -> Result<AgentConfig, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
              FROM agent_configs WHERE id = ?1",
             rusqlite::params![id],
             |row| {
                 let subagent_allowed_tools_json: Option<String> = row.get(18)?;
+                let subagent_allowed_skill_ids_json: Option<String> = row.get(19)?;
                 Ok(AgentConfig {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -953,11 +966,14 @@ impl Database {
                     summarization_model: row.get(16)?,
                     summarization_provider: row.get(17)?,
                     subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
-                    subagent_max_parallel: row.get(19)?,
-                    subagent_max_calls_per_turn: row.get(20)?,
-                    subagent_token_budget: row.get(21)?,
-                    tool_timeout_secs: row.get(22)?,
-                    agent_timeout_secs: row.get(23)?,
+                    subagent_allowed_skill_ids: parse_optional_string_list(
+                        subagent_allowed_skill_ids_json,
+                    ),
+                    subagent_max_parallel: row.get(20)?,
+                    subagent_max_calls_per_turn: row.get(21)?,
+                    subagent_token_budget: row.get(22)?,
+                    tool_timeout_secs: row.get(23)?,
+                    agent_timeout_secs: row.get(24)?,
                 })
             },
         )
@@ -1006,11 +1022,12 @@ impl Database {
     pub fn get_default_agent_config(&self) -> Result<Option<AgentConfig>, CoreError> {
         let conn = self.conn();
         let result = conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
+            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
              FROM agent_configs WHERE is_default = 1 LIMIT 1",
             [],
             |row| {
                 let subagent_allowed_tools_json: Option<String> = row.get(18)?;
+                let subagent_allowed_skill_ids_json: Option<String> = row.get(19)?;
                 Ok(AgentConfig {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -1031,11 +1048,14 @@ impl Database {
                     summarization_model: row.get(16)?,
                     summarization_provider: row.get(17)?,
                     subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
-                    subagent_max_parallel: row.get(19)?,
-                    subagent_max_calls_per_turn: row.get(20)?,
-                    subagent_token_budget: row.get(21)?,
-                    tool_timeout_secs: row.get(22)?,
-                    agent_timeout_secs: row.get(23)?,
+                    subagent_allowed_skill_ids: parse_optional_string_list(
+                        subagent_allowed_skill_ids_json,
+                    ),
+                    subagent_max_parallel: row.get(20)?,
+                    subagent_max_calls_per_turn: row.get(21)?,
+                    subagent_token_budget: row.get(22)?,
+                    tool_timeout_secs: row.get(23)?,
+                    agent_timeout_secs: row.get(24)?,
                 })
             },
         );
@@ -1336,6 +1356,7 @@ mod tests {
                 summarization_model: None,
                 summarization_provider: None,
                 subagent_allowed_tools: None,
+                subagent_allowed_skill_ids: None,
                 subagent_max_parallel: None,
                 subagent_max_calls_per_turn: None,
                 subagent_token_budget: None,
@@ -1369,6 +1390,7 @@ mod tests {
                 summarization_model: None,
                 summarization_provider: None,
                 subagent_allowed_tools: None,
+                subagent_allowed_skill_ids: None,
                 subagent_max_parallel: None,
                 subagent_max_calls_per_turn: None,
                 subagent_token_budget: None,
@@ -1410,6 +1432,7 @@ mod tests {
                 summarization_model: None,
                 summarization_provider: None,
                 subagent_allowed_tools: None,
+                subagent_allowed_skill_ids: None,
                 subagent_max_parallel: None,
                 subagent_max_calls_per_turn: None,
                 subagent_token_budget: None,
@@ -1437,6 +1460,7 @@ mod tests {
                 summarization_model: None,
                 summarization_provider: None,
                 subagent_allowed_tools: None,
+                subagent_allowed_skill_ids: None,
                 subagent_max_parallel: None,
                 subagent_max_calls_per_turn: None,
                 subagent_token_budget: None,

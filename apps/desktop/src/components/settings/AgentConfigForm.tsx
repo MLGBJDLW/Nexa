@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Eye,
   EyeOff,
@@ -16,11 +16,13 @@ import { Input } from '../ui/Input';
 import { useTranslation, type TranslationKey } from '../../i18n';
 import * as api from '../../lib/api';
 import type { AgentConfig, SaveAgentConfigInput, ProviderType } from '../../types/conversation';
+import type { Skill } from '../../types/extensions';
 import { findProviderPreset, type ProviderPreset } from '../../lib/providerPresets';
 import {
+  buildMcpSubagentToolDescriptors,
+  canonicalSubagentToolName,
   DEFAULT_SUBAGENT_TOOL_NAMES,
-  SUBAGENT_TOOL_CATALOG,
-  normalizeSubagentToolSelection,
+  mergeSubagentToolCatalog,
   usesDefaultSubagentToolSelection,
 } from '../../lib/subagentTools';
 
@@ -84,11 +86,16 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
   const [summarizationModel, setSummarizationModel] = useState<string | null>(config?.summarizationModel ?? null);
   const [summarizationProvider, setSummarizationProvider] = useState<string | null>(config?.summarizationProvider ?? null);
   const [subagentAllowedTools, setSubagentAllowedTools] = useState<string[]>(
-    normalizeSubagentToolSelection(config?.subagentAllowedTools),
+    (config?.subagentAllowedTools ?? DEFAULT_SUBAGENT_TOOL_NAMES).map(canonicalSubagentToolName),
+  );
+  const [subagentAllowedSkillIds, setSubagentAllowedSkillIds] = useState<string[]>(
+    config?.subagentAllowedSkillIds ?? [],
   );
   const [subagentMaxParallel, setSubagentMaxParallel] = useState<number | null>(config?.subagentMaxParallel ?? 3);
   const [subagentMaxCallsPerTurn, setSubagentMaxCallsPerTurn] = useState<number | null>(config?.subagentMaxCallsPerTurn ?? 6);
   const [subagentTokenBudget, setSubagentTokenBudget] = useState<number | null>(config?.subagentTokenBudget ?? 12000);
+  const [enabledSkills, setEnabledSkills] = useState<Skill[]>([]);
+  const [mcpToolDescriptors, setMcpToolDescriptors] = useState<ReturnType<typeof buildMcpSubagentToolDescriptors>>([]);
   const [showKey, setShowKey] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -113,7 +120,8 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
     summarizationProvider: config?.summarizationProvider ?? null,
     subagentAllowedTools: usesDefaultSubagentToolSelection(config?.subagentAllowedTools)
       ? null
-      : (config?.subagentAllowedTools ?? null),
+      : (config?.subagentAllowedTools?.map(canonicalSubagentToolName) ?? null),
+    subagentAllowedSkillIds: config?.subagentAllowedSkillIds ?? null,
     subagentMaxParallel: config?.subagentMaxParallel ?? 3,
     subagentMaxCallsPerTurn: config?.subagentMaxCallsPerTurn ?? 6,
     subagentTokenBudget: config?.subagentTokenBudget ?? 12000,
@@ -122,11 +130,98 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
   const isLocal = LOCAL_PROVIDERS.includes(provider) || (preset ? !preset.requiresApiKey : false);
   const activePreset = findProviderPreset({ provider, baseUrl }) ?? (preset?.provider === provider ? preset : null);
   const activePresetDefaultModel = activePreset?.models.find(m => m.recommended)?.id || activePreset?.models[0]?.id || '';
+  const subagentToolCatalog = useMemo(
+    () => mergeSubagentToolCatalog(mcpToolDescriptors),
+    [mcpToolDescriptors],
+  );
+  const availableSkillIds = useMemo(
+    () => enabledSkills.map(skill => skill.id),
+    [enabledSkills],
+  );
+  const visibleSelectedToolCount = useMemo(
+    () => subagentAllowedTools.filter(name => subagentToolCatalog.some(tool => tool.name === name)).length,
+    [subagentAllowedTools, subagentToolCatalog],
+  );
+  const usesAllEnabledSkills = useMemo(() => {
+    if (availableSkillIds.length === 0) {
+      return subagentAllowedSkillIds.length === 0;
+    }
+    if (subagentAllowedSkillIds.length !== availableSkillIds.length) {
+      return false;
+    }
+    const selected = new Set(subagentAllowedSkillIds);
+    return availableSkillIds.every(id => selected.has(id));
+  }, [availableSkillIds, subagentAllowedSkillIds]);
+
+  const orderToolSelection = useCallback((selection: string[]) => {
+    const selected = new Set(selection);
+    const ordered = subagentToolCatalog
+      .filter(tool => selected.has(tool.name))
+      .map(tool => tool.name);
+    const extras = selection.filter(name => !subagentToolCatalog.some(tool => tool.name === name));
+    return [...ordered, ...extras];
+  }, [subagentToolCatalog]);
+
+  const orderSkillSelection = useCallback((selection: string[]) => {
+    const selected = new Set(selection);
+    const ordered = enabledSkills
+      .filter(skill => selected.has(skill.id))
+      .map(skill => skill.id);
+    const extras = selection.filter(id => !enabledSkills.some(skill => skill.id === id));
+    return [...ordered, ...extras];
+  }, [enabledSkills]);
 
   // Reset test result when provider changes
   useEffect(() => {
     setTestResult(null);
   }, [provider]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const [servers, skills] = await Promise.all([
+          api.listMcpServers(),
+          api.listSkills(),
+        ]);
+
+        const enabledServerTools = await Promise.all(
+          servers
+            .filter(server => server.enabled)
+            .map(async (server) => {
+              try {
+                const tools = await api.listMcpTools(server.id);
+                return tools.map(tool => ({
+                  name: tool.name,
+                  description: tool.description,
+                  serverName: server.name,
+                }));
+              } catch {
+                return [];
+              }
+            }),
+        );
+
+        if (cancelled) return;
+        setMcpToolDescriptors(buildMcpSubagentToolDescriptors(enabledServerTools.flat()));
+        setEnabledSkills(skills.filter(skill => skill.enabled));
+      } catch {
+        if (cancelled) return;
+        setMcpToolDescriptors([]);
+        setEnabledSkills([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (config?.subagentAllowedSkillIds != null) return;
+    setSubagentAllowedSkillIds(orderSkillSelection(availableSkillIds));
+  }, [availableSkillIds, config?.subagentAllowedSkillIds, orderSkillSelection]);
 
   useEffect(() => {
     if (useCustomModel || !activePreset || !activePresetDefaultModel) {
@@ -156,11 +251,14 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
     summarizationProvider: summarizationProvider || null,
     subagentAllowedTools: usesDefaultSubagentToolSelection(subagentAllowedTools)
       ? null
-      : subagentAllowedTools,
+      : orderToolSelection(subagentAllowedTools),
+    subagentAllowedSkillIds: usesAllEnabledSkills
+      ? null
+      : orderSkillSelection(subagentAllowedSkillIds),
     subagentMaxParallel,
     subagentMaxCallsPerTurn,
     subagentTokenBudget,
-  }), [config?.id, name, provider, apiKey, baseUrl, model, temperature, maxTokens, contextWindow, isDefault, reasoningEnabled, thinkingBudget, reasoningEffort, maxIterations, summarizationModel, summarizationProvider, subagentAllowedTools, subagentMaxParallel, subagentMaxCallsPerTurn, subagentTokenBudget, isLocal]);
+  }), [config?.id, name, provider, apiKey, baseUrl, model, temperature, maxTokens, contextWindow, isDefault, reasoningEnabled, thinkingBudget, reasoningEffort, maxIterations, summarizationModel, summarizationProvider, subagentAllowedTools, subagentAllowedSkillIds, subagentMaxParallel, subagentMaxCallsPerTurn, subagentTokenBudget, isLocal, orderToolSelection, orderSkillSelection, usesAllEnabledSkills]);
 
   useEffect(() => {
     if (!onDirtyChange) return;
@@ -493,11 +591,11 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
           <div>
             <h4 className="text-sm font-semibold text-text-primary">Subagents</h4>
             <p className="text-xs text-text-tertiary">
-              Choose which built-in tools delegated subagents may use, and set concurrency and budget limits for delegated workers and adjudicators.
+              Choose which delegated tools and enabled skills subagents may inherit, and set concurrency and budget limits for delegated workers and adjudicators.
             </p>
           </div>
           <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-            {subagentAllowedTools.length}/{DEFAULT_SUBAGENT_TOOL_NAMES.length} enabled
+            {visibleSelectedToolCount}/{subagentToolCatalog.length} tools
           </span>
         </div>
 
@@ -555,7 +653,7 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
         </div>
 
         <div className="grid gap-2 md:grid-cols-2">
-          {SUBAGENT_TOOL_CATALOG.map((tool) => {
+          {subagentToolCatalog.map((tool) => {
             const checked = subagentAllowedTools.includes(tool.name);
             return (
               <label
@@ -571,10 +669,13 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
                   checked={checked}
                   onChange={(event) => {
                     setSubagentAllowedTools(prev => {
+                      const next = new Set(prev);
                       if (event.target.checked) {
-                        return normalizeSubagentToolSelection([...prev, tool.name]);
+                        next.add(tool.name);
+                      } else {
+                        next.delete(tool.name);
                       }
-                      return prev.filter(name => name !== tool.name);
+                      return orderToolSelection(Array.from(next));
                     });
                   }}
                   className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
@@ -582,11 +683,74 @@ export function AgentConfigForm({ config, preset, onSave, onCancel, isSaving, on
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-text-primary">{tool.label}</span>
                   <span className="mt-1 block text-xs text-text-tertiary">{tool.description}</span>
+                  {tool.serverName && (
+                    <span className="mt-1 block text-[11px] text-text-tertiary">
+                      MCP server: {tool.serverName}
+                    </span>
+                  )}
                   <span className="mt-1 block font-mono text-[11px] text-text-tertiary">{tool.name}</span>
                 </span>
               </label>
             );
           })}
+        </div>
+
+        <div className="space-y-3 border-t border-border/60 pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h5 className="text-sm font-semibold text-text-primary">Delegated skills</h5>
+              <p className="text-xs text-text-tertiary">
+                Enabled global skills are inherited by default. Narrow them here if a provider configuration should restrict what subagents receive.
+              </p>
+            </div>
+            <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
+              {subagentAllowedSkillIds.length}/{enabledSkills.length} skills
+            </span>
+          </div>
+
+          {enabledSkills.length > 0 ? (
+            <div className="grid gap-2 md:grid-cols-2">
+              {enabledSkills.map((skill) => {
+                const checked = subagentAllowedSkillIds.includes(skill.id);
+                return (
+                  <label
+                    key={skill.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-colors ${
+                      checked
+                        ? 'border-accent/35 bg-accent/8'
+                        : 'border-border/70 bg-surface-2 hover:border-border-hover'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => {
+                        setSubagentAllowedSkillIds(prev => {
+                          const next = new Set(prev);
+                          if (event.target.checked) {
+                            next.add(skill.id);
+                          } else {
+                            next.delete(skill.id);
+                          }
+                          return orderSkillSelection(Array.from(next));
+                        });
+                      }}
+                      className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-text-primary">{skill.name}</span>
+                      <span className="mt-1 block text-xs text-text-tertiary line-clamp-3">{skill.content}</span>
+                      <span className="mt-1 block font-mono text-[11px] text-text-tertiary">{skill.id}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border/70 bg-surface-2 px-3 py-4 text-xs text-text-tertiary">
+              No enabled skills are currently available to delegate.
+            </div>
+          )}
         </div>
       </div>
       )}

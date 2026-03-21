@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
@@ -11,117 +11,118 @@ use ask_core::db::Database;
 use ask_core::error::CoreError;
 use ask_core::llm::{create_provider, CompletionRequest, ContentPart, ProviderConfig, Usage};
 use ask_core::search;
-use ask_core::tools::{
-    chunk_context_tool::ChunkContextTool,
-    compare_tool::CompareTool,
-    date_search_tool::DateSearchTool,
-    document_info_tool::GetDocumentInfoTool,
-    fetch_url_tool::FetchUrlTool,
-    file_tool::FileTool,
-    list_dir_tool::ListDirTool,
-    list_documents_tool::ListDocumentsTool,
-    list_sources_tool::ListSourcesTool,
-    record_verification_tool::RecordVerificationTool,
-    search_playbooks_tool::SearchPlaybooksTool,
-    search_tool::SearchTool,
-    statistics_tool::GetStatisticsTool,
-    summarize_tool::{RetrieveEvidenceTool, SummarizeDocumentTool},
-    update_plan_tool::UpdatePlanTool,
-    Tool, ToolRegistry, ToolResult,
-};
+use ask_core::skills::Skill;
+use ask_core::tools::{Tool, ToolRegistry, ToolResult};
 
 const DESCRIPTION: &str = "Spawn a short-lived subagent to handle an isolated subtask, gather an independent perspective, or critique another result. You can call this tool multiple times in parallel, pass it explicit evidence and acceptance criteria, narrow its source scope or tool access, and then synthesize or adjudicate the returned results yourself.";
 const BATCH_DESCRIPTION: &str = "Spawn a batch of short-lived subagents for parallel fan-out research, critique, or comparison. Use this when you want several independent delegated workers launched together under one shared budget and then synthesize or adjudicate them later.";
 const JUDGE_DESCRIPTION: &str = "Adjudicate or rank multiple delegated worker results using a structured rubric. Use this after parallel subagents return when you need a separate judging pass instead of asking the main worker to merge results implicitly.";
 
-type ToolFactory = fn() -> Box<dyn Tool>;
-
 struct SubagentToolSpec {
     name: &'static str,
     enabled_by_default: bool,
-    build: ToolFactory,
 }
 
 const SUBAGENT_TOOL_SPECS: &[SubagentToolSpec] = &[
     SubagentToolSpec {
         name: "search_knowledge_base",
         enabled_by_default: true,
-        build: || Box::new(SearchTool),
     },
     SubagentToolSpec {
         name: "read_file",
         enabled_by_default: true,
-        build: || Box::new(FileTool),
     },
     SubagentToolSpec {
         name: "retrieve_evidence",
         enabled_by_default: true,
-        build: || Box::new(RetrieveEvidenceTool),
+    },
+    SubagentToolSpec {
+        name: "manage_playbook",
+        enabled_by_default: false,
     },
     SubagentToolSpec {
         name: "list_sources",
         enabled_by_default: true,
-        build: || Box::new(ListSourcesTool),
     },
     SubagentToolSpec {
         name: "list_documents",
         enabled_by_default: true,
-        build: || Box::new(ListDocumentsTool),
     },
     SubagentToolSpec {
         name: "list_dir",
         enabled_by_default: true,
-        build: || Box::new(ListDirTool),
     },
     SubagentToolSpec {
         name: "get_chunk_context",
         enabled_by_default: true,
-        build: || Box::new(ChunkContextTool),
     },
     SubagentToolSpec {
         name: "fetch_url",
         enabled_by_default: true,
-        build: || Box::new(FetchUrlTool),
+    },
+    SubagentToolSpec {
+        name: "write_note",
+        enabled_by_default: false,
     },
     SubagentToolSpec {
         name: "search_playbooks",
         enabled_by_default: true,
-        build: || Box::new(SearchPlaybooksTool),
+    },
+    SubagentToolSpec {
+        name: "edit_file",
+        enabled_by_default: false,
+    },
+    SubagentToolSpec {
+        name: "submit_feedback",
+        enabled_by_default: false,
     },
     SubagentToolSpec {
         name: "get_document_info",
         enabled_by_default: true,
-        build: || Box::new(GetDocumentInfoTool),
     },
     SubagentToolSpec {
-        name: "compare",
+        name: "reindex_document",
+        enabled_by_default: false,
+    },
+    SubagentToolSpec {
+        name: "compare_documents",
         enabled_by_default: true,
-        build: || Box::new(CompareTool),
+    },
+    SubagentToolSpec {
+        name: "manage_source",
+        enabled_by_default: false,
     },
     SubagentToolSpec {
         name: "get_statistics",
         enabled_by_default: true,
-        build: || Box::new(GetStatisticsTool),
     },
     SubagentToolSpec {
-        name: "date_search",
+        name: "search_by_date",
         enabled_by_default: true,
-        build: || Box::new(DateSearchTool),
     },
     SubagentToolSpec {
         name: "summarize_document",
         enabled_by_default: true,
-        build: || Box::new(SummarizeDocumentTool),
     },
     SubagentToolSpec {
         name: "update_plan",
         enabled_by_default: true,
-        build: || Box::new(UpdatePlanTool),
     },
     SubagentToolSpec {
         name: "record_verification",
         enabled_by_default: true,
-        build: || Box::new(RecordVerificationTool),
+    },
+    SubagentToolSpec {
+        name: "spawn_subagent",
+        enabled_by_default: false,
+    },
+    SubagentToolSpec {
+        name: "spawn_subagent_batch",
+        enabled_by_default: false,
+    },
+    SubagentToolSpec {
+        name: "judge_subagent_results",
+        enabled_by_default: false,
     },
 ];
 
@@ -169,6 +170,8 @@ pub struct DelegationRuntime {
     provider_config: ProviderConfig,
     base_config: AgentConfig,
     allowed_tools: Option<Vec<String>>,
+    allowed_skill_ids: Option<Vec<String>>,
+    tool_registry: Arc<StdMutex<Option<ToolRegistry>>>,
     budget: SubagentBudgetController,
 }
 
@@ -259,14 +262,31 @@ impl DelegationRuntime {
         provider_config: ProviderConfig,
         base_config: AgentConfig,
         allowed_tools: Option<Vec<String>>,
+        allowed_skill_ids: Option<Vec<String>>,
     ) -> Self {
         let budget = SubagentBudgetController::new(&base_config);
         Self {
             provider_config,
             base_config,
             allowed_tools,
+            allowed_skill_ids,
+            tool_registry: Arc::new(StdMutex::new(None)),
             budget,
         }
+    }
+
+    pub fn set_tool_registry(&self, registry: ToolRegistry) {
+        if let Ok(mut slot) = self.tool_registry.lock() {
+            *slot = Some(registry);
+        }
+    }
+
+    fn get_tool_registry(&self) -> Result<ToolRegistry, CoreError> {
+        self.tool_registry
+            .lock()
+            .map_err(|_| CoreError::Internal("delegation runtime tool registry lock poisoned".into()))?
+            .clone()
+            .ok_or_else(|| CoreError::Internal("delegation runtime tool registry not initialized".into()))
     }
 }
 
@@ -385,6 +405,13 @@ struct EvidenceHandoffItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AppliedSkillRef {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SubagentRunArtifact {
     id: String,
     status: String,
@@ -398,6 +425,7 @@ struct SubagentRunArtifact {
     effective_source_scope: Vec<String>,
     requested_allowed_tools: Option<Vec<String>>,
     allowed_tools: Vec<String>,
+    allowed_skills: Vec<AppliedSkillRef>,
     parallel_group: Option<String>,
     deliverable_style: Option<String>,
     return_sections: Option<Vec<String>>,
@@ -469,6 +497,29 @@ fn truncate_excerpt(content: &str, max_chars: usize) -> String {
     }
     let trimmed = content[..cut].trim_end();
     format!("{trimmed}...[truncated]")
+}
+
+fn applied_skills(skills: &[Skill]) -> Vec<AppliedSkillRef> {
+    skills
+        .iter()
+        .map(|skill| AppliedSkillRef {
+            id: skill.id.clone(),
+            name: skill.name.clone(),
+        })
+        .collect()
+}
+
+fn filter_enabled_skills(skills: Vec<Skill>, allowed_skill_ids: Option<&[String]>) -> Vec<Skill> {
+    match allowed_skill_ids {
+        Some(ids) => {
+            let allowed: BTreeSet<&str> = ids.iter().map(String::as_str).collect();
+            skills
+                .into_iter()
+                .filter(|skill| allowed.contains(skill.id.as_str()))
+                .collect()
+        }
+        None => skills,
+    }
 }
 
 fn build_subagent_system_prompt(base_prompt: &str, role: Option<&str>) -> String {
@@ -568,11 +619,31 @@ fn build_subagent_request(
     args: &SpawnSubagentArgs,
     effective_source_scope: &[String],
     effective_allowed_tools: &[String],
+    allowed_skills: &[AppliedSkillRef],
     evidence_handoff: &[EvidenceHandoffItem],
 ) -> String {
+    let sections = build_return_sections(args);
     let mut request = String::from(
-        "Complete the delegated task below. If information is missing, make the smallest reasonable assumption, state it briefly, and continue.\n\nTask:\n",
+        "Complete the delegated task below. If information is missing, make the smallest reasonable assumption, state it briefly, and continue.\n\n## Supervisor Handoff Packet\n",
     );
+    request.push_str("```json\n");
+    request.push_str(
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "task": args.task.trim(),
+            "role": args.role,
+            "parallelGroup": args.parallel_group,
+            "expectedOutput": args.expected_output,
+            "deliverableStyle": args.deliverable_style,
+            "requiredSections": sections,
+            "acceptanceCriteria": args.acceptance_criteria,
+            "sourceScope": effective_source_scope,
+            "allowedTools": effective_allowed_tools,
+            "allowedSkills": allowed_skills,
+            "evidenceChunkIds": args.evidence_chunk_ids,
+        }))
+        .unwrap_or_else(|_| "{}".to_string()),
+    );
+    request.push_str("\n```\n\n## Delegated Task\n");
     request.push_str(args.task.trim());
 
     if let Some(role) = args
@@ -604,8 +675,8 @@ fn build_subagent_request(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        request.push_str("\n\nSupervisor context:\n");
-        request.push_str(context);
+        request.push_str("\n\n## Supervisor Context\n");
+        request.push_str(&truncate_excerpt(context, 4_000));
     }
 
     if let Some(expected_output) = args
@@ -614,7 +685,7 @@ fn build_subagent_request(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        request.push_str("\n\nDesired output:\n");
+        request.push_str("\n\n## Desired Output\n");
         request.push_str(expected_output);
     }
 
@@ -624,7 +695,7 @@ fn build_subagent_request(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        request.push_str("\n\nDeliverable style:\n");
+        request.push_str("\n\n## Deliverable Style\n");
         request.push_str(style);
     }
 
@@ -633,7 +704,7 @@ fn build_subagent_request(
         .as_ref()
         .filter(|items| !items.is_empty())
     {
-        request.push_str("\n\nAcceptance criteria:\n");
+        request.push_str("\n\n## Acceptance Criteria\n");
         for item in criteria {
             request.push_str("- ");
             request.push_str(item);
@@ -642,7 +713,7 @@ fn build_subagent_request(
     }
 
     if !effective_source_scope.is_empty() {
-        request.push_str("\nSource scope restriction:\n");
+        request.push_str("\n## Source Scope Restriction\n");
         for source_id in effective_source_scope {
             request.push_str("- ");
             request.push_str(source_id);
@@ -651,7 +722,7 @@ fn build_subagent_request(
     }
 
     if !effective_allowed_tools.is_empty() {
-        request.push_str("\nDelegated tool access:\n");
+        request.push_str("\n## Delegated Tool Access\n");
         for tool_name in effective_allowed_tools {
             request.push_str("- ");
             request.push_str(tool_name);
@@ -659,8 +730,19 @@ fn build_subagent_request(
         }
     }
 
+    if !allowed_skills.is_empty() {
+        request.push_str("\n## Delegated Skills\n");
+        for skill in allowed_skills {
+            request.push_str("- ");
+            request.push_str(&skill.name);
+            request.push_str(" (");
+            request.push_str(&skill.id);
+            request.push_str(")\n");
+        }
+    }
+
     if !evidence_handoff.is_empty() {
-        request.push_str("\nEvidence handoff:\n");
+        request.push_str("\n## Evidence Handoff\n");
         for evidence in evidence_handoff {
             request.push_str(&format!(
                 "\n--- Evidence ---\n[chunk_id: {}]\nPath: {}\nTitle: {}\nExcerpt:\n{}\n",
@@ -669,11 +751,13 @@ fn build_subagent_request(
         }
     }
 
-    let sections = build_return_sections(args);
-    request.push_str("\n\nReturn a concise result with these sections:\n");
+    request.push_str("\n\n## Response Contract\nReturn a concise result with these sections:\n");
     for (index, section) in sections.iter().enumerate() {
         request.push_str(&format!("{}. {}\n", index + 1, section));
     }
+    request.push_str(
+        "\nGround claims in the handed-off evidence or retrieved data. If source scope or tool access prevents certainty, state that plainly instead of guessing.",
+    );
 
     request
 }
@@ -739,19 +823,26 @@ async fn run_subagent_once(
     config.system_prompt =
         build_subagent_system_prompt(&config.system_prompt, args.role.as_deref());
 
-    let baseline_allowed_tools = normalize_allowed_tools(runtime.allowed_tools.as_deref());
+    let available_tool_registry = runtime.get_tool_registry()?;
+    let available_tool_names = available_tool_registry.tool_names();
+    let baseline_allowed_tools =
+        normalize_allowed_tools(runtime.allowed_tools.as_deref(), &available_tool_names);
     let effective_allowed_tools =
         resolve_allowed_tools(&baseline_allowed_tools, args.allowed_tools.as_deref());
     let effective_source_scope =
         resolve_source_scope(&inherited_source_scope, args.source_ids.as_deref());
     let evidence_handoff = build_evidence_handoff(&db, args.evidence_chunk_ids.as_deref());
+    let enabled_skills =
+        filter_enabled_skills(db.get_enabled_skills().unwrap_or_default(), runtime.allowed_skill_ids.as_deref());
+    let applied_skill_refs = applied_skills(&enabled_skills);
 
-    let tools = build_subagent_tool_registry(Some(&effective_allowed_tools));
-    let executor = AgentExecutor::new(provider, tools, config);
+    let tools = available_tool_registry.filtered(&effective_allowed_tools);
+    let executor = AgentExecutor::new(provider, tools, config).with_skills_override(enabled_skills);
     let request_text = build_subagent_request(
         &args,
         &effective_source_scope,
         &effective_allowed_tools,
+        &applied_skill_refs,
         &evidence_handoff,
     );
 
@@ -831,6 +922,8 @@ async fn run_subagent_once(
     } else {
         result_text
     };
+    let source_scope_applied =
+        !inherited_source_scope.is_empty() || args.source_ids.as_deref().is_some_and(|ids| !ids.is_empty());
 
     Ok(SubagentRunArtifact {
         id: worker_id.unwrap_or_else(|| call_label),
@@ -845,6 +938,7 @@ async fn run_subagent_once(
         effective_source_scope,
         requested_allowed_tools: args.allowed_tools,
         allowed_tools: effective_allowed_tools,
+        allowed_skills: applied_skill_refs,
         parallel_group: args.parallel_group,
         deliverable_style: args.deliverable_style,
         return_sections: args.return_sections,
@@ -857,7 +951,7 @@ async fn run_subagent_once(
         } else {
             Some(capture.thinking)
         },
-        source_scope_applied: true,
+        source_scope_applied,
         is_error: false,
         error_message: None,
     })
@@ -1004,34 +1098,32 @@ fn default_subagent_tool_names() -> Vec<String> {
         .collect()
 }
 
-fn normalize_allowed_tools(allowed_tools: Option<&[String]>) -> Vec<String> {
+fn canonical_tool_name(name: &str) -> &str {
+    match name {
+        "compare" => "compare_documents",
+        "date_search" => "search_by_date",
+        other => other,
+    }
+}
+
+fn normalize_allowed_tools(
+    allowed_tools: Option<&[String]>,
+    available_tool_names: &[String],
+) -> Vec<String> {
+    let available: BTreeSet<&str> = available_tool_names.iter().map(String::as_str).collect();
     match allowed_tools {
         Some(names) => names
             .iter()
             .filter_map(|name| {
-                let trimmed = name.trim();
-                SUBAGENT_TOOL_SPECS
-                    .iter()
-                    .find(|spec| spec.name == trimmed)
-                    .map(|_| trimmed.to_string())
+                let trimmed = canonical_tool_name(name.trim());
+                available.contains(trimmed).then(|| trimmed.to_string())
             })
             .collect(),
-        None => default_subagent_tool_names(),
+        None => default_subagent_tool_names()
+            .into_iter()
+            .filter(|name| available.contains(name.as_str()))
+            .collect(),
     }
-}
-
-fn build_subagent_tool_registry(allowed_tools: Option<&[String]>) -> ToolRegistry {
-    let mut registry = ToolRegistry::new();
-    let allowed = normalize_allowed_tools(allowed_tools);
-    for tool_name in allowed {
-        if let Some(spec) = SUBAGENT_TOOL_SPECS
-            .iter()
-            .find(|spec| spec.name == tool_name)
-        {
-            registry.register((spec.build)());
-        }
-    }
-    registry
 }
 
 #[async_trait]
@@ -1162,6 +1254,7 @@ impl Tool for SubagentTool {
                 "thinking": run.thinking,
                 "sourceScopeApplied": run.source_scope_applied,
                 "allowedTools": run.allowed_tools,
+                "allowedSkills": run.allowed_skills,
             })),
         })
     }
@@ -1295,6 +1388,7 @@ impl Tool for SubagentBatchTool {
                             effective_source_scope: Vec::new(),
                             requested_allowed_tools: None,
                             allowed_tools: Vec::new(),
+                            allowed_skills: Vec::new(),
                             parallel_group: batch_parallel_group.clone(),
                             deliverable_style: None,
                             return_sections: None,

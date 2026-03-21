@@ -155,6 +155,7 @@ function buildSubagentRun(
     requestedSourceScope: artifact?.requestedSourceScope ?? parsedArgs?.sourceIds ?? null,
     effectiveSourceScope: artifact?.effectiveSourceScope ?? null,
     requestedAllowedTools: artifact?.requestedAllowedTools ?? parsedArgs?.allowedTools ?? null,
+    allowedSkills: artifact?.allowedSkills ?? null,
     parallelGroup: artifact?.parallelGroup ?? parsedArgs?.parallelGroup ?? null,
     deliverableStyle: artifact?.deliverableStyle ?? parsedArgs?.deliverableStyle ?? null,
     returnSections: artifact?.returnSections ?? parsedArgs?.returnSections ?? null,
@@ -246,6 +247,52 @@ export function ToolCallCard({
   const planArtifact = useMemo(() => extractPlanArtifact(artifacts), [artifacts]);
   const verificationArtifact = useMemo(() => extractVerificationArtifact(artifacts), [artifacts]);
   const isStructuredTaskCard = Boolean(planArtifact || verificationArtifact);
+
+  const isSearchDone =
+    safeToolName.toLowerCase().includes('search') && status === 'done' && !!content;
+  const searchItems = useMemo(
+    () => (isSearchDone ? parseSearchResults(content!) : null),
+    [isSearchDone, content],
+  );
+
+  const [expanded, setExpanded] = useState(isStructuredTaskCard);
+
+  // Auto-collapse when execution finishes; users can manually re-open if needed.
+  useEffect(() => {
+    if (status !== 'running' && !isStructuredTaskCard) {
+      setExpanded(false);
+    }
+  }, [status, isStructuredTaskCard]);
+
+  useEffect(() => {
+    if (isStructuredTaskCard) {
+      setExpanded(true);
+    }
+  }, [isStructuredTaskCard]);
+
+  const statusConfig = {
+    running: { icon: Loader2, text: t('chat.toolRunning'), color: 'text-accent', spin: true },
+    done: { icon: CheckCircle2, text: t('chat.toolDone'), color: 'text-success', spin: false },
+    error: { icon: XCircle, text: t('chat.toolError'), color: 'text-danger', spin: false },
+  }[status];
+  const headerSummary = planArtifact
+    ? t('chat.planStepsCompleted', {
+      completed: String(planArtifact.steps.filter(step => step.status === 'completed').length),
+      total: String(planArtifact.steps.length),
+    })
+    : verificationArtifact
+      ? t('chat.verificationStatus', {
+        status: verificationStatusLabel(verificationArtifact.overallStatus ?? 'pending', t),
+      })
+      : searchItems
+        ? t('search.results', { count: String(searchItems.length) })
+        : status === 'done' && content
+          ? t('chat.traceOutputReady')
+          : statusConfig.text;
+
+  const StatusIcon = statusConfig.icon;
+  const traceActive = status === 'running' && !shouldReduceMotion;
+  const traceSoft = status !== 'error';
 
   if (subagentRun) {
     return (
@@ -351,52 +398,6 @@ export function ToolCallCard({
       </motion.div>
     );
   }
-
-  const isSearchDone =
-    safeToolName.toLowerCase().includes('search') && status === 'done' && !!content;
-  const searchItems = useMemo(
-    () => (isSearchDone ? parseSearchResults(content!) : null),
-    [isSearchDone, content],
-  );
-
-  const [expanded, setExpanded] = useState(isStructuredTaskCard);
-
-  // Auto-collapse when execution finishes; users can manually re-open if needed.
-  useEffect(() => {
-    if (status !== 'running' && !isStructuredTaskCard) {
-      setExpanded(false);
-    }
-  }, [status, isStructuredTaskCard]);
-
-  useEffect(() => {
-    if (isStructuredTaskCard) {
-      setExpanded(true);
-    }
-  }, [isStructuredTaskCard]);
-
-  const statusConfig = {
-    running: { icon: Loader2, text: t('chat.toolRunning'), color: 'text-accent', spin: true },
-    done: { icon: CheckCircle2, text: t('chat.toolDone'), color: 'text-success', spin: false },
-    error: { icon: XCircle, text: t('chat.toolError'), color: 'text-danger', spin: false },
-  }[status];
-  const headerSummary = planArtifact
-    ? t('chat.planStepsCompleted', {
-      completed: String(planArtifact.steps.filter(step => step.status === 'completed').length),
-      total: String(planArtifact.steps.length),
-    })
-    : verificationArtifact
-      ? t('chat.verificationStatus', {
-        status: verificationStatusLabel(verificationArtifact.overallStatus ?? 'pending', t),
-      })
-      : searchItems
-        ? t('search.results', { count: String(searchItems.length) })
-        : status === 'done' && content
-          ? t('chat.traceOutputReady')
-          : statusConfig.text;
-
-  const StatusIcon = statusConfig.icon;
-  const traceActive = status === 'running' && !shouldReduceMotion;
-  const traceSoft = status !== 'error';
 
   return (
     <motion.div

@@ -68,19 +68,26 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
   const shouldReduceMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(defaultExpanded ?? isStreaming);
   const startTimeRef = useRef<number>(Date.now());
+  const prevStreamingRef = useRef(isStreaming);
   const autoOpenedRef = useRef(false);
   const [elapsed, setElapsed] = useState(0);
 
-  // Auto-open once when live reasoning content starts arriving.
+  // Keep the live trace open while it is streaming, then collapse it once that phase ends.
   useEffect(() => {
     const hasContent = content.trim().length > 0;
-    if (isStreaming && hasContent && !autoOpenedRef.current) {
+    if (!prevStreamingRef.current && isStreaming) {
+      startTimeRef.current = Date.now();
+      setElapsed(0);
+    }
+    if (isStreaming && hasContent) {
       setExpanded(true);
       autoOpenedRef.current = true;
     }
-    if (!isStreaming) {
+    if (prevStreamingRef.current && !isStreaming && autoOpenedRef.current) {
+      setExpanded(false);
       autoOpenedRef.current = false;
     }
+    prevStreamingRef.current = isStreaming;
   }, [content, isStreaming]);
 
   // Track elapsed thinking time
@@ -119,6 +126,7 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer group"
       >
         <ChevronRight

@@ -1754,6 +1754,7 @@ pub async fn agent_chat_cmd(
         provider_config.clone(),
         executor_config.clone(),
         db_config.subagent_allowed_tools.clone(),
+        db_config.subagent_allowed_skill_ids.clone(),
     );
     tools.register(Box::new(SubagentTool::from_runtime(
         delegation_runtime.clone(),
@@ -1762,8 +1763,9 @@ pub async fn agent_chat_cmd(
         delegation_runtime.clone(),
     )));
     tools.register(Box::new(JudgeSubagentResultsTool::from_runtime(
-        delegation_runtime,
+        delegation_runtime.clone(),
     )));
+    delegation_runtime.set_tool_registry(tools.clone());
 
     // 7b. Build user content parts (text + optional image attachments).
     let vision_supported =

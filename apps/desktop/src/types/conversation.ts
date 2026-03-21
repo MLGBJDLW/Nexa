@@ -58,8 +58,10 @@ export interface AgentConfig {
   summarizationModel: string | null;
   /** Optional provider override for summarization (e.g. "open_ai"). */
   summarizationProvider: string | null;
-  /** Optional whitelist of built-in tools that delegated subagents may use. */
+  /** Optional whitelist of delegated tool names that subagents may use. */
   subagentAllowedTools: string[] | null;
+  /** Optional whitelist of enabled skill IDs that delegated subagents may inherit. */
+  subagentAllowedSkillIds?: string[] | null;
   /** Max number of delegated workers allowed to run concurrently. */
   subagentMaxParallel?: number | null;
   /** Max number of delegated worker/judge calls allowed per turn. */
@@ -94,8 +96,10 @@ export interface SaveAgentConfigInput {
   summarizationModel: string | null;
   /** Optional provider override for summarization (e.g. "open_ai"). */
   summarizationProvider: string | null;
-  /** Optional whitelist of built-in tools that delegated subagents may use. */
+  /** Optional whitelist of delegated tool names that subagents may use. */
   subagentAllowedTools: string[] | null;
+  /** Optional whitelist of enabled skill IDs that delegated subagents may inherit. */
+  subagentAllowedSkillIds?: string[] | null;
   /** Max number of delegated workers allowed to run concurrently. */
   subagentMaxParallel?: number | null;
   /** Max number of delegated worker/judge calls allowed per turn. */

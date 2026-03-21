@@ -198,6 +198,10 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
         "v029_user_memories_source",
         "ALTER TABLE user_memories ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';",
     ),
+    (
+        "v030_subagent_allowed_skills",
+        "ALTER TABLE agent_configs ADD COLUMN subagent_allowed_skill_ids_json TEXT;",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

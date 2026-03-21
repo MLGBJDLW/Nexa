@@ -1,7 +1,7 @@
 //! Tool system — trait, registry, and built-in tools for the agent framework.
 
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -201,8 +201,9 @@ pub trait Tool: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// A collection of tools available to the agent.
+#[derive(Clone, Default)]
 pub struct ToolRegistry {
-    tools: Vec<Box<dyn Tool>>,
+    tools: Vec<Arc<dyn Tool>>,
 }
 
 impl ToolRegistry {
@@ -213,6 +214,11 @@ impl ToolRegistry {
 
     /// Register a tool.
     pub fn register(&mut self, tool: Box<dyn Tool>) {
+        self.tools.push(Arc::from(tool));
+    }
+
+    /// Register a shared tool instance.
+    pub fn register_shared(&mut self, tool: Arc<dyn Tool>) {
         self.tools.push(tool);
     }
 
@@ -232,6 +238,26 @@ impl ToolRegistry {
     /// Check whether a tool name is already registered.
     pub fn contains(&self, name: &str) -> bool {
         self.tools.iter().any(|tool| tool.name() == name)
+    }
+
+    /// Return registered tool names in registry order.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect()
+    }
+
+    /// Build a filtered registry preserving the original tool order.
+    pub fn filtered(&self, allowed_names: &[String]) -> ToolRegistry {
+        let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
+        let mut registry = ToolRegistry::new();
+        for tool in &self.tools {
+            if allowed.contains(tool.name()) {
+                registry.register_shared(Arc::clone(tool));
+            }
+        }
+        registry
     }
 
     /// Check if a tool requires confirmation for the given arguments.
@@ -358,12 +384,6 @@ impl ToolRegistry {
             .get(name)
             .ok_or_else(|| CoreError::InvalidInput(format!("Unknown tool: {name}")))?;
         tool.execute(call_id, arguments, db, source_scope).await
-    }
-}
-
-impl Default for ToolRegistry {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

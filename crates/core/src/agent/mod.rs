@@ -23,6 +23,7 @@ use crate::llm::{
     ToolCallDelta, ToolCallRequest, Usage,
 };
 use crate::privacy;
+use crate::skills::Skill;
 use crate::tools::ToolRegistry;
 use crate::trace::{AgentTrace, TraceOutcome, TraceStep};
 
@@ -424,6 +425,7 @@ pub struct AgentExecutor {
     summarization_provider: Option<Box<dyn LlmProvider>>,
     tools: ToolRegistry,
     config: AgentConfig,
+    skills_override: Option<Vec<Skill>>,
     cancel_token: CancellationToken,
     confirmation_callback: Option<ConfirmationCallback>,
 }
@@ -436,6 +438,7 @@ impl AgentExecutor {
             summarization_provider: None,
             tools,
             config,
+            skills_override: None,
             cancel_token: CancellationToken::new(),
             confirmation_callback: None,
         }
@@ -466,6 +469,14 @@ impl AgentExecutor {
     /// need the full model's reasoning ability.
     pub fn with_summarization_provider(mut self, provider: Box<dyn LlmProvider>) -> Self {
         self.summarization_provider = Some(provider);
+        self
+    }
+
+    /// Override the enabled skills injected into the system prompt for this run.
+    ///
+    /// When omitted, the executor loads all enabled skills from the database.
+    pub fn with_skills_override(mut self, skills: Vec<Skill>) -> Self {
+        self.skills_override = Some(skills);
         self
     }
 
@@ -541,7 +552,10 @@ impl AgentExecutor {
             .await;
 
         // --- 1. Build initial messages with context-window trimming -----------
-        let skills = db.get_enabled_skills().unwrap_or_default();
+        let skills = self
+            .skills_override
+            .clone()
+            .unwrap_or_else(|| db.get_enabled_skills().unwrap_or_default());
 
         // Extract user query text early for tool selection.
         let user_query_text_for_tools: String = user_parts
