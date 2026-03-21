@@ -25,6 +25,11 @@ export interface SubagentEvidenceHandoff {
   excerpt: string;
 }
 
+export interface SubagentAppliedSkill {
+  id: string;
+  name: string;
+}
+
 export interface SubagentBudgetSnapshot {
   maxParallel: number;
   maxCallsPerTurn: number;
@@ -46,6 +51,7 @@ export interface SubagentArtifact {
   requestedSourceScope?: string[] | null;
   effectiveSourceScope?: string[] | null;
   requestedAllowedTools?: string[] | null;
+  allowedSkills?: SubagentAppliedSkill[] | null;
   parallelGroup?: string | null;
   deliverableStyle?: string | null;
   returnSections?: string[] | null;
@@ -121,6 +127,7 @@ export interface SubagentRun {
   requestedSourceScope?: string[] | null;
   effectiveSourceScope?: string[] | null;
   requestedAllowedTools?: string[] | null;
+  allowedSkills?: SubagentAppliedSkill[] | null;
   parallelGroup?: string | null;
   deliverableStyle?: string | null;
   returnSections?: string[] | null;
@@ -151,6 +158,21 @@ function asStringArray(value: unknown): string[] | null {
 
 function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function parseAppliedSkills(value: unknown): SubagentAppliedSkill[] | null {
+  if (!Array.isArray(value)) return null;
+  const skills = value
+    .map(item => {
+      const row = asRecord(item);
+      if (!row) return null;
+      const id = typeof row.id === 'string' ? row.id : '';
+      const name = typeof row.name === 'string' ? row.name : '';
+      if (!id || !name) return null;
+      return { id, name };
+    })
+    .filter((item): item is SubagentAppliedSkill => Boolean(item));
+  return skills.length > 0 ? skills : [];
 }
 
 function parseBudgetSnapshot(value: unknown): SubagentBudgetSnapshot | null {
@@ -240,6 +262,7 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
   const usageRecord = asRecord(record.usageTotal);
   const thinking = asStringArray(record.thinking);
   const allowedTools = asStringArray(record.allowedTools);
+  const allowedSkills = parseAppliedSkills(record.allowedSkills);
   const requestedAllowedTools = asStringArray(record.requestedAllowedTools);
   const acceptanceCriteria = asStringArray(record.acceptanceCriteria);
   const evidenceChunkIds = asStringArray(record.evidenceChunkIds);
@@ -271,6 +294,7 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
     requestedSourceScope,
     effectiveSourceScope,
     requestedAllowedTools,
+    allowedSkills,
     parallelGroup: typeof record.parallelGroup === 'string' ? record.parallelGroup : null,
     deliverableStyle: typeof record.deliverableStyle === 'string' ? record.deliverableStyle : null,
     returnSections,
@@ -304,6 +328,7 @@ function buildRunFromArtifact(artifact: SubagentArtifact, id: string, content?: 
     requestedSourceScope: artifact.requestedSourceScope ?? null,
     effectiveSourceScope: artifact.effectiveSourceScope ?? null,
     requestedAllowedTools: artifact.requestedAllowedTools ?? null,
+    allowedSkills: artifact.allowedSkills ?? null,
     parallelGroup: artifact.parallelGroup ?? null,
     deliverableStyle: artifact.deliverableStyle ?? null,
     returnSections: artifact.returnSections ?? null,
@@ -420,6 +445,7 @@ function buildRunFromToolCall(toolCall: ToolCallEvent): SubagentRun | null {
     requestedSourceScope: artifact?.requestedSourceScope ?? parsedArgs?.sourceIds ?? null,
     effectiveSourceScope: artifact?.effectiveSourceScope ?? null,
     requestedAllowedTools: artifact?.requestedAllowedTools ?? parsedArgs?.allowedTools ?? null,
+    allowedSkills: artifact?.allowedSkills ?? null,
     parallelGroup: artifact?.parallelGroup ?? parsedArgs?.parallelGroup ?? null,
     deliverableStyle: artifact?.deliverableStyle ?? parsedArgs?.deliverableStyle ?? null,
     returnSections: artifact?.returnSections ?? parsedArgs?.returnSections ?? null,

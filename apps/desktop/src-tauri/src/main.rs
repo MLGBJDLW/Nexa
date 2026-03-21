@@ -122,6 +122,7 @@ fn main() {
             commands::get_conversation_stats_cmd,
             commands::cleanup_empty_conversations_cmd,
             commands::compact_conversation_cmd,
+            commands::search_conversations_cmd,
             // Conversation checkpoints
             commands::list_checkpoints_cmd,
             commands::restore_checkpoint_cmd,
@@ -147,6 +148,9 @@ fn main() {
             commands::get_model_context_window,
             // Image attachment
             commands::prepare_image_attachment,
+            // App Config
+            commands::get_app_config_cmd,
+            commands::save_app_config_cmd,
             // OCR
             commands::get_ocr_config_cmd,
             commands::save_ocr_config_cmd,
@@ -164,7 +168,11 @@ fn main() {
             #[cfg(feature = "video")]
             commands::delete_whisper_model_cmd,
             #[cfg(feature = "video")]
+            commands::transcribe_audio_buffer_cmd,
+            #[cfg(feature = "video")]
             commands::check_ffmpeg_cmd,
+            #[cfg(feature = "video")]
+            commands::download_ffmpeg_cmd,
             #[cfg(feature = "video")]
             commands::analyze_video_cmd,
             #[cfg(feature = "video")]
@@ -184,6 +192,9 @@ fn main() {
             commands::test_mcp_server_cmd,
             commands::test_mcp_server_direct_cmd,
             commands::list_mcp_tools_cmd,
+            // Trace analytics
+            commands::get_trace_summary,
+            commands::get_recent_traces,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

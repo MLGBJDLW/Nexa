@@ -248,6 +248,27 @@ export function SubagentCard({
             </div>
           )}
 
+          {run.allowedSkills && (
+            <div className="mt-3">
+              <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">
+                Allowed skills
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {run.allowedSkills.length > 0 ? run.allowedSkills.map(skill => (
+                  <span
+                    key={`${run.id}-skill-${skill.id}`}
+                    className="inline-flex items-center rounded-md border border-border/60 bg-surface-1 px-2 py-1 text-[11px] text-text-secondary"
+                    title={skill.id}
+                  >
+                    {skill.name}
+                  </span>
+                )) : (
+                  <span className="text-xs text-text-tertiary">No skills delegated.</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {run.requestedAllowedTools && run.requestedAllowedTools.length > 0 && (
             <div className="mt-3">
               <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-tertiary">

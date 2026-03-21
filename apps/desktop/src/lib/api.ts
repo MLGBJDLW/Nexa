@@ -18,10 +18,12 @@ import type { OcrConfig } from "../types/ocr";
 import type { VideoConfig, TranscriptChunk, VideoMetadata } from "../types/video";
 import type {
   AgentConfig,
+  AppConfig,
   SaveAgentConfigInput,
   Conversation,
   ConversationMessage,
   ConversationStats,
+  ConversationSearchResult,
   ImageAttachment,
   Checkpoint,
   UserMemory,
@@ -33,6 +35,7 @@ import type {
   Skill,
   SaveSkillInput,
 } from "../types/extensions";
+import type { TraceSummary, AgentTrace } from "../types/trace";
 
 // ── Sources ─────────────────────────────────────────────────────────────
 
@@ -284,6 +287,9 @@ export const cleanupEmptyConversations = (daysOld: number) =>
 export const compactConversation = (conversationId: string) =>
   invoke<void>('compact_conversation_cmd', { conversationId });
 
+export const searchConversations = (query: string, limit?: number) =>
+  invoke<ConversationSearchResult[]>('search_conversations_cmd', { query, limit });
+
 // ── Checkpoints ─────────────────────────────────────────────────────
 
 export const listCheckpoints = (conversationId: string) =>
@@ -323,6 +329,14 @@ export const checkOcrModels = (config: OcrConfig) =>
 export const downloadOcrModels = (config: OcrConfig) =>
   invoke<void>('download_ocr_models_cmd', { config });
 
+// ── App Config ──────────────────────────────────────────────────────
+
+export const getAppConfig = () =>
+  invoke<AppConfig>('get_app_config_cmd');
+
+export const saveAppConfig = (config: AppConfig) =>
+  invoke<void>('save_app_config_cmd', { config });
+
 // ── Video ───────────────────────────────────────────────────────────
 
 export const getVideoConfig = () =>
@@ -342,6 +356,12 @@ export const deleteWhisperModel = () =>
 
 export const checkFfmpeg = (config: VideoConfig) =>
   invoke<boolean>('check_ffmpeg_cmd', { config });
+
+export const downloadFfmpeg = () =>
+  invoke<string>('download_ffmpeg_cmd');
+
+export const transcribeAudioBuffer = (audioData: number[]) =>
+  invoke<string>('transcribe_audio_buffer_cmd', { audioData });
 
 export const clearAnswerCache = () =>
   invoke<number>('clear_answer_cache');
@@ -408,3 +428,11 @@ export const getVideoTranscript = (filePath: string) =>
 
 export const getVideoMetadata = (filePath: string) =>
   invoke<VideoMetadata>('get_video_metadata_cmd', { filePath });
+
+// ── Trace Analytics ─────────────────────────────────────────────────
+
+export const getTraceSummary = () =>
+  invoke<TraceSummary>('get_trace_summary');
+
+export const getRecentTraces = (limit?: number) =>
+  invoke<AgentTrace[]>('get_recent_traces', { limit });

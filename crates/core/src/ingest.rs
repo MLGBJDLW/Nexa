@@ -26,8 +26,26 @@ const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100 MB (text/docs)
 const MAX_VIDEO_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 const MAX_AUDIO_FILE_SIZE: u64 = 500 * 1024 * 1024; // 500 MB
 
+/// Configurable file-size limits for ingestion.
+#[derive(Debug, Clone, Copy)]
+pub struct FileSizeLimits {
+    pub max_text: u64,
+    pub max_video: u64,
+    pub max_audio: u64,
+}
+
+impl Default for FileSizeLimits {
+    fn default() -> Self {
+        Self {
+            max_text: MAX_FILE_SIZE,
+            max_video: MAX_VIDEO_FILE_SIZE,
+            max_audio: MAX_AUDIO_FILE_SIZE,
+        }
+    }
+}
+
 /// Returns the appropriate file-size limit based on file extension.
-fn max_file_size_for_path(path: &Path) -> u64 {
+fn max_file_size_for_path(path: &Path, limits: &FileSizeLimits) -> u64 {
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -35,12 +53,12 @@ fn max_file_size_for_path(path: &Path) -> u64 {
         .as_deref()
     {
         Some("mp4" | "mkv" | "webm" | "avi" | "mov" | "flv" | "mpeg" | "mpg" | "wmv" | "m4v") => {
-            MAX_VIDEO_FILE_SIZE
+            limits.max_video
         }
         Some("mp3" | "wav" | "flac" | "aac" | "ogg" | "wma" | "m4a" | "opus") => {
-            MAX_AUDIO_FILE_SIZE
+            limits.max_audio
         }
-        _ => MAX_FILE_SIZE,
+        _ => limits.max_text,
     }
 }
 
@@ -141,6 +159,14 @@ fn scan_source_inner(
 ) -> Result<IngestResult, CoreError> {
     let source = db.get_source(source_id)?;
 
+    // Load file size limits from app config.
+    let app_cfg = db.load_app_config().unwrap_or_default();
+    let file_limits = FileSizeLimits {
+        max_text: app_cfg.max_text_file_size,
+        max_video: app_cfg.max_video_file_size,
+        max_audio: app_cfg.max_audio_file_size,
+    };
+
     // Resolve privacy config: explicit > stored > default.
     let default_config;
     let privacy_cfg = match privacy {
@@ -180,6 +206,12 @@ fn scan_source_inner(
         files_failed: 0,
         errors: Vec::new(),
     };
+
+    // Derive max chunk size from the configured embedding model.
+    let max_chunk_chars = db
+        .get_embedder_config()
+        .ok()
+        .map(|cfg| cfg.local_embedding_model().max_chunk_chars());
 
     // Collect all files recursively, sorted for deterministic order.
     let files = walk_directory(root)?;
@@ -246,7 +278,7 @@ fn scan_source_inner(
 
         // Skip files exceeding the size limit to avoid excessive memory usage.
         match std::fs::metadata(file_path) {
-            Ok(meta) if meta.len() > max_file_size_for_path(file_path) => {
+            Ok(meta) if meta.len() > max_file_size_for_path(file_path, &file_limits) => {
                 warn!(
                     "Skipping large file ({}MB): {}",
                     meta.len() / 1024 / 1024,
@@ -264,6 +296,7 @@ fn scan_source_inner(
             privacy_cfg,
             #[cfg(feature = "video")]
             video_config.as_ref(),
+            max_chunk_chars,
         ) {
             Ok(FileClassification::New(parsed)) => {
                 new_docs.push(parsed);
@@ -877,6 +910,7 @@ fn classify_file(
     existing_docs: &HashMap<String, (String, String)>,
     privacy: &PrivacyConfig,
     #[cfg(feature = "video")] video_config: Option<&crate::video::VideoConfig>,
+    max_chunk_chars: Option<usize>,
 ) -> Result<FileClassification, CoreError> {
     let mut parsed = parse_file(
         path,
@@ -885,6 +919,7 @@ fn classify_file(
         video_config,
         None,
         None,
+        max_chunk_chars,
     )?;
 
     // Apply content redaction when privacy is enabled.
@@ -989,9 +1024,17 @@ pub fn ingest_single_file(
         )));
     }
 
+    // Load file size limits from app config.
+    let app_cfg = db.load_app_config().unwrap_or_default();
+    let file_limits = FileSizeLimits {
+        max_text: app_cfg.max_text_file_size,
+        max_video: app_cfg.max_video_file_size,
+        max_audio: app_cfg.max_audio_file_size,
+    };
+
     // Skip files exceeding the size limit.
     if let Ok(meta) = std::fs::metadata(path) {
-        if meta.len() > max_file_size_for_path(path) {
+        if meta.len() > max_file_size_for_path(path, &file_limits) {
             warn!(
                 "Skipping large file ({}MB): {}",
                 meta.len() / 1024 / 1024,
@@ -1008,6 +1051,12 @@ pub fn ingest_single_file(
     #[cfg(feature = "video")]
     let video_config = db.load_video_config().ok();
 
+    // Derive max chunk size from the configured embedding model.
+    let max_chunk_chars = db
+        .get_embedder_config()
+        .ok()
+        .map(|cfg| cfg.local_embedding_model().max_chunk_chars());
+
     let mut parsed = parse_file(
         path,
         None,
@@ -1015,6 +1064,7 @@ pub fn ingest_single_file(
         video_config.as_ref(),
         None,
         None,
+        max_chunk_chars,
     )?;
 
     // Apply content redaction when privacy is enabled.
@@ -1317,6 +1367,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let doc_id = db.insert_document(&sid, &parsed).unwrap();
@@ -1344,6 +1395,7 @@ mod tests {
             &file,
             None,
             #[cfg(feature = "video")]
+            None,
             None,
             None,
             None,
@@ -1545,6 +1597,7 @@ mod tests {
                         &path,
                         None,
                         #[cfg(feature = "video")]
+                        None,
                         None,
                         None,
                         None,

@@ -751,6 +751,11 @@ impl LocalEmbeddingModel {
         matches!(self, Self::MultilingualE5Base)
     }
 
+    /// Conservative max chars per chunk: ~3 chars/token for multilingual safety (CJK).
+    pub fn max_chunk_chars(&self) -> usize {
+        self.max_length() * 3
+    }
+
     /// Parse from string stored in DB / config.
     pub fn from_config_str(s: &str) -> Self {
         match s {

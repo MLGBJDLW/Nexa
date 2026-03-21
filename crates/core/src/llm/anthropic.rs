@@ -540,6 +540,7 @@ async fn parse_anthropic_stream(
                                     name: Some(name),
                                     arguments_delta: String::new(),
                                     index: None,
+                                    thought_signature: None,
                                 }),
                                 finish_reason: None,
                                 usage: None,
@@ -585,6 +586,7 @@ async fn parse_anthropic_stream(
                                 name: current_tool_name.clone(),
                                 arguments_delta: partial_json,
                                 index: None,
+                                thought_signature: None,
                             }),
                             finish_reason: None,
                             usage: None,
@@ -645,9 +647,10 @@ pub struct AnthropicProvider {
 
 impl AnthropicProvider {
     pub fn new(config: ProviderConfig) -> Result<Self, CoreError> {
+        let timeout = config.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(timeout))
             .build()
             .map_err(|e| CoreError::Llm(format!("Failed to create HTTP client: {e}")))?;
 
@@ -754,6 +757,7 @@ impl LlmProvider for AnthropicProvider {
                         id,
                         name,
                         arguments: serde_json::to_string(&input).unwrap_or_default(),
+                        thought_signature: None,
                     });
                 }
             }

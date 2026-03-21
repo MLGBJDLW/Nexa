@@ -58,14 +58,21 @@ export interface AgentConfig {
   summarizationModel: string | null;
   /** Optional provider override for summarization (e.g. "open_ai"). */
   summarizationProvider: string | null;
-  /** Optional whitelist of built-in tools that delegated subagents may use. */
+  /** Optional whitelist of delegated tool names that subagents may use. */
   subagentAllowedTools: string[] | null;
+  /** Optional whitelist of enabled skill IDs that delegated subagents may inherit. */
+  subagentAllowedSkillIds?: string[] | null;
   /** Max number of delegated workers allowed to run concurrently. */
   subagentMaxParallel?: number | null;
   /** Max number of delegated worker/judge calls allowed per turn. */
   subagentMaxCallsPerTurn?: number | null;
   /** Soft token budget for delegated workers and judges per turn. */
   subagentTokenBudget?: number | null;
+  toolTimeoutSecs?: number | null;
+  agentTimeoutSecs?: number | null;
+  dynamicToolVisibility?: boolean | null;
+  traceEnabled?: boolean | null;
+  requireToolConfirmation?: boolean | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,14 +96,35 @@ export interface SaveAgentConfigInput {
   summarizationModel: string | null;
   /** Optional provider override for summarization (e.g. "open_ai"). */
   summarizationProvider: string | null;
-  /** Optional whitelist of built-in tools that delegated subagents may use. */
+  /** Optional whitelist of delegated tool names that subagents may use. */
   subagentAllowedTools: string[] | null;
+  /** Optional whitelist of enabled skill IDs that delegated subagents may inherit. */
+  subagentAllowedSkillIds?: string[] | null;
   /** Max number of delegated workers allowed to run concurrently. */
   subagentMaxParallel?: number | null;
   /** Max number of delegated worker/judge calls allowed per turn. */
   subagentMaxCallsPerTurn?: number | null;
   /** Soft token budget for delegated workers and judges per turn. */
   subagentTokenBudget?: number | null;
+  dynamicToolVisibility?: boolean | null;
+  traceEnabled?: boolean | null;
+  requireToolConfirmation?: boolean | null;
+}
+
+export interface AppConfig {
+  toolTimeoutSecs: number;
+  agentTimeoutSecs: number;
+  cacheTtlHours: number;
+  defaultSearchLimit: number;
+  minSearchSimilarity: number;
+  maxTextFileSize: number;
+  maxVideoFileSize: number;
+  maxAudioFileSize: number;
+  llmTimeoutSecs: number;
+  mcpCallTimeoutSecs: number;
+  dynamicToolVisibility?: boolean;
+  traceEnabled?: boolean;
+  confirmDestructive?: boolean;
 }
 
 export type ProviderType =
@@ -143,6 +171,15 @@ export interface ConversationStats {
   totalMessages: number;
   oldestConversation: string | null;
   dbSizeBytes: number;
+}
+
+export interface ConversationSearchResult {
+  conversationId: string;
+  conversationTitle: string | null;
+  messagePreview: string;
+  messageRole: string;
+  timestamp: string;
+  relevanceScore: number;
 }
 
 export interface Checkpoint {

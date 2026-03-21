@@ -4,6 +4,7 @@ import { Send, Square, Paperclip, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { ImageAttachment } from '../../types/conversation';
 import { CheckpointMenu } from './CheckpointMenu';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface ChatInputProps {
   onSend: (message: string, attachments?: ImageAttachment[]) => void;
@@ -79,32 +80,33 @@ export function ChatInput({
     [handleSend, isStreaming, disabled],
   );
 
+  const addImageBlob = useCallback(async (blob: Blob, name: string): Promise<boolean> => {
+    const reader = new FileReader();
+    const result = await new Promise<string>((resolve, reject) => {
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const match = result.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) return false;
+    const [, mediaType, base64Data] = match;
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mediaType)) return false;
+    setAttachments((prev) => [...prev, { base64Data, mediaType, originalName: name }]);
+    return true;
+  }, []);
+
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
     for (const file of Array.from(files)) {
       try {
-        const reader = new FileReader();
-        const result = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const match = result.match(/^data:([^;]+);base64,(.+)$/);
-        if (!match) continue;
-        const [, mediaType, base64Data] = match;
-        if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mediaType)) continue;
-        setAttachments((prev) => [...prev, {
-          base64Data,
-          mediaType,
-          originalName: file.name,
-        }]);
+        await addImageBlob(file, file.name);
       } catch {
         // Silently skip files that fail to read
       }
     }
     e.target.value = '';
-  }, []);
+  }, [addImageBlob]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
@@ -144,25 +146,31 @@ export function ChatInput({
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
       try {
-        const reader = new FileReader();
-        const result = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const match = result.match(/^data:([^;]+);base64,(.+)$/);
-        if (!match) continue;
-        const [, mediaType, base64Data] = match;
-        setAttachments((prev) => [...prev, {
-          base64Data,
-          mediaType,
-          originalName: file.name,
-        }]);
+        await addImageBlob(file, file.name);
       } catch {
         // Silently skip
       }
     }
-  }, []);
+  }, [addImageBlob]);
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (!item.type.startsWith('image/')) continue;
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      e.preventDefault();
+      const ext = item.type.split('/')[1] || 'png';
+      const name = `pasted-image-${Date.now()}.${ext}`;
+      try {
+        await addImageBlob(blob, name);
+      } catch {
+        // Silently skip
+      }
+      return;
+    }
+  }, [addImageBlob]);
 
   return (
     <div
@@ -230,10 +238,16 @@ export function ChatInput({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={t('chat.placeholder')}
           disabled={disabled}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-surface-0 px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 disabled:pointer-events-none disabled:opacity-40"
+        />
+
+        <VoiceInputButton
+          onTranscript={(text) => setValue((prev) => prev + (prev ? ' ' : '') + text)}
+          disabled={disabled || isStreaming}
         />
 
         {isStreaming ? (

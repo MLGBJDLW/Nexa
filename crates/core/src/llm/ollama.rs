@@ -408,6 +408,7 @@ async fn parse_ollama_ndjson_stream(
                             arguments_delta: serde_json::to_string(&tc.function.arguments)
                                 .unwrap_or_default(),
                             index: Some(index as u32),
+                            thought_signature: None,
                         }),
                         finish_reason: None,
                         usage: None,
@@ -441,9 +442,10 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(config: ProviderConfig) -> Result<Self, CoreError> {
+        let timeout = config.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(timeout))
             .build()
             .map_err(|e| CoreError::Llm(format!("Failed to create HTTP client: {e}")))?;
 
@@ -559,6 +561,7 @@ impl LlmProvider for OllamaProvider {
                         name: tc.function.name.clone(),
                         arguments: serde_json::to_string(&tc.function.arguments)
                             .unwrap_or_default(),
+                        thought_signature: None,
                     })
                     .collect()
             });

@@ -31,13 +31,67 @@ test.beforeEach(async ({ page }) => {
 
     const nowIso = new Date().toISOString();
     let seq = 0;
+    let streamedReplyCount = 0;
     const nextId = (prefix: string) => `${prefix}-${Date.now()}-${seq++}`;
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+    const longLine = 'This is a long paragraph to force the chat timeline to overflow and require scrolling inside the log container.';
+    const footnoteMessage = [
+      'The opening claim cites a source right away.[^1]',
+      '',
+      ...Array.from({ length: 18 }, (_, idx) => `Paragraph ${idx + 1}: ${longLine} ${longLine}`),
+      '',
+      '[^1]: Evidence section rendered near the end of the message so the jump target sits much lower than the reference.',
+    ].join('\n\n');
+
+    const buildScrollableHistory = (conversationId: string): Message[] => {
+      const items: Message[] = [];
+      for (let i = 0; i < 16; i += 1) {
+        items.push({
+          id: nextId('m-user'),
+          conversationId,
+          role: 'user',
+          content: `Question ${i + 1}: ${longLine}`,
+          toolCallId: null,
+          toolCalls: [],
+          artifacts: null,
+          tokenCount: 0,
+          createdAt: new Date().toISOString(),
+          sortOrder: items.length,
+          thinking: null,
+          imageAttachments: null,
+        });
+        items.push({
+          id: nextId('m-assistant'),
+          conversationId,
+          role: 'assistant',
+          content: `Answer ${i + 1}: ${longLine} ${longLine}`,
+          toolCallId: null,
+          toolCalls: [],
+          artifacts: null,
+          tokenCount: 0,
+          createdAt: new Date().toISOString(),
+          sortOrder: items.length,
+          thinking: null,
+          imageAttachments: null,
+        });
+      }
+      return items;
+    };
+
     const conversations: Record<string, Conversation> = {
-      'conv-stream-rounds': {
-        id: 'conv-stream-rounds',
-        title: 'Streaming Rounds Demo',
+      'conv-footnotes': {
+        id: 'conv-footnotes',
+        title: 'Footnote Scroll',
+        provider: 'open_ai',
+        model: 'gpt-4.1',
+        systemPrompt: '',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+      'conv-auto-follow': {
+        id: 'conv-auto-follow',
+        title: 'Auto Follow',
         provider: 'open_ai',
         model: 'gpt-4.1',
         systemPrompt: '',
@@ -47,7 +101,23 @@ test.beforeEach(async ({ page }) => {
     };
 
     const messagesByConversation: Record<string, Message[]> = {
-      'conv-stream-rounds': [],
+      'conv-footnotes': [
+        {
+          id: nextId('m-footnote-assistant'),
+          conversationId: 'conv-footnotes',
+          role: 'assistant',
+          content: footnoteMessage,
+          toolCallId: null,
+          toolCalls: [],
+          artifacts: null,
+          tokenCount: 0,
+          createdAt: nowIso,
+          sortOrder: 0,
+          thinking: null,
+          imageAttachments: null,
+        },
+      ],
+      'conv-auto-follow': buildScrollableHistory('conv-auto-follow'),
     };
 
     const callbackMap = new Map<number, (event: unknown) => void>();
@@ -70,8 +140,8 @@ test.beforeEach(async ({ page }) => {
     };
 
     const defaultAgentConfig = {
-      id: 'cfg-stream-rounds',
-      name: 'Stream Rounds Config',
+      id: 'cfg-scroll-behavior',
+      name: 'Scroll Behavior Config',
       provider: 'open_ai',
       apiKey: '',
       baseUrl: null,
@@ -165,15 +235,17 @@ test.beforeEach(async ({ page }) => {
           return 0;
         case 'agent_chat_cmd': {
           const conversationId = String(args.conversationId ?? '');
+          if (conversationId !== 'conv-auto-follow') {
+            return null;
+          }
+
+          streamedReplyCount += 1;
           const currentMessages = messagesByConversation[conversationId] ?? [];
           const userText = String(args.message ?? '');
-          const firstToolCallId = nextId('tool-search');
-          const secondToolCallId = nextId('tool-compare');
-          const firstToolArgs = JSON.stringify({ query: 'retry edge cases' });
-          const secondToolArgs = JSON.stringify({ left: 'notes/a.md', right: 'notes/b.md' });
+          const assistantText = `Streamed answer #${streamedReplyCount}`;
 
           const userMessage: Message = {
-            id: nextId('m-user'),
+            id: nextId('m-user-live'),
             conversationId,
             role: 'user',
             content: userText,
@@ -186,73 +258,18 @@ test.beforeEach(async ({ page }) => {
             thinking: null,
             imageAttachments: null,
           };
-          const firstAssistantToolMessage: Message = {
-            id: nextId('m-assistant-tools-1'),
+
+          const assistantMessage: Message = {
+            id: nextId('m-assistant-live'),
             conversationId,
             role: 'assistant',
-            content: '',
+            content: assistantText,
             toolCallId: null,
-            toolCalls: [{ id: firstToolCallId, name: 'search_knowledge_base', arguments: firstToolArgs }],
+            toolCalls: [],
             artifacts: null,
             tokenCount: 0,
             createdAt: new Date().toISOString(),
             sortOrder: currentMessages.length + 1,
-            thinking: 'Need to search the knowledge base first.',
-            imageAttachments: null,
-          };
-          const firstToolMessage: Message = {
-            id: nextId('m-tool-1'),
-            conversationId,
-            role: 'tool',
-            content: 'Found 2 notes about retry handling.',
-            toolCallId: firstToolCallId,
-            toolCalls: [],
-            artifacts: null,
-            tokenCount: 0,
-            createdAt: new Date().toISOString(),
-            sortOrder: currentMessages.length + 2,
-            thinking: null,
-            imageAttachments: null,
-          };
-          const secondAssistantToolMessage: Message = {
-            id: nextId('m-assistant-tools-2'),
-            conversationId,
-            role: 'assistant',
-            content: '',
-            toolCallId: null,
-            toolCalls: [{ id: secondToolCallId, name: 'compare_documents', arguments: secondToolArgs }],
-            artifacts: null,
-            tokenCount: 0,
-            createdAt: new Date().toISOString(),
-            sortOrder: currentMessages.length + 3,
-            thinking: 'Now compare the two candidate files.',
-            imageAttachments: null,
-          };
-          const secondToolMessage: Message = {
-            id: nextId('m-tool-2'),
-            conversationId,
-            role: 'tool',
-            content: 'The second file adds a timeout guard.',
-            toolCallId: secondToolCallId,
-            toolCalls: [],
-            artifacts: null,
-            tokenCount: 0,
-            createdAt: new Date().toISOString(),
-            sortOrder: currentMessages.length + 4,
-            thinking: null,
-            imageAttachments: null,
-          };
-          const finalAssistantMessage: Message = {
-            id: nextId('m-assistant-final'),
-            conversationId,
-            role: 'assistant',
-            content: 'Final answer: add the timeout guard from the second file.',
-            toolCallId: null,
-            toolCalls: [],
-            artifacts: null,
-            tokenCount: 0,
-            createdAt: new Date().toISOString(),
-            sortOrder: currentMessages.length + 5,
             thinking: null,
             imageAttachments: null,
           };
@@ -260,97 +277,34 @@ test.beforeEach(async ({ page }) => {
           messagesByConversation[conversationId] = [
             ...currentMessages,
             userMessage,
-            firstAssistantToolMessage,
-            firstToolMessage,
-            secondAssistantToolMessage,
-            secondToolMessage,
-            finalAssistantMessage,
+            assistantMessage,
           ];
-
-          setTimeout(() => {
-            emitEvent('agent:event', {
-              conversationId,
-              type: 'thinking',
-              content: 'Need to search the knowledge base first.',
-            });
-          }, 20);
-
-          setTimeout(() => {
-            emitEvent('agent:event', {
-              conversationId,
-              type: 'toolCallStart',
-              callId: firstToolCallId,
-              toolName: 'search_knowledge_base',
-              arguments: firstToolArgs,
-            });
-          }, 80);
-
-          setTimeout(() => {
-            emitEvent('agent:event', {
-              conversationId,
-              type: 'toolCallResult',
-              callId: firstToolCallId,
-              toolName: 'search_knowledge_base',
-              content: firstToolMessage.content,
-              isError: false,
-              artifacts: null,
-            });
-          }, 150);
-
-          setTimeout(() => {
-            emitEvent('agent:event', {
-              conversationId,
-              type: 'thinking',
-              content: 'Now compare the two candidate files.',
-            });
-          }, 240);
-
-          setTimeout(() => {
-            emitEvent('agent:event', {
-              conversationId,
-              type: 'toolCallStart',
-              callId: secondToolCallId,
-              toolName: 'compare_documents',
-              arguments: secondToolArgs,
-            });
-          }, 360);
-
-          setTimeout(() => {
-            emitEvent('agent:event', {
-              conversationId,
-              type: 'toolCallResult',
-              callId: secondToolCallId,
-              toolName: 'compare_documents',
-              content: secondToolMessage.content,
-              isError: false,
-              artifacts: null,
-            });
-          }, 430);
+          conversations[conversationId].updatedAt = new Date().toISOString();
 
           setTimeout(() => {
             emitEvent('agent:event', {
               conversationId,
               type: 'textDelta',
-              delta: 'Final answer: add the timeout guard from the second file.',
+              delta: assistantText,
             });
-          }, 520);
+          }, 40);
 
           setTimeout(() => {
             emitEvent('agent:event', {
               conversationId,
               type: 'done',
-              message: finalAssistantMessage,
+              message: assistantMessage,
               usageTotal: {
-                promptTokens: 1200,
-                completionTokens: 300,
-                totalTokens: 1500,
+                promptTokens: 600,
+                completionTokens: 120,
+                totalTokens: 720,
                 thinkingTokens: 0,
               },
-              lastPromptTokens: 1200,
+              lastPromptTokens: 600,
               finishReason: 'stop',
               cached: false,
             });
-          }, 600);
+          }, 90);
 
           return null;
         }
@@ -380,26 +334,65 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('preserves multiple thinking and tool rounds during a single streamed response', async ({ page }) => {
-  await page.goto('/chat/conv-stream-rounds');
+test('keeps footnote jumps inside the chat scroller', async ({ page }) => {
+  await page.goto('/chat/conv-footnotes');
 
-  await page.getByTestId('chat-input-textarea').fill('Walk through the retries problem.');
+  const scrollRoot = page.locator('[data-chat-scroll-root="true"]');
+  await scrollRoot.evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event('scroll'));
+  });
+
+  const footnoteRef = page.locator('a[href="#user-content-fn-1"], a[href="#fn-1"]').first();
+  await expect(footnoteRef).toBeVisible();
+
+  const initialHash = await page.evaluate(() => window.location.hash);
+  await footnoteRef.click();
+
+  await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollTop)).toBeGreaterThan(80);
+  await expect.poll(async () => page.locator('#user-content-fn-1, #fn-1').evaluate((target) => {
+    const root = target.closest('[data-chat-scroll-root="true"]') as HTMLElement | null;
+    if (!root) return false;
+    const rootRect = root.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const top = targetRect.top - rootRect.top;
+    const bottom = targetRect.bottom - rootRect.top;
+    return top < root.clientHeight && bottom > 0;
+  })).toBe(true);
+
+  expect(await page.evaluate(() => window.location.hash)).toBe(initialHash);
+});
+
+test('auto-follows only while the user stays near the bottom', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+
+  const scrollRoot = page.locator('[data-chat-scroll-root="true"]');
+  await expect(scrollRoot).toBeVisible();
+
+  await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(32);
+
+  await page.getByTestId('chat-input-textarea').fill('Send the next update.');
   await page.getByTestId('chat-send').click();
 
-  await page.waitForTimeout(110);
-  await expect(page.getByText('Need to search the knowledge base first.')).toBeVisible();
-  await expect(page.getByText('search_knowledge_base')).toBeVisible();
+  await expect(page.getByText('Streamed answer #1')).toBeVisible();
+  await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(32);
 
-  await page.waitForTimeout(170);
-  await expect(page.getByText('Now compare the two candidate files.')).toBeVisible({ timeout: 50 });
+  await scrollRoot.evaluate((el) => {
+    el.scrollTop = Math.max(0, (el.scrollHeight - el.clientHeight) / 2);
+    el.dispatchEvent(new Event('scroll'));
+  });
 
-  await page.waitForTimeout(120);
-  await expect(page.getByText('compare_documents')).toBeVisible();
-  await expect(page.getByText('Now compare the two candidate files.')).toBeVisible();
+  await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
 
-  await page.waitForTimeout(250);
-  await expect(page.getByText('Final answer: add the timeout guard from the second file.')).toBeVisible();
-  await expect(
-    page.locator('button[aria-expanded="false"]').filter({ hasText: 'Thinking completed' }),
-  ).toHaveCount(2);
+  await page.getByTestId('chat-input-textarea').fill('Send one more update.');
+  await page.getByTestId('chat-send').click();
+
+  await expect(page.getByText('Streamed answer #2')).toBeVisible();
+  await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
+
+  const scrollToBottom = page.getByTitle('Scroll to bottom');
+  await expect(scrollToBottom).toBeVisible();
+  await scrollToBottom.click();
+
+  await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(32);
 });

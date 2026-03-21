@@ -87,6 +87,24 @@ export function preprocessFilePaths(content: string): string {
   return s.replace(/\x00(\d+)\x00/g, (_, i) => saved[+i]);
 }
 
+function scrollAnchorIntoChatContainer(target: HTMLElement): boolean {
+  const scrollRoot = target.closest('[data-chat-scroll-root="true"]');
+  if (!(scrollRoot instanceof HTMLElement)) {
+    return false;
+  }
+
+  const rootRect = scrollRoot.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const targetTop = scrollRoot.scrollTop + (targetRect.top - rootRect.top);
+  const nextTop = Math.max(
+    0,
+    Math.min(targetTop - 24, scrollRoot.scrollHeight - scrollRoot.clientHeight),
+  );
+
+  scrollRoot.scrollTo({ top: nextTop, behavior: 'smooth' });
+  return true;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Markdown component overrides                                       */
 /* ------------------------------------------------------------------ */
@@ -181,7 +199,9 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
         for (const id of candidateIds) {
           const target = document.getElementById(id);
           if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            if (!scrollAnchorIntoChatContainer(target)) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
             return;
           }
         }

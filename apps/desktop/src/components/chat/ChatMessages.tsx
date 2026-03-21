@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { MessageCircle, ChevronDown, AlertCircle, RotateCcw, X, Search, FileText, Link2, HelpCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -50,6 +50,8 @@ const SUGGESTIONS: { icon: typeof Search; labelKey: keyof import('../../i18n').T
 ];
 
 const INSTANT_TRANSITION = { duration: 0 };
+const NEAR_BOTTOM_THRESHOLD = 96;
+const FOLLOW_RELEASE_THRESHOLD = 160;
 
 function normalizeThinking(content: string): string {
   return content.replace(/\r\n/g, '\n').trim();
@@ -58,8 +60,9 @@ function normalizeThinking(content: string): string {
 export function ChatMessages({ messages, streamText, streamRounds, thinkingText, isThinking, toolCalls, isStreaming, error, onRetry, onDismissError, onDeleteMessage, onEditAndResend, loadingMsgs, lastCached, onSuggestionClick }: ChatMessagesProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const shouldAutoFollowRef = useRef(true);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -210,56 +213,90 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
     return map;
   }, [messages]);
 
-  // ── Smart auto-scroll ─────────────────────────────────────────────
-  const NEAR_BOTTOM_THRESHOLD = 100;
-
   const getScrollMetrics = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) {
-      return { nearBottom: true, overflow: false };
+      return { distanceFromBottom: 0, nearBottom: true, overflow: false };
     }
+    const distanceFromBottom = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
     return {
-      nearBottom: el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_THRESHOLD,
+      distanceFromBottom,
+      nearBottom: distanceFromBottom <= NEAR_BOTTOM_THRESHOLD,
       overflow: el.scrollHeight > el.clientHeight + 8,
     };
   }, []);
 
+  const scrollToContainerBottom = useCallback((behavior: ScrollBehavior) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    if (autoScrollFrameRef.current != null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+    }
+
+    autoScrollFrameRef.current = requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+      setHasOverflow(el.scrollHeight > el.clientHeight + 8);
+      setIsNearBottom(true);
+      setUnreadCount(0);
+      autoScrollFrameRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (autoScrollFrameRef.current != null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+    }
+  }, []);
+
   const handleScroll = useCallback(() => {
-    const { nearBottom, overflow } = getScrollMetrics();
+    const { distanceFromBottom, nearBottom, overflow } = getScrollMetrics();
     setHasOverflow(overflow);
-    setIsNearBottom(nearBottom);
-    if (nearBottom) setUnreadCount(0);
+    setIsNearBottom(!overflow || nearBottom);
+
+    if (!overflow || nearBottom) {
+      shouldAutoFollowRef.current = true;
+      setUnreadCount(0);
+      return;
+    }
+
+    if (distanceFromBottom > FOLLOW_RELEASE_THRESHOLD) {
+      shouldAutoFollowRef.current = false;
+    }
   }, [getScrollMetrics]);
 
   // Track new messages while scrolled up
   useEffect(() => {
     const newCount = messages.length - prevMsgCountRef.current;
-    if (newCount > 0 && !isNearBottom && hasOverflow) {
+    if (newCount > 0 && hasOverflow && !shouldAutoFollowRef.current) {
       setUnreadCount((c) => c + newCount);
     }
     prevMsgCountRef.current = messages.length;
-  }, [messages.length, isNearBottom, hasOverflow]);
+  }, [messages.length, hasOverflow]);
 
-  // Auto-scroll only when near bottom
-  useEffect(() => {
+  // Follow streamed output unless the user intentionally parked away from the bottom.
+  useLayoutEffect(() => {
     const { nearBottom, overflow } = getScrollMetrics();
     setHasOverflow(overflow);
     if (!overflow) {
+      shouldAutoFollowRef.current = true;
       setIsNearBottom(true);
       setUnreadCount(0);
       return;
     }
-    if (isNearBottom) {
-      bottomRef.current?.scrollIntoView({ behavior: shouldReduceMotion ? 'auto' : 'smooth' });
+
+    if (!shouldAutoFollowRef.current) {
+      setIsNearBottom(nearBottom);
+      return;
     }
-    setIsNearBottom(nearBottom);
-  }, [messages, streamText, streamRounds, toolCalls, getScrollMetrics, isNearBottom, shouldReduceMotion]);
+
+    scrollToContainerBottom('auto');
+  }, [messages, streamText, streamRounds, toolCalls, getScrollMetrics, scrollToContainerBottom]);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: shouldReduceMotion ? 'auto' : 'smooth' });
-    setIsNearBottom(true);
-    setUnreadCount(0);
-  }, [shouldReduceMotion]);
+    shouldAutoFollowRef.current = true;
+    scrollToContainerBottom(shouldReduceMotion ? 'auto' : 'smooth');
+  }, [scrollToContainerBottom, shouldReduceMotion]);
 
   // Find the last assistant message index for retry button
   // NOTE: This useMemo MUST be before early returns to satisfy React's Rules of Hooks.
@@ -353,7 +390,15 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
   }
 
   return (
-    <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-4 relative" role="log" aria-live="polite" aria-label={t('chat.messageArea')}>
+    <div
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+      data-chat-scroll-root="true"
+      className="flex-1 overflow-y-auto px-4 py-4 relative"
+      role="log"
+      aria-live="polite"
+      aria-label={t('chat.messageArea')}
+    >
       <AnimatePresence initial={false}>
         {messages.map((msg, idx) => {
           // Skip tool result messages (rendered inline with tool calls)
@@ -444,7 +489,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
               className="flex justify-start"
             >
               <div className="max-w-[80%]">
-                <ThinkingBlock content={round.thinking} isStreaming={false} defaultExpanded={isStreaming} />
+                <ThinkingBlock content={round.thinking} isStreaming={false} />
               </div>
             </motion.div>
           )}
@@ -589,8 +634,6 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
           </div>
         </motion.div>
       )}
-
-      <div ref={bottomRef} />
 
       {/* Scroll-to-bottom floating button */}
       <AnimatePresence>
