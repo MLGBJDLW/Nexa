@@ -187,49 +187,125 @@ fn extract_text_delta_from_choice(choice: &SseChoice) -> String {
         .unwrap_or_default()
 }
 
-/// Split provider content into visible text and `<think>...</think>` reasoning text.
+// ---------------------------------------------------------------------------
+// Thinking-token tag definitions
+// ---------------------------------------------------------------------------
+
+const THINK_OPEN_TAGS: &[&str] = &[
+    "<think>",
+    "<|begin_of_thinking|>",
+    "<|startofthought|>",
+];
+
+const THINK_CLOSE_TAGS: &[&str] = &[
+    "</think>",
+    "<|end_of_thinking|>",
+    "<|endofthought|>",
+];
+
+/// Find the earliest occurrence of any tag in `haystack`.
+/// Returns `(byte_position, tag_byte_length)` or `None`.
+fn find_earliest_tag(haystack: &str, tags: &[&str]) -> Option<(usize, usize)> {
+    let mut best: Option<(usize, usize)> = None;
+    for tag in tags {
+        if let Some(pos) = haystack.find(tag) {
+            if best.map_or(true, |(bp, _)| pos < bp) {
+                best = Some((pos, tag.len()));
+            }
+        }
+    }
+    best
+}
+
+/// Length of the longest suffix of `haystack` that equals a *proper* prefix of
+/// one of the `tags`.  Returns 0 when there is no partial match.
+fn partial_tag_suffix_len(haystack: &str, tags: &[&str]) -> usize {
+    if haystack.is_empty() {
+        return 0;
+    }
+    let mut max_len = 0usize;
+    for tag in tags {
+        let max_check = tag.len().saturating_sub(1).min(haystack.len());
+        for len in (1..=max_check).rev() {
+            let start = haystack.len() - len;
+            if !haystack.is_char_boundary(start) {
+                continue;
+            }
+            let suffix = &haystack[start..];
+            if tag.starts_with(suffix) {
+                if len > max_len {
+                    max_len = len;
+                }
+                break;
+            }
+        }
+    }
+    max_len
+}
+
+/// Split provider content into visible text and thinking-tag reasoning text.
 ///
-/// Keeps parser state so tags can be detected even when split across SSE chunks.
+/// Handles `<think>…</think>`, `<|begin_of_thinking|>…<|end_of_thinking|>`,
+/// and `<|startofthought|>…<|endofthought|>` formats, including partial tags
+/// split across SSE chunks.
 fn split_think_tags(
     raw_delta: &str,
     in_think_block: &mut bool,
     tag_buffer: &mut String,
 ) -> (String, Option<String>) {
-    if raw_delta.is_empty() {
+    if raw_delta.is_empty() && tag_buffer.is_empty() {
         return (String::new(), None);
     }
 
-    tag_buffer.push_str(raw_delta);
+    if !raw_delta.is_empty() {
+        tag_buffer.push_str(raw_delta);
+    }
 
     let mut visible = String::new();
     let mut thinking = String::new();
 
     loop {
         if *in_think_block {
-            if let Some(end_pos) = tag_buffer.find("</think>") {
+            if let Some((end_pos, tag_len)) = find_earliest_tag(tag_buffer, THINK_CLOSE_TAGS) {
                 let think_part = &tag_buffer[..end_pos];
                 if !think_part.is_empty() {
                     thinking.push_str(think_part);
                 }
-                *tag_buffer = tag_buffer[end_pos + 8..].to_string(); // "</think>"
+                *tag_buffer = tag_buffer[end_pos + tag_len..].to_string();
                 *in_think_block = false;
             } else {
-                if !tag_buffer.is_empty() {
-                    thinking.push_str(tag_buffer);
+                // Hold back any suffix that could be the start of a close tag.
+                let hold = partial_tag_suffix_len(tag_buffer, THINK_CLOSE_TAGS);
+                let flush = tag_buffer.len() - hold;
+                if flush > 0 {
+                    thinking.push_str(&tag_buffer[..flush]);
+                }
+                if hold > 0 {
+                    *tag_buffer = tag_buffer[flush..].to_string();
+                } else {
                     tag_buffer.clear();
                 }
                 break;
             }
-        } else if let Some(start_pos) = tag_buffer.find("<think>") {
+        } else if let Some((start_pos, tag_len)) =
+            find_earliest_tag(tag_buffer, THINK_OPEN_TAGS)
+        {
             let before = &tag_buffer[..start_pos];
             if !before.is_empty() {
                 visible.push_str(before);
             }
-            *tag_buffer = tag_buffer[start_pos + 7..].to_string(); // "<think>"
+            *tag_buffer = tag_buffer[start_pos + tag_len..].to_string();
             *in_think_block = true;
         } else {
-            if !tag_buffer.is_empty() {
-                visible.push_str(tag_buffer);
+            // Hold back any suffix that could be the start of an open tag.
+            let hold = partial_tag_suffix_len(tag_buffer, THINK_OPEN_TAGS);
+            let flush = tag_buffer.len() - hold;
+            if flush > 0 {
+                visible.push_str(&tag_buffer[..flush]);
+            }
+            if hold > 0 {
+                *tag_buffer = tag_buffer[flush..].to_string();
+            } else {
                 tag_buffer.clear();
             }
             break;
@@ -290,18 +366,30 @@ pub async fn parse_sse_stream(
 
             // Stream termination signal.
             if data == "[DONE]" {
-                // Flush trailing think content when provider did not close </think>.
-                if in_think_block && !think_tag_buffer.is_empty() {
+                // Flush any held-back buffer content at stream end.
+                if !think_tag_buffer.is_empty() {
                     let tail = std::mem::take(&mut think_tag_buffer);
-                    let _ = tx
-                        .send(Ok(StreamChunk {
-                            delta: String::new(),
-                            tool_call_delta: None,
-                            finish_reason: None,
-                            usage: None,
-                            thinking_delta: Some(tail),
-                        }))
-                        .await;
+                    if in_think_block {
+                        let _ = tx
+                            .send(Ok(StreamChunk {
+                                delta: String::new(),
+                                tool_call_delta: None,
+                                finish_reason: None,
+                                usage: None,
+                                thinking_delta: Some(tail),
+                            }))
+                            .await;
+                    } else {
+                        let _ = tx
+                            .send(Ok(StreamChunk {
+                                delta: tail,
+                                tool_call_delta: None,
+                                finish_reason: None,
+                                usage: None,
+                                thinking_delta: None,
+                            }))
+                            .await;
+                    }
                 }
                 return Ok(());
             }
@@ -468,5 +556,152 @@ mod tests {
         .expect("deserialize choice");
 
         assert_eq!(extract_text_delta_from_choice(&choice), "assistant output");
+    }
+
+    // -- split_think_tags tests -------------------------------------------
+
+    #[test]
+    fn think_tags_basic() {
+        let mut in_block = false;
+        let mut buf = String::new();
+        let (vis, think) =
+            split_think_tags("hello<think>reasoning</think>world", &mut in_block, &mut buf);
+        assert_eq!(vis, "helloworld");
+        assert_eq!(think.as_deref(), Some("reasoning"));
+        assert!(!in_block);
+    }
+
+    #[test]
+    fn begin_of_thinking_tags() {
+        let mut in_block = false;
+        let mut buf = String::new();
+        let (vis, think) = split_think_tags(
+            "hello<|begin_of_thinking|>deep thought<|end_of_thinking|>world",
+            &mut in_block,
+            &mut buf,
+        );
+        assert_eq!(vis, "helloworld");
+        assert_eq!(think.as_deref(), Some("deep thought"));
+        assert!(!in_block);
+    }
+
+    #[test]
+    fn startofthought_tags() {
+        let mut in_block = false;
+        let mut buf = String::new();
+        let (vis, think) = split_think_tags(
+            "hi<|startofthought|>pondering<|endofthought|>bye",
+            &mut in_block,
+            &mut buf,
+        );
+        assert_eq!(vis, "hibye");
+        assert_eq!(think.as_deref(), Some("pondering"));
+    }
+
+    #[test]
+    fn partial_open_tag_across_chunks() {
+        let mut in_block = false;
+        let mut buf = String::new();
+
+        // First chunk ends mid-tag.
+        let (vis1, think1) =
+            split_think_tags("hello<|begin_of_", &mut in_block, &mut buf);
+        assert_eq!(vis1, "hello");
+        assert!(think1.is_none());
+        assert!(!in_block);
+        // Buffer holds the partial tag.
+        assert!(!buf.is_empty());
+
+        // Second chunk completes the tag.
+        let (vis2, think2) = split_think_tags(
+            "thinking|>secret<|end_of_thinking|>world",
+            &mut in_block,
+            &mut buf,
+        );
+        assert_eq!(vis2, "world");
+        assert_eq!(think2.as_deref(), Some("secret"));
+        assert!(!in_block);
+    }
+
+    #[test]
+    fn partial_close_tag_across_chunks() {
+        let mut in_block = true;
+        let mut buf = String::new();
+
+        // First chunk ends mid-close-tag.
+        let (vis1, think1) =
+            split_think_tags("reasoning<|end_of_", &mut in_block, &mut buf);
+        assert_eq!(vis1, "");
+        assert_eq!(think1.as_deref(), Some("reasoning"));
+        assert!(in_block);
+
+        // Second chunk completes the close tag.
+        let (vis2, think2) =
+            split_think_tags("thinking|>visible", &mut in_block, &mut buf);
+        assert_eq!(vis2, "visible");
+        assert!(think2.is_none());
+        assert!(!in_block);
+    }
+
+    #[test]
+    fn no_tags_passes_through() {
+        let mut in_block = false;
+        let mut buf = String::new();
+        let (vis, think) = split_think_tags("just text", &mut in_block, &mut buf);
+        assert_eq!(vis, "just text");
+        assert!(think.is_none());
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        let mut in_block = false;
+        let mut buf = String::new();
+        let (vis, think) = split_think_tags("", &mut in_block, &mut buf);
+        assert_eq!(vis, "");
+        assert!(think.is_none());
+    }
+
+    #[test]
+    fn partial_tag_suffix_len_finds_prefix() {
+        assert_eq!(partial_tag_suffix_len("hello<|begin", THINK_OPEN_TAGS), 7);
+        assert_eq!(partial_tag_suffix_len("text<", THINK_OPEN_TAGS), 1);
+        assert_eq!(partial_tag_suffix_len("nothing", THINK_OPEN_TAGS), 0);
+        assert_eq!(partial_tag_suffix_len("x</thi", THINK_CLOSE_TAGS), 5);
+    }
+
+    #[test]
+    fn cjk_text_no_panic() {
+        // CJK characters are 3 bytes each; byte-level slicing must not
+        // land inside a multi-byte character.
+        let mut in_block = false;
+        let mut buf = String::new();
+        let (vis, think) = split_think_tags("根据<think>中文思考</think>结果", &mut in_block, &mut buf);
+        assert_eq!(vis, "根据结果");
+        assert_eq!(think.as_deref(), Some("中文思考"));
+        assert!(!in_block);
+    }
+
+    #[test]
+    fn cjk_partial_tag_no_panic() {
+        // Suffix scan must skip non-char-boundary positions.
+        assert_eq!(partial_tag_suffix_len("根据", THINK_OPEN_TAGS), 0);
+        assert_eq!(partial_tag_suffix_len("根据<", THINK_OPEN_TAGS), 1);
+        assert_eq!(partial_tag_suffix_len("根据</thin", THINK_CLOSE_TAGS), 6);
+    }
+
+    #[test]
+    fn cjk_in_think_block_across_chunks() {
+        let mut in_block = true;
+        let mut buf = String::new();
+        // First chunk: CJK reasoning with partial close tag.
+        let (vis1, think1) = split_think_tags("中文推理</thi", &mut in_block, &mut buf);
+        assert_eq!(vis1, "");
+        assert_eq!(think1.as_deref(), Some("中文推理"));
+        assert!(in_block);
+        // Second chunk completes the close tag.
+        let (vis2, think2) = split_think_tags("nk>可见文本", &mut in_block, &mut buf);
+        assert_eq!(vis2, "可见文本");
+        assert!(think2.is_none());
+        assert!(!in_block);
     }
 }

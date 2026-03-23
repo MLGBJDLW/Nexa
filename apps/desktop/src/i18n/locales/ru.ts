@@ -844,6 +844,7 @@ export const ru: TranslationKeys = {
   'chat.verificationFailedCount': '{count} failed',
   'chat.verificationPendingCount': '{count} pending',
   'chat.verificationSkippedCount': '{count} skipped',
+  'chat.showLess': 'Свернуть',
 
   // Media
   'media.play': '\u0412\u043e\u0441\u043f\u0440\u043e\u0438\u0437\u0432\u0435\u0441\u0442\u0438',

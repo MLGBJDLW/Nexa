@@ -59,7 +59,7 @@ impl Tool for ListDirTool {
     }
 
     fn categories(&self) -> &'static [ToolCategory] {
-        &[ToolCategory::FileSystem]
+        &[ToolCategory::Core, ToolCategory::FileSystem]
     }
 
     async fn execute(

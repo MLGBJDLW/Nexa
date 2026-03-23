@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Circle, ClipboardList, Loader2, ShieldCheck, XCircle } from 'lucide-react';
+import { useState } from 'react';
 import { useTranslation } from '../../i18n';
 import type { PlanArtifact, PlanStepArtifact, VerificationArtifact, VerificationCheckArtifact } from '../../lib/taskArtifacts';
 
@@ -52,24 +53,24 @@ function getVerificationCounts(verification: VerificationArtifact) {
 }
 
 function PlanStepRow({ step }: { step: PlanStepArtifact }) {
-  let icon = <Circle className="h-4 w-4 text-text-tertiary" />;
+  let icon = <Circle className="h-3 w-3 text-text-tertiary" />;
   let tone = 'text-text-secondary';
 
   if (step.status === 'completed') {
-    icon = <CheckCircle2 className="h-4 w-4 text-success" />;
+    icon = <CheckCircle2 className="h-3 w-3 text-success" />;
     tone = 'text-text-primary';
   } else if (step.status === 'in_progress') {
-    icon = <Loader2 className="h-4 w-4 animate-spin text-accent" />;
+    icon = <Loader2 className="h-3 w-3 animate-spin text-accent" />;
     tone = 'text-text-primary';
   }
 
   return (
-    <li className="flex items-start gap-2.5">
+    <li className="flex items-start gap-1.5">
       <span className="mt-0.5 shrink-0">{icon}</span>
       <div className="min-w-0">
-        <div className={`text-sm ${tone}`}>{step.title}</div>
+        <div className={`text-xs ${tone}`}>{step.title}</div>
         {step.notes && (
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{step.notes}</div>
+          <div className="mt-0.5 text-[11px] text-text-tertiary">{step.notes}</div>
         )}
       </div>
     </li>
@@ -77,26 +78,26 @@ function PlanStepRow({ step }: { step: PlanStepArtifact }) {
 }
 
 function VerificationRow({ check }: { check: VerificationCheckArtifact }) {
-  let icon = <Circle className="h-4 w-4 text-text-tertiary" />;
+  let icon = <Circle className="h-3 w-3 text-text-tertiary" />;
   let tone = 'text-text-secondary';
 
   if (check.status === 'passed') {
-    icon = <CheckCircle2 className="h-4 w-4 text-success" />;
+    icon = <CheckCircle2 className="h-3 w-3 text-success" />;
     tone = 'text-text-primary';
   } else if (check.status === 'failed') {
-    icon = <XCircle className="h-4 w-4 text-danger" />;
+    icon = <XCircle className="h-3 w-3 text-danger" />;
     tone = 'text-text-primary';
   } else if (check.status === 'skipped') {
-    icon = <AlertTriangle className="h-4 w-4 text-warning" />;
+    icon = <AlertTriangle className="h-3 w-3 text-warning" />;
   }
 
   return (
-    <li className="flex items-start gap-2.5">
+    <li className="flex items-start gap-1.5">
       <span className="mt-0.5 shrink-0">{icon}</span>
       <div className="min-w-0">
-        <div className={`text-sm ${tone}`}>{check.name}</div>
+        <div className={`text-xs ${tone}`}>{check.name}</div>
         {check.details && (
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{check.details}</div>
+          <div className="mt-0.5 text-[11px] text-text-tertiary">{check.details}</div>
         )}
       </div>
     </li>
@@ -111,6 +112,7 @@ export function PlanPanel({
   compact?: boolean;
 }) {
   const { t } = useTranslation();
+  const [showAll, setShowAll] = useState(false);
   const counts = getPlanCounts(plan);
   const percent = counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0;
   const progressBits = [t('chat.planPercentComplete', { percent: String(percent) })];
@@ -122,20 +124,20 @@ export function PlanPanel({
   }
 
   return (
-    <div className={`rounded-xl border border-border/70 bg-surface-1/70 ${compact ? 'px-3 py-2.5' : 'px-3.5 py-3'}`}>
-      <div className="flex items-start justify-between gap-3">
+    <div className={`rounded-lg border border-border/70 bg-surface-1/70 ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-accent" />
-            <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-tertiary">
+          <div className="flex items-center gap-1.5">
+            <ClipboardList className="h-3.5 w-3.5 text-accent" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-text-tertiary">
               {t('chat.planLabel')}
             </span>
           </div>
-          <div className="mt-1 text-sm font-medium text-text-primary">
+          <div className="mt-0.5 text-xs font-medium text-text-primary">
             {plan.title || t('chat.planDefaultTitle')}
           </div>
           {plan.explanation && (
-            <div className="mt-1 text-[12px] text-text-secondary">{plan.explanation}</div>
+            <div className="mt-0.5 text-[11px] text-text-secondary">{plan.explanation}</div>
           )}
         </div>
         <div className="shrink-0 rounded-full border border-border/70 bg-surface-0/80 px-2 py-1 text-[11px] tabular-nums text-text-secondary">
@@ -143,23 +145,32 @@ export function PlanPanel({
         </div>
       </div>
 
-      <div className="mt-3">
-        <div className="h-2 rounded-full bg-surface-0">
+      <div className="mt-2">
+        <div className="h-1.5 rounded-full bg-surface-0">
           <div
             className="h-full rounded-full bg-accent transition-[width] duration-300"
             style={{ width: `${percent}%` }}
           />
         </div>
-        <div className="mt-1.5 text-[11px] text-text-tertiary">
+        <div className="mt-1 text-[10px] text-text-tertiary">
           {progressBits.join(', ')}
         </div>
       </div>
 
-      <ul className="mt-3 space-y-2">
-        {plan.steps.map((step, index) => (
+      <ul className="mt-2 max-h-[150px] space-y-1.5 overflow-y-auto">
+        {(showAll ? plan.steps : plan.steps.slice(0, 3)).map((step, index) => (
           <PlanStepRow key={step.id || `${step.title}-${index}`} step={step} />
         ))}
       </ul>
+      {plan.steps.length > 3 && (
+        <button
+          type="button"
+          className="mt-1 text-[11px] text-accent hover:underline"
+          onClick={() => setShowAll(prev => !prev)}
+        >
+          {showAll ? t('chat.showLess') : `Show all ${plan.steps.length} steps`}
+        </button>
+      )}
     </div>
   );
 }
@@ -172,6 +183,7 @@ export function VerificationPanel({
   compact?: boolean;
 }) {
   const { t } = useTranslation();
+  const [showAll, setShowAll] = useState(false);
   const counts = getVerificationCounts(verification);
   const overall = verification.overallStatus
     ?? (counts.failed > 0 ? 'failed' : counts.passed > 0 && counts.pending > 0 ? 'partial' : counts.passed > 0 ? 'passed' : 'pending');
@@ -195,16 +207,16 @@ export function VerificationPanel({
           : t('chat.verificationPending');
 
   return (
-    <div className={`rounded-xl border border-border/70 bg-surface-1/70 ${compact ? 'px-3 py-2.5' : 'px-3.5 py-3'}`}>
-      <div className="flex items-start justify-between gap-3">
+    <div className={`rounded-lg border border-border/70 bg-surface-1/70 ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-accent" />
-            <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-tertiary">
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-accent" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-text-tertiary">
               {t('chat.verificationLabel')}
             </span>
           </div>
-          <div className="mt-1 text-sm font-medium text-text-primary">
+          <div className="mt-0.5 text-xs font-medium text-text-primary">
             {verification.summary || t('chat.verificationDefaultSummary')}
           </div>
         </div>
@@ -213,7 +225,7 @@ export function VerificationPanel({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-text-tertiary">
+      <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-text-tertiary">
         <span className="rounded-full border border-border/70 bg-surface-0/80 px-2 py-1">
           {t('chat.verificationPassedCount', { count: String(counts.passed) })}
         </span>
@@ -230,11 +242,20 @@ export function VerificationPanel({
         )}
       </div>
 
-      <ul className="mt-3 space-y-2">
-        {verification.checks.map((check, index) => (
+      <ul className="mt-2 max-h-[150px] space-y-1.5 overflow-y-auto">
+        {(showAll ? verification.checks : verification.checks.slice(0, 3)).map((check, index) => (
           <VerificationRow key={`${check.name}-${index}`} check={check} />
         ))}
       </ul>
+      {verification.checks.length > 3 && (
+        <button
+          type="button"
+          className="mt-1 text-[11px] text-accent hover:underline"
+          onClick={() => setShowAll(prev => !prev)}
+        >
+          {showAll ? t('chat.showLess') : `Show all ${verification.checks.length} checks`}
+        </button>
+      )}
     </div>
   );
 }

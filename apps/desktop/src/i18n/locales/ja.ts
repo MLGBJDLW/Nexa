@@ -842,6 +842,7 @@ export const ja: TranslationKeys = {
   'chat.verificationFailedCount': '{count} failed',
   'chat.verificationPendingCount': '{count} pending',
   'chat.verificationSkippedCount': '{count} skipped',
+  'chat.showLess': '折りたたむ',
 
   // Media
   'media.play': '\u518d\u751f',

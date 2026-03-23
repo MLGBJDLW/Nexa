@@ -109,7 +109,7 @@ impl Tool for FileTool {
     }
 
     fn categories(&self) -> &'static [ToolCategory] {
-        &[ToolCategory::FileSystem]
+        &[ToolCategory::Core, ToolCategory::FileSystem]
     }
 
     async fn execute(

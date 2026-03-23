@@ -841,6 +841,7 @@ export const de: TranslationKeys = {
   'chat.verificationFailedCount': '{count} failed',
   'chat.verificationPendingCount': '{count} pending',
   'chat.verificationSkippedCount': '{count} skipped',
+  'chat.showLess': 'Weniger anzeigen',
 
   // Media
   'media.play': 'Abspielen',

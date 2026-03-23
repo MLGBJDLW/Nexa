@@ -9,10 +9,17 @@ import { useTranslation } from '../../i18n';
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+export interface ThinkingSection {
+  text: string;
+  toolCallCards?: React.ReactNode;
+}
+
 interface ThinkingBlockProps {
   content: string;
+  sections?: ThinkingSection[];
   isStreaming?: boolean;
   defaultExpanded?: boolean;
+  children?: React.ReactNode;
 }
 
 /* ------------------------------------------------------------------ */
@@ -63,7 +70,7 @@ const thinkingMarkdownComponents: Record<string, React.ComponentType<ComponentPr
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }: ThinkingBlockProps) {
+export function ThinkingBlock({ content, sections, isStreaming = false, defaultExpanded, children }: ThinkingBlockProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(defaultExpanded ?? isStreaming);
@@ -72,9 +79,14 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
   const autoOpenedRef = useRef(false);
   const [elapsed, setElapsed] = useState(0);
 
+  const effectiveSections = sections && sections.length > 0 ? sections : null;
+  const combinedContent = effectiveSections
+    ? effectiveSections.map(s => s.text).filter(Boolean).join('\n')
+    : content;
+
   // Keep the live trace open while it is streaming, then collapse it once that phase ends.
   useEffect(() => {
-    const hasContent = content.trim().length > 0;
+    const hasContent = combinedContent.trim().length > 0;
     if (!prevStreamingRef.current && isStreaming) {
       startTimeRef.current = Date.now();
       setElapsed(0);
@@ -88,7 +100,7 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
       autoOpenedRef.current = false;
     }
     prevStreamingRef.current = isStreaming;
-  }, [content, isStreaming]);
+  }, [combinedContent, isStreaming]);
 
   // Track elapsed thinking time
   useEffect(() => {
@@ -105,9 +117,9 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
     return () => clearInterval(interval);
   }, [isStreaming]);
 
-  const tokenEstimate = Math.round(content.length / 4); // rough estimate
+  const tokenEstimate = Math.round(combinedContent.length / 4); // rough estimate
   const summaryExcerpt = !isStreaming
-    ? content
+    ? combinedContent
         .replace(/[#>*`_~-]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
@@ -153,7 +165,7 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
       </button>
 
       <AnimatePresence initial={false}>
-        {expanded && content && (
+        {expanded && (combinedContent || effectiveSections || children) && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -168,15 +180,34 @@ export function ThinkingBlock({ content, isStreaming = false, defaultExpanded }:
             >
               <div className="relative max-h-[300px] overflow-y-auto rounded-r-md py-2 pl-3 pr-6 text-xs leading-relaxed text-text-secondary">
                 <div className="border-l-2 border-accent/18 pl-3">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
-                    {content}
-                  </ReactMarkdown>
+                  {effectiveSections ? (
+                    effectiveSections.map((sec, secIdx) => (
+                      <div key={secIdx}>
+                        {secIdx > 0 && <div className="my-2 border-t border-border/20" />}
+                        {sec.text && (
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
+                            {sec.text}
+                          </ReactMarkdown>
+                        )}
+                        {sec.toolCallCards}
+                      </div>
+                    ))
+                  ) : (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
+                      {content}
+                    </ReactMarkdown>
+                  )}
                 </div>
                 {isStreaming && (
                   <span className={`streaming-caret-overlay ${shouldReduceMotion ? '' : 'animate-pulse'}`} />
                 )}
               </div>
             </div>
+          {children && (
+            <div className="ml-4 mt-1 space-y-0.5 pb-1">
+              {children}
+            </div>
+          )}
           </motion.div>
         )}
       </AnimatePresence>

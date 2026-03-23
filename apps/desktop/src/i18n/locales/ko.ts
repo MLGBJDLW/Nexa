@@ -844,6 +844,7 @@ export const ko: TranslationKeys = {
   'chat.verificationFailedCount': '{count} failed',
   'chat.verificationPendingCount': '{count} pending',
   'chat.verificationSkippedCount': '{count} skipped',
+  'chat.showLess': '접기',
 
   // Media
   'media.play': '\uc7ac\uc0dd',

@@ -76,6 +76,7 @@ pub struct IngestResult {
     pub files_updated: usize,
     pub files_skipped: usize,
     pub files_failed: usize,
+    pub files_purged: usize,
     pub errors: Vec<String>,
 }
 
@@ -204,6 +205,7 @@ fn scan_source_inner(
         files_updated: 0,
         files_skipped: 0,
         files_failed: 0,
+        files_purged: 0,
         errors: Vec::new(),
     };
 
@@ -330,6 +332,37 @@ fn scan_source_inner(
         batch_update_documents(db, &update_docs)?;
     }
 
+    // Purge stale documents: entries in the DB whose files no longer exist on disk.
+    for (doc_path, (_doc_id, _hash)) in &existing_docs {
+        if !Path::new(doc_path).exists() {
+            info!("Purging stale document (file removed from disk): {}", doc_path);
+            match db.delete_document_by_path(doc_path) {
+                Ok(true) => result.files_purged += 1,
+                Ok(false) => {
+                    debug!("Stale document already removed: {}", doc_path);
+                }
+                Err(e) => {
+                    let msg = format!("Failed to purge stale document {}: {}", doc_path, e);
+                    warn!("{}", msg);
+                    result.errors.push(msg);
+                }
+            }
+        }
+    }
+
+    // Emit progress for purge phase.
+    if result.files_purged > 0 {
+        if let Some(cb) = &on_progress {
+            cb(ScanProgress {
+                source_id: source_id.to_string(),
+                phase: "purging".to_string(),
+                current: result.files_purged,
+                total: result.files_purged,
+                current_file: None,
+            });
+        }
+    }
+
     // Emit final progress.
     if let Some(cb) = &on_progress {
         cb(ScanProgress {
@@ -342,13 +375,14 @@ fn scan_source_inner(
     }
 
     info!(
-        "Scan complete for source {}: scanned={}, added={}, updated={}, skipped={}, failed={}",
+        "Scan complete for source {}: scanned={}, added={}, updated={}, skipped={}, failed={}, purged={}",
         source_id,
         result.files_scanned,
         result.files_added,
         result.files_updated,
         result.files_skipped,
-        result.files_failed
+        result.files_failed,
+        result.files_purged
     );
 
     Ok(result)

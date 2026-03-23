@@ -1089,6 +1089,12 @@ impl AgentExecutor {
 
             if !full_content.trim().is_empty() {
                 last_iteration_content = full_content.clone();
+            } else if !iteration_thinking.is_empty() && tool_calls.is_empty() {
+                // All content went to thinking (e.g. entire response wrapped in
+                // <think> tags). Use thinking as the visible content so the DB
+                // message is not empty.
+                full_content = iteration_thinking.clone();
+                last_iteration_content = full_content.clone();
             }
 
             // -- 4c. Build assistant message -----------------------------------

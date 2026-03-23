@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import * as api from './api';
 import { useAgentStream, UsageTotal } from './useAgentStream';
+import { streamStore } from './streamStore';
 import { useTranslation } from '../i18n';
 import type { Conversation, ConversationMessage, AgentConfig, ImageAttachment } from '../types/conversation';
 import { appTimeMs } from './dateTime';
@@ -232,7 +233,17 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     autoCompacted,
     clearPreview,
     reset,
-  } = useAgentStream();
+  } = useAgentStream(activeId);
+
+  // Reconnect to in-progress or just-completed stream from global store
+  // (runs during render so scoping computed values below see the correct ref)
+  if (activeId && !streamingConversationRef.current) {
+    const storeStream = streamStore.getStream(activeId);
+    if (storeStream && (storeStream.isStreaming || storeStream.streamRounds.length > 0 || storeStream.streamText.length > 0)) {
+      streamingConversationRef.current = activeId;
+      usageConversationRef.current = activeId;
+    }
+  }
 
   const setUsageCacheForConversation = useCallback((conversationId: string, usage: UsageTotal) => {
     const normalized = normalizeUsage(usage);
@@ -412,24 +423,37 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       // Also refresh conversation list (updatedAt changes)
       loadConversations();
 
-      // Auto-title: generate title from first user message if untitled
+      // Auto-title: set immediate truncated placeholder, then request LLM title
       const conv = conversationsRef.current.find((c) => c.id === completedConversationId);
       if (conv && !conv.title) {
         const firstUserMsg = (messageCacheRef.current[completedConversationId] ?? []).find((m) => m.role === 'user');
         if (firstUserMsg) {
-          const title = generateTitle(firstUserMsg.content);
-          if (title) {
-            api.renameConversation(completedConversationId, title)
+          const placeholder = generateTitle(firstUserMsg.content);
+          if (placeholder) {
+            // Set truncated title immediately for responsiveness
+            api.renameConversation(completedConversationId, placeholder)
               .then(() => {
                 if (!cancelled) {
                   setConversations((prev) =>
-                    prev.map((c) => (c.id === completedConversationId ? { ...c, title } : c)),
+                    prev.map((c) => (c.id === completedConversationId ? { ...c, title: placeholder } : c)),
                   );
                 }
               })
               .catch((e) => {
-                // Auto-title is cosmetic; log but don't interrupt user
-                console.error('Failed to auto-title conversation:', e);
+                console.error('Failed to set placeholder title:', e);
+              });
+            // Request LLM-generated title in background
+            api.generateTitle(completedConversationId)
+              .then((llmTitle) => {
+                if (!cancelled && llmTitle) {
+                  setConversations((prev) =>
+                    prev.map((c) => (c.id === completedConversationId ? { ...c, title: llmTitle } : c)),
+                  );
+                }
+              })
+              .catch((e) => {
+                // LLM title failed; placeholder already set — no action needed
+                console.error('LLM title generation failed, keeping placeholder:', e);
               });
           }
         }

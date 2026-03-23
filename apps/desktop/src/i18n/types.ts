@@ -615,6 +615,7 @@ export interface TranslationKeys {
   'chat.verificationFailedCount': string;
   'chat.verificationPendingCount': string;
   'chat.verificationSkippedCount': string;
+  'chat.showLess': string;
   'chat.selectMode': string;
   'chat.exitSelectMode': string;
   'chat.deleteAll': string;

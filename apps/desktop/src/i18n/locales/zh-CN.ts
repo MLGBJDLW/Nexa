@@ -858,6 +858,7 @@ export const zhCN: TranslationKeys = {
   'chat.verificationFailedCount': '{count} 项失败',
   'chat.verificationPendingCount': '{count} 项待验证',
   'chat.verificationSkippedCount': '{count} 项跳过',
+  'chat.showLess': '收起',
 
   // Media
   'media.play': '播放',

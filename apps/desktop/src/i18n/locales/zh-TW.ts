@@ -842,6 +842,7 @@ export const zhTW: TranslationKeys = {
   'chat.verificationFailedCount': '{count} failed',
   'chat.verificationPendingCount': '{count} pending',
   'chat.verificationSkippedCount': '{count} skipped',
+  'chat.showLess': '收合',
 
   // Media
   'media.play': '\u64ad\u653e',

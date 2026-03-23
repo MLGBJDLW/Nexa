@@ -66,6 +66,7 @@ impl ToolDef {
 
 pub mod chunk_context_tool;
 pub mod compare_tool;
+pub mod create_file_tool;
 pub mod date_search_tool;
 pub mod document_info_tool;
 pub mod edit_file_tool;
@@ -406,6 +407,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(write_note_tool::WriteNoteTool));
     registry.register(Box::new(search_playbooks_tool::SearchPlaybooksTool));
     registry.register(Box::new(edit_file_tool::EditFileTool));
+    registry.register(Box::new(create_file_tool::CreateFileTool));
     registry.register(Box::new(submit_feedback_tool::SubmitFeedbackTool));
     registry.register(Box::new(document_info_tool::GetDocumentInfoTool));
     registry.register(Box::new(reindex_tool::ReindexTool));

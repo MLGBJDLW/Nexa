@@ -51,6 +51,8 @@ interface ToolCallCardProps {
   content?: string;
   isError?: boolean;
   artifacts?: ArtifactPayload;
+  compact?: boolean;
+  inline?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,6 +113,34 @@ function formatArgs(raw?: string): string {
   } catch {
     return raw;
   }
+}
+
+function getToolBriefLabel(name: string, args?: string): string {
+  if (!args) return name;
+  try {
+    const parsed = JSON.parse(args);
+    const key = parsed.path || parsed.file || parsed.filename || parsed.query;
+    if (key && typeof key === 'string') {
+      const short = key.length > 25 ? '\u2026' + key.slice(-22) : key;
+      return `${name}(${short})`;
+    }
+  } catch { /* ignore */ }
+  return name;
+}
+
+function getToolBriefResult(status: string, content?: string, toolName?: string): string {
+  if (status === 'running') return '\u2026';
+  if (status === 'error') return 'error';
+  const lower = (toolName || '').toLowerCase();
+  if (lower.includes('search') && content) {
+    const match = content.match(/Found (\d+) result/i);
+    if (match) return `${match[1]} results`;
+  }
+  if (content) {
+    const lines = content.split('\n').length;
+    if (lines > 3) return `${lines} lines`;
+  }
+  return 'done';
 }
 
 function verificationStatusLabel(
@@ -229,6 +259,8 @@ export function ToolCallCard({
   content,
   isError,
   artifacts,
+  compact,
+  inline,
 }: ToolCallCardProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
@@ -270,6 +302,19 @@ export function ToolCallCard({
     }
   }, [isStructuredTaskCard]);
 
+  if (inline) {
+    const briefLabel = getToolBriefLabel(safeToolName, args);
+    const briefResult = getToolBriefResult(status, content, safeToolName);
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Icon className="h-2.5 w-2.5 shrink-0" />
+        <span className="font-medium text-text-secondary">{briefLabel}</span>
+        <span className="text-text-tertiary/40">→</span>
+        <span>{briefResult}</span>
+      </span>
+    );
+  }
+
   const statusConfig = {
     running: { icon: Loader2, text: t('chat.toolRunning'), color: 'text-accent', spin: true },
     done: { icon: CheckCircle2, text: t('chat.toolDone'), color: 'text-success', spin: false },
@@ -293,6 +338,36 @@ export function ToolCallCard({
   const StatusIcon = statusConfig.icon;
   const traceActive = status === 'running' && !shouldReduceMotion;
   const traceSoft = status !== 'error';
+
+  if (compact) {
+    return (
+      <div className="rounded border border-border/40 overflow-hidden">
+        <button
+          onClick={() => setExpanded((p) => !p)}
+          className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-surface-2/50 transition-colors cursor-pointer"
+        >
+          <Icon className="h-3 w-3 shrink-0 text-text-tertiary" />
+          <span className="text-[11px] font-medium text-text-secondary truncate">{safeToolName}</span>
+          <span className="text-[10px] text-text-tertiary truncate flex-1">{headerSummary}</span>
+          <StatusIcon
+            className={`h-3 w-3 shrink-0 ${statusConfig.color} ${statusConfig.spin ? 'animate-spin' : ''}`}
+          />
+        </button>
+        {expanded && content && (
+          <div className="border-t border-border/30 px-2 py-1.5">
+            {formattedArgs && (
+              <div className="mb-1 rounded bg-surface-0/60 px-1.5 py-0.5 text-[10px] text-text-tertiary break-words">
+                {formattedArgs}
+              </div>
+            )}
+            <pre className={`text-[11px] whitespace-pre-wrap break-words max-h-32 overflow-y-auto ${isError ? 'text-danger' : 'text-text-tertiary'}`}>
+              {content}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (subagentRun) {
     return (

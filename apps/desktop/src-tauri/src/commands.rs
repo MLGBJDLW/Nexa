@@ -1292,6 +1292,55 @@ pub async fn rename_conversation_cmd(
 }
 
 #[tauri::command]
+pub async fn generate_title_cmd(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<String, String> {
+    // 1. Load default agent config for LLM access.
+    let db_config = state
+        .db
+        .get_default_agent_config()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No default agent config set.".to_string())?;
+
+    // 2. Load conversation messages.
+    let messages = state
+        .db
+        .get_messages(&conversation_id)
+        .map_err(|e| e.to_string())?;
+
+    let first_user = messages.iter().find(|m| m.role == Role::User);
+    let first_assistant = messages.iter().find(|m| m.role == Role::Assistant);
+
+    let user_content = match first_user {
+        Some(m) => m.content.clone(),
+        None => return Err("No user message found.".to_string()),
+    };
+    let assistant_content = first_assistant.map(|m| m.content.as_str());
+
+    // 3. Create provider and generate title.
+    let app_cfg = state.db.load_app_config().unwrap_or_default();
+    let provider_config = db_config_to_provider_config(&db_config, Some(app_cfg.llm_timeout_secs));
+    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+
+    let title = ask_core::conversation::generate_title(
+        provider.as_ref(),
+        &db_config.model,
+        &user_content,
+        assistant_content,
+    )
+    .await;
+
+    // 4. Update DB.
+    state
+        .db
+        .update_conversation_title(&conversation_id, &title)
+        .map_err(|e| e.to_string())?;
+
+    Ok(title)
+}
+
+#[tauri::command]
 pub async fn update_conversation_system_prompt_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
