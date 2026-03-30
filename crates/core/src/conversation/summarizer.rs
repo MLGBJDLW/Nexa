@@ -5,7 +5,9 @@
 //! that retains key decisions, facts, and open items — rather than relying
 //! solely on the extractive (truncation-based) recap.
 
+use crate::error::CoreError;
 use crate::llm::{CompletionRequest, LlmProvider, Message, Role};
+use tracing::warn;
 
 use super::memory::estimate_tokens;
 
@@ -24,6 +26,9 @@ const MAX_SUMMARY_TOKENS: u32 = 500;
 /// Maximum input characters sent into the summarisation request.
 /// Keeps the summarisation call itself cheap (~2 000 tokens input).
 const MAX_INPUT_FOR_SUMMARY: usize = 8_000;
+
+/// Maximum number of retries for transient / rate-limited LLM errors.
+const MAX_SUMMARY_RETRIES: u32 = 2;
 
 /// Minimum estimated token count of the evicted text before it is worth
 /// sending to the LLM (very short evictions are handled fine by the
@@ -77,16 +82,59 @@ pub async fn summarize_evicted_messages(
         provider_type: None,
     };
 
-    match provider.complete(&request).await {
-        Ok(response) => {
-            let text = response.content.trim();
-            if text.is_empty() {
-                extractive_fallback.to_string()
-            } else {
-                text.to_string()
+    let mut retry_count = 0u32;
+    loop {
+        match provider.complete(&request).await {
+            Ok(response) => {
+                let text = response.content.trim();
+                return if text.is_empty() {
+                    extractive_fallback.to_string()
+                } else {
+                    text.to_string()
+                };
+            }
+            Err(CoreError::RateLimited { retry_after_secs }) => {
+                retry_count += 1;
+                if retry_count > MAX_SUMMARY_RETRIES {
+                    warn!(
+                        "Summarizer: rate limited after {} retries, falling back to extractive recap",
+                        MAX_SUMMARY_RETRIES
+                    );
+                    return extractive_fallback.to_string();
+                }
+                let wait = if retry_after_secs > 0 {
+                    retry_after_secs
+                } else {
+                    2u64.pow(retry_count)
+                };
+                warn!(
+                    "Summarizer: rate limited, retry {}/{} after {}s",
+                    retry_count, MAX_SUMMARY_RETRIES, wait
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+            Err(CoreError::TransientLlm(msg)) => {
+                retry_count += 1;
+                if retry_count > MAX_SUMMARY_RETRIES {
+                    warn!(
+                        "Summarizer: transient error after {} retries: {}, falling back to extractive recap",
+                        MAX_SUMMARY_RETRIES, msg
+                    );
+                    return extractive_fallback.to_string();
+                }
+                let wait = 2u64.pow(retry_count - 1); // 1s, 2s
+                warn!(
+                    "Summarizer: transient error (retry {}/{}): {}. Retrying after {}s",
+                    retry_count, MAX_SUMMARY_RETRIES, msg, wait
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+            Err(e) => {
+                // Non-retryable error (auth, bad request, etc.)
+                warn!("Summarizer: non-retryable error: {e}, falling back to extractive recap");
+                return extractive_fallback.to_string();
             }
         }
-        Err(_) => extractive_fallback.to_string(),
     }
 }
 

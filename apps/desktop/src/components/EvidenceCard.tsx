@@ -143,11 +143,12 @@ export function EvidenceCardComponent({
   const [videoPreviewPath, setVideoPreviewPath] = useState<string | null>(null);
   const { t } = useTranslation();
 
-  const needsTruncation = card.content.length > TRUNCATE_LENGTH;
+  const previewText = card.snippet || card.content;
+  const needsTruncation = previewText.length > TRUNCATE_LENGTH;
   const displayContent =
     needsTruncation && !expanded
-      ? card.content.slice(0, TRUNCATE_LENGTH) + '…'
-      : card.content;
+      ? previewText.slice(0, TRUNCATE_LENGTH) + '…'
+      : previewText;
 
   const visibleHighlights =
     expanded || !needsTruncation

@@ -61,7 +61,15 @@ interface InternalStreamState extends StreamState {
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
-const STREAM_TIMEOUT_MS = 30_000;
+function resolveStreamTimeoutMs(): number {
+  if (typeof window === 'undefined') return 30_000;
+  const override = (window as Window & { __ASK_STREAM_TIMEOUT_MS__?: unknown }).__ASK_STREAM_TIMEOUT_MS__;
+  return typeof override === 'number' && Number.isFinite(override) && override > 0
+    ? override
+    : 30_000;
+}
+
+const STREAM_TIMEOUT_MS = resolveStreamTimeoutMs();
 
 /* ── Helper functions ───────────────────────────────────────────── */
 
@@ -325,8 +333,8 @@ class StreamStoreImpl {
     s._timeoutId = setTimeout(() => {
       const state = this._streams[conversationId];
       if (!state) return;
-      state.toolCalls = markToolCallsFinished(state.toolCalls, 'error', 'Tool timed out');
-      state.streamRounds = markRoundsToolCallsFinished(state.streamRounds, 'error', 'Tool timed out');
+      state.toolCalls = markToolCallsFinished(state.toolCalls, 'error', 'Connection lost');
+      state.streamRounds = markRoundsToolCallsFinished(state.streamRounds, 'error', 'Connection lost');
       state.thinkingText = '';
       state.isThinking = false;
       state.error = 'Connection lost';
@@ -347,17 +355,22 @@ class StreamStoreImpl {
     const eventType = normalizeAgentEventType(raw.type);
     if (!eventType) return;
 
-    // Reset inactivity timeout on every event
+    // Reset inactivity timeout on every event, including empty keepalive
+    // `thinking` events emitted while the backend is still working.
     this.resetTimeout(conversationId);
 
     switch (eventType) {
       case 'thinking': {
+        try {
         const delta = typeof event.content === 'string'
           ? event.content
           : (typeof raw.content === 'string' ? raw.content : '');
         if (!delta) break;
         s.isThinking = true;
         s.thinkingText += delta;
+        } catch (err) {
+          console.error('[streamStore] thinking error:', err);
+        }
         break;
       }
 
@@ -375,6 +388,7 @@ class StreamStoreImpl {
       }
 
       case 'toolCallStart': {
+        try {
         s.isThinking = false;
 
         // Capture and reset thinking segment
@@ -411,35 +425,62 @@ class StreamStoreImpl {
           }];
           s.streamText = '';
         } else if (s._activeRoundId && s._activeRoundAcceptingStarts) {
-          // Merge into existing active round
+          // Merge into existing active round — verify target exists
           const mergeRoundId = s._activeRoundId;
-          s.streamRounds = s.streamRounds.map(round =>
-            round.id === mergeRoundId
-              ? (() => {
-                  const existingIdx = round.toolCalls.findIndex(tc => tc.callId === nextCall.callId);
-                  if (existingIdx >= 0) {
-                    const nextToolCalls = [...round.toolCalls];
-                    nextToolCalls[existingIdx] = {
-                      ...nextToolCalls[existingIdx],
-                      toolName, arguments: argumentsText, status: 'running',
-                    };
-                    return { ...round, thinking: round.thinking || roundThinking || undefined, toolCalls: nextToolCalls };
-                  }
-                  return { ...round, thinking: round.thinking || roundThinking || undefined, toolCalls: [...round.toolCalls, nextCall] };
-                })()
-              : round,
-          );
+          const targetRound = s.streamRounds.find(r => r.id === mergeRoundId);
+          if (targetRound) {
+            s.streamRounds = s.streamRounds.map(round => {
+              if (round.id !== mergeRoundId) return round;
+              const existingIdx = round.toolCalls.findIndex(tc => tc.callId === nextCall.callId);
+              const mergedThinking = roundThinking ? ((round.thinking || '') + roundThinking) : round.thinking;
+              if (existingIdx >= 0) {
+                const nextToolCalls = [...round.toolCalls];
+                nextToolCalls[existingIdx] = {
+                  ...nextToolCalls[existingIdx],
+                  toolName, arguments: argumentsText, status: 'running',
+                };
+                return { ...round, thinking: mergedThinking, toolCalls: nextToolCalls };
+              }
+              return { ...round, thinking: mergedThinking, toolCalls: [...round.toolCalls, nextCall] };
+            });
+          } else {
+            // Merge target missing — fall back to new round
+            console.error('[streamStore] merge target round not found, creating new round');
+            const roundId = `stream-round-${Date.now()}-${s._roundSeq++}`;
+            s._activeRoundId = roundId;
+            s._activeRoundAcceptingStarts = true;
+            s.streamRounds = [...s.streamRounds, {
+              id: roundId,
+              thinking: roundThinking || undefined,
+              reply: '',
+              toolCalls: [nextCall],
+            }];
+          }
         } else {
-          // No text, no active round — start a new empty round
-          const roundId = `stream-round-${Date.now()}-${s._roundSeq++}`;
-          s._activeRoundId = roundId;
-          s._activeRoundAcceptingStarts = true;
-          s.streamRounds = [...s.streamRounds, {
-            id: roundId,
-            thinking: roundThinking || undefined,
-            reply: '',
-            toolCalls: [nextCall],
-          }];
+          const lastRound = s.streamRounds.length > 0 ? s.streamRounds[s.streamRounds.length - 1] : null;
+          if (lastRound && !lastRound.reply.trim()) {
+            s._activeRoundId = lastRound.id;
+            s._activeRoundAcceptingStarts = true;
+            s.streamRounds = s.streamRounds.map(round =>
+              round.id === lastRound.id
+                ? {
+                    ...round,
+                    thinking: roundThinking ? ((round.thinking || '') + roundThinking) : round.thinking,
+                    toolCalls: [...round.toolCalls, nextCall],
+                  }
+                : round,
+            );
+          } else {
+            const roundId = `stream-round-${Date.now()}-${s._roundSeq++}`;
+            s._activeRoundId = roundId;
+            s._activeRoundAcceptingStarts = true;
+            s.streamRounds = [...s.streamRounds, {
+              id: roundId,
+              thinking: roundThinking || undefined,
+              reply: '',
+              toolCalls: [nextCall],
+            }];
+          }
         }
 
         // Update flat toolCalls list
@@ -450,10 +491,28 @@ class StreamStoreImpl {
         } else {
           s.toolCalls = [...s.toolCalls, nextCall];
         }
+        } catch (err) {
+          console.error('[streamStore] toolCallStart error, creating fallback round:', err);
+          // Fallback: create a simple new round with the tool call
+          const fallbackCallId = `tool-call-${Date.now()}-${s._toolCallSeq++}`;
+          const fallbackCall: ToolCallEvent = {
+            callId: fallbackCallId, toolName: 'unknown_tool', arguments: '', status: 'running',
+          };
+          const roundId = `stream-round-${Date.now()}-${s._roundSeq++}`;
+          s._activeRoundId = roundId;
+          s._activeRoundAcceptingStarts = false;
+          s.streamRounds = [...s.streamRounds, {
+            id: roundId, reply: '', toolCalls: [fallbackCall],
+          }];
+          s.toolCalls = [...s.toolCalls, fallbackCall];
+          s.isThinking = false;
+          s.thinkingText = '';
+        }
         break;
       }
 
       case 'toolCallResult': {
+        try {
         const resultCallId = (typeof event.callId === 'string' && event.callId)
           || (typeof raw.call_id === 'string' ? raw.call_id : '') || '';
         const resultIsError = (typeof event.isError === 'boolean' ? event.isError : undefined)
@@ -468,7 +527,6 @@ class StreamStoreImpl {
           s.toolCalls, resultCallId, resultIsError, resultContent, resultArtifacts,
         );
         s.toolCalls = nextToolCalls;
-        s._activeRoundAcceptingStarts = false;
 
         // Update rounds
         const roundsCopy = [...s.streamRounds];
@@ -482,6 +540,9 @@ class StreamStoreImpl {
             s.streamRounds = roundsCopy;
             break;
           }
+        }
+        } catch (err) {
+          console.error('[streamStore] toolCallResult error:', err);
         }
         break;
       }

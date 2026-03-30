@@ -685,35 +685,6 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
             </div>
           </motion.div>
 
-          {/* Tool activity bar for all completed stream rounds */}
-          {(() => {
-            const allStreamToolCalls = streamRounds.flatMap(r =>
-              r.toolCalls.filter(tc => tc.toolName !== 'update_plan'),
-            );
-            return allStreamToolCalls.length > 0 ? (
-              <div className="flex justify-start mb-1">
-                <div className="max-w-[80%]">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 ml-5 px-2 py-1 text-[11px] text-text-tertiary">
-                    {allStreamToolCalls.map((tc, i) => (
-                      <Fragment key={`stream-activity-${tc.callId || i}`}>
-                        {i > 0 && <span className="text-border">·</span>}
-                        <ToolCallCard
-                          inline
-                          toolName={tc.toolName}
-                          arguments={tc.arguments}
-                          status={tc.status}
-                          content={tc.content}
-                          isError={tc.isError}
-                          artifacts={tc.artifacts}
-                        />
-                      </Fragment>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : null;
-          })()}
-
           {/* Reply bubbles from completed rounds */}
           {streamRounds.filter(r => r.reply).map(round => (
             <motion.div
@@ -739,7 +710,7 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
       )}
 
       {/* Non-consolidated stream rounds (0-1 rounds) */}
-      {shouldRenderStreamRounds && !consolidateStreamRounds && streamRounds.map((round) => (
+      {shouldRenderStreamRounds && !consolidateStreamRounds && streamRounds.filter(r => r.thinking || r.reply.trim() || r.toolCalls.some(tc => tc.toolName !== 'update_plan')).map((round) => (
         <div key={round.id} className="mb-4 space-y-2">
           {round.thinking && (
             <motion.div
@@ -766,30 +737,6 @@ export function ChatMessages({ messages, streamText, streamRounds, thinkingText,
                 </ThinkingBlock>
               </div>
             </motion.div>
-          )}
-
-          {/* Tool activity bar for single non-consolidated round */}
-          {round.thinking && round.toolCalls.filter(tc => tc.toolName !== 'update_plan').length > 0 && (
-            <div className="flex justify-start mb-1">
-              <div className="max-w-[80%]">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 ml-5 px-2 py-1 text-[11px] text-text-tertiary">
-                  {round.toolCalls.filter(tc => tc.toolName !== 'update_plan').map((tc, i) => (
-                    <Fragment key={`round-activity-${tc.callId || i}`}>
-                      {i > 0 && <span className="text-border">·</span>}
-                      <ToolCallCard
-                        inline
-                        toolName={tc.toolName}
-                        arguments={tc.arguments}
-                        status={tc.status}
-                        content={tc.content}
-                        isError={tc.isError}
-                        artifacts={tc.artifacts}
-                      />
-                    </Fragment>
-                  ))}
-                </div>
-              </div>
-            </div>
           )}
 
           {round.reply && (

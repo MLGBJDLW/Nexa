@@ -184,7 +184,7 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
         {/* Content preview */}
         <div className="px-3 py-2 max-h-[150px] overflow-y-auto">
           <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">
-            {truncate(card.content, 500)}
+            {truncate(card.snippet || card.content, 200)}
           </p>
         </div>
 
@@ -284,6 +284,7 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
           content: ec.content,
           score: ec.score,
           headingPath: ec.headingPath,
+          snippet: ec.snippet,
         });
       } catch {
         // Silently fail — popup won't show detailed info

@@ -47,9 +47,18 @@ pub struct EvidenceCard {
     pub heading_path: Vec<String>,
     pub score: f64,
     pub highlights: Vec<Highlight>,
+    /// Short excerpt (first 150 chars) for preview display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
     /// Document date from metadata (frontmatter `date`/`created` or filesystem).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_date: Option<String>,
+    /// Source credibility score (0.0–1.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credibility: Option<f64>,
+    /// Document age in days (computed from `document_date`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub freshness_days: Option<i64>,
 }
 
 /// A highlighted span within content.

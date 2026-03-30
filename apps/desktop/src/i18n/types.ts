@@ -735,6 +735,12 @@ export interface TranslationKeys {
   'settings.providerLMStudio': string;
   'settings.providerAzure': string;
   'settings.providerAzureOpenAI': string;
+  'settings.providerZhipu': string;
+  'settings.providerMoonshot': string;
+  'settings.providerQwen': string;
+  'settings.providerDoubao': string;
+  'settings.providerYi': string;
+  'settings.providerBaichuan': string;
   'settings.providerCustom': string;
 
   // Settings - Extensions

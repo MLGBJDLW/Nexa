@@ -1019,6 +1019,12 @@ fn parse_provider_type(s: &str) -> ProviderType {
         "ollama" => ProviderType::Ollama,
         "lmstudio" | "lm_studio" => ProviderType::LmStudio,
         "azure" | "azure_openai" | "azure_open_ai" | "azureopenai" => ProviderType::AzureOpenAi,
+        "zhipu" | "glm" => ProviderType::Zhipu,
+        "moonshot" | "kimi" => ProviderType::Moonshot,
+        "qwen" | "tongyi" => ProviderType::Qwen,
+        "doubao" => ProviderType::Doubao,
+        "yi" | "lingyiwanwu" => ProviderType::Yi,
+        "baichuan" => ProviderType::Baichuan,
         _ => ProviderType::Custom,
     }
 }
@@ -1878,6 +1884,8 @@ pub async fn agent_chat_cmd(
     let cancel_token_clone = cancel_token.clone();
     let turn_timeout_secs = executor_config.agent_timeout_secs.unwrap_or(180) as u64;
 
+    const STREAM_KEEPALIVE_INTERVAL_SECS: u64 = 10;
+
     let task = tokio::spawn(async move {
         let cancel_token = cancel_token_clone;
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
@@ -1898,8 +1906,9 @@ pub async fn agent_chat_cmd(
         // Run the agent.  The executor now saves ALL messages (intermediate
         // tool-call assistants, tool results, and the final answer) to the DB
         // using incrementing sort_order starting at `assistant_sort_order`.
-        let mut executor =
-            AgentExecutor::new(provider, tools, executor_config).with_cancel_token(cancel_token);
+        let executor_cancel_token = cancel_token.clone();
+        let mut executor = AgentExecutor::new(provider, tools, executor_config)
+            .with_cancel_token(executor_cancel_token);
         if let Some(cb) = confirmation_cb {
             executor = executor.with_confirmation_callback(cb);
         }
@@ -1915,15 +1924,46 @@ pub async fn agent_chat_cmd(
             assistant_sort_order,
         );
 
-        // Hard cap: ensure one chat turn cannot run forever.
-        let result = tokio::time::timeout(Duration::from_secs(turn_timeout_secs), run_future).await;
+        // Keep the frontend stream alive while the agent is still running but
+        // the upstream provider is temporarily silent (reasoning, tool work,
+        // or SSE gaps). The actual hard stop remains `turn_timeout_secs`.
+        let mut run_future = Box::pin(run_future);
+        let mut turn_timeout = Box::pin(tokio::time::sleep(Duration::from_secs(turn_timeout_secs)));
+        let mut keepalive = tokio::time::interval(Duration::from_secs(
+            STREAM_KEEPALIVE_INTERVAL_SECS,
+        ));
+        keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        keepalive.tick().await;
+
+        let (result, timed_out) = loop {
+            tokio::select! {
+                run_result = &mut run_future => break (Some(run_result), false),
+                _ = &mut turn_timeout => break (None, true),
+                _ = keepalive.tick() => {
+                    let payload = AgentFrontendEvent {
+                        conversation_id: conv_id.clone(),
+                        event: AgentEvent::Thinking {
+                            content: String::new(),
+                        },
+                    };
+                    let _ = handle.emit("agent:event", &payload);
+                }
+            }
+        };
+
+        if timed_out {
+            cancel_token.cancel();
+        }
+
+        drop(run_future);
+        drop(turn_timeout);
 
         // Wait for event forwarder to finish.
         let _ = event_forwarder.await;
 
         match result {
-            Ok(Ok(_)) => {}
-            Ok(Err(ref e)) => {
+            Some(Ok(_)) => {}
+            Some(Err(ref e)) => {
                 warn!("Agent execution failed for conversation {conv_id}: {e}");
                 let payload = AgentFrontendEvent {
                     conversation_id: conv_id.clone(),
@@ -1933,7 +1973,7 @@ pub async fn agent_chat_cmd(
                 };
                 let _ = handle.emit("agent:event", payload);
             }
-            Err(ref _elapsed) => {
+            None => {
                 warn!("Agent execution timed out for conversation {conv_id}");
                 let payload = AgentFrontendEvent {
                     conversation_id: conv_id.clone(),
@@ -1946,12 +1986,12 @@ pub async fn agent_chat_cmd(
         }
 
         // Repair orphaned tool_calls in DB after timeout or error.
-        if !matches!(result, Ok(Ok(_))) {
+        if !matches!(result, Some(Ok(_))) {
             repair_orphaned_tool_calls(&db, &conv_id);
         }
 
         // Auto memory extraction (background, best-effort).
-        if matches!(result, Ok(Ok(_))) {
+        if matches!(result, Some(Ok(_))) {
             let app_cfg = db.load_app_config().unwrap_or_default();
             if app_cfg.auto_memory_extraction {
                 // Determine the model: prefer summarization model, fall back to main.

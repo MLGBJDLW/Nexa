@@ -2,6 +2,7 @@
 
 use futures::StreamExt;
 use tokio::sync::mpsc;
+use tracing::{debug, error, warn};
 
 use super::{FinishReason, StreamChunk, ToolCallDelta, Usage};
 use crate::error::CoreError;
@@ -337,11 +338,19 @@ pub async fn parse_sse_stream(
     let mut buffer = String::new();
     let mut in_think_block = false;
     let mut think_tag_buffer = String::new();
+    let mut first_chunk = true;
 
     while let Some(chunk_result) = byte_stream.next().await {
-        let chunk = chunk_result.map_err(|e| CoreError::Llm(format!("Stream read error: {e}")))?;
+        let chunk = chunk_result.map_err(|e| {
+            error!("Stream read error: {e}");
+            CoreError::Llm(format!("Stream read error: {e}"))
+        })?;
         let text = std::str::from_utf8(&chunk)
             .map_err(|e| CoreError::Llm(format!("Invalid UTF-8 in SSE stream: {e}")))?;
+        if first_chunk {
+            debug!("First SSE chunk received");
+            first_chunk = false;
+        }
         buffer.push_str(text);
 
         // Process all complete lines currently in the buffer.
@@ -366,6 +375,7 @@ pub async fn parse_sse_stream(
 
             // Stream termination signal.
             if data == "[DONE]" {
+                debug!("SSE [DONE] received");
                 // Flush any held-back buffer content at stream end.
                 if !think_tag_buffer.is_empty() {
                     let tail = std::mem::take(&mut think_tag_buffer);
@@ -478,6 +488,7 @@ pub async fn parse_sse_stream(
                 }
                 Err(e) => {
                     // Send parse error through channel but continue processing.
+                    warn!("SSE JSON parse error: {e}, data: {data}");
                     let _ = tx
                         .send(Err(CoreError::Llm(format!("SSE JSON parse error: {e}"))))
                         .await;
@@ -488,6 +499,7 @@ pub async fn parse_sse_stream(
     }
 
     // Stream ended without [DONE] marker — server likely crashed or disconnected.
+    warn!("Stream ended without [DONE] marker");
     Err(CoreError::StreamIncomplete)
 }
 

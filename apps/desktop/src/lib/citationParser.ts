@@ -80,6 +80,7 @@ export interface CitationCardData {
   content: string;
   score: number;
   headingPath: string[];
+  snippet?: string;
 }
 
 /** Extract citation card data from a raw artifact value (unknown shape). */
@@ -98,6 +99,7 @@ function extractCard(item: unknown): CitationCardData | null {
     headingPath: Array.isArray(obj.headingPath ?? obj.heading_path)
       ? (obj.headingPath ?? obj.heading_path) as string[]
       : [],
+    snippet: obj.snippet ? String(obj.snippet) : undefined,
   };
 }
 

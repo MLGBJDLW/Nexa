@@ -72,6 +72,7 @@ pub mod document_info_tool;
 pub mod edit_file_tool;
 pub mod fetch_url_tool;
 pub mod file_tool;
+pub mod generate_document_tool;
 pub mod list_dir_tool;
 pub mod list_documents_tool;
 pub mod list_sources_tool;
@@ -310,6 +311,17 @@ impl ToolRegistry {
             || msg.contains("编辑")
             || msg.contains("目录")
             || msg.contains("笔记")
+            || msg.contains("document")
+            || msg.contains("文档")
+            || msg.contains("word")
+            || msg.contains("docx")
+            || msg.contains("excel")
+            || msg.contains("xlsx")
+            || msg.contains("ppt")
+            || msg.contains("pptx")
+            || msg.contains("office")
+            || msg.contains("幻灯片")
+            || msg.contains("表格")
         {
             categories.insert(ToolCategory::FileSystem);
         }
@@ -336,7 +348,7 @@ impl ToolRegistry {
             categories.insert(ToolCategory::Knowledge);
         }
 
-        // Web / URL
+        // Web / URL fetching
         if msg.contains("url")
             || msg.contains("http")
             || msg.contains("website")
@@ -408,6 +420,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(search_playbooks_tool::SearchPlaybooksTool));
     registry.register(Box::new(edit_file_tool::EditFileTool));
     registry.register(Box::new(create_file_tool::CreateFileTool));
+    registry.register(Box::new(generate_document_tool::GenerateDocumentTool));
     registry.register(Box::new(submit_feedback_tool::SubmitFeedbackTool));
     registry.register(Box::new(document_info_tool::GetDocumentInfoTool));
     registry.register(Box::new(reindex_tool::ReindexTool));

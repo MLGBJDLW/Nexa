@@ -713,6 +713,12 @@ export const zhCN: TranslationKeys = {
   'settings.providerLMStudio': 'LM Studio',
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
+  'settings.providerZhipu': '智谱GLM',
+  'settings.providerMoonshot': 'Moonshot (Kimi)',
+  'settings.providerQwen': '通义千问',
+  'settings.providerDoubao': '豆包',
+  'settings.providerYi': '零一万物',
+  'settings.providerBaichuan': '百川',
   'settings.providerCustom': '自定义',
 
   // Settings - Extensions

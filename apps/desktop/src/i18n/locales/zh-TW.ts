@@ -711,6 +711,12 @@ export const zhTW: TranslationKeys = {
   'settings.providerLMStudio': 'LM Studio',
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
+  'settings.providerZhipu': '智譜GLM',
+  'settings.providerMoonshot': 'Moonshot (Kimi)',
+  'settings.providerQwen': '通義千問',
+  'settings.providerDoubao': '豆包',
+  'settings.providerYi': '零一萬物',
+  'settings.providerBaichuan': '百川',
   'settings.providerCustom': '自訂',
 
   // Settings - Extensions

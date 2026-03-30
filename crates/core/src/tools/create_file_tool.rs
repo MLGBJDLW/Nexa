@@ -28,7 +28,7 @@ struct CreateFileArgs {
 /// that it falls within one of them. Returns the validated path.
 /// For new files, walks up the ancestor chain to find the nearest existing
 /// directory, canonicalizes it, then reconstructs the full path.
-fn resolve_and_validate(
+pub(crate) fn resolve_and_validate(
     requested: &Path,
     sources: &[crate::models::Source],
 ) -> Result<PathBuf, String> {
@@ -92,8 +92,11 @@ fn resolve_and_validate(
 }
 
 /// Reject paths containing traversal sequences.
-fn has_path_traversal(path: &str) -> bool {
-    path.contains("..") || path.contains('\0')
+pub(crate) fn has_path_traversal(path: &str) -> bool {
+    path.contains('\0')
+        || std::path::Path::new(path)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
 }
 
 #[async_trait]

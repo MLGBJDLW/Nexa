@@ -143,6 +143,12 @@ export type ProviderType =
   | 'ollama'
   | 'lm_studio'
   | 'azure_open_ai'
+  | 'zhipu'
+  | 'moonshot'
+  | 'qwen'
+  | 'doubao'
+  | 'yi'
+  | 'baichuan'
   | 'custom';
 
 export interface AgentEvent {

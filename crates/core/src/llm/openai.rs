@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use tracing::{debug, error, info};
 
 use super::{
     streaming::parse_sse_stream, CompletionRequest, CompletionResponse, ContentPart, FinishReason,
@@ -16,7 +17,7 @@ use super::{
 use crate::error::CoreError;
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
-const DEFAULT_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_TIMEOUT_SECS: u64 = 600;
 
 // ---------------------------------------------------------------------------
 // OpenAI API wire types — request
@@ -397,6 +398,9 @@ impl OpenAiProvider {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(timeout))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .pool_max_idle_per_host(5)
+            .tcp_keepalive(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| CoreError::Llm(format!("Failed to create HTTP client: {e}")))?;
 
@@ -551,6 +555,10 @@ impl LlmProvider for OpenAiProvider {
         let api_key = self.api_key()?;
         let body = build_request_body(request, true);
 
+        info!("OpenAI stream request to {url}, model={}", request.model);
+        let body_json = serde_json::to_string(&body).unwrap_or_default();
+        debug!("Request body: {} bytes", body_json.len());
+
         let response = self
             .client
             .post(&url)
@@ -560,6 +568,7 @@ impl LlmProvider for OpenAiProvider {
             .send()
             .await
             .map_err(|e| {
+                error!("Stream send failed: {e}");
                 if e.is_connect() || e.is_timeout() {
                     CoreError::TransientLlm(format!("Request failed: {e}"))
                 } else {
@@ -567,14 +576,18 @@ impl LlmProvider for OpenAiProvider {
                 }
             })?;
 
+        info!("Stream response status: {}", response.status());
         let response = self.check_response(response).await?;
 
         let (tx, rx) = mpsc::channel(64);
+        info!("SSE stream started");
 
         tokio::spawn(async move {
             if let Err(e) = parse_sse_stream(response, tx.clone()).await {
+                error!("SSE stream error: {e}");
                 let _ = tx.send(Err(e)).await;
             }
+            info!("SSE stream ended");
         });
 
         let stream = futures::stream::unfold(rx, |mut rx| async {

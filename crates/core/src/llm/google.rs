@@ -11,6 +11,7 @@ use futures::stream::BoxStream;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use tracing::{error, info};
 
 use super::{
     CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
@@ -20,6 +21,8 @@ use crate::error::CoreError;
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
+
+
 
 // ---------------------------------------------------------------------------
 // Gemini API wire types
@@ -740,6 +743,9 @@ impl GeminiProvider {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(timeout))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .pool_max_idle_per_host(5)
+            .tcp_keepalive(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| CoreError::Llm(format!("Failed to create HTTP client: {e}")))?;
 
@@ -887,6 +893,8 @@ impl LlmProvider for GeminiProvider {
         let (system_instruction, contents) = convert_messages(&request.messages);
         let body = build_request_body(request, system_instruction, contents);
 
+        info!("Gemini stream request to {}..., model={}", &url[..url.find("key=").unwrap_or(url.len())], request.model);
+
         let response = self
             .client
             .post(&url)
@@ -895,6 +903,7 @@ impl LlmProvider for GeminiProvider {
             .send()
             .await
             .map_err(|e| {
+                error!("Gemini stream send failed: {e}");
                 if e.is_connect() || e.is_timeout() {
                     CoreError::TransientLlm(format!("Request failed: {e}"))
                 } else {
@@ -902,14 +911,18 @@ impl LlmProvider for GeminiProvider {
                 }
             })?;
 
+        info!("Gemini stream response status: {}", response.status());
         let response = self.check_response(response).await?;
 
         let (tx, rx) = mpsc::channel(64);
+        info!("Gemini SSE stream started");
 
         tokio::spawn(async move {
             if let Err(e) = parse_gemini_stream(response, tx.clone()).await {
+                error!("Gemini SSE stream error: {e}");
                 let _ = tx.send(Err(e)).await;
             }
+            info!("Gemini SSE stream ended");
         });
 
         let stream = futures::stream::unfold(rx, |mut rx| async {

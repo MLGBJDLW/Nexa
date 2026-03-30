@@ -15,7 +15,11 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     listen<AgentFrontendEvent>('agent:event', (event) => {
       const data = event.payload;
       if (!data?.conversationId) return;
-      streamStore.dispatch(data.conversationId, data);
+      try {
+        streamStore.dispatch(data.conversationId, data);
+      } catch (err) {
+        console.error('[StreamProvider] dispatch error:', err);
+      }
     }).then((fn) => {
       if (cancelled) {
         fn();
