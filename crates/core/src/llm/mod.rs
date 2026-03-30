@@ -294,6 +294,12 @@ pub enum ProviderType {
     Ollama,
     LmStudio,
     AzureOpenAi,
+    Zhipu,
+    Moonshot,
+    Qwen,
+    Doubao,
+    Yi,
+    Baichuan,
     Custom,
 }
 
@@ -334,6 +340,12 @@ pub fn create_provider(config: ProviderConfig) -> Result<Box<dyn LlmProvider>, C
         | ProviderType::DeepSeek
         | ProviderType::LmStudio
         | ProviderType::AzureOpenAi
+        | ProviderType::Zhipu
+        | ProviderType::Moonshot
+        | ProviderType::Qwen
+        | ProviderType::Doubao
+        | ProviderType::Yi
+        | ProviderType::Baichuan
         | ProviderType::Custom => Ok(Box::new(openai::OpenAiProvider::new(config)?)),
         ProviderType::Anthropic => Ok(Box::new(anthropic::AnthropicProvider::new(config)?)),
         ProviderType::Google => Ok(Box::new(google::GeminiProvider::new(config)?)),
@@ -358,6 +370,9 @@ pub fn model_supports_vision(provider_type: &ProviderType, model: &str) -> bool 
         ProviderType::Anthropic => m.contains("claude-3") || m.contains("claude-4"),
         ProviderType::Google => true,
         ProviderType::DeepSeek => false,
+        ProviderType::Zhipu => m.contains("glm-4v"),
+        ProviderType::Qwen => m.contains("qwen-vl"),
+        ProviderType::Moonshot | ProviderType::Doubao | ProviderType::Yi | ProviderType::Baichuan => false,
         ProviderType::Ollama | ProviderType::LmStudio => {
             m.contains("vision")
                 || m.contains("llava")

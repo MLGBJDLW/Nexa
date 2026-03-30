@@ -14,4 +14,8 @@ export interface EvidenceCard {
   headingPath: string[];
   score: number;
   highlights: Highlight[];
+  snippet?: string;
+  documentDate?: string;
+  credibility?: number;
+  freshnessDays?: number;
 }

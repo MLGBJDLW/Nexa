@@ -20,6 +20,43 @@ use crate::personalization;
 /// Default search result limit when the caller doesn't specify one.
 const DEFAULT_SEARCH_LIMIT: u32 = 20;
 
+/// Maximum length for the snippet preview field.
+const SNIPPET_MAX_LEN: usize = 150;
+
+/// Generate a short snippet from full content for preview display.
+fn make_snippet(content: &str) -> Option<String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.len() <= SNIPPET_MAX_LEN {
+        Some(trimmed.to_string())
+    } else {
+        // Break at a word boundary if possible.
+        let slice = &trimmed[..SNIPPET_MAX_LEN];
+        let end = slice.rfind(' ').unwrap_or(SNIPPET_MAX_LEN);
+        Some(format!("{}…", &trimmed[..end]))
+    }
+}
+
+/// Deduplicate evidence cards by document: keep only the highest-scored card
+/// per `document_id`.
+fn deduplicate_by_document(cards: Vec<EvidenceCard>) -> Vec<EvidenceCard> {
+    let mut best: HashMap<Uuid, EvidenceCard> = HashMap::new();
+    for card in cards {
+        best.entry(card.document_id)
+            .and_modify(|existing| {
+                if card.score > existing.score {
+                    *existing = card.clone();
+                }
+            })
+            .or_insert(card);
+    }
+    let mut result: Vec<EvidenceCard> = best.into_values().collect();
+    result.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    result
+}
+
 /// Minimum cosine similarity to include a vector search result.
 const DEFAULT_MIN_SEARCH_SIMILARITY: f32 = 0.2;
 
@@ -191,6 +228,7 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
                 let source_name = extract_source_name(&source_root);
                 let highlights = compute_highlights(&content, &terms);
 
+                let snippet = make_snippet(&content);
                 Ok(EvidenceCard {
                     chunk_id: Uuid::parse_str(&chunk_id).unwrap_or_default(),
                     document_id: Uuid::parse_str(&document_id).unwrap_or_default(),
@@ -201,7 +239,10 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
                     heading_path,
                     score: -rank, // negate: FTS5 BM25 is negative
                     highlights,
+                    snippet,
                     document_date: extract_document_date(&doc_metadata),
+                    credibility: None,
+                    freshness_days: None,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -282,8 +323,14 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
     // Apply feedback-based re-ranking (must happen after conn is released).
     apply_feedback_reranking(&mut cards, db, trimmed)?;
 
+    // Enrich with credibility and freshness, blend into ranking.
+    apply_credibility_scoring(&mut cards);
+
+    // Deduplicate: keep only the highest-scored card per document.
+    let cards = deduplicate_by_document(cards);
+
     // Truncate to the user-requested limit after reranking.
-    cards.truncate(limit as usize);
+    let cards: Vec<EvidenceCard> = cards.into_iter().take(limit as usize).collect();
 
     Ok(SearchResult {
         query: query.text.clone(),
@@ -318,6 +365,7 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
             let source_root: String = row.get(8)?;
             let doc_metadata: String = row.get(9)?;
 
+            let snippet = make_snippet(&content);
             Ok(EvidenceCard {
                 chunk_id: Uuid::parse_str(&cid).unwrap_or_default(),
                 document_id: Uuid::parse_str(&did).unwrap_or_default(),
@@ -328,7 +376,10 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
                 heading_path: parse_heading_path(&metadata_json),
                 score: 0.0,
                 highlights: Vec::new(),
+                snippet,
                 document_date: extract_document_date(&doc_metadata),
+                credibility: None,
+                freshness_days: None,
             })
         },
     )
@@ -532,6 +583,11 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
     // Apply feedback-based re-ranking.
     apply_feedback_reranking(&mut cards, db, trimmed)?;
 
+    // Enrich with credibility and freshness, blend into ranking.
+    apply_credibility_scoring(&mut cards);
+
+    // Deduplicate: keep only the highest-scored card per document.
+    let cards = deduplicate_by_document(cards);
     let total = cards.len();
 
     Ok(SearchResult {
@@ -733,6 +789,126 @@ fn get_playbook_cited_chunks(db: &Database) -> Result<HashMap<String, usize>, Co
         map.insert(chunk_id, count);
     }
     Ok(map)
+}
+
+/// Compute a credibility score for a document based on its path/source.
+///
+/// Returns a value in \[0.0, 1.0\]:
+/// - Official/authoritative domains (gov, edu, org, major news) → 0.9–1.0
+/// - Known tech sources (stackoverflow, github, MDN, docs sites) → 0.8–0.9
+/// - General web pages → 0.5–0.7
+/// - Local files → 0.7 (user-curated content)
+/// - Unknown/low-quality → 0.3–0.5
+fn compute_credibility(document_path: &str) -> f64 {
+    let path_lower = document_path.to_lowercase();
+
+    // Check for web URLs first.
+    if path_lower.starts_with("http://") || path_lower.starts_with("https://") {
+        // Official / authoritative domains
+        if path_lower.contains(".gov")
+            || path_lower.contains(".edu")
+            || path_lower.contains("reuters.com")
+            || path_lower.contains("apnews.com")
+            || path_lower.contains("bbc.com")
+            || path_lower.contains("nytimes.com")
+        {
+            return 0.95;
+        }
+        // Known tech sources
+        if path_lower.contains("stackoverflow.com")
+            || path_lower.contains("github.com")
+            || path_lower.contains("developer.mozilla.org")
+            || path_lower.contains("docs.rs")
+            || path_lower.contains("docs.python.org")
+            || path_lower.contains("docs.microsoft.com")
+            || path_lower.contains("learn.microsoft.com")
+            || path_lower.contains("dev.to")
+        {
+            return 0.85;
+        }
+        // Known general sources
+        if path_lower.contains("wikipedia.org")
+            || path_lower.contains(".org")
+        {
+            return 0.7;
+        }
+        // General web
+        return 0.5;
+    }
+
+    // Local files — user-curated content.
+    0.7
+}
+
+/// Compute freshness in days from a document date string, and return
+/// `(freshness_days, freshness_bonus)`.
+///
+/// Bonus: within 30 days → +0.1, within 1 year → +0.05, older → 0.0.
+fn compute_freshness(document_date: &Option<String>) -> (Option<i64>, f64) {
+    let date_str = match document_date {
+        Some(d) if !d.is_empty() => d,
+        _ => return (None, 0.0),
+    };
+    // Try RFC 3339
+    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(date_str) {
+        let days = chrono::Utc::now().signed_duration_since(ts).num_days();
+        let bonus = if days <= 30 {
+            0.1
+        } else if days <= 365 {
+            0.05
+        } else {
+            0.0
+        };
+        return (Some(days), bonus);
+    }
+    // Try YYYY-MM-DD
+    if let Ok(naive) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+        let days = (chrono::Utc::now().date_naive() - naive).num_days();
+        let bonus = if days <= 30 {
+            0.1
+        } else if days <= 365 {
+            0.05
+        } else {
+            0.0
+        };
+        return (Some(days), bonus);
+    }
+    // Try SQLite datetime format
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(date_str, "%Y-%m-%d %H:%M:%S") {
+        let days = chrono::Utc::now()
+            .signed_duration_since(naive.and_utc())
+            .num_days();
+        let bonus = if days <= 30 {
+            0.1
+        } else if days <= 365 {
+            0.05
+        } else {
+            0.0
+        };
+        return (Some(days), bonus);
+    }
+    (None, 0.0)
+}
+
+/// Enrich evidence cards with credibility and freshness scores, and blend
+/// them into the final ranking score.
+///
+/// `final_score = bm25_score * 0.7 + credibility * 0.2 + freshness * 0.1`
+fn apply_credibility_scoring(cards: &mut Vec<EvidenceCard>) {
+    for card in cards.iter_mut() {
+        let credibility = compute_credibility(&card.document_path);
+        let (freshness_days, freshness_bonus) = compute_freshness(&card.document_date);
+
+        card.credibility = Some(credibility);
+        card.freshness_days = freshness_days;
+
+        card.score = card.score * 0.7 + credibility * 0.2 + freshness_bonus * 0.1;
+    }
+    cards.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 /// Apply feedback-based score adjustments, document-level feedback propagation,
@@ -1874,7 +2050,10 @@ mod tests {
                 heading_path: Vec::new(),
                 score: 0.80,
                 highlights: Vec::new(),
+                snippet: None,
                 document_date: None,
+                credibility: None,
+                freshness_days: None,
             },
             EvidenceCard {
                 chunk_id: Uuid::parse_str(&chunk_b).unwrap(),
@@ -1886,7 +2065,10 @@ mod tests {
                 heading_path: Vec::new(),
                 score: 0.50,
                 highlights: Vec::new(),
+                snippet: None,
                 document_date: None,
+                credibility: None,
+                freshness_days: None,
             },
             EvidenceCard {
                 chunk_id: Uuid::parse_str(&chunk_c).unwrap(),
@@ -1898,7 +2080,10 @@ mod tests {
                 heading_path: Vec::new(),
                 score: 0.40,
                 highlights: Vec::new(),
+                snippet: None,
                 document_date: None,
+                credibility: None,
+                freshness_days: None,
             },
         ];
 

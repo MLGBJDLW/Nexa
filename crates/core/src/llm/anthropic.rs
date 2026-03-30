@@ -9,6 +9,7 @@ use futures::stream::BoxStream;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use tracing::{error, info};
 
 use super::{
     CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
@@ -21,6 +22,8 @@ const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_MAX_TOKENS: u32 = 4096;
+
+
 
 // ---------------------------------------------------------------------------
 // Anthropic API wire types — request
@@ -651,6 +654,9 @@ impl AnthropicProvider {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(timeout))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .pool_max_idle_per_host(5)
+            .tcp_keepalive(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| CoreError::Llm(format!("Failed to create HTTP client: {e}")))?;
 
@@ -812,6 +818,8 @@ impl LlmProvider for AnthropicProvider {
         let (system, messages) = convert_messages(&request.messages);
         let body = build_request_body(request, system, messages, true);
 
+        info!("Anthropic stream request to {url}, model={}", request.model);
+
         let response = self
             .client
             .post(&url)
@@ -823,6 +831,7 @@ impl LlmProvider for AnthropicProvider {
             .send()
             .await
             .map_err(|e| {
+                error!("Anthropic stream send failed: {e}");
                 if e.is_connect() || e.is_timeout() {
                     CoreError::TransientLlm(format!("Request failed: {e}"))
                 } else {
@@ -830,14 +839,18 @@ impl LlmProvider for AnthropicProvider {
                 }
             })?;
 
+        info!("Anthropic stream response status: {}", response.status());
         let response = self.check_response(response).await?;
 
         let (tx, rx) = mpsc::channel(64);
+        info!("Anthropic SSE stream started");
 
         tokio::spawn(async move {
             if let Err(e) = parse_anthropic_stream(response, tx.clone()).await {
+                error!("Anthropic SSE stream error: {e}");
                 let _ = tx.send(Err(e)).await;
             }
+            info!("Anthropic SSE stream ended");
         });
 
         let stream = futures::stream::unfold(rx, |mut rx| async {

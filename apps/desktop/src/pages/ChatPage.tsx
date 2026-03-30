@@ -360,7 +360,6 @@ export function ChatPage() {
               <TaskBoard
                 messages={chat.messages}
                 toolCalls={chat.toolCalls}
-                isStreaming={chat.isStreaming}
               />
             )}
             <ChatMessages

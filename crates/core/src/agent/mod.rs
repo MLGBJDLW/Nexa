@@ -8,7 +8,7 @@ use std::time::Duration;
 use futures::{future::join_all, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info_span, warn, Instrument};
+use tracing::{debug, error, info, info_span, warn, Instrument};
 use uuid::Uuid;
 
 use crate::conversation::memory::{
@@ -877,8 +877,12 @@ impl AgentExecutor {
             const MAX_LLM_RETRIES: u32 = 3;
             let mut retry_count = 0u32;
             let mut stream = loop {
+                info!("Initiating LLM stream, attempt {}", retry_count + 1);
                 match self.provider.stream(&request).await {
-                    Ok(s) => break s,
+                    Ok(s) => {
+                        info!("LLM stream connected");
+                        break s;
+                    }
                     Err(CoreError::RateLimited { retry_after_secs }) => {
                         retry_count += 1;
                         if retry_count > MAX_LLM_RETRIES {
@@ -972,10 +976,12 @@ impl AgentExecutor {
             let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
             let mut chunk_usage: Option<Usage> = None;
             let mut iteration_thinking = String::new();
+            let mut chunk_count: usize = 0;
 
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
                     Ok(chunk) => {
+                        chunk_count += 1;
                         // Forward thinking deltas.
                         if let Some(ref thinking) = chunk.thinking_delta {
                             if !thinking.is_empty() {
@@ -1005,17 +1011,18 @@ impl AgentExecutor {
                         }
                     }
                     Err(CoreError::StreamIncomplete) => {
-                        warn!("Stream ended without completion marker — response may be truncated");
+                        warn!("Stream incomplete — response may be truncated");
+                        info!("Stream ended incomplete: {chunk_count} chunks, {} chars", full_content.len());
                         let _ = tx
                             .send(AgentEvent::Error {
                                 message: "Response may be truncated (stream ended unexpectedly)"
                                     .to_string(),
                             })
                             .await;
-                        // Don't abort — continue with whatever content was received.
                         break;
                     }
                     Err(e) => {
+                        error!("LLM stream error: {e}");
                         let _ = tx
                             .send(AgentEvent::Error {
                                 message: e.to_string(),
@@ -1032,6 +1039,8 @@ impl AgentExecutor {
                     }
                 }
             }
+
+            info!("Stream complete: {chunk_count} chunks, {} chars", full_content.len());
 
             // -- 4b. Accumulate usage ------------------------------------------
             let mut iteration_compacted = false;
@@ -1088,6 +1097,12 @@ impl AgentExecutor {
             }
 
             if !full_content.trim().is_empty() {
+                last_iteration_content = full_content.clone();
+            } else if !iteration_thinking.is_empty() && tool_calls.is_empty() {
+                // All content went to thinking (e.g. entire response wrapped in
+                // <think> tags). Use thinking as the visible content so the DB
+                // message is not empty.
+                full_content = iteration_thinking.clone();
                 last_iteration_content = full_content.clone();
             }
 

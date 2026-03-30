@@ -1019,6 +1019,12 @@ fn parse_provider_type(s: &str) -> ProviderType {
         "ollama" => ProviderType::Ollama,
         "lmstudio" | "lm_studio" => ProviderType::LmStudio,
         "azure" | "azure_openai" | "azure_open_ai" | "azureopenai" => ProviderType::AzureOpenAi,
+        "zhipu" | "glm" => ProviderType::Zhipu,
+        "moonshot" | "kimi" => ProviderType::Moonshot,
+        "qwen" | "tongyi" => ProviderType::Qwen,
+        "doubao" => ProviderType::Doubao,
+        "yi" | "lingyiwanwu" => ProviderType::Yi,
+        "baichuan" => ProviderType::Baichuan,
         _ => ProviderType::Custom,
     }
 }
@@ -1289,6 +1295,55 @@ pub async fn rename_conversation_cmd(
         .db
         .update_conversation_title(&id, &title)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn generate_title_cmd(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<String, String> {
+    // 1. Load default agent config for LLM access.
+    let db_config = state
+        .db
+        .get_default_agent_config()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No default agent config set.".to_string())?;
+
+    // 2. Load conversation messages.
+    let messages = state
+        .db
+        .get_messages(&conversation_id)
+        .map_err(|e| e.to_string())?;
+
+    let first_user = messages.iter().find(|m| m.role == Role::User);
+    let first_assistant = messages.iter().find(|m| m.role == Role::Assistant);
+
+    let user_content = match first_user {
+        Some(m) => m.content.clone(),
+        None => return Err("No user message found.".to_string()),
+    };
+    let assistant_content = first_assistant.map(|m| m.content.as_str());
+
+    // 3. Create provider and generate title.
+    let app_cfg = state.db.load_app_config().unwrap_or_default();
+    let provider_config = db_config_to_provider_config(&db_config, Some(app_cfg.llm_timeout_secs));
+    let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
+
+    let title = ask_core::conversation::generate_title(
+        provider.as_ref(),
+        &db_config.model,
+        &user_content,
+        assistant_content,
+    )
+    .await;
+
+    // 4. Update DB.
+    state
+        .db
+        .update_conversation_title(&conversation_id, &title)
+        .map_err(|e| e.to_string())?;
+
+    Ok(title)
 }
 
 #[tauri::command]
@@ -1829,6 +1884,8 @@ pub async fn agent_chat_cmd(
     let cancel_token_clone = cancel_token.clone();
     let turn_timeout_secs = executor_config.agent_timeout_secs.unwrap_or(180) as u64;
 
+    const STREAM_KEEPALIVE_INTERVAL_SECS: u64 = 10;
+
     let task = tokio::spawn(async move {
         let cancel_token = cancel_token_clone;
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(64);
@@ -1849,8 +1906,9 @@ pub async fn agent_chat_cmd(
         // Run the agent.  The executor now saves ALL messages (intermediate
         // tool-call assistants, tool results, and the final answer) to the DB
         // using incrementing sort_order starting at `assistant_sort_order`.
-        let mut executor =
-            AgentExecutor::new(provider, tools, executor_config).with_cancel_token(cancel_token);
+        let executor_cancel_token = cancel_token.clone();
+        let mut executor = AgentExecutor::new(provider, tools, executor_config)
+            .with_cancel_token(executor_cancel_token);
         if let Some(cb) = confirmation_cb {
             executor = executor.with_confirmation_callback(cb);
         }
@@ -1866,15 +1924,46 @@ pub async fn agent_chat_cmd(
             assistant_sort_order,
         );
 
-        // Hard cap: ensure one chat turn cannot run forever.
-        let result = tokio::time::timeout(Duration::from_secs(turn_timeout_secs), run_future).await;
+        // Keep the frontend stream alive while the agent is still running but
+        // the upstream provider is temporarily silent (reasoning, tool work,
+        // or SSE gaps). The actual hard stop remains `turn_timeout_secs`.
+        let mut run_future = Box::pin(run_future);
+        let mut turn_timeout = Box::pin(tokio::time::sleep(Duration::from_secs(turn_timeout_secs)));
+        let mut keepalive = tokio::time::interval(Duration::from_secs(
+            STREAM_KEEPALIVE_INTERVAL_SECS,
+        ));
+        keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        keepalive.tick().await;
+
+        let (result, timed_out) = loop {
+            tokio::select! {
+                run_result = &mut run_future => break (Some(run_result), false),
+                _ = &mut turn_timeout => break (None, true),
+                _ = keepalive.tick() => {
+                    let payload = AgentFrontendEvent {
+                        conversation_id: conv_id.clone(),
+                        event: AgentEvent::Thinking {
+                            content: String::new(),
+                        },
+                    };
+                    let _ = handle.emit("agent:event", &payload);
+                }
+            }
+        };
+
+        if timed_out {
+            cancel_token.cancel();
+        }
+
+        drop(run_future);
+        drop(turn_timeout);
 
         // Wait for event forwarder to finish.
         let _ = event_forwarder.await;
 
         match result {
-            Ok(Ok(_)) => {}
-            Ok(Err(ref e)) => {
+            Some(Ok(_)) => {}
+            Some(Err(ref e)) => {
                 warn!("Agent execution failed for conversation {conv_id}: {e}");
                 let payload = AgentFrontendEvent {
                     conversation_id: conv_id.clone(),
@@ -1884,7 +1973,7 @@ pub async fn agent_chat_cmd(
                 };
                 let _ = handle.emit("agent:event", payload);
             }
-            Err(ref _elapsed) => {
+            None => {
                 warn!("Agent execution timed out for conversation {conv_id}");
                 let payload = AgentFrontendEvent {
                     conversation_id: conv_id.clone(),
@@ -1897,12 +1986,12 @@ pub async fn agent_chat_cmd(
         }
 
         // Repair orphaned tool_calls in DB after timeout or error.
-        if !matches!(result, Ok(Ok(_))) {
+        if !matches!(result, Some(Ok(_))) {
             repair_orphaned_tool_calls(&db, &conv_id);
         }
 
         // Auto memory extraction (background, best-effort).
-        if matches!(result, Ok(Ok(_))) {
+        if matches!(result, Some(Ok(_))) {
             let app_cfg = db.load_app_config().unwrap_or_default();
             if app_cfg.auto_memory_extraction {
                 // Determine the model: prefer summarization model, fall back to main.

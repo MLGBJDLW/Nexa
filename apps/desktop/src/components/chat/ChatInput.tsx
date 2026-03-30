@@ -1,10 +1,23 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Square, Paperclip, X } from 'lucide-react';
+import { Send, Square, Paperclip, X, FileText } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { ImageAttachment } from '../../types/conversation';
 import { CheckpointMenu } from './CheckpointMenu';
 import { VoiceInputButton } from './VoiceInputButton';
+
+const ALLOWED_MIME_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'application/pdf',
+  'text/plain', 'text/markdown', 'text/x-markdown', 'text/csv',
+  'application/json',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
+]);
 
 interface ChatInputProps {
   onSend: (message: string, attachments?: ImageAttachment[]) => void;
@@ -80,7 +93,7 @@ export function ChatInput({
     [handleSend, isStreaming, disabled],
   );
 
-  const addImageBlob = useCallback(async (blob: Blob, name: string): Promise<boolean> => {
+  const addAttachment = useCallback(async (blob: Blob, name: string): Promise<boolean> => {
     const reader = new FileReader();
     const result = await new Promise<string>((resolve, reject) => {
       reader.onload = () => resolve(reader.result as string);
@@ -90,7 +103,7 @@ export function ChatInput({
     const match = result.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) return false;
     const [, mediaType, base64Data] = match;
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mediaType)) return false;
+    if (!ALLOWED_MIME_TYPES.has(mediaType)) return false;
     setAttachments((prev) => [...prev, { base64Data, mediaType, originalName: name }]);
     return true;
   }, []);
@@ -100,13 +113,13 @@ export function ChatInput({
     if (!files) return;
     for (const file of Array.from(files)) {
       try {
-        await addImageBlob(file, file.name);
+        await addAttachment(file, file.name);
       } catch {
         // Silently skip files that fail to read
       }
     }
     e.target.value = '';
-  }, [addImageBlob]);
+  }, [addAttachment]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
@@ -144,14 +157,14 @@ export function ChatInput({
     const files = e.dataTransfer.files;
     if (!files) return;
     for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) continue;
+      if (!ALLOWED_MIME_TYPES.has(file.type)) continue;
       try {
-        await addImageBlob(file, file.name);
+        await addAttachment(file, file.name);
       } catch {
         // Silently skip
       }
     }
-  }, [addImageBlob]);
+  }, [addAttachment]);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
@@ -164,13 +177,13 @@ export function ChatInput({
       const ext = item.type.split('/')[1] || 'png';
       const name = `pasted-image-${Date.now()}.${ext}`;
       try {
-        await addImageBlob(blob, name);
+        await addAttachment(blob, name);
       } catch {
         // Silently skip
       }
       return;
     }
-  }, [addImageBlob]);
+  }, [addAttachment]);
 
   return (
     <div
@@ -193,11 +206,17 @@ export function ChatInput({
         <div className="flex flex-wrap gap-2 pb-2">
           {attachments.map((att, i) => (
             <div key={i} className="relative group">
-              <img
-                src={`data:${att.mediaType};base64,${att.base64Data}`}
-                alt={att.originalName}
-                className="h-16 w-16 rounded-md border border-border object-cover"
-              />
+              {att.mediaType.startsWith('image/') ? (
+                <img
+                  src={`data:${att.mediaType};base64,${att.base64Data}`}
+                  alt={att.originalName}
+                  className="h-16 w-16 rounded-md border border-border object-cover"
+                />
+              ) : (
+                <div className="h-16 w-16 rounded-md border border-border bg-surface-2 flex items-center justify-center">
+                  <FileText className="h-6 w-6 text-text-tertiary" />
+                </div>
+              )}
               <button
                 onClick={() => removeAttachment(i)}
                 className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[10px] leading-none text-white opacity-0 transition-opacity cursor-pointer group-hover:opacity-100"
@@ -226,7 +245,7 @@ export function ChatInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
+          accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.docx,.xlsx,.pptx,.doc,.xls,.ppt"
           multiple
           hidden
           onChange={handleFileSelect}

@@ -15,7 +15,6 @@ import { SubagentCard } from './SubagentCard';
 interface TaskBoardProps {
   messages: ConversationMessage[];
   toolCalls: ToolCallEvent[];
-  isStreaming?: boolean;
 }
 
 function verificationStatusLabel(
@@ -38,7 +37,6 @@ function verificationStatusLabel(
 export function TaskBoard({
   messages,
   toolCalls,
-  isStreaming = false,
 }: TaskBoardProps) {
   const { t } = useTranslation();
   const plan = useMemo(
@@ -64,9 +62,9 @@ export function TaskBoard({
   const runningSubagents = subagents.filter(run => run.status === 'running').length;
 
   return (
-    <div className="shrink-0 border-b border-border/60 bg-surface-1/70 px-3 py-2 backdrop-blur">
-      <details className="group rounded-xl border border-border/60 bg-surface-0/75" open={isStreaming}>
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm text-text-secondary [&::-webkit-details-marker]:hidden">
+    <div className="shrink-0 border-b border-border/60 bg-surface-1/70 px-2 py-1.5 backdrop-blur">
+      <details className="group rounded-lg border border-border/60 bg-surface-0/75">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 text-xs text-text-secondary [&::-webkit-details-marker]:hidden">
           {subagents.length > 0 && (
             <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border/60 bg-surface-1/70 px-2 py-1 text-[11px] text-text-primary">
               <Bot className="h-3 w-3 text-accent" />
@@ -110,7 +108,7 @@ export function TaskBoard({
           </span>
         </summary>
 
-        <div className="grid gap-2 border-t border-border/60 px-3 pb-3 pt-2.5 md:grid-cols-2">
+        <div className="grid max-h-[200px] gap-1.5 overflow-y-auto border-t border-border/60 px-2 pb-2 pt-1.5 md:grid-cols-2">
           {subagents.length > 0 && (
             <div className="space-y-2 md:col-span-2">
               {subagents.map(run => (

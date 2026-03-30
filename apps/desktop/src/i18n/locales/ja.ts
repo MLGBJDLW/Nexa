@@ -711,6 +711,12 @@ export const ja: TranslationKeys = {
   'settings.providerLMStudio': 'LM Studio',
   'settings.providerAzure': 'Azure',
   'settings.providerAzureOpenAI': 'Azure OpenAI',
+  'settings.providerZhipu': 'Zhipu (智谱GLM)',
+  'settings.providerMoonshot': 'Moonshot (Kimi)',
+  'settings.providerQwen': 'Qwen (通義千問)',
+  'settings.providerDoubao': 'Doubao (豆包)',
+  'settings.providerYi': 'Yi (零一万物)',
+  'settings.providerBaichuan': 'Baichuan (百川)',
   'settings.providerCustom': 'カスタム',
 
   // Settings - Extensions
@@ -842,6 +848,7 @@ export const ja: TranslationKeys = {
   'chat.verificationFailedCount': '{count} failed',
   'chat.verificationPendingCount': '{count} pending',
   'chat.verificationSkippedCount': '{count} skipped',
+  'chat.showLess': '折りたたむ',
 
   // Media
   'media.play': '\u518d\u751f',

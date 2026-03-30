@@ -39,6 +39,14 @@ export interface ImageAttachment {
   originalName: string;
 }
 
+export interface FileAttachment {
+  base64Data: string;
+  mediaType: string;
+  originalName: string;
+}
+
+export type Attachment = ImageAttachment | FileAttachment;
+
 export interface AgentConfig {
   id: string;
   name: string;
@@ -135,6 +143,12 @@ export type ProviderType =
   | 'ollama'
   | 'lm_studio'
   | 'azure_open_ai'
+  | 'zhipu'
+  | 'moonshot'
+  | 'qwen'
+  | 'doubao'
+  | 'yi'
+  | 'baichuan'
   | 'custom';
 
 export interface AgentEvent {

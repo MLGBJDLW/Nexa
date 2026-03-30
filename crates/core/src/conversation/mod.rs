@@ -1175,6 +1175,101 @@ pub fn build_source_scope_prompt_section(
 }
 
 // ---------------------------------------------------------------------------
+// LLM-based title generation
+// ---------------------------------------------------------------------------
+
+const TITLE_SYSTEM_PROMPT: &str = "You are a conversation title generator. \
+Given the user's first message (and optionally the assistant's reply), \
+generate a concise, descriptive title in 5-10 words. \
+The title should capture the main topic or intent. \
+Reply with ONLY the title text. No quotes, no punctuation at the end. \
+Use the same language as the user's message.";
+
+/// Generate a conversation title using an LLM provider.
+///
+/// Sends the first user message (and optionally the start of the assistant
+/// reply) to the LLM with a short system prompt asking for a concise title.
+/// Falls back to simple truncation if the LLM call fails.
+pub async fn generate_title(
+    provider: &dyn crate::llm::LlmProvider,
+    model: &str,
+    user_message: &str,
+    assistant_reply: Option<&str>,
+) -> String {
+    let mut user_content = format!("User message:\n{}", truncate_for_title_context(user_message, 500));
+    if let Some(reply) = assistant_reply {
+        let trimmed = truncate_for_title_context(reply, 300);
+        if !trimmed.is_empty() {
+            user_content.push_str(&format!("\n\nAssistant reply:\n{}", trimmed));
+        }
+    }
+
+    let request = crate::llm::CompletionRequest {
+        model: model.to_string(),
+        messages: vec![
+            crate::llm::Message::text(crate::llm::Role::System, TITLE_SYSTEM_PROMPT),
+            crate::llm::Message::text(crate::llm::Role::User, &user_content),
+        ],
+        temperature: Some(0.3),
+        max_tokens: Some(60),
+        tools: None,
+        stop: None,
+        thinking_budget: None,
+        reasoning_effort: None,
+        provider_type: None,
+    };
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        provider.complete(&request),
+    )
+    .await
+    {
+        Ok(Ok(response)) => {
+            let title = response.content.trim().to_string();
+            if title.is_empty() {
+                fallback_title(user_message)
+            } else {
+                title
+            }
+        }
+        _ => fallback_title(user_message),
+    }
+}
+
+/// Truncate text to a maximum character count for title-generation context.
+fn truncate_for_title_context(text: &str, max_chars: usize) -> &str {
+    if text.len() <= max_chars {
+        return text;
+    }
+    // Find a char boundary near max_chars
+    let mut end = max_chars;
+    while !text.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// Simple truncation fallback when LLM title generation fails.
+fn fallback_title(message: &str) -> String {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.len() <= 50 {
+        return trimmed.to_string();
+    }
+    let truncated = &trimmed[..50.min(trimmed.len())];
+    // Try to break at a word boundary
+    if let Some(pos) = truncated.rfind(' ') {
+        if pos > 20 {
+            return format!("{}...", &truncated[..pos]);
+        }
+    }
+    format!("{}...", truncated)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

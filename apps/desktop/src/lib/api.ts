@@ -25,6 +25,7 @@ import type {
   ConversationStats,
   ConversationSearchResult,
   ImageAttachment,
+  FileAttachment,
   Checkpoint,
   UserMemory,
 } from "../types/conversation";
@@ -249,6 +250,9 @@ export const deleteAllConversations = () =>
 export const renameConversation = (id: string, title: string) =>
   invoke<void>('rename_conversation_cmd', { id, title });
 
+export const generateTitle = (conversationId: string) =>
+  invoke<string>('generate_title_cmd', { conversationId });
+
 export const updateConversationSystemPrompt = (id: string, systemPrompt: string) =>
   invoke<void>('update_conversation_system_prompt_cmd', { id, systemPrompt });
 
@@ -267,6 +271,9 @@ export const getModelContextWindow = (model: string) =>
 
 export const prepareImageAttachment = (path: string) =>
   invoke<ImageAttachment>('prepare_image_attachment', { path });
+
+export const prepareFileAttachment = (path: string) =>
+  invoke<FileAttachment>('prepare_file_attachment', { path });
 
 // ── Conversation Sources ────────────────────────────────────────────────
 

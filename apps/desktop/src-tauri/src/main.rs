@@ -117,6 +117,7 @@ fn main() {
             commands::delete_conversations_batch_cmd,
             commands::delete_all_conversations_cmd,
             commands::rename_conversation_cmd,
+            commands::generate_title_cmd,
             commands::update_conversation_system_prompt_cmd,
             // Conversation maintenance
             commands::get_conversation_stats_cmd,

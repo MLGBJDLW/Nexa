@@ -16,6 +16,7 @@ import { PlaybooksPage } from "./pages/PlaybooksPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ChatPage } from './pages/ChatPage';
 import { CommandPalette } from "./components/CommandPalette";
+import { StreamProvider } from "./lib/StreamProvider";
 
 /* ── Page transition wrapper ─────────────────────────────────────── */
 function PageTransition({ children }: { children: ReactNode }) {
@@ -78,7 +79,11 @@ const router = createBrowserRouter(
 );
 
 function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <StreamProvider>
+      <RouterProvider router={router} />
+    </StreamProvider>
+  );
 }
 
 export default App;
