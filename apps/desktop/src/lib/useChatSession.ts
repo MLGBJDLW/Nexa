@@ -105,6 +105,8 @@ export interface UseChatSessionOptions {
   onConversationCreated?: (id: string) => void;
   /** Optional custom system prompt to use when creating a conversation */
   systemPrompt?: string;
+  /** Optional source scope to apply when creating a new conversation */
+  initialSourceIds?: string[];
 }
 
 export interface UseChatSessionReturn {
@@ -162,7 +164,12 @@ export interface UseChatSessionReturn {
 /* ------------------------------------------------------------------ */
 
 export function useChatSession(options: UseChatSessionOptions = {}): UseChatSessionReturn {
-  const { conversationId: externalConversationId, onConversationCreated, systemPrompt: externalSystemPrompt } = options;
+  const {
+    conversationId: externalConversationId,
+    onConversationCreated,
+    systemPrompt: externalSystemPrompt,
+    initialSourceIds = [],
+  } = options;
 
   const { t } = useTranslation();
 
@@ -652,6 +659,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
             customSystemPrompt || undefined,
           );
           convId = conv.id;
+          if (initialSourceIds.length > 0) {
+            await api.setConversationSources(convId, initialSourceIds);
+          }
           setConversations((prev) => [conv, ...prev]);
           setInternalConversationId(convId);
           onConversationCreated?.(convId);
@@ -685,7 +695,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
       await streamSend(convId, content, attachments);
     },
-    [activeId, agentConfig, customSystemPrompt, messageCache, streamSend, onConversationCreated, setMessagesForConversation, t],
+    [activeId, agentConfig, customSystemPrompt, initialSourceIds, messageCache, streamSend, onConversationCreated, setMessagesForConversation, t],
   );
 
   const stop = useCallback(() => {

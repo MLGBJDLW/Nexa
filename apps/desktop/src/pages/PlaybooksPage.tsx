@@ -14,6 +14,7 @@ import { Skeleton, CardSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { undoableAction } from '../lib/undoToast';
+import { buildCollectionContextPrompt } from '../lib/collectionContext';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -126,15 +127,24 @@ export function PlaybooksPage() {
       return;
     }
 
-    const results = await Promise.allSettled(
-      items.map(async (citation) => [citation.id, await api.getEvidenceCard(citation.chunkId)] as const),
-    );
-
     const next: Record<string, EvidenceCard | null> = {};
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        const [citationId, evidence] = result.value;
-        next[citationId] = evidence;
+
+    try {
+      const evidenceCards = await api.getEvidenceCards(items.map((citation) => citation.chunkId));
+      const byChunkId = new Map(evidenceCards.map((card) => [card.chunkId, card] as const));
+      for (const citation of items) {
+        next[citation.id] = byChunkId.get(citation.chunkId) ?? null;
+      }
+    } catch {
+      const results = await Promise.allSettled(
+        items.map(async (citation) => [citation.id, await api.getEvidenceCard(citation.chunkId)] as const),
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const [citationId, evidence] = result.value;
+          next[citationId] = evidence;
+        }
       }
     }
 
@@ -295,12 +305,47 @@ export function PlaybooksPage() {
 
   /* 鈹€鈹€ Ask AI handler 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 
-  const handleAskAI = (context: string) => {
+  const handleAskAI = (context: string, systemPrompt?: string, sourceIds?: string[]) => {
     const trimmed = context.trim();
     navigate('/chat', {
-      state: trimmed ? { initialMessage: trimmed } : null,
+      state: trimmed ? {
+        initialMessage: trimmed,
+        systemPrompt: systemPrompt?.trim() || undefined,
+        sourceIds: sourceIds && sourceIds.length > 0 ? sourceIds : undefined,
+      } : null,
     });
   };
+
+  const buildPlaybookSourceIds = useCallback(() => {
+    const ids = citations
+      .map((citation) => citationEvidence[citation.id]?.sourceId)
+      .filter((value): value is string => Boolean(value));
+    return Array.from(new Set(ids));
+  }, [citationEvidence, citations]);
+
+  const buildPlaybookSystemPrompt = useCallback(() => {
+    if (!selectedPlaybook) return '';
+
+    const sourceIds = buildPlaybookSourceIds();
+    const evidenceLines = citations
+      .sort((a, b) => a.order - b.order)
+      .slice(0, 6)
+      .map((citation, index) => {
+        const evidence = citationEvidence[citation.id];
+        const title = evidence?.documentTitle || (evidence?.documentPath ? basename(evidence.documentPath) : citation.chunkId.slice(0, 12));
+        const snippet = evidence?.snippet || evidence?.content || '';
+        const note = citation.annotation ? `Note: ${citation.annotation}` : '';
+        return `${index + 1}. ${title}${note ? `\n${note}` : ''}${snippet ? `\nExcerpt: ${truncate(snippet, 360)}` : ''}`;
+      })
+      .join('\n\n');
+
+    return buildCollectionContextPrompt({
+      title: selectedPlaybook.title,
+      description: selectedPlaybook.description || undefined,
+      queryText: selectedPlaybook.queryText || undefined,
+      sourceIds,
+    }, evidenceLines);
+  }, [buildPlaybookSourceIds, citationEvidence, citations, selectedPlaybook]);
 
   /* 鈹€鈹€ Citation reordering 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 
@@ -510,7 +555,9 @@ export function PlaybooksPage() {
                               `Tell me about the collection "${selectedPlaybook.title}".`
                               + `${selectedPlaybook.description ? `\nDescription: ${selectedPlaybook.description}` : ''}`
                               + `${selectedPlaybook.queryText ? `\nBase query: ${selectedPlaybook.queryText}` : ''}`
-                              + `${citationContext}`
+                              + `${citationContext}`,
+                              buildPlaybookSystemPrompt(),
+                              buildPlaybookSourceIds(),
                             );
                           }}
                           className="rounded-md px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition-colors cursor-pointer flex items-center gap-1.5"
@@ -684,7 +731,9 @@ export function PlaybooksPage() {
                                         + `Title: ${title}\n`
                                         + `${heading ? `Section: ${heading}\n` : ''}`
                                         + `${cit.annotation ? `Note: ${cit.annotation}\n` : ''}`
-                                        + `Excerpt: ${truncate(evidence.content, 1200)}`
+                                        + `Excerpt: ${truncate(evidence.content, 1200)}`,
+                                        `${buildPlaybookSystemPrompt()}\n\nFocus first on this citation before considering the rest of the collection.`,
+                                        evidence.sourceId ? [evidence.sourceId] : buildPlaybookSourceIds(),
                                       )}
                                       title={t('chat.askAboutThis')}
                                     />

@@ -24,7 +24,7 @@ use crate::llm::{
 };
 use crate::privacy;
 use crate::skills::Skill;
-use crate::tools::ToolRegistry;
+use crate::tools::{ToolCategory, ToolRegistry};
 use crate::trace::{AgentTrace, TraceOutcome, TraceStep};
 
 pub mod context;
@@ -484,6 +484,175 @@ struct DirectDispatch {
     arguments: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentRouteKind {
+    DirectResponse,
+    KnowledgeRetrieval,
+    CollectionFocused,
+    ConversationRecall,
+    FileOperation,
+    WebLookup,
+    SourceManagement,
+}
+
+#[derive(Debug, Clone)]
+struct AgentRoutePlan {
+    kind: AgentRouteKind,
+    prompt_section: String,
+    extra_categories: Vec<ToolCategory>,
+}
+
+fn query_looks_like_question(query: &str) -> bool {
+    let q = query.to_lowercase();
+    q.contains('?')
+        || q.contains("what")
+        || q.contains("why")
+        || q.contains("how")
+        || q.contains("which")
+        || q.contains("where")
+        || q.contains("when")
+        || q.contains("who")
+        || q.contains("tell me")
+        || q.contains("explain")
+        || q.contains("analyze")
+        || q.contains("analysis")
+        || q.contains("summarize")
+        || q.contains("compare")
+        || q.contains("分析")
+        || q.contains("总结")
+        || q.contains("为什么")
+        || q.contains("如何")
+        || q.contains("怎么")
+        || q.contains("哪些")
+        || q.contains("什么")
+}
+
+fn system_prompt_has_collection_context(system_prompt: &str) -> bool {
+    let prompt = system_prompt.to_lowercase();
+    prompt.contains("## collection context")
+        || prompt.contains("title:")
+            && prompt.contains("saved evidence:")
+        || prompt.contains("collection description:")
+        || prompt.contains("base query:")
+        || prompt.contains("saved evidence")
+        || prompt.contains("focus first on this citation")
+}
+
+fn route_user_turn(
+    query: &str,
+    system_prompt: &str,
+    has_sources: bool,
+) -> AgentRoutePlan {
+    let q = query.to_lowercase();
+    let collection_context = system_prompt_has_collection_context(system_prompt);
+
+    let file_operation = q.contains("file")
+        || q.contains("read")
+        || q.contains("edit")
+        || q.contains("write")
+        || q.contains("create")
+        || q.contains("folder")
+        || q.contains("directory")
+        || q.contains("document")
+        || q.contains("docx")
+        || q.contains("xlsx")
+        || q.contains("pptx");
+
+    let source_management = q.contains("source")
+        || q.contains("index")
+        || q.contains("reindex")
+        || q.contains("数据源")
+        || q.contains("索引");
+
+    let web_lookup = q.contains("http")
+        || q.contains("url")
+        || q.contains("website")
+        || q.contains("web ")
+        || q.contains("网页")
+        || q.contains("链接");
+
+    let conversation_recall = q.contains("earlier")
+        || q.contains("previous")
+        || q.contains("before")
+        || q.contains("this conversation")
+        || q.contains("chat history")
+        || q.contains("we discussed")
+        || q.contains("刚才")
+        || q.contains("之前")
+        || q.contains("上面")
+        || q.contains("这段对话");
+
+    if collection_context {
+        return AgentRoutePlan {
+            kind: AgentRouteKind::CollectionFocused,
+            prompt_section: "## Active Routing Plan\nUse the current collection and its saved evidence as your primary working set. Stay anchored to that collection first, and only widen beyond it if the collection is clearly insufficient. If you widen scope, explain why.".to_string(),
+            extra_categories: vec![ToolCategory::Knowledge, ToolCategory::DocumentAnalysis],
+        };
+    }
+
+    if source_management {
+        return AgentRoutePlan {
+            kind: AgentRouteKind::SourceManagement,
+            prompt_section: "## Active Routing Plan\nThis is a source/index management request. Prefer direct, operational handling over exploratory retrieval, and avoid unnecessary long-form analysis.".to_string(),
+            extra_categories: vec![ToolCategory::SourceManagement],
+        };
+    }
+
+    if file_operation {
+        return AgentRoutePlan {
+            kind: AgentRouteKind::FileOperation,
+            prompt_section: "## Active Routing Plan\nThis request is file-centric. Prefer reading, comparing, or editing the relevant files directly before broad knowledge-base search.".to_string(),
+            extra_categories: vec![ToolCategory::FileSystem, ToolCategory::DocumentAnalysis],
+        };
+    }
+
+    if conversation_recall {
+        return AgentRoutePlan {
+            kind: AgentRouteKind::ConversationRecall,
+            prompt_section: "## Active Routing Plan\nThe user is asking about the current conversation context. Check the conversation history and already-available evidence first before widening to new retrieval.".to_string(),
+            extra_categories: vec![ToolCategory::Knowledge, ToolCategory::DocumentAnalysis],
+        };
+    }
+
+    if web_lookup && !has_sources {
+        return AgentRoutePlan {
+            kind: AgentRouteKind::WebLookup,
+            prompt_section: "## Active Routing Plan\nThis request likely needs web or URL inspection. Prefer targeted fetch or MCP/web tools instead of broad local retrieval.".to_string(),
+            extra_categories: vec![ToolCategory::Web],
+        };
+    }
+
+    if has_sources && query_looks_like_question(query) {
+        return AgentRoutePlan {
+            kind: AgentRouteKind::KnowledgeRetrieval,
+            prompt_section: "## Active Routing Plan\nThis is a knowledge retrieval turn. Prefer grounded retrieval, comparison, and evidence synthesis before answering. Stop once the evidence is sufficient instead of over-searching.".to_string(),
+            extra_categories: vec![ToolCategory::Knowledge, ToolCategory::DocumentAnalysis],
+        };
+    }
+
+    AgentRoutePlan {
+        kind: AgentRouteKind::DirectResponse,
+        prompt_section: "## Active Routing Plan\nAnswer directly when the request is already clear from the conversation and available evidence. Avoid unnecessary tool use when it would not materially improve the answer.".to_string(),
+        extra_categories: Vec::new(),
+    }
+}
+
+fn merge_tool_definitions(
+    primary: Vec<crate::llm::ToolDefinition>,
+    secondary: Vec<crate::llm::ToolDefinition>,
+) -> Vec<crate::llm::ToolDefinition> {
+    let mut seen = std::collections::HashSet::new();
+    let mut merged = Vec::new();
+
+    for def in primary.into_iter().chain(secondary.into_iter()) {
+        if seen.insert(def.name.clone()) {
+            merged.push(def);
+        }
+    }
+
+    merged
+}
+
 // ---------------------------------------------------------------------------
 // Executor
 // ---------------------------------------------------------------------------
@@ -670,10 +839,24 @@ impl AgentExecutor {
                 None => Vec::new(),
             });
         let has_sources = !source_scope.is_empty();
+        let route_plan = route_user_turn(
+            &user_query_text_for_tools,
+            &self.config.system_prompt,
+            has_sources,
+        );
+
+        debug!("Agent route selected: {:?}", route_plan.kind);
 
         let tool_defs = if self.config.dynamic_tool_visibility {
-            self.tools
-                .select_tools(&user_query_text_for_tools, has_sources)
+            let selected = self.tools.select_tools(&user_query_text_for_tools, has_sources);
+            if route_plan.extra_categories.is_empty() {
+                selected
+            } else {
+                let extra_categories: std::collections::HashSet<ToolCategory> =
+                    route_plan.extra_categories.iter().copied().collect();
+                let extra = self.tools.definitions_for_categories(&extra_categories);
+                merge_tool_definitions(selected, extra)
+            }
         } else {
             self.tools.definitions()
         };
@@ -690,6 +873,9 @@ impl AgentExecutor {
             &skills,
             &tool_defs,
         );
+        if !route_plan.prompt_section.trim().is_empty() {
+            messages.insert(1, Message::text(Role::System, route_plan.prompt_section.clone()));
+        }
 
         // --- 2. Privacy redaction on outgoing user content --------------------
         let privacy_cfg = db.load_privacy_config().unwrap_or_default();
@@ -2380,6 +2566,26 @@ mod tests {
     fn test_build_system_prompt_skips_blank_sections() {
         let prompt = build_system_prompt(Some("   "), &["", "  ", "\n\n"]);
         assert_eq!(prompt, DEFAULT_SYSTEM_PROMPT.trim());
+    }
+
+    #[test]
+    fn test_route_user_turn_prefers_collection_context() {
+        let route = route_user_turn(
+            "Explain what this saved citation means",
+            "Collection description: Retry Collection\n\nPrefer the following saved evidence before widening to the full knowledge base.",
+            true,
+        );
+
+        assert_eq!(route.kind, AgentRouteKind::CollectionFocused);
+        assert!(route.extra_categories.contains(&ToolCategory::Knowledge));
+    }
+
+    #[test]
+    fn test_route_user_turn_prefers_knowledge_retrieval_for_question_with_sources() {
+        let route = route_user_turn("Why did the retry guard fail?", "", true);
+
+        assert_eq!(route.kind, AgentRouteKind::KnowledgeRetrieval);
+        assert!(route.extra_categories.contains(&ToolCategory::DocumentAnalysis));
     }
 
     struct MockProvider {

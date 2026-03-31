@@ -253,6 +253,7 @@ pub fn search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreEr
                 Ok(EvidenceCard {
                     chunk_id: Uuid::parse_str(&chunk_id).unwrap_or_default(),
                     document_id: Uuid::parse_str(&document_id).unwrap_or_default(),
+                    source_id: Uuid::parse_str(&_source_id).unwrap_or_default(),
                     source_name,
                     document_path: doc_path,
                     document_title: doc_title.unwrap_or_default(),
@@ -390,6 +391,7 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
             Ok(EvidenceCard {
                 chunk_id: Uuid::parse_str(&cid).unwrap_or_default(),
                 document_id: Uuid::parse_str(&did).unwrap_or_default(),
+                source_id: Uuid::parse_str(&_source_id).unwrap_or_default(),
                 source_name: extract_source_name(&source_root),
                 document_path: doc_path,
                 document_title: doc_title.unwrap_or_default(),
@@ -410,6 +412,18 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
         }
         other => CoreError::Database(other),
     })
+}
+
+/// Retrieve multiple evidence cards by chunk ID, preserving input order.
+pub fn get_evidence_cards(
+    db: &Database,
+    chunk_ids: &[String],
+) -> Result<Vec<EvidenceCard>, CoreError> {
+    let mut cards = Vec::with_capacity(chunk_ids.len());
+    for chunk_id in chunk_ids {
+        cards.push(get_evidence_card(db, chunk_id)?);
+    }
+    Ok(cards)
 }
 
 // ---------------------------------------------------------------------------
@@ -2079,6 +2093,7 @@ mod tests {
             EvidenceCard {
                 chunk_id: Uuid::parse_str(&chunk_a).unwrap(),
                 document_id: Uuid::nil(),
+                source_id: Uuid::nil(),
                 source_name: String::new(),
                 document_path: String::new(),
                 document_title: String::new(),
@@ -2094,6 +2109,7 @@ mod tests {
             EvidenceCard {
                 chunk_id: Uuid::parse_str(&chunk_b).unwrap(),
                 document_id: Uuid::nil(),
+                source_id: Uuid::nil(),
                 source_name: String::new(),
                 document_path: String::new(),
                 document_title: String::new(),
@@ -2109,6 +2125,7 @@ mod tests {
             EvidenceCard {
                 chunk_id: Uuid::parse_str(&chunk_c).unwrap(),
                 document_id: Uuid::nil(),
+                source_id: Uuid::nil(),
                 source_name: String::new(),
                 document_path: String::new(),
                 document_title: String::new(),

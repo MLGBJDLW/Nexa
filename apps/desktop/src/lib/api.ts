@@ -65,6 +65,9 @@ export const search = (queryText: string, limit?: number, offset?: number, filte
 export const getEvidenceCard = (chunkId: string) =>
   invoke<EvidenceCard>("get_evidence_card", { chunkId });
 
+export const getEvidenceCards = (chunkIds: string[]) =>
+  invoke<EvidenceCard[]>('get_evidence_cards', { chunkIds });
+
 // ── Index ───────────────────────────────────────────────────────────────
 
 export const getIndexStats = () => invoke<IndexStats>("get_index_stats");

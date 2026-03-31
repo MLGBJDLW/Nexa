@@ -61,6 +61,7 @@ fn main() {
             // Search
             commands::search,
             commands::get_evidence_card,
+            commands::get_evidence_cards,
             // Index
             commands::get_index_stats,
             commands::rebuild_index,

@@ -456,6 +456,14 @@ pub fn get_evidence_card(
     search::get_evidence_card(&state.db, &chunk_id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn get_evidence_cards(
+    state: tauri::State<'_, AppState>,
+    chunk_ids: Vec<String>,
+) -> Result<Vec<EvidenceCard>, String> {
+    search::get_evidence_cards(&state.db, &chunk_ids).map_err(|e| e.to_string())
+}
+
 // ── Index Commands ──────────────────────────────────────────────────────
 
 #[tauri::command]

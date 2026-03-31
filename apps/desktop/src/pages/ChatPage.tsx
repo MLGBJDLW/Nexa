@@ -11,6 +11,7 @@ import { useChatSession } from '../lib/useChatSession';
 import { undoableAction } from '../lib/undoToast';
 import * as api from '../lib/api';
 import type { AgentConfig } from '../types/conversation';
+import { parseCollectionContextPrompt } from '../lib/collectionContext';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -27,37 +28,56 @@ export function ChatPage() {
     [navigate],
   );
 
+  const initialSourceIds = (
+    (location.state as { sourceIds?: string[] } | null)?.sourceIds ?? []
+  ).filter((value): value is string => typeof value === 'string' && value.length > 0);
+
   const chat = useChatSession({
     conversationId,
     onConversationCreated,
+    systemPrompt: ((location.state as { systemPrompt?: string } | null)?.systemPrompt ?? '').trim(),
+    initialSourceIds,
   });
 
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   useEffect(() => {
     api.listAgentConfigs().then(setAgentConfigs);
   }, []);
+  const collectionContext = parseCollectionContextPrompt(chat.customSystemPrompt);
 
   const sentInitialRef = useRef<string | null>(null);
   const initialMessage = (
     (location.state as { initialMessage?: string } | null)?.initialMessage ?? ''
   ).trim();
+  const initialSystemPrompt = (
+    (location.state as { systemPrompt?: string } | null)?.systemPrompt ?? ''
+  ).trim();
+  const initialSourceScopeKey = initialSourceIds.join(',');
 
   // Accept one-off initial message forwarded from other pages.
   useEffect(() => {
     if (!initialMessage || chat.loadingConfig || !chat.agentConfig || chat.isStreaming) {
       return;
     }
-    const key = `${location.key}:${initialMessage}`;
+    const key = `${location.key}:${initialMessage}:${initialSystemPrompt}:${initialSourceScopeKey}`;
     if (sentInitialRef.current === key) {
       return;
     }
     sentInitialRef.current = key;
-    void chat.send(initialMessage);
+    void (async () => {
+      if (conversationId && initialSourceIds.length > 0) {
+        await api.setConversationSources(conversationId, initialSourceIds).catch(() => undefined);
+      }
+      await chat.send(initialMessage);
+    })();
 
     const cleanPath = conversationId ? `/chat/${conversationId}` : '/chat';
     navigate(cleanPath, { replace: true, state: null });
   }, [
     initialMessage,
+    initialSystemPrompt,
+    initialSourceIds,
+    initialSourceScopeKey,
     chat.loadingConfig,
     chat.agentConfig,
     chat.isStreaming,
@@ -332,6 +352,12 @@ export function ChatPage() {
                     </div>
                   )}
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    {collectionContext && (
+                      <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
+                        <Logo size={12} />
+                        <span className="truncate">Collection: {collectionContext.title}</span>
+                      </div>
+                    )}
                     <SourceSelector conversationId={chat.activeId} onStateChange={setSourceSummary} />
                     <SystemPromptEditor
                       conversationId={chat.activeId}

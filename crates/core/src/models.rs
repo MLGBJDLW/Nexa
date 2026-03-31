@@ -40,6 +40,7 @@ pub enum FileType {
 pub struct EvidenceCard {
     pub chunk_id: Uuid,
     pub document_id: Uuid,
+    pub source_id: Uuid,
     pub source_name: String,
     pub document_path: String,
     pub document_title: String,

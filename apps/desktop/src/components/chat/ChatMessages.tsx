@@ -194,11 +194,11 @@ export function ChatMessages({
 
   const [debouncedMarkdown, setDebouncedMarkdown] = useState('');
   useEffect(() => {
-    if (shouldReduceMotion || !isStreaming) {
+    if (shouldReduceMotion || !isStreaming || displayedText.length <= 240) {
       setDebouncedMarkdown(displayedText);
       return;
     }
-    const timer = setTimeout(() => setDebouncedMarkdown(displayedText), 100);
+    const timer = setTimeout(() => setDebouncedMarkdown(displayedText), 60);
     return () => clearTimeout(timer);
   }, [displayedText, isStreaming, shouldReduceMotion]);
 
