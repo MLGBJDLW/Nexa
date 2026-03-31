@@ -913,6 +913,7 @@ async fn run_subagent_once(
             vec![ContentPart::Text { text: request_text }],
             &db,
             None,
+            None,
             Some(effective_source_scope.clone()),
             tx,
             0,
