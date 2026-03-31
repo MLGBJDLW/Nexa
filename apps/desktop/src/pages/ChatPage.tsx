@@ -10,8 +10,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { useChatSession } from '../lib/useChatSession';
 import { undoableAction } from '../lib/undoToast';
 import * as api from '../lib/api';
-import type { AgentConfig } from '../types/conversation';
-import { parseCollectionContextPrompt } from '../lib/collectionContext';
+import type { AgentConfig, Conversation } from '../types/conversation';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -31,19 +30,23 @@ export function ChatPage() {
   const initialSourceIds = (
     (location.state as { sourceIds?: string[] } | null)?.sourceIds ?? []
   ).filter((value): value is string => typeof value === 'string' && value.length > 0);
+  const initialCollectionContext = (
+    (location.state as { collectionContext?: Conversation['collectionContext'] } | null)?.collectionContext
+  ) ?? null;
 
   const chat = useChatSession({
     conversationId,
     onConversationCreated,
     systemPrompt: ((location.state as { systemPrompt?: string } | null)?.systemPrompt ?? '').trim(),
     initialSourceIds,
+    initialCollectionContext,
   });
 
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   useEffect(() => {
     api.listAgentConfigs().then(setAgentConfigs);
   }, []);
-  const collectionContext = parseCollectionContextPrompt(chat.customSystemPrompt);
+  const collectionContext = chat.activeConversation?.collectionContext ?? initialCollectionContext;
 
   const sentInitialRef = useRef<string | null>(null);
   const initialMessage = (
@@ -53,13 +56,14 @@ export function ChatPage() {
     (location.state as { systemPrompt?: string } | null)?.systemPrompt ?? ''
   ).trim();
   const initialSourceScopeKey = initialSourceIds.join(',');
+  const initialCollectionKey = collectionContext ? JSON.stringify(collectionContext) : '';
 
   // Accept one-off initial message forwarded from other pages.
   useEffect(() => {
     if (!initialMessage || chat.loadingConfig || !chat.agentConfig || chat.isStreaming) {
       return;
     }
-    const key = `${location.key}:${initialMessage}:${initialSystemPrompt}:${initialSourceScopeKey}`;
+    const key = `${location.key}:${initialMessage}:${initialSystemPrompt}:${initialSourceScopeKey}:${initialCollectionKey}`;
     if (sentInitialRef.current === key) {
       return;
     }
@@ -67,6 +71,9 @@ export function ChatPage() {
     void (async () => {
       if (conversationId && initialSourceIds.length > 0) {
         await api.setConversationSources(conversationId, initialSourceIds).catch(() => undefined);
+      }
+      if (conversationId && initialCollectionContext) {
+        await api.updateConversationCollectionContext(conversationId, initialCollectionContext).catch(() => undefined);
       }
       await chat.send(initialMessage);
     })();
@@ -76,6 +83,8 @@ export function ChatPage() {
   }, [
     initialMessage,
     initialSystemPrompt,
+    initialCollectionContext,
+    initialCollectionKey,
     initialSourceIds,
     initialSourceScopeKey,
     chat.loadingConfig,
@@ -390,6 +399,7 @@ export function ChatPage() {
             )}
             <ChatMessages
               messages={chat.messages}
+              turns={chat.turns}
               streamText={chat.streamText}
               streamRounds={chat.streamRounds}
               traceEvents={chat.traceEvents}

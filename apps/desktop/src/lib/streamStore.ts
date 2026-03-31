@@ -112,6 +112,7 @@ function normalizeAgentEventType(value: unknown): AgentEventType | null {
     case 'textDelta': return 'textDelta';
     case 'toolCallStart': return 'toolCallStart';
     case 'toolCallResult': return 'toolCallResult';
+    case 'status': return 'status';
     case 'done': return 'done';
     case 'error': return 'error';
     case 'autoCompacted': return 'autoCompacted';
@@ -648,6 +649,16 @@ class StreamStoreImpl {
           const uLpt = (raw.lastPromptTokens ?? raw.last_prompt_tokens) as number | undefined;
           s.lastUsage = { ...uUsage, lastPromptTokens: uLpt ?? uUsage.lastPromptTokens };
         }
+        break;
+      }
+
+      case 'status': {
+        const text = (typeof event.content === 'string' ? event.content : '')
+          || (typeof raw.content === 'string' ? raw.content : '');
+        const tone = event.tone === 'success' || event.tone === 'error'
+          ? event.tone
+          : (raw.tone === 'success' || raw.tone === 'error' ? raw.tone : 'muted');
+        appendStatusTraceEvent(s, text, tone);
         break;
       }
 

@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { useTranslation } from '../../i18n';
 import { useTypewriter } from '../../lib/useTypewriter';
 import { hasTimeGap } from '../../lib/relativeTime';
+import { appTimeMs } from '../../lib/dateTime';
 import { preprocessChunkCitations, buildCitationMap } from '../../lib/citationParser';
 import type { CitationCardData } from '../../lib/citationParser';
 import type { StreamRoundEvent, ToolCallEvent, TraceEvent } from '../../lib/useAgentStream';
@@ -15,10 +16,11 @@ import type { ThinkingSection } from './ThinkingBlock';
 import { markdownComponents, preprocessFilePaths, preprocessCitations, CitationContext } from './markdownComponents';
 import { MessageBubble } from './MessageBubble';
 import { Skeleton } from '../ui/Skeleton';
-import type { ArtifactPayload, ConversationMessage } from '../../types/conversation';
+import type { ArtifactPayload, ConversationMessage, ConversationTurn } from '../../types/conversation';
 
 interface ChatMessagesProps {
   messages: ConversationMessage[];
+  turns: ConversationTurn[];
   streamText: string;
   streamRounds: StreamRoundEvent[];
   traceEvents: TraceEvent[];
@@ -70,6 +72,39 @@ type PersistedTraceItem =
   | { kind: 'tool'; toolCall: PersistedTraceToolCall }
   | { kind: 'status'; text: string; tone?: 'muted' | 'success' | 'error' };
 
+function formatRouteKind(routeKind: string): string {
+  return routeKind
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function formatTurnStatus(status: string): string {
+  switch (status) {
+    case 'success':
+      return 'Success';
+    case 'cached':
+      return 'Cached';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'max_iterations':
+      return 'Max iterations';
+    case 'error':
+      return 'Error';
+    case 'running':
+    default:
+      return 'Running';
+  }
+}
+
+function formatTurnDuration(turn: ConversationTurn): string | null {
+  if (!turn.finishedAt) return null;
+  const startedAt = appTimeMs(turn.createdAt);
+  const finishedAt = appTimeMs(turn.finishedAt);
+  if (Number.isNaN(startedAt) || Number.isNaN(finishedAt) || finishedAt < startedAt) return null;
+  const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 1000));
+  return `${seconds}s`;
+}
+
 function extractPersistedTraceItems(artifacts: ConversationMessage['artifacts']): PersistedTraceItem[] | null {
   if (!artifacts || Array.isArray(artifacts) || typeof artifacts !== 'object') return null;
   const record = artifacts as Record<string, unknown>;
@@ -114,6 +149,20 @@ function extractPersistedTraceItems(artifacts: ConversationMessage['artifacts'])
   return items.length > 0 ? items : null;
 }
 
+function extractTurnTrace(
+  trace: ConversationTurn['trace'],
+): { routeKind?: string; items: PersistedTraceItem[] } | null {
+  if (!trace || Array.isArray(trace) || typeof trace !== 'object') return null;
+  const record = trace as Record<string, unknown>;
+  if (record.kind !== 'turnTrace' || !Array.isArray(record.items)) return null;
+  const items = extractPersistedTraceItems({ kind: 'traceTimeline', items: record.items } as unknown as ConversationMessage['artifacts']);
+  if (!items || items.length === 0) return null;
+  return {
+    routeKind: typeof record.routeKind === 'string' ? record.routeKind : undefined,
+    items,
+  };
+}
+
 function TraceStatusRow({ text, tone = 'muted' }: { text: string; tone?: 'muted' | 'success' | 'error' }) {
   const toneClass = tone === 'error'
     ? 'border-danger/25 bg-danger/8 text-danger'
@@ -130,6 +179,7 @@ function TraceStatusRow({ text, tone = 'muted' }: { text: string; tone?: 'muted'
 
 export function ChatMessages({
   messages,
+  turns,
   streamText,
   streamRounds,
   traceEvents,
@@ -283,12 +333,115 @@ export function ChatMessages({
     return map;
   }, [messages]);
 
+  const messageIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    messages.forEach((message, index) => {
+      map.set(message.id, index);
+    });
+    return map;
+  }, [messages]);
+
+  const turnRenderMap = useMemo(() => {
+    const anchors = new Map<number, { turn: ConversationTurn; assistantIdx: number | null }>();
+    const members = new Set<number>();
+
+    for (const turn of turns) {
+      const userIdx = messageIndexById.get(turn.userMessageId);
+      if (userIdx == null) continue;
+      const assistantIdx = turn.assistantMessageId
+        ? (messageIndexById.get(turn.assistantMessageId) ?? null)
+        : null;
+
+      anchors.set(userIdx, { turn, assistantIdx });
+      if (assistantIdx != null) {
+        members.add(assistantIdx);
+      }
+    }
+
+    return { anchors, members };
+  }, [messageIndexById, turns]);
+
   const messageTraceGroups = useMemo(() => {
     const map = new Map<number, { type: 'anchor'; sections: ThinkingSection[] } | { type: 'member' }>();
+
+    for (const turn of turns) {
+      const trace = extractTurnTrace(turn.trace);
+      if (!trace || trace.items.length === 0 || !turn.assistantMessageId) continue;
+      const anchorIdx = messageIndexById.get(turn.assistantMessageId);
+      if (anchorIdx == null) continue;
+
+      const sections: ThinkingSection[] = [];
+
+      if (trace.routeKind) {
+        sections.push({
+          text: '',
+          node: (
+            <TraceStatusRow
+              key={`turn-route-${turn.id}`}
+              text={`Route: ${formatRouteKind(trace.routeKind)}`}
+              tone="muted"
+            />
+          ),
+        });
+      }
+
+      const duration = formatTurnDuration(turn);
+      sections.push({
+        text: '',
+        node: (
+          <TraceStatusRow
+            key={`turn-status-${turn.id}`}
+            text={`Status: ${formatTurnStatus(turn.status)}${duration ? ` · ${duration}` : ''}`}
+            tone={turn.status === 'error' ? 'error' : turn.status === 'success' || turn.status === 'cached' ? 'success' : 'muted'}
+          />
+        ),
+      });
+
+      sections.push(...trace.items.map((item, itemIdx) => {
+        if (item.kind === 'thinking') {
+          return { text: item.text };
+        }
+        if (item.kind === 'status') {
+          return {
+            text: '',
+            node: (
+              <TraceStatusRow
+                key={`turn-status-${turn.id}-${itemIdx}`}
+                text={item.text}
+                tone={item.tone}
+              />
+            ),
+          };
+        }
+        return {
+          text: '',
+          node: (
+            <ToolCallCard
+              key={`turn-tool-${turn.id}-${item.toolCall.callId}-${itemIdx}`}
+              toolName={item.toolCall.toolName}
+              arguments={item.toolCall.arguments}
+              status={item.toolCall.status}
+              content={item.toolCall.content}
+              isError={item.toolCall.isError}
+              artifacts={item.toolCall.artifacts}
+              trace
+            />
+            ),
+          };
+      }));
+
+      map.set(anchorIdx, { type: 'anchor', sections });
+    }
+
     let currentGroup: number[] = [];
 
     const flushGroup = () => {
       if (currentGroup.length === 0) return;
+
+      if (currentGroup.some((idx) => map.has(idx))) {
+        currentGroup = [];
+        return;
+      }
 
       const persistedTraceCarrierIdx = [...currentGroup].reverse().find((idx) =>
         Boolean(extractPersistedTraceItems(messages[idx].artifacts)));
@@ -400,7 +553,7 @@ export function ChatMessages({
     flushGroup();
 
     return map;
-  }, [messageThinkingText, messageToolCalls, messages]);
+  }, [messageIndexById, messageThinkingText, messageToolCalls, messages, turns]);
 
   const streamTraceSections = useMemo<ThinkingSection[]>(() => {
     return traceEvents.flatMap((event) => {
@@ -619,6 +772,65 @@ export function ChatMessages({
       <AnimatePresence initial={false}>
         {messages.map((msg, idx) => {
           if (msg.role === 'tool' || msg.role === 'system') return null;
+          if (turnRenderMap.members.has(idx)) return null;
+
+          const turnRender = turnRenderMap.anchors.get(idx);
+          if (turnRender && msg.role === 'user') {
+            const assistantMsg = turnRender.assistantIdx != null
+              ? messages[turnRender.assistantIdx]
+              : null;
+            const assistantIdx = turnRender.assistantIdx ?? -1;
+            const traceGroup = assistantIdx >= 0 ? messageTraceGroups.get(assistantIdx) : undefined;
+            const chunkIds = assistantMsg ? (chunkIdCacheRef.current.get(assistantMsg.id) ?? []) : [];
+
+            return (
+              <div key={`turn-${turnRender.turn.id}`}>
+                <MessageBubble
+                  msg={msg}
+                  alwaysShowTimestamp={(() => {
+                    for (let p = idx - 1; p >= 0; p -= 1) {
+                      const prev = messages[p];
+                      if (prev.role !== 'tool' && prev.role !== 'system') {
+                        return hasTimeGap(prev.createdAt, msg.createdAt);
+                      }
+                    }
+                    return false;
+                  })()}
+                  onDeleteMessage={onDeleteMessage}
+                  onEditAndResend={onEditAndResend}
+                />
+
+                {traceGroup?.type === 'anchor' && (
+                  <div className="flex justify-start mb-1">
+                    <div className="max-w-[80%]">
+                      <ThinkingBlock
+                        content=""
+                        sections={traceGroup.sections}
+                        isStreaming={false}
+                        defaultExpanded
+                        collapseOnFinish={false}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {assistantMsg && assistantMsg.role === 'assistant' && assistantMsg.content.trim().length > 0 && (
+                  <MessageBubble
+                    msg={assistantMsg}
+                    chunkIds={chunkIds}
+                    queryText={msg.content}
+                    citationLookup={assistantIdx >= 0 ? messageCitationLookups.get(assistantIdx) : undefined}
+                    isLastAssistant={assistantIdx === lastAssistantIdx && !isStreaming}
+                    lastCached={assistantIdx === lastAssistantIdx ? lastCached : undefined}
+                    onRetry={onRetry}
+                    alwaysShowTimestamp={hasTimeGap(msg.createdAt, assistantMsg.createdAt)}
+                    onDeleteMessage={onDeleteMessage}
+                    onEditAndResend={onEditAndResend}
+                  />
+                )}
+              </div>
+            );
+          }
 
           const queryText = msg.role === 'assistant'
             ? (messages.slice(0, idx).reverse().find((m) => m.role === 'user')?.content ?? '')

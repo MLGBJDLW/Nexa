@@ -3,6 +3,11 @@ import { expect, test } from '@playwright/test';
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('ask-myself-locale', 'en');
+    history.replaceState(
+      { usr: { initialMessage: 'Why did the retry guard fail?' }, key: 'e2e-live-route', idx: 0 },
+      '',
+      '/chat',
+    );
 
     type Conversation = {
       id: string;
@@ -10,12 +15,7 @@ test.beforeEach(async ({ page }) => {
       provider: string;
       model: string;
       systemPrompt: string;
-      collectionContext?: {
-        title: string;
-        description?: string | null;
-        queryText?: string | null;
-        sourceIds: string[];
-      } | null;
+      collectionContext?: null;
       createdAt: string;
       updatedAt: string;
     };
@@ -39,10 +39,13 @@ test.beforeEach(async ({ page }) => {
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
     let seq = 0;
     const nextId = (prefix: string) => `${prefix}-${Date.now()}-${seq++}`;
-    let callbackSeq = 1;
-    let listenerSeq = 1;
+
+    const conversations: Record<string, Conversation> = {};
+    const messagesByConversation: Record<string, Message[]> = {};
     const callbackMap = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, { event: string; handlerId: number }>();
+    let callbackSeq = 1;
+    let listenerSeq = 1;
 
     const emitEvent = (eventName: string, payload: Record<string, unknown>) => {
       for (const [listenerId, listener] of listeners.entries()) {
@@ -54,31 +57,9 @@ test.beforeEach(async ({ page }) => {
       }
     };
 
-    const playbook = {
-      id: 'pb-context',
-      title: 'Retry Collection',
-      description: 'Collection about retry handling.',
-      queryText: 'retry timeout guard',
-      citations: [
-        {
-          id: 'cit-context',
-          playbookId: 'pb-context',
-          chunkId: 'chunk-context-1',
-          annotation: 'Timeout guard is critical',
-          order: 0,
-        },
-      ],
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-
-    const conversations: Record<string, Conversation> = {};
-    const messagesByConversation: Record<string, Message[]> = {};
-    const conversationSources: Record<string, string[]> = {};
-
     const defaultAgentConfig = {
-      id: 'cfg-playbook-context',
-      name: 'Playbook Context Config',
+      id: 'cfg-live-route',
+      name: 'Live Route Config',
       provider: 'open_ai',
       apiKey: '',
       baseUrl: null,
@@ -118,14 +99,14 @@ test.beforeEach(async ({ page }) => {
         case 'list_conversations_cmd':
           return Object.values(conversations).map(clone);
         case 'create_conversation_cmd': {
-          const id = 'conv-playbook-context';
+          const id = 'conv-live-route';
           const conversation: Conversation = {
             id,
             title: '',
             provider: String(args.provider ?? 'open_ai'),
             model: String(args.model ?? 'gpt-4.1'),
             systemPrompt: String(args.systemPrompt ?? ''),
-            collectionContext: (args.collectionContext as Conversation['collectionContext']) ?? null,
+            collectionContext: null,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -137,21 +118,17 @@ test.beforeEach(async ({ page }) => {
           const id = String(args.id ?? '');
           return [clone(conversations[id]), clone(messagesByConversation[id] ?? [])];
         }
+        case 'get_conversation_turns_cmd':
+          return [];
         case 'list_sources':
           return [];
         case 'get_conversation_sources_cmd':
-          return conversationSources[String(args.conversationId ?? '')] ?? [];
+          return [];
         case 'set_conversation_sources_cmd':
-          conversationSources[String(args.conversationId ?? '')] = Array.isArray(args.sourceIds)
-            ? (args.sourceIds as unknown[]).filter((value): value is string => typeof value === 'string')
-            : [];
           return null;
-        case 'update_conversation_collection_context_cmd': {
-          const id = String(args.id ?? '');
-          conversations[id].collectionContext = (args.collectionContext as Conversation['collectionContext']) ?? null;
-          return null;
-        }
         case 'update_conversation_system_prompt_cmd':
+          return null;
+        case 'update_conversation_collection_context_cmd':
           return null;
         case 'list_checkpoints_cmd':
           return [];
@@ -193,44 +170,20 @@ test.beforeEach(async ({ page }) => {
           return [];
         case 'clear_answer_cache':
           return 0;
-        case 'list_playbooks':
-          return [clone(playbook)];
-        case 'get_playbook':
-          return clone(playbook);
-        case 'get_evidence_card':
-          return {
-            chunkId: 'chunk-context-1',
-            documentId: 'doc-context-1',
-            sourceId: 'source-retries',
-            sourceName: 'Knowledge Base',
-            documentPath: 'D:/notes/retries.md',
-            documentTitle: 'Retries Guide',
-            content: 'Keep the timeout guard and surface retry limits.',
-            headingPath: ['Retries'],
-            score: 0.95,
-            highlights: [],
-            snippet: 'Keep the timeout guard and surface retry limits.',
-          };
         case 'agent_chat_cmd': {
           const conversationId = String(args.conversationId ?? '');
-          const current = messagesByConversation[conversationId] ?? [];
-          const hasCollectionContext = conversations[conversationId]?.collectionContext?.title === 'Retry Collection';
-          const hasSourceScope = (conversationSources[conversationId] ?? []).includes('source-retries');
-          const assistantContent = hasCollectionContext
-            ? (hasSourceScope ? 'collection-context-on' : 'collection-scope-missing')
-            : 'collection-context-off';
-
+          const userText = String(args.message ?? '');
           const userMessage: Message = {
             id: nextId('m-user'),
             conversationId,
             role: 'user',
-            content: String(args.message ?? ''),
+            content: userText,
             toolCallId: null,
             toolCalls: [],
             artifacts: null,
             tokenCount: 0,
             createdAt: new Date().toISOString(),
-            sortOrder: current.length,
+            sortOrder: 0,
             thinking: null,
             imageAttachments: null,
           };
@@ -238,26 +191,43 @@ test.beforeEach(async ({ page }) => {
             id: nextId('m-assistant'),
             conversationId,
             role: 'assistant',
-            content: assistantContent,
+            content: 'The timeout branch did not return early.',
             toolCallId: null,
             toolCalls: [],
             artifacts: null,
             tokenCount: 0,
             createdAt: new Date().toISOString(),
-            sortOrder: current.length + 1,
+            sortOrder: 1,
             thinking: null,
             imageAttachments: null,
           };
 
-          messagesByConversation[conversationId] = [...current, userMessage, assistantMessage];
+          messagesByConversation[conversationId] = [userMessage, assistantMessage];
 
           queueMicrotask(() => {
             emitEvent('agent:event', {
               conversationId,
-              type: 'textDelta',
-              delta: assistantContent,
+              type: 'status',
+              content: 'Route selected: KnowledgeRetrieval',
+              tone: 'muted',
             });
           });
+
+          setTimeout(() => {
+            emitEvent('agent:event', {
+              conversationId,
+              type: 'thinking',
+              content: 'Checking the retry path first.',
+            });
+          }, 20);
+
+          setTimeout(() => {
+            emitEvent('agent:event', {
+              conversationId,
+              type: 'textDelta',
+              delta: assistantMessage.content,
+            });
+          }, 60);
 
           setTimeout(() => {
             emitEvent('agent:event', {
@@ -266,21 +236,18 @@ test.beforeEach(async ({ page }) => {
               message: assistantMessage,
               usageTotal: {
                 promptTokens: 120,
-                completionTokens: 24,
-                totalTokens: 144,
+                completionTokens: 20,
+                totalTokens: 140,
                 thinkingTokens: 0,
               },
               lastPromptTokens: 120,
               finishReason: 'stop',
               cached: false,
             });
-          }, 40);
+          }, 90);
 
           return null;
         }
-        case 'open_file_in_default_app':
-        case 'show_in_file_explorer':
-          return null;
         default:
           return null;
       }
@@ -307,11 +274,9 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('starts chat from a collection with collection-aware system prompt context', async ({ page }) => {
-  await page.goto('/playbooks');
+test('renders live route status inside the active trace timeline', async ({ page }) => {
+  await page.goto('/chat');
 
-  await page.getByRole('button', { name: /Retry Collection/ }).click();
-  await page.locator('button').filter({ hasText: 'Ask AI' }).click();
-
-  await expect(page.getByText('collection-context-on')).toBeVisible();
+  await expect(page.getByText('Route selected: KnowledgeRetrieval')).toBeVisible();
+  await expect(page.getByText('The timeout branch did not return early.')).toBeVisible();
 });

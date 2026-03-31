@@ -16,8 +16,8 @@ use ask_core::agent::{
 use ask_core::app_settings::AppConfig;
 use ask_core::conversation::memory::estimate_tokens;
 use ask_core::conversation::{
-    AgentConfig as DbAgentConfig, Conversation, ConversationMessage, ConversationStats,
-    CreateConversationInput, SaveAgentConfigInput,
+    AgentConfig as DbAgentConfig, CollectionContext, Conversation, ConversationMessage,
+    ConversationStats, ConversationTurn, CreateConversationInput, SaveAgentConfigInput,
 };
 use ask_core::db::Database;
 use ask_core::embed::{EmbedderConfig, LocalEmbeddingModel};
@@ -1240,11 +1240,13 @@ pub async fn create_conversation_cmd(
     provider: String,
     model: String,
     system_prompt: Option<String>,
+    collection_context: Option<CollectionContext>,
 ) -> Result<Conversation, String> {
     let input = CreateConversationInput {
         provider,
         model,
         system_prompt,
+        collection_context,
     };
     state
         .db
@@ -1267,6 +1269,29 @@ pub async fn get_conversation_cmd(
     let conv = state.db.get_conversation(&id).map_err(|e| e.to_string())?;
     let msgs = state.db.get_messages(&id).map_err(|e| e.to_string())?;
     Ok((conv, msgs))
+}
+
+#[tauri::command]
+pub async fn get_conversation_turns_cmd(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<Vec<ConversationTurn>, String> {
+    state
+        .db
+        .get_conversation_turns(&conversation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_conversation_collection_context_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    collection_context: Option<CollectionContext>,
+) -> Result<(), String> {
+    state
+        .db
+        .update_conversation_collection_context(&id, collection_context.as_ref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1709,6 +1734,10 @@ pub async fn agent_chat_cmd(
         thinking: None,
     };
     state.db.add_message(&user_msg).map_err(|e| e.to_string())?;
+    let turn = state
+        .db
+        .create_conversation_turn(&conversation_id, &user_msg.id, None)
+        .map_err(|e| e.to_string())?;
 
     // 5. Load conversation to check for custom system prompt.
     let conv = state
@@ -1722,6 +1751,10 @@ pub async fn agent_chat_cmd(
     let source_scope_section =
         ask_core::conversation::build_source_scope_prompt_section(&state.db, &source_scope_ids)
             .unwrap_or_default();
+    let collection_context_section =
+        ask_core::conversation::build_collection_context_prompt_section(
+            conv.collection_context.as_ref(),
+        );
     let memory_section =
         ask_core::personalization::build_memory_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
@@ -1730,7 +1763,12 @@ pub async fn agent_chat_cmd(
             .unwrap_or_default();
     let system_prompt = build_system_prompt(
         Some(&conv.system_prompt),
-        &[&source_scope_section, &memory_section, &preference_section],
+        &[
+            &collection_context_section,
+            &source_scope_section,
+            &memory_section,
+            &preference_section,
+        ],
     );
 
     // 6. Build executor config from DB config.
@@ -1912,6 +1950,7 @@ pub async fn agent_chat_cmd(
     // 8. Spawn the agent loop in a background task.
     let db = state.db.clone();
     let conv_id = conversation_id.clone();
+    let turn_id = turn.id.clone();
     let handle = app_handle.clone();
     let assistant_sort_order = next_sort_order + 1;
     let db_config_for_extraction = db_config.clone();
@@ -1956,6 +1995,7 @@ pub async fn agent_chat_cmd(
             user_parts,
             &db,
             Some(&conv_id),
+            Some(&turn_id),
             tx,
             assistant_sort_order,
         );

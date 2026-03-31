@@ -239,6 +239,12 @@ pub enum AgentEvent {
     },
     /// Thinking / chain-of-thought text (if the model supports it).
     Thinking { content: String },
+    /// A lightweight status update for the trace timeline.
+    Status {
+        content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tone: Option<String>,
+    },
     /// The agent finished producing a final answer.
     Done {
         message: Message,
@@ -351,6 +357,14 @@ fn build_trace_artifacts(items: &[PersistedTraceItem]) -> Option<serde_json::Val
         "version": 1,
         "items": items,
     }))
+}
+
+fn build_turn_trace(route_kind: AgentRouteKind, items: &[PersistedTraceItem]) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "turnTrace",
+        "routeKind": format!("{route_kind:?}"),
+        "items": items,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +761,7 @@ impl AgentExecutor {
         user_parts: Vec<ContentPart>,
         db: &Database,
         conversation_id: Option<&str>,
+        turn_id: Option<&str>,
         tx: mpsc::Sender<AgentEvent>,
         next_sort_order: i64,
     ) -> Result<Message, CoreError> {
@@ -755,6 +770,7 @@ impl AgentExecutor {
             user_parts,
             db,
             conversation_id,
+            turn_id,
             None,
             tx,
             next_sort_order,
@@ -773,6 +789,7 @@ impl AgentExecutor {
         user_parts: Vec<ContentPart>,
         db: &Database,
         conversation_id: Option<&str>,
+        turn_id: Option<&str>,
         source_scope_override: Option<Vec<String>>,
         tx: mpsc::Sender<AgentEvent>,
         next_sort_order: i64,
@@ -844,6 +861,16 @@ impl AgentExecutor {
             &self.config.system_prompt,
             has_sources,
         );
+        let _ = tx
+            .send(AgentEvent::Status {
+                content: format!("Route selected: {}", format!("{:?}", route_plan.kind)),
+                tone: Some("muted".to_string()),
+            })
+            .await;
+        if let Some(tid) = turn_id {
+            let route_label = format!("{:?}", route_plan.kind);
+            let _ = db.update_conversation_turn_progress(tid, Some(&route_label), None);
+        }
 
         debug!("Agent route selected: {:?}", route_plan.kind);
 
@@ -925,6 +952,7 @@ impl AgentExecutor {
                 &source_scope,
                 &tx,
                 conversation_id,
+                turn_id,
                 next_sort_order,
             )
             .await
@@ -950,8 +978,9 @@ impl AgentExecutor {
 
                 // Save cached response to conversation history.
                 if let Some(cid) = conversation_id {
+                    let assistant_message_id = Uuid::new_v4().to_string();
                     let conv_msg = ConversationMessage {
-                        id: Uuid::new_v4().to_string(),
+                        id: assistant_message_id.clone(),
                         conversation_id: cid.to_string(),
                         role: Role::Assistant,
                         content: msg.text_content(),
@@ -970,6 +999,23 @@ impl AgentExecutor {
                                 message: format!("Warning: message was not saved to history: {e}"),
                             })
                             .await;
+                    }
+                    if let Some(tid) = turn_id {
+                        let trace = serde_json::json!({
+                            "kind": "turnTrace",
+                            "routeKind": format!("{:?}", route_plan.kind),
+                            "items": [{
+                                "kind": "status",
+                                "text": "Answered from cache.",
+                                "tone": "success"
+                            }]
+                        });
+                        let _ = db.finalize_conversation_turn(
+                            tid,
+                            "cached",
+                            Some(&assistant_message_id),
+                            Some(&trace),
+                        );
                     }
                 }
 
@@ -1054,8 +1100,9 @@ impl AgentExecutor {
                         "error",
                     );
                     if let Some(cid) = conversation_id {
+                        let assistant_message_id = Uuid::new_v4().to_string();
                         let conv_msg = ConversationMessage {
-                            id: Uuid::new_v4().to_string(),
+                            id: assistant_message_id.clone(),
                             conversation_id: cid.to_string(),
                             role: Role::Assistant,
                             content: final_msg.text_content(),
@@ -1076,6 +1123,15 @@ impl AgentExecutor {
                                     ),
                                 })
                                 .await;
+                        }
+                        if let Some(tid) = turn_id {
+                            let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                            let _ = db.finalize_conversation_turn(
+                                tid,
+                                "cancelled",
+                                Some(&assistant_message_id),
+                                Some(&trace),
+                            );
                         }
                     }
                     let _ = tx
@@ -1177,6 +1233,15 @@ impl AgentExecutor {
                                     warn!("Failed to save agent trace: {te}");
                                 }
                             }
+                            if let Some(tid) = turn_id {
+                                let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                                let _ = db.finalize_conversation_turn(
+                                    tid,
+                                    "error",
+                                    None,
+                                    Some(&trace),
+                                );
+                            }
                             return Err(CoreError::RateLimited { retry_after_secs });
                         }
                         // Use server's Retry-After, falling back to exponential backoff.
@@ -1217,6 +1282,15 @@ impl AgentExecutor {
                                     warn!("Failed to save agent trace: {te}");
                                 }
                             }
+                            if let Some(tid) = turn_id {
+                                let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                                let _ = db.finalize_conversation_turn(
+                                    tid,
+                                    "error",
+                                    None,
+                                    Some(&trace),
+                                );
+                            }
                             return Err(CoreError::Llm(err_msg));
                         }
                         let wait = 2u64.pow(retry_count - 1); // 1s, 2s, 4s
@@ -1243,6 +1317,15 @@ impl AgentExecutor {
                             if let Err(te) = db.save_agent_trace(t) {
                                 warn!("Failed to save agent trace: {te}");
                             }
+                        }
+                        if let Some(tid) = turn_id {
+                            let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                            let _ = db.finalize_conversation_turn(
+                                tid,
+                                "error",
+                                None,
+                                Some(&trace),
+                            );
                         }
                         return Err(e);
                     }
@@ -1314,6 +1397,15 @@ impl AgentExecutor {
                             if let Err(te) = db.save_agent_trace(t) {
                                 warn!("Failed to save agent trace: {te}");
                             }
+                        }
+                        if let Some(tid) = turn_id {
+                            let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                            let _ = db.finalize_conversation_turn(
+                                tid,
+                                "error",
+                                None,
+                                Some(&trace),
+                            );
                         }
                         return Err(e);
                     }
@@ -1411,8 +1503,9 @@ impl AgentExecutor {
                 append_persisted_trace_thinking(&mut persisted_trace_items, &iteration_thinking);
                 // Save final assistant message to DB.
                 if let Some(cid) = conversation_id {
+                    let assistant_message_id = Uuid::new_v4().to_string();
                     let conv_msg = ConversationMessage {
-                        id: Uuid::new_v4().to_string(),
+                        id: assistant_message_id.clone(),
                         conversation_id: cid.to_string(),
                         role: Role::Assistant,
                         content: assistant_msg.text_content(),
@@ -1430,6 +1523,15 @@ impl AgentExecutor {
                     };
                     if let Err(e) = db.add_message(&conv_msg) {
                         warn!("Failed to save final assistant message: {e}");
+                    }
+                    if let Some(tid) = turn_id {
+                        let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                        let _ = db.finalize_conversation_turn(
+                            tid,
+                            "success",
+                            Some(&assistant_message_id),
+                            Some(&trace),
+                        );
                     }
                 }
 
@@ -1470,6 +1572,14 @@ impl AgentExecutor {
 
             // -- 4d'. Save intermediate assistant message (with tool_calls) ----
             append_persisted_trace_thinking(&mut persisted_trace_items, &iteration_thinking);
+            if let Some(tid) = turn_id {
+                let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                let _ = db.update_conversation_turn_progress(
+                    tid,
+                    Some(&format!("{:?}", route_plan.kind)),
+                    Some(&trace),
+                );
+            }
             if let Some(cid) = conversation_id {
                 let conv_msg = ConversationMessage {
                     id: Uuid::new_v4().to_string(),
@@ -1632,6 +1742,14 @@ impl AgentExecutor {
                     Some(tool_is_error),
                     tool_artifacts.clone(),
                 );
+                if let Some(tid) = turn_id {
+                    let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                    let _ = db.update_conversation_turn_progress(
+                        tid,
+                        Some(&format!("{:?}", route_plan.kind)),
+                        Some(&trace),
+                    );
+                }
 
                 // Save tool result message to DB.
                 if let Some(cid) = conversation_id {
@@ -1724,8 +1842,9 @@ impl AgentExecutor {
         );
 
         if let Some(cid) = conversation_id {
+            let assistant_message_id = Uuid::new_v4().to_string();
             let conv_msg = ConversationMessage {
-                id: Uuid::new_v4().to_string(),
+                id: assistant_message_id.clone(),
                 conversation_id: cid.to_string(),
                 role: Role::Assistant,
                 content: final_msg.text_content(),
@@ -1739,6 +1858,15 @@ impl AgentExecutor {
             };
             if let Err(e) = db.add_message(&conv_msg) {
                 warn!("Failed to save final assistant message: {e}");
+            }
+            if let Some(tid) = turn_id {
+                let trace = build_turn_trace(route_plan.kind, &persisted_trace_items);
+                let _ = db.finalize_conversation_turn(
+                    tid,
+                    "max_iterations",
+                    Some(&assistant_message_id),
+                    Some(&trace),
+                );
             }
         }
 
@@ -2086,6 +2214,7 @@ impl AgentExecutor {
         source_scope: &[String],
         tx: &mpsc::Sender<AgentEvent>,
         conversation_id: Option<&str>,
+        turn_id: Option<&str>,
         sort_order: i64,
     ) -> Option<Message> {
         if user_text.is_empty() {
@@ -2151,8 +2280,9 @@ impl AgentExecutor {
 
                 // Persist the assistant message.
                 if let Some(cid) = conversation_id {
+                    let assistant_message_id = Uuid::new_v4().to_string();
                     let conv_msg = ConversationMessage {
-                        id: Uuid::new_v4().to_string(),
+                        id: assistant_message_id.clone(),
                         conversation_id: cid.to_string(),
                         role: Role::Assistant,
                         content: msg.text_content(),
@@ -2171,6 +2301,23 @@ impl AgentExecutor {
                                 message: format!("Warning: message was not saved to history: {e}"),
                             })
                             .await;
+                    }
+                    if let Some(tid) = turn_id {
+                        let trace = serde_json::json!({
+                            "kind": "turnTrace",
+                            "routeKind": "DirectResponse",
+                            "items": [{
+                                "kind": "status",
+                                "text": "Handled via direct dispatch without a full agent loop.",
+                                "tone": "success"
+                            }]
+                        });
+                        let _ = db.finalize_conversation_turn(
+                            tid,
+                            "success",
+                            Some(&assistant_message_id),
+                            Some(&trace),
+                        );
                     }
                 }
 
@@ -2788,6 +2935,7 @@ mod tests {
                 }],
                 &db,
                 None,
+                None,
                 tx,
                 0,
             )
@@ -2840,6 +2988,7 @@ mod tests {
                 provider: "open_ai".to_string(),
                 model: "mock-model".to_string(),
                 system_prompt: None,
+                collection_context: None,
             })
             .expect("conversation");
         let (tx, _rx) = mpsc::channel(32);
@@ -2852,6 +3001,7 @@ mod tests {
                 }],
                 &db,
                 Some(&conversation.id),
+                None,
                 tx,
                 0,
             )
