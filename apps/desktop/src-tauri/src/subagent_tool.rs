@@ -852,11 +852,11 @@ async fn run_subagent_once(
         &evidence_handoff,
     );
 
-    let (tx, mut rx) = mpsc::channel::<AgentEvent>(64);
+    let (tx, mut event_rx) = mpsc::channel::<AgentEvent>(64);
     let event_task = tokio::spawn(async move {
         let mut capture = EventCapture::default();
 
-        while let Some(event) = rx.recv().await {
+        while let Some(event) = event_rx.recv().await {
             match event {
                 AgentEvent::ToolCallStart {
                     call_id,
@@ -885,6 +885,15 @@ async fn run_subagent_once(
                 AgentEvent::Thinking { content } => {
                     if !content.trim().is_empty() {
                         capture.thinking.push(content);
+                    }
+                }
+                AgentEvent::Status { content, tone } => {
+                    if !content.trim().is_empty() {
+                        capture.tool_events.push(serde_json::json!({
+                            "phase": "status",
+                            "content": content,
+                            "tone": tone,
+                        }));
                     }
                 }
                 AgentEvent::UsageUpdate { usage_total, .. } => {

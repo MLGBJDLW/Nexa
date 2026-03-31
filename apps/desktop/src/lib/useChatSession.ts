@@ -212,6 +212,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   messageCacheRef.current = messageCache;
 
   const messages = activeId ? (messageCache[activeId] ?? []) : [];
+  const turns = activeId ? (turnCache[activeId] ?? []) : [];
 
   const setMessagesForConversation = useCallback((
     conversationId: string,
@@ -764,9 +765,15 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     if (!lastUserMessageRef.current || !activeId) return;
 
     // Remove the last user message and any subsequent assistant messages from local state
-    const lastUserIdx = messages.map(m => m.role).lastIndexOf('user');
+    const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+    const lastUserIdx = lastTurn
+      ? messages.findIndex((message) => message.id === lastTurn.userMessageId)
+      : messages.map(m => m.role).lastIndexOf('user');
     if (lastUserIdx >= 0) {
       setMessagesForConversation(activeId, (prev) => prev.slice(0, lastUserIdx));
+      if (lastTurn) {
+        setTurnsForConversation(activeId, (prev) => prev.slice(0, -1));
+      }
     }
 
     setChatError(null);
@@ -794,7 +801,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     streamingConversationRef.current = activeId;
 
     await streamSend(activeId, content, attachments);
-  }, [activeId, messages, setMessagesForConversation, streamSend]);
+  }, [activeId, messages, setMessagesForConversation, setTurnsForConversation, streamSend, turns]);
 
   /* ── Delete single message (optimistic, local only) ─────────────── */
   const deleteMessage = useCallback((messageId: string) => {
@@ -859,7 +866,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const activeConversation = activeId
     ? conversations.find((conversation) => conversation.id === activeId) ?? null
     : null;
-  const activeTurns = activeId ? (turnCache[activeId] ?? []) : [];
+  const activeTurns = turns;
   const activeIsStreaming = isViewingStreamingConversation && isStreaming;
   const activeStreamText = isViewingStreamingConversation ? streamText : '';
   const activeStreamRounds = isViewingStreamingConversation ? streamRounds : [];
