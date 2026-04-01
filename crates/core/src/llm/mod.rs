@@ -329,12 +329,25 @@ pub trait LlmProvider: Send + Sync {
     async fn health_check(&self) -> Result<(), CoreError>;
 }
 
+fn normalize_base_url(base_url: Option<String>) -> Option<String> {
+    base_url.and_then(|url| {
+        let trimmed = url.trim().trim_end_matches('/').to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
 /// Create a provider instance from configuration.
-pub fn create_provider(config: ProviderConfig) -> Result<Box<dyn LlmProvider>, CoreError> {
+pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider>, CoreError> {
+    config.base_url = normalize_base_url(config.base_url);
+
     match config.provider_type {
         ProviderType::OpenAi
         | ProviderType::DeepSeek
@@ -370,12 +383,18 @@ pub fn model_supports_vision(provider_type: &ProviderType, model: &str) -> bool 
         ProviderType::Anthropic => m.contains("claude-3") || m.contains("claude-4"),
         ProviderType::Google => true,
         ProviderType::DeepSeek => false,
-        ProviderType::Zhipu => m.contains("glm-4v"),
-        ProviderType::Qwen => m.contains("qwen-vl"),
-        ProviderType::Moonshot
-        | ProviderType::Doubao
-        | ProviderType::Yi
-        | ProviderType::Baichuan => false,
+        ProviderType::Zhipu => {
+            m.contains("glm-4v") || m.contains("glm-4.1v") || m.contains("glm-4.6v")
+        }
+        ProviderType::Qwen => {
+            m.contains("qwen-vl")
+                || m.contains("qwen2.5-vl")
+                || m.contains("qwen3-vl")
+                || m.contains("qvq")
+                || m.contains("qwen3.5-plus")
+        }
+        ProviderType::Moonshot => m.contains("kimi-k2.5"),
+        ProviderType::Doubao | ProviderType::Yi | ProviderType::Baichuan => false,
         ProviderType::Ollama | ProviderType::LmStudio => {
             m.contains("vision")
                 || m.contains("llava")

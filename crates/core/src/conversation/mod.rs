@@ -205,6 +205,17 @@ fn new_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+fn normalize_optional_url(url: Option<&str>) -> Option<String> {
+    url.and_then(|value| {
+        let trimmed = value.trim().trim_end_matches('/').to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
 fn role_to_str(role: &Role) -> &'static str {
     match role {
         Role::System => "system",
@@ -272,7 +283,8 @@ impl Database {
     ) -> Result<Conversation, CoreError> {
         let id = new_id();
         let system_prompt = input.system_prompt.as_deref().unwrap_or("");
-        let collection_context_json = serialize_collection_context(input.collection_context.as_ref())?;
+        let collection_context_json =
+            serialize_collection_context(input.collection_context.as_ref())?;
         let conn = self.conn();
         conn.execute(
             "INSERT INTO conversations (id, provider, model, system_prompt, collection_context_json)
@@ -1084,6 +1096,7 @@ impl Database {
         input: &SaveAgentConfigInput,
     ) -> Result<AgentConfig, CoreError> {
         let id = input.id.clone().unwrap_or_else(new_id);
+        let normalized_base_url = normalize_optional_url(input.base_url.as_deref());
         let subagent_allowed_tools_json =
             serialize_optional_string_list(input.subagent_allowed_tools.as_deref())?;
         let subagent_allowed_skill_ids_json =
@@ -1121,7 +1134,7 @@ impl Database {
                 &input.name,
                 &input.provider,
                 &input.api_key,
-                &input.base_url,
+                &normalized_base_url,
                 &input.model,
                 input.temperature,
                 input.max_tokens,
@@ -1441,10 +1454,18 @@ pub fn build_collection_context_prompt_section(
 
     let mut section = String::from("## Collection Context\n");
     section.push_str(&format!("Title: {}\n", context.title));
-    if let Some(description) = context.description.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(description) = context
+        .description
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         section.push_str(&format!("Description: {}\n", description));
     }
-    if let Some(query_text) = context.query_text.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(query_text) = context
+        .query_text
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         section.push_str(&format!("Base query: {}\n", query_text));
     }
     if !context.source_ids.is_empty() {
@@ -1524,17 +1545,16 @@ pub async fn generate_title(
     }
 }
 
+fn truncate_to_char_count(text: &str, max_chars: usize) -> &str {
+    match text.char_indices().nth(max_chars) {
+        Some((idx, _)) => &text[..idx],
+        None => text,
+    }
+}
+
 /// Truncate text to a maximum character count for title-generation context.
 fn truncate_for_title_context(text: &str, max_chars: usize) -> &str {
-    if text.len() <= max_chars {
-        return text;
-    }
-    // Find a char boundary near max_chars
-    let mut end = max_chars;
-    while !text.is_char_boundary(end) && end > 0 {
-        end -= 1;
-    }
-    &text[..end]
+    truncate_to_char_count(text, max_chars)
 }
 
 /// Simple truncation fallback when LLM title generation fails.
@@ -1543,10 +1563,10 @@ fn fallback_title(message: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    if trimmed.len() <= 50 {
+    if trimmed.chars().count() <= 50 {
         return trimmed.to_string();
     }
-    let truncated = &trimmed[..50.min(trimmed.len())];
+    let truncated = truncate_to_char_count(trimmed, 50);
     // Try to break at a word boundary
     if let Some(pos) = truncated.rfind(' ') {
         if pos > 20 {
@@ -1564,6 +1584,23 @@ fn fallback_title(message: &str) -> String {
 mod tests {
     use super::*;
     use crate::sources::CreateSourceInput;
+
+    #[test]
+    fn test_fallback_title_handles_cjk_without_panicking() {
+        let message = "多字节片段".repeat(16);
+        let title = fallback_title(&message);
+
+        assert!(title.starts_with("多字节片段"));
+        assert!(title.ends_with("..."));
+        assert!(title.chars().count() <= 53);
+    }
+
+    #[test]
+    fn test_truncate_for_title_context_counts_characters() {
+        let text = "北".repeat(400);
+        let truncated = truncate_for_title_context(&text, 300);
+        assert_eq!(truncated.chars().count(), 300);
+    }
 
     #[test]
     fn test_conversation_crud() {
@@ -1885,6 +1922,44 @@ mod tests {
         // Delete
         db.delete_agent_config(&config.id).unwrap();
         assert!(db.get_agent_config(&config.id).is_err());
+    }
+
+    #[test]
+    fn test_agent_config_normalizes_base_url() {
+        let db = Database::open_memory().unwrap();
+
+        let config = db
+            .save_agent_config(&SaveAgentConfigInput {
+                id: None,
+                name: "Qwen".into(),
+                provider: "qwen".into(),
+                api_key: "sk-test".into(),
+                base_url: Some("  https://dashscope.aliyuncs.com/compatible-mode/v1/  ".into()),
+                model: "qwen3.5-plus".into(),
+                temperature: Some(0.3),
+                max_tokens: Some(256),
+                context_window: None,
+                is_default: false,
+                reasoning_enabled: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+                max_iterations: None,
+                summarization_model: None,
+                summarization_provider: None,
+                subagent_allowed_tools: None,
+                subagent_allowed_skill_ids: None,
+                subagent_max_parallel: None,
+                subagent_max_calls_per_turn: None,
+                subagent_token_budget: None,
+                tool_timeout_secs: None,
+                agent_timeout_secs: None,
+            })
+            .unwrap();
+
+        assert_eq!(
+            config.base_url.as_deref(),
+            Some("https://dashscope.aliyuncs.com/compatible-mode/v1")
+        );
     }
 
     #[test]
