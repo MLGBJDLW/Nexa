@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useState, type ComponentPropsWi
 import { Highlight, themes } from 'prism-react-renderer';
 import { Copy, Check, FileText, Paperclip, ExternalLink } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-shell';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { useTranslation } from '../../i18n';
 import { openFileInDefaultApp } from '../../lib/api';
 import { FileBadge } from '../ui/FileBadge';
@@ -282,6 +284,19 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
     </div>
   );
 }
+
+/**
+ * Sanitize schema for rehype-sanitize: allows common formatting HTML
+ * but blocks dangerous elements (script, iframe, form, object, embed, style, link).
+ */
+export const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames || []), 'br', 'sub', 'sup', 'mark', 'kbd', 'abbr', 'details', 'summary'],
+};
+
+/** Pre-built rehype plugin list for ReactMarkdown */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const rehypePlugins: any[] = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 
 /** Shared markdown component map for ReactMarkdown */
 export const markdownComponents: Record<string, React.ComponentType<ComponentPropsWithoutRef<any>>> = {
