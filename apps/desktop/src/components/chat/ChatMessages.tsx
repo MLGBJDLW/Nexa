@@ -816,7 +816,13 @@ export function ChatMessages({
     });
   }, [visibleTraceEvents]);
 
-  /** Build ThinkingSection[] for a single completed round. */
+  /**
+   * Build ThinkingSection[] for a single streaming round.
+   *
+   * `streamStore` closes the previous visible reply when the next tool phase
+   * starts, so a round's `reply` belongs before that round's thinking/tool
+   * trace in the rendered timeline.
+   */
   const buildRoundSections = useCallback(
     (round: StreamRoundEvent): ThinkingSection[] => {
       const sections: ThinkingSection[] = [];
@@ -1280,29 +1286,6 @@ export function ChatMessages({
           if (!hasThinking && !hasReply) return null;
           return (
             <Fragment key={`round-${round.id}`}>
-              {hasThinking && (
-                <motion.div
-                  initial={
-                    shouldReduceMotion || isStreaming ? false : { opacity: 0 }
-                  }
-                  animate={{ opacity: 1 }}
-                  layout={!shouldReduceMotion}
-                  transition={
-                    shouldReduceMotion ? INSTANT_TRANSITION : undefined
-                  }
-                  className="flex justify-start mb-3"
-                >
-                  <div className="max-w-[80%]">
-                    <ThinkingBlock
-                      content=""
-                      sections={roundSections}
-                      isStreaming={false}
-                      defaultExpanded
-                      collapseOnFinish={false}
-                    />
-                  </div>
-                </motion.div>
-              )}
               {hasReply && (
                 <motion.div
                   initial={
@@ -1329,6 +1312,29 @@ export function ChatMessages({
                         </ReactMarkdown>
                       </CitationContext.Provider>
                     </div>
+                  </div>
+                </motion.div>
+              )}
+              {hasThinking && (
+                <motion.div
+                  initial={
+                    shouldReduceMotion || isStreaming ? false : { opacity: 0 }
+                  }
+                  animate={{ opacity: 1 }}
+                  layout={!shouldReduceMotion}
+                  transition={
+                    shouldReduceMotion ? INSTANT_TRANSITION : undefined
+                  }
+                  className="flex justify-start mb-3"
+                >
+                  <div className="max-w-[80%]">
+                    <ThinkingBlock
+                      content=""
+                      sections={roundSections}
+                      isStreaming={false}
+                      defaultExpanded
+                      collapseOnFinish={false}
+                    />
                   </div>
                 </motion.div>
               )}
