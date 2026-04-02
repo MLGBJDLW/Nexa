@@ -568,30 +568,15 @@ class StreamStoreImpl {
             }];
           }
         } else {
-          const lastRound = s.streamRounds.length > 0 ? s.streamRounds[s.streamRounds.length - 1] : null;
-          if (lastRound && !lastRound.reply.trim()) {
-            s._activeRoundId = lastRound.id;
-            s._activeRoundAcceptingStarts = true;
-            s.streamRounds = s.streamRounds.map(round =>
-              round.id === lastRound.id
-                ? {
-                    ...round,
-                    thinking: roundThinking ? ((round.thinking || '') + roundThinking) : round.thinking,
-                    toolCalls: [...round.toolCalls, nextCall],
-                  }
-                : round,
-            );
-          } else {
-            const roundId = `stream-round-${Date.now()}-${s._roundSeq++}`;
-            s._activeRoundId = roundId;
-            s._activeRoundAcceptingStarts = true;
-            s.streamRounds = [...s.streamRounds, {
-              id: roundId,
-              thinking: roundThinking || undefined,
-              reply: '',
-              toolCalls: [nextCall],
-            }];
-          }
+          const roundId = `stream-round-${Date.now()}-${s._roundSeq++}`;
+          s._activeRoundId = roundId;
+          s._activeRoundAcceptingStarts = true;
+          s.streamRounds = [...s.streamRounds, {
+            id: roundId,
+            thinking: roundThinking || undefined,
+            reply: '',
+            toolCalls: [nextCall],
+          }];
         }
 
         // Update flat toolCalls list
@@ -656,6 +641,7 @@ class StreamStoreImpl {
             break;
           }
         }
+        s._activeRoundAcceptingStarts = false;
         } catch (err) {
           console.error('[streamStore] toolCallResult error:', err);
         }

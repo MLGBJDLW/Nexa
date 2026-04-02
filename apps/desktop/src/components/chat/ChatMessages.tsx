@@ -1,5 +1,6 @@
 import {
   Fragment,
+  type ReactNode,
   useRef,
   useEffect,
   useLayoutEffect,
@@ -125,7 +126,7 @@ type PersistedTraceItem =
   | { kind: "status"; text: string; tone?: "muted" | "success" | "error" };
 
 type MessageTraceGroup =
-  | { type: "anchor"; sections: ThinkingSection[]; hideMessageBubble?: boolean }
+  | { type: "anchor"; nodes: ReactNode[]; hideMessageBubble?: boolean }
   | { type: "member" };
 
 function formatRouteKind(routeKind: string): string {
@@ -498,6 +499,23 @@ export function ChatMessages({
     [preprocessStreamingMarkdown, remarkPlugins],
   );
 
+  const renderThinkingTraceNode = useCallback(
+    (key: string, sections: ThinkingSection[]) => (
+      <div key={key} className="flex justify-start mb-1">
+        <div className="max-w-[80%]">
+          <ThinkingBlock
+            content=""
+            sections={sections}
+            isStreaming={false}
+            defaultExpanded
+            collapseOnFinish={false}
+          />
+        </div>
+      </div>
+    ),
+    [],
+  );
+
   const messageThinkingText = useMemo(() => {
     const map = new Map<number, string>();
     let lastUserIdx = -1;
@@ -704,8 +722,15 @@ export function ChatMessages({
                 };
               });
 
-      const sections: ThinkingSection[] = [];
+      const statusSections =
+        statusSectionsByAssistant.get(anchorIdx) ?? persistedStatusSections;
+      let statusPrepended = false;
+      const nodes: ReactNode[] = [];
       const hiddenMembers = new Set<number>();
+      const pushThinkingNode = (key: string, sections: ThinkingSection[]) => {
+        if (sections.length === 0) return;
+        nodes.push(renderThinkingTraceNode(key, sections));
+      };
 
       for (const idx of currentGroup) {
         const msg = messages[idx];
@@ -731,23 +756,26 @@ export function ChatMessages({
 
         if (msg.toolCalls.length > 0) {
           if (msg.content.trim().length > 0) {
-            sections.push({
-              text: "",
-              node: renderTraceReplyNode(
+            nodes.push(renderTraceReplyNode(
                 `trace-reply-${msg.id}`,
                 msg.content,
                 messageCitationLookups.get(idx),
-              ),
-            });
+              ));
+          }
+          const roundSections: ThinkingSection[] = [];
+          if (!statusPrepended && statusSections.length > 0) {
+            roundSections.push(...statusSections);
+            statusPrepended = true;
           }
           if (thinking || renderedToolCalls.length > 0) {
-            sections.push({
+            roundSections.push({
               text: thinking,
               node:
                 renderedToolCalls.length > 0 ? (
                   <div className="mt-1 space-y-1">{renderedToolCalls}</div>
                 ) : undefined,
             });
+            pushThinkingNode(`trace-thinking-${msg.id}`, roundSections);
           }
           if (idx !== anchorIdx) {
             hiddenMembers.add(idx);
@@ -756,19 +784,28 @@ export function ChatMessages({
         }
 
         if (thinking) {
-          sections.push({ text: thinking });
+          const roundSections: ThinkingSection[] = [];
+          if (!statusPrepended && statusSections.length > 0) {
+            roundSections.push(...statusSections);
+            statusPrepended = true;
+          }
+          roundSections.push({ text: thinking });
+          pushThinkingNode(`trace-thinking-${msg.id}`, roundSections);
         }
       }
 
-      const combinedSections = [
-        ...(statusSectionsByAssistant.get(anchorIdx) ?? persistedStatusSections),
-        ...(sections.length > 0 ? sections : (fallbackSectionsByAssistant.get(anchorIdx) ?? [])),
-      ];
+      if (nodes.length === 0) {
+        const fallbackSections = [
+          ...statusSections,
+          ...(fallbackSectionsByAssistant.get(anchorIdx) ?? []),
+        ];
+        pushThinkingNode(`trace-fallback-${messages[anchorIdx].id}`, fallbackSections);
+      }
 
-      if (combinedSections.length > 0) {
+      if (nodes.length > 0) {
         map.set(anchorIdx, {
           type: "anchor",
-          sections: combinedSections,
+          nodes,
           hideMessageBubble: messages[anchorIdx].toolCalls.length > 0,
         });
       }
@@ -799,6 +836,7 @@ export function ChatMessages({
     messageThinkingText,
     messageToolCalls,
     messages,
+    renderThinkingTraceNode,
     renderTraceReplyNode,
     turns,
   ]);
@@ -1210,17 +1248,7 @@ export function ChatMessages({
                 />
 
                 {traceGroup?.type === "anchor" && (
-                  <div className="flex justify-start mb-1">
-                    <div className="max-w-[80%]">
-                      <ThinkingBlock
-                        content=""
-                        sections={traceGroup.sections}
-                        isStreaming={false}
-                        defaultExpanded
-                        collapseOnFinish={false}
-                      />
-                    </div>
-                  </div>
+                  <>{traceGroup.nodes}</>
                 )}
 
                 {assistantMsg &&
@@ -1275,17 +1303,7 @@ export function ChatMessages({
           return (
             <div key={msg.id}>
               {traceGroup?.type === "anchor" && (
-                <div className="flex justify-start mb-1">
-                  <div className="max-w-[80%]">
-                    <ThinkingBlock
-                      content=""
-                      sections={traceGroup.sections}
-                      isStreaming={false}
-                      defaultExpanded
-                      collapseOnFinish={false}
-                    />
-                  </div>
-                </div>
+                <>{traceGroup.nodes}</>
               )}
 
               {hasRenderableAssistantContent && (

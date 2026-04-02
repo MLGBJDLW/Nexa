@@ -235,6 +235,6 @@ test('renders persisted multi-step traces in chronological order', async ({ page
 
   await expect(
     page.locator('button[aria-expanded="true"]').filter({ hasText: 'Thinking completed' }),
-  ).toHaveCount(1);
+  ).toHaveCount(2);
   await expect(page.getByText('Conclusion')).toHaveCount(1);
 });
