@@ -169,13 +169,17 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}
     >
-      <div className="group flex flex-col max-w-[80%]">
+      <div
+        className={`group flex flex-col ${
+          isUser ? 'max-w-[80%]' : 'w-full max-w-[min(100%,72rem)]'
+        }`}
+      >
         <div
           aria-label={ariaLabel}
-          className={`relative rounded-lg px-3.5 py-2.5 text-sm leading-relaxed
+          className={`relative text-sm leading-relaxed
             ${isUser
-              ? 'bg-accent/20 text-text-primary'
-              : 'bg-surface-2 text-text-primary'
+              ? 'rounded-lg bg-accent/20 px-3.5 py-2.5 text-text-primary'
+              : 'bg-transparent px-0 py-0 text-text-primary'
             }`}
         >
           {!isEditing && (

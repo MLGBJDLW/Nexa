@@ -152,6 +152,10 @@ type MessageTraceGroup =
   | { type: "anchor"; nodes: ReactNode[]; hideMessageBubble?: boolean }
   | { type: "member" };
 
+type LiveTraceTimelineItem =
+  | { kind: "thinking"; id: string; sections: ThinkingSection[]; isStreaming: boolean }
+  | { kind: "reply"; id: string; content: string; isStreaming: boolean };
+
 function formatRouteKind(routeKind: string): string {
   return routeKind
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -444,14 +448,6 @@ export function ChatMessages({
 
   const remarkPlugins = useMemo(() => [remarkGfm], []);
 
-  const processedMarkdown = useMemo(
-    () =>
-      preprocessFilePaths(
-        preprocessCitations(preprocessChunkCitations(debouncedMarkdown)),
-      ),
-    [debouncedMarkdown],
-  );
-
   const preprocessStreamingMarkdown = useCallback(
     (content: string) =>
       preprocessFilePaths(
@@ -512,38 +508,45 @@ export function ChatMessages({
     (
       key: string,
       content: string,
+      isStreaming = false,
       citationLookup?: { getCard: (id: string) => CitationCardData | undefined },
     ) => (
-      <div
-        key={key}
-        className="rounded-lg px-3.5 py-2.5 text-sm leading-relaxed bg-surface-2 text-text-primary"
-      >
-        <div className="prose-chat">
+      <div key={key} className="flex justify-start mb-4">
+        <div className="w-full max-w-[min(100%,72rem)] text-sm leading-relaxed text-text-primary">
           <CitationContext.Provider
             value={citationLookup ?? { getCard: () => undefined }}
           >
-            <ReactMarkdown
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={markdownComponents}
-            >
-              {preprocessStreamingMarkdown(content)}
-            </ReactMarkdown>
+            <div className="relative">
+              <div className="prose-chat">
+                <ReactMarkdown
+                  remarkPlugins={remarkPlugins}
+                  rehypePlugins={rehypePlugins}
+                  components={markdownComponents}
+                >
+                  {preprocessStreamingMarkdown(content)}
+                </ReactMarkdown>
+              </div>
+              {isStreaming && (
+                <span
+                  className={`streaming-caret-overlay ${shouldReduceMotion ? "" : "animate-pulse"}`}
+                />
+              )}
+            </div>
           </CitationContext.Provider>
         </div>
       </div>
     ),
-    [preprocessStreamingMarkdown, remarkPlugins],
+    [preprocessStreamingMarkdown, remarkPlugins, shouldReduceMotion],
   );
 
   const renderThinkingTraceNode = useCallback(
-    (key: string, sections: ThinkingSection[]) => (
+    (key: string, sections: ThinkingSection[], isStreaming = false) => (
       <div key={key} className="flex justify-start mb-1">
-        <div className="max-w-[80%]">
+        <div className="w-full max-w-[min(100%,72rem)]">
           <ThinkingBlock
             content=""
             sections={sections}
-            isStreaming={false}
+            isStreaming={isStreaming}
             defaultExpanded
             collapseOnFinish={false}
           />
@@ -716,7 +719,7 @@ export function ChatMessages({
               content={item.toolCall.content}
               isError={item.toolCall.isError}
               artifacts={item.toolCall.artifacts}
-              trace
+              trace={Boolean(trace)}
             />
           ),
         });
@@ -761,12 +764,18 @@ export function ChatMessages({
 
       const statusSections =
         statusSectionsByAssistant.get(anchorIdx) ?? persistedStatusSections;
-      let statusPrepended = false;
       const nodes: ReactNode[] = [];
       const hiddenMembers = new Set<number>();
-      const pushThinkingNode = (key: string, sections: ThinkingSection[]) => {
-        if (sections.length === 0) return;
-        nodes.push(renderThinkingTraceNode(key, sections));
+      let activeSections: ThinkingSection[] = [...statusSections];
+      const hasRenderableSections = (sections: ThinkingSection[]) =>
+        sections.some(
+          (section) =>
+            section.text.trim().length > 0 || Boolean(section.node || section.toolCallCards),
+        );
+      const flushThinkingNode = (key: string) => {
+        if (!hasRenderableSections(activeSections)) return;
+        nodes.push(renderThinkingTraceNode(key, activeSections));
+        activeSections = [];
       };
 
       for (const idx of currentGroup) {
@@ -786,57 +795,57 @@ export function ChatMessages({
                 status={toolResult ? "done" : "running"}
                 content={toolResult?.content}
                 artifacts={toolResult?.artifacts ?? undefined}
-                trace
+                trace={true}
               />
             );
           });
 
-        if (msg.toolCalls.length > 0) {
-          if (msg.content.trim().length > 0) {
-            nodes.push(renderTraceReplyNode(
-                `trace-reply-${msg.id}`,
-                msg.content,
-                messageCitationLookups.get(idx),
-              ));
-          }
-          const roundSections: ThinkingSection[] = [];
-          if (!statusPrepended && statusSections.length > 0) {
-            roundSections.push(...statusSections);
-            statusPrepended = true;
-          }
-          if (thinking || renderedToolCalls.length > 0) {
-            roundSections.push({
-              text: thinking,
-              node:
-                renderedToolCalls.length > 0 ? (
-                  <div className="mt-1 space-y-1">{renderedToolCalls}</div>
-                ) : undefined,
-            });
-            pushThinkingNode(`trace-thinking-${msg.id}`, roundSections);
-          }
-          if (idx !== anchorIdx) {
-            hiddenMembers.add(idx);
-          }
-          continue;
+        if (thinking) {
+          activeSections.push({ text: thinking });
         }
 
-        if (thinking) {
-          const roundSections: ThinkingSection[] = [];
-          if (!statusPrepended && statusSections.length > 0) {
-            roundSections.push(...statusSections);
-            statusPrepended = true;
-          }
-          roundSections.push({ text: thinking });
-          pushThinkingNode(`trace-thinking-${msg.id}`, roundSections);
+        const shouldRenderInlineReply =
+          msg.content.trim().length > 0 &&
+          !(idx === anchorIdx && msg.toolCalls.length === 0);
+        if (shouldRenderInlineReply) {
+          flushThinkingNode(`trace-thinking-before-reply-${msg.id}`);
+          nodes.push(
+            renderTraceReplyNode(
+              `trace-reply-${msg.id}`,
+              msg.content,
+              false,
+              messageCitationLookups.get(idx),
+            ),
+          );
+        }
+
+        if (renderedToolCalls.length > 0) {
+          activeSections.push({
+            text: "",
+            node: <div className="mt-1 space-y-1">{renderedToolCalls}</div>,
+          });
+        }
+
+        if (idx !== anchorIdx) {
+          hiddenMembers.add(idx);
         }
       }
+
+      flushThinkingNode(`trace-thinking-tail-${messages[anchorIdx].id}`);
 
       if (nodes.length === 0) {
         const fallbackSections = [
           ...statusSections,
           ...(fallbackSectionsByAssistant.get(anchorIdx) ?? []),
         ];
-        pushThinkingNode(`trace-fallback-${messages[anchorIdx].id}`, fallbackSections);
+        if (hasRenderableSections(fallbackSections)) {
+          nodes.push(
+            renderThinkingTraceNode(
+              `trace-fallback-${messages[anchorIdx].id}`,
+              fallbackSections,
+            ),
+          );
+        }
       }
 
       if (nodes.length > 0) {
@@ -887,8 +896,9 @@ export function ChatMessages({
     [traceEvents],
   );
 
-  const streamTraceSections = useMemo<ThinkingSection[]>(() => {
-    return visibleTraceEvents.flatMap((event) => {
+  const traceEventToSections = useCallback(
+    (event: TraceEvent): ThinkingSection[] => {
+      if (event.kind === "reply") return [];
       if (event.kind === "thinking") {
         return event.text.trim().length > 0 ? [{ text: event.text }] : [];
       }
@@ -905,7 +915,7 @@ export function ChatMessages({
                 content={event.toolCall.content}
                 isError={event.toolCall.isError}
                 artifacts={event.toolCall.artifacts}
-                trace
+                trace={true}
               />
             ),
           },
@@ -923,8 +933,13 @@ export function ChatMessages({
           ),
         },
       ];
-    });
-  }, [visibleTraceEvents]);
+    },
+    [],
+  );
+
+  const streamTraceSections = useMemo<ThinkingSection[]>(() => {
+    return visibleTraceEvents.flatMap(traceEventToSections);
+  }, [traceEventToSections, visibleTraceEvents]);
 
   /**
    * Build ThinkingSection[] for a single streaming round.
@@ -951,7 +966,7 @@ export function ChatMessages({
               content={tc.content}
               isError={tc.isError}
               artifacts={tc.artifacts}
-              trace
+              trace={true}
             />
           ),
         });
@@ -987,61 +1002,82 @@ export function ChatMessages({
     }
 
     const currentEvents = visibleTraceEvents.slice(cutoffIdx + 1);
-    return currentEvents.flatMap((event) => {
-      if (event.kind === "thinking") {
-        return event.text.trim().length > 0 ? [{ text: event.text }] : [];
-      }
-      if (event.kind === "tool") {
-        return [
-          {
-            text: "",
-            node: (
-              <ToolCallCard
-                key={`stream-trace-${event.id}`}
-                toolName={event.toolCall.toolName}
-                arguments={event.toolCall.arguments}
-                status={event.toolCall.status}
-                content={event.toolCall.content}
-                isError={event.toolCall.isError}
-                artifacts={event.toolCall.artifacts}
-                trace
-              />
-            ),
-          },
-        ];
-      }
-      return [
-        {
-          text: "",
-          node: (
-            <TraceStatusRow
-              key={`stream-status-${event.id}`}
-              text={event.text}
-              tone={event.tone}
-            />
-          ),
-        },
-      ];
-    });
-  }, [visibleTraceEvents, streamRounds, streamTraceSections]);
+    return currentEvents.flatMap(traceEventToSections);
+  }, [traceEventToSections, visibleTraceEvents, streamRounds, streamTraceSections]);
 
   const currentTraceActive = useMemo(() => {
     if (!isStreaming) return false;
-    if (isThinking || thinkingText.trim().length > 0) return true;
-    // Check if any tool in currentThinkingSections is still running
-    const roundCallIds = new Set<string>();
-    for (const round of streamRounds) {
-      for (const tc of round.toolCalls) {
-        roundCallIds.add(tc.callId);
-      }
+    const lastVisibleEvent = visibleTraceEvents[visibleTraceEvents.length - 1];
+    if (!lastVisibleEvent) {
+      return (
+        isThinking ||
+        thinkingText.trim().length > 0 ||
+        toolCalls.some((toolCall) => toolCall.status === "running")
+      );
     }
-    return traceEvents.some(
-      (event) =>
-        event.kind === "tool" &&
-        event.toolCall.status === "running" &&
-        !roundCallIds.has(event.toolCall.callId),
-    );
-  }, [isStreaming, isThinking, thinkingText, traceEvents, streamRounds]);
+    return lastVisibleEvent.kind !== "reply";
+  }, [isStreaming, isThinking, thinkingText, toolCalls, visibleTraceEvents]);
+
+  const liveTraceTimeline = useMemo<LiveTraceTimelineItem[]>(() => {
+    const items: LiveTraceTimelineItem[] = [];
+    let activeSections: ThinkingSection[] = [];
+
+    const flushThinking = (id: string, streaming = false) => {
+      if (activeSections.length === 0) return;
+      items.push({
+        kind: "thinking",
+        id,
+        sections: activeSections,
+        isStreaming: streaming,
+      });
+      activeSections = [];
+    };
+
+    for (const event of visibleTraceEvents) {
+      if (event.kind === "reply") {
+        flushThinking(`${event.id}-before-reply`);
+        items.push({
+          kind: "reply",
+          id: event.id,
+          content: event.text,
+          isStreaming: false,
+        });
+        continue;
+      }
+
+      activeSections = [...activeSections, ...traceEventToSections(event)];
+    }
+
+    flushThinking("trace-thinking-tail");
+
+    if (!isStreaming || items.length === 0) return items;
+
+    const lastItem = items[items.length - 1];
+    if (lastItem.kind === "reply") {
+      items[items.length - 1] = {
+        ...lastItem,
+        content: streamText.trim().length > 0 ? displayedText : lastItem.content,
+        isStreaming: true,
+      };
+      return items;
+    }
+
+    if (currentTraceActive) {
+      items[items.length - 1] = {
+        ...lastItem,
+        isStreaming: true,
+      };
+    }
+
+    return items;
+  }, [
+    currentTraceActive,
+    displayedText,
+    isStreaming,
+    streamText,
+    traceEventToSections,
+    visibleTraceEvents,
+  ]);
 
   const getScrollMetrics = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -1157,12 +1193,15 @@ export function ChatMessages({
     return null;
   }, [messages]);
 
-  const shouldRenderStreamRounds = streamRounds.length > 0;
+  const shouldRenderLiveTraceTimeline = liveTraceTimeline.length > 0;
+  const shouldRenderStreamRounds =
+    !shouldRenderLiveTraceTimeline && streamRounds.length > 0;
   const shouldShowStreamingText =
-    isStreaming ||
-    (streamText.trim().length > 0 &&
-      (lastRenderableMessageRole == null ||
-        lastRenderableMessageRole === "user"));
+    !shouldRenderLiveTraceTimeline &&
+    (isStreaming ||
+      (streamText.trim().length > 0 &&
+        (lastRenderableMessageRole == null ||
+          lastRenderableMessageRole === "user")));
   const shouldRenderInlineError = Boolean(
     error && !isStreaming && traceEvents.length === 0,
   );
@@ -1371,7 +1410,28 @@ export function ChatMessages({
       </AnimatePresence>
 
       {/* ── Interleaved per-round rendering ─────────────────────────── */}
-      {shouldRenderStreamRounds &&
+      {shouldRenderLiveTraceTimeline &&
+        liveTraceTimeline.map((item) => (
+          <motion.div
+            key={item.id}
+            initial={shouldReduceMotion || isStreaming ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            layout={!shouldReduceMotion}
+            transition={shouldReduceMotion ? INSTANT_TRANSITION : undefined}
+          >
+            {item.kind === "thinking"
+              ? renderThinkingTraceNode(item.id, item.sections, item.isStreaming)
+              : renderTraceReplyNode(
+                  item.id,
+                  item.content,
+                  item.isStreaming,
+                  streamingCitationLookup,
+                )}
+          </motion.div>
+        ))}
+
+      {!shouldRenderLiveTraceTimeline &&
+        shouldRenderStreamRounds &&
         streamRounds.map((round) => {
           const roundSections = buildRoundSections(round);
           const hasThinking = roundSections.length > 0;
@@ -1379,64 +1439,25 @@ export function ChatMessages({
           if (!hasThinking && !hasReply) return null;
           return (
             <Fragment key={`round-${round.id}`}>
-              {hasReply && (
-                <motion.div
-                  initial={
-                    shouldReduceMotion || isStreaming ? false : { opacity: 0 }
-                  }
-                  animate={{ opacity: 1 }}
-                  layout={!shouldReduceMotion}
-                  transition={
-                    shouldReduceMotion ? INSTANT_TRANSITION : undefined
-                  }
-                  className="flex justify-start mb-4"
-                >
-                  <div className="max-w-[80%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed bg-surface-2 text-text-primary">
-                    <div className="prose-chat">
-                      <CitationContext.Provider
-                        value={streamingCitationLookup}
-                      >
-                        <ReactMarkdown
-                          remarkPlugins={remarkPlugins}
-                          rehypePlugins={rehypePlugins}
-                          components={markdownComponents}
-                        >
-                          {preprocessStreamingMarkdown(round.reply)}
-                        </ReactMarkdown>
-                      </CitationContext.Provider>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-              {hasThinking && (
-                <motion.div
-                  initial={
-                    shouldReduceMotion || isStreaming ? false : { opacity: 0 }
-                  }
-                  animate={{ opacity: 1 }}
-                  layout={!shouldReduceMotion}
-                  transition={
-                    shouldReduceMotion ? INSTANT_TRANSITION : undefined
-                  }
-                  className="flex justify-start mb-3"
-                >
-                  <div className="max-w-[80%]">
-                    <ThinkingBlock
-                      content=""
-                      sections={roundSections}
-                      isStreaming={false}
-                      defaultExpanded
-                      collapseOnFinish={false}
-                    />
-                  </div>
-                </motion.div>
-              )}
+              {hasReply &&
+                renderTraceReplyNode(
+                  `round-reply-${round.id}`,
+                  round.reply,
+                  false,
+                  streamingCitationLookup,
+                )}
+              {hasThinking &&
+                renderThinkingTraceNode(
+                  `round-thinking-${round.id}`,
+                  roundSections,
+                  false,
+                )}
             </Fragment>
           );
         })}
 
       {/* ── Current in-progress thinking (not yet in a round) ──────── */}
-      {currentThinkingSections.length > 0 && (
+      {!shouldRenderLiveTraceTimeline && currentThinkingSections.length > 0 && (
         <motion.div
           initial={shouldReduceMotion || isStreaming ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1444,7 +1465,7 @@ export function ChatMessages({
           transition={shouldReduceMotion ? INSTANT_TRANSITION : undefined}
           className="flex justify-start mb-3"
         >
-          <div className="max-w-[80%]">
+          <div className="w-full max-w-[min(100%,72rem)]">
             <ThinkingBlock
               content=""
               sections={currentThinkingSections}
@@ -1456,36 +1477,14 @@ export function ChatMessages({
         </motion.div>
       )}
 
-      {shouldShowStreamingText && streamText.trim().length > 0 && (
-        <motion.div
-          initial={shouldReduceMotion || isStreaming ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={shouldReduceMotion ? INSTANT_TRANSITION : undefined}
-          className="flex justify-start mb-3"
-        >
-          <div
-            className="relative max-w-[80%] rounded-lg px-3.5 py-2.5 pr-6 text-sm leading-relaxed bg-surface-2 text-text-primary"
-            style={
-              streamText.length > 2000 ? { willChange: "contents" } : undefined
-            }
-          >
-            <div className="prose-chat">
-              <CitationContext.Provider value={streamingCitationLookup}>
-                <ReactMarkdown
-                  remarkPlugins={remarkPlugins}
-                  rehypePlugins={rehypePlugins}
-                  components={markdownComponents}
-                >
-                  {processedMarkdown}
-                </ReactMarkdown>
-              </CitationContext.Provider>
-            </div>
-            <span
-              className={`streaming-caret-overlay ${shouldReduceMotion ? "" : "animate-pulse"}`}
-            />
-          </div>
-        </motion.div>
-      )}
+      {shouldShowStreamingText &&
+        streamText.trim().length > 0 &&
+        renderTraceReplyNode(
+          "fallback-stream-reply",
+          displayedText,
+          true,
+          streamingCitationLookup,
+        )}
 
       {isStreaming &&
         !streamText &&
