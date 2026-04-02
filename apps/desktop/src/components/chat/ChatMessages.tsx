@@ -19,6 +19,9 @@ import {
   FileText,
   Link2,
   HelpCircle,
+  Presentation,
+  Table2,
+  ClipboardList,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -98,6 +101,26 @@ const SUGGESTIONS: {
     icon: HelpCircle,
     labelKey: "chat.suggestions.question",
     promptKey: "chat.suggestions.question.prompt",
+  },
+  {
+    icon: FileText,
+    labelKey: "chat.suggestions.report",
+    promptKey: "chat.suggestions.report.prompt",
+  },
+  {
+    icon: ClipboardList,
+    labelKey: "chat.suggestions.meeting",
+    promptKey: "chat.suggestions.meeting.prompt",
+  },
+  {
+    icon: Presentation,
+    labelKey: "chat.suggestions.slides",
+    promptKey: "chat.suggestions.slides.prompt",
+  },
+  {
+    icon: Table2,
+    labelKey: "chat.suggestions.table",
+    promptKey: "chat.suggestions.table.prompt",
   },
 ];
 
@@ -1141,7 +1164,7 @@ export function ChatMessages({
             {t("chat.placeholder")}
           </p>
           {onSuggestionClick && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {SUGGESTIONS.map((s, i) => {
                 const Icon = s.icon;
                 const prompt = t(s.promptKey);
