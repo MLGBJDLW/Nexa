@@ -108,12 +108,6 @@ function normalizeThinking(content: string): string {
   return content.replace(/\r\n/g, "\n").trim();
 }
 
-function hasTraceToolCalls<T extends { toolName?: string; name?: string }>(
-  toolCalls: T[],
-): boolean {
-  return toolCalls.some((tc) => (tc.toolName ?? tc.name) !== "update_plan");
-}
-
 interface PersistedTraceToolCall {
   callId: string;
   toolName: string;
@@ -126,8 +120,13 @@ interface PersistedTraceToolCall {
 
 type PersistedTraceItem =
   | { kind: "thinking"; text: string }
+  | { kind: "reply"; text: string }
   | { kind: "tool"; toolCall: PersistedTraceToolCall }
   | { kind: "status"; text: string; tone?: "muted" | "success" | "error" };
+
+type MessageTraceGroup =
+  | { type: "anchor"; sections: ThinkingSection[]; hideMessageBubble?: boolean }
+  | { type: "member" };
 
 function formatRouteKind(routeKind: string): string {
   return routeKind
@@ -196,6 +195,10 @@ function extractPersistedTraceItems(
     const item = rawItem as Record<string, unknown>;
     if (item.kind === "thinking" && typeof item.text === "string") {
       items.push({ kind: "thinking", text: item.text });
+      continue;
+    }
+    if (item.kind === "reply" && typeof item.text === "string") {
+      items.push({ kind: "reply", text: item.text });
       continue;
     }
     if (item.kind === "status" && typeof item.text === "string") {
@@ -467,6 +470,34 @@ export function ChatMessages({
     return map;
   }, [messageToolCalls]);
 
+  const renderTraceReplyNode = useCallback(
+    (
+      key: string,
+      content: string,
+      citationLookup?: { getCard: (id: string) => CitationCardData | undefined },
+    ) => (
+      <div
+        key={key}
+        className="rounded-lg px-3.5 py-2.5 text-sm leading-relaxed bg-surface-2 text-text-primary"
+      >
+        <div className="prose-chat">
+          <CitationContext.Provider
+            value={citationLookup ?? { getCard: () => undefined }}
+          >
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              components={markdownComponents}
+            >
+              {preprocessStreamingMarkdown(content)}
+            </ReactMarkdown>
+          </CitationContext.Provider>
+        </div>
+      </div>
+    ),
+    [preprocessStreamingMarkdown, remarkPlugins],
+  );
+
   const messageThinkingText = useMemo(() => {
     const map = new Map<number, string>();
     let lastUserIdx = -1;
@@ -544,21 +575,22 @@ export function ChatMessages({
   }, [messageIndexById, turns]);
 
   const messageTraceGroups = useMemo(() => {
-    const map = new Map<
-      number,
-      { type: "anchor"; sections: ThinkingSection[] } | { type: "member" }
-    >();
+    const map = new Map<number, MessageTraceGroup>();
+    const finalAssistantIndexes = new Set<number>();
+    const statusSectionsByAssistant = new Map<number, ThinkingSection[]>();
+    const fallbackSectionsByAssistant = new Map<number, ThinkingSection[]>();
 
     for (const turn of turns) {
-      const trace = extractTurnTrace(turn.trace);
-      if (!trace || trace.items.length === 0 || !turn.assistantMessageId)
-        continue;
-      const anchorIdx = messageIndexById.get(turn.assistantMessageId);
-      if (anchorIdx == null) continue;
+      if (!turn.assistantMessageId) continue;
+      const assistantIdx = messageIndexById.get(turn.assistantMessageId);
+      if (assistantIdx == null) continue;
+
+      finalAssistantIndexes.add(assistantIdx);
 
       const sections: ThinkingSection[] = [];
-
-      if (trace.routeKind && !shouldHideRouteKind(trace.routeKind)) {
+      const fallbackSections: ThinkingSection[] = [];
+      const trace = extractTurnTrace(turn.trace);
+      if (trace?.routeKind && !shouldHideRouteKind(trace.routeKind)) {
         sections.push({
           text: "",
           node: (
@@ -589,45 +621,54 @@ export function ChatMessages({
         ),
       });
 
-      sections.push(
-        ...trace.items.flatMap((item, itemIdx) => {
-          if (item.kind === "thinking") {
-            return { text: item.text };
-          }
-          if (item.kind === "status") {
-            if (shouldHideTraceStatus(item.text)) {
-              return [];
-            }
-            return {
-              text: "",
-              node: (
-                <TraceStatusRow
-                  key={`turn-status-${turn.id}-${itemIdx}`}
-                  text={item.text}
-                  tone={item.tone}
-                />
-              ),
-            };
-          }
-          return {
+      for (const [itemIdx, item] of (trace?.items ?? []).entries()) {
+        if (item.kind === "status") {
+          if (shouldHideTraceStatus(item.text)) continue;
+          sections.push({
             text: "",
             node: (
-              <ToolCallCard
-                key={`turn-tool-${turn.id}-${item.toolCall.callId}-${itemIdx}`}
-                toolName={item.toolCall.toolName}
-                arguments={item.toolCall.arguments}
-                status={item.toolCall.status}
-                content={item.toolCall.content}
-                isError={item.toolCall.isError}
-                artifacts={item.toolCall.artifacts}
-                trace
+              <TraceStatusRow
+                key={`turn-status-${turn.id}-${itemIdx}`}
+                text={item.text}
+                tone={item.tone}
               />
             ),
-          };
-        }),
-      );
+          });
+          continue;
+        }
+        if (item.kind === "thinking") {
+          fallbackSections.push({ text: item.text });
+          continue;
+        }
+        if (item.kind === "reply") {
+          fallbackSections.push({
+            text: "",
+            node: renderTraceReplyNode(
+              `turn-reply-${turn.id}-${itemIdx}`,
+              item.text,
+            ),
+          });
+          continue;
+        }
+        fallbackSections.push({
+          text: "",
+          node: (
+            <ToolCallCard
+              key={`turn-tool-${turn.id}-${item.toolCall.callId}-${itemIdx}`}
+              toolName={item.toolCall.toolName}
+              arguments={item.toolCall.arguments}
+              status={item.toolCall.status}
+              content={item.toolCall.content}
+              isError={item.toolCall.isError}
+              artifacts={item.toolCall.artifacts}
+              trace
+            />
+          ),
+        });
+      }
 
-      map.set(anchorIdx, { type: "anchor", sections });
+      statusSectionsByAssistant.set(assistantIdx, sections);
+      fallbackSectionsByAssistant.set(assistantIdx, fallbackSections);
     }
 
     let currentGroup: number[] = [];
@@ -635,80 +676,38 @@ export function ChatMessages({
     const flushGroup = () => {
       if (currentGroup.length === 0) return;
 
-      if (currentGroup.some((idx) => map.has(idx))) {
-        currentGroup = [];
-        return;
-      }
-
       const persistedTraceCarrierIdx = [...currentGroup]
         .reverse()
-        .find((idx) =>
-          Boolean(extractPersistedTraceItems(messages[idx].artifacts)),
-        );
+        .find((idx) => Boolean(extractPersistedTraceItems(messages[idx].artifacts)));
+      const finalAssistantIdx = [...currentGroup]
+        .reverse()
+        .find((idx) => finalAssistantIndexes.has(idx));
+      const anchorIdx = finalAssistantIdx ?? persistedTraceCarrierIdx ?? currentGroup[0];
 
-      const tracedIndexes = currentGroup.filter((idx) => {
-        const msg = messages[idx];
-        return messageThinkingText.has(idx) || hasTraceToolCalls(msg.toolCalls);
-      });
-      if (tracedIndexes.length === 0 && persistedTraceCarrierIdx == null) {
-        currentGroup = [];
-        return;
-      }
+      const persistedStatusSections: ThinkingSection[] =
+        persistedTraceCarrierIdx == null
+          ? []
+          : (extractPersistedTraceItems(messages[persistedTraceCarrierIdx].artifacts) ?? [])
+              .flatMap((item, itemIdx) => {
+                if (item.kind !== "status" || shouldHideTraceStatus(item.text)) {
+                  return [];
+                }
+                return {
+                  text: "",
+                  node: (
+                    <TraceStatusRow
+                      key={`persisted-status-${messages[persistedTraceCarrierIdx].id}-${itemIdx}`}
+                      text={item.text}
+                      tone={item.tone}
+                    />
+                  ),
+                };
+              });
 
-      if (persistedTraceCarrierIdx != null) {
-        const persistedItems =
-          extractPersistedTraceItems(
-            messages[persistedTraceCarrierIdx].artifacts,
-          ) ?? [];
-        const sections: ThinkingSection[] = persistedItems.flatMap(
-          (item, itemIdx) => {
-            if (item.kind === "thinking") {
-              return { text: item.text };
-            }
-            if (item.kind === "status") {
-              if (shouldHideTraceStatus(item.text)) {
-                return [];
-              }
-              return {
-                text: "",
-                node: (
-                  <TraceStatusRow
-                    key={`persisted-status-${messages[persistedTraceCarrierIdx].id}-${itemIdx}`}
-                    text={item.text}
-                    tone={item.tone}
-                  />
-                ),
-              };
-            }
-            return {
-              text: "",
-              node: (
-                <ToolCallCard
-                  key={`persisted-tool-${messages[persistedTraceCarrierIdx].id}-${item.toolCall.callId}-${itemIdx}`}
-                  toolName={item.toolCall.toolName}
-                  arguments={item.toolCall.arguments}
-                  status={item.toolCall.status}
-                  content={item.toolCall.content}
-                  isError={item.toolCall.isError}
-                  artifacts={item.toolCall.artifacts}
-                  trace
-                />
-              ),
-            };
-          },
-        );
+      const sections: ThinkingSection[] = [];
+      const hiddenMembers = new Set<number>();
 
-        map.set(persistedTraceCarrierIdx, { type: "anchor", sections });
-        for (const idx of tracedIndexes) {
-          if (idx !== persistedTraceCarrierIdx) {
-            map.set(idx, { type: "member" });
-          }
-        }
-        currentGroup = [];
-        return;
-      }
-
-      const sections: ThinkingSection[] = tracedIndexes.map((idx) => {
+      for (const idx of currentGroup) {
         const msg = messages[idx];
         const thinking = messageThinkingText.get(idx) ?? "";
         const renderedToolCalls = msg.toolCalls
@@ -730,20 +729,54 @@ export function ChatMessages({
             );
           });
 
-        return {
-          text: thinking,
-          node:
-            renderedToolCalls.length > 0 ? (
-              <div className="mt-1 space-y-1">{renderedToolCalls}</div>
-            ) : undefined,
-        };
-      });
+        if (msg.toolCalls.length > 0) {
+          if (msg.content.trim().length > 0) {
+            sections.push({
+              text: "",
+              node: renderTraceReplyNode(
+                `trace-reply-${msg.id}`,
+                msg.content,
+                messageCitationLookups.get(idx),
+              ),
+            });
+          }
+          if (thinking || renderedToolCalls.length > 0) {
+            sections.push({
+              text: thinking,
+              node:
+                renderedToolCalls.length > 0 ? (
+                  <div className="mt-1 space-y-1">{renderedToolCalls}</div>
+                ) : undefined,
+            });
+          }
+          if (idx !== anchorIdx) {
+            hiddenMembers.add(idx);
+          }
+          continue;
+        }
 
-      const anchorIdx = tracedIndexes[0];
-      map.set(anchorIdx, { type: "anchor", sections });
-      for (const idx of tracedIndexes.slice(1)) {
+        if (thinking) {
+          sections.push({ text: thinking });
+        }
+      }
+
+      const combinedSections = [
+        ...(statusSectionsByAssistant.get(anchorIdx) ?? persistedStatusSections),
+        ...(sections.length > 0 ? sections : (fallbackSectionsByAssistant.get(anchorIdx) ?? [])),
+      ];
+
+      if (combinedSections.length > 0) {
+        map.set(anchorIdx, {
+          type: "anchor",
+          sections: combinedSections,
+          hideMessageBubble: messages[anchorIdx].toolCalls.length > 0,
+        });
+      }
+
+      for (const idx of hiddenMembers) {
         map.set(idx, { type: "member" });
       }
+
       currentGroup = [];
     };
 
@@ -761,10 +794,12 @@ export function ChatMessages({
 
     return map;
   }, [
+    messageCitationLookups,
     messageIndexById,
     messageThinkingText,
     messageToolCalls,
     messages,
+    renderTraceReplyNode,
     turns,
   ]);
 
@@ -1231,8 +1266,11 @@ export function ChatMessages({
           const chunkIds = chunkIdCacheRef.current.get(msg.id) ?? [];
           const traceGroup =
             msg.role === "assistant" ? messageTraceGroups.get(idx) : undefined;
+          if (traceGroup?.type === "member") return null;
           const hasRenderableAssistantContent =
-            msg.role !== "assistant" || msg.content.trim().length > 0;
+            msg.role !== "assistant" ||
+            (msg.content.trim().length > 0 &&
+              !(traceGroup?.type === "anchor" && traceGroup.hideMessageBubble));
 
           return (
             <div key={msg.id}>
