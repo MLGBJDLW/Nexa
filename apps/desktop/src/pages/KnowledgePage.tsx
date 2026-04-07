@@ -145,7 +145,7 @@ export function KnowledgePage() {
   /* ── Filtered entities ─────────────────────────────────────────── */
 
   const filteredEntities: Entity[] =
-    knowledgeMap?.entities.filter((e) =>
+    knowledgeMap?.entities.filter((e: Entity) =>
       entitySearch === '' ||
       e.name.toLowerCase().includes(entitySearch.toLowerCase()) ||
       e.entityType.toLowerCase().includes(entitySearch.toLowerCase())
@@ -266,7 +266,7 @@ export function KnowledgePage() {
                       animate="show"
                       className="space-y-2"
                     >
-                      {compileResults.map((r) => (
+                      {compileResults.map((r: CompileResult) => (
                         <motion.div
                           key={r.documentId}
                           variants={listItem}
@@ -305,7 +305,7 @@ export function KnowledgePage() {
                 icon={<Search size={15} />}
                 placeholder={t('knowledge.searchEntities')}
                 value={entitySearch}
-                onChange={(e) => setEntitySearch(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEntitySearch(e.target.value)}
               />
 
               {mapLoading ? (
