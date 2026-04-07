@@ -64,8 +64,10 @@ impl ToolDef {
     }
 }
 
+pub mod archive_output_tool;
 pub mod chunk_context_tool;
 pub mod compare_tool;
+pub mod compile_tool;
 pub mod create_file_tool;
 pub mod date_search_tool;
 pub mod document_info_tool;
@@ -74,6 +76,8 @@ pub mod edit_file_tool;
 pub mod fetch_url_tool;
 pub mod file_tool;
 pub mod generate_document_tool;
+pub mod health_check_tool;
+pub mod knowledge_graph_tool;
 pub mod list_dir_tool;
 pub mod list_documents_tool;
 pub mod list_sources_tool;
@@ -83,6 +87,7 @@ pub mod path_utils;
 pub mod playbook_tool;
 pub mod record_verification_tool;
 pub mod reindex_tool;
+pub mod related_concepts_tool;
 pub mod search_playbooks_tool;
 pub mod search_tool;
 pub mod statistics_tool;
@@ -478,6 +483,11 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(summarize_tool::SummarizeDocumentTool));
     registry.register(Box::new(update_plan_tool::UpdatePlanTool));
     registry.register(Box::new(record_verification_tool::RecordVerificationTool));
+    registry.register(Box::new(compile_tool::CompileTool));
+    registry.register(Box::new(knowledge_graph_tool::KnowledgeGraphTool));
+    registry.register(Box::new(health_check_tool::HealthCheckTool));
+    registry.register(Box::new(archive_output_tool::ArchiveOutputTool));
+    registry.register(Box::new(related_concepts_tool::RelatedConceptsTool));
     registry
 }
 
