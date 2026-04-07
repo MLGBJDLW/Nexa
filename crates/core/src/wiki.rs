@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::compile::{parse_entity_type, DocumentSummary, Entity, EntityType};
+use crate::compile::{parse_entity_type, Entity, EntityType};
 use crate::db::Database;
 use crate::error::CoreError;
 
@@ -48,10 +48,6 @@ pub struct HotConcept {
     pub score: f64,
     pub recent_queries: i64,
 }
-
-// Suppress unused import warnings — these types are re-exported for consumers.
-#[allow(unused_imports)]
-use DocumentSummary as _DocSummaryReexport;
 
 impl Database {
     /// Generate the full wiki index, organized by entity type.
@@ -176,9 +172,9 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT e.id, e.name, e.entity_type, e.description, e.first_seen_doc, e.mention_count, e.created_at,
-                    COALESCE((SELECT COUNT(*) FROM query_logs ql WHERE ql.query_text LIKE '%' || e.name || '%' AND ql.created_at > datetime('now', '-7 days')), 0) as recent_queries
+                    COALESCE((SELECT COUNT(*) FROM query_logs ql WHERE LOWER(ql.query_text) = LOWER(e.name) AND ql.created_at > datetime('now', '-7 days')), 0) as recent_queries
              FROM entities e
-             ORDER BY (e.mention_count * 1.0 + COALESCE((SELECT COUNT(*) FROM query_logs ql WHERE ql.query_text LIKE '%' || e.name || '%' AND ql.created_at > datetime('now', '-7 days')), 0) * 2.0) DESC
+             ORDER BY (e.mention_count * 1.0 + COALESCE((SELECT COUNT(*) FROM query_logs ql WHERE LOWER(ql.query_text) = LOWER(e.name) AND ql.created_at > datetime('now', '-7 days')), 0) * 2.0) DESC
              LIMIT ?1",
         )?;
         let concepts = stmt

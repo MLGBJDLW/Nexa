@@ -43,6 +43,18 @@ impl Database {
         let conn = self.conn();
         let now = chrono::Utc::now().to_rfc3339();
 
+        // Validate source_dir is a registered source
+        let source_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sources WHERE path = ?1",
+            rusqlite::params![source_dir],
+            |row| row.get(0),
+        )?;
+        if source_count == 0 {
+            return Err(CoreError::InvalidInput(
+                "Source directory is not registered".into(),
+            ));
+        }
+
         // Sanitize the title for use as filename
         let safe_title: String = title
             .chars()
@@ -76,7 +88,7 @@ impl Database {
 
         conn.execute(
             "INSERT OR IGNORE INTO documents (path, source_id, content_hash, mime_type, size_bytes, indexed_at, updated_at)
-             VALUES (?1, (SELECT id FROM sources LIMIT 1), ?2, 'text/markdown', ?3, ?4, ?4)",
+             VALUES (?1, (SELECT id FROM sources WHERE ?1 LIKE path || '%' LIMIT 1), ?2, 'text/markdown', ?3, ?4, ?4)",
             rusqlite::params![path_str, hash, content.len() as i64, now],
         )?;
 

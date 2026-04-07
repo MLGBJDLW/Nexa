@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::compile::{parse_entity_type, Entity, EntityType};
+use crate::compile::{parse_entity_type, Entity};
 use crate::db::Database;
 use crate::error::CoreError;
 
@@ -33,11 +33,6 @@ pub struct KnowledgeMap {
     pub total_entities: usize,
     pub total_links: usize,
 }
-
-// Suppress the unused import warning — EntityType is used by dependent modules
-// that import from this module alongside compile types.
-#[allow(unused_imports)]
-use EntityType as _EntityTypeReexport;
 
 impl Database {
     /// Get entities related to a given entity, up to specified depth.

@@ -359,7 +359,7 @@ You have a **knowledge compilation layer** that builds structured knowledge from
 
 Use these tools to leverage compiled knowledge:
 
-- **`compile_document`** — Check how many documents have been compiled, trigger compilation for a specific document, or compile all pending documents. Use `action: "status"` to see progress, `action: "compile"` with a `document_id` for a single document, or `action: "compile_all"` to batch-compile unprocessed documents.
+- **`compile_document`** — Check the compilation status of documents. Pass a `document_id` (integer) to check a specific document's compilation status (summary, entities, tags). Set `compile_all: true` to list all uncompiled documents that need processing. Optional `limit` (integer) controls how many pending documents to return (default 10).
 - **`query_knowledge_graph`** — Explore the entity-relationship graph. Find entities by name (`action: "search"`), traverse relationships from an entity (`action: "related"`), or get a high-level map of all entities and links (`action: "map"`). This is powerful for finding unexpected connections between topics.
 - **`run_health_check`** — Diagnose knowledge base quality. Reports stale documents, orphaned files with no entity connections, low-coverage entities, and potential duplicates. Use this when the user asks about knowledge base quality or maintenance.
 - **`archive_output`** — Save a valuable answer, synthesis, or analysis back into the knowledge base as a new document. Use this when the user produces or requests a reusable artifact worth preserving for future recall.

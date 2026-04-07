@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::compile::Entity;
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::{CompletionRequest, LlmProvider, Message, Role};
@@ -171,7 +170,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT a.id, a.name, b.id, b.name FROM entities a, entities b
              WHERE a.id < b.id AND a.entity_type = b.entity_type
-             AND (LOWER(a.name) = LOWER(b.name) OR a.name LIKE '%' || b.name || '%' OR b.name LIKE '%' || a.name || '%')
+             AND LOWER(a.name) = LOWER(b.name)
              LIMIT 20",
         )?;
         let issues = stmt
@@ -311,7 +310,7 @@ pub async fn check_contradictions(
         messages: vec![
             Message::text(
                 Role::System,
-                "You are a fact-checker. Given multiple document summaries about the same entity, identify any contradictions or inconsistencies. Return a JSON array of contradiction objects: [{\"description\": \"...\", \"severity\": \"info|warning|critical\"}]. If none found, return [].".to_string(),
+                include_str!("../prompts/contradiction_check.md").to_string(),
             ),
             Message::text(
                 Role::User,
@@ -363,6 +362,3 @@ pub async fn check_contradictions(
         .collect())
 }
 
-// Suppress unused import warnings for types used in function signatures.
-#[allow(unused_imports)]
-use Entity as _EntityReexport;
