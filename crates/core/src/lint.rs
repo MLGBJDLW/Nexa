@@ -128,8 +128,7 @@ impl Database {
                         "Document '{}' has no entities or summary — not compiled yet.",
                         row.get::<_, String>(1)?
                     ),
-                    suggestion: "Run knowledge compilation to integrate this document."
-                        .to_string(),
+                    suggestion: "Run knowledge compilation to integrate this document.".to_string(),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -183,9 +182,7 @@ impl Database {
                     severity: Severity::Warning,
                     target_doc_id: None,
                     target_entity_id: Some(row.get(0)?),
-                    description: format!(
-                        "Potential duplicate entities: '{name_a}' and '{name_b}'"
-                    ),
+                    description: format!("Potential duplicate entities: '{name_a}' and '{name_b}'"),
                     suggestion: "Consider merging these entities.".to_string(),
                 })
             })?
@@ -361,4 +358,3 @@ pub async fn check_contradictions(
         })
         .collect())
 }
-

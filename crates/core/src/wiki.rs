@@ -87,8 +87,7 @@ impl Database {
             by_type.entry(type_key).or_default().push(entry.clone());
         }
 
-        let total_docs: i64 =
-            conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))?;
+        let total_docs: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))?;
         let compiled_docs: i64 =
             conn.query_row("SELECT COUNT(*) FROM document_summaries", [], |r| r.get(0))?;
 

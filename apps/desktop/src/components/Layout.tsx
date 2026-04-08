@@ -133,12 +133,12 @@ export function Layout() {
                     <>
                       {/* Active indicator bar */}
                       <motion.span
-                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 w-0.75 rounded-r-full bg-accent"
                         initial={false}
                         animate={{ height: isActive ? 20 : 0, opacity: isActive ? 1 : 0 }}
                         transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
                       />
-                      <Icon className="h-[18px] w-[18px] shrink-0" />
+                      <Icon className="h-4.5 w-4.5 shrink-0" />
                       <AnimatePresence>
                         {!collapsed && (
                           <motion.span

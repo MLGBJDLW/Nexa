@@ -80,7 +80,11 @@ impl Tool for HealthCheckTool {
                             )
                         })
                         .collect();
-                    format!("### {label} ({} issues)\n{}\n", issues.len(), items.join("\n"))
+                    format!(
+                        "### {label} ({} issues)\n{}\n",
+                        issues.len(),
+                        items.join("\n")
+                    )
                 }
             };
 

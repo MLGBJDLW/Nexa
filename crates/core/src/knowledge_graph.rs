@@ -163,17 +163,18 @@ impl Database {
             for id in &entity_ids {
                 all_params.push(id as &dyn rusqlite::types::ToSql);
             }
-            let rows = stmt.query_map(all_params.as_slice(), |row| {
-                Ok(EntityLink {
-                    id: row.get(0)?,
-                    source_entity_id: row.get(1)?,
-                    target_entity_id: row.get(2)?,
-                    relation_type: row.get(3)?,
-                    strength: row.get(4)?,
-                    evidence_doc_id: row.get(5)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+            let rows = stmt
+                .query_map(all_params.as_slice(), |row| {
+                    Ok(EntityLink {
+                        id: row.get(0)?,
+                        source_entity_id: row.get(1)?,
+                        target_entity_id: row.get(2)?,
+                        relation_type: row.get(3)?,
+                        strength: row.get(4)?,
+                        evidence_doc_id: row.get(5)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
             rows
         };
 

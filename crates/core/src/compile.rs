@@ -119,10 +119,7 @@ pub async fn compile_document(
         model: model.to_string(),
         messages: vec![
             Message::text(Role::System, COMPILE_SYSTEM_PROMPT.to_string()),
-            Message::text(
-                Role::User,
-                format!("Compile this document:\n\n{truncated}"),
-            ),
+            Message::text(Role::User, format!("Compile this document:\n\n{truncated}")),
         ],
         max_tokens: Some(2000),
         temperature: Some(0.2),
@@ -224,9 +221,8 @@ pub fn parse_entity_type(s: &str) -> EntityType {
 impl Database {
     pub fn get_document_full_text(&self, doc_id: i64) -> Result<String, CoreError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT content FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT content FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC")?;
         let chunks: Vec<String> = stmt
             .query_map(rusqlite::params![doc_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -389,10 +385,7 @@ impl Database {
         Ok(ids)
     }
 
-    pub fn get_document_summary(
-        &self,
-        doc_id: i64,
-    ) -> Result<Option<DocumentSummary>, CoreError> {
+    pub fn get_document_summary(&self, doc_id: i64) -> Result<Option<DocumentSummary>, CoreError> {
         let conn = self.conn();
         let result = conn.query_row(
             "SELECT id, document_id, summary, key_points, tags, model_used, compiled_at FROM document_summaries WHERE document_id = ?1",
@@ -441,8 +434,7 @@ impl Database {
 
     pub fn get_compile_stats(&self) -> Result<CompileStats, CoreError> {
         let conn = self.conn();
-        let total_docs: i64 =
-            conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))?;
+        let total_docs: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))?;
         let compiled_docs: i64 =
             conn.query_row("SELECT COUNT(*) FROM document_summaries", [], |r| r.get(0))?;
         let total_entities: i64 =

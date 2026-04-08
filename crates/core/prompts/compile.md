@@ -19,6 +19,7 @@ Return a JSON object with exactly this structure:
 }
 
 Rules:
+
 - Extract 3-10 entities per document, focus on the MOST important ones
 - Entity names should be normalized (capitalize properly, no duplicates)
 - Relations should connect extracted entities to each other

@@ -53,9 +53,7 @@ impl Tool for ArchiveOutputTool {
             .get("source_directory")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        Some(format!(
-            "Archive document '{title}' to {dir}/_kb_archive/?"
-        ))
+        Some(format!("Archive document '{title}' to {dir}/_kb_archive/?"))
     }
 
     async fn execute(
@@ -74,8 +72,12 @@ impl Tool for ArchiveOutputTool {
 
         tokio::task::spawn_blocking(move || {
             // Use a placeholder conversation_id since we don't have the actual one in tool context
-            let result =
-                db.archive_agent_output("tool-archive", &args.content, &args.title, &args.source_directory)?;
+            let result = db.archive_agent_output(
+                "tool-archive",
+                &args.content,
+                &args.title,
+                &args.source_directory,
+            )?;
 
             Ok(ToolResult {
                 call_id,

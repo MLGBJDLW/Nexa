@@ -2983,14 +2983,10 @@ pub async fn compile_after_scan_cmd(
     let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
 
     let cap = limit.unwrap_or(10);
-    let results = ask_core::compile::compile_pending(
-        &state.db,
-        provider.as_ref(),
-        &db_config.model,
-        cap,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let results =
+        ask_core::compile::compile_pending(&state.db, provider.as_ref(), &db_config.model, cap)
+            .await
+            .map_err(|e| e.to_string())?;
 
     // Notify frontend of compilation progress
     emit_app_event(

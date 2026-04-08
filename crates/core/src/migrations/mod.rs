@@ -454,7 +454,11 @@ mod tests {
             .filter_map(|row| row.ok())
             .collect();
 
-        assert!(rows.iter().any(|(id, enabled)| id == "builtin-office-document-design" && *enabled == 1));
-        assert!(rows.iter().any(|(id, enabled)| id == "builtin-visual-explanations" && *enabled == 1));
+        assert!(rows
+            .iter()
+            .any(|(id, enabled)| id == "builtin-office-document-design" && *enabled == 1));
+        assert!(rows
+            .iter()
+            .any(|(id, enabled)| id == "builtin-visual-explanations" && *enabled == 1));
     }
 }

@@ -272,7 +272,7 @@ impl ToolRegistry {
     /// Check if a tool requires confirmation for the given arguments.
     pub fn requires_confirmation(&self, name: &str, args: &serde_json::Value) -> bool {
         self.get(name)
-            .map_or(false, |t| t.requires_confirmation(args))
+            .is_some_and(|t| t.requires_confirmation(args))
     }
 
     /// Get the confirmation message for a tool with the given arguments.
