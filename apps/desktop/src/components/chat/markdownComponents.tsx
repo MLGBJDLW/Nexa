@@ -192,6 +192,7 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
       if (!href) return;
 
       // Keep in-page anchors (e.g. GFM footnotes) navigable.
@@ -428,6 +429,11 @@ function MermaidBlock({ chart }: { chart: string }) {
 export const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames || []), 'br', 'sub', 'sup', 'mark', 'kbd', 'abbr', 'details', 'summary'],
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href || []), 'cite', 'doc', 'file', 'url'],
+  },
+  clobber: [],
 };
 
 /** Pre-built rehype plugin list for ReactMarkdown */
