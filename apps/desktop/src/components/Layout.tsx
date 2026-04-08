@@ -70,7 +70,7 @@ export function Layout() {
   });
 
   const toggle = () => {
-    setCollapsed((prev) => {
+    setCollapsed((prev: boolean) => {
       const next = !prev;
       try { localStorage.setItem(STORAGE_KEY, String(next)); } catch { /* noop */ }
       return next;
@@ -120,7 +120,7 @@ export function Layout() {
                   end={item.to === '/'}
                   aria-label={label}
                   aria-current={isCurrentPage ? 'page' : undefined}
-                  className={({ isActive }) =>
+                  className={({ isActive }: { isActive: boolean }) =>
                     `relative flex items-center gap-2.5 rounded-md text-sm transition-colors duration-fast ease-out
                     ${collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2'}
                     ${isActive
@@ -129,7 +129,7 @@ export function Layout() {
                     }`
                   }
                 >
-                  {({ isActive }) => (
+                  {({ isActive }: { isActive: boolean }) => (
                     <>
                       {/* Active indicator bar */}
                       <motion.span
