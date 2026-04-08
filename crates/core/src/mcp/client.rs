@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::env;
+#[cfg(windows)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -1509,11 +1510,11 @@ fn resolve_stdio_candidate(path: &Path) -> Option<PathBuf> {
     resolve_stdio_candidate_with_pathext(path, &windows_pathexts())
 }
 
-fn resolve_stdio_candidate_with_pathext(path: &Path, pathexts: &[String]) -> Option<PathBuf> {
+fn resolve_stdio_candidate_with_pathext(path: &Path, _pathexts: &[String]) -> Option<PathBuf> {
     #[cfg(windows)]
     {
         if path.extension().is_none() {
-            for extension in pathexts {
+            for extension in _pathexts {
                 let mut candidate = path.as_os_str().to_os_string();
                 candidate.push(extension);
                 let candidate = PathBuf::from(candidate);
