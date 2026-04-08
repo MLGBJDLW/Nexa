@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/MLGBJDLW/Ask_Myself/compare/v0.1.2...v0.1.3) (2026-04-08)
+
+
+### Bug Fixes
+
+* generate all Tauri icon sizes and upgrade Linux runner ([1dc210f](https://github.com/MLGBJDLW/Ask_Myself/commit/1dc210f4394e421021ccc9c8706be549d7412801))
+
 ## [0.1.2](https://github.com/MLGBJDLW/Ask_Myself/compare/v0.1.1...v0.1.2) (2026-04-08)
 
 
