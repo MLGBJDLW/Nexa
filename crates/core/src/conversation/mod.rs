@@ -1089,6 +1089,14 @@ impl Database {
 // AgentConfig CRUD
 // ---------------------------------------------------------------------------
 
+/// Decrypt the `api_key` field of an [`AgentConfig`] read from the database.
+/// If the value was stored as legacy plaintext (no `enc:v1:` prefix), it is
+/// returned unchanged — the caller's next `save_agent_config` will encrypt it.
+fn decrypt_agent_config_key(mut config: AgentConfig) -> Result<AgentConfig, CoreError> {
+    config.api_key = crate::crypto::decrypt_api_key(&config.api_key)?;
+    Ok(config)
+}
+
 impl Database {
     /// Upsert an agent config. Returns the persisted row.
     pub fn save_agent_config(
@@ -1097,6 +1105,7 @@ impl Database {
     ) -> Result<AgentConfig, CoreError> {
         let id = input.id.clone().unwrap_or_else(new_id);
         let normalized_base_url = normalize_optional_url(input.base_url.as_deref());
+        let encrypted_api_key = crate::crypto::encrypt_api_key(&input.api_key)?;
         let subagent_allowed_tools_json =
             serialize_optional_string_list(input.subagent_allowed_tools.as_deref())?;
         let subagent_allowed_skill_ids_json =
@@ -1133,7 +1142,7 @@ impl Database {
                 &id,
                 &input.name,
                 &input.provider,
-                &input.api_key,
+                &encrypted_api_key,
                 &normalized_base_url,
                 &input.model,
                 input.temperature,
@@ -1201,7 +1210,7 @@ impl Database {
         })?;
         let mut results = Vec::new();
         for row in rows {
-            results.push(row?);
+            results.push(decrypt_agent_config_key(row?)?);
         }
         Ok(results)
     }
@@ -1209,7 +1218,7 @@ impl Database {
     /// Get a single agent config by id.
     pub fn get_agent_config(&self, id: &str) -> Result<AgentConfig, CoreError> {
         let conn = self.conn();
-        conn.query_row(
+        let config = conn.query_row(
             "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs
              FROM agent_configs WHERE id = ?1",
             rusqlite::params![id],
@@ -1252,7 +1261,8 @@ impl Database {
                 CoreError::NotFound(format!("AgentConfig {id}"))
             }
             other => CoreError::Database(other),
-        })
+        })?;
+        decrypt_agent_config_key(config)
     }
 
     /// Delete an agent config by id.
@@ -1330,7 +1340,7 @@ impl Database {
             },
         );
         match result {
-            Ok(config) => Ok(Some(config)),
+            Ok(config) => Ok(Some(decrypt_agent_config_key(config)?)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(CoreError::Database(e)),
         }

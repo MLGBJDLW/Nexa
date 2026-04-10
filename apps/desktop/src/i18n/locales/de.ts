@@ -1008,4 +1008,36 @@ export const de: TranslationKeys = {
   'update.restart': 'Jetzt neu starten',
   'update.dismiss': 'Später',
   'update.upToDate': 'Sie sind auf dem neuesten Stand',
+
+  // Error Boundary
+  'errorBoundary.title': 'Ein Fehler ist aufgetreten',
+  'errorBoundary.description': 'Ein unerwarteter Fehler ist aufgetreten. Versuchen Sie, die Anwendung neu zu starten.',
+  'errorBoundary.restart': 'Neu starten',
+  'errorBoundary.details': 'Fehlerdetails',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Suchqualität eingeschränkt — Embedding-Modell nicht installiert. Die hybride Suche wird auf einfachen Textabgleich zurückfallen.',
+  'search.embeddingWarningAction': 'Jetzt installieren',
+
+  // Welcome Wizard
+  'welcome.title': 'Willkommen bei Ask Myself',
+  'welcome.subtitle': 'Ihr persönlicher Wissensassistent',
+  'welcome.description': 'Fügen Sie Ihre Dokumente hinzu, verbinden Sie eine KI und stellen Sie Fragen zu Ihrem eigenen Wissen.',
+  'welcome.getStarted': 'Loslegen',
+  'welcome.addSource': 'Wissen hinzufügen',
+  'welcome.addSourceDescription': 'Wählen Sie einen Ordner mit Ihren Dokumenten aus (Notizen, PDFs, Docs)',
+  'welcome.selectFolder': 'Ordner auswählen',
+  'welcome.folderSelected': 'Ordner hinzugefügt: {folder}',
+  'welcome.configureAI': 'KI-Anbieter verbinden',
+  'welcome.configureAIDescription': 'Richten Sie ein KI-Modell ein, das Ihre Fragen beantwortet',
+  'welcome.selectProvider': 'Anbieter auswählen',
+  'welcome.apiKey': 'API-Schlüssel',
+  'welcome.testConnection': 'Verbindung testen',
+  'welcome.connectionSuccess': 'Verbindung erfolgreich!',
+  'welcome.connectionFailed': 'Verbindung fehlgeschlagen',
+  'welcome.allSet': 'Alles bereit!',
+  'welcome.allSetDescription': 'Erkunden Sie Ihr Wissen',
+  'welcome.startUsing': 'Ask Myself verwenden',
+  'welcome.skip': 'Vorerst überspringen',
+  'welcome.step': 'Schritt {current} von {total}',
 };

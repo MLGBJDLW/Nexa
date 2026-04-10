@@ -1024,6 +1024,38 @@ export interface TranslationKeys {
   'common.selectAll': string;
   'common.clearAll': string;
   'common.undo': string;
+
+  // Error Boundary
+  'errorBoundary.title': string;
+  'errorBoundary.description': string;
+  'errorBoundary.restart': string;
+  'errorBoundary.details': string;
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': string;
+  'search.embeddingWarningAction': string;
+
+  // Welcome Wizard
+  'welcome.title': string;
+  'welcome.subtitle': string;
+  'welcome.description': string;
+  'welcome.getStarted': string;
+  'welcome.addSource': string;
+  'welcome.addSourceDescription': string;
+  'welcome.selectFolder': string;
+  'welcome.folderSelected': string;
+  'welcome.configureAI': string;
+  'welcome.configureAIDescription': string;
+  'welcome.selectProvider': string;
+  'welcome.apiKey': string;
+  'welcome.testConnection': string;
+  'welcome.connectionSuccess': string;
+  'welcome.connectionFailed': string;
+  'welcome.allSet': string;
+  'welcome.allSetDescription': string;
+  'welcome.startUsing': string;
+  'welcome.skip': string;
+  'welcome.step': string;
 }
 
 export type TranslationKey = keyof TranslationKeys;

@@ -1008,4 +1008,36 @@ export const zhTW: TranslationKeys = {
   'update.restart': '立即重新啟動',
   'update.dismiss': '稍後',
   'update.upToDate': '已是最新版本',
+
+  // Error Boundary
+  'errorBoundary.title': '出現了問題',
+  'errorBoundary.description': '發生了意外錯誤。您可以嘗試重新啟動應用程式。',
+  'errorBoundary.restart': '重新啟動',
+  'errorBoundary.details': '錯誤詳情',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': '搜尋品質受限 — 嵌入模型未安裝。混合搜尋將降級為基礎文字比對。',
+  'search.embeddingWarningAction': '立即安裝',
+
+  // Welcome Wizard
+  'welcome.title': '歡迎使用 Ask Myself',
+  'welcome.subtitle': '你的個人知識助手',
+  'welcome.description': '新增文件、連接 AI，開始向自己的知識庫提問。',
+  'welcome.getStarted': '開始使用',
+  'welcome.addSource': '新增知識來源',
+  'welcome.addSourceDescription': '選擇一個包含文件的資料夾（筆記、PDF、Word 等）',
+  'welcome.selectFolder': '選擇資料夾',
+  'welcome.folderSelected': '已新增資料夾：{folder}',
+  'welcome.configureAI': '連接 AI 服務',
+  'welcome.configureAIDescription': '設定一個 AI 模型來回答你的問題',
+  'welcome.selectProvider': '選擇服務商',
+  'welcome.apiKey': 'API 金鑰',
+  'welcome.testConnection': '測試連接',
+  'welcome.connectionSuccess': '連接成功！',
+  'welcome.connectionFailed': '連接失敗',
+  'welcome.allSet': '一切就緒！',
+  'welcome.allSetDescription': '開始探索你的知識庫',
+  'welcome.startUsing': '開始使用 Ask Myself',
+  'welcome.skip': '暫時跳過',
+  'welcome.step': '第 {current} 步，共 {total} 步',
 };

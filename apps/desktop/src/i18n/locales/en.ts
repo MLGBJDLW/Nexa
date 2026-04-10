@@ -1025,4 +1025,36 @@ export const en: TranslationKeys = {
   'update.restart': 'Restart Now',
   'update.dismiss': 'Later',
   'update.upToDate': "You're up to date",
+
+  // Error Boundary
+  'errorBoundary.title': 'Something went wrong',
+  'errorBoundary.description': 'An unexpected error occurred. You can try restarting the application.',
+  'errorBoundary.restart': 'Restart',
+  'errorBoundary.details': 'Error details',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Search quality is limited — embedding model not installed. Hybrid search will fall back to basic text matching.',
+  'search.embeddingWarningAction': 'Install Now',
+
+  // Welcome Wizard
+  'welcome.title': 'Welcome to Ask Myself',
+  'welcome.subtitle': 'Your personal knowledge assistant',
+  'welcome.description': 'Add your documents, connect an AI, and start asking questions about your own knowledge.',
+  'welcome.getStarted': 'Get Started',
+  'welcome.addSource': 'Add Your Knowledge',
+  'welcome.addSourceDescription': 'Select a folder containing your documents (notes, PDFs, docs)',
+  'welcome.selectFolder': 'Select Folder',
+  'welcome.folderSelected': 'Folder added: {folder}',
+  'welcome.configureAI': 'Connect AI Provider',
+  'welcome.configureAIDescription': 'Set up an AI model to answer your questions',
+  'welcome.selectProvider': 'Select Provider',
+  'welcome.apiKey': 'API Key',
+  'welcome.testConnection': 'Test Connection',
+  'welcome.connectionSuccess': 'Connection successful!',
+  'welcome.connectionFailed': 'Connection failed',
+  'welcome.allSet': "You're All Set!",
+  'welcome.allSetDescription': 'Start exploring your knowledge',
+  'welcome.startUsing': 'Start Using Ask Myself',
+  'welcome.skip': 'Skip for now',
+  'welcome.step': 'Step {current} of {total}',
 };

@@ -578,7 +578,9 @@ impl Database {
             let (key, value) = row?;
             match key.as_str() {
                 "provider" => config.provider = value,
-                "api_key" => config.api_key = value,
+                "api_key" => {
+                    config.api_key = crate::crypto::decrypt_api_key(&value).unwrap_or(value);
+                }
                 "api_base_url" => config.api_base_url = value,
                 "api_model" => config.api_model = value,
                 "model_path" => config.model_path = value,
@@ -597,7 +599,7 @@ impl Database {
         let conn = self.conn();
         let pairs: &[(&str, String)] = &[
             ("provider", config.provider.clone()),
-            ("api_key", config.api_key.clone()),
+            ("api_key", crate::crypto::encrypt_api_key(&config.api_key)?),
             ("api_base_url", config.api_base_url.clone()),
             ("api_model", config.api_model.clone()),
             ("model_path", config.model_path.clone()),
