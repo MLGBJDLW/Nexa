@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const zhCN: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': '搜索',
@@ -580,6 +579,7 @@ export const zhCN: TranslationKeys = {
   'chat.contextFillingUp': '上下文窗口即将满载 ({percent}%)。建议开始新对话。',
   'chat.contextNearlyFull': '上下文窗口即将满载 ({percent}%)。较早的消息可能会丢失。',
   'chat.imageMessage': '(图片)',
+  'chat.pasteImageFailed': '粘贴图片失败',
   'chat.tokensLabel': '令牌',
   'chat.tokensShort': '令牌',
   'chat.removeAttachment': '移除附件',
@@ -1012,4 +1012,48 @@ export const zhCN: TranslationKeys = {
   'knowledge.entityType': '分类',
   'knowledge.mentions': '提及次数',
   'knowledge.documents': '文档数',
+
+  // Update
+  'update.available': '有可用更新',
+  'update.version': '版本 {version} 可用',
+  'update.downloading': '正在下载更新...',
+  'update.ready': '更新已就绪，重启以应用。',
+  'update.error': '检查更新失败',
+  'update.checkNow': '检查更新',
+  'update.downloadInstall': '下载并安装',
+  'update.restart': '立即重启',
+  'update.dismiss': '稍后',
+  'update.upToDate': '已是最新版本',
+
+  // Error Boundary
+  'errorBoundary.title': '出现了问题',
+  'errorBoundary.description': '发生了意外错误。您可以尝试重启应用。',
+  'errorBoundary.restart': '重启',
+  'errorBoundary.details': '错误详情',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': '搜索质量受限 — 嵌入模型未安装。混合搜索将降级为基础文本匹配。',
+  'search.embeddingWarningAction': '立即安装',
+
+  // Welcome Wizard
+  'welcome.title': '欢迎使用 Ask Myself',
+  'welcome.subtitle': '你的个人知识助手',
+  'welcome.description': '添加文档、连接 AI，开始向自己的知识库提问。',
+  'welcome.getStarted': '开始使用',
+  'welcome.addSource': '添加知识来源',
+  'welcome.addSourceDescription': '选择一个包含文档的文件夹（笔记、PDF、Word 等）',
+  'welcome.selectFolder': '选择文件夹',
+  'welcome.folderSelected': '已添加文件夹：{folder}',
+  'welcome.configureAI': '连接 AI 服务',
+  'welcome.configureAIDescription': '设置一个 AI 模型来回答你的问题',
+  'welcome.selectProvider': '选择服务商',
+  'welcome.apiKey': 'API 密钥',
+  'welcome.testConnection': '测试连接',
+  'welcome.connectionSuccess': '连接成功！',
+  'welcome.connectionFailed': '连接失败',
+  'welcome.allSet': '一切就绪！',
+  'welcome.allSetDescription': '开始探索你的知识库',
+  'welcome.startUsing': '开始使用 Ask Myself',
+  'welcome.skip': '暂时跳过',
+  'welcome.step': '第 {current} 步，共 {total} 步',
 };

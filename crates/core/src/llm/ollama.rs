@@ -98,8 +98,8 @@ struct OllamaResponse {
 
 #[derive(Deserialize)]
 struct OllamaResponseMessage {
-    #[allow(dead_code)]
-    role: Option<String>,
+    #[serde(rename = "role")]
+    _role: Option<String>,
     content: Option<String>,
     tool_calls: Option<Vec<OllamaToolCallIn>>,
 }

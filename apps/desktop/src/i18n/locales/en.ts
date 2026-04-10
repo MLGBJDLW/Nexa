@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const en: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': 'Search',
@@ -580,6 +579,7 @@ export const en: TranslationKeys = {
   'chat.contextFillingUp': 'Context window is filling up ({percent}%). Consider starting a new conversation.',
   'chat.contextNearlyFull': 'Context window nearly full ({percent}%). Older messages may be lost.',
   'chat.imageMessage': '(image)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': 'tokens',
   'chat.tokensShort': 'tok',
   'chat.removeAttachment': 'Remove attachment',
@@ -1012,4 +1012,48 @@ export const en: TranslationKeys = {
   'knowledge.entityType': 'Category',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': 'Update Available',
+  'update.version': 'Version {version} is available',
+  'update.downloading': 'Downloading update...',
+  'update.ready': 'Update ready. Restart to apply.',
+  'update.error': 'Update check failed',
+  'update.checkNow': 'Check for Updates',
+  'update.downloadInstall': 'Download & Install',
+  'update.restart': 'Restart Now',
+  'update.dismiss': 'Later',
+  'update.upToDate': "You're up to date",
+
+  // Error Boundary
+  'errorBoundary.title': 'Something went wrong',
+  'errorBoundary.description': 'An unexpected error occurred. You can try restarting the application.',
+  'errorBoundary.restart': 'Restart',
+  'errorBoundary.details': 'Error details',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Search quality is limited — embedding model not installed. Hybrid search will fall back to basic text matching.',
+  'search.embeddingWarningAction': 'Install Now',
+
+  // Welcome Wizard
+  'welcome.title': 'Welcome to Ask Myself',
+  'welcome.subtitle': 'Your personal knowledge assistant',
+  'welcome.description': 'Add your documents, connect an AI, and start asking questions about your own knowledge.',
+  'welcome.getStarted': 'Get Started',
+  'welcome.addSource': 'Add Your Knowledge',
+  'welcome.addSourceDescription': 'Select a folder containing your documents (notes, PDFs, docs)',
+  'welcome.selectFolder': 'Select Folder',
+  'welcome.folderSelected': 'Folder added: {folder}',
+  'welcome.configureAI': 'Connect AI Provider',
+  'welcome.configureAIDescription': 'Set up an AI model to answer your questions',
+  'welcome.selectProvider': 'Select Provider',
+  'welcome.apiKey': 'API Key',
+  'welcome.testConnection': 'Test Connection',
+  'welcome.connectionSuccess': 'Connection successful!',
+  'welcome.connectionFailed': 'Connection failed',
+  'welcome.allSet': "You're All Set!",
+  'welcome.allSetDescription': 'Start exploring your knowledge',
+  'welcome.startUsing': 'Start Using Ask Myself',
+  'welcome.skip': 'Skip for now',
+  'welcome.step': 'Step {current} of {total}',
 };

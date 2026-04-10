@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const es: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': 'Buscar',
@@ -580,6 +579,7 @@ export const es: TranslationKeys = {
   'chat.contextFillingUp': 'La ventana de contexto se está llenando ({percent}%). Considere iniciar una nueva conversación.',
   'chat.contextNearlyFull': 'Ventana de contexto casi llena ({percent}%). Los mensajes antiguos pueden perderse.',
   'chat.imageMessage': '(imagen)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': 'tokens',
   'chat.tokensShort': 'tok.',
   'chat.removeAttachment': 'Eliminar archivo adjunto',
@@ -998,4 +998,48 @@ export const es: TranslationKeys = {
   'knowledge.entityType': 'Type',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': 'Actualización disponible',
+  'update.version': 'La versión {version} está disponible',
+  'update.downloading': 'Descargando actualización...',
+  'update.ready': 'Actualización lista. Reinicia para aplicar.',
+  'update.error': 'Error al buscar actualizaciones',
+  'update.checkNow': 'Buscar actualizaciones',
+  'update.downloadInstall': 'Descargar e instalar',
+  'update.restart': 'Reiniciar ahora',
+  'update.dismiss': 'Más tarde',
+  'update.upToDate': 'Estás al día',
+
+  // Error Boundary
+  'errorBoundary.title': 'Algo salió mal',
+  'errorBoundary.description': 'Ocurrió un error inesperado. Puede intentar reiniciar la aplicación.',
+  'errorBoundary.restart': 'Reiniciar',
+  'errorBoundary.details': 'Detalles del error',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Calidad de búsqueda limitada — modelo de embedding no instalado. La búsqueda híbrida usará coincidencia de texto básica.',
+  'search.embeddingWarningAction': 'Instalar ahora',
+
+  // Welcome Wizard
+  'welcome.title': 'Bienvenido a Ask Myself',
+  'welcome.subtitle': 'Tu asistente de conocimiento personal',
+  'welcome.description': 'Añade tus documentos, conecta una IA y empieza a hacer preguntas sobre tu propio conocimiento.',
+  'welcome.getStarted': 'Empezar',
+  'welcome.addSource': 'Añadir conocimiento',
+  'welcome.addSourceDescription': 'Selecciona una carpeta con tus documentos (notas, PDF, docs)',
+  'welcome.selectFolder': 'Seleccionar carpeta',
+  'welcome.folderSelected': 'Carpeta añadida: {folder}',
+  'welcome.configureAI': 'Conectar proveedor de IA',
+  'welcome.configureAIDescription': 'Configura un modelo de IA para responder tus preguntas',
+  'welcome.selectProvider': 'Seleccionar proveedor',
+  'welcome.apiKey': 'Clave API',
+  'welcome.testConnection': 'Probar conexión',
+  'welcome.connectionSuccess': '¡Conexión exitosa!',
+  'welcome.connectionFailed': 'Error de conexión',
+  'welcome.allSet': '¡Todo listo!',
+  'welcome.allSetDescription': 'Comienza a explorar tu conocimiento',
+  'welcome.startUsing': 'Empezar a usar Ask Myself',
+  'welcome.skip': 'Omitir por ahora',
+  'welcome.step': 'Paso {current} de {total}',
 };

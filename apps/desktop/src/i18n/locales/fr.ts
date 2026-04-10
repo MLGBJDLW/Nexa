@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const fr: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': 'Recherche',
@@ -578,6 +577,7 @@ export const fr: TranslationKeys = {
   'chat.contextFillingUp': 'La fenêtre de contexte se remplit ({percent}%). Envisagez une nouvelle conversation.',
   'chat.contextNearlyFull': 'Fenêtre de contexte presque pleine ({percent}%). Les anciens messages peuvent être perdus.',
   'chat.imageMessage': '(image)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': 'jetons',
   'chat.tokensShort': 'jet.',
   'chat.removeAttachment': 'Supprimer la pièce jointe',
@@ -993,4 +993,48 @@ export const fr: TranslationKeys = {
   'knowledge.entityType': 'Type',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': 'Mise à jour disponible',
+  'update.version': 'La version {version} est disponible',
+  'update.downloading': 'Téléchargement de la mise à jour...',
+  'update.ready': 'Mise à jour prête. Redémarrez pour appliquer.',
+  'update.error': 'Échec de la vérification des mises à jour',
+  'update.checkNow': 'Rechercher des mises à jour',
+  'update.downloadInstall': 'Télécharger et installer',
+  'update.restart': 'Redémarrer maintenant',
+  'update.dismiss': 'Plus tard',
+  'update.upToDate': 'Vous êtes à jour',
+
+  // Error Boundary
+  'errorBoundary.title': 'Une erreur est survenue',
+  'errorBoundary.description': 'Une erreur inattendue s\'est produite. Vous pouvez essayer de redémarrer l\'application.',
+  'errorBoundary.restart': 'Redémarrer',
+  'errorBoundary.details': 'Détails de l\'erreur',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Qualité de recherche limitée — modèle d\'embedding non installé. La recherche hybride utilisera la correspondance textuelle de base.',
+  'search.embeddingWarningAction': 'Installer maintenant',
+
+  // Welcome Wizard
+  'welcome.title': 'Bienvenue dans Ask Myself',
+  'welcome.subtitle': 'Votre assistant de connaissances personnel',
+  'welcome.description': 'Ajoutez vos documents, connectez une IA et commencez à interroger vos propres connaissances.',
+  'welcome.getStarted': 'Commencer',
+  'welcome.addSource': 'Ajouter vos connaissances',
+  'welcome.addSourceDescription': 'Sélectionnez un dossier contenant vos documents (notes, PDF, docs)',
+  'welcome.selectFolder': 'Sélectionner un dossier',
+  'welcome.folderSelected': 'Dossier ajouté : {folder}',
+  'welcome.configureAI': 'Connecter un fournisseur IA',
+  'welcome.configureAIDescription': 'Configurez un modèle IA pour répondre à vos questions',
+  'welcome.selectProvider': 'Sélectionner un fournisseur',
+  'welcome.apiKey': 'Clé API',
+  'welcome.testConnection': 'Tester la connexion',
+  'welcome.connectionSuccess': 'Connexion réussie !',
+  'welcome.connectionFailed': 'Échec de la connexion',
+  'welcome.allSet': 'Tout est prêt !',
+  'welcome.allSetDescription': 'Commencez à explorer vos connaissances',
+  'welcome.startUsing': 'Commencer à utiliser Ask Myself',
+  'welcome.skip': 'Passer pour le moment',
+  'welcome.step': 'Étape {current} sur {total}',
 };

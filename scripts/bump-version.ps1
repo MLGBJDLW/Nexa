@@ -15,6 +15,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 $tauriConf = Join-Path $root 'apps/desktop/src-tauri/tauri.conf.json'
 $packageJson = Join-Path $root 'apps/desktop/package.json'
 $cargoToml = Join-Path $root 'apps/desktop/src-tauri/Cargo.toml'
+$coreCargoToml = Join-Path $root 'crates/core/Cargo.toml'
 
 # 1. Update tauri.conf.json
 Write-Host "Updating $tauriConf ..."
@@ -34,7 +35,13 @@ $content = Get-Content $cargoToml -Raw
 $content = $content -replace '(?m)^(version\s*=\s*")[\d\.]+(")', "`${1}${Version}`${2}"
 Set-Content $cargoToml -Value $content -Encoding UTF8 -NoNewline
 
-# 4. Verify build
+# 4. Update crates/core/Cargo.toml
+Write-Host "Updating $coreCargoToml ..."
+$content = Get-Content $coreCargoToml -Raw
+$content = $content -replace '(?m)^(version\s*=\s*")[\d\.]+(")', "`${1}${Version}`${2}"
+Set-Content $coreCargoToml -Value $content -Encoding UTF8 -NoNewline
+
+# 5. Verify build
 Write-Host "`nRunning cargo check ..."
 Push-Location $root
 try {
@@ -47,11 +54,11 @@ try {
     Pop-Location
 }
 
-# 5. Git commit + tag
+# 6. Git commit + tag
 Write-Host "`nCreating git commit and tag ..."
 Push-Location $root
 try {
-    git add $tauriConf $packageJson $cargoToml
+    git add $tauriConf $packageJson $cargoToml $coreCargoToml
     git commit -m "chore: bump version to $Version"
     git tag "v$Version"
 } finally {

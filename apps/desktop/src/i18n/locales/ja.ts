@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const ja: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': '検索',
@@ -578,6 +577,7 @@ export const ja: TranslationKeys = {
   'chat.contextFillingUp': 'コンテキストウィンドウが満杯に近づいています ({percent}%)。新しい会話を開始してください。',
   'chat.contextNearlyFull': 'コンテキストウィンドウがほぼ一杯です ({percent}%)。古いメッセージが失われる可能性があります。',
   'chat.imageMessage': '(画像)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': 'トークン',
   'chat.tokensShort': 'トークン',
   'chat.removeAttachment': '添付ファイルを削除',
@@ -995,4 +995,48 @@ export const ja: TranslationKeys = {
   'knowledge.entityType': 'Type',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': 'アップデートがあります',
+  'update.version': 'バージョン {version} が利用可能です',
+  'update.downloading': 'アップデートをダウンロード中...',
+  'update.ready': 'アップデート準備完了。再起動して適用します。',
+  'update.error': 'アップデートの確認に失敗しました',
+  'update.checkNow': 'アップデートを確認',
+  'update.downloadInstall': 'ダウンロードしてインストール',
+  'update.restart': '今すぐ再起動',
+  'update.dismiss': '後で',
+  'update.upToDate': '最新の状態です',
+
+  // Error Boundary
+  'errorBoundary.title': '問題が発生しました',
+  'errorBoundary.description': '予期しないエラーが発生しました。アプリを再起動してみてください。',
+  'errorBoundary.restart': '再起動',
+  'errorBoundary.details': 'エラー詳細',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': '検索品質が制限されています — 埋め込みモデルがインストールされていません。ハイブリッド検索は基本的なテキストマッチングにフォールバックします。',
+  'search.embeddingWarningAction': '今すぐインストール',
+
+  // Welcome Wizard
+  'welcome.title': 'Ask Myself へようこそ',
+  'welcome.subtitle': 'あなたの個人ナレッジアシスタント',
+  'welcome.description': 'ドキュメントを追加し、AI に接続して、自分のナレッジに質問を始めましょう。',
+  'welcome.getStarted': '始めましょう',
+  'welcome.addSource': 'ナレッジを追加',
+  'welcome.addSourceDescription': 'ドキュメントを含むフォルダを選択してください（メモ、PDF、Wordなど）',
+  'welcome.selectFolder': 'フォルダを選択',
+  'welcome.folderSelected': 'フォルダを追加しました：{folder}',
+  'welcome.configureAI': 'AI プロバイダーに接続',
+  'welcome.configureAIDescription': '質問に答える AI モデルを設定します',
+  'welcome.selectProvider': 'プロバイダーを選択',
+  'welcome.apiKey': 'API キー',
+  'welcome.testConnection': '接続テスト',
+  'welcome.connectionSuccess': '接続成功！',
+  'welcome.connectionFailed': '接続に失敗しました',
+  'welcome.allSet': '準備完了！',
+  'welcome.allSetDescription': 'ナレッジの探索を始めましょう',
+  'welcome.startUsing': 'Ask Myself を使い始める',
+  'welcome.skip': 'スキップ',
+  'welcome.step': 'ステップ {current} / {total}',
 };

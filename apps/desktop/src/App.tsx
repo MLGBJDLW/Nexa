@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -9,7 +9,10 @@ import {
 } from "react-router-dom";
 import { motion, MotionConfig, useReducedMotion } from "framer-motion";
 import { I18nProvider, useTranslation } from "./i18n";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
+import { UpdateNotification } from "./components/UpdateNotification";
+import { WelcomeWizard } from "./components/WelcomeWizard";
 import { SearchPage } from "./pages/SearchPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { PlaybooksPage } from "./pages/PlaybooksPage";
@@ -18,6 +21,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ChatPage } from './pages/ChatPage';
 import { CommandPalette } from "./components/CommandPalette";
 import { StreamProvider } from "./lib/StreamProvider";
+import * as api from "./lib/api";
 
 /* ── Page transition wrapper ─────────────────────────────────────── */
 function PageTransition({ children }: { children: ReactNode }) {
@@ -54,11 +58,25 @@ function NotFoundPage() {
 }
 
 function AppShell() {
+  const [showWizard, setShowWizard] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.listSources().then(sources => {
+      setShowWizard(sources.length === 0);
+    }).catch(() => {
+      setShowWizard(false);
+    });
+  }, []);
+
   return (
     <I18nProvider>
       <MotionConfig reducedMotion="user">
+        <UpdateNotification />
         <CommandPalette />
-        <Outlet />
+        {showWizard && (
+          <WelcomeWizard onComplete={() => setShowWizard(false)} />
+        )}
+        {showWizard === false && <Outlet />}
       </MotionConfig>
     </I18nProvider>
   );
@@ -82,9 +100,11 @@ const router = createBrowserRouter(
 
 function App() {
   return (
-    <StreamProvider>
-      <RouterProvider router={router} />
-    </StreamProvider>
+    <ErrorBoundary>
+      <StreamProvider>
+        <RouterProvider router={router} />
+      </StreamProvider>
+    </ErrorBoundary>
   );
 }
 

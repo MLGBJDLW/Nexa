@@ -19,8 +19,7 @@ pub struct McpTool {
     registry_name: String,
     description: String,
     client: Arc<Mutex<McpClient>>,
-    #[allow(dead_code)]
-    server_id: String,
+    _server_id: String,
 }
 
 impl McpTool {
@@ -42,7 +41,7 @@ impl McpTool {
             registry_name,
             description,
             client,
-            server_id,
+            _server_id: server_id,
         }
     }
 }

@@ -3,7 +3,6 @@ export type Locale = 'zh-CN' | 'en' | 'ja' | 'ko' | 'zh-TW' | 'fr' | 'de' | 'es'
 export interface TranslationKeys {
   // App
   'app.name': string;
-  'app.version': string;
 
   // Nav
   'nav.search': string;
@@ -580,6 +579,7 @@ export interface TranslationKeys {
   'chat.contextFillingUp': string;
   'chat.contextNearlyFull': string;
   'chat.imageMessage': string;
+  'chat.pasteImageFailed': string;
   'chat.tokensLabel': string;
   'chat.tokensShort': string;
   'chat.removeAttachment': string;
@@ -998,6 +998,18 @@ export interface TranslationKeys {
   'common.delete': string;
   'common.edit': string;
   'common.close': string;
+
+  // Update
+  'update.available': string;
+  'update.version': string;
+  'update.downloading': string;
+  'update.ready': string;
+  'update.error': string;
+  'update.checkNow': string;
+  'update.downloadInstall': string;
+  'update.restart': string;
+  'update.dismiss': string;
+  'update.upToDate': string;
   'common.confirm': string;
   'common.loading': string;
   'common.error': string;
@@ -1011,6 +1023,38 @@ export interface TranslationKeys {
   'common.selectAll': string;
   'common.clearAll': string;
   'common.undo': string;
+
+  // Error Boundary
+  'errorBoundary.title': string;
+  'errorBoundary.description': string;
+  'errorBoundary.restart': string;
+  'errorBoundary.details': string;
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': string;
+  'search.embeddingWarningAction': string;
+
+  // Welcome Wizard
+  'welcome.title': string;
+  'welcome.subtitle': string;
+  'welcome.description': string;
+  'welcome.getStarted': string;
+  'welcome.addSource': string;
+  'welcome.addSourceDescription': string;
+  'welcome.selectFolder': string;
+  'welcome.folderSelected': string;
+  'welcome.configureAI': string;
+  'welcome.configureAIDescription': string;
+  'welcome.selectProvider': string;
+  'welcome.apiKey': string;
+  'welcome.testConnection': string;
+  'welcome.connectionSuccess': string;
+  'welcome.connectionFailed': string;
+  'welcome.allSet': string;
+  'welcome.allSetDescription': string;
+  'welcome.startUsing': string;
+  'welcome.skip': string;
+  'welcome.step': string;
 }
 
 export type TranslationKey = keyof TranslationKeys;

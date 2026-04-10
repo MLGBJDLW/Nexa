@@ -20,6 +20,11 @@
           "type": "json",
           "path": "apps/desktop/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "crates/core/Cargo.toml",
+          "jsonpath": "$.package.version"
         }
       ],
       "changelog-path": "CHANGELOG.md"

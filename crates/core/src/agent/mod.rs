@@ -624,7 +624,7 @@ fn route_user_turn(query: &str, system_prompt: &str, has_sources: bool) -> Agent
         };
     }
 
-    if web_lookup && !has_sources {
+    if web_lookup {
         return AgentRoutePlan {
             kind: AgentRouteKind::WebLookup,
             prompt_section: "## Active Routing Plan\nThis request likely needs web or URL inspection. Prefer targeted fetch or MCP/web tools instead of broad local retrieval.".to_string(),
@@ -642,7 +642,7 @@ fn route_user_turn(query: &str, system_prompt: &str, has_sources: bool) -> Agent
 
     AgentRoutePlan {
         kind: AgentRouteKind::DirectResponse,
-        prompt_section: "## Active Routing Plan\nAnswer directly when the request is already clear from the conversation and available evidence. Avoid unnecessary tool use when it would not materially improve the answer.".to_string(),
+        prompt_section: "## Active Routing Plan\nAnswer the user's question. For factual questions, ALWAYS search the knowledge base first using search_knowledge_base, even if you believe you know the answer. Use tools whenever they would improve answer accuracy or completeness.".to_string(),
         extra_categories: Vec::new(),
     }
 }

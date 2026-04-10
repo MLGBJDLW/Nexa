@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const de: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': 'Suche',
@@ -578,6 +577,7 @@ export const de: TranslationKeys = {
   'chat.contextFillingUp': 'Kontextfenster füllt sich ({percent}%). Erwägen Sie ein neues Gespräch.',
   'chat.contextNearlyFull': 'Kontextfenster fast voll ({percent}%). Ältere Nachrichten können verloren gehen.',
   'chat.imageMessage': '(Bild)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': 'Token',
   'chat.tokensShort': 'Tok.',
   'chat.removeAttachment': 'Anhang entfernen',
@@ -995,4 +995,48 @@ export const de: TranslationKeys = {
   'knowledge.entityType': 'Type',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': 'Update verfügbar',
+  'update.version': 'Version {version} ist verfügbar',
+  'update.downloading': 'Update wird heruntergeladen...',
+  'update.ready': 'Update bereit. Neustart zum Anwenden.',
+  'update.error': 'Update-Prüfung fehlgeschlagen',
+  'update.checkNow': 'Nach Updates suchen',
+  'update.downloadInstall': 'Herunterladen & Installieren',
+  'update.restart': 'Jetzt neu starten',
+  'update.dismiss': 'Später',
+  'update.upToDate': 'Sie sind auf dem neuesten Stand',
+
+  // Error Boundary
+  'errorBoundary.title': 'Ein Fehler ist aufgetreten',
+  'errorBoundary.description': 'Ein unerwarteter Fehler ist aufgetreten. Versuchen Sie, die Anwendung neu zu starten.',
+  'errorBoundary.restart': 'Neu starten',
+  'errorBoundary.details': 'Fehlerdetails',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Suchqualität eingeschränkt — Embedding-Modell nicht installiert. Die hybride Suche wird auf einfachen Textabgleich zurückfallen.',
+  'search.embeddingWarningAction': 'Jetzt installieren',
+
+  // Welcome Wizard
+  'welcome.title': 'Willkommen bei Ask Myself',
+  'welcome.subtitle': 'Ihr persönlicher Wissensassistent',
+  'welcome.description': 'Fügen Sie Ihre Dokumente hinzu, verbinden Sie eine KI und stellen Sie Fragen zu Ihrem eigenen Wissen.',
+  'welcome.getStarted': 'Loslegen',
+  'welcome.addSource': 'Wissen hinzufügen',
+  'welcome.addSourceDescription': 'Wählen Sie einen Ordner mit Ihren Dokumenten aus (Notizen, PDFs, Docs)',
+  'welcome.selectFolder': 'Ordner auswählen',
+  'welcome.folderSelected': 'Ordner hinzugefügt: {folder}',
+  'welcome.configureAI': 'KI-Anbieter verbinden',
+  'welcome.configureAIDescription': 'Richten Sie ein KI-Modell ein, das Ihre Fragen beantwortet',
+  'welcome.selectProvider': 'Anbieter auswählen',
+  'welcome.apiKey': 'API-Schlüssel',
+  'welcome.testConnection': 'Verbindung testen',
+  'welcome.connectionSuccess': 'Verbindung erfolgreich!',
+  'welcome.connectionFailed': 'Verbindung fehlgeschlagen',
+  'welcome.allSet': 'Alles bereit!',
+  'welcome.allSetDescription': 'Erkunden Sie Ihr Wissen',
+  'welcome.startUsing': 'Ask Myself verwenden',
+  'welcome.skip': 'Vorerst überspringen',
+  'welcome.step': 'Schritt {current} von {total}',
 };

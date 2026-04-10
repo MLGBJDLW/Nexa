@@ -10,6 +10,7 @@ pub mod app_settings;
 pub mod cache;
 pub mod compile;
 pub mod conversation;
+pub mod crypto;
 pub mod db;
 pub mod embed;
 pub mod error;

@@ -158,6 +158,9 @@ export function SearchPage() {
   const [convLoading, setConvLoading] = useState(false);
   const [convQuery, setConvQuery] = useState('');
 
+  // ── Embedding model status ────────────────────────────────────────
+  const [embeddingModelMissing, setEmbeddingModelMissing] = useState(false);
+
   // 鈹€鈹€ Refs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -289,6 +292,21 @@ export function SearchPage() {
     });
     api.getIndexStats().then(setIndexStats).catch((e) => {
       console.error('Failed to load index stats:', e);
+    });
+  }, []);
+
+  // ── Check embedding model status ──────────────────────────────────
+  useEffect(() => {
+    api.getEmbedderConfig().then((cfg) => {
+      if (cfg.provider === 'local') {
+        api.checkLocalModel(cfg.localModel).then((ready) => {
+          setEmbeddingModelMissing(!ready);
+        }).catch(() => setEmbeddingModelMissing(true));
+      } else {
+        setEmbeddingModelMissing(false);
+      }
+    }).catch(() => {
+      // non-critical
     });
   }, []);
 
@@ -717,6 +735,23 @@ export function SearchPage() {
           </Button>
         </div>
       </div>
+
+      {/* ── Embedding model warning ── */}
+      {embeddingModelMissing && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <AlertTriangle size={16} className="shrink-0 text-amber-500" />
+          <p className="flex-1 text-xs text-text-secondary">
+            {t('search.embeddingWarning')}
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate('/settings')}
+          >
+            {t('search.embeddingWarningAction')}
+          </Button>
+        </div>
+      )}
 
       {/* 鈹€鈹€ Search input 鈹€鈹€ */}
       <div className="mb-4">

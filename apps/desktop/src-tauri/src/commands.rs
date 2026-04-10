@@ -896,7 +896,28 @@ pub fn delete_local_model_cmd(local_model: Option<String>) -> Result<(), String>
     Ok(())
 }
 
-// ── Image Attachment Commands ───────────────────────────────────────────
+// ── Attachment Commands ─────────────────────────────────────────────────
+
+/// Map a MIME type to a file extension for temp-file parsing.
+fn mime_to_extension(mime: &str) -> &'static str {
+    match mime {
+        "application/pdf" => "pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => "pptx",
+        "application/msword" => "doc",
+        "application/vnd.ms-excel" => "xls",
+        "application/vnd.ms-powerpoint" => "ppt",
+        "text/plain" => "txt",
+        "text/markdown" | "text/x-markdown" => "md",
+        "text/csv" => "csv",
+        "text/html" => "html",
+        "application/json" => "json",
+        "application/epub+zip" => "epub",
+        _ if mime.starts_with("text/") => "txt",
+        _ => "bin",
+    }
+}
 
 /// An image attachment prepared for LLM submission.
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
@@ -1990,10 +2011,10 @@ pub async fn agent_chat_cmd(
     )));
     delegation_runtime.set_tool_registry(tools.clone());
 
-    // 7b. Build user content parts (text + optional image attachments).
+    // 7b. Build user content parts (text + optional attachments).
     let vision_supported = model_supports_vision(&provider_config.provider_type, &db_config.model);
     info!(
-        "Image attachment vision check: provider={}, model={}, provider_type={:?}, vision_supported={}, has_attachments={}",
+        "Attachment check: provider={}, model={}, provider_type={:?}, vision_supported={}, has_attachments={}",
         db_config.provider, db_config.model, provider_config.provider_type, vision_supported, attachments.is_some()
     );
     let mut user_parts = vec![ContentPart::Text {
@@ -2001,38 +2022,154 @@ pub async fn agent_chat_cmd(
     }];
     if let Some(atts) = &attachments {
         for att in atts {
-            if vision_supported {
-                user_parts.push(ContentPart::Image {
-                    media_type: att.media_type.clone(),
-                    data: att.base64_data.clone(),
-                });
-            } else {
-                // Model doesn't support vision — OCR fallback
-                let ocr_config = state.db.load_ocr_config().unwrap_or_default();
-                let image_bytes = base64::engine::general_purpose::STANDARD
-                    .decode(&att.base64_data)
-                    .map_err(|e| format!("Failed to decode image: {}", e))?;
-                let ocr_result =
-                    extract_text_from_image(&image_bytes, &att.media_type, &ocr_config, None);
-                info!(
-                    "OCR fallback result for non-vision model: success={}, text_len={}",
-                    ocr_result.is_ok(),
-                    ocr_result.as_ref().map(|r| r.full_text.len()).unwrap_or(0)
-                );
-                match ocr_result {
-                    Ok(result) if !result.full_text.is_empty() => {
-                        user_parts.push(ContentPart::Text {
-                            text: format!(
-                                "[Image OCR - {}]:\n{}",
-                                att.original_name, result.full_text
-                            ),
-                        });
-                    }
-                    _ => {
-                        user_parts.push(ContentPart::Text {
-                            text: format!(
-                                "[Image \"{}\" attached but could not be processed — this model does not support image inputs]",
+            if att.media_type.starts_with("image/") {
+                // ── Image attachment ──
+                if vision_supported {
+                    user_parts.push(ContentPart::Image {
+                        media_type: att.media_type.clone(),
+                        data: att.base64_data.clone(),
+                    });
+                } else {
+                    // Model doesn't support vision — OCR fallback
+                    warn!(
+                        "Model '{}' (provider {:?}) does not support vision. Using OCR fallback for image '{}'.",
+                        db_config.model, provider_config.provider_type, att.original_name
+                    );
+                    emit_app_event(
+                        &app_handle,
+                        "image:ocr-fallback",
+                        &serde_json::json!({
+                            "image_name": att.original_name,
+                            "model": db_config.model,
+                            "reason": "Model does not support native image inputs"
+                        }),
+                    );
+                    let ocr_config = state.db.load_ocr_config().unwrap_or_default();
+                    let image_bytes = base64::engine::general_purpose::STANDARD
+                        .decode(&att.base64_data)
+                        .map_err(|e| format!("Failed to decode image: {}", e))?;
+                    let ocr_result =
+                        extract_text_from_image(&image_bytes, &att.media_type, &ocr_config, None);
+                    info!(
+                        "OCR fallback result for non-vision model: success={}, text_len={}",
+                        ocr_result.is_ok(),
+                        ocr_result.as_ref().map(|r| r.full_text.len()).unwrap_or(0)
+                    );
+                    match ocr_result {
+                        Ok(result) if !result.full_text.is_empty() => {
+                            user_parts.push(ContentPart::Text {
+                                text: format!(
+                                    "[Image \"{}\" — processed via OCR (model does not support native vision)]:\n{}",
+                                    att.original_name, result.full_text
+                                ),
+                            });
+                        }
+                        _ => {
+                            warn!(
+                                "OCR fallback also failed for image '{}'. Install OCR model or use a vision-capable model.",
                                 att.original_name
+                            );
+                            emit_app_event(
+                                &app_handle,
+                                "image:ocr-failed",
+                                &serde_json::json!({
+                                    "image_name": att.original_name,
+                                    "model": db_config.model,
+                                    "hint": "Install OCR model in Settings or switch to a vision-capable model"
+                                }),
+                            );
+                            user_parts.push(ContentPart::Text {
+                                text: format!(
+                                    "[Image \"{}\" attached but could not be processed — this model does not support image inputs and OCR is not available. Install the OCR model in Settings or use a vision-capable model.]",
+                                    att.original_name
+                                ),
+                            });
+                        }
+                    }
+                }
+            } else {
+                // ── Document attachment — parse to text ──
+                const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&att.base64_data)
+                    .map_err(|e| format!("Failed to decode attachment: {}", e))?;
+                if bytes.len() > MAX_ATTACHMENT_BYTES {
+                    warn!(
+                        "Attachment '{}' is too large ({} bytes, limit {}). Skipping.",
+                        att.original_name,
+                        bytes.len(),
+                        MAX_ATTACHMENT_BYTES
+                    );
+                    user_parts.push(ContentPart::Text {
+                        text: format!(
+                            "[Attached file \"{}\" skipped — file too large ({:.1} MB, limit 10 MB)]",
+                            att.original_name,
+                            bytes.len() as f64 / (1024.0 * 1024.0)
+                        ),
+                    });
+                    continue;
+                }
+                let ext = mime_to_extension(&att.media_type);
+                let temp_path = std::env::temp_dir().join(format!(
+                    "ask-myself-attach-{}.{}",
+                    Uuid::new_v4(),
+                    ext
+                ));
+                if let Err(e) = std::fs::write(&temp_path, &bytes) {
+                    warn!(
+                        "Failed to write temp file for attachment '{}': {}",
+                        att.original_name, e
+                    );
+                    user_parts.push(ContentPart::Text {
+                        text: format!(
+                            "[Attached file \"{}\" — could not process: {}]",
+                            att.original_name, e
+                        ),
+                    });
+                    continue;
+                }
+                let parse_result = ask_core::parse::parse_file(
+                    &temp_path,
+                    None,
+                    #[cfg(feature = "video")]
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                let _ = std::fs::remove_file(&temp_path);
+                match parse_result {
+                    Ok(parsed) => {
+                        let text: String = parsed
+                            .chunks
+                            .iter()
+                            .map(|c| c.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+                        if text.trim().is_empty() {
+                            user_parts.push(ContentPart::Text {
+                                text: format!(
+                                    "[Attached file \"{}\" — no text content could be extracted]",
+                                    att.original_name
+                                ),
+                            });
+                        } else {
+                            info!(
+                                "Parsed document attachment '{}': {} chars",
+                                att.original_name,
+                                text.len()
+                            );
+                            user_parts.push(ContentPart::Text {
+                                text: format!("[Attached file: {}]\n\n{}", att.original_name, text),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse attachment '{}': {}", att.original_name, e);
+                        user_parts.push(ContentPart::Text {
+                            text: format!(
+                                "[Attached file \"{}\" — could not extract content: {}]",
+                                att.original_name, e
                             ),
                         });
                     }

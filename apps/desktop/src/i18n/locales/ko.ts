@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const ko: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': '검색',
@@ -580,6 +579,7 @@ export const ko: TranslationKeys = {
   'chat.contextFillingUp': '컨텍스트 창이 거의 찼습니다 ({percent}%). 새 대화를 시작하세요.',
   'chat.contextNearlyFull': '컨텍스트 창이 거의 가득 찼습니다 ({percent}%). 이전 메시지가 손실될 수 있습니다.',
   'chat.imageMessage': '(이미지)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': '토큰',
   'chat.tokensShort': '토큰',
   'chat.removeAttachment': '첨부 파일 제거',
@@ -997,4 +997,48 @@ export const ko: TranslationKeys = {
   'knowledge.entityType': 'Type',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': '업데이트 사용 가능',
+  'update.version': '버전 {version}을 사용할 수 있습니다',
+  'update.downloading': '업데이트 다운로드 중...',
+  'update.ready': '업데이트 준비 완료. 재시작하여 적용합니다.',
+  'update.error': '업데이트 확인 실패',
+  'update.checkNow': '업데이트 확인',
+  'update.downloadInstall': '다운로드 및 설치',
+  'update.restart': '지금 재시작',
+  'update.dismiss': '나중에',
+  'update.upToDate': '최신 상태입니다',
+
+  // Error Boundary
+  'errorBoundary.title': '문제가 발생했습니다',
+  'errorBoundary.description': '예기치 않은 오류가 발생했습니다. 앱을 다시 시작해 보세요.',
+  'errorBoundary.restart': '다시 시작',
+  'errorBoundary.details': '오류 상세',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': '검색 품질이 제한되었습니다 — 임베딩 모델이 설치되지 않았습니다. 하이브리드 검색은 기본 텍스트 매칭으로 대체됩니다.',
+  'search.embeddingWarningAction': '지금 설치',
+
+  // Welcome Wizard
+  'welcome.title': 'Ask Myself에 오신 것을 환영합니다',
+  'welcome.subtitle': '나만의 지식 어시스턴트',
+  'welcome.description': '문서를 추가하고 AI를 연결하여 나만의 지식에 대해 질문해 보세요.',
+  'welcome.getStarted': '시작하기',
+  'welcome.addSource': '지식 추가',
+  'welcome.addSourceDescription': '문서가 있는 폴더를 선택하세요 (노트, PDF, Word 등)',
+  'welcome.selectFolder': '폴더 선택',
+  'welcome.folderSelected': '폴더 추가됨: {folder}',
+  'welcome.configureAI': 'AI 제공자 연결',
+  'welcome.configureAIDescription': '질문에 답할 AI 모델을 설정하세요',
+  'welcome.selectProvider': '제공자 선택',
+  'welcome.apiKey': 'API 키',
+  'welcome.testConnection': '연결 테스트',
+  'welcome.connectionSuccess': '연결 성공!',
+  'welcome.connectionFailed': '연결 실패',
+  'welcome.allSet': '모든 준비 완료!',
+  'welcome.allSetDescription': '지식 탐색을 시작하세요',
+  'welcome.startUsing': 'Ask Myself 사용 시작',
+  'welcome.skip': '나중에 하기',
+  'welcome.step': '{total}단계 중 {current}단계',
 };

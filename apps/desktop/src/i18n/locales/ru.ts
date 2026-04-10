@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const ru: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': 'Поиск',
@@ -580,6 +579,7 @@ export const ru: TranslationKeys = {
   'chat.contextFillingUp': 'Окно контекста заполняется ({percent}%). Рассмотрите начало нового разговора.',
   'chat.contextNearlyFull': 'Окно контекста почти заполнено ({percent}%). Старые сообщения могут быть утеряны.',
   'chat.imageMessage': '(изображение)',
+  'chat.pasteImageFailed': 'Failed to paste image',
   'chat.tokensLabel': 'токены',
   'chat.tokensShort': 'ток.',
   'chat.removeAttachment': 'Удалить вложение',
@@ -997,4 +997,48 @@ export const ru: TranslationKeys = {
   'knowledge.entityType': 'Type',
   'knowledge.mentions': 'Mentions',
   'knowledge.documents': 'Documents',
+
+  // Update
+  'update.available': 'Доступно обновление',
+  'update.version': 'Доступна версия {version}',
+  'update.downloading': 'Загрузка обновления...',
+  'update.ready': 'Обновление готово. Перезапустите для применения.',
+  'update.error': 'Ошибка проверки обновлений',
+  'update.checkNow': 'Проверить обновления',
+  'update.downloadInstall': 'Скачать и установить',
+  'update.restart': 'Перезапустить сейчас',
+  'update.dismiss': 'Позже',
+  'update.upToDate': 'У вас последняя версия',
+
+  // Error Boundary
+  'errorBoundary.title': 'Что-то пошло не так',
+  'errorBoundary.description': 'Произошла непредвиденная ошибка. Попробуйте перезапустить приложение.',
+  'errorBoundary.restart': 'Перезапустить',
+  'errorBoundary.details': 'Подробности ошибки',
+
+  // Search - Embedding Warning
+  'search.embeddingWarning': 'Качество поиска ограничено — модель встраивания не установлена. Гибридный поиск будет использовать базовое текстовое сопоставление.',
+  'search.embeddingWarningAction': 'Установить сейчас',
+
+  // Welcome Wizard
+  'welcome.title': 'Добро пожаловать в Ask Myself',
+  'welcome.subtitle': 'Ваш персональный ассистент знаний',
+  'welcome.description': 'Добавьте документы, подключите ИИ и начните задавать вопросы по своей базе знаний.',
+  'welcome.getStarted': 'Начать',
+  'welcome.addSource': 'Добавить знания',
+  'welcome.addSourceDescription': 'Выберите папку с вашими документами (заметки, PDF, Word)',
+  'welcome.selectFolder': 'Выбрать папку',
+  'welcome.folderSelected': 'Папка добавлена: {folder}',
+  'welcome.configureAI': 'Подключить ИИ-провайдера',
+  'welcome.configureAIDescription': 'Настройте модель ИИ для ответов на ваши вопросы',
+  'welcome.selectProvider': 'Выбрать провайдера',
+  'welcome.apiKey': 'API-ключ',
+  'welcome.testConnection': 'Проверить подключение',
+  'welcome.connectionSuccess': 'Подключение успешно!',
+  'welcome.connectionFailed': 'Ошибка подключения',
+  'welcome.allSet': 'Всё готово!',
+  'welcome.allSetDescription': 'Начните исследовать свои знания',
+  'welcome.startUsing': 'Начать использовать Ask Myself',
+  'welcome.skip': 'Пропустить',
+  'welcome.step': 'Шаг {current} из {total}',
 };
