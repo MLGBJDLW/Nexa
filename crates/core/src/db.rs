@@ -13,7 +13,6 @@ use crate::error::CoreError;
 #[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
-    #[allow(dead_code)]
     path: Option<PathBuf>,
 }
 

@@ -26,7 +26,6 @@ import type {
   ConversationStats,
   ConversationSearchResult,
   ImageAttachment,
-  FileAttachment,
   Checkpoint,
   UserMemory,
 } from "../types/conversation";
@@ -296,9 +295,6 @@ export const getModelContextWindow = (model: string) =>
 
 export const prepareImageAttachment = (path: string) =>
   invoke<ImageAttachment>('prepare_image_attachment', { path });
-
-export const prepareFileAttachment = (path: string) =>
-  invoke<FileAttachment>('prepare_file_attachment', { path });
 
 // ── Conversation Sources ────────────────────────────────────────────────
 

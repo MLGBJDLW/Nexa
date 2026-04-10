@@ -1209,49 +1209,6 @@ fn file_type_to_mimes(ft: &FileType) -> Vec<String> {
     }
 }
 
-/// Perform a vector-only search using the saved TF-IDF embedder.
-///
-/// Returns `(chunk_id, cosine_similarity)` pairs sorted by similarity DESC.
-/// Returns an empty vec when no embedder state or embeddings exist.
-#[allow(dead_code)] // kept for tests; hybrid_search now uses vector_search_top_k
-fn vector_search(
-    db: &Database,
-    query_text: &str,
-    limit: usize,
-) -> Result<Vec<(String, f32)>, CoreError> {
-    let state = db.load_embedder_state("tfidf-v1")?;
-    let (vocab, idf) = match state {
-        Some(s) => s,
-        None => return Ok(Vec::new()),
-    };
-
-    let embedder = TfIdfEmbedder::from_vocabulary(vocab, idf);
-    let query_vec = embedder.embed(query_text)?;
-
-    // All-zero query vector means no recognizable terms.
-    if query_vec.iter().all(|&v| v == 0.0) {
-        return Ok(Vec::new());
-    }
-
-    let all_embeddings = db.get_all_embeddings("tfidf-v1")?;
-    if all_embeddings.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut scored: Vec<(String, f32)> = all_embeddings
-        .into_iter()
-        .map(|(chunk_id, vec)| {
-            let sim = cosine_similarity(&query_vec, &vec);
-            (chunk_id, sim)
-        })
-        .filter(|(_, sim)| *sim > 0.0)
-        .collect();
-
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    scored.truncate(limit);
-    Ok(scored)
-}
-
 /// Reciprocal Rank Fusion merge of two ranked result lists.
 ///
 /// `k` is the RRF constant (typically 60). Ranks are 1-indexed.
@@ -1896,7 +1853,7 @@ mod tests {
     #[test]
     fn test_vector_search_no_embedder_state() {
         let db = test_db();
-        let result = vector_search(&db, "test query", 50).unwrap();
+        let result = tfidf_vector_search(&db, "test query", 50);
         assert!(result.is_empty());
     }
 
