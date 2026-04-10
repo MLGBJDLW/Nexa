@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.5](https://github.com/MLGBJDLW/Ask_Myself/compare/v0.1.4...v0.1.5) (2026-04-10)
+
+
+### Features
+
+* add auto-update detection and in-app update ([14f8a8a](https://github.com/MLGBJDLW/Ask_Myself/commit/14f8a8a860e84f0e74df5314af7638185b09e8da))
+* add ErrorBoundary, onboarding wizard, embedding warning, API key encryption ([05e0d75](https://github.com/MLGBJDLW/Ask_Myself/commit/05e0d759e7d93be0054e4f9ce32877711a5e9ce2))
+* add support for .doc, .ppt, .epub, .odt/.ods/.odp and HTML tag stripping ([c2dcac7](https://github.com/MLGBJDLW/Ask_Myself/commit/c2dcac7ff6ddb709df7bc312b2bdd435446fd037))
+
+
+### Bug Fixes
+
+* document attachments, vision detection, agent search behavior, version sync ([6502ade](https://github.com/MLGBJDLW/Ask_Myself/commit/6502ade48b3c8a824ac3d228a8b621761002da09))
+* resolve image paste not reaching LLM ([2a0c0ff](https://github.com/MLGBJDLW/Ask_Myself/commit/2a0c0ff01da2d88fc3364a57f3ba4b17ac474c4f))
+
 ## [0.1.4](https://github.com/MLGBJDLW/Ask_Myself/compare/v0.1.3...v0.1.4) (2026-04-10)
 
 
