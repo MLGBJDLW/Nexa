@@ -862,9 +862,14 @@ pub async fn download_local_model_cmd(
         let model = local_model
             .map(|s| LocalEmbeddingModel::from_config_str(&s))
             .unwrap_or_default();
-        ask_core::embed::download_local_model_for_with_progress(None, &model, |progress| {
-            emit_app_event(&app_handle, "model:download-progress", &progress);
-        }, &cancel)
+        ask_core::embed::download_local_model_for_with_progress(
+            None,
+            &model,
+            |progress| {
+                emit_app_event(&app_handle, "model:download-progress", &progress);
+            },
+            &cancel,
+        )
         .map_err(|e| e.to_string())
     })
     .await

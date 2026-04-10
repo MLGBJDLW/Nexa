@@ -914,7 +914,10 @@ impl Embedder for OnnxEmbedder {
 
         // Not all models accept token_type_ids (e.g. newer/higher-end models).
         // Inspect the session inputs to decide whether to include it.
-        let has_token_type_ids = session.inputs().iter().any(|i| i.name() == "token_type_ids");
+        let has_token_type_ids = session
+            .inputs()
+            .iter()
+            .any(|i| i.name() == "token_type_ids");
 
         let outputs = if has_token_type_ids {
             let token_type_ids_tensor = ort::value::Tensor::from_array(token_type_ids)
