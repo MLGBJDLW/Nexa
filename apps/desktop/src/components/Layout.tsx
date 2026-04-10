@@ -1,12 +1,19 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ChevronLeft, ChevronRight, Brain, BotMessageSquare } from 'lucide-react';
 import { Logo } from './Logo';
 import { Toaster } from 'sonner';
+import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../i18n';
 import { useTheme } from '../lib/ThemeProvider';
 import type { TranslationKey } from '../i18n';
+
+function useAppVersion() {
+  const [version, setVersion] = useState('');
+  useEffect(() => { getVersion().then(setVersion).catch(() => {}); }, []);
+  return version;
+}
 
 const STORAGE_KEY = 'sidebar-collapsed';
 const INSTANT_TRANSITION = { duration: 0 };
@@ -58,6 +65,7 @@ function SidebarTooltip({ content, show, children }: { content: string; show: bo
 export function Layout() {
   const { t } = useTranslation();
   const { theme } = useTheme();
+  const appVersion = useAppVersion();
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
   const navigate = useNavigate();
@@ -176,7 +184,7 @@ export function Layout() {
               <>
                 <ChevronLeft className="h-4 w-4 shrink-0" />
                 <span className="overflow-hidden whitespace-nowrap">{t('nav.collapse')}</span>
-                <span className="ml-auto text-text-tertiary/60">{t('app.version')}</span>
+                <span className="ml-auto text-text-tertiary/60">v{appVersion}</span>
               </>
             )}
           </button>

@@ -383,27 +383,39 @@ pub fn model_supports_vision(provider_type: &ProviderType, model: &str) -> bool 
         ProviderType::Google => true,
         ProviderType::DeepSeek => false,
         ProviderType::Zhipu => {
-            // Zhipu vision requires explicit -v suffix
-            m.contains("glm-4v") || m.contains("glm-4.1v") || m.contains("glm-4.6v")
+            // Most models support vision; deny embedding/cogview
+            !(m.contains("embedding") || m.contains("cogview"))
         }
         ProviderType::Qwen => {
-            // Qwen vision requires explicit -vl / qvq suffix
-            m.contains("qwen-vl")
-                || m.contains("qwen2.5-vl")
-                || m.contains("qwen3-vl")
-                || m.contains("qvq")
-                || m.contains("qwen3.5-plus")
+            // Most models support vision; deny embedding/text-only
+            !(m.contains("embedding") || m.contains("text"))
         }
-        ProviderType::Moonshot => m.contains("kimi-k2.5"),
-        ProviderType::Doubao | ProviderType::Yi | ProviderType::Baichuan => false,
+        ProviderType::Moonshot => {
+            // Deny old moonshot-v1-* text-only models
+            !m.starts_with("moonshot-v1")
+        }
+        ProviderType::Doubao => {
+            // Most models support vision; deny embedding
+            !m.contains("embedding")
+        }
+        ProviderType::Yi => {
+            // Most models support vision; deny embedding/text-only
+            !(m.contains("embedding") || m.contains("text"))
+        }
+        ProviderType::Baichuan => {
+            // Most models support vision; deny embedding/text-only
+            !(m.contains("embedding") || m.contains("text"))
+        }
         ProviderType::Ollama | ProviderType::LmStudio => {
-            // Local models: allow if name hints at vision, deny tiny text-only
+            // Local models: allow if name hints at vision capability
             m.contains("vision")
                 || m.contains("llava")
                 || m.contains("bakllava")
                 || m.contains("moondream")
                 || m.contains("cogvlm")
                 || m.contains("minicpm")
+                || m.contains("-vl")
+                || m.contains("internvl")
         }
         ProviderType::Custom => {
             // Custom/OpenRouter: default to true unless clearly text-only

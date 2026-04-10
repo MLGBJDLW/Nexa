@@ -3,7 +3,6 @@ import type { TranslationKeys } from '../types';
 export const de: TranslationKeys = {
   // App
   'app.name': 'Ask Myself',
-  'app.version': 'v0.1.0',
 
   // Nav
   'nav.search': 'Suche',

@@ -3,7 +3,6 @@ export type Locale = 'zh-CN' | 'en' | 'ja' | 'ko' | 'zh-TW' | 'fr' | 'de' | 'es'
 export interface TranslationKeys {
   // App
   'app.name': string;
-  'app.version': string;
 
   // Nav
   'nav.search': string;
