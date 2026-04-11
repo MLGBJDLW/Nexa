@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.7](https://github.com/MLGBJDLW/Ask_Myself/compare/v0.1.6...v0.1.7) (2026-04-11)
+
+
+### Features
+
+* **core:** split generate_document into specialized DOCX/XLSX/PPTX tools ([3cdd79c](https://github.com/MLGBJDLW/Ask_Myself/commit/3cdd79cb97f60a6e14cee1465d4c49082ac8e520))
+* **core:** upgrade built-in skills with structured imperative instructions ([8be04be](https://github.com/MLGBJDLW/Ask_Myself/commit/8be04becc7dfa1bb9b5d7458d2d7c4cb55b87d16))
+* **desktop:** add microphone device selector in settings ([55e42e1](https://github.com/MLGBJDLW/Ask_Myself/commit/55e42e1f5268bd5a05a47c027ad209ce3690a80d))
+* **desktop:** add periodic knowledge health checks and insights ([8e982d7](https://github.com/MLGBJDLW/Ask_Myself/commit/8e982d71c10fd17b1433d01ec46622f2780a7727))
+* **desktop:** auto-compile knowledge graph after file changes ([49767fe](https://github.com/MLGBJDLW/Ask_Myself/commit/49767fe529ca15ba3609e84790b464c12f5563d7))
+
+
+### Bug Fixes
+
+* **core:** resolve all i64/String document ID mismatches across compile subsystem ([343e70c](https://github.com/MLGBJDLW/Ask_Myself/commit/343e70cf8805c12595a812cd325e70b3ea3df98d))
+
 ## [0.1.6](https://github.com/MLGBJDLW/Ask_Myself/compare/v0.1.5...v0.1.6) (2026-04-11)
 
 
