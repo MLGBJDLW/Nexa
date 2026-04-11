@@ -696,6 +696,15 @@ export const fr: TranslationKeys = {
   'voice.error': 'Saisie vocale indisponible',
   'voice.permissionDenied': 'Accès au microphone refusé',
   'voice.noModel': 'Veuillez télécharger un modèle Whisper dans les Paramètres',
+
+  // Voice - Microphone Selection
+  'voice.microphoneSection': 'Entrée vocale',
+  'voice.microphoneDevice': 'Microphone',
+  'voice.microphoneDeviceDesc': 'Sélectionnez le microphone à utiliser pour la saisie vocale',
+  'voice.microphoneDefault': 'Par défaut du système',
+  'voice.microphoneRefresh': 'Actualiser les appareils',
+  'voice.microphoneDeviceN': 'Appareil',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': 'Transcription vidéo',
   'evidence.frameOcr': "Texte de l'image",

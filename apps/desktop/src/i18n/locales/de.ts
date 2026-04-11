@@ -698,6 +698,14 @@ export const de: TranslationKeys = {
   'voice.permissionDenied': 'Mikrofonzugriff verweigert',
   'voice.noModel': 'Bitte laden Sie ein Whisper-Modell in den Einstellungen herunter',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': 'Spracheingabe',
+  'voice.microphoneDevice': 'Mikrofon',
+  'voice.microphoneDeviceDesc': 'Mikrofon für die Spracheingabe auswählen',
+  'voice.microphoneDefault': 'Systemstandard',
+  'voice.microphoneRefresh': 'Geräte aktualisieren',
+  'voice.microphoneDeviceN': 'Gerät',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': 'Videotranskript',
   'evidence.frameOcr': 'Frame-Text',

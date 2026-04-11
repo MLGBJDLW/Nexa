@@ -700,6 +700,14 @@ export const ko: TranslationKeys = {
   'voice.permissionDenied': '마이크 권한이 거부되었습니다',
   'voice.noModel': '설정에서 Whisper 모델을 다운로드해 주세요',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': '음성 입력',
+  'voice.microphoneDevice': '마이크',
+  'voice.microphoneDeviceDesc': '음성 입력에 사용할 마이크를 선택하세요',
+  'voice.microphoneDefault': '시스템 기본값',
+  'voice.microphoneRefresh': '기기 새로고침',
+  'voice.microphoneDeviceN': '기기',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': '영상 전사',
   'evidence.frameOcr': '프레임 텍스트',

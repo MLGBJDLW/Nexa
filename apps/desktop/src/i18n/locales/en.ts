@@ -700,6 +700,14 @@ export const en: TranslationKeys = {
   'voice.permissionDenied': 'Microphone permission denied',
   'voice.noModel': 'Please download a Whisper model in Settings',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': 'Voice Input',
+  'voice.microphoneDevice': 'Microphone',
+  'voice.microphoneDeviceDesc': 'Select which microphone to use for voice input',
+  'voice.microphoneDefault': 'System Default',
+  'voice.microphoneRefresh': 'Refresh devices',
+  'voice.microphoneDeviceN': 'Device',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': 'Video Transcript',
   'evidence.frameOcr': 'Frame Text',

@@ -698,6 +698,14 @@ export const ja: TranslationKeys = {
   'voice.permissionDenied': 'マイクの使用が拒否されました',
   'voice.noModel': '設定でWhisperモデルをダウンロードしてください',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': '音声入力',
+  'voice.microphoneDevice': 'マイク',
+  'voice.microphoneDeviceDesc': '音声入力に使用するマイクを選択',
+  'voice.microphoneDefault': 'システムデフォルト',
+  'voice.microphoneRefresh': 'デバイスを更新',
+  'voice.microphoneDeviceN': 'デバイス',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': '動画書き起こし',
   'evidence.frameOcr': 'フレームテキスト',

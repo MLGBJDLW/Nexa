@@ -698,6 +698,14 @@ export const zhTW: TranslationKeys = {
   'voice.permissionDenied': '麥克風權限遭拒',
   'voice.noModel': '請在設定中下載 Whisper 模型',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': '語音輸入',
+  'voice.microphoneDevice': '麥克風',
+  'voice.microphoneDeviceDesc': '選擇用於語音輸入的麥克風',
+  'voice.microphoneDefault': '系統預設',
+  'voice.microphoneRefresh': '重新整理裝置',
+  'voice.microphoneDeviceN': '裝置',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': '影片轉寫',
   'evidence.frameOcr': '畫面文字',
