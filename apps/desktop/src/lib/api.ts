@@ -474,7 +474,7 @@ import type {
   HealthReport,
 } from '../types/knowledge';
 
-export const compileDocument = (docId: number) =>
+export const compileDocument = (docId: string) =>
   invoke<CompileResult>('compile_document_cmd', { docId });
 
 export const compilePendingDocuments = (limit?: number) =>

@@ -3055,7 +3055,7 @@ pub fn get_recent_traces(
 #[tauri::command]
 pub async fn compile_document_cmd(
     state: tauri::State<'_, AppState>,
-    doc_id: i64,
+    doc_id: String,
 ) -> Result<serde_json::Value, String> {
     let db_config = state
         .db
@@ -3067,7 +3067,7 @@ pub async fn compile_document_cmd(
     let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
 
     let result =
-        ask_core::compile::compile_document(&state.db, doc_id, provider.as_ref(), &db_config.model)
+        ask_core::compile::compile_document(&state.db, &doc_id, provider.as_ref(), &db_config.model)
             .await
             .map_err(|e| e.to_string())?;
 

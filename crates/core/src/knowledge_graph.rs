@@ -14,7 +14,7 @@ pub struct EntityLink {
     pub target_entity_id: String,
     pub relation_type: String,
     pub strength: f64,
-    pub evidence_doc_id: Option<i64>,
+    pub evidence_doc_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

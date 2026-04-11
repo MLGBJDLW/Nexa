@@ -262,7 +262,7 @@ impl Database {
     fn get_entities_for_document_reverse(
         &self,
         entity_id: &str,
-    ) -> Result<Vec<(i64, String)>, CoreError> {
+    ) -> Result<Vec<(String, String)>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT d.id, d.path FROM documents d JOIN document_entities de ON d.id = de.document_id WHERE de.entity_id = ?1",
@@ -293,7 +293,7 @@ pub async fn check_contradictions(
     // Get summaries for each doc
     let mut doc_summaries = Vec::new();
     for (doc_id, path) in &docs {
-        if let Ok(Some(summary)) = db.get_document_summary(*doc_id) {
+        if let Ok(Some(summary)) = db.get_document_summary(doc_id) {
             doc_summaries.push(format!("Document '{path}': {}", summary.summary));
         }
     }

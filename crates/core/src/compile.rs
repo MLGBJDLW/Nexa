@@ -13,7 +13,7 @@ use crate::llm::{CompletionRequest, LlmProvider, Message, Role};
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSummary {
     pub id: String,
-    pub document_id: i64,
+    pub document_id: String,
     pub summary: String,
     pub key_points: Vec<String>,
     pub tags: Vec<String>,
@@ -28,7 +28,7 @@ pub struct Entity {
     pub name: String,
     pub entity_type: EntityType,
     pub description: String,
-    pub first_seen_doc: Option<i64>,
+    pub first_seen_doc: Option<String>,
     pub mention_count: i64,
     pub created_at: String,
 }
@@ -48,7 +48,7 @@ pub enum EntityType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileResult {
-    pub document_id: i64,
+    pub document_id: String,
     pub summary: DocumentSummary,
     pub entities_found: usize,
     pub links_created: usize,
@@ -97,7 +97,7 @@ const COMPILE_SYSTEM_PROMPT: &str = include_str!("../prompts/compile.md");
 /// Compile a single document: generate summary + extract entities + build relationships.
 pub async fn compile_document(
     db: &Database,
-    doc_id: i64,
+    doc_id: &str,
     provider: &dyn LlmProvider,
     model: &str,
 ) -> Result<CompileResult, CoreError> {
@@ -174,7 +174,7 @@ pub async fn compile_document(
     }
 
     Ok(CompileResult {
-        document_id: doc_id,
+        document_id: doc_id.to_string(),
         summary,
         entities_found,
         links_created,
@@ -191,7 +191,7 @@ pub async fn compile_pending(
     let pending_ids = db.get_uncompiled_document_ids(limit)?;
     let mut results = Vec::new();
 
-    for doc_id in pending_ids {
+    for doc_id in &pending_ids {
         match compile_document(db, doc_id, provider, model).await {
             Ok(result) => results.push(result),
             Err(e) => {
@@ -219,7 +219,7 @@ pub fn parse_entity_type(s: &str) -> EntityType {
 // ── Database Methods ──
 
 impl Database {
-    pub fn get_document_full_text(&self, doc_id: i64) -> Result<String, CoreError> {
+    pub fn get_document_full_text(&self, doc_id: &str) -> Result<String, CoreError> {
         let conn = self.conn();
         let mut stmt = conn
             .prepare("SELECT content FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC")?;
@@ -231,7 +231,7 @@ impl Database {
 
     pub fn upsert_document_summary(
         &self,
-        doc_id: i64,
+        doc_id: &str,
         summary: &str,
         key_points: &[String],
         tags: &[String],
@@ -257,7 +257,7 @@ impl Database {
 
         Ok(DocumentSummary {
             id,
-            document_id: doc_id,
+            document_id: doc_id.to_string(),
             summary: summary.to_string(),
             key_points: key_points.to_vec(),
             tags: tags.to_vec(),
@@ -271,7 +271,7 @@ impl Database {
         name: &str,
         entity_type: &EntityType,
         description: &str,
-        first_doc: i64,
+        first_doc: &str,
     ) -> Result<Entity, CoreError> {
         let conn = self.conn();
         let type_str = serde_json::to_value(entity_type)
@@ -298,7 +298,7 @@ impl Database {
                     name: name.to_string(),
                     entity_type: entity_type.clone(),
                     description: description.to_string(),
-                    first_seen_doc: Some(first_doc),
+                    first_seen_doc: Some(first_doc.to_string()),
                     mention_count: count + 1,
                     created_at: now,
                 })
@@ -314,7 +314,7 @@ impl Database {
                     name: name.to_string(),
                     entity_type: entity_type.clone(),
                     description: description.to_string(),
-                    first_seen_doc: Some(first_doc),
+                    first_seen_doc: Some(first_doc.to_string()),
                     mention_count: 1,
                     created_at: now,
                 })
@@ -344,7 +344,7 @@ impl Database {
 
     pub fn link_document_entity(
         &self,
-        doc_id: i64,
+        doc_id: &str,
         entity_id: &str,
         relevance: f64,
         context: &str,
@@ -363,7 +363,7 @@ impl Database {
         target_id: &str,
         relation_type: &str,
         strength: f64,
-        evidence_doc: Option<i64>,
+        evidence_doc: Option<&str>,
     ) -> Result<(), CoreError> {
         let conn = self.conn();
         let id = uuid::Uuid::new_v4().to_string();
@@ -374,18 +374,18 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_uncompiled_document_ids(&self, limit: usize) -> Result<Vec<i64>, CoreError> {
+    pub fn get_uncompiled_document_ids(&self, limit: usize) -> Result<Vec<String>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT d.id FROM documents d LEFT JOIN document_summaries ds ON d.id = ds.document_id WHERE ds.id IS NULL LIMIT ?1",
         )?;
-        let ids: Vec<i64> = stmt
+        let ids: Vec<String> = stmt
             .query_map(rusqlite::params![limit as i64], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
     }
 
-    pub fn get_document_summary(&self, doc_id: i64) -> Result<Option<DocumentSummary>, CoreError> {
+    pub fn get_document_summary(&self, doc_id: &str) -> Result<Option<DocumentSummary>, CoreError> {
         let conn = self.conn();
         let result = conn.query_row(
             "SELECT id, document_id, summary, key_points, tags, model_used, compiled_at FROM document_summaries WHERE document_id = ?1",
@@ -411,7 +411,7 @@ impl Database {
         }
     }
 
-    pub fn get_entities_for_document(&self, doc_id: i64) -> Result<Vec<Entity>, CoreError> {
+    pub fn get_entities_for_document(&self, doc_id: &str) -> Result<Vec<Entity>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT e.id, e.name, e.entity_type, e.description, e.first_seen_doc, e.mention_count, e.created_at FROM entities e JOIN document_entities de ON e.id = de.entity_id WHERE de.document_id = ?1 ORDER BY de.relevance DESC",
