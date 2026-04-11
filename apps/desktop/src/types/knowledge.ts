@@ -136,7 +136,7 @@ export interface QueryTrend {
 }
 
 export interface ArchiveResult {
-  documentId: number;
+  documentId: string;
   source: string;
   title: string;
 }

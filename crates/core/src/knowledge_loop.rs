@@ -26,7 +26,7 @@ pub struct QueryTrend {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveResult {
-    pub document_id: i64,
+    pub document_id: String,
     pub source: String,
     pub title: String,
 }
@@ -86,16 +86,12 @@ impl Database {
         let path_str = file_path.to_string_lossy().to_string();
         let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
 
-        conn.execute(
-            "INSERT OR IGNORE INTO documents (path, source_id, content_hash, mime_type, size_bytes, indexed_at, updated_at)
-             VALUES (?1, (SELECT id FROM sources WHERE ?1 LIKE path || '%' LIMIT 1), ?2, 'text/markdown', ?3, ?4, ?4)",
-            rusqlite::params![path_str, hash, content.len() as i64, now],
-        )?;
+        let doc_id = uuid::Uuid::new_v4().to_string();
 
-        let doc_id = conn.query_row(
-            "SELECT id FROM documents WHERE path = ?1",
-            rusqlite::params![path_str],
-            |row| row.get::<_, i64>(0),
+        conn.execute(
+            "INSERT OR IGNORE INTO documents (id, path, source_id, content_hash, mime_type, file_size, indexed_at, modified_at)
+             VALUES (?1, ?2, (SELECT id FROM sources WHERE ?2 LIKE path || '%' LIMIT 1), ?3, 'text/markdown', ?4, ?5, ?5)",
+            rusqlite::params![doc_id, path_str, hash, content.len() as i64, now],
         )?;
 
         Ok(ArchiveResult {
