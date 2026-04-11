@@ -3203,3 +3203,29 @@ pub fn clear_scan_error_cmd(
         .clear_scan_error(&source_id, &path)
         .map_err(|e| e.to_string())
 }
+
+// ── Knowledge Loop ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_knowledge_gaps_cmd(
+    state: tauri::State<'_, AppState>,
+    min_queries: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let gaps = state
+        .db
+        .get_knowledge_gaps(min_queries.unwrap_or(2))
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&gaps).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn suggest_explorations_cmd(
+    state: tauri::State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let suggestions = state
+        .db
+        .suggest_explorations(limit.unwrap_or(10))
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&suggestions).map_err(|e| e.to_string())
+}

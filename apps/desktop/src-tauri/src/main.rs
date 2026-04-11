@@ -214,6 +214,9 @@ fn main() {
             commands::get_scan_errors_cmd,
             commands::clear_scan_errors_cmd,
             commands::clear_scan_error_cmd,
+            // Knowledge loop
+            commands::get_knowledge_gaps_cmd,
+            commands::suggest_explorations_cmd,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -491,3 +491,18 @@ export const runKnowledgeHealthCheck = (staleDays?: number) =>
 
 export const compileAfterScan = (limit?: number) =>
   invoke<CompileResult[]>('compile_after_scan_cmd', { limit: limit ?? 10 });
+
+// ── Knowledge Loop ──────────────────────────────────────────────────
+
+export interface KnowledgeGap {
+  topic: string;
+  queryCount: number;
+  avgConfidence: number;
+  suggestion: string;
+}
+
+export const getKnowledgeGaps = (minQueries?: number) =>
+  invoke<KnowledgeGap[]>('get_knowledge_gaps_cmd', { minQueries: minQueries ?? 2 });
+
+export const suggestExplorations = (limit?: number) =>
+  invoke<string[]>('suggest_explorations_cmd', { limit: limit ?? 10 });
