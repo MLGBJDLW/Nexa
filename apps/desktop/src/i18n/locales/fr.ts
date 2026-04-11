@@ -809,6 +809,7 @@ export const fr: TranslationKeys = {
   'settings.skillContent': 'Instructions',
   'settings.skillContentPlaceholder': 'Entrez les instructions pour l\'agent...',
   'settings.skillTokenEstimate': 'Tokens estimés : {{count}}',
+  'settings.skillUseTemplate': 'Utiliser le modèle',
   'settings.noSkills': 'Aucune compétence configurée. Ajoutez-en une pour personnaliser le comportement de l\'agent.',
   'settings.mcpServers': 'Serveurs MCP',
   'settings.mcpServersDescription': 'Connectez des serveurs d\'outils externes via le Model Context Protocol',

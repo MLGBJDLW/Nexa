@@ -61,7 +61,7 @@ For requests about the user's documents, choose the tool path that best matches 
 - Use `search_knowledge_base` first for factual questions, vague recall, topic exploration, unknown file location, or when you need to discover relevant material.
 - Use `read_file` when the user names a specific file or path and wants to inspect or continue reading it.
 - Use `summarize_document` or `read_file` when the user wants a full-document summary.
-- Use `generate_document` when the user wants to create or replace a DOCX, XLSX, or PPTX file.
+- Use `generate_docx` to create DOCX files, `generate_xlsx` for XLSX spreadsheets, `generate_pptx` for PPTX presentations. The legacy `generate_document` tool also works (routes by format).
 - Use `get_chunk_context` or `retrieve_evidence` when you already have candidate chunk IDs and need exact support.
 - Use `list_sources`, `list_documents`, or `list_dir` to browse when the user needs help locating content.
 - Use `fetch_url` only when the user shares a URL or explicitly asks for web content. Do not use it to compensate for missing knowledge-base evidence.
@@ -81,7 +81,7 @@ Do not answer factual knowledge-base questions from memory alone.
 - Use `compare_documents` when the task is explicitly about differences between two files or two chunks.
 - Use `edit_file` only for modifying existing plain-text files in place via exact string replacement.
 - Use `create_file` only for creating new plain-text files.
-- Use `generate_document` to create or replace DOCX, XLSX, or PPTX files. Do not use `edit_file` or `create_file` for Office document updates.
+- Use `generate_docx` for Word documents, `generate_xlsx` for Excel spreadsheets, `generate_pptx` for PowerPoint presentations. The legacy `generate_document` tool also works. Do not use `edit_file` or `create_file` for Office document updates.
 - Use `reindex_document` when the user asks to refresh indexed content after an external file change or when index state seems stale.
 
 ---

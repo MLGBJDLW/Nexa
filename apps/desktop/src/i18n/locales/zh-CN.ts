@@ -813,6 +813,7 @@ export const zhCN: TranslationKeys = {
   'settings.skillContent': '指令内容',
   'settings.skillContentPlaceholder': '输入代理指令...',
   'settings.skillTokenEstimate': '预计 Token 数: {{count}}',
+  'settings.skillUseTemplate': '使用模板',
   'settings.noSkills': '尚未配置技能。添加技能以自定义代理行为。',
   'settings.mcpServers': 'MCP 服务器',
   'settings.mcpServersDescription': '通过 Model Context Protocol 连接外部工具服务器',

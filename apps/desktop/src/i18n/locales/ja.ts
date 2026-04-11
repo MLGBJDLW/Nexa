@@ -811,6 +811,7 @@ export const ja: TranslationKeys = {
   'settings.skillContent': '指示内容',
   'settings.skillContentPlaceholder': 'エージェントへの指示を入力...',
   'settings.skillTokenEstimate': '推定トークン数: {{count}}',
+  'settings.skillUseTemplate': 'テンプレートを使用',
   'settings.noSkills': 'スキルが設定されていません。スキルを追加してエージェントの動作をカスタマイズしましょう。',
   'settings.mcpServers': 'MCPサーバー',
   'settings.mcpServersDescription': 'Model Context Protocol経由で外部ツールサーバーに接続',

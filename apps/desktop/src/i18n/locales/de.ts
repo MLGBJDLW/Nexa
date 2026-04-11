@@ -810,6 +810,7 @@ export const de: TranslationKeys = {
   'settings.skillContent': 'Anweisungen',
   'settings.skillContentPlaceholder': 'Anweisungen für den Agenten eingeben...',
   'settings.skillTokenEstimate': 'Geschätzte Token: {{count}}',
+  'settings.skillUseTemplate': 'Vorlage verwenden',
   'settings.noSkills': 'Keine Fähigkeiten konfiguriert. Fügen Sie eine hinzu, um das Agentenverhalten anzupassen.',
   'settings.mcpServers': 'MCP-Server',
   'settings.mcpServersDescription': 'Externe Toolserver über das Model Context Protocol verbinden',

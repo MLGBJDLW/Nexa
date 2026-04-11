@@ -811,6 +811,7 @@ export const zhTW: TranslationKeys = {
   'settings.skillContent': '指令內容',
   'settings.skillContentPlaceholder': '輸入代理指令...',
   'settings.skillTokenEstimate': '預估 Token 數: {{count}}',
+  'settings.skillUseTemplate': '使用範本',
   'settings.noSkills': '尚未設定技能。新增技能以自訂代理行為。',
   'settings.mcpServers': 'MCP 伺服器',
   'settings.mcpServersDescription': '透過 Model Context Protocol 連接外部工具伺服器',

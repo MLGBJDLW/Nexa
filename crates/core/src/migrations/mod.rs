@@ -396,6 +396,110 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
         CREATE INDEX IF NOT EXISTS idx_health_checks_type ON health_checks(check_type);
         CREATE INDEX IF NOT EXISTS idx_health_checks_resolved ON health_checks(resolved);",
     ),
+    (
+        "v037_upgrade_default_skills",
+        r#"UPDATE skills SET content = '## Trigger
+When the answer involves: workflows, processes, state transitions, hierarchies, dependencies, timelines, comparisons, or data flows.
+
+## Rules
+1. ALWAYS include a Mermaid diagram when the trigger conditions match
+2. Choose the right diagram type:
+   - Workflows/processes → flowchart
+   - Request/response flows → sequence diagram
+   - Lifecycle/state changes → state diagram
+   - Hierarchies/dependencies → graph TD/LR
+   - Timelines → gantt
+   - Comparisons → use a table instead of Mermaid
+3. Keep diagrams under 15 nodes. Split complex diagrams into multiple smaller ones
+4. Every diagram MUST have a 1-sentence takeaway below it
+5. Use descriptive node labels, not single letters (A, B, C)
+
+## Format
+```mermaid
+[diagram]
+```
+**Takeaway:** [one sentence explaining the key insight]
+
+## Example
+User asks: "How does the login flow work?"
+
+BAD (no visual):
+> The user submits credentials, the server validates them, creates a session, and returns a token.
+
+GOOD:
+```mermaid
+sequenceDiagram
+    User->>Server: POST /login (credentials)
+    Server->>DB: Validate credentials
+    DB-->>Server: User record
+    Server->>Server: Create JWT token
+    Server-->>User: 200 OK + token
+```
+**Takeaway:** Login is a 3-hop flow (client → server → DB) with JWT token returned on success.', updated_at = datetime('now') WHERE id = 'builtin-visual-explanations';
+
+        UPDATE skills SET content = '## Trigger
+When creating DOCX, XLSX, or PPTX files via generate_docx/generate_xlsx/generate_pptx tools.
+
+## Rules
+
+### DOCX — Professional Documents
+1. ALWAYS include: theme colors, title font, body font
+2. Start with a cover page (title, subtitle, date/author note)
+3. Use section rhythm: heading → 1-2 paragraphs → callout or table → next section
+4. Insert callout boxes for key takeaways (tone: info for facts, warning for risks, success for wins)
+5. Tables: use for any data with 3+ items. Always include header row
+6. Bullet lists: max 7 items per list. Prefer grouped bullets with sub-headings
+
+### XLSX — Data Workbooks
+1. Sheet 1 = Summary dashboard (title banner, KPIs, key metrics)
+2. Sheet 2+ = Detail data (raw data, calculations)
+3. ALWAYS add charts when showing trends, comparisons, or distributions
+4. Use formulas for derived values — never hardcode calculated numbers
+5. Freeze header rows. Enable auto-filter. Set column widths explicitly
+6. Use color coding: green for positive, red for negative, blue for neutral
+
+### PPTX — Presentations
+1. Max 6 bullets per slide. One message per slide
+2. Storyboard: Title slide → Agenda → Content (3-7 slides) → Summary → Q&A
+3. Use section divider slides between major topics
+4. Comparison layout for pros/cons, before/after, option A vs B
+5. Every data claim needs a source citation on the slide
+6. Speaker notes: include detailed talking points (2-3 sentences per slide)
+
+## Common Rules (All Formats)
+- Choose colors that match the topic: blue for corporate, green for nature/health, orange for energy/startup
+- Never use default black-and-white. Always set a theme
+- Information hierarchy: most important info first, details second
+- If user doesn''t specify design, use professional blue theme: primary #2B579A, accent #217346', updated_at = datetime('now') WHERE id = 'builtin-office-document-design';
+
+        INSERT OR IGNORE INTO skills (id, name, content, enabled)
+        VALUES (
+            'builtin-evidence-first',
+            'Evidence-First Answers',
+            '## Trigger
+Every answer that uses knowledge base search results.
+
+## Rules
+1. ALWAYS cite sources: "According to [Document Title] (path/to/file)..."
+2. When multiple sources exist:
+   - If they AGREE: synthesize into one answer, cite all sources
+   - If they CONFLICT: present both views explicitly, note the contradiction
+   - If only ONE source: clearly state the answer comes from a single source
+3. Confidence levels:
+   - HIGH: 3+ sources agree → state confidently
+   - MEDIUM: 1-2 sources → note limited evidence
+   - LOW: no direct source, inferring → explicitly say "Based on inference, not direct knowledge base evidence"
+4. Never fabricate information not in the search results
+5. If the knowledge base has NO relevant results, say so clearly — don''t guess
+
+## Format
+📚 **Sources:** [Document1], [Document2]
+[Answer with inline citations]
+
+💡 **Confidence:** HIGH/MEDIUM/LOW — [reason]',
+            1
+        );"#,
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

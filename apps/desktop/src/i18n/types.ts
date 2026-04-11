@@ -835,6 +835,7 @@ export interface TranslationKeys {
   'settings.skillContent': string;
   'settings.skillContentPlaceholder': string;
   'settings.skillTokenEstimate': string;
+  'settings.skillUseTemplate': string;
   'settings.noSkills': string;
   'settings.mcpServers': string;
   'settings.mcpServersDescription': string;

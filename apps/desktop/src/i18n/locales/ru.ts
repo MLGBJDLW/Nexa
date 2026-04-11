@@ -813,6 +813,7 @@ export const ru: TranslationKeys = {
   'settings.skillContent': 'Инструкции',
   'settings.skillContentPlaceholder': 'Введите инструкции для агента...',
   'settings.skillTokenEstimate': 'Оценка токенов: {{count}}',
+  'settings.skillUseTemplate': 'Использовать шаблон',
   'settings.noSkills': 'Навыки не настроены. Добавьте навык для настройки поведения агента.',
   'settings.mcpServers': 'MCP-серверы',
   'settings.mcpServersDescription': 'Подключение внешних серверов инструментов через Model Context Protocol',

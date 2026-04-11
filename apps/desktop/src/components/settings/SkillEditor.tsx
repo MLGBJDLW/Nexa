@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Save, X } from 'lucide-react';
+import { FileText, Save, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { useTranslation } from '../../i18n';
@@ -57,6 +57,20 @@ export function SkillEditor({ skill, onSave, onCancel, onDirtyChange }: SkillEdi
 
   const tokenCount = estimateTokens(content);
 
+  const SKILL_TEMPLATE = `## Trigger
+[When should this skill activate?]
+
+## Rules
+1. [Rule 1]
+2. [Rule 2]
+
+## Example
+[Before/after showing the quality difference]`;
+
+  const handleUseTemplate = () => {
+    setContent(SKILL_TEMPLATE);
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -69,7 +83,14 @@ export function SkillEditor({ skill, onSave, onCancel, onDirtyChange }: SkillEdi
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-text-primary">{t('settings.skillContent')}</label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-text-primary">{t('settings.skillContent')}</label>
+          {!content.trim() && (
+            <Button variant="ghost" size="sm" icon={<FileText size={14} />} onClick={handleUseTemplate}>
+              {t('settings.skillUseTemplate')}
+            </Button>
+          )}
+        </div>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}

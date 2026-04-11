@@ -813,6 +813,7 @@ export const ko: TranslationKeys = {
   'settings.skillContent': '지시 내용',
   'settings.skillContentPlaceholder': '에이전트를 위한 지시사항 입력...',
   'settings.skillTokenEstimate': '예상 토큰 수: {{count}}',
+  'settings.skillUseTemplate': '템플릿 사용',
   'settings.noSkills': '설정된 스킬이 없습니다. 스킬을 추가하여 에이전트 동작을 사용자 정의하세요.',
   'settings.mcpServers': 'MCP 서버',
   'settings.mcpServersDescription': 'Model Context Protocol을 통해 외부 도구 서버에 연결',
