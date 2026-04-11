@@ -23,7 +23,7 @@ pub struct HealthIssue {
     pub id: String,
     pub check_type: CheckType,
     pub severity: Severity,
-    pub target_doc_id: Option<i64>,
+    pub target_doc_id: Option<String>,
     pub target_entity_id: Option<String>,
     pub description: String,
     pub suggestion: String,
@@ -83,11 +83,11 @@ impl Database {
         let conn = self.conn();
         let threshold = format!("-{days} days");
         let mut stmt = conn.prepare(
-            "SELECT id, path, updated_at FROM documents WHERE updated_at < datetime('now', ?1)",
+            "SELECT id, path, modified_at FROM documents WHERE modified_at < datetime('now', ?1)",
         )?;
         let issues = stmt
             .query_map(rusqlite::params![threshold], |row| {
-                let doc_id: i64 = row.get(0)?;
+                let doc_id: String = row.get(0)?;
                 let path: String = row.get(1)?;
                 let updated: String = row.get(2)?;
                 Ok(HealthIssue {
