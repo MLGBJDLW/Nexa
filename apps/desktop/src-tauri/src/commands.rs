@@ -1236,7 +1236,7 @@ fn sanitize_tool_call_history(mut messages: Vec<Message>) -> Vec<Message> {
                 m.role == Role::Assistant
                     && m.tool_calls
                         .as_ref()
-                        .map_or(false, |tcs| tcs.iter().any(|tc| tc.id == tool_id))
+                        .is_some_and(|tcs| tcs.iter().any(|tc| tc.id == tool_id))
             });
             if !has_match {
                 indices_to_remove.insert(i);
@@ -2777,7 +2777,7 @@ pub async fn get_video_transcript_cmd(
                 });
             let chunk_type = if heading
                 .as_deref()
-                .map_or(false, |h| h.starts_with("[Frame OCR"))
+                .is_some_and(|h| h.starts_with("[Frame OCR"))
             {
                 "frame_ocr"
             } else {
@@ -2972,6 +2972,7 @@ pub async fn test_mcp_server_cmd(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn test_mcp_server_direct_cmd(
     mcp_state: tauri::State<'_, McpManagerState>,
     name: String,
@@ -3055,7 +3056,7 @@ pub fn get_recent_traces(
 #[tauri::command]
 pub async fn compile_document_cmd(
     state: tauri::State<'_, AppState>,
-    doc_id: i64,
+    doc_id: String,
 ) -> Result<serde_json::Value, String> {
     let db_config = state
         .db
@@ -3066,10 +3067,14 @@ pub async fn compile_document_cmd(
     let provider_config = db_config_to_provider_config(&db_config, Some(app_cfg.llm_timeout_secs));
     let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
 
-    let result =
-        ask_core::compile::compile_document(&state.db, doc_id, provider.as_ref(), &db_config.model)
-            .await
-            .map_err(|e| e.to_string())?;
+    let result = ask_core::compile::compile_document(
+        &state.db,
+        &doc_id,
+        provider.as_ref(),
+        &db_config.model,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     serde_json::to_value(&result).map_err(|e| e.to_string())
 }
@@ -3202,4 +3207,30 @@ pub fn clear_scan_error_cmd(
         .db
         .clear_scan_error(&source_id, &path)
         .map_err(|e| e.to_string())
+}
+
+// ── Knowledge Loop ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_knowledge_gaps_cmd(
+    state: tauri::State<'_, AppState>,
+    min_queries: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let gaps = state
+        .db
+        .get_knowledge_gaps(min_queries.unwrap_or(2))
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&gaps).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn suggest_explorations_cmd(
+    state: tauri::State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let suggestions = state
+        .db
+        .suggest_explorations(limit.unwrap_or(10))
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&suggestions).map_err(|e| e.to_string())
 }

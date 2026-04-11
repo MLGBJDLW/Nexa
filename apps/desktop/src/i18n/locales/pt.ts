@@ -700,6 +700,14 @@ export const pt: TranslationKeys = {
   'voice.permissionDenied': 'Permissão de microfone negada',
   'voice.noModel': 'Baixe um modelo Whisper nas Configurações',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': 'Entrada de voz',
+  'voice.microphoneDevice': 'Microfone',
+  'voice.microphoneDeviceDesc': 'Selecione qual microfone usar para entrada de voz',
+  'voice.microphoneDefault': 'Padrão do sistema',
+  'voice.microphoneRefresh': 'Atualizar dispositivos',
+  'voice.microphoneDeviceN': 'Dispositivo',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': 'Transcrição de vídeo',
   'evidence.frameOcr': 'Texto do quadro',
@@ -805,6 +813,7 @@ export const pt: TranslationKeys = {
   'settings.skillContent': 'Instruções',
   'settings.skillContentPlaceholder': 'Digite instruções para o agente...',
   'settings.skillTokenEstimate': 'Tokens estimados: {{count}}',
+  'settings.skillUseTemplate': 'Usar modelo',
   'settings.noSkills': 'Nenhuma habilidade configurada. Adicione uma para personalizar o comportamento do agente.',
   'settings.mcpServers': 'Servidores MCP',
   'settings.mcpServersDescription': 'Conecte servidores de ferramentas externos via Model Context Protocol',

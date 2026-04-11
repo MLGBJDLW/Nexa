@@ -57,6 +57,7 @@ import { McpServerForm } from '../components/settings/McpServerForm';
 import { PROVIDER_PRESETS, type ProviderPreset } from '../lib/providerPresets';
 import { DEFAULT_SUBAGENT_TOOL_NAMES } from '../lib/subagentTools';
 import { ModelCard } from '../components/settings/ModelCard';
+import { useMicrophoneDevices } from '../lib/useMicrophoneDevices';
 
 /* ── Section wrapper ──────────────────────────────────────────────── */
 function Section({
@@ -119,6 +120,7 @@ const TAB_STRIP_EDGE_EPSILON = 4;
 
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
+  const { devices: micDevices, selectedDeviceId: micDeviceId, setSelectedDeviceId: setMicDeviceId, refresh: refreshMics } = useMicrophoneDevices();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const extensionCopy = {
     toolCount: (count: number) => t('settings.extensions.toolCount', { count }),
@@ -2687,6 +2689,39 @@ export function SettingsPage() {
                 />
               </div>
             )}
+
+            {/* Voice Input - Microphone Selection */}
+            <div className="space-y-3 border-t border-border pt-4 mt-4">
+              <div className="flex items-center gap-2">
+                <Mic size={16} className="text-text-secondary" />
+                <p className="text-sm font-medium text-text-primary">{t('voice.microphoneSection')}</p>
+              </div>
+              <div>
+                <p className="text-xs text-text-tertiary mb-2">{t('voice.microphoneDeviceDesc')}</p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={micDeviceId ?? ''}
+                    onChange={(e) => setMicDeviceId(e.target.value || null)}
+                    className="flex-1 rounded-lg border border-border bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none transition-colors duration-fast hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30"
+                  >
+                    <option value="">{t('voice.microphoneDefault')}</option>
+                    {micDevices.map((d, i) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `${t('voice.microphoneDeviceN')} ${i + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={refreshMics}
+                    className="rounded-lg border border-border bg-surface-0 p-2 text-text-tertiary transition-colors hover:border-border-hover hover:text-text-secondary cursor-pointer"
+                    title={t('voice.microphoneRefresh')}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* Advanced Settings - collapsible */}
             <div className="space-y-4 border-t border-border pt-4 mt-4">

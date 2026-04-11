@@ -698,6 +698,14 @@ export const ja: TranslationKeys = {
   'voice.permissionDenied': 'マイクの使用が拒否されました',
   'voice.noModel': '設定でWhisperモデルをダウンロードしてください',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': '音声入力',
+  'voice.microphoneDevice': 'マイク',
+  'voice.microphoneDeviceDesc': '音声入力に使用するマイクを選択',
+  'voice.microphoneDefault': 'システムデフォルト',
+  'voice.microphoneRefresh': 'デバイスを更新',
+  'voice.microphoneDeviceN': 'デバイス',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': '動画書き起こし',
   'evidence.frameOcr': 'フレームテキスト',
@@ -803,6 +811,7 @@ export const ja: TranslationKeys = {
   'settings.skillContent': '指示内容',
   'settings.skillContentPlaceholder': 'エージェントへの指示を入力...',
   'settings.skillTokenEstimate': '推定トークン数: {{count}}',
+  'settings.skillUseTemplate': 'テンプレートを使用',
   'settings.noSkills': 'スキルが設定されていません。スキルを追加してエージェントの動作をカスタマイズしましょう。',
   'settings.mcpServers': 'MCPサーバー',
   'settings.mcpServersDescription': 'Model Context Protocol経由で外部ツールサーバーに接続',

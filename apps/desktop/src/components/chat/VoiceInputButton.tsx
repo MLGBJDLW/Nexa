@@ -13,8 +13,11 @@ interface VoiceInputButtonProps {
 
 export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonProps) {
   const { t } = useTranslation();
+  const savedDeviceId = typeof window !== 'undefined'
+    ? localStorage.getItem('ask-myself-mic-device-id')
+    : null;
   const { isRecording, isProcessing, startRecording, stopRecording, cancelRecording, recordingDuration } =
-    useVoiceRecorder();
+    useVoiceRecorder(savedDeviceId);
   const [transcribing, setTranscribing] = useState(false);
 
   const busy = isProcessing || transcribing;

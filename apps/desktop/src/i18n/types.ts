@@ -722,6 +722,14 @@ export interface TranslationKeys {
   'voice.permissionDenied': string;
   'voice.noModel': string;
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': string;
+  'voice.microphoneDevice': string;
+  'voice.microphoneDeviceDesc': string;
+  'voice.microphoneDefault': string;
+  'voice.microphoneRefresh': string;
+  'voice.microphoneDeviceN': string;
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': string;
   'evidence.frameOcr': string;
@@ -827,6 +835,7 @@ export interface TranslationKeys {
   'settings.skillContent': string;
   'settings.skillContentPlaceholder': string;
   'settings.skillTokenEstimate': string;
+  'settings.skillUseTemplate': string;
   'settings.noSkills': string;
   'settings.mcpServers': string;
   'settings.mcpServersDescription': string;

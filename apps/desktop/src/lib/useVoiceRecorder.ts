@@ -13,8 +13,11 @@ export interface UseVoiceRecorderReturn {
  * Captures microphone audio as raw PCM, resamples to 16 kHz mono,
  * and returns a WAV‑encoded Uint8Array ready for Whisper transcription.
  * No FFmpeg required — all processing happens in the browser.
+ *
+ * @param deviceId - Optional audio input device ID. When provided the
+ *   exact device is requested; falls back to the default mic on error.
  */
-export function useVoiceRecorder(): UseVoiceRecorderReturn {
+export function useVoiceRecorder(deviceId?: string | null): UseVoiceRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -49,7 +52,20 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
 
   const startRecording = useCallback(async () => {
     cancelledRef.current = false;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    let stream: MediaStream;
+    if (deviceId) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId } },
+        });
+      } catch {
+        // Selected device unavailable — fall back to default
+        console.warn(`[useVoiceRecorder] deviceId ${deviceId} unavailable, falling back to default`);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
     streamRef.current = stream;
 
     const audioCtx = new AudioContext();
@@ -79,7 +95,7 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
     timerRef.current = setInterval(() => {
       setRecordingDuration(Math.floor((Date.now() - start) / 1000));
     }, 250);
-  }, []);
+  }, [deviceId]);
 
   const stopRecording = useCallback(async (): Promise<Uint8Array | null> => {
     if (!audioCtxRef.current || cancelledRef.current) {

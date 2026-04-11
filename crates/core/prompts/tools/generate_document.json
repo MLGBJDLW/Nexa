@@ -1,13 +1,13 @@
 {
   "name": "generate_document",
-  "description": "Generate or replace a professional Office document (DOCX, XLSX, or PPTX) at the specified path within a registered source directory. Paths may be absolute or relative to a source root.\n\nUse this tool when the user asks to create or update a Word document, Excel spreadsheet, or PowerPoint presentation. Think through audience, tone, hierarchy, and layout before calling it.\n\nContent format varies by document type:\n- DOCX: supports `title`, `subtitle`, `cover_note`, optional top-level `theme`, and `sections`.\n  Each section can include `heading`, `body`, `bullet_items`, `callout`, `table`, and `page_break_before`.\n  `callout` = highlighted box with `{ \"title\": \"...\", \"body\": \"...\", \"tone\": \"info|warning|success\" }`.\n  `table` = `{ \"title\": \"...\", \"headers\": [...], \"rows\": [[...], ...], \"column_widths\": [2,1,1] }` where `column_widths` are relative weights.\n- XLSX: each sheet supports `name`, optional `title`, `notes`, `headers`, `rows`, `column_widths`, `tab_color`, `freeze_rows`, and `autofilter`.\n  Rows may contain primitive cells or styled objects like `{ \"value\": 1200, \"num_format\": \"$#,##0\", \"bold\": true, \"align\": \"right\", \"background_color\": \"EAF3FB\" }` or `{ \"formula\": \"=SUM(B2:B8)\", \"bold\": true }`.\n- PPTX: supports optional top-level `theme` plus slide layouts `title`, `content`, `section`, and `comparison`.\n  Slides may include `title`, `subtitle`, `body`, `bullet_items`; comparison slides may additionally include `left_title`, `left_body`, `left_bullet_items`, `right_title`, `right_body`, and `right_bullet_items`.\n\nPrefer elegant structure over dumping raw text. Use slides, sheets, and sections intentionally.",
+  "description": "Routing proxy: dispatches to generate_docx, generate_xlsx, or generate_pptx based on the `format` field. Prefer calling the format-specific tool directly when the format is known.",
   "parameters": {
     "type": "object",
     "properties": {
       "format": {
         "type": "string",
         "enum": ["docx", "xlsx", "pptx"],
-        "description": "The document format to generate."
+        "description": "The document format to generate. Determines which specialized tool handles the request."
       },
       "path": {
         "type": "string",
@@ -15,7 +15,7 @@
       },
       "content": {
         "type": "object",
-        "description": "Structured content for the document. Schema depends on the format chosen."
+        "description": "Structured content for the document. Schema depends on the format chosen — see generate_docx, generate_xlsx, or generate_pptx for details."
       }
     },
     "required": ["format", "path", "content"]

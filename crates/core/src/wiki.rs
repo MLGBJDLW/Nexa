@@ -35,7 +35,7 @@ pub struct MapOfContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentRef {
-    pub document_id: i64,
+    pub document_id: String,
     pub title: String,
     pub summary: Option<String>,
     pub relevance: f64,

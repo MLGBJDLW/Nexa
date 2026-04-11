@@ -696,6 +696,15 @@ export const fr: TranslationKeys = {
   'voice.error': 'Saisie vocale indisponible',
   'voice.permissionDenied': 'Accès au microphone refusé',
   'voice.noModel': 'Veuillez télécharger un modèle Whisper dans les Paramètres',
+
+  // Voice - Microphone Selection
+  'voice.microphoneSection': 'Entrée vocale',
+  'voice.microphoneDevice': 'Microphone',
+  'voice.microphoneDeviceDesc': 'Sélectionnez le microphone à utiliser pour la saisie vocale',
+  'voice.microphoneDefault': 'Par défaut du système',
+  'voice.microphoneRefresh': 'Actualiser les appareils',
+  'voice.microphoneDeviceN': 'Appareil',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': 'Transcription vidéo',
   'evidence.frameOcr': "Texte de l'image",
@@ -800,6 +809,7 @@ export const fr: TranslationKeys = {
   'settings.skillContent': 'Instructions',
   'settings.skillContentPlaceholder': 'Entrez les instructions pour l\'agent...',
   'settings.skillTokenEstimate': 'Tokens estimés : {{count}}',
+  'settings.skillUseTemplate': 'Utiliser le modèle',
   'settings.noSkills': 'Aucune compétence configurée. Ajoutez-en une pour personnaliser le comportement de l\'agent.',
   'settings.mcpServers': 'Serveurs MCP',
   'settings.mcpServersDescription': 'Connectez des serveurs d\'outils externes via le Model Context Protocol',

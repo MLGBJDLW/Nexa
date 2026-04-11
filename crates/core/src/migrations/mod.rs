@@ -244,7 +244,7 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
         "v034_knowledge_compile",
         "CREATE TABLE IF NOT EXISTS document_summaries (
             id TEXT PRIMARY KEY NOT NULL,
-            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
             summary TEXT NOT NULL,
             key_points TEXT NOT NULL DEFAULT '[]',
             tags TEXT NOT NULL DEFAULT '[]',
@@ -259,7 +259,7 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
             name TEXT NOT NULL,
             entity_type TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
-            first_seen_doc INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            first_seen_doc TEXT REFERENCES documents(id) ON DELETE SET NULL,
             mention_count INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -268,7 +268,7 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
         CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
 
         CREATE TABLE IF NOT EXISTS document_entities (
-            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
             entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
             relevance REAL NOT NULL DEFAULT 1.0,
             context_snippet TEXT NOT NULL DEFAULT '',
@@ -281,7 +281,7 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
             target_entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
             relation_type TEXT NOT NULL,
             strength REAL NOT NULL DEFAULT 1.0,
-            evidence_doc_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            evidence_doc_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_links_unique ON entity_links(source_entity_id, target_entity_id, relation_type);
@@ -292,7 +292,7 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
             id TEXT PRIMARY KEY NOT NULL,
             check_type TEXT NOT NULL,
             severity TEXT NOT NULL DEFAULT 'info',
-            target_doc_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+            target_doc_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
             target_entity_id TEXT REFERENCES entities(id) ON DELETE CASCADE,
             description TEXT NOT NULL,
             suggestion TEXT NOT NULL DEFAULT '',
@@ -313,6 +313,192 @@ const FUTURE_MIGRATIONS: &[(&str, &str)] = &[
             last_failed_at TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (source_id, path)
         );",
+    ),
+    (
+        "v036_fix_knowledge_column_types",
+        "-- document_summaries: document_id INTEGER → TEXT
+        CREATE TABLE IF NOT EXISTS document_summaries_new (
+            id TEXT PRIMARY KEY NOT NULL,
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            summary TEXT NOT NULL,
+            key_points TEXT NOT NULL DEFAULT '[]',
+            tags TEXT NOT NULL DEFAULT '[]',
+            model_used TEXT NOT NULL DEFAULT '',
+            compiled_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO document_summaries_new SELECT * FROM document_summaries;
+        DROP TABLE IF EXISTS document_summaries;
+        ALTER TABLE document_summaries_new RENAME TO document_summaries;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_summaries_doc ON document_summaries(document_id);
+
+        -- entities: first_seen_doc INTEGER → TEXT
+        CREATE TABLE IF NOT EXISTS entities_new (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            first_seen_doc TEXT REFERENCES documents(id) ON DELETE SET NULL,
+            mention_count INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO entities_new SELECT * FROM entities;
+        DROP TABLE IF EXISTS entities;
+        ALTER TABLE entities_new RENAME TO entities;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type);
+        CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
+
+        -- document_entities: document_id INTEGER → TEXT
+        CREATE TABLE IF NOT EXISTS document_entities_new (
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            relevance REAL NOT NULL DEFAULT 1.0,
+            context_snippet TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(document_id, entity_id)
+        );
+        INSERT OR IGNORE INTO document_entities_new SELECT * FROM document_entities;
+        DROP TABLE IF EXISTS document_entities;
+        ALTER TABLE document_entities_new RENAME TO document_entities;
+
+        -- entity_links: evidence_doc_id INTEGER → TEXT
+        CREATE TABLE IF NOT EXISTS entity_links_new (
+            id TEXT PRIMARY KEY NOT NULL,
+            source_entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            target_entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            relation_type TEXT NOT NULL,
+            strength REAL NOT NULL DEFAULT 1.0,
+            evidence_doc_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO entity_links_new SELECT * FROM entity_links;
+        DROP TABLE IF EXISTS entity_links;
+        ALTER TABLE entity_links_new RENAME TO entity_links;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_links_unique ON entity_links(source_entity_id, target_entity_id, relation_type);
+        CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_entity_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_links_target ON entity_links(target_entity_id);
+
+        -- health_checks: target_doc_id INTEGER → TEXT
+        CREATE TABLE IF NOT EXISTS health_checks_new (
+            id TEXT PRIMARY KEY NOT NULL,
+            check_type TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'info',
+            target_doc_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+            target_entity_id TEXT REFERENCES entities(id) ON DELETE CASCADE,
+            description TEXT NOT NULL,
+            suggestion TEXT NOT NULL DEFAULT '',
+            resolved INTEGER NOT NULL DEFAULT 0,
+            checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO health_checks_new SELECT * FROM health_checks;
+        DROP TABLE IF EXISTS health_checks;
+        ALTER TABLE health_checks_new RENAME TO health_checks;
+        CREATE INDEX IF NOT EXISTS idx_health_checks_type ON health_checks(check_type);
+        CREATE INDEX IF NOT EXISTS idx_health_checks_resolved ON health_checks(resolved);",
+    ),
+    (
+        "v037_upgrade_default_skills",
+        r#"UPDATE skills SET content = '## Trigger
+When the answer involves: workflows, processes, state transitions, hierarchies, dependencies, timelines, comparisons, or data flows.
+
+## Rules
+1. ALWAYS include a Mermaid diagram when the trigger conditions match
+2. Choose the right diagram type:
+   - Workflows/processes → flowchart
+   - Request/response flows → sequence diagram
+   - Lifecycle/state changes → state diagram
+   - Hierarchies/dependencies → graph TD/LR
+   - Timelines → gantt
+   - Comparisons → use a table instead of Mermaid
+3. Keep diagrams under 15 nodes. Split complex diagrams into multiple smaller ones
+4. Every diagram MUST have a 1-sentence takeaway below it
+5. Use descriptive node labels, not single letters (A, B, C)
+
+## Format
+```mermaid
+[diagram]
+```
+**Takeaway:** [one sentence explaining the key insight]
+
+## Example
+User asks: "How does the login flow work?"
+
+BAD (no visual):
+> The user submits credentials, the server validates them, creates a session, and returns a token.
+
+GOOD:
+```mermaid
+sequenceDiagram
+    User->>Server: POST /login (credentials)
+    Server->>DB: Validate credentials
+    DB-->>Server: User record
+    Server->>Server: Create JWT token
+    Server-->>User: 200 OK + token
+```
+**Takeaway:** Login is a 3-hop flow (client → server → DB) with JWT token returned on success.', updated_at = datetime('now') WHERE id = 'builtin-visual-explanations';
+
+        UPDATE skills SET content = '## Trigger
+When creating DOCX, XLSX, or PPTX files via generate_docx/generate_xlsx/generate_pptx tools.
+
+## Rules
+
+### DOCX — Professional Documents
+1. ALWAYS include: theme colors, title font, body font
+2. Start with a cover page (title, subtitle, date/author note)
+3. Use section rhythm: heading → 1-2 paragraphs → callout or table → next section
+4. Insert callout boxes for key takeaways (tone: info for facts, warning for risks, success for wins)
+5. Tables: use for any data with 3+ items. Always include header row
+6. Bullet lists: max 7 items per list. Prefer grouped bullets with sub-headings
+
+### XLSX — Data Workbooks
+1. Sheet 1 = Summary dashboard (title banner, KPIs, key metrics)
+2. Sheet 2+ = Detail data (raw data, calculations)
+3. ALWAYS add charts when showing trends, comparisons, or distributions
+4. Use formulas for derived values — never hardcode calculated numbers
+5. Freeze header rows. Enable auto-filter. Set column widths explicitly
+6. Use color coding: green for positive, red for negative, blue for neutral
+
+### PPTX — Presentations
+1. Max 6 bullets per slide. One message per slide
+2. Storyboard: Title slide → Agenda → Content (3-7 slides) → Summary → Q&A
+3. Use section divider slides between major topics
+4. Comparison layout for pros/cons, before/after, option A vs B
+5. Every data claim needs a source citation on the slide
+6. Speaker notes: include detailed talking points (2-3 sentences per slide)
+
+## Common Rules (All Formats)
+- Choose colors that match the topic: blue for corporate, green for nature/health, orange for energy/startup
+- Never use default black-and-white. Always set a theme
+- Information hierarchy: most important info first, details second
+- If user doesn''t specify design, use professional blue theme: primary #2B579A, accent #217346', updated_at = datetime('now') WHERE id = 'builtin-office-document-design';
+
+        INSERT OR IGNORE INTO skills (id, name, content, enabled)
+        VALUES (
+            'builtin-evidence-first',
+            'Evidence-First Answers',
+            '## Trigger
+Every answer that uses knowledge base search results.
+
+## Rules
+1. ALWAYS cite sources: "According to [Document Title] (path/to/file)..."
+2. When multiple sources exist:
+   - If they AGREE: synthesize into one answer, cite all sources
+   - If they CONFLICT: present both views explicitly, note the contradiction
+   - If only ONE source: clearly state the answer comes from a single source
+3. Confidence levels:
+   - HIGH: 3+ sources agree → state confidently
+   - MEDIUM: 1-2 sources → note limited evidence
+   - LOW: no direct source, inferring → explicitly say "Based on inference, not direct knowledge base evidence"
+4. Never fabricate information not in the search results
+5. If the knowledge base has NO relevant results, say so clearly — don''t guess
+
+## Format
+📚 **Sources:** [Document1], [Document2]
+[Answer with inline citations]
+
+💡 **Confidence:** HIGH/MEDIUM/LOW — [reason]',
+            1
+        );"#,
     ),
 ];
 

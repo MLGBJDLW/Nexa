@@ -700,6 +700,14 @@ export const zhCN: TranslationKeys = {
   'voice.permissionDenied': '麦克风权限被拒绝',
   'voice.noModel': '请在设置中下载 Whisper 模型',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': '语音输入',
+  'voice.microphoneDevice': '麦克风',
+  'voice.microphoneDeviceDesc': '选择用于语音输入的麦克风',
+  'voice.microphoneDefault': '系统默认',
+  'voice.microphoneRefresh': '刷新设备',
+  'voice.microphoneDeviceN': '设备',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': '视频转写',
   'evidence.frameOcr': '画面文字',
@@ -805,6 +813,7 @@ export const zhCN: TranslationKeys = {
   'settings.skillContent': '指令内容',
   'settings.skillContentPlaceholder': '输入代理指令...',
   'settings.skillTokenEstimate': '预计 Token 数: {{count}}',
+  'settings.skillUseTemplate': '使用模板',
   'settings.noSkills': '尚未配置技能。添加技能以自定义代理行为。',
   'settings.mcpServers': 'MCP 服务器',
   'settings.mcpServersDescription': '通过 Model Context Protocol 连接外部工具服务器',

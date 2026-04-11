@@ -22,6 +22,9 @@ import { ChatPage } from './pages/ChatPage';
 import { CommandPalette } from "./components/CommandPalette";
 import { StreamProvider } from "./lib/StreamProvider";
 import * as api from "./lib/api";
+import { useAutoCompile } from "./lib/useAutoCompile";
+import { useAutoHealthCheck } from "./lib/useAutoHealthCheck";
+import { useKnowledgeInsights } from "./lib/useKnowledgeInsights";
 
 /* ── Page transition wrapper ─────────────────────────────────────── */
 function PageTransition({ children }: { children: ReactNode }) {
@@ -59,6 +62,10 @@ function NotFoundPage() {
 
 function AppShell() {
   const [showWizard, setShowWizard] = useState<boolean | null>(null);
+
+  useAutoCompile();
+  useAutoHealthCheck();
+  useKnowledgeInsights();
 
   useEffect(() => {
     api.listSources().then(sources => {

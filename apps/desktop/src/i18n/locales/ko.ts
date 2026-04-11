@@ -700,6 +700,14 @@ export const ko: TranslationKeys = {
   'voice.permissionDenied': '마이크 권한이 거부되었습니다',
   'voice.noModel': '설정에서 Whisper 모델을 다운로드해 주세요',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': '음성 입력',
+  'voice.microphoneDevice': '마이크',
+  'voice.microphoneDeviceDesc': '음성 입력에 사용할 마이크를 선택하세요',
+  'voice.microphoneDefault': '시스템 기본값',
+  'voice.microphoneRefresh': '기기 새로고침',
+  'voice.microphoneDeviceN': '기기',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': '영상 전사',
   'evidence.frameOcr': '프레임 텍스트',
@@ -805,6 +813,7 @@ export const ko: TranslationKeys = {
   'settings.skillContent': '지시 내용',
   'settings.skillContentPlaceholder': '에이전트를 위한 지시사항 입력...',
   'settings.skillTokenEstimate': '예상 토큰 수: {{count}}',
+  'settings.skillUseTemplate': '템플릿 사용',
   'settings.noSkills': '설정된 스킬이 없습니다. 스킬을 추가하여 에이전트 동작을 사용자 정의하세요.',
   'settings.mcpServers': 'MCP 서버',
   'settings.mcpServersDescription': 'Model Context Protocol을 통해 외부 도구 서버에 연결',

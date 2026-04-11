@@ -15,7 +15,7 @@ const DEF_JSON: &str = include_str!("../../prompts/tools/compile_document.json")
 
 #[derive(Deserialize)]
 struct CompileArgs {
-    document_id: Option<i64>,
+    document_id: Option<String>,
     #[serde(default)]
     compile_all: bool,
     #[serde(default = "default_limit")]
@@ -61,7 +61,7 @@ impl Tool for CompileTool {
         let call_id = call_id.to_string();
 
         tokio::task::spawn_blocking(move || {
-            if let Some(doc_id) = args.document_id {
+            if let Some(ref doc_id) = args.document_id {
                 // Return compilation status for a specific document
                 let summary = db.get_document_summary(doc_id)?;
                 let entities = db.get_entities_for_document(doc_id)?;

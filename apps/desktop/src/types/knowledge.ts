@@ -4,7 +4,7 @@ export type EntityType = "concept" | "person" | "technology" | "event" | "organi
 
 export interface DocumentSummary {
   id: string;
-  documentId: number;
+  documentId: string;
   summary: string;
   keyPoints: string[];
   tags: string[];
@@ -17,13 +17,13 @@ export interface Entity {
   name: string;
   entityType: EntityType;
   description: string;
-  firstSeenDoc: number | null;
+  firstSeenDoc: string | null;
   mentionCount: number;
   createdAt: string;
 }
 
 export interface CompileResult {
-  documentId: number;
+  documentId: string;
   summary: DocumentSummary;
   entitiesFound: number;
   linksCreated: number;
@@ -44,7 +44,7 @@ export interface EntityLink {
   targetEntityId: string;
   relationType: string;
   strength: number;
-  evidenceDocId: number | null;
+  evidenceDocId: string | null;
 }
 
 export interface EntityNode {
@@ -69,7 +69,7 @@ export interface HealthIssue {
   id: string;
   checkType: CheckType;
   severity: Severity;
-  targetDocId: number | null;
+  targetDocId: string | null;
   targetEntityId: string | null;
   description: string;
   suggestion: string;
@@ -100,7 +100,7 @@ export interface WikiIndex {
 }
 
 export interface DocumentRef {
-  documentId: number;
+  documentId: string;
   title: string;
   summary: string | null;
   relevance: number;

@@ -700,6 +700,14 @@ export const ru: TranslationKeys = {
   'voice.permissionDenied': 'Доступ к микрофону запрещён',
   'voice.noModel': 'Загрузите модель Whisper в Настройках',
 
+  // Voice - Microphone Selection
+  'voice.microphoneSection': 'Голосовой ввод',
+  'voice.microphoneDevice': 'Микрофон',
+  'voice.microphoneDeviceDesc': 'Выберите микрофон для голосового ввода',
+  'voice.microphoneDefault': 'Системный по умолчанию',
+  'voice.microphoneRefresh': 'Обновить устройства',
+  'voice.microphoneDeviceN': 'Устройство',
+
   // Evidence - Video/Audio
   'evidence.videoTranscript': 'Транскрипция видео',
   'evidence.frameOcr': 'Текст кадра',
@@ -805,6 +813,7 @@ export const ru: TranslationKeys = {
   'settings.skillContent': 'Инструкции',
   'settings.skillContentPlaceholder': 'Введите инструкции для агента...',
   'settings.skillTokenEstimate': 'Оценка токенов: {{count}}',
+  'settings.skillUseTemplate': 'Использовать шаблон',
   'settings.noSkills': 'Навыки не настроены. Добавьте навык для настройки поведения агента.',
   'settings.mcpServers': 'MCP-серверы',
   'settings.mcpServersDescription': 'Подключение внешних серверов инструментов через Model Context Protocol',
