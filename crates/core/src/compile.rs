@@ -181,6 +181,17 @@ pub async fn compile_document(
     })
 }
 
+/// Progress information emitted during compilation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileProgress {
+    pub current: usize,
+    pub total: usize,
+    pub document_id: String,
+    pub document_title: Option<String>,
+    pub phase: String,
+}
+
 /// Compile all documents that haven't been compiled yet.
 pub async fn compile_pending(
     db: &Database,
@@ -188,10 +199,34 @@ pub async fn compile_pending(
     model: &str,
     limit: usize,
 ) -> Result<Vec<CompileResult>, CoreError> {
+    compile_pending_with_progress(db, provider, model, limit, |_| {}).await
+}
+
+/// Compile all documents that haven't been compiled yet, with progress reporting.
+pub async fn compile_pending_with_progress<F>(
+    db: &Database,
+    provider: &dyn LlmProvider,
+    model: &str,
+    limit: usize,
+    on_progress: F,
+) -> Result<Vec<CompileResult>, CoreError>
+where
+    F: Fn(&CompileProgress),
+{
     let pending_ids = db.get_uncompiled_document_ids(limit)?;
+    let total = pending_ids.len();
     let mut results = Vec::new();
 
-    for doc_id in &pending_ids {
+    for (i, doc_id) in pending_ids.iter().enumerate() {
+        let title = db.get_document_title(doc_id).ok().flatten();
+        on_progress(&CompileProgress {
+            current: i + 1,
+            total,
+            document_id: doc_id.clone(),
+            document_title: title,
+            phase: "compiling".to_string(),
+        });
+
         match compile_document(db, doc_id, provider, model).await {
             Ok(result) => results.push(result),
             Err(e) => {
@@ -383,6 +418,20 @@ impl Database {
             .query_map(rusqlite::params![limit as i64], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
+    }
+
+    pub fn get_document_title(&self, doc_id: &str) -> Result<Option<String>, CoreError> {
+        let conn = self.conn();
+        let result = conn.query_row(
+            "SELECT title FROM documents WHERE id = ?1",
+            rusqlite::params![doc_id],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(title) => Ok(Some(title)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn get_document_summary(&self, doc_id: &str) -> Result<Option<DocumentSummary>, CoreError> {

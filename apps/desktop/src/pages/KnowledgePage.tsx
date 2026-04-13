@@ -14,6 +14,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { listen } from '@tauri-apps/api/event';
 import * as api from '../lib/api';
 import type {
   CompileStats,
@@ -64,6 +65,14 @@ function checkTypeIcon(ct: CheckType) {
 
 /* ── Component ─────────────────────────────────────────────────────── */
 
+interface CompileProgress {
+  current: number;
+  total: number;
+  documentId: string;
+  documentTitle: string | null;
+  phase: string;
+}
+
 export function KnowledgePage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>('compile');
@@ -72,6 +81,7 @@ export function KnowledgePage() {
   const [stats, setStats] = useState<CompileStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [compiling, setCompiling] = useState(false);
+  const [compileProgress, setCompileProgress] = useState<CompileProgress | null>(null);
   const [compileResults, setCompileResults] = useState<CompileResult[]>([]);
 
   // Map state
@@ -111,6 +121,7 @@ export function KnowledgePage() {
 
   const handleCompile = useCallback(async () => {
     setCompiling(true);
+    setCompileProgress(null);
     try {
       const results = await api.compilePendingDocuments(20);
       setCompileResults(results);
@@ -120,6 +131,7 @@ export function KnowledgePage() {
       toast.error(String(e));
     } finally {
       setCompiling(false);
+      setCompileProgress(null);
     }
   }, [loadStats]);
 
@@ -141,6 +153,25 @@ export function KnowledgePage() {
     if (activeTab === 'compile') loadStats();
     if (activeTab === 'map') loadMap();
   }, [activeTab, loadStats, loadMap]);
+
+  /* ── Compile progress event listener ─────────────────────────── */
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen<CompileProgress>('compile:progress', (event) => {
+      if (cancelled) return;
+      setCompileProgress(event.payload);
+    }).then((fn) => {
+      if (cancelled) { fn(); } else { unlisten = fn; }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   /* ── Filtered entities ─────────────────────────────────────────── */
 
@@ -257,6 +288,35 @@ export function KnowledgePage() {
                   >
                     {compiling ? t('knowledge.compiling') : t('knowledge.compilePending')}
                   </Button>
+
+                  {/* Compile progress detail */}
+                  {compiling && compileProgress && compileProgress.total > 0 && (
+                    <div className="p-3 rounded-lg bg-surface-2 border border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs text-text-secondary">
+                        <span className="flex items-center gap-1.5">
+                          <RefreshCw size={12} className="animate-spin text-accent" />
+                          <span className="font-medium">{t('knowledge.compilePhase.compiling')}</span>
+                          <span className="text-text-tertiary">
+                            {t('knowledge.compileProgress', { current: compileProgress.current, total: compileProgress.total })}
+                          </span>
+                        </span>
+                        <span className="text-[11px] font-medium text-accent">
+                          {Math.round((compileProgress.current / compileProgress.total) * 100)}%
+                        </span>
+                      </div>
+                      {(compileProgress.documentTitle || compileProgress.documentId) && (
+                        <div className="text-[10px] text-text-tertiary truncate max-w-sm">
+                          {compileProgress.documentTitle || compileProgress.documentId}
+                        </div>
+                      )}
+                      <div className="w-full bg-surface-3 rounded-full h-2">
+                        <div
+                          className="bg-accent h-2 rounded-full transition-all duration-300 ease-out"
+                          style={{ width: `${Math.min(100, (compileProgress.current / compileProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Recent compile results */}
                   {compileResults.length > 0 && (

@@ -11,7 +11,7 @@ import { motion, MotionConfig, useReducedMotion } from "framer-motion";
 import { I18nProvider, useTranslation } from "./i18n";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
-import { UpdateNotification } from "./components/UpdateNotification";
+
 import { WelcomeWizard } from "./components/WelcomeWizard";
 import { SearchPage } from "./pages/SearchPage";
 import { SourcesPage } from "./pages/SourcesPage";
@@ -78,7 +78,6 @@ function AppShell() {
   return (
     <I18nProvider>
       <MotionConfig reducedMotion="user">
-        <UpdateNotification />
         <CommandPalette />
         {showWizard && (
           <WelcomeWizard onComplete={() => setShowWizard(false)} />

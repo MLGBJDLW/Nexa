@@ -2979,6 +2979,7 @@ mod tests {
                 model: "mock-model".to_string(),
                 system_prompt: None,
                 collection_context: None,
+                project_id: None,
             })
             .expect("conversation");
         let (tx, _rx) = mpsc::channel(32);
