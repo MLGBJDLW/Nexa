@@ -1050,7 +1050,7 @@ fn build_fts_query(input: &str) -> String {
         }
     }
 
-    parts.join(" ")
+    parts.join(" OR ")
 }
 
 /// Escape double-quotes inside a token so it can be safely wrapped in `"…"`.
@@ -1546,19 +1546,19 @@ mod tests {
 
     #[test]
     fn test_build_fts_query_basic() {
-        assert_eq!(build_fts_query("hello world"), r#""hello" "world""#);
+        assert_eq!(build_fts_query("hello world"), r#""hello" OR "world""#);
     }
 
     #[test]
     fn test_build_fts_query_prefix() {
         assert_eq!(build_fts_query("depl*"), r#""depl"*"#);
-        assert_eq!(build_fts_query("hello depl*"), r#""hello" "depl"*"#);
+        assert_eq!(build_fts_query("hello depl*"), r#""hello" OR "depl"*"#);
     }
 
     #[test]
     fn test_build_fts_query_special_chars() {
         assert_eq!(build_fts_query("c++"), r#""c++""#);
-        assert_eq!(build_fts_query("NOT this"), r#""NOT" "this""#);
+        assert_eq!(build_fts_query("NOT this"), r#""NOT" OR "this""#);
     }
 
     #[test]

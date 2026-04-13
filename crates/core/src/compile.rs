@@ -2,7 +2,6 @@
 //! Automatically distills documents into structured summaries, entities, and relationships.
 
 use serde::{Deserialize, Serialize};
-use tokio::time::{timeout, Duration};
 
 use crate::db::Database;
 use crate::error::CoreError;
@@ -144,6 +143,9 @@ pub async fn compile_document(
         model,
     )?;
 
+    // 3b. Index compiled output for FTS search
+    db.upsert_summary_chunk(doc_id, &output.summary, &output.key_points, &output.tags)?;
+
     // 4. Store entities and relationships
     let mut entities_found = 0;
     let mut links_created = 0;
@@ -217,7 +219,6 @@ where
     let pending_ids = db.get_uncompiled_document_ids(limit)?;
     let total = pending_ids.len();
     let mut results = Vec::new();
-    let per_doc_timeout = Duration::from_secs(120);
 
     for (i, doc_id) in pending_ids.iter().enumerate() {
         let title = db.get_document_title(doc_id).ok().flatten();
@@ -229,14 +230,9 @@ where
             phase: "compiling".to_string(),
         });
 
-        match timeout(
-            per_doc_timeout,
-            compile_document(db, doc_id, provider, model),
-        )
-        .await
-        {
-            Ok(Ok(result)) => results.push(result),
-            Ok(Err(e)) => {
+        match compile_document(db, doc_id, provider, model).await {
+            Ok(result) => results.push(result),
+            Err(e) => {
                 tracing::warn!("compile doc {doc_id}: {e}");
                 on_progress(&CompileProgress {
                     current: i + 1,
@@ -244,16 +240,6 @@ where
                     document_id: doc_id.clone(),
                     document_title: title.clone(),
                     phase: "error".to_string(),
-                });
-            }
-            Err(_) => {
-                tracing::warn!("compile doc {doc_id}: timed out after 120s");
-                on_progress(&CompileProgress {
-                    current: i + 1,
-                    total,
-                    document_id: doc_id.clone(),
-                    document_title: title,
-                    phase: "timeout".to_string(),
                 });
             }
         }
@@ -519,5 +505,48 @@ impl Database {
             total_entities,
             total_links,
         })
+    }
+
+    /// Insert (or replace) a synthetic chunk containing the compiled summary,
+    /// key-points and tags so that FTS5 triggers make them searchable.
+    /// Uses `chunk_index = -1` and `kind = 'summary'` to distinguish from
+    /// content chunks.
+    pub fn upsert_summary_chunk(
+        &self,
+        doc_id: &str,
+        summary: &str,
+        key_points: &[String],
+        tags: &[String],
+    ) -> Result<(), CoreError> {
+        let mut parts = Vec::with_capacity(3);
+        if !summary.is_empty() {
+            parts.push(summary.to_string());
+        }
+        if !key_points.is_empty() {
+            parts.push(key_points.join("\n"));
+        }
+        if !tags.is_empty() {
+            parts.push(tags.join(", "));
+        }
+        let content = parts.join("\n\n");
+        if content.trim().is_empty() {
+            return Ok(());
+        }
+
+        let conn = self.conn();
+        let id = uuid::Uuid::new_v4().to_string();
+        let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+        let len = content.len() as i64;
+
+        conn.execute(
+            "INSERT INTO chunks (id, document_id, chunk_index, kind, content, start_offset, end_offset, line_start, line_end, content_hash)
+             VALUES (?1, ?2, -1, 'summary', ?3, 0, ?4, 0, 0, ?5)
+             ON CONFLICT(document_id, chunk_index) DO UPDATE SET
+                content = excluded.content,
+                end_offset = excluded.end_offset,
+                content_hash = excluded.content_hash",
+            rusqlite::params![id, doc_id, content, len, hash],
+        )?;
+        Ok(())
     }
 }
