@@ -1,7 +1,25 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ChevronLeft, ChevronRight, Brain, BotMessageSquare } from 'lucide-react';
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { Logo } from './Logo';
 import { UpdateNotification } from './UpdateNotification';
 import { Toaster } from 'sonner';
@@ -18,9 +36,13 @@ function useAppVersion() {
 }
 
 const STORAGE_KEY = 'sidebar-collapsed';
+const NAV_ORDER_KEY = 'sidebar-nav-order';
+const LAST_ROUTE_KEY = 'last-route';
 const INSTANT_TRANSITION = { duration: 0 };
 
-const navItems: { to: string; labelKey: TranslationKey; icon: typeof Search }[] = [
+type NavItem = { to: string; labelKey: TranslationKey; icon: typeof Search };
+
+const CANONICAL_NAV_ITEMS: NavItem[] = [
   { to: '/', labelKey: 'nav.search', icon: Search },
   { to: '/sources', labelKey: 'nav.sources', icon: FolderOpen },
   { to: '/playbooks', labelKey: 'nav.playbooks', icon: BookOpen },
@@ -28,6 +50,33 @@ const navItems: { to: string; labelKey: TranslationKey; icon: typeof Search }[] 
   { to: '/chat', labelKey: 'nav.chat', icon: MessageCircle },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
+
+function loadOrderedNavItems(): NavItem[] {
+  try {
+    const raw = localStorage.getItem(NAV_ORDER_KEY);
+    if (!raw) return CANONICAL_NAV_ITEMS;
+    const saved = JSON.parse(raw);
+    if (!Array.isArray(saved)) return CANONICAL_NAV_ITEMS;
+    const byRoute = new Map(CANONICAL_NAV_ITEMS.map((it) => [it.to, it]));
+    const seen = new Set<string>();
+    const ordered: NavItem[] = [];
+    for (const to of saved) {
+      if (typeof to !== 'string') continue;
+      const item = byRoute.get(to);
+      if (item && !seen.has(to)) {
+        ordered.push(item);
+        seen.add(to);
+      }
+    }
+    // Append any canonical items not in saved order (forward-compat).
+    for (const item of CANONICAL_NAV_ITEMS) {
+      if (!seen.has(item.to)) ordered.push(item);
+    }
+    return ordered;
+  } catch {
+    return CANONICAL_NAV_ITEMS;
+  }
+}
 
 /* ── Right-side tooltip for collapsed sidebar ─────────────────────── */
 function SidebarTooltip({ content, show, children }: { content: string; show: boolean; children: ReactNode }) {
@@ -63,6 +112,81 @@ function SidebarTooltip({ content, show, children }: { content: string; show: bo
   );
 }
 
+/* ── Sortable nav item ────────────────────────────────────────────── */
+interface SortableNavItemProps {
+  item: NavItem;
+  label: string;
+  collapsed: boolean;
+  isCurrentPage: boolean;
+  shouldReduceMotion: boolean;
+}
+
+function SortableNavItem({ item, label, collapsed, isCurrentPage, shouldReduceMotion }: SortableNavItemProps) {
+  const Icon = item.icon;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.to });
+
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <SidebarTooltip content={label} show={collapsed}>
+        <NavLink
+          to={item.to}
+          end={item.to === '/'}
+          aria-label={label}
+          aria-current={isCurrentPage ? 'page' : undefined}
+          className={({ isActive }: { isActive: boolean }) =>
+            `relative flex items-center gap-2.5 rounded-md text-sm transition-colors duration-fast ease-out
+            ${collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2'}
+            ${isActive
+              ? 'bg-accent-subtle text-accent-hover'
+              : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary'
+            }`
+          }
+        >
+          {({ isActive }: { isActive: boolean }) => (
+            <>
+              {/* Active indicator bar */}
+              <motion.span
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-0.75 rounded-r-full bg-accent"
+                initial={false}
+                animate={{ height: isActive ? 20 : 0, opacity: isActive ? 1 : 0 }}
+                transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              />
+              <Icon className="h-4.5 w-4.5 shrink-0" />
+              <AnimatePresence>
+                {!collapsed && (
+                  <motion.span
+                    initial={shouldReduceMotion ? false : { opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: 'auto' }}
+                    exit={{ opacity: 0, width: 0 }}
+                    transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.2 }}
+                    className="overflow-hidden whitespace-nowrap"
+                  >
+                    {label}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </>
+          )}
+        </NavLink>
+      </SidebarTooltip>
+    </div>
+  );
+}
+
 /* ── Layout ───────────────────────────────────────────────────────── */
 export function Layout() {
   const { t } = useTranslation();
@@ -80,6 +204,51 @@ export function Layout() {
       return false;
     }
   });
+  const [navItems, setNavItems] = useState<NavItem[]>(() => loadOrderedNavItems());
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const navIds = useMemo(() => navItems.map((it) => it.to), [navItems]);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setNavItems((prev) => {
+      const oldIndex = prev.findIndex((it) => it.to === active.id);
+      const newIndex = prev.findIndex((it) => it.to === over.id);
+      if (oldIndex < 0 || newIndex < 0) return prev;
+      const next = arrayMove(prev, oldIndex, newIndex);
+      try {
+        localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(next.map((it) => it.to)));
+      } catch { /* noop */ }
+      return next;
+    });
+  };
+
+  // Persist the last visited route on every location change.
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_ROUTE_KEY, location.pathname);
+    } catch { /* noop */ }
+  }, [location.pathname]);
+
+  // On initial mount, if we landed on the default '/' route but the user
+  // was somewhere else last session, restore that route.
+  const didInitialRedirect = useRef(false);
+  useEffect(() => {
+    if (didInitialRedirect.current) return;
+    didInitialRedirect.current = true;
+    try {
+      const saved = localStorage.getItem(LAST_ROUTE_KEY);
+      if (saved && saved !== '/' && location.pathname === '/') {
+        navigate(saved, { replace: true });
+      }
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggle = () => {
     setCollapsed((prev: boolean) => {
@@ -118,58 +287,31 @@ export function Layout() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-0.5 px-2" role="navigation">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const label = t(item.labelKey);
-            const isCurrentPage = item.to === '/'
-              ? location.pathname === item.to
-              : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
-
-            return (
-              <SidebarTooltip key={item.to} content={label} show={collapsed}>
-                <NavLink
-                  to={item.to}
-                  end={item.to === '/'}
-                  aria-label={label}
-                  aria-current={isCurrentPage ? 'page' : undefined}
-                  className={({ isActive }: { isActive: boolean }) =>
-                    `relative flex items-center gap-2.5 rounded-md text-sm transition-colors duration-fast ease-out
-                    ${collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2'}
-                    ${isActive
-                      ? 'bg-accent-subtle text-accent-hover'
-                      : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary'
-                    }`
-                  }
-                >
-                  {({ isActive }: { isActive: boolean }) => (
-                    <>
-                      {/* Active indicator bar */}
-                      <motion.span
-                        className="absolute left-0 top-1/2 -translate-y-1/2 w-0.75 rounded-r-full bg-accent"
-                        initial={false}
-                        animate={{ height: isActive ? 20 : 0, opacity: isActive ? 1 : 0 }}
-                        transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                      />
-                      <Icon className="h-4.5 w-4.5 shrink-0" />
-                      <AnimatePresence>
-                        {!collapsed && (
-                          <motion.span
-                            initial={shouldReduceMotion ? false : { opacity: 0, width: 0 }}
-                            animate={{ opacity: 1, width: 'auto' }}
-                            exit={{ opacity: 0, width: 0 }}
-                            transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.2 }}
-                            className="overflow-hidden whitespace-nowrap"
-                          >
-                            {label}
-                          </motion.span>
-                        )}
-                      </AnimatePresence>
-                    </>
-                  )}
-                </NavLink>
-              </SidebarTooltip>
-            );
-          })}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={navIds} strategy={verticalListSortingStrategy}>
+              {navItems.map((item) => {
+                const label = t(item.labelKey);
+                const isCurrentPage = item.to === '/'
+                  ? location.pathname === item.to
+                  : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+                return (
+                  <SortableNavItem
+                    key={item.to}
+                    item={item}
+                    label={label}
+                    collapsed={collapsed}
+                    isCurrentPage={isCurrentPage}
+                    shouldReduceMotion={!!shouldReduceMotion}
+                  />
+                );
+              })}
+            </SortableContext>
+          </DndContext>
         </nav>
 
         {/* Footer: collapse toggle + version */}
