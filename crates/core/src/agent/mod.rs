@@ -654,7 +654,7 @@ fn merge_tool_definitions(
     let mut seen = std::collections::HashSet::new();
     let mut merged = Vec::new();
 
-    for def in primary.into_iter().chain(secondary.into_iter()) {
+    for def in primary.into_iter().chain(secondary) {
         if seen.insert(def.name.clone()) {
             merged.push(def);
         }

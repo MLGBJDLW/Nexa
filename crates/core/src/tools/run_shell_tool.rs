@@ -303,17 +303,16 @@ fn resolve_program(program: &str) -> String {
             {
                 return "python3".to_string();
             }
-        } else if program == "python3" {
-            if StdCommand::new("which")
+        } else if program == "python3"
+            && StdCommand::new("which")
                 .arg("python3")
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status()
                 .map(|s| !s.success())
                 .unwrap_or(true)
-            {
-                return "python".to_string();
-            }
+        {
+            return "python".to_string();
         }
     }
     program.to_string()
