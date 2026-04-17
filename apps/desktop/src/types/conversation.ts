@@ -145,6 +145,7 @@ export interface AppConfig {
   dynamicToolVisibility?: boolean;
   traceEnabled?: boolean;
   confirmDestructive?: boolean;
+  shellAccessMode?: 'restricted' | 'confirm_all' | 'open';
 }
 
 export type ProviderType =

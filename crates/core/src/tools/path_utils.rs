@@ -5,6 +5,7 @@ use crate::models::Source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PathKind {
+    Any,
     File,
     Directory,
 }
@@ -61,12 +62,14 @@ fn validate_kind(
         }
 
         return Err(match kind {
+            PathKind::Any => format!("Path not found: '{}'", requested.display()),
             PathKind::File => format!("File not found: '{}'", requested.display()),
             PathKind::Directory => format!("Directory not found: '{}'", requested.display()),
         });
     }
 
     match kind {
+        PathKind::Any => Ok(()),
         PathKind::File if !path.is_file() => {
             Err(format!("'{}' is not a file.", requested.display()))
         }
@@ -75,6 +78,44 @@ fn validate_kind(
         }
         _ => Ok(()),
     }
+}
+
+pub(crate) fn resolve_path_from_base_in_sources(
+    requested: &Path,
+    base: &Path,
+    sources: &[Source],
+    kind: PathKind,
+    allow_missing: bool,
+) -> Result<PathBuf, String> {
+    if requested.as_os_str().is_empty() {
+        return Err("Path must not be empty.".to_string());
+    }
+
+    if requested.to_string_lossy().contains('\0') {
+        return Err("Path must not contain null bytes.".to_string());
+    }
+
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        base.join(requested)
+    };
+    let resolved = canonicalize_with_optional_missing(&candidate, allow_missing)?;
+    let in_scope = sources.iter().any(|source| {
+        std::fs::canonicalize(Path::new(&source.root_path))
+            .map(|root| resolved.starts_with(&root))
+            .unwrap_or(false)
+    });
+
+    if !in_scope {
+        return Err(format!(
+            "Access denied: '{}' is not within any registered source directory.",
+            requested.display()
+        ));
+    }
+
+    validate_kind(&resolved, requested, kind, allow_missing)?;
+    Ok(resolved)
 }
 
 fn collect_matching_source_paths(
@@ -258,5 +299,50 @@ mod tests {
         assert!(err.contains("ambiguous"), "err was: {err}");
         assert!(err.contains("source left"), "err was: {err}");
         assert!(err.contains("source right"), "err was: {err}");
+    }
+
+    #[test]
+    fn resolves_relative_path_from_cwd_inside_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_root = std::fs::canonicalize(dir.path()).unwrap();
+        let cwd = source_root.join("nested");
+        let file = source_root.join("hello.txt");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(&file, "hello").unwrap();
+
+        let sources = vec![source("src-1", &source_root)];
+        let resolved = resolve_path_from_base_in_sources(
+            Path::new("../hello.txt"),
+            &cwd,
+            &sources,
+            PathKind::File,
+            false,
+        )
+        .expect("should resolve");
+
+        assert_eq!(resolved, file);
+    }
+
+    #[test]
+    fn rejects_relative_path_from_cwd_that_escapes_source() {
+        let workspace = tempfile::tempdir().unwrap();
+        let source_root = workspace.path().join("source");
+        let cwd = source_root.join("nested");
+        let escaped = workspace.path().join("outside.txt");
+        std::fs::create_dir_all(&source_root).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(&escaped, "nope").unwrap();
+
+        let sources = vec![source("src-1", &source_root)];
+        let err = resolve_path_from_base_in_sources(
+            Path::new("../../outside.txt"),
+            &cwd,
+            &sources,
+            PathKind::File,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(err.contains("Access denied"), "err was: {err}");
     }
 }

@@ -1,5 +1,5 @@
-//! RunShellTool — execute a whitelisted program with argv arguments inside a
-//! registered source directory.
+//! RunShellTool — execute argv-style commands with a configurable shell access
+//! policy.
 //!
 //! # Security posture
 //!
@@ -8,15 +8,24 @@
 //!   globs) are passed to the program as literal arguments, never interpreted.
 //! * **Program whitelist.** Only programs in [`PROGRAM_WHITELIST`] may run.
 //!   There is no user-extensible "custom" slot — adding programs requires a
-//!   code change (and review).
+//!   code change (and review). Simple aliases like `copy -> cp` and
+//!   `move -> mv` are normalized before execution.
+//!   When shell access mode is switched away from `restricted` in settings,
+//!   arbitrary bare command names are allowed.
+//! * **Scoped filesystem commands.** For shell-style filesystem programs
+//!   (`pwd`, `ls`, `cat`, `mkdir`, `cp`, `mv`), every path argument is resolved
+//!   relative to the validated `cwd` and must remain inside a registered
+//!   source root while shell access mode remains `restricted`.
 //! * **Git read-only.** When `program == "git"`, the first argument must be in
 //!   [`GIT_READONLY_SUBCOMMANDS`] and write-flavoured args (`push`, `pull`,
 //!   `fetch`, `commit`, `reset`, `--set`, `--unset`, etc.) are rejected even
 //!   if they appear later in the argv.
 //! * **Argv size caps.** Individual args > 8 KB and total argv > 32 KB are
 //!   rejected to prevent argv stuffing.
-//! * **Sandboxed cwd.** `cwd` is resolved via the same helper as `read_file`
-//!   and `edit_file`; it must canonicalize inside a registered source root.
+//! * **Scoped cwd by default.** In restricted mode, `cwd` is resolved via the
+//!   same helper as `read_file` and `edit_file`, so it must canonicalize
+//!   inside a registered source root. Less-restricted modes may allow any
+//!   existing directory.
 //! * **Scrubbed environment.** The child environment is rebuilt from scratch:
 //!   keys containing secret-like substrings (`KEY`, `SECRET`, `TOKEN`, …) are
 //!   dropped, and only an allow-list of neutral infrastructure vars (`PATH`,
@@ -26,8 +35,8 @@
 //!   rely on `kill_on_drop(true)` for cleanup.
 //! * **No hidden console.** On Windows we spawn with `CREATE_NO_WINDOW` so
 //!   interactive programs cannot flash a console or trap input.
-//! * **Always requires confirmation.** `requires_confirmation` is hard-coded
-//!   to `true` regardless of args.
+//! * **Configurable confirmation.** Per-call confirmation is controlled by the
+//!   user's shell access mode in Settings.
 //! * **Audit logging.** Each invocation logs program, arg count, cwd, exit
 //!   code, duration, and kill status via `tracing`. **Arg contents are never
 //!   logged** (they may contain sensitive paths or data).
@@ -41,10 +50,14 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::app_settings::ShellAccessMode;
 use crate::db::Database;
 use crate::error::CoreError;
+use crate::models::Source;
 
-use super::path_utils::resolve_existing_directory_in_sources;
+use super::path_utils::{
+    PathKind, resolve_existing_directory_in_sources, resolve_path_from_base_in_sources,
+};
 use super::{scoped_sources, Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
@@ -63,7 +76,12 @@ const MAX_TOTAL_ARGV_BYTES: usize = 32 * 1024;
 
 /// Whitelisted program basenames. Matched case-insensitively on Windows,
 /// case-sensitively on Unix. The model may only pass these names exactly.
-const PROGRAM_WHITELIST: &[&str] = &["python", "python3", "node", "npm", "npx", "git"];
+const PROGRAM_WHITELIST: &[&str] = &[
+    "python", "python3", "node", "npm", "npx", "git", "pwd", "ls", "cat", "mkdir", "cp", "mv",
+];
+
+/// Accepted aliases that normalize to a canonical program name.
+const PROGRAM_ALIASES: &[(&str, &str)] = &[("copy", "cp"), ("move", "mv")];
 
 /// For `git`, only these subcommands are accepted as `args[0]`.
 const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
@@ -191,7 +209,14 @@ fn program_matches(candidate: &str, canonical: &str) -> bool {
 }
 
 /// Reject unknown programs. Returns the canonical name on success.
-fn validate_program(program: &str) -> Result<&'static str, String> {
+fn normalize_program_alias(program: &str) -> Option<&'static str> {
+    PROGRAM_ALIASES
+        .iter()
+        .find(|(alias, _)| program_matches(program, alias))
+        .map(|(_, canonical)| *canonical)
+}
+
+fn validate_program(program: &str, mode: ShellAccessMode) -> Result<String, String> {
     if program.is_empty() {
         return Err("program must not be empty".to_string());
     }
@@ -201,19 +226,30 @@ fn validate_program(program: &str) -> Result<&'static str, String> {
                 .to_string(),
         );
     }
+    if let Some(canonical) = normalize_program_alias(program) {
+        return Ok(canonical.to_string());
+    }
     for &canonical in PROGRAM_WHITELIST {
         if program_matches(program, canonical) {
-            return Ok(canonical);
+            return Ok(canonical.to_string());
         }
     }
+    if !mode.is_restricted() {
+        return Ok(program.to_string());
+    }
+    let allowed: Vec<&str> = PROGRAM_WHITELIST
+        .iter()
+        .copied()
+        .chain(PROGRAM_ALIASES.iter().map(|(alias, _)| *alias))
+        .collect();
     Err(format!(
         "program '{program}' is not in the run_shell whitelist. Allowed: {}",
-        PROGRAM_WHITELIST.join(", ")
+        allowed.join(", ")
     ))
 }
 
 /// Reject unsafe argv patterns.
-fn validate_args(program: &str, args: &[String]) -> Result<(), String> {
+fn validate_args(mode: ShellAccessMode, program: &str, args: &[String]) -> Result<(), String> {
     let mut total = 0usize;
     for (i, arg) in args.iter().enumerate() {
         if arg.len() > MAX_SINGLE_ARG_BYTES {
@@ -232,6 +268,10 @@ fn validate_args(program: &str, args: &[String]) -> Result<(), String> {
         return Err(format!(
             "total argv size ({total} bytes) exceeds {MAX_TOTAL_ARGV_BYTES}"
         ));
+    }
+
+    if !mode.is_restricted() {
+        return Ok(());
     }
 
     if program_matches(program, "git") {
@@ -280,6 +320,114 @@ fn validate_args(program: &str, args: &[String]) -> Result<(), String> {
                 }
             }
         }
+    }
+
+    if program_matches(program, "pwd") && !args.is_empty() {
+        return Err("pwd does not accept any arguments".to_string());
+    }
+
+    Ok(())
+}
+
+fn collect_positional_args(args: &[String]) -> Vec<&str> {
+    let mut positionals = Vec::new();
+    let mut after_double_dash = false;
+
+    for arg in args {
+        if after_double_dash {
+            positionals.push(arg.as_str());
+            continue;
+        }
+        if arg == "--" {
+            after_double_dash = true;
+            continue;
+        }
+        if arg.starts_with('-') && arg != "-" {
+            continue;
+        }
+        positionals.push(arg.as_str());
+    }
+
+    positionals
+}
+
+fn validate_scoped_args(
+    mode: ShellAccessMode,
+    program: &str,
+    args: &[String],
+    cwd: &Path,
+    sources: &[Source],
+) -> Result<(), String> {
+    if !mode.is_restricted() {
+        return Ok(());
+    }
+
+    let positionals = collect_positional_args(args);
+
+    match program {
+        "ls" => {
+            for path in positionals {
+                resolve_path_from_base_in_sources(
+                    Path::new(path),
+                    cwd,
+                    sources,
+                    PathKind::Any,
+                    false,
+                )?;
+            }
+        }
+        "cat" => {
+            if positionals.is_empty() {
+                return Err("cat requires at least one file path".to_string());
+            }
+            for path in positionals {
+                resolve_path_from_base_in_sources(
+                    Path::new(path),
+                    cwd,
+                    sources,
+                    PathKind::File,
+                    false,
+                )?;
+            }
+        }
+        "mkdir" => {
+            if positionals.is_empty() {
+                return Err("mkdir requires at least one path".to_string());
+            }
+            for path in positionals {
+                resolve_path_from_base_in_sources(
+                    Path::new(path),
+                    cwd,
+                    sources,
+                    PathKind::Directory,
+                    true,
+                )?;
+            }
+        }
+        "cp" | "mv" => {
+            if positionals.len() < 2 {
+                return Err(format!(
+                    "{program} requires at least one source and one destination path"
+                ));
+            }
+            for path in &positionals[..positionals.len() - 1] {
+                resolve_path_from_base_in_sources(
+                    Path::new(path),
+                    cwd,
+                    sources,
+                    PathKind::Any,
+                    false,
+                )?;
+            }
+            resolve_path_from_base_in_sources(
+                Path::new(positionals[positionals.len() - 1]),
+                cwd,
+                sources,
+                PathKind::Any,
+                true,
+            )?;
+        }
+        _ => {}
     }
 
     Ok(())
@@ -566,7 +714,7 @@ impl Tool for RunShellTool {
     }
 
     fn requires_confirmation(&self, _args: &serde_json::Value) -> bool {
-        true
+        false
     }
 
     fn confirmation_message(&self, args: &serde_json::Value) -> Option<String> {
@@ -604,15 +752,19 @@ impl Tool for RunShellTool {
     ) -> Result<ToolResult, CoreError> {
         let parsed: RunShellArgs = serde_json::from_str(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid run_shell arguments: {e}")))?;
+        let shell_access_mode = db
+            .load_app_config()
+            .map(|cfg| cfg.shell_access_mode)
+            .unwrap_or_default();
 
-        let canonical_program = match validate_program(&parsed.program) {
+        let canonical_program = match validate_program(&parsed.program, shell_access_mode) {
             Ok(p) => p,
             Err(msg) => return Ok(error_result(call_id, msg)),
         };
 
-        let resolved_program = resolve_program(canonical_program);
+        let resolved_program = resolve_program(&canonical_program);
 
-        if let Err(msg) = validate_args(canonical_program, &parsed.args) {
+        if let Err(msg) = validate_args(shell_access_mode, &canonical_program, &parsed.args) {
             return Ok(error_result(call_id, msg));
         }
 
@@ -620,15 +772,39 @@ impl Tool for RunShellTool {
 
         // Resolve cwd inside a registered source directory (blocking fs ops).
         let cwd_input = parsed.cwd.clone();
+        let args_input = parsed.args.clone();
         let db_clone = db.clone();
         let scope_clone = source_scope.to_vec();
+        let program = canonical_program.clone();
         let cwd_result: Result<PathBuf, String> = tokio::task::spawn_blocking(move || {
-            let sources = scoped_sources(&db_clone, &scope_clone)
-                .map_err(|e| format!("failed to load sources: {e}"))?;
-            if sources.is_empty() {
-                return Err("No sources registered. Add a source directory first.".to_string());
+            if shell_access_mode.is_restricted() {
+                let sources = scoped_sources(&db_clone, &scope_clone)
+                    .map_err(|e| format!("failed to load sources: {e}"))?;
+                if sources.is_empty() {
+                    return Err("No sources registered. Add a source directory first.".to_string());
+                }
+                let cwd = resolve_existing_directory_in_sources(Path::new(&cwd_input), &sources)?;
+                validate_scoped_args(shell_access_mode, &program, &args_input, &cwd, &sources)?;
+                Ok(cwd)
+            } else {
+                if !Path::new(&cwd_input).is_absolute() {
+                    let sources = scoped_sources(&db_clone, &scope_clone)
+                        .map_err(|e| format!("failed to load sources: {e}"))?;
+                    if !sources.is_empty() {
+                        if let Ok(cwd) =
+                            resolve_existing_directory_in_sources(Path::new(&cwd_input), &sources)
+                        {
+                            return Ok(cwd);
+                        }
+                    }
+                }
+                let cwd = std::fs::canonicalize(Path::new(&cwd_input))
+                    .map_err(|e| format!("Cannot resolve directory '{}': {e}", cwd_input))?;
+                if !cwd.is_dir() {
+                    return Err(format!("'{}' is not a directory.", cwd_input));
+                }
+                Ok(cwd)
             }
-            resolve_existing_directory_in_sources(Path::new(&cwd_input), &sources)
         })
         .await
         .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?;
@@ -684,7 +860,7 @@ mod tests {
     fn test_reject_non_whitelisted_program() {
         for bad in &["rm", "curl", "sh", "powershell", "cmd", "bash", "zsh"] {
             assert!(
-                validate_program(bad).is_err(),
+                validate_program(bad, ShellAccessMode::Restricted).is_err(),
                 "expected '{bad}' to be rejected"
             );
         }
@@ -692,18 +868,33 @@ mod tests {
 
     #[test]
     fn test_accept_whitelisted_program() {
-        for good in &["python", "python3", "node", "npm", "npx", "git"] {
+        for good in &[
+            "python", "python3", "node", "npm", "npx", "git", "pwd", "ls", "cat", "mkdir", "cp",
+            "mv", "copy", "move",
+        ] {
             assert!(
-                validate_program(good).is_ok(),
+                validate_program(good, ShellAccessMode::Restricted).is_ok(),
                 "expected '{good}' to be accepted"
             );
         }
     }
 
     #[test]
+    fn test_open_mode_accepts_non_whitelisted_program() {
+        assert_eq!(
+            validate_program("bash", ShellAccessMode::Open).unwrap(),
+            "bash"
+        );
+        assert_eq!(
+            validate_program("copy", ShellAccessMode::Open).unwrap(),
+            "cp"
+        );
+    }
+
+    #[test]
     fn test_reject_program_with_path_separator() {
-        assert!(validate_program("/usr/bin/python").is_err());
-        assert!(validate_program("..\\python").is_err());
+        assert!(validate_program("/usr/bin/python", ShellAccessMode::Restricted).is_err());
+        assert!(validate_program("..\\python", ShellAccessMode::Open).is_err());
     }
 
     // --- validate_args ------------------------------------------------------
@@ -711,14 +902,14 @@ mod tests {
     #[test]
     fn test_reject_null_byte_in_args() {
         let args = vec!["hello\0world".to_string()];
-        assert!(validate_args("python", &args).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
     }
 
     #[test]
     fn test_reject_oversized_arg() {
         let big = "x".repeat(MAX_SINGLE_ARG_BYTES + 1);
         let args = vec![big];
-        assert!(validate_args("python", &args).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
     }
 
     #[test]
@@ -726,26 +917,37 @@ mod tests {
         // Many args just under the single-arg limit, totalling > 32 KB.
         let chunk = "x".repeat(4 * 1024);
         let args: Vec<String> = (0..10).map(|_| chunk.clone()).collect();
-        assert!(validate_args("python", &args).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
     }
 
     #[test]
     fn test_git_requires_readonly_subcommand() {
-        assert!(validate_args("git", &["status".to_string()]).is_ok());
-        assert!(validate_args("git", &["diff".to_string(), "--stat".to_string()]).is_ok());
-        assert!(validate_args("git", &["push".to_string()]).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "git", &["status".to_string()]).is_ok());
         assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &["diff".to_string(), "--stat".to_string()]
+        )
+        .is_ok());
+        assert!(validate_args(ShellAccessMode::Restricted, "git", &["push".to_string()]).is_err());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
             "git",
             &["commit".to_string(), "-m".to_string(), "x".to_string()]
         )
         .is_err());
-        assert!(validate_args("git", &["reset".to_string(), "--hard".to_string()]).is_err());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &["reset".to_string(), "--hard".to_string()]
+        )
+        .is_err());
     }
 
     #[test]
     fn test_git_empty_args_rejected() {
         let empty: Vec<String> = vec![];
-        assert!(validate_args("git", &empty).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "git", &empty).is_err());
     }
 
     #[test]
@@ -756,7 +958,7 @@ mod tests {
             "--unset".to_string(),
             "user.name".to_string(),
         ];
-        assert!(validate_args("git", &args).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "git", &args).is_err());
     }
 
     #[test]
@@ -765,21 +967,67 @@ mod tests {
             arr.iter().map(|x| x.to_string()).collect()
         }
         // Positional-write form: must reject.
-        assert!(validate_args("git", &s(&["config", "user.name", "evil"])).is_err());
-        assert!(validate_args("git", &s(&["config", "core.editor", "vim"])).is_err());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &s(&["config", "user.name", "evil"])
+        )
+        .is_err());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &s(&["config", "core.editor", "vim"])
+        )
+        .is_err());
         // Bare `git config` (no subaction): must reject.
-        assert!(validate_args("git", &s(&["config"])).is_err());
+        assert!(validate_args(ShellAccessMode::Restricted, "git", &s(&["config"])).is_err());
         // Read-only forms: must pass.
-        assert!(validate_args("git", &s(&["config", "--list"])).is_ok());
-        assert!(validate_args("git", &s(&["config", "--get", "user.name"])).is_ok());
-        assert!(validate_args("git", &s(&["config", "--get-regexp", "^alias\\."])).is_ok());
-        assert!(validate_args("git", &s(&["config", "-l"])).is_ok());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &s(&["config", "--list"])
+        )
+        .is_ok());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &s(&["config", "--get", "user.name"])
+        )
+        .is_ok());
+        assert!(validate_args(
+            ShellAccessMode::Restricted,
+            "git",
+            &s(&["config", "--get-regexp", "^alias\\."])
+        )
+        .is_ok());
+        assert!(validate_args(ShellAccessMode::Restricted, "git", &s(&["config", "-l"])).is_ok());
     }
 
     #[test]
     fn test_python_accepts_arbitrary_args() {
         let args = vec!["-c".to_string(), "print('hello')".to_string()];
-        assert!(validate_args("python", &args).is_ok());
+        assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_ok());
+    }
+
+    #[test]
+    fn test_pwd_rejects_args() {
+        assert!(validate_args(ShellAccessMode::Restricted, "pwd", &["oops".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_open_mode_allows_write_style_git_args() {
+        assert!(validate_args(ShellAccessMode::Open, "git", &["push".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn test_collect_positional_args_respects_double_dash() {
+        let args = vec![
+            "-l".to_string(),
+            "--".to_string(),
+            "-literal".to_string(),
+            "file.txt".to_string(),
+        ];
+        assert_eq!(collect_positional_args(&args), vec!["-literal", "file.txt"]);
     }
 
     // --- build_env ----------------------------------------------------------
@@ -845,9 +1093,8 @@ mod tests {
             "args": ["-c", "print(1)"],
             "cwd": "."
         });
-        assert!(tool.requires_confirmation(&args));
-        // Also true for empty args — confirmation is unconditional.
-        assert!(tool.requires_confirmation(&serde_json::json!({})));
+        assert!(!tool.requires_confirmation(&args));
+        assert!(!tool.requires_confirmation(&serde_json::json!({})));
     }
 
     #[test]
@@ -909,6 +1156,8 @@ mod tests {
         assert_eq!(resolve_program("node"), "node");
         assert_eq!(resolve_program("npm"), "npm");
         assert_eq!(resolve_program("npx"), "npx");
+        assert_eq!(resolve_program("cp"), "cp");
+        assert_eq!(resolve_program("mv"), "mv");
     }
 
     // --- build_env UTF-8 injection ------------------------------------------
@@ -1085,5 +1334,77 @@ mod tests {
         .await
         .expect("run ok");
         assert_eq!(out.exit_code, Some(0));
+    }
+
+    fn source(id: &str, root: &Path) -> Source {
+        Source {
+            id: id.to_string(),
+            kind: "local_folder".to_string(),
+            root_path: root.to_string_lossy().to_string(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_cp_paths_must_stay_within_source_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let cwd = root.join("nested");
+        let src = root.join("hello.txt");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(&src, "hello").unwrap();
+        let sources = vec![source("src-1", &root)];
+
+        assert!(validate_scoped_args(
+            ShellAccessMode::Restricted,
+            "cp",
+            &["../hello.txt".to_string(), "copy.txt".to_string()],
+            &cwd,
+            &sources,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_mv_rejects_destination_outside_source_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let cwd = root.join("nested");
+        let src = root.join("hello.txt");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(&src, "hello").unwrap();
+        let sources = vec![source("src-1", &root)];
+
+        let err = validate_scoped_args(
+            ShellAccessMode::Restricted,
+            "mv",
+            &["../hello.txt".to_string(), "../../escape.txt".to_string()],
+            &cwd,
+            &sources,
+        )
+        .unwrap_err();
+        assert!(err.contains("Access denied"), "err was: {err}");
+    }
+
+    #[test]
+    fn test_open_mode_skips_scoped_path_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let cwd = root.join("nested");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let sources = vec![source("src-1", &root)];
+
+        assert!(validate_scoped_args(
+            ShellAccessMode::Open,
+            "cp",
+            &["/tmp/source.txt".to_string(), "/tmp/dest.txt".to_string()],
+            &cwd,
+            &sources,
+        )
+        .is_ok());
     }
 }

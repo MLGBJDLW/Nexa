@@ -12,7 +12,7 @@ use ask_core::agent::{
     build_system_prompt, AgentConfig as ExecutorConfig, AgentEvent, AgentExecutor,
     CancellationToken, ConfirmationCallback,
 };
-use ask_core::app_settings::AppConfig;
+use ask_core::app_settings::{AppConfig, ShellAccessMode};
 use ask_core::conversation::memory::estimate_tokens;
 use ask_core::conversation::{
     AgentConfig as DbAgentConfig, CollectionContext, Conversation, ConversationMessage,
@@ -1671,6 +1671,7 @@ pub async fn compact_conversation_cmd(
         dynamic_tool_visibility: true,
         trace_enabled: true,
         require_tool_confirmation: false,
+        shell_access_mode: ShellAccessMode::Restricted,
     };
 
     let summarization_provider: Option<Box<dyn ask_core::llm::LlmProvider>> =
@@ -2026,10 +2027,13 @@ pub async fn agent_chat_cmd(
         dynamic_tool_visibility: true,
         trace_enabled: true,
         require_tool_confirmation: app_cfg.confirm_destructive,
+        shell_access_mode: app_cfg.shell_access_mode,
     };
 
     // 6b. Build confirmation callback if enabled.
-    let confirmation_cb: Option<ConfirmationCallback> = if app_cfg.confirm_destructive {
+    let confirmation_cb: Option<ConfirmationCallback> = if app_cfg.confirm_destructive
+        || app_cfg.shell_access_mode.requires_confirmation()
+    {
         let dialog_handle = app_handle.clone();
         Some(Arc::new(move |message: String| {
             let handle = dialog_handle.clone();

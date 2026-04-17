@@ -472,6 +472,14 @@ export const ru: TranslationKeys = {
   'settings.traceEnabledDesc': 'Записывать подробные трейсы взаимодействий агента для отладки и оптимизации.',
   'settings.confirmDestructive': 'Подтверждение деструктивных операций',
   'settings.confirmDestructiveDesc': 'Запрашивать подтверждение перед редактированием файлов или удалением источников агентом.',
+  'settings.shellAccessMode': 'Shell Access Mode',
+  'settings.shellAccessModeDesc': 'Controls how much freedom run_shell gets. Restricted is safest; open gives the agent full command execution.',
+  'settings.shellAccessRestricted': 'Restricted',
+  'settings.shellAccessRestrictedDesc': 'Whitelisted commands only, scoped to registered sources.',
+  'settings.shellAccessConfirmAll': 'Ask Every Time',
+  'settings.shellAccessConfirmAllDesc': 'Allow any bare command, but require confirmation before each run_shell call.',
+  'settings.shellAccessOpen': 'Fully Open',
+  'settings.shellAccessOpenDesc': 'Allow any bare command with no confirmation. Use only if you trust the active agent and prompts.',
 
   // Command Palette
   'cmd.placeholder': 'Введите команду...',
