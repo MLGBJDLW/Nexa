@@ -5,6 +5,25 @@ use serde::{Deserialize, Serialize};
 
 const APP_CONFIG_KEY: &str = "app_config";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellAccessMode {
+    #[default]
+    Restricted,
+    ConfirmAll,
+    Open,
+}
+
+impl ShellAccessMode {
+    pub fn requires_confirmation(self) -> bool {
+        matches!(self, Self::ConfirmAll)
+    }
+
+    pub fn is_restricted(self) -> bool {
+        matches!(self, Self::Restricted)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
@@ -48,6 +67,10 @@ pub struct AppConfig {
     /// Whether destructive tool calls require user confirmation. Default: false
     #[serde(default)]
     pub confirm_destructive: bool,
+
+    /// Shell command access mode for run_shell. Default: restricted.
+    #[serde(default)]
+    pub shell_access_mode: ShellAccessMode,
 
     /// Whether to automatically extract memories from conversations. Default: true
     #[serde(default = "default_auto_memory_extraction")]
@@ -102,6 +125,7 @@ impl Default for AppConfig {
             llm_timeout_secs: default_llm_timeout_secs(),
             mcp_call_timeout_secs: default_mcp_call_timeout_secs(),
             confirm_destructive: false,
+            shell_access_mode: ShellAccessMode::Restricted,
             auto_memory_extraction: true,
         }
     }

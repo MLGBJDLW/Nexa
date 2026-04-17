@@ -438,6 +438,8 @@ export function SettingsPage() {
         maxAudioFileSize: 536870912,
         llmTimeoutSecs: 300,
         mcpCallTimeoutSecs: 60,
+        confirmDestructive: false,
+        shellAccessMode: 'restricted',
       });
     }
   }, []);
@@ -1453,6 +1455,57 @@ export function SettingsPage() {
                       <span className="text-sm font-medium text-text-primary">{t('settings.confirmDestructive')}</span>
                     </label>
                     <p className="text-xs text-text-tertiary ml-6">{t('settings.confirmDestructiveDesc')}</p>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-text-primary">{t('settings.shellAccessMode')}</label>
+                      <p className="text-xs text-text-tertiary">{t('settings.shellAccessModeDesc')}</p>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        {[
+                          {
+                            value: 'restricted',
+                            label: t('settings.shellAccessRestricted'),
+                            desc: t('settings.shellAccessRestrictedDesc'),
+                          },
+                          {
+                            value: 'confirm_all',
+                            label: t('settings.shellAccessConfirmAll'),
+                            desc: t('settings.shellAccessConfirmAllDesc'),
+                          },
+                          {
+                            value: 'open',
+                            label: t('settings.shellAccessOpen'),
+                            desc: t('settings.shellAccessOpenDesc'),
+                          },
+                        ].map((option) => (
+                          <label
+                            key={option.value}
+                            className={`cursor-pointer rounded-lg border p-3 transition-colors ${
+                              (appConfig.shellAccessMode ?? 'restricted') === option.value
+                                ? 'border-accent bg-accent/10'
+                                : 'border-border bg-surface-2'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="radio"
+                                name="shell-access-mode"
+                                value={option.value}
+                                checked={(appConfig.shellAccessMode ?? 'restricted') === option.value}
+                                onChange={() => setAppConfig({
+                                  ...appConfig,
+                                  shellAccessMode: option.value as 'restricted' | 'confirm_all' | 'open',
+                                })}
+                                className="mt-1"
+                              />
+                              <div className="space-y-1">
+                                <div className="text-sm font-medium text-text-primary">{option.label}</div>
+                                <div className="text-xs text-text-tertiary">{option.desc}</div>
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex justify-end">

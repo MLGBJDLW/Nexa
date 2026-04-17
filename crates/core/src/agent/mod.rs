@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, info_span, warn, Instrument};
 use uuid::Uuid;
 
+use crate::app_settings::ShellAccessMode;
 use crate::conversation::memory::{
     estimate_message_tokens, estimate_tokens, model_context_window, trim_to_context_window,
 };
@@ -421,6 +422,9 @@ pub struct AgentConfig {
     /// Default: `false` (preserves existing behaviour).
     #[serde(default)]
     pub require_tool_confirmation: bool,
+    /// Shell execution policy for run_shell.
+    #[serde(default)]
+    pub shell_access_mode: ShellAccessMode,
 }
 
 fn default_trace_enabled() -> bool {
@@ -454,6 +458,7 @@ impl Default for AgentConfig {
             dynamic_tool_visibility: true,
             trace_enabled: true,
             require_tool_confirmation: false,
+            shell_access_mode: ShellAccessMode::Restricted,
         }
     }
 }
@@ -654,7 +659,7 @@ fn merge_tool_definitions(
     let mut seen = std::collections::HashSet::new();
     let mut merged = Vec::new();
 
-    for def in primary.into_iter().chain(secondary.into_iter()) {
+    for def in primary.into_iter().chain(secondary) {
         if seen.insert(def.name.clone()) {
             merged.push(def);
         }
@@ -994,6 +999,7 @@ impl AgentExecutor {
                         created_at: String::new(),
                         sort_order,
                         thinking: None,
+                        image_attachments: None,
                     };
                     if let Err(e) = db.add_message(&conv_msg) {
                         error!("Failed to persist message: {e}");
@@ -1072,6 +1078,7 @@ impl AgentExecutor {
                                     created_at: String::new(),
                                     sort_order,
                                     thinking: None,
+                                    image_attachments: None,
                                 };
                                 if let Err(e) = db.add_message(&synthetic) {
                                     warn!(
@@ -1116,6 +1123,7 @@ impl AgentExecutor {
                             created_at: String::new(),
                             sort_order,
                             thinking: None,
+                            image_attachments: None,
                         };
                         if let Err(e) = db.add_message(&conv_msg) {
                             error!("Failed to persist message: {e}");
@@ -1560,6 +1568,7 @@ impl AgentExecutor {
                         } else {
                             Some(iteration_thinking.clone())
                         },
+                        image_attachments: None,
                     };
                     if let Err(e) = db.add_message(&conv_msg) {
                         warn!("Failed to save final assistant message: {e}");
@@ -1637,6 +1646,7 @@ impl AgentExecutor {
                     } else {
                         Some(iteration_thinking.clone())
                     },
+                    image_attachments: None,
                 };
                 if let Err(e) = db.add_message(&conv_msg) {
                     warn!("Failed to save intermediate assistant message: {e}");
@@ -1675,29 +1685,28 @@ impl AgentExecutor {
                     let tool_span = info_span!("tool_execution", tool = %tc.name);
                     async move {
                         // -- Confirmation gate for destructive tools --------
-                        if self.config.require_tool_confirmation {
-                            let parsed_args: serde_json::Value =
-                                serde_json::from_str(&tc.arguments).unwrap_or_default();
-                            if self.tools.requires_confirmation(&tc.name, &parsed_args) {
-                                if let Some(ref cb) = self.confirmation_callback {
-                                    let message = self
-                                        .tools
-                                        .confirmation_message(&tc.name, &parsed_args)
-                                        .unwrap_or_else(|| format!("Execute tool: {}", tc.name));
-                                    if !cb(message).await {
-                                        let declined = crate::tools::ToolResult {
-                                            call_id: tc.id.clone(),
-                                            content: "Operation cancelled by user.".to_string(),
-                                            is_error: true,
-                                            artifacts: None,
-                                        };
-                                        return (
-                                            tc,
-                                            tool_timeout,
-                                            Ok(Ok(declined)),
-                                            Duration::ZERO,
-                                        );
-                                    }
+                        let parsed_args: serde_json::Value =
+                            serde_json::from_str(&tc.arguments).unwrap_or_default();
+                        let needs_confirmation = if tc.name == "run_shell" {
+                            self.config.shell_access_mode.requires_confirmation()
+                        } else {
+                            self.config.require_tool_confirmation
+                                && self.tools.requires_confirmation(&tc.name, &parsed_args)
+                        };
+                        if needs_confirmation {
+                            if let Some(ref cb) = self.confirmation_callback {
+                                let message = self
+                                    .tools
+                                    .confirmation_message(&tc.name, &parsed_args)
+                                    .unwrap_or_else(|| format!("Execute tool: {}", tc.name));
+                                if !cb(message).await {
+                                    let declined = crate::tools::ToolResult {
+                                        call_id: tc.id.clone(),
+                                        content: "Operation cancelled by user.".to_string(),
+                                        is_error: true,
+                                        artifacts: None,
+                                    };
+                                    return (tc, tool_timeout, Ok(Ok(declined)), Duration::ZERO);
                                 }
                             }
                         }
@@ -1805,6 +1814,7 @@ impl AgentExecutor {
                         created_at: String::new(),
                         sort_order,
                         thinking: None,
+                        image_attachments: None,
                     };
                     if let Err(e) = db.add_message(&tool_conv_msg) {
                         warn!("Failed to save tool result message: {e}");
@@ -1895,6 +1905,7 @@ impl AgentExecutor {
                 created_at: String::new(),
                 sort_order,
                 thinking: None,
+                image_attachments: None,
             };
             if let Err(e) = db.add_message(&conv_msg) {
                 warn!("Failed to save final assistant message: {e}");
@@ -2227,6 +2238,7 @@ impl AgentExecutor {
             created_at: String::new(),
             sort_order: 0,
             thinking: None,
+            image_attachments: None,
         };
 
         let mut compacted = Vec::with_capacity(1 + messages.len() - evict_count);
@@ -2334,6 +2346,7 @@ impl AgentExecutor {
                         created_at: String::new(),
                         sort_order,
                         thinking: None,
+                        image_attachments: None,
                     };
                     if let Err(e) = db.add_message(&conv_msg) {
                         error!("Failed to persist message: {e}");

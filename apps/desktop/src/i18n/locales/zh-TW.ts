@@ -470,6 +470,14 @@ export const zhTW: TranslationKeys = {
   'settings.traceEnabledDesc': '記錄 Agent 互動的詳細軌跡，用於除錯和優化。',
   'settings.confirmDestructive': '確認破壞性操作',
   'settings.confirmDestructiveDesc': 'Agent 編輯檔案或刪除資料源前要求使用者確認。',
+  'settings.shellAccessMode': 'Shell 權限模式',
+  'settings.shellAccessModeDesc': '控制 run_shell 的開放程度。受限模式最安全，完全開放會給 Agent 完整命令執行能力。',
+  'settings.shellAccessRestricted': '受限模式',
+  'settings.shellAccessRestrictedDesc': '只允許白名單命令，並限制在已註冊的資料源範圍內。',
+  'settings.shellAccessConfirmAll': '每次都確認',
+  'settings.shellAccessConfirmAllDesc': '允許任意裸命令，但每次 run_shell 呼叫前都會跳出確認。',
+  'settings.shellAccessOpen': '完全開放',
+  'settings.shellAccessOpenDesc': '允許任意裸命令且不再確認。僅在你完全信任目前 Agent 與提示詞時使用。',
 
   // Command Palette
   'cmd.placeholder': '輸入命令...',

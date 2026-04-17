@@ -470,6 +470,14 @@ export const ja: TranslationKeys = {
   'settings.traceEnabledDesc': 'デバッグと最適化のためにエージェントの詳細なトレースを記録。',
   'settings.confirmDestructive': '破壊的操作の確認',
   'settings.confirmDestructiveDesc': 'エージェントがファイルを編集またはソースを削除する前に確認を求める。',
+  'settings.shellAccessMode': 'Shell Access Mode',
+  'settings.shellAccessModeDesc': 'Controls how much freedom run_shell gets. Restricted is safest; open gives the agent full command execution.',
+  'settings.shellAccessRestricted': 'Restricted',
+  'settings.shellAccessRestrictedDesc': 'Whitelisted commands only, scoped to registered sources.',
+  'settings.shellAccessConfirmAll': 'Ask Every Time',
+  'settings.shellAccessConfirmAllDesc': 'Allow any bare command, but require confirmation before each run_shell call.',
+  'settings.shellAccessOpen': 'Fully Open',
+  'settings.shellAccessOpenDesc': 'Allow any bare command with no confirmation. Use only if you trust the active agent and prompts.',
 
   // Command Palette
   'cmd.placeholder': 'コマンドを入力...',

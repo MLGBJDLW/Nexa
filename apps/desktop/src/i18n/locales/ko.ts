@@ -472,6 +472,14 @@ export const ko: TranslationKeys = {
   'settings.traceEnabledDesc': '디버깅 및 최적화를 위해 에이전트 상호작용의 상세 트레이스를 기록.',
   'settings.confirmDestructive': '파괴적 작업 확인',
   'settings.confirmDestructiveDesc': '에이전트가 파일을 편집하거나 소스를 삭제하기 전에 확인을 요청.',
+  'settings.shellAccessMode': 'Shell Access Mode',
+  'settings.shellAccessModeDesc': 'Controls how much freedom run_shell gets. Restricted is safest; open gives the agent full command execution.',
+  'settings.shellAccessRestricted': 'Restricted',
+  'settings.shellAccessRestrictedDesc': 'Whitelisted commands only, scoped to registered sources.',
+  'settings.shellAccessConfirmAll': 'Ask Every Time',
+  'settings.shellAccessConfirmAllDesc': 'Allow any bare command, but require confirmation before each run_shell call.',
+  'settings.shellAccessOpen': 'Fully Open',
+  'settings.shellAccessOpenDesc': 'Allow any bare command with no confirmation. Use only if you trust the active agent and prompts.',
 
   // Command Palette
   'cmd.placeholder': '명령 입력...',

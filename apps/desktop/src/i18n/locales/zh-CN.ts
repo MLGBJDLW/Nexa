@@ -472,6 +472,14 @@ export const zhCN: TranslationKeys = {
   'settings.traceEnabledDesc': '记录 Agent 交互的详细轨迹，用于调试和优化。',
   'settings.confirmDestructive': '确认破坏性操作',
   'settings.confirmDestructiveDesc': 'Agent 编辑文件或删除数据源前要求用户确认。',
+  'settings.shellAccessMode': 'Shell 权限模式',
+  'settings.shellAccessModeDesc': '控制 run_shell 的放开程度。受限模式最安全，完全开放会给 Agent 完整命令执行能力。',
+  'settings.shellAccessRestricted': '受限模式',
+  'settings.shellAccessRestrictedDesc': '只允许白名单命令，并限制在已注册的数据源范围内。',
+  'settings.shellAccessConfirmAll': '每次都确认',
+  'settings.shellAccessConfirmAllDesc': '允许任意裸命令，但每次 run_shell 调用前都弹出确认。',
+  'settings.shellAccessOpen': '完全开放',
+  'settings.shellAccessOpenDesc': '允许任意裸命令且不再确认。仅在你完全信任当前 Agent 与提示词时使用。',
 
   // Command Palette
   'cmd.placeholder': '输入命令...',

@@ -472,6 +472,14 @@ export interface TranslationKeys {
   'settings.traceEnabledDesc': string;
   'settings.confirmDestructive': string;
   'settings.confirmDestructiveDesc': string;
+  'settings.shellAccessMode': string;
+  'settings.shellAccessModeDesc': string;
+  'settings.shellAccessRestricted': string;
+  'settings.shellAccessRestrictedDesc': string;
+  'settings.shellAccessConfirmAll': string;
+  'settings.shellAccessConfirmAllDesc': string;
+  'settings.shellAccessOpen': string;
+  'settings.shellAccessOpenDesc': string;
 
   // Command Palette
   'cmd.placeholder': string;

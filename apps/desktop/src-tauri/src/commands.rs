@@ -12,11 +12,12 @@ use ask_core::agent::{
     build_system_prompt, AgentConfig as ExecutorConfig, AgentEvent, AgentExecutor,
     CancellationToken, ConfirmationCallback,
 };
-use ask_core::app_settings::AppConfig;
+use ask_core::app_settings::{AppConfig, ShellAccessMode};
 use ask_core::conversation::memory::estimate_tokens;
 use ask_core::conversation::{
     AgentConfig as DbAgentConfig, CollectionContext, Conversation, ConversationMessage,
-    ConversationStats, ConversationTurn, CreateConversationInput, SaveAgentConfigInput,
+    ConversationStats, ConversationTurn, CreateConversationInput, ImageAttachment,
+    SaveAgentConfigInput,
 };
 use ask_core::db::Database;
 use ask_core::embed::{EmbedderConfig, LocalEmbeddingModel};
@@ -922,14 +923,10 @@ fn mime_to_extension(mime: &str) -> &'static str {
 }
 
 /// An image attachment prepared for LLM submission.
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageAttachment {
-    pub base64_data: String,
-    pub media_type: String,
-    pub original_name: String,
-}
-
+///
+/// Re-uses [`ask_core::conversation::ImageAttachment`] so that the same
+/// serialized shape (camelCase JSON) can be persisted alongside a user
+/// message and round-tripped back to the frontend.
 #[tauri::command]
 pub async fn prepare_image_attachment(path: String) -> Result<ImageAttachment, String> {
     let file_path = std::path::Path::new(&path);
@@ -1324,6 +1321,7 @@ fn repair_orphaned_tool_calls(db: &Database, conversation_id: &str) {
                         created_at: String::new(),
                         sort_order: base_sort + extra_sort,
                         thinking: None,
+                        image_attachments: None,
                     };
                     if let Err(e) = db.add_message(&synthetic) {
                         warn!("Failed to insert synthetic tool response: {e}");
@@ -1673,6 +1671,7 @@ pub async fn compact_conversation_cmd(
         dynamic_tool_visibility: true,
         trace_enabled: true,
         require_tool_confirmation: false,
+        shell_access_mode: ShellAccessMode::Restricted,
     };
 
     let summarization_provider: Option<Box<dyn ask_core::llm::LlmProvider>> =
@@ -1942,6 +1941,13 @@ pub async fn agent_chat_cmd(
         created_at: String::new(),
         sort_order: next_sort_order,
         thinking: None,
+        image_attachments: attachments.as_ref().and_then(|atts| {
+            if atts.is_empty() {
+                None
+            } else {
+                Some(atts.clone())
+            }
+        }),
     };
     state.db.add_message(&user_msg).map_err(|e| e.to_string())?;
     let turn = state
@@ -2021,36 +2027,38 @@ pub async fn agent_chat_cmd(
         dynamic_tool_visibility: true,
         trace_enabled: true,
         require_tool_confirmation: app_cfg.confirm_destructive,
+        shell_access_mode: app_cfg.shell_access_mode,
     };
 
     // 6b. Build confirmation callback if enabled.
-    let confirmation_cb: Option<ConfirmationCallback> = if app_cfg.confirm_destructive {
-        let dialog_handle = app_handle.clone();
-        Some(Arc::new(move |message: String| {
-            let handle = dialog_handle.clone();
-            Box::pin(async move {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                handle
-                    .dialog()
-                    .message(&message)
-                    .title("Confirm Tool Execution")
-                    .kind(MessageDialogKind::Warning)
-                    .buttons(MessageDialogButtons::OkCancelCustom(
-                        "Allow".into(),
-                        "Deny".into(),
-                    ))
-                    .show(move |confirmed| {
-                        let _ = tx.send(confirmed);
-                    });
-                match tokio::time::timeout(Duration::from_secs(30), rx).await {
-                    Ok(Ok(confirmed)) => confirmed,
-                    _ => true, // auto-approve on timeout / channel error
-                }
-            })
-        }))
-    } else {
-        None
-    };
+    let confirmation_cb: Option<ConfirmationCallback> =
+        if app_cfg.confirm_destructive || app_cfg.shell_access_mode.requires_confirmation() {
+            let dialog_handle = app_handle.clone();
+            Some(Arc::new(move |message: String| {
+                let handle = dialog_handle.clone();
+                Box::pin(async move {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    handle
+                        .dialog()
+                        .message(&message)
+                        .title("Confirm Tool Execution")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::OkCancelCustom(
+                            "Allow".into(),
+                            "Deny".into(),
+                        ))
+                        .show(move |confirmed| {
+                            let _ = tx.send(confirmed);
+                        });
+                    match tokio::time::timeout(Duration::from_secs(30), rx).await {
+                        Ok(Ok(confirmed)) => confirmed,
+                        _ => !message.starts_with("Run:"), // deny run_shell on timeout; allow others
+                    }
+                })
+            }))
+        } else {
+            None
+        };
 
     // 6c. Create a separate summarization provider if configured.
     let summarization_provider: Option<Box<dyn ask_core::llm::LlmProvider>> =

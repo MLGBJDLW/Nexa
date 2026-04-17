@@ -893,7 +893,7 @@ impl Database {
             }
         }
         let mut top_tools: Vec<(String, u64)> = tool_counts.into_iter().collect();
-        top_tools.sort_by(|a, b| b.1.cmp(&a.1));
+        top_tools.sort_by_key(|tool| std::cmp::Reverse(tool.1));
         top_tools.truncate(10);
 
         Ok(crate::trace::TraceSummary {
