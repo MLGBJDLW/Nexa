@@ -249,8 +249,7 @@ fn apply_split_run_replacement(
                 // upstream escaping logic drifts.
                 let first_elem = &text_elements[si];
                 let raw_offset_in_first = pos.saturating_sub(char_offset);
-                let offset_in_first =
-                    floor_char_boundary(&first_elem.content, raw_offset_in_first);
+                let offset_in_first = floor_char_boundary(&first_elem.content, raw_offset_in_first);
                 debug_assert!(
                     first_elem.content.is_char_boundary(offset_in_first),
                     "offset_in_first must be a valid char boundary"
@@ -271,8 +270,7 @@ fn apply_split_run_replacement(
                         if i == ei {
                             // Same element: add the suffix after the match.
                             let raw_suffix_start = offset_in_first + escaped_old.len();
-                            let suffix_start =
-                                ceil_char_boundary(&elem.content, raw_suffix_start);
+                            let suffix_start = ceil_char_boundary(&elem.content, raw_suffix_start);
                             if suffix_start <= elem.content.len() {
                                 debug_assert!(elem.content.is_char_boundary(suffix_start));
                                 c.clear();
@@ -288,10 +286,9 @@ fn apply_split_run_replacement(
                         for e in text_elements.iter().take(i).skip(si) {
                             consumed += e.content.len();
                         }
-                        let raw_match_end = (pos + escaped_old.len())
-                            .saturating_sub(char_offset + consumed);
-                        let match_end_in_this =
-                            ceil_char_boundary(&elem.content, raw_match_end);
+                        let raw_match_end =
+                            (pos + escaped_old.len()).saturating_sub(char_offset + consumed);
+                        let match_end_in_this = ceil_char_boundary(&elem.content, raw_match_end);
                         if match_end_in_this <= elem.content.len() {
                             debug_assert!(elem.content.is_char_boundary(match_end_in_this));
                             elem.content[match_end_in_this..].to_string()
@@ -843,8 +840,7 @@ mod tests {
             new_text: "X".to_string(),
         }];
         // Must not panic regardless of whether the match is found.
-        let (_result, _outcomes) =
-            apply_replacements_to_xml(xml, &replacements, "a:t");
+        let (_result, _outcomes) = apply_replacements_to_xml(xml, &replacements, "a:t");
     }
 
     #[test]
@@ -867,8 +863,7 @@ mod tests {
             old_text: "🎉".to_string(),
             new_text: "✅".to_string(),
         }];
-        let (result, _outcomes) =
-            apply_replacements_to_xml(xml, &replacements, "a:t");
+        let (result, _outcomes) = apply_replacements_to_xml(xml, &replacements, "a:t");
         // Must not panic.
         assert!(result.contains("✅") || result.contains("🎉"));
     }

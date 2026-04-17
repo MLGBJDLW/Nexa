@@ -63,9 +63,7 @@ const MAX_TOTAL_ARGV_BYTES: usize = 32 * 1024;
 
 /// Whitelisted program basenames. Matched case-insensitively on Windows,
 /// case-sensitively on Unix. The model may only pass these names exactly.
-const PROGRAM_WHITELIST: &[&str] = &[
-    "python", "python3", "node", "npm", "npx", "git",
-];
+const PROGRAM_WHITELIST: &[&str] = &["python", "python3", "node", "npm", "npx", "git"];
 
 /// For `git`, only these subcommands are accepted as `args[0]`.
 const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
@@ -87,10 +85,30 @@ const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
 /// subcommand is read-only (defence-in-depth against `git config --unset`
 /// etc.).
 const GIT_FORBIDDEN_TOKENS: &[&str] = &[
-    "push", "pull", "fetch", "commit", "reset", "merge", "rebase", "cherry-pick",
-    "clone", "init", "add", "rm", "mv", "checkout", "switch", "restore", "am",
-    "apply", "stash",
-    "--set", "--unset", "--unset-all", "--add", "--replace-all",
+    "push",
+    "pull",
+    "fetch",
+    "commit",
+    "reset",
+    "merge",
+    "rebase",
+    "cherry-pick",
+    "clone",
+    "init",
+    "add",
+    "rm",
+    "mv",
+    "checkout",
+    "switch",
+    "restore",
+    "am",
+    "apply",
+    "stash",
+    "--set",
+    "--unset",
+    "--unset-all",
+    "--add",
+    "--replace-all",
 ];
 
 /// Byte substrings forbidden in any arg (defence-in-depth).
@@ -205,9 +223,7 @@ fn validate_args(program: &str, args: &[String]) -> Result<(), String> {
         }
         for forbidden in FORBIDDEN_ARG_SUBSTRINGS {
             if arg.contains(forbidden) {
-                return Err(format!(
-                    "argument #{i} contains forbidden byte sequence"
-                ));
+                return Err(format!("argument #{i} contains forbidden byte sequence"));
             }
         }
         total = total.saturating_add(arg.len());
@@ -248,12 +264,10 @@ fn validate_args(program: &str, args: &[String]) -> Result<(), String> {
                 .skip(1)
                 .any(|a| CONFIG_READONLY_FLAGS.contains(&a.as_str()));
             if !has_readonly {
-                return Err(
-                    "git config requires an explicit read-only flag \
+                return Err("git config requires an explicit read-only flag \
                      (--get, --list, --get-all, --get-regexp, --get-urlmatch, \
                      -l, --show-origin, --show-scope)"
-                        .to_string(),
-                );
+                    .to_string());
             }
         }
         for arg in args {
@@ -334,9 +348,7 @@ where
     for (k, v) in &parent {
         let key_str = k.to_string_lossy();
         let key_upper = key_str.to_uppercase();
-        let is_preserve = ENV_PRESERVE
-            .iter()
-            .any(|p| key_upper == p.to_uppercase());
+        let is_preserve = ENV_PRESERVE.iter().any(|p| key_upper == p.to_uppercase());
         let is_stripped = ENV_STRIP_PATTERNS
             .iter()
             .any(|p| key_upper.contains(&p.to_uppercase()));
@@ -366,10 +378,7 @@ where
 
     // Force UTF-8 output from Python subprocesses regardless of system locale.
     out.push((OsString::from("PYTHONUTF8"), OsString::from("1")));
-    out.push((
-        OsString::from("PYTHONIOENCODING"),
-        OsString::from("utf-8"),
-    ));
+    out.push((OsString::from("PYTHONIOENCODING"), OsString::from("utf-8")));
 
     out
 }
@@ -726,7 +735,11 @@ mod tests {
         assert!(validate_args("git", &["status".to_string()]).is_ok());
         assert!(validate_args("git", &["diff".to_string(), "--stat".to_string()]).is_ok());
         assert!(validate_args("git", &["push".to_string()]).is_err());
-        assert!(validate_args("git", &["commit".to_string(), "-m".to_string(), "x".to_string()]).is_err());
+        assert!(validate_args(
+            "git",
+            &["commit".to_string(), "-m".to_string(), "x".to_string()]
+        )
+        .is_err());
         assert!(validate_args("git", &["reset".to_string(), "--hard".to_string()]).is_err());
     }
 
@@ -739,7 +752,11 @@ mod tests {
     #[test]
     fn test_git_forbidden_token_in_later_args_rejected() {
         // Primary subcommand is OK but a forbidden token appears later.
-        let args = vec!["config".to_string(), "--unset".to_string(), "user.name".to_string()];
+        let args = vec![
+            "config".to_string(),
+            "--unset".to_string(),
+            "user.name".to_string(),
+        ];
         assert!(validate_args("git", &args).is_err());
     }
 
@@ -772,7 +789,10 @@ mod tests {
     fn test_env_build_strips_secrets() {
         let parent: Vec<(OsString, OsString)> = vec![
             (OsString::from("PATH"), OsString::from("/usr/bin")),
-            (OsString::from("AWS_ACCESS_KEY_ID"), OsString::from("AKIA...")),
+            (
+                OsString::from("AWS_ACCESS_KEY_ID"),
+                OsString::from("AKIA..."),
+            ),
             (OsString::from("MY_SECRET_TOKEN"), OsString::from("hunter2")),
             (OsString::from("GITHUB_TOKEN"), OsString::from("ghp_...")),
             (OsString::from("OPENAI_API_KEY"), OsString::from("sk-...")),
@@ -792,7 +812,10 @@ mod tests {
         assert!(keys.iter().any(|k| k == "PATH"), "PATH should be preserved");
         assert!(keys.iter().any(|k| k == "LANG"), "LANG should be preserved");
         assert!(keys.iter().any(|k| k == "HOME"), "HOME should be preserved");
-        assert!(keys.iter().any(|k| k == "MY_NORMAL_VAR"), "normal vars pass through");
+        assert!(
+            keys.iter().any(|k| k == "MY_NORMAL_VAR"),
+            "normal vars pass through"
+        );
 
         // Stripped
         assert!(!keys.iter().any(|k| k == "AWS_ACCESS_KEY_ID"));
@@ -893,16 +916,21 @@ mod tests {
 
     #[test]
     fn test_env_includes_pythonutf8() {
-        let parent: Vec<(OsString, OsString)> = vec![
-            (OsString::from("PATH"), OsString::from("/usr/bin")),
-        ];
+        let parent: Vec<(OsString, OsString)> =
+            vec![(OsString::from("PATH"), OsString::from("/usr/bin"))];
         let built = build_env_from(parent);
         let keys: Vec<String> = built
             .iter()
             .map(|(k, _)| k.to_string_lossy().to_string())
             .collect();
-        assert!(keys.contains(&"PYTHONUTF8".to_string()), "PYTHONUTF8 must be present");
-        assert!(keys.contains(&"PYTHONIOENCODING".to_string()), "PYTHONIOENCODING must be present");
+        assert!(
+            keys.contains(&"PYTHONUTF8".to_string()),
+            "PYTHONUTF8 must be present"
+        );
+        assert!(
+            keys.contains(&"PYTHONIOENCODING".to_string()),
+            "PYTHONIOENCODING must be present"
+        );
 
         let pythonutf8_val = built
             .iter()
@@ -936,8 +964,14 @@ mod tests {
         assert!(text.contains("Exit code: 0"), "should contain exit code");
         assert!(text.contains("Duration: 42ms"), "should contain duration");
         assert!(text.contains("stdout"), "should contain stdout header");
-        assert!(text.contains("hello world"), "should contain stdout content");
-        assert!(!text.contains("stderr"), "should not contain stderr when empty");
+        assert!(
+            text.contains("hello world"),
+            "should contain stdout content"
+        );
+        assert!(
+            !text.contains("stderr"),
+            "should not contain stderr when empty"
+        );
     }
 
     #[test]

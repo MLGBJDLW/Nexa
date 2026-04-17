@@ -1095,7 +1095,7 @@ impl Database {
                 token_count,
                 created_at,
                 sort_order,
-                thinking: None, // Archived messages don't preserve thinking
+                thinking: None,          // Archived messages don't preserve thinking
                 image_attachments: None, // Archived messages don't preserve attachments
             });
         }
