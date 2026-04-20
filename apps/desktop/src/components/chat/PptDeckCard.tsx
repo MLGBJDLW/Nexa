@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { renderDeck } from '../../lib/ppt';
 import type { DeckSpec } from '../../lib/ppt';
 import { openFileInDefaultApp, savePptxBytes, showInFileExplorer } from '../../lib/api';
@@ -16,13 +16,15 @@ export interface PptDeckCardProps {
   spec: DeckSpec;
 }
 
+// Module-level dedupe: prevents re-rendering on component remount
+const renderedKeys = new Set<string>();
+
 export function PptDeckCard({ artifactKey, path, spec }: PptDeckCardProps) {
   const [state, setState] = useState<RenderState>({ kind: 'idle' });
-  const autoRunRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (autoRunRef.current.has(artifactKey)) return;
-    autoRunRef.current.add(artifactKey);
+    if (renderedKeys.has(artifactKey)) return;
+    renderedKeys.add(artifactKey);
     void runAndSave(path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactKey]);
@@ -46,6 +48,9 @@ export function PptDeckCard({ artifactKey, path, spec }: PptDeckCardProps) {
         filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
       });
       if (!chosen) return;
+      // Mark the chosen path's key as rendered so a future remount
+      // doesn't re-save to the original default path.
+      renderedKeys.add(`${artifactKey}::${chosen}`);
       await runAndSave(chosen);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

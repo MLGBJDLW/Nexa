@@ -31,7 +31,15 @@ export async function renderDeck(spec: DeckSpec): Promise<Uint8Array> {
     if (note) s.addNotes(note);
   });
 
-  const out = await pres.write({ outputType: 'uint8array' });
+  let out: Awaited<ReturnType<typeof pres.write>>;
+  try {
+    out = await pres.write({ outputType: 'uint8array' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Deck render failed — possibly a broken image_url. Original: ${msg}`,
+    );
+  }
   if (out instanceof Uint8Array) return out;
   if (out instanceof ArrayBuffer) return new Uint8Array(out);
   throw new Error('pptxgenjs returned unexpected output type');

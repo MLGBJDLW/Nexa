@@ -527,6 +527,14 @@ Every answer that uses knowledge base search results.
         "v040_message_image_attachments",
         "ALTER TABLE messages ADD COLUMN image_attachments_json TEXT;",
     ),
+    (
+        "v041_refresh_office_skill_tools",
+        "UPDATE skills
+            SET content = REPLACE(content, 'generate_pptx', 'ppt_generate'),
+                updated_at = datetime('now')
+            WHERE id = 'builtin-office-document-design'
+              AND content LIKE '%generate_pptx%';",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

@@ -480,5 +480,22 @@ export function renderSlide(s: pptxgen.Slide, slide: Slide, theme: ThemeTokens):
       return renderSection(s, slide, theme);
     case 'image_full':
       return renderImageFull(s, slide, theme);
+    default: {
+      const unknownLayout = (slide as { layout?: string }).layout ?? '(missing)';
+      s.background = { color: 'E5E7EB' };
+      s.addText(`Unknown layout: ${unknownLayout}`, {
+        x: MARGIN,
+        y: LAYOUT_H / 2 - 0.5,
+        w: LAYOUT_W - MARGIN * 2,
+        h: 1,
+        fontFace: theme.body_font,
+        fontSize: 24,
+        bold: true,
+        color: '374151',
+        align: 'center',
+        valign: 'middle',
+      });
+      return;
+    }
   }
 }

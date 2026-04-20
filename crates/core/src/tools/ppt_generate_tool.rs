@@ -5,7 +5,10 @@
 //! in the WebView, and saves via the `save_pptx_bytes` Tauri command.
 //!
 //! The tool itself does NOT write bytes to disk; rendering is delegated.
+//! It does, however, validate the target path against registered source roots
+//! (matching the security model of `generate_docx`).
 
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -14,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::Database;
 use crate::error::CoreError;
 
-use super::{Tool, ToolCategory, ToolDef, ToolResult};
+use super::create_file_tool::{has_path_traversal, resolve_and_validate};
+use super::{scoped_sources, Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/ppt_generate.json");
@@ -75,8 +79,8 @@ impl Tool for PptGenerateTool {
         &self,
         call_id: &str,
         arguments: &str,
-        _db: &Database,
-        _source_scope: &[String],
+        db: &Database,
+        source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
         let args: PptGenerateArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid ppt_generate arguments: {e}"))
@@ -86,6 +90,27 @@ impl Tool for PptGenerateTool {
             return Ok(ToolResult {
                 call_id: call_id.to_string(),
                 content: "ppt_generate: missing or empty `path`".into(),
+                is_error: true,
+                artifacts: None,
+            });
+        }
+
+        if !args.path.to_ascii_lowercase().ends_with(".pptx") {
+            return Ok(ToolResult {
+                call_id: call_id.to_string(),
+                content: format!(
+                    "ppt_generate: `path` must end with `.pptx` (got '{}').",
+                    args.path
+                ),
+                is_error: true,
+                artifacts: None,
+            });
+        }
+
+        if has_path_traversal(&args.path) {
+            return Ok(ToolResult {
+                call_id: call_id.to_string(),
+                content: "ppt_generate: path must not contain '..' traversal sequences.".into(),
                 is_error: true,
                 artifacts: None,
             });
@@ -115,8 +140,34 @@ impl Tool for PptGenerateTool {
             });
         }
 
+        // Validate the path falls inside a registered source root. We do NOT
+        // write the file here (the frontend does), but we resolve to the
+        // canonical absolute path so the artifact carries a trusted location.
+        let sources = scoped_sources(db, source_scope)?;
+        if sources.is_empty() {
+            return Ok(ToolResult {
+                call_id: call_id.to_string(),
+                content: "ppt_generate: no sources registered. Add a source directory first."
+                    .into(),
+                is_error: true,
+                artifacts: None,
+            });
+        }
+        let requested = PathBuf::from(&args.path);
+        let canonical = match resolve_and_validate(&requested, &sources) {
+            Ok(p) => p,
+            Err(msg) => {
+                return Ok(ToolResult {
+                    call_id: call_id.to_string(),
+                    content: format!("ppt_generate: {msg}"),
+                    is_error: true,
+                    artifacts: None,
+                });
+            }
+        };
+
         let artifact = DeckArtifact {
-            path: args.path.clone(),
+            path: canonical.to_string_lossy().into_owned(),
             spec: args.spec,
         };
         let artifact_value = match serde_json::to_value(&artifact) {
@@ -135,7 +186,8 @@ impl Tool for PptGenerateTool {
             call_id: call_id.to_string(),
             content: format!(
                 "Deck spec validated ({} slides). Rendering to {}…",
-                slides, args.path
+                slides,
+                canonical.display()
             ),
             is_error: false,
             artifacts: Some(serde_json::json!({ "ppt_deck": artifact_value })),

@@ -1028,13 +1028,23 @@ pub fn save_pptx_bytes(path: String, bytes: Vec<u8>) -> Result<String, String> {
     if path.trim().is_empty() {
         return Err("save_pptx_bytes: empty path".to_string());
     }
+    if !path.to_ascii_lowercase().ends_with(".pptx") {
+        return Err(format!(
+            "save_pptx_bytes: path must end with `.pptx` (got '{path}')"
+        ));
+    }
+    if path.contains("..") {
+        return Err("save_pptx_bytes: path must not contain '..' traversal sequences".to_string());
+    }
     let p = std::path::PathBuf::from(&path);
     if let Some(parent) = p.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            return Err(format!(
-                "save_pptx_bytes: parent directory does not exist: {}",
-                parent.display()
-            ));
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "save_pptx_bytes: create parent directory '{}' failed: {e}",
+                    parent.display()
+                )
+            })?;
         }
     }
     std::fs::write(&p, &bytes)
