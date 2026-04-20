@@ -1,5 +1,5 @@
 [package]
-name = "ask-core"
+name = "nexa-core"
 version = "0.1.3"
 edition.workspace = true
 rust-version.workspace = true
