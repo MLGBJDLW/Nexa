@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.0...nexa-monorepo-v0.2.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* **build:** restore crate names lost in merge conflict resolution ([dc860f2](https://github.com/MLGBJDLW/Nexa/commit/dc860f2afa5064d46816e87ea1e46d1155d400a0))
+* **clippy,eol:** resolve 9 lint errors and normalize line endings ([efb6885](https://github.com/MLGBJDLW/Nexa/commit/efb688557dab1751a04b1e459b4187f9d3ad08a1))
+
 ## [0.2.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.1.9...nexa-monorepo-v0.2.0) (2026-04-20)
 
 
