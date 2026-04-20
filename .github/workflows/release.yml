@@ -81,6 +81,10 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
+      - name: Clean stale build artifacts
+        run: cargo clean
+        working-directory: ${{ github.workspace }}
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0.5
         id: tauri
