@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.1...nexa-monorepo-v0.2.2) (2026-04-20)
+
+
+### Features
+
+* **ppt:** replace hand-crafted pptx tool with pptxgenjs renderer ([4b5ea60](https://github.com/MLGBJDLW/Nexa/commit/4b5ea604678446320003afefa6cde5f3abb70ca8))
+
+
+### Bug Fixes
+
+* **ppt:** address audit findings (capabilities, dedupe, validation) ([121352d](https://github.com/MLGBJDLW/Nexa/commit/121352d997d403162fe5e41a2cbea8feb31fdb5b))
+
+## [0.2.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.0...nexa-monorepo-v0.2.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* **build:** restore crate names lost in merge conflict resolution ([dc860f2](https://github.com/MLGBJDLW/Nexa/commit/dc860f2afa5064d46816e87ea1e46d1155d400a0))
+* **clippy,eol:** resolve 9 lint errors and normalize line endings ([efb6885](https://github.com/MLGBJDLW/Nexa/commit/efb688557dab1751a04b1e459b4187f9d3ad08a1))
+
 ## [0.2.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.1.9...nexa-monorepo-v0.2.0) (2026-04-20)
 
 
