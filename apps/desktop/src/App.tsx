@@ -78,10 +78,12 @@ function AppShell() {
       .catch(() => setWizardCompleted(true)); // Fail-open: don't block on I/O errors.
   }, []);
 
-  // Re-check after the user returns from /wizard so that subsequent navigation
-  // doesn't loop back.  Cheap because the state is cached in sqlite.
+  // Re-check whenever we think the wizard is incomplete.  This is a
+  // belt-and-braces backstop: in practice WizardPage pushes the new state via
+  // outlet context on success, so this refetch is a no-op.  Idempotent —
+  // once `wizardCompleted === true`, the guard in the effect short-circuits
+  // and no loop is possible.
   useEffect(() => {
-    if (location.pathname === '/wizard') return;
     if (wizardCompleted === false) {
       api.getWizardState()
         .then(state => setWizardCompleted(Boolean(state?.completed)))
@@ -96,11 +98,18 @@ function AppShell() {
         {wizardCompleted === false && location.pathname !== '/wizard' && (
           <Navigate to="/wizard" replace />
         )}
-        {wizardCompleted !== null && <Outlet />}
+        {wizardCompleted !== null && (
+          <Outlet context={{ setWizardCompleted } satisfies AppShellOutletContext} />
+        )}
       </MotionConfig>
     </I18nProvider>
   );
 }
+
+/** Outlet context exposed by {@link AppShell} to nested routes (e.g. WizardPage). */
+export type AppShellOutletContext = {
+  setWizardCompleted: (completed: boolean) => void;
+};
 
 const router = createBrowserRouter(
   createRoutesFromElements(

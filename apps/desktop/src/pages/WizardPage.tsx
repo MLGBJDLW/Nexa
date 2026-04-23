@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from '../i18n';
 import * as api from '../lib/api';
+import type { AppShellOutletContext } from '../App';
 import { useWizardState, WIZARD_TOTAL_STEPS } from '../components/wizard/useWizardState';
 import { Step1Welcome } from '../components/wizard/Step1Welcome';
 import { Step2Language } from '../components/wizard/Step2Language';
@@ -25,6 +26,7 @@ import { Step6Done } from '../components/wizard/Step6Done';
 export function WizardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { setWizardCompleted } = useOutletContext<AppShellOutletContext>();
   const { step, form, updateForm, goNext, goPrev } = useWizardState();
 
   const finishWizard = useCallback(
@@ -32,13 +34,19 @@ export function WizardPage() {
       try {
         await api.setWizardCompleted();
       } catch (e) {
-        // Non-fatal: user still lands on the main app; they just might see the
-        // wizard again on next launch.  Surface a toast so it's not silent.
+        // Persistence failed — do NOT navigate.  Stay on Step6Done so the user
+        // can retry by clicking the finish button again.  Otherwise they'd be
+        // kicked back to /wizard by AppShell's guard and see a reset wizard.
         toast.error(`${t('wizard.completeError')}: ${String(e)}`);
+        return;
       }
+      // Lift the state up BEFORE navigating so AppShell's guard sees
+      // `wizardCompleted === true` on the first render after navigate, and
+      // doesn't bounce us back to /wizard.
+      setWizardCompleted(true);
       navigate(openChat ? '/chat' : '/', { replace: true });
     },
-    [navigate, t],
+    [navigate, setWizardCompleted, t],
   );
 
   return (

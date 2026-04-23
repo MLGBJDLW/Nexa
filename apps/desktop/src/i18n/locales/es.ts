@@ -1082,6 +1082,8 @@ export const es: TranslationKeys = {
   'update.downloading': 'Descargando actualización...',
   'update.ready': 'Actualización lista. Reinicia para aplicar.',
   'update.error': 'Error al buscar actualizaciones',
+  'update.downloadFailed': 'Error al descargar la actualización',
+  'update.installFailed': 'Error al instalar la actualización',
   'update.checkNow': 'Buscar actualizaciones',
   'update.downloadInstall': 'Descargar e instalar',
   'update.restart': 'Reiniciar ahora',

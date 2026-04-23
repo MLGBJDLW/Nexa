@@ -1078,6 +1078,8 @@ export const fr: TranslationKeys = {
   'update.downloading': 'Téléchargement de la mise à jour...',
   'update.ready': 'Mise à jour prête. Redémarrez pour appliquer.',
   'update.error': 'Échec de la vérification des mises à jour',
+  'update.downloadFailed': 'Échec du téléchargement de la mise à jour',
+  'update.installFailed': 'Échec de l\'installation de la mise à jour',
   'update.checkNow': 'Rechercher des mises à jour',
   'update.downloadInstall': 'Télécharger et installer',
   'update.restart': 'Redémarrer maintenant',

@@ -1905,8 +1905,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_budget_reservation_prevents_overcommit() {
-        let mut config = AgentConfig::default();
-        config.subagent_token_budget = Some(256);
+        let config = AgentConfig {
+            subagent_token_budget: Some(256),
+            ..Default::default()
+        };
 
         let budget = SubagentBudgetController::new(&config);
         let permit = budget.begin_call("worker-a", 220).await.unwrap();

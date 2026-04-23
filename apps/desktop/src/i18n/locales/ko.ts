@@ -1081,6 +1081,8 @@ export const ko: TranslationKeys = {
   'update.downloading': '업데이트 다운로드 중...',
   'update.ready': '업데이트 준비 완료. 재시작하여 적용합니다.',
   'update.error': '업데이트 확인 실패',
+  'update.downloadFailed': '업데이트 다운로드 실패',
+  'update.installFailed': '업데이트 설치 실패',
   'update.checkNow': '업데이트 확인',
   'update.downloadInstall': '다운로드 및 설치',
   'update.restart': '지금 재시작',

@@ -1079,6 +1079,8 @@ export const de: TranslationKeys = {
   'update.downloading': 'Update wird heruntergeladen...',
   'update.ready': 'Update bereit. Neustart zum Anwenden.',
   'update.error': 'Update-Prüfung fehlgeschlagen',
+  'update.downloadFailed': 'Update-Download fehlgeschlagen',
+  'update.installFailed': 'Update-Installation fehlgeschlagen',
   'update.checkNow': 'Nach Updates suchen',
   'update.downloadInstall': 'Herunterladen & Installieren',
   'update.restart': 'Jetzt neu starten',

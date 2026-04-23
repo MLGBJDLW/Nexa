@@ -1079,6 +1079,8 @@ export const ja: TranslationKeys = {
   'update.downloading': 'アップデートをダウンロード中...',
   'update.ready': 'アップデート準備完了。再起動して適用します。',
   'update.error': 'アップデートの確認に失敗しました',
+  'update.downloadFailed': 'アップデートのダウンロードに失敗しました',
+  'update.installFailed': 'アップデートのインストールに失敗しました',
   'update.checkNow': 'アップデートを確認',
   'update.downloadInstall': 'ダウンロードしてインストール',
   'update.restart': '今すぐ再起動',
