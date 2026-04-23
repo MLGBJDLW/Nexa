@@ -1081,6 +1081,8 @@ export const ru: TranslationKeys = {
   'update.downloading': 'Загрузка обновления...',
   'update.ready': 'Обновление готово. Перезапустите для применения.',
   'update.error': 'Ошибка проверки обновлений',
+  'update.downloadFailed': 'Ошибка загрузки обновления',
+  'update.installFailed': 'Ошибка установки обновления',
   'update.checkNow': 'Проверить обновления',
   'update.downloadInstall': 'Скачать и установить',
   'update.restart': 'Перезапустить сейчас',

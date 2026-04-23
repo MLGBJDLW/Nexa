@@ -1096,6 +1096,8 @@ export const en: TranslationKeys = {
   'update.downloading': 'Downloading update...',
   'update.ready': 'Update ready. Restart to apply.',
   'update.error': 'Update check failed',
+  'update.downloadFailed': 'Update download failed',
+  'update.installFailed': 'Update install failed',
   'update.checkNow': 'Check for Updates',
   'update.downloadInstall': 'Download & Install',
   'update.restart': 'Restart Now',

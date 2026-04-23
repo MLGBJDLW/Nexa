@@ -1096,6 +1096,8 @@ export const zhCN: TranslationKeys = {
   'update.downloading': '正在下载更新...',
   'update.ready': '更新已就绪，重启以应用。',
   'update.error': '检查更新失败',
+  'update.downloadFailed': '下载更新失败',
+  'update.installFailed': '安装更新失败',
   'update.checkNow': '检查更新',
   'update.downloadInstall': '下载并安装',
   'update.restart': '立即重启',

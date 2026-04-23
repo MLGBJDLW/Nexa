@@ -1,6 +1,6 @@
-import { check } from '@tauri-apps/plugin-updater';
+import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date';
@@ -10,6 +10,7 @@ interface UpdateState {
   error?: string;
   errorCode?: string | number | null;
   errorDetail?: { stack?: string };
+  errorStage?: 'check' | 'download' | 'install';
 }
 
 function extractError(e: unknown): { error: string; errorCode: string | number | null; errorDetail: { stack?: string } } {
@@ -23,12 +24,14 @@ function extractError(e: unknown): { error: string; errorCode: string | number |
 
 export function useUpdater(checkOnMount = true) {
   const [state, setState] = useState<UpdateState>({ status: 'idle' });
+  const updateRef = useRef<Update | null>(null);
 
   const checkForUpdate = useCallback(async () => {
     setState({ status: 'checking' });
     try {
       const update = await check();
       if (update) {
+        updateRef.current = update;
         setState({
           status: 'available',
           version: update.version,
@@ -36,25 +39,43 @@ export function useUpdater(checkOnMount = true) {
         });
         return update;
       } else {
+        updateRef.current = null;
         setState({ status: 'up-to-date' });
         return null;
       }
     } catch (e) {
-      setState({ status: 'error', ...extractError(e) });
+      setState({ status: 'error', errorStage: 'check', ...extractError(e) });
       return null;
     }
   }, []);
 
   const downloadAndInstall = useCallback(async () => {
-    try {
-      const update = await check();
+    let update = updateRef.current;
+    if (!update) {
+      try {
+        update = await check();
+        if (update) updateRef.current = update;
+      } catch (e) {
+        setState({ status: 'error', errorStage: 'check', ...extractError(e) });
+        return;
+      }
       if (!update) return;
+    }
 
-      setState(prev => ({ ...prev, status: 'downloading', progress: 0 }));
+    setState(prev => ({
+      ...prev,
+      status: 'downloading',
+      progress: 0,
+      error: undefined,
+      errorCode: undefined,
+      errorDetail: undefined,
+      errorStage: undefined,
+    }));
 
-      let downloaded = 0;
-      let contentLength = 0;
+    let downloaded = 0;
+    let contentLength = 0;
 
+    try {
       await update.downloadAndInstall((event) => {
         switch (event.event) {
           case 'Started':
@@ -74,10 +95,27 @@ export function useUpdater(checkOnMount = true) {
             break;
         }
       });
+    } catch (e) {
+      setState(prev => ({
+        ...prev,
+        status: 'error',
+        progress: undefined,
+        errorStage: 'download',
+        ...extractError(e),
+      }));
+      return;
+    }
 
+    try {
       await relaunch();
     } catch (e) {
-      setState(prev => ({ ...prev, status: 'error', ...extractError(e) }));
+      setState(prev => ({
+        ...prev,
+        status: 'error',
+        progress: undefined,
+        errorStage: 'install',
+        ...extractError(e),
+      }));
     }
   }, []);
 

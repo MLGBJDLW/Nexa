@@ -1083,6 +1083,8 @@ export interface TranslationKeys {
   'update.downloading': string;
   'update.ready': string;
   'update.error': string;
+  'update.downloadFailed': string;
+  'update.installFailed': string;
   'update.checkNow': string;
   'update.downloadInstall': string;
   'update.restart': string;

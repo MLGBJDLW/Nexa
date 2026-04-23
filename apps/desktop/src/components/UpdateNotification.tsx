@@ -9,7 +9,7 @@ interface UpdateNotificationProps {
 
 export function UpdateNotification({ updater }: UpdateNotificationProps) {
   const { t } = useTranslation();
-  const { status, version, progress, downloadAndInstall, checkForUpdate, error, errorCode, errorDetail } = updater;
+  const { status, version, progress, downloadAndInstall, checkForUpdate, error, errorCode, errorDetail, errorStage } = updater;
   const [dismissed, setDismissed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -20,11 +20,21 @@ export function UpdateNotification({ updater }: UpdateNotificationProps) {
   const errText = error ?? '';
   const isNotFound = /404|not found/i.test(errText);
   const isSignatureErr = /signature|\bsig\b/i.test(errText);
-  const hint = isNotFound
-    ? '可能原因：当前版本没有对应的 release 发布'
-    : isSignatureErr
-      ? '签名验证失败，可能是 GitHub Release 资产不完整'
-      : null;
+  const showHint = errorStage === 'download' || errorStage === 'install';
+  const hint = showHint
+    ? isNotFound
+      ? '可能原因：当前版本没有对应的 release 发布'
+      : isSignatureErr
+        ? '签名验证失败，可能是 GitHub Release 资产不完整'
+        : null
+    : null;
+
+  const errorLabel =
+    errorStage === 'download'
+      ? t('update.downloadFailed')
+      : errorStage === 'install'
+        ? t('update.installFailed')
+        : t('update.error');
 
   return (
     <div className="relative flex items-center gap-3 px-4 py-2.5 bg-accent/10 border-b border-accent/20 text-sm">
@@ -68,7 +78,7 @@ export function UpdateNotification({ updater }: UpdateNotificationProps) {
         <>
           <div className="flex flex-col gap-1 flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-danger text-xs font-medium">{t('update.error')}</span>
+              <span className="text-danger text-xs font-medium">{errorLabel}</span>
               {error && <span className="text-text-secondary text-xs truncate">{error}</span>}
             </div>
             {hint && <span className="text-text-tertiary text-xs">{hint}</span>}
