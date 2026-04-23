@@ -59,3 +59,6 @@ docs/pre/
 
 # Tauri-generated schemas (regenerated each build)
 apps/desktop/src-tauri/gen/schemas/
+
+# Agents
+.claude/
