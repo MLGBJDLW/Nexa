@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.5...nexa-monorepo-v0.2.6) (2026-04-23)
+
+
+### Features
+
+* rename desktop bundle to "Nexa" with new identifier ([0a3f20e](https://github.com/MLGBJDLW/Nexa/commit/0a3f20e7b6420736c2e8bec036fc138ec2789a18))
+* **skills:** add doc-script-editor skill for advanced Office/PDF edits ([fcc62e0](https://github.com/MLGBJDLW/Nexa/commit/fcc62e029fe76888ee42f429429be46cfbf99b93))
+
+
+### Bug Fixes
+
+* **llm:** decode SSE chunks as lossy UTF-8 to survive split multibyte boundaries ([77ae3e5](https://github.com/MLGBJDLW/Nexa/commit/77ae3e5a5c91252b7e849f455002debf71c210ba))
+
 ## [0.2.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.4...nexa-monorepo-v0.2.5) (2026-04-23)
 
 
