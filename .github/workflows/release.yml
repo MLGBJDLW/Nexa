@@ -136,6 +136,11 @@ jobs:
           NOTES=$(gh release view "$TAG" --json body -q .body --repo "$REPO" | head -c 5000)
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "::error::❌ release-please output version is not valid semver: $VERSION"
+            exit 1
+          fi
+
           # Download .sig files
           mkdir -p /tmp/sigs
           gh release download "$TAG" --pattern "*.sig" --dir /tmp/sigs --repo "$REPO" || true
@@ -175,7 +180,7 @@ jobs:
 
           # Generate latest.json
           jq -n \
-            --arg version "$TAG" \
+            --arg version "$VERSION" \
             --arg notes "$NOTES" \
             --arg pub_date "$PUB_DATE" \
             --argjson platforms "$PLATFORMS" \
