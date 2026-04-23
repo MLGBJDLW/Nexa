@@ -44,6 +44,13 @@ export function useUpdater(checkOnMount = true) {
         return null;
       }
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Graceful fallback: missing release manifest (404) → treat as up-to-date
+      if (/\b404\b|Not Found/i.test(msg)) {
+        updateRef.current = null;
+        setState({ status: 'up-to-date' });
+        return null;
+      }
       setState({ status: 'error', errorStage: 'check', ...extractError(e) });
       return null;
     }
