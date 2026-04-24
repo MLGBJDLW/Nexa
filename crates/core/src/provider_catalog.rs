@@ -7,6 +7,38 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct ThinkingBudgetCapability {
+    pub enabled: bool,
+    #[serde(default)]
+    pub default_tokens: Option<u32>,
+    #[serde(default)]
+    pub min_tokens: Option<u32>,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub step: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningCapability {
+    #[serde(default)]
+    pub effort_levels: Vec<String>,
+    #[serde(default)]
+    pub default_effort: Option<String>,
+    #[serde(default)]
+    pub thinking_budget: Option<ThinkingBudgetCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilities {
+    #[serde(default)]
+    pub reasoning: Option<ReasoningCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderModelPreset {
     pub id: String,
     pub name: String,
@@ -14,6 +46,8 @@ pub struct ProviderModelPreset {
     pub tag_key: Option<String>,
     #[serde(default)]
     pub recommended: Option<bool>,
+    #[serde(default)]
+    pub capabilities: Option<ProviderCapabilities>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -27,6 +61,8 @@ pub struct ProviderPreset {
     pub requires_api_key: bool,
     pub icon: String,
     pub description: String,
+    #[serde(default)]
+    pub capabilities: Option<ProviderCapabilities>,
 }
 
 const PROVIDER_PRESETS_JSON: &str = include_str!("../../../shared/provider-presets.json");
@@ -92,5 +128,28 @@ mod tests {
         assert!(ids.contains(&"deepseek-v4-flash"));
         assert!(ids.contains(&"deepseek-reasoner"));
         assert!(ids.contains(&"deepseek-chat"));
+
+        let pro = deepseek
+            .models
+            .iter()
+            .find(|model| model.id == "deepseek-v4-pro")
+            .expect("deepseek-v4-pro should be listed");
+        let reasoning = pro
+            .capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.reasoning.as_ref())
+            .expect("deepseek-v4-pro should expose reasoning capability");
+        assert_eq!(
+            reasoning.effort_levels,
+            vec!["high".to_string(), "max".to_string()]
+        );
+        assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
+        assert_eq!(
+            reasoning
+                .thinking_budget
+                .as_ref()
+                .map(|budget| budget.enabled),
+            Some(false)
+        );
     }
 }

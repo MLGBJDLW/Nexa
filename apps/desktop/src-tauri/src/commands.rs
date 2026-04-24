@@ -2315,9 +2315,12 @@ pub async fn agent_chat_cmd(
             .reasoning_effort
             .as_ref()
             .and_then(|s| match s.as_str() {
+                "minimal" => Some(ReasoningEffort::Minimal),
                 "low" => Some(ReasoningEffort::Low),
                 "medium" => Some(ReasoningEffort::Medium),
                 "high" => Some(ReasoningEffort::High),
+                "max" => Some(ReasoningEffort::Max),
+                "xhigh" => Some(ReasoningEffort::XHigh),
                 _ => None,
             }),
         provider_type: Some(parse_provider_type(&db_config.provider)),

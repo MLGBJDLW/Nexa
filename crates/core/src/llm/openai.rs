@@ -11,8 +11,8 @@ use tracing::{debug, error, info};
 
 use super::{
     streaming::parse_sse_stream, CompletionRequest, CompletionResponse, ContentPart, FinishReason,
-    LlmProvider, Message, ProviderConfig, ProviderType, Role, StreamChunk, ToolCallRequest,
-    ToolDefinition, Usage,
+    LlmProvider, Message, ProviderConfig, ProviderType, ReasoningEffort, Role, StreamChunk,
+    ToolCallRequest, ToolDefinition, Usage,
 };
 use crate::error::CoreError;
 
@@ -197,10 +197,10 @@ struct OaiErrorBody {
 // Model detection helpers
 // ---------------------------------------------------------------------------
 
-/// Check if the model is an OpenAI reasoning model (o1/o3/o4 series).
+/// Check if the model is an OpenAI reasoning model.
 fn is_reasoning_model(model: &str) -> bool {
     let m = model.to_lowercase();
-    m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4")
+    m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("gpt-5")
 }
 
 /// Check if the model is a DeepSeek reasoner.
@@ -209,11 +209,27 @@ fn is_deepseek_reasoner(model: &str) -> bool {
     m.contains("deepseek-reasoner") || m.contains("deepseek-r1")
 }
 
-fn deepseek_reasoning_effort() -> String {
-    // DeepSeek's OpenAI-compatible API currently accepts `high` and `max`.
-    // The app's persisted enum only has low/medium/high, and DeepSeek maps
-    // low/medium to high for compatibility, so use the stable supported value.
-    "high".to_string()
+fn deepseek_reasoning_effort(effort: Option<&ReasoningEffort>) -> String {
+    // DeepSeek accepts `high` and `max`; low/medium are compatibility aliases
+    // for high, and xhigh is an alias for max.
+    match effort {
+        Some(ReasoningEffort::Max) | Some(ReasoningEffort::XHigh) => "max",
+        _ => "high",
+    }
+    .to_string()
+}
+
+fn openai_reasoning_effort(effort: Option<&ReasoningEffort>) -> String {
+    match effort {
+        Some(ReasoningEffort::Minimal) => "minimal",
+        Some(ReasoningEffort::Low) => "low",
+        Some(ReasoningEffort::Medium) => "medium",
+        Some(ReasoningEffort::High) => "high",
+        Some(ReasoningEffort::XHigh) => "xhigh",
+        Some(ReasoningEffort::Max) => "high",
+        None => "medium",
+    }
+    .to_string()
 }
 
 /// Some code-specialized OpenAI-compatible models require tool-call
@@ -392,15 +408,9 @@ fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
             None
         },
         reasoning_effort: if deepseek_thinking_enabled {
-            Some(deepseek_reasoning_effort())
+            Some(deepseek_reasoning_effort(request.reasoning_effort.as_ref()))
         } else if is_reasoning {
-            Some(
-                request
-                    .reasoning_effort
-                    .as_ref()
-                    .map(|r| r.to_string())
-                    .unwrap_or_else(|| "medium".to_string()),
-            )
+            Some(openai_reasoning_effort(request.reasoning_effort.as_ref()))
         } else {
             None
         },
@@ -678,5 +688,26 @@ mod tests {
         assert_eq!(body["max_completion_tokens"], 100);
         assert!(body.get("temperature").is_none());
         assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn deepseek_v4_max_reasoning_uses_max_effort() {
+        let request = CompletionRequest {
+            model: "deepseek-v4-pro".to_string(),
+            messages: vec![Message::text(Role::User, "hello")],
+            temperature: Some(0.4),
+            max_tokens: Some(100),
+            tools: None,
+            stop: None,
+            thinking_budget: Some(1024),
+            reasoning_effort: Some(ReasoningEffort::Max),
+            provider_type: Some(ProviderType::DeepSeek),
+            parallel_tool_calls: true,
+        };
+
+        let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
+
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["reasoning_effort"], "max");
     }
 }

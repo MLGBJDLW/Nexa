@@ -12,29 +12,110 @@
         "id": "gpt-5.4",
         "name": "GPT-5.4",
         "tagKey": "providers.tagLatest",
-        "recommended": true
+        "recommended": true,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "gpt-5.4-pro",
         "name": "GPT-5.4 Pro",
-        "tagKey": "providers.tagMostIntelligent"
+        "tagKey": "providers.tagMostIntelligent",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "gpt-5.3-codex",
         "name": "GPT-5.3 Codex",
-        "tagKey": "providers.tagCoding"
+        "tagKey": "providers.tagCoding",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "gpt-5.2",
-        "name": "GPT-5.2"
+        "name": "GPT-5.2",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "gpt-5-mini",
-        "name": "GPT-5 Mini"
+        "name": "GPT-5 Mini",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "gpt-5-nano",
-        "name": "GPT-5 Nano"
+        "name": "GPT-5 Nano",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "gpt-4.1",
@@ -59,21 +140,73 @@
       {
         "id": "o3-pro",
         "name": "o3-pro",
-        "tagKey": "providers.tagReasoning"
+        "tagKey": "providers.tagReasoning",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "o4-mini",
         "name": "o4-mini",
-        "tagKey": "providers.tagReasoning"
+        "tagKey": "providers.tagReasoning",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "o3",
         "name": "o3",
-        "tagKey": "providers.tagReasoning"
+        "tagKey": "providers.tagReasoning",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "o3-mini",
-        "name": "o3-mini"
+        "name": "o3-mini",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       }
     ]
   },
@@ -89,43 +222,133 @@
       {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
-        "tagKey": "providers.tagMostIntelligent"
+        "tagKey": "providers.tagMostIntelligent",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-opus-4-6",
         "name": "Claude Opus 4.6",
-        "tagKey": "providers.tagLatest"
+        "tagKey": "providers.tagLatest",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
         "tagKey": "providers.tagBestBalance",
-        "recommended": true
+        "recommended": true,
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-opus-4-5",
-        "name": "Claude Opus 4.5"
+        "name": "Claude Opus 4.5",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-sonnet-4-5",
-        "name": "Claude Sonnet 4.5"
+        "name": "Claude Sonnet 4.5",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-haiku-4-5",
         "name": "Claude Haiku 4.5",
-        "tagKey": "providers.tagFastest"
+        "tagKey": "providers.tagFastest",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-opus-4-1-20250805",
-        "name": "Claude Opus 4.1"
+        "name": "Claude Opus 4.1",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-sonnet-4-20250514",
-        "name": "Claude Sonnet 4"
+        "name": "Claude Sonnet 4",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-3-7-sonnet-20250219",
-        "name": "Claude 3.7 Sonnet"
+        "name": "Claude 3.7 Sonnet",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 1024,
+              "step": 1024
+            }
+          }
+        }
       },
       {
         "id": "claude-3-5-sonnet-20241022",
@@ -150,32 +373,98 @@
         "id": "gemini-2.5-pro",
         "name": "Gemini 2.5 Pro",
         "tagKey": "providers.tagBest",
-        "recommended": true
+        "recommended": true,
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 128,
+              "maxTokens": 32768,
+              "step": 128
+            }
+          }
+        }
       },
       {
         "id": "gemini-2.5-flash",
         "name": "Gemini 2.5 Flash",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 128,
+              "maxTokens": 32768,
+              "step": 128
+            }
+          }
+        }
       },
       {
         "id": "gemini-2.5-flash-lite",
         "name": "Gemini 2.5 Flash Lite",
-        "tagKey": "providers.tagCheapest"
+        "tagKey": "providers.tagCheapest",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 128,
+              "maxTokens": 32768,
+              "step": 128
+            }
+          }
+        }
       },
       {
         "id": "gemini-3.1-pro-preview",
         "name": "Gemini 3.1 Pro Preview",
-        "tagKey": "providers.tagPreview"
+        "tagKey": "providers.tagPreview",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 128,
+              "maxTokens": 32768,
+              "step": 128
+            }
+          }
+        }
       },
       {
         "id": "gemini-3-flash-preview",
         "name": "Gemini 3 Flash Preview",
-        "tagKey": "providers.tagPreview"
+        "tagKey": "providers.tagPreview",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 128,
+              "maxTokens": 32768,
+              "step": 128
+            }
+          }
+        }
       },
       {
         "id": "gemini-3.1-flash-lite-preview",
         "name": "Gemini 3.1 Flash-Lite Preview",
-        "tagKey": "providers.tagPreview"
+        "tagKey": "providers.tagPreview",
+        "capabilities": {
+          "reasoning": {
+            "thinkingBudget": {
+              "enabled": true,
+              "defaultTokens": 10000,
+              "minTokens": 128,
+              "maxTokens": 32768,
+              "step": 128
+            }
+          }
+        }
       },
       {
         "id": "gemini-2.0-flash",
@@ -200,21 +489,60 @@
         "id": "deepseek-v4-pro",
         "name": "DeepSeek V4 Pro",
         "tagKey": "providers.tagLatest",
-        "recommended": true
+        "recommended": true,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "deepseek-v4-flash",
         "name": "DeepSeek V4 Flash",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "deepseek-reasoner",
         "name": "DeepSeek Reasoner (legacy V4 Flash thinking alias)",
-        "tagKey": "providers.tagReasoning"
+        "tagKey": "providers.tagReasoning",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "deepseek-chat",
-        "name": "DeepSeek Chat (legacy V4 Flash alias)"
+        "name": "DeepSeek Chat (legacy V4 Flash alias)",
+        "capabilities": {
+          "reasoning": null
+        }
       }
     ]
   },
