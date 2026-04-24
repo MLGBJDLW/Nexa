@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.6...nexa-monorepo-v0.2.7) (2026-04-24)
+
+
+### Bug Fixes
+
+* harden updater release manifests ([739b4c1](https://github.com/MLGBJDLW/Nexa/commit/739b4c1fd9cb06756d860d3d92092583bc1655b4))
+
 ## [0.2.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.5...nexa-monorepo-v0.2.6) (2026-04-23)
 
 
