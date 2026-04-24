@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.8...nexa-monorepo-v0.2.9) (2026-04-24)
+
+
+### Bug Fixes
+
+* harden release publishing workflow ([b6f353b](https://github.com/MLGBJDLW/Nexa/commit/b6f353ba58d021a5e6eb56430a2f4c6d04306fb9))
+* harden release publishing workflow ([e061ebb](https://github.com/MLGBJDLW/Nexa/commit/e061ebbd1a7bf55f35aa18c2f86cd56fdf2c39fd))
+
 ## [0.2.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.7...nexa-monorepo-v0.2.8) (2026-04-24)
 
 
