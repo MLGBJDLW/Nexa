@@ -209,6 +209,13 @@ fn is_deepseek_reasoner(model: &str) -> bool {
     m.contains("deepseek-reasoner") || m.contains("deepseek-r1")
 }
 
+fn deepseek_reasoning_effort() -> String {
+    // DeepSeek's OpenAI-compatible API currently accepts `high` and `max`.
+    // The app's persisted enum only has low/medium/high, and DeepSeek maps
+    // low/medium to high for compatibility, so use the stable supported value.
+    "high".to_string()
+}
+
 /// Some code-specialized OpenAI-compatible models require tool-call
 /// `function.arguments` to be a JSON object instead of a JSON-encoded string.
 fn requires_raw_tool_arguments(model: &str, provider_type: Option<&ProviderType>) -> bool {
@@ -346,12 +353,19 @@ fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
     let model_lower = request.model.to_lowercase();
     let is_deepseek_provider = matches!(request.provider_type, Some(ProviderType::DeepSeek))
         || model_lower.contains("deepseek");
-    let is_deepseek_chat = model_lower.contains("deepseek-chat");
-    let deepseek_thinking_enabled =
-        is_deepseek_provider && is_deepseek_chat && request.thinking_budget.is_some();
+    let deepseek_thinking_mode = if is_deepseek_provider {
+        Some(if request.thinking_budget.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        })
+    } else {
+        None
+    };
+    let deepseek_thinking_enabled = deepseek_thinking_mode == Some("enabled");
     let include_reasoning_content = is_deepseek_provider;
-    let needs_completion_tokens = is_reasoning || is_deepseek;
-    let suppress_temperature = is_reasoning || is_deepseek;
+    let needs_completion_tokens = is_reasoning || is_deepseek || deepseek_thinking_enabled;
+    let suppress_temperature = is_reasoning || is_deepseek || deepseek_thinking_enabled;
     // Some providers/models require function arguments as JSON objects, not strings.
     let raw_tool_args = requires_raw_tool_arguments(&request.model, request.provider_type.as_ref());
 
@@ -377,7 +391,9 @@ fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
         } else {
             None
         },
-        reasoning_effort: if is_reasoning {
+        reasoning_effort: if deepseek_thinking_enabled {
+            Some(deepseek_reasoning_effort())
+        } else if is_reasoning {
             Some(
                 request
                     .reasoning_effort
@@ -388,13 +404,9 @@ fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
         } else {
             None
         },
-        thinking: if deepseek_thinking_enabled {
-            Some(OaiThinking {
-                thinking_type: "enabled".to_string(),
-            })
-        } else {
-            None
-        },
+        thinking: deepseek_thinking_mode.map(|mode| OaiThinking {
+            thinking_type: mode.to_string(),
+        }),
         tools: request.tools.as_ref().map(|t| convert_tools(t)),
         parallel_tool_calls: match request.tools.as_ref() {
             Some(tools) if !tools.is_empty() && request.parallel_tool_calls => Some(true),
@@ -637,5 +649,34 @@ impl LlmProvider for OpenAiProvider {
     async fn health_check(&self) -> Result<(), CoreError> {
         self.list_models().await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deepseek_v4_thinking_request_uses_supported_wire_shape() {
+        let request = CompletionRequest {
+            model: "deepseek-v4-pro".to_string(),
+            messages: vec![Message::text(Role::User, "hello")],
+            temperature: Some(0.4),
+            max_tokens: Some(100),
+            tools: None,
+            stop: None,
+            thinking_budget: Some(1024),
+            reasoning_effort: None,
+            provider_type: Some(ProviderType::DeepSeek),
+            parallel_tool_calls: true,
+        };
+
+        let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
+
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["reasoning_effort"], "high");
+        assert_eq!(body["max_completion_tokens"], 100);
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("max_tokens").is_none());
     }
 }

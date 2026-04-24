@@ -822,7 +822,7 @@ export const ru: TranslationKeys = {
   'settings.summarizationModel': 'Модель резюмирования',
   'settings.summarizationProvider': 'Провайдер резюмирования',
   'settings.sameAsMain': 'Такой же, как основной провайдер',
-  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-chat и др.',
+  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-v4-pro и др.',
   'settings.summarizationProviderHelp': 'Изменяйте только если модель резюмирования использует другого провайдера, чем основная модель.',
   'settings.providerOpenAI': 'OpenAI',
   'settings.providerAnthropic': 'Anthropic',

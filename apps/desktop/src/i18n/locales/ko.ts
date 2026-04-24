@@ -822,7 +822,7 @@ export const ko: TranslationKeys = {
   'settings.summarizationModel': '요약 모델',
   'settings.summarizationProvider': '요약 제공자',
   'settings.sameAsMain': '기본 제공자와 동일',
-  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-chat 등',
+  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-v4-pro 등',
   'settings.summarizationProviderHelp': '요약 모델이 기본 모델과 다른 제공자를 사용하는 경우에만 변경하세요.',
   'settings.providerOpenAI': 'OpenAI',
   'settings.providerAnthropic': 'Anthropic',

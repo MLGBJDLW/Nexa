@@ -43,6 +43,7 @@ use nexa_core::ocr::extract_text_from_image;
 use nexa_core::playbook::QueryLog;
 use nexa_core::privacy::PrivacyConfig;
 use nexa_core::project::{CreateProjectInput, Project, UpdateProjectInput};
+use nexa_core::provider_catalog::{load_provider_presets, preset_model_ids, ProviderPreset};
 use nexa_core::search::{self, SearchResult};
 use nexa_core::skills::{DiscoveredSkillBundle, SaveSkillInput, Skill};
 use nexa_core::sources::{CreateSourceInput, UpdateSourceInput};
@@ -2146,6 +2147,7 @@ pub async fn set_default_agent_config_cmd(
 pub async fn test_agent_connection_cmd(
     config: SaveAgentConfigInput,
 ) -> Result<Vec<String>, String> {
+    let catalog_models = preset_model_ids(&config.provider, config.base_url.as_deref());
     let provider_config = ProviderConfig {
         provider_type: parse_provider_type(&config.provider),
         api_key: Some(config.api_key.clone()),
@@ -2161,15 +2163,21 @@ pub async fn test_agent_connection_cmd(
         .map_err(|e| e.to_string())?;
 
     match provider.list_models().await {
-        Ok(models) => Ok(models),
+        Ok(models) if !models.is_empty() => Ok(models),
+        Ok(_) => Ok(catalog_models),
         Err(error) => {
             warn!(
                 "Connection probe succeeded but model listing failed for provider {}: {}",
                 config.provider, error
             );
-            Ok(vec![])
+            Ok(catalog_models)
         }
     }
+}
+
+#[tauri::command]
+pub async fn list_provider_presets_cmd() -> Result<Vec<ProviderPreset>, String> {
+    load_provider_presets().map_err(|e| e.to_string())
 }
 
 // ── Agent Chat Command (streaming) ──────────────────────────────────────

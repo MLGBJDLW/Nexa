@@ -63,7 +63,7 @@ const BASE_URL_PLACEHOLDERS: Record<ProviderType, string> = {
   open_ai: "https://api.openai.com/v1",
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
-  deep_seek: "https://api.deepseek.com/v1",
+  deep_seek: "https://api.deepseek.com",
   zhipu: "https://open.bigmodel.cn/api/paas/v4",
   moonshot: "https://api.moonshot.cn/v1",
   qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -329,7 +329,7 @@ export function AgentConfigForm({
       try {
         const [servers, skills] = await Promise.all([
           api.listMcpServers(),
-          api.listSkills(),
+          api.listActiveSkills(),
         ]);
 
         const enabledServerTools = await Promise.all(
@@ -353,7 +353,7 @@ export function AgentConfigForm({
         setMcpToolDescriptors(
           buildMcpSubagentToolDescriptors(enabledServerTools.flat()),
         );
-        setEnabledSkills(skills.filter((skill) => skill.enabled));
+        setEnabledSkills(skills);
       } catch {
         if (cancelled) return;
         setMcpToolDescriptors([]);
@@ -604,7 +604,7 @@ export function AgentConfigForm({
                   : provider === "google"
                     ? "gemini-2.5-pro"
                     : provider === "deep_seek"
-                      ? "deepseek-chat"
+                      ? "deepseek-v4-pro"
                       : provider === "ollama"
                         ? "llama3.1"
                         : provider === "lm_studio"

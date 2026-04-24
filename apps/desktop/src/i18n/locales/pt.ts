@@ -822,7 +822,7 @@ export const pt: TranslationKeys = {
   'settings.summarizationModel': 'Modelo de resumo',
   'settings.summarizationProvider': 'Provedor de resumo',
   'settings.sameAsMain': 'Mesmo que o provedor principal',
-  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-chat, etc.',
+  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-v4-pro, etc.',
   'settings.summarizationProviderHelp': 'Altere apenas se o modelo de resumo usar um provedor diferente do modelo principal.',
   'settings.providerOpenAI': 'OpenAI',
   'settings.providerAnthropic': 'Anthropic',

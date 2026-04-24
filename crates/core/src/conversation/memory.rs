@@ -218,6 +218,7 @@ pub fn model_context_window(model: &str) -> u32 {
         "gemini-1.5-flash" | "gemini-1.5-flash-latest" => 1_048_576,
 
         // DeepSeek
+        "deepseek-v4-pro" | "deepseek-v4-flash" => 1_000_000,
         "deepseek-chat" | "deepseek-reasoner" => 128_000,
 
         // Zhipu GLM
@@ -348,6 +349,7 @@ fn prefix_model_context_window(m: &str) -> u32 {
         _ if m.contains("gemini") => 1_048_576,
 
         // DeepSeek
+        _ if m.starts_with("deepseek-v4") => 1_000_000,
         _ if m.contains("deepseek") => 128_000,
 
         // xAI Grok
@@ -610,6 +612,8 @@ mod tests {
         assert_eq!(model_context_window("kimi-k2"), 256_000);
         assert_eq!(model_context_window("kimi-latest"), 128_000);
         // DeepSeek
+        assert_eq!(model_context_window("deepseek-v4-pro"), 1_000_000);
+        assert_eq!(model_context_window("deepseek-v4-flash"), 1_000_000);
         assert_eq!(model_context_window("deepseek-chat"), 128_000);
         assert_eq!(model_context_window("deepseek-reasoner"), 128_000);
         // Doubao
@@ -658,6 +662,7 @@ mod tests {
         assert_eq!(model_context_window("gpt-4o-something"), 128_000);
         assert_eq!(model_context_window("claude-3-opus"), 200_000);
         assert_eq!(model_context_window("gemini-2.5-future"), 1_048_576);
+        assert_eq!(model_context_window("deepseek-v4-future"), 1_000_000);
         assert_eq!(model_context_window("deepseek-something"), 128_000);
         assert_eq!(model_context_window("qwen3.5-plus-2026-02-15"), 1_000_000);
         assert_eq!(

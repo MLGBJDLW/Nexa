@@ -820,7 +820,7 @@ export const ja: TranslationKeys = {
   'settings.summarizationModel': '要約モデル',
   'settings.summarizationProvider': '要約プロバイダー',
   'settings.sameAsMain': 'メインプロバイダーと同じ',
-  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-chat など',
+  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-v4-pro など',
   'settings.summarizationProviderHelp': '要約モデルがメインモデルと異なるプロバイダーを使用する場合にのみ変更してください。',
   'settings.providerOpenAI': 'OpenAI',
   'settings.providerAnthropic': 'Anthropic',

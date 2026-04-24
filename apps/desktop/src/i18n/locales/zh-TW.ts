@@ -820,7 +820,7 @@ export const zhTW: TranslationKeys = {
   'settings.summarizationModel': '摘要模型',
   'settings.summarizationProvider': '摘要提供商',
   'settings.sameAsMain': '與主提供商相同',
-  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-chat 等',
+  'settings.summarizationModelPlaceholder': 'gpt-4o-mini, deepseek-v4-pro 等',
   'settings.summarizationProviderHelp': '僅在摘要模型使用與主模型不同的提供商時才需要更改。',
   'settings.providerOpenAI': 'OpenAI',
   'settings.providerAnthropic': 'Anthropic',
