@@ -1538,6 +1538,7 @@ pub fn download_ffmpeg(
 
 /// Returns (download_url, archive_extension) for the current platform.
 fn ffmpeg_download_url() -> Result<(String, &'static str), CoreError> {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let base = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest";
 
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
