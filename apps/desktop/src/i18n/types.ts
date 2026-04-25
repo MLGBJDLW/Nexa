@@ -413,6 +413,9 @@ export interface TranslationKeys {
   'settings.videoDeleteModel': string;
   'settings.videoDeleteConfirm': string;
   'settings.videoDeleteSuccess': string;
+  'settings.videoUnavailable': string;
+  'settings.videoUnavailableRequires': string;
+  'settings.videoUnavailableRebuild': string;
 
   // Settings - Embedding Model Management
   'settings.cancelDownload': string;
@@ -478,6 +481,19 @@ export interface TranslationKeys {
   'settings.traceEnabledDesc': string;
   'settings.confirmDestructive': string;
   'settings.confirmDestructiveDesc': string;
+  'settings.toolApproval': string;
+  'settings.toolApprovalDesc': string;
+  'settings.toolApprovalAsk': string;
+  'settings.toolApprovalAskDesc': string;
+  'settings.toolApprovalAllowAll': string;
+  'settings.toolApprovalAllowAllDesc': string;
+  'settings.toolApprovalDenyAll': string;
+  'settings.toolApprovalDenyAllDesc': string;
+  'settings.toolApprovalRemembered': string;
+  'settings.toolApprovalRefresh': string;
+  'settings.toolApprovalNoRemembered': string;
+  'settings.toolApprovalForever': string;
+  'settings.toolApprovalSession': string;
   'settings.shellAccessMode': string;
   'settings.shellAccessModeDesc': string;
   'settings.shellAccessRestricted': string;
@@ -1095,6 +1111,15 @@ export interface TranslationKeys {
   'update.restart': string;
   'update.dismiss': string;
   'update.upToDate': string;
+  'update.appUpdate': string;
+  'update.appUpdateDescription': string;
+  'update.currentVersion': string;
+  'update.latestVersion': string;
+  'update.status': string;
+  'update.lastChecked': string;
+  'update.notChecked': string;
+  'update.releaseNotes': string;
+  'update.details': string;
   'common.confirm': string;
   'common.loading': string;
   'common.error': string;

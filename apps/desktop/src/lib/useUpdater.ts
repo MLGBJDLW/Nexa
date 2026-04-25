@@ -1,6 +1,6 @@
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date';
@@ -11,10 +11,25 @@ interface UpdateState {
   errorCode?: string | number | null;
   errorDetail?: { stack?: string };
   errorStage?: 'check' | 'download' | 'install';
+  lastCheckedAt?: string;
 }
 
 const UPDATE_CHECK_TIMEOUT_MS = 90_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 600_000;
+
+let sharedState: UpdateState = { status: 'idle' };
+let sharedUpdate: Update | null = null;
+let autoCheckStarted = false;
+const listeners = new Set<(state: UpdateState) => void>();
+
+function setSharedState(next: UpdateState | ((prev: UpdateState) => UpdateState)) {
+  sharedState = typeof next === 'function'
+    ? (next as (prev: UpdateState) => UpdateState)(sharedState)
+    : next;
+  for (const listener of listeners) {
+    listener(sharedState);
+  }
+}
 
 function extractError(e: unknown): { error: string; errorCode: string | number | null; errorDetail: { stack?: string } } {
   const errMsg = e instanceof Error ? e.message : String(e);
@@ -26,53 +41,54 @@ function extractError(e: unknown): { error: string; errorCode: string | number |
 }
 
 export function useUpdater(checkOnMount = true) {
-  const [state, setState] = useState<UpdateState>({ status: 'idle' });
-  const updateRef = useRef<Update | null>(null);
+  const [state, setState] = useState<UpdateState>(sharedState);
 
   const checkForUpdate = useCallback(async () => {
-    setState({ status: 'checking' });
+    setSharedState({ status: 'checking' });
     try {
       const update = await check({ timeout: UPDATE_CHECK_TIMEOUT_MS });
+      const lastCheckedAt = new Date().toISOString();
       if (update) {
-        updateRef.current = update;
-        setState({
+        sharedUpdate = update;
+        setSharedState({
           status: 'available',
           version: update.version,
           notes: update.body ?? undefined,
+          lastCheckedAt,
         });
         return update;
       } else {
-        updateRef.current = null;
-        setState({ status: 'up-to-date' });
+        sharedUpdate = null;
+        setSharedState({ status: 'up-to-date', lastCheckedAt });
         return null;
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // Graceful fallback: missing release manifest (404) → treat as up-to-date
       if (/\b404\b|Not Found/i.test(msg)) {
-        updateRef.current = null;
-        setState({ status: 'up-to-date' });
+        sharedUpdate = null;
+        setSharedState({ status: 'up-to-date', lastCheckedAt: new Date().toISOString() });
         return null;
       }
-      setState({ status: 'error', errorStage: 'check', ...extractError(e) });
+      setSharedState({ status: 'error', errorStage: 'check', lastCheckedAt: new Date().toISOString(), ...extractError(e) });
       return null;
     }
   }, []);
 
   const downloadAndInstall = useCallback(async () => {
-    let update = updateRef.current;
+    let update = sharedUpdate;
     if (!update) {
       try {
         update = await check({ timeout: UPDATE_CHECK_TIMEOUT_MS });
-        if (update) updateRef.current = update;
+        if (update) sharedUpdate = update;
       } catch (e) {
-        setState({ status: 'error', errorStage: 'check', ...extractError(e) });
+        setSharedState({ status: 'error', errorStage: 'check', lastCheckedAt: new Date().toISOString(), ...extractError(e) });
         return;
       }
       if (!update) return;
     }
 
-    setState(prev => ({
+    setSharedState(prev => ({
       ...prev,
       status: 'downloading',
       progress: 0,
@@ -95,21 +111,22 @@ export function useUpdater(checkOnMount = true) {
             case 'Progress':
               downloaded += event.data.chunkLength;
               if (contentLength > 0) {
-                setState(prev => ({
+                setSharedState(prev => ({
                   ...prev,
                   progress: Math.round((downloaded / contentLength) * 100),
                 }));
               }
               break;
             case 'Finished':
-              setState(prev => ({ ...prev, status: 'ready', progress: 100 }));
+              setSharedState(prev => ({ ...prev, status: 'ready', progress: 100 }));
               break;
           }
         },
         { timeout: UPDATE_DOWNLOAD_TIMEOUT_MS },
       );
+      setSharedState(prev => ({ ...prev, status: 'ready', progress: 100 }));
     } catch (e) {
-      setState(prev => ({
+      setSharedState(prev => ({
         ...prev,
         status: 'error',
         progress: undefined,
@@ -118,11 +135,13 @@ export function useUpdater(checkOnMount = true) {
       }));
       return;
     }
+  }, []);
 
+  const restart = useCallback(async () => {
     try {
       await relaunch();
     } catch (e) {
-      setState(prev => ({
+      setSharedState(prev => ({
         ...prev,
         status: 'error',
         progress: undefined,
@@ -133,11 +152,28 @@ export function useUpdater(checkOnMount = true) {
   }, []);
 
   useEffect(() => {
-    if (checkOnMount) {
-      const timer = setTimeout(checkForUpdate, 5000);
-      return () => clearTimeout(timer);
-    }
+    listeners.add(setState);
+    setState(sharedState);
+    return () => {
+      listeners.delete(setState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!checkOnMount || autoCheckStarted) return;
+    autoCheckStarted = true;
+    let fired = false;
+    const timer = setTimeout(() => {
+      fired = true;
+      void checkForUpdate();
+    }, 5000);
+    return () => {
+      clearTimeout(timer);
+      if (!fired) {
+        autoCheckStarted = false;
+      }
+    };
   }, [checkOnMount, checkForUpdate]);
 
-  return { ...state, checkForUpdate, downloadAndInstall };
+  return { ...state, checkForUpdate, downloadAndInstall, restart };
 }

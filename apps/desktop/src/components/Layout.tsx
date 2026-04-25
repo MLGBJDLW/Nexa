@@ -21,7 +21,6 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { Logo } from './Logo';
-import { UpdateNotification } from './UpdateNotification';
 import { Toaster } from 'sonner';
 import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../i18n';
@@ -192,8 +191,7 @@ export function Layout() {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const appVersion = useAppVersion();
-  const updater = useUpdater();
-  const updateStatus = updater.status;
+  useUpdater(true);
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
   const navigate = useNavigate();
@@ -332,9 +330,6 @@ export function Layout() {
                 <span className="overflow-hidden whitespace-nowrap">{t('nav.collapse')}</span>
                 <span className="ml-auto text-text-tertiary/60 relative">
                   v{appVersion}
-                  {(updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'ready') && (
-                    <span className="absolute -top-0.5 -right-2 h-2 w-2 rounded-full bg-danger animate-pulse" />
-                  )}
                 </span>
               </>
             )}
@@ -349,7 +344,6 @@ export function Layout() {
 
       {/* Main content */}
       <main className="flex-1 min-h-0 overflow-y-auto">
-        <UpdateNotification updater={updater} />
         <Outlet />
       </main>
 
