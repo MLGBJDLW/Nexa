@@ -122,6 +122,12 @@ fn main() {
                     "Failed to materialize skills: {e}. Doc-editing via shell scripts will be unavailable; edit_document fast-path still works."
                 ),
             }
+            if let Some(bin_dir) = nexa_core::office_runtime::configure_app_managed_python_env(&data_dir) {
+                log::info!(
+                    "Configured app-managed Office Python environment at {}",
+                    bin_dir.display()
+                );
+            }
 
             let db_path = data_dir.join("nexa.db");
             let db = Database::new(&db_path).expect("failed to initialize database");
@@ -230,6 +236,7 @@ fn main() {
             commands::get_conversation_cmd,
             commands::get_conversation_turns_cmd,
             commands::update_conversation_collection_context_cmd,
+            commands::update_conversation_model_cmd,
             commands::delete_conversation_cmd,
             commands::delete_conversations_batch_cmd,
             commands::delete_all_conversations_cmd,
@@ -272,6 +279,8 @@ fn main() {
             // App Config
             commands::get_app_config_cmd,
             commands::save_app_config_cmd,
+            commands::check_office_runtime_cmd,
+            commands::prepare_office_runtime_cmd,
             // Setup Wizard
             commands::get_wizard_state_cmd,
             commands::set_wizard_completed_cmd,

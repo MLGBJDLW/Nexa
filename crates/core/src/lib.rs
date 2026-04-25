@@ -22,6 +22,7 @@ pub mod crypto;
 pub mod db;
 pub mod embed;
 pub mod error;
+pub mod evolution;
 pub mod feedback;
 pub mod index;
 pub mod ingest;
@@ -36,6 +37,7 @@ pub mod migrations;
 pub mod models;
 #[cfg(feature = "ocr")]
 pub mod ocr;
+pub mod office_runtime;
 pub mod parse;
 pub mod personalization;
 pub mod playbook;

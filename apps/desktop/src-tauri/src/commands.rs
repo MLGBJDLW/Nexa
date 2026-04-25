@@ -1345,6 +1345,25 @@ fn normalize_optional_base_url(base_url: Option<String>) -> Option<String> {
     })
 }
 
+fn provider_type_for_parts(provider: &str, base_url: Option<&str>) -> ProviderType {
+    let parsed = parse_provider_type(provider);
+    if parsed == ProviderType::Custom {
+        let base_url_lower = base_url.unwrap_or_default().to_lowercase();
+        if base_url_lower.contains("deepseek") {
+            return ProviderType::DeepSeek;
+        }
+    }
+    parsed
+}
+
+fn provider_type_for_config(config: &DbAgentConfig) -> ProviderType {
+    provider_type_for_parts(&config.provider, config.base_url.as_deref())
+}
+
+fn provider_type_for_input(config: &SaveAgentConfigInput) -> ProviderType {
+    provider_type_for_parts(&config.provider, config.base_url.as_deref())
+}
+
 /// Convert a DB [`DbAgentConfig`] to a [`ProviderConfig`] suitable for
 /// [`create_provider`].
 fn db_config_to_provider_config(
@@ -1352,12 +1371,48 @@ fn db_config_to_provider_config(
     timeout_secs: Option<u64>,
 ) -> ProviderConfig {
     ProviderConfig {
-        provider_type: parse_provider_type(&config.provider),
+        provider_type: provider_type_for_config(config),
         api_key: Some(config.api_key.clone()),
         base_url: normalize_optional_base_url(config.base_url.clone()),
         org_id: None,
         timeout_secs,
     }
+}
+
+fn select_agent_config_for_conversation(
+    db: &Database,
+    conv: &Conversation,
+    requested_config_id: Option<&str>,
+) -> Result<DbAgentConfig, String> {
+    let configs = db.list_agent_configs().map_err(|e| e.to_string())?;
+    if let Some(id) = requested_config_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        if let Some(config) = configs.iter().find(|cfg| cfg.id == id).cloned() {
+            return Ok(config);
+        }
+        warn!(
+            "Requested agent config id '{}' was not found; falling back to conversation provider/model",
+            id
+        );
+    }
+    let default_config = configs.iter().find(|cfg| cfg.is_default).cloned();
+    let matching_config = configs
+        .iter()
+        .filter(|cfg| cfg.provider == conv.provider && cfg.model == conv.model)
+        .find(|cfg| cfg.is_default)
+        .cloned()
+        .or_else(|| {
+            configs
+                .iter()
+                .find(|cfg| cfg.provider == conv.provider && cfg.model == conv.model)
+                .cloned()
+        });
+
+    matching_config
+        .or(default_config)
+        .ok_or_else(|| "No agent config set. Please configure an LLM provider first.".to_string())
 }
 
 fn build_connection_probe_request(config: &SaveAgentConfigInput) -> CompletionRequest {
@@ -1370,7 +1425,7 @@ fn build_connection_probe_request(config: &SaveAgentConfigInput) -> CompletionRe
         stop: None,
         thinking_budget: None,
         reasoning_effort: None,
-        provider_type: Some(parse_provider_type(&config.provider)),
+        provider_type: Some(provider_type_for_input(config)),
         parallel_tool_calls: true,
     }
 }
@@ -1384,6 +1439,9 @@ fn conv_message_to_llm(msg: &ConversationMessage) -> Message {
     } else {
         Some(msg.tool_calls.clone())
     };
+    if msg.role == Role::Assistant {
+        m.reasoning_content = msg.thinking.clone();
+    }
     m
 }
 
@@ -1685,6 +1743,20 @@ pub async fn update_conversation_collection_context_cmd(
 }
 
 #[tauri::command]
+pub async fn update_conversation_model_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    provider: String,
+    model: String,
+) -> Result<Conversation, String> {
+    state
+        .db
+        .update_conversation_model(&id, &provider, &model)
+        .map_err(|e| e.to_string())?;
+    state.db.get_conversation(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_conversation_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
@@ -1897,12 +1969,8 @@ pub async fn compact_conversation_cmd(
         return Ok(());
     }
 
-    // 2. Load default agent config for provider / model.
-    let db_config = state
-        .db
-        .get_default_agent_config()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No default agent config set.".to_string())?;
+    // 2. Load the config that matches this conversation's provider/model.
+    let db_config = select_agent_config_for_conversation(&state.db, &conv, None)?;
 
     let app_cfg = state.db.load_app_config().unwrap_or_default();
     let provider_config = db_config_to_provider_config(&db_config, Some(app_cfg.llm_timeout_secs));
@@ -1918,7 +1986,7 @@ pub async fn compact_conversation_cmd(
         reasoning_enabled: None,
         thinking_budget: None,
         reasoning_effort: None,
-        provider_type: Some(parse_provider_type(&db_config.provider)),
+        provider_type: Some(provider_type_for_config(&db_config)),
         summarization_model: db_config.summarization_model.clone(),
         subagent_max_parallel: db_config.subagent_max_parallel.map(|v| v as u32),
         subagent_max_calls_per_turn: db_config.subagent_max_calls_per_turn.map(|v| v as u32),
@@ -2149,7 +2217,7 @@ pub async fn test_agent_connection_cmd(
 ) -> Result<Vec<String>, String> {
     let catalog_models = preset_model_ids(&config.provider, config.base_url.as_deref());
     let provider_config = ProviderConfig {
-        provider_type: parse_provider_type(&config.provider),
+        provider_type: provider_type_for_input(&config),
         api_key: Some(config.api_key.clone()),
         base_url: normalize_optional_base_url(config.base_url.clone()),
         org_id: None,
@@ -2193,22 +2261,33 @@ pub async fn agent_chat_cmd(
     conversation_id: String,
     message: String,
     attachments: Option<Vec<ImageAttachment>>,
+    agent_config_id: Option<String>,
 ) -> Result<(), String> {
-    // 1. Get default agent config from DB.
-    let db_config = state
+    // 1. Load the conversation first so provider/model selection follows the
+    // active chat, not whatever global default happened to be selected later.
+    let mut conv = state
         .db
-        .get_default_agent_config()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| {
-            "No default agent config set. Please configure an LLM provider first.".to_string()
-        })?;
+        .get_conversation(&conversation_id)
+        .map_err(|e| e.to_string())?;
 
-    // 2. Create LLM provider.
+    // 2. Resolve the best matching agent config for this conversation.
+    let db_config =
+        select_agent_config_for_conversation(&state.db, &conv, agent_config_id.as_deref())?;
+    if conv.provider != db_config.provider || conv.model != db_config.model {
+        state
+            .db
+            .update_conversation_model(&conversation_id, &db_config.provider, &db_config.model)
+            .map_err(|e| e.to_string())?;
+        conv.provider = db_config.provider.clone();
+        conv.model = db_config.model.clone();
+    }
+
+    // 3. Create LLM provider.
     let app_cfg = state.db.load_app_config().unwrap_or_default();
     let provider_config = db_config_to_provider_config(&db_config, Some(app_cfg.llm_timeout_secs));
     let provider = create_provider(provider_config.clone()).map_err(|e| e.to_string())?;
 
-    // 3. Load conversation history and convert to LLM messages.
+    // 4. Load conversation history and convert to LLM messages.
     let existing_msgs = state
         .db
         .get_messages(&conversation_id)
@@ -2217,7 +2296,7 @@ pub async fn agent_chat_cmd(
     let history = sanitize_tool_call_history(history);
     let next_sort_order = existing_msgs.len() as i64;
 
-    // 4. Save user message to DB.
+    // 5. Save user message to DB.
     let user_msg = ConversationMessage {
         id: Uuid::new_v4().to_string(),
         conversation_id: conversation_id.clone(),
@@ -2244,11 +2323,7 @@ pub async fn agent_chat_cmd(
         .create_conversation_turn(&conversation_id, &user_msg.id, None)
         .map_err(|e| e.to_string())?;
 
-    // 5. Load conversation to check for custom system prompt.
-    let conv = state
-        .db
-        .get_conversation(&conversation_id)
-        .map_err(|e| e.to_string())?;
+    // 6. Build prompt sections from conversation context.
     let source_scope_ids = state
         .db
         .get_linked_sources(&conversation_id)
@@ -2263,6 +2338,12 @@ pub async fn agent_chat_cmd(
     let memory_section =
         nexa_core::personalization::build_memory_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
+    let agent_memory_section =
+        nexa_core::evolution::build_agent_procedural_memory_summary_for_query(
+            &state.db,
+            Some(&message),
+        )
+        .unwrap_or_default();
     let preference_section =
         nexa_core::personalization::build_preference_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
@@ -2295,6 +2376,7 @@ pub async fn agent_chat_cmd(
             &collection_context_section,
             &source_scope_section,
             &memory_section,
+            &agent_memory_section,
             &preference_section,
             &learned_section,
             &scratchpad_section,
@@ -2324,7 +2406,7 @@ pub async fn agent_chat_cmd(
                 "xhigh" => Some(ReasoningEffort::XHigh),
                 _ => None,
             }),
-        provider_type: Some(parse_provider_type(&db_config.provider)),
+        provider_type: Some(provider_type_for_config(&db_config)),
         summarization_model: db_config.summarization_model.clone(),
         subagent_max_parallel: db_config.subagent_max_parallel.map(|v| v as u32),
         subagent_max_calls_per_turn: db_config.subagent_max_calls_per_turn.map(|v| v as u32),
@@ -2894,7 +2976,7 @@ pub async fn agent_chat_cmd(
                         }
                     } else {
                         ProviderConfig {
-                            provider_type: parse_provider_type(&db_config_for_extraction.provider),
+                            provider_type: provider_type_for_config(&db_config_for_extraction),
                             api_key: Some(db_config_for_extraction.api_key.clone()),
                             base_url: db_config_for_extraction.base_url.clone(),
                             org_id: None,
@@ -2919,6 +3001,17 @@ pub async fn agent_chat_cmd(
                         _ => {}
                     }
                 }
+            }
+
+            match nexa_core::evolution::review_recent_traces_for_evolution(&db, 5) {
+                Ok(review) if review.events_created > 0 => {
+                    info!(
+                        "Agent evolution review created {} event(s) for conversation {}",
+                        review.events_created, conv_id
+                    );
+                }
+                Err(e) => warn!("Agent evolution review failed for {conv_id}: {e}"),
+                _ => {}
             }
         }
     });
@@ -2980,6 +3073,40 @@ pub fn save_app_config_cmd(
     config: AppConfig,
 ) -> Result<(), String> {
     state.db.save_app_config(&config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn check_office_runtime_cmd(
+    app_handle: AppHandle,
+) -> Result<nexa_core::office_runtime::OfficeRuntimeReadiness, String> {
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    Ok(nexa_core::office_runtime::check_office_runtime(&data_dir))
+}
+
+#[tauri::command]
+pub async fn prepare_office_runtime_cmd(
+    app_handle: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::office_runtime::OfficePrepareResult, String> {
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    let ghproxy_base = state
+        .db
+        .load_app_config()
+        .map(|cfg| cfg.ghproxy_base_url)
+        .unwrap_or_default();
+
+    tokio::task::spawn_blocking(move || {
+        nexa_core::office_runtime::prepare_office_runtime_with_options(&data_dir, &ghproxy_base)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 // ── Setup Wizard ───────────────────────────────────────────────────

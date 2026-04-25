@@ -77,7 +77,8 @@ const MAX_TOTAL_ARGV_BYTES: usize = 32 * 1024;
 /// Whitelisted program basenames. Matched case-insensitively on Windows,
 /// case-sensitively on Unix. The model may only pass these names exactly.
 const PROGRAM_WHITELIST: &[&str] = &[
-    "python", "python3", "node", "npm", "npx", "git", "pwd", "ls", "cat", "mkdir", "cp", "mv",
+    "python", "python3", "pip", "pip3", "node", "npm", "npx", "git", "pwd", "ls", "cat", "mkdir",
+    "cp", "mv",
 ];
 
 /// Accepted aliases that normalize to a canonical program name.
@@ -182,6 +183,65 @@ struct RunShellArgs {
     timeout_secs: Option<u64>,
 }
 
+fn repair_invalid_json_string_escapes(input: &str) -> String {
+    let mut repaired = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for ch in input.chars() {
+        if !in_string {
+            if ch == '"' {
+                in_string = true;
+            }
+            repaired.push(ch);
+            continue;
+        }
+
+        if escaped {
+            if matches!(ch, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u') {
+                repaired.push(ch);
+            } else {
+                repaired.push('\\');
+                repaired.push(ch);
+            }
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => {
+                repaired.push('\\');
+                escaped = true;
+            }
+            '"' => {
+                in_string = false;
+                repaired.push(ch);
+            }
+            _ => repaired.push(ch),
+        }
+    }
+
+    if escaped {
+        repaired.push('\\');
+    }
+
+    repaired
+}
+
+fn parse_run_shell_args(arguments: &str) -> Result<RunShellArgs, serde_json::Error> {
+    match serde_json::from_str(arguments) {
+        Ok(parsed) => Ok(parsed),
+        Err(first_err) => {
+            let repaired = repair_invalid_json_string_escapes(arguments);
+            if repaired == arguments {
+                Err(first_err)
+            } else {
+                serde_json::from_str(&repaired)
+            }
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct RunShellOutput {
     exit_code: Option<i32>,
@@ -246,6 +306,29 @@ fn validate_program(program: &str, mode: ShellAccessMode) -> Result<String, Stri
         "program '{program}' is not in the run_shell whitelist. Allowed: {}",
         allowed.join(", ")
     ))
+}
+
+fn normalize_invocation(
+    program: &str,
+    args: &[String],
+    mode: ShellAccessMode,
+) -> Result<(String, Vec<String>), String> {
+    let canonical = validate_program(program, mode)?;
+    if program_matches(&canonical, "pip") {
+        let mut normalized_args = Vec::with_capacity(args.len() + 2);
+        normalized_args.push("-m".to_string());
+        normalized_args.push("pip".to_string());
+        normalized_args.extend(args.iter().cloned());
+        return Ok(("python".to_string(), normalized_args));
+    }
+    if program_matches(&canonical, "pip3") {
+        let mut normalized_args = Vec::with_capacity(args.len() + 2);
+        normalized_args.push("-m".to_string());
+        normalized_args.push("pip".to_string());
+        normalized_args.extend(args.iter().cloned());
+        return Ok(("python3".to_string(), normalized_args));
+    }
+    Ok((canonical, args.to_vec()))
 }
 
 /// Reject unsafe argv patterns.
@@ -523,11 +606,63 @@ where
         }
     }
 
+    prepend_path_from_parent_env(
+        &mut out,
+        &parent,
+        crate::office_runtime::OFFICE_TOOLS_BIN_DIR_ENV,
+    );
+    prepend_path_from_parent_env(
+        &mut out,
+        &parent,
+        crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV,
+    );
+
     // Force UTF-8 output from Python subprocesses regardless of system locale.
     out.push((OsString::from("PYTHONUTF8"), OsString::from("1")));
     out.push((OsString::from("PYTHONIOENCODING"), OsString::from("utf-8")));
 
     out
+}
+
+fn prepend_path_from_parent_env(
+    env: &mut Vec<(OsString, OsString)>,
+    parent: &[(OsString, OsString)],
+    key: &str,
+) {
+    let Some((_, bin_dir)) = parent
+        .iter()
+        .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case(key))
+    else {
+        return;
+    };
+    if bin_dir.is_empty() {
+        return;
+    }
+    let bin = PathBuf::from(bin_dir);
+    if !bin.exists() {
+        return;
+    }
+
+    let mut paths = vec![bin];
+    let existing_path = env
+        .iter()
+        .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+        .map(|(_, v)| v.clone());
+    if let Some(existing) = existing_path {
+        paths.extend(std::env::split_paths(&existing));
+    }
+    let Ok(joined) = std::env::join_paths(paths) else {
+        return;
+    };
+
+    if let Some((_, value)) = env
+        .iter_mut()
+        .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+    {
+        *value = joined;
+    } else {
+        env.push((OsString::from("PATH"), joined));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -750,21 +885,22 @@ impl Tool for RunShellTool {
         db: &Database,
         source_scope: &[String],
     ) -> Result<ToolResult, CoreError> {
-        let parsed: RunShellArgs = serde_json::from_str(arguments)
+        let parsed = parse_run_shell_args(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid run_shell arguments: {e}")))?;
         let shell_access_mode = db
             .load_app_config()
             .map(|cfg| cfg.shell_access_mode)
             .unwrap_or_default();
 
-        let canonical_program = match validate_program(&parsed.program, shell_access_mode) {
-            Ok(p) => p,
-            Err(msg) => return Ok(error_result(call_id, msg)),
-        };
+        let (canonical_program, normalized_args) =
+            match normalize_invocation(&parsed.program, &parsed.args, shell_access_mode) {
+                Ok(invocation) => invocation,
+                Err(msg) => return Ok(error_result(call_id, msg)),
+            };
 
         let resolved_program = resolve_program(&canonical_program);
 
-        if let Err(msg) = validate_args(shell_access_mode, &canonical_program, &parsed.args) {
+        if let Err(msg) = validate_args(shell_access_mode, &canonical_program, &normalized_args) {
             return Ok(error_result(call_id, msg));
         }
 
@@ -772,7 +908,7 @@ impl Tool for RunShellTool {
 
         // Resolve cwd inside a registered source directory (blocking fs ops).
         let cwd_input = parsed.cwd.clone();
-        let args_input = parsed.args.clone();
+        let args_input = normalized_args.clone();
         let db_clone = db.clone();
         let scope_clone = source_scope.to_vec();
         let program = canonical_program.clone();
@@ -814,16 +950,16 @@ impl Tool for RunShellTool {
             Err(msg) => return Ok(error_result(call_id, msg)),
         };
 
-        let output = match execute_inner(&resolved_program, &parsed.args, &cwd_path, timeout).await
-        {
-            Ok(o) => o,
-            Err(msg) => return Ok(error_result(call_id, msg)),
-        };
+        let output =
+            match execute_inner(&resolved_program, &normalized_args, &cwd_path, timeout).await {
+                Ok(o) => o,
+                Err(msg) => return Ok(error_result(call_id, msg)),
+            };
 
         tracing::info!(
             target: "tool.run_shell",
             program = canonical_program,
-            args_count = parsed.args.len(),
+            args_count = normalized_args.len(),
             cwd = %cwd_path.display(),
             exit_code = ?output.exit_code,
             duration_ms = output.duration_ms as u64,
@@ -869,14 +1005,41 @@ mod tests {
     #[test]
     fn test_accept_whitelisted_program() {
         for good in &[
-            "python", "python3", "node", "npm", "npx", "git", "pwd", "ls", "cat", "mkdir", "cp",
-            "mv", "copy", "move",
+            "python", "python3", "pip", "pip3", "node", "npm", "npx", "git", "pwd", "ls", "cat",
+            "mkdir", "cp", "mv", "copy", "move",
         ] {
             assert!(
                 validate_program(good, ShellAccessMode::Restricted).is_ok(),
                 "expected '{good}' to be accepted"
             );
         }
+    }
+
+    #[test]
+    fn test_pip_program_normalizes_to_python_module_invocation() {
+        let parsed = parse_run_shell_args(
+            r#"{"program":"pip","args":["install","python-docx"],"cwd":"C:\\work"}"#,
+        )
+        .expect("pip args should parse");
+
+        let (program, args) =
+            normalize_invocation(&parsed.program, &parsed.args, ShellAccessMode::Restricted)
+                .expect("pip should normalize");
+
+        assert_eq!(program, "python");
+        assert_eq!(args, vec!["-m", "pip", "install", "python-docx"]);
+    }
+
+    #[test]
+    fn test_lenient_parser_repairs_unescaped_windows_paths() {
+        let parsed = parse_run_shell_args(
+            r#"{"program":"python","args":["E:\Starting\convert_to_docx.py"],"cwd":"E:\Starting"}"#,
+        )
+        .expect("unescaped Windows paths should be repaired");
+
+        assert_eq!(parsed.program, "python");
+        assert_eq!(parsed.args, vec![r#"E:\Starting\convert_to_docx.py"#]);
+        assert_eq!(parsed.cwd, r#"E:\Starting"#);
     }
 
     #[test]
@@ -1193,6 +1356,59 @@ mod tests {
             .map(|(_, v)| v.to_string_lossy().to_string())
             .unwrap();
         assert_eq!(pyioenc_val, "utf-8");
+    }
+
+    #[test]
+    fn test_env_prepends_app_managed_office_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let office_bin = dir.path().join("office-python-bin");
+        std::fs::create_dir_all(&office_bin).unwrap();
+        let original_path = std::env::join_paths([PathBuf::from("/usr/bin")]).unwrap();
+        let parent: Vec<(OsString, OsString)> = vec![
+            (OsString::from("PATH"), original_path),
+            (
+                OsString::from(crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV),
+                office_bin.as_os_str().to_os_string(),
+            ),
+        ];
+        let built = build_env_from(parent);
+        let path_value = built
+            .iter()
+            .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        let first = std::env::split_paths(&path_value).next().unwrap();
+        assert_eq!(first, office_bin);
+    }
+
+    #[test]
+    fn test_env_prepends_app_managed_office_tools_after_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let python_bin = dir.path().join("office-python-bin");
+        let tools_bin = dir.path().join("office-tools-bin");
+        std::fs::create_dir_all(&python_bin).unwrap();
+        std::fs::create_dir_all(&tools_bin).unwrap();
+        let original_path = std::env::join_paths([PathBuf::from("/usr/bin")]).unwrap();
+        let parent: Vec<(OsString, OsString)> = vec![
+            (OsString::from("PATH"), original_path),
+            (
+                OsString::from(crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV),
+                python_bin.as_os_str().to_os_string(),
+            ),
+            (
+                OsString::from(crate::office_runtime::OFFICE_TOOLS_BIN_DIR_ENV),
+                tools_bin.as_os_str().to_os_string(),
+            ),
+        ];
+        let built = build_env_from(parent);
+        let path_value = built
+            .iter()
+            .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        let paths: Vec<PathBuf> = std::env::split_paths(&path_value).take(3).collect();
+        assert_eq!(paths[0], python_bin);
+        assert_eq!(paths[1], tools_bin);
     }
 
     // --- format_output ------------------------------------------------------

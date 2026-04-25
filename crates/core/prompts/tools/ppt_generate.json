@@ -1,6 +1,6 @@
 {
   "name": "ppt_generate",
-  "description": "Generate a PowerPoint (.pptx) presentation. Provide a path where the file should be saved, and a deck specification with a theme, title, and an array of slides. Each slide has a 'layout' discriminator (title | agenda | body | two_column | stat | quote | section | image_full) and layout-specific fields. The actual PPTX rendering happens in the desktop frontend via pptxgenjs, not in Rust. Use this tool whenever the user asks for a deck, slides, presentation, or PPT/PPTX output.",
+  "description": "Compatibility fallback: generate a PowerPoint (.pptx) presentation. Prefer `run_shell` + `doc-script-editor` (`create_pptx`, `validate`, `render` for slide-image QA, and `unpack`/`pack` for template/OOXML edits) for serious decks, speaker notes, templates, validation, or follow-up edits. Use this frontend-rendered pptxgenjs tool only when Python is unavailable or the deck is simple enough for the structured schema. Provide a path where the file should be saved, and a deck specification with a theme, title, and an array of slides. Each slide has a 'layout' discriminator (title | agenda | body | two_column | stat | quote | section | image_full) and layout-specific fields. The actual PPTX rendering happens in the desktop frontend via pptxgenjs, not in Rust.",
   "parameters": {
     "type": "object",
     "required": ["path", "spec"],

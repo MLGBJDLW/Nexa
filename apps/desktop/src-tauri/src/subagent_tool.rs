@@ -953,8 +953,9 @@ async fn run_subagent_once(
         .with_cancel_token(worker_cancel_token.clone())
         .with_skills_override(enabled_skills);
 
-    let (tx, mut event_rx) = mpsc::channel::<AgentEvent>(64);
+    let (tx, event_rx) = mpsc::channel::<AgentEvent>(64);
     let event_task = tokio::spawn(async move {
+        let mut event_rx = event_rx;
         let mut capture = EventCapture::default();
 
         while let Some(event) = event_rx.recv().await {
@@ -1009,6 +1010,7 @@ async fn run_subagent_once(
                     capture.finish_reason = finish_reason;
                 }
                 AgentEvent::TextDelta { .. }
+                | AgentEvent::StreamReset { .. }
                 | AgentEvent::Error { .. }
                 | AgentEvent::AutoCompacted { .. }
                 | AgentEvent::ToolCallArgsDelta { .. }
@@ -1762,7 +1764,7 @@ impl Tool for JudgeSubagentResultsTool {
             stop: None,
             thinking_budget: None,
             reasoning_effort: None,
-            provider_type: self.runtime.base_config.provider_type.clone(),
+            provider_type: self.runtime.base_config.provider_type,
             parallel_tool_calls: true,
         };
         let judge_cancel_token = self.runtime.cancel_token.child_token();

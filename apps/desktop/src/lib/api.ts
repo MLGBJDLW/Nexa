@@ -318,6 +318,9 @@ export const updateConversationCollectionContext = (
   collectionContext: Conversation['collectionContext'],
 ) => invoke<void>('update_conversation_collection_context_cmd', { id, collectionContext });
 
+export const updateConversationModel = (id: string, provider: string, model: string) =>
+  invoke<Conversation>('update_conversation_model_cmd', { id, provider, model });
+
 // ── Projects ────────────────────────────────────────────────────────────
 
 export const createProject = (input: CreateProjectInput) =>
@@ -342,8 +345,18 @@ export const removeConversationFromProject = (conversationId: string) =>
 
 // ── Agent Chat ──────────────────────────────────────────────────────────
 
-export const agentChat = (conversationId: string, message: string, attachments?: ImageAttachment[]) =>
-  invoke<void>('agent_chat_cmd', { conversationId, message, attachments: attachments ?? null });
+export const agentChat = (
+  conversationId: string,
+  message: string,
+  attachments?: ImageAttachment[],
+  agentConfigId?: string | null,
+) =>
+  invoke<void>('agent_chat_cmd', {
+    conversationId,
+    message,
+    attachments: attachments ?? null,
+    agentConfigId: agentConfigId ?? null,
+  });
 
 export const agentStop = (conversationId: string) =>
   invoke<void>('agent_stop_cmd', { conversationId });
@@ -424,6 +437,53 @@ export const getAppConfig = () =>
 
 export const saveAppConfig = (config: AppConfig) =>
   invoke<void>('save_app_config_cmd', { config });
+
+export type OfficeRuntimeStatus = 'ready' | 'degraded' | 'missing' | 'blocked';
+
+export interface OfficeDependencyStatus {
+  id: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  status: string;
+  version?: string | null;
+  path?: string | null;
+  detail?: string | null;
+  installHint?: string | null;
+}
+
+export interface OfficeRuntimeReadiness {
+  status: OfficeRuntimeStatus;
+  summary: string;
+  pythonPath?: string | null;
+  appManagedPythonPath?: string | null;
+  appManagedEnvPath: string;
+  skillScriptPath: string;
+  requirementsPath: string;
+  canPrepare: boolean;
+  canInstallPythonPackages: boolean;
+  needsPythonInstall: boolean;
+  pythonDownloadUrl: string;
+  dependencies: OfficeDependencyStatus[];
+}
+
+export interface OfficePrepareAction {
+  name: string;
+  status: string;
+  detail?: string | null;
+}
+
+export interface OfficePrepareResult {
+  success: boolean;
+  actions: OfficePrepareAction[];
+  readiness: OfficeRuntimeReadiness;
+}
+
+export const checkOfficeRuntime = () =>
+  invoke<OfficeRuntimeReadiness>('check_office_runtime_cmd');
+
+export const prepareOfficeRuntime = () =>
+  invoke<OfficePrepareResult>('prepare_office_runtime_cmd');
 
 // ── Setup Wizard ────────────────────────────────────────────────────
 

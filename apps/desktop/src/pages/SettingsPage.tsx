@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBlocker, useNavigate } from 'react-router-dom';
+import { getVersion } from '@tauri-apps/api/app';
 import {
   Database,
   Shield,
@@ -36,6 +37,7 @@ import {
   Download,
   Eye,
   RotateCcw,
+  Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
@@ -64,6 +66,7 @@ import { PROVIDER_PRESETS, type ProviderPreset } from '../lib/providerPresets';
 import { DEFAULT_SUBAGENT_TOOL_NAMES } from '../lib/subagentTools';
 import { ModelCard } from '../components/settings/ModelCard';
 import { useMicrophoneDevices } from '../lib/useMicrophoneDevices';
+import { useUpdater } from '../lib/useUpdater';
 
 /* ── Section wrapper ──────────────────────────────────────────────── */
 function Section({
@@ -119,6 +122,327 @@ function formatCompact(n: number): string {
   return String(n);
 }
 
+type UpdaterState = ReturnType<typeof useUpdater>;
+
+function formatUpdateTimestamp(value: string | undefined, locale: string): string {
+  if (!value) return '';
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return '';
+  return time.toLocaleString(locale);
+}
+
+function UpdateSettingsPanel({
+  appVersion,
+  updater,
+}: {
+  appVersion: string;
+  updater: UpdaterState;
+}) {
+  const { t, locale } = useTranslation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const {
+    status,
+    version,
+    notes,
+    progress,
+    error,
+    errorCode,
+    errorDetail,
+    errorStage,
+    lastCheckedAt,
+    checkForUpdate,
+    downloadAndInstall,
+    restart,
+  } = updater;
+
+  const statusMeta = (() => {
+    switch (status) {
+      case 'checking':
+        return { label: t('knowledge.checking'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
+      case 'available':
+        return { label: t('update.available'), variant: 'warning' as const, icon: <Download size={14} /> };
+      case 'downloading':
+        return { label: t('update.downloading'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
+      case 'ready':
+        return { label: t('update.ready'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
+      case 'error':
+        return { label: t('update.error'), variant: 'danger' as const, icon: <XCircle size={14} /> };
+      case 'up-to-date':
+        return { label: t('update.upToDate'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
+      default:
+        return { label: t('update.notChecked'), variant: 'default' as const, icon: <RefreshCw size={14} /> };
+    }
+  })();
+
+  const checkedAt = formatUpdateTimestamp(lastCheckedAt, locale);
+  const errorLabel =
+    errorStage === 'download'
+      ? t('update.downloadFailed')
+      : errorStage === 'install'
+        ? t('update.installFailed')
+        : t('update.error');
+
+  return (
+    <div className="space-y-4 border-t border-border pt-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-1">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <RefreshCw size={16} className="text-accent" />
+            {t('update.appUpdate')}
+          </h3>
+          <p className="max-w-2xl text-xs text-text-tertiary">{t('update.appUpdateDescription')}</p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {status === 'available' && (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Download size={14} />}
+              onClick={downloadAndInstall}
+            >
+              {t('update.downloadInstall')}
+            </Button>
+          )}
+          {status === 'ready' && (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<RefreshCw size={14} />}
+              onClick={restart}
+            >
+              {t('update.restart')}
+            </Button>
+          )}
+          {status !== 'available' && status !== 'ready' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={status === 'checking' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              loading={status === 'checking'}
+              disabled={status === 'downloading'}
+              onClick={checkForUpdate}
+            >
+              {t('update.checkNow')}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.25fr]">
+        <div className="rounded-lg bg-surface-2 px-4 py-3">
+          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.currentVersion')}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-text-primary">v{appVersion || '...'}</p>
+        </div>
+        <div className="rounded-lg bg-surface-2 px-4 py-3">
+          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.latestVersion')}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-text-primary">
+            {version ? `v${version}` : '-'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-surface-2 px-4 py-3">
+          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.status')}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <Badge variant={statusMeta.variant} className="gap-1.5">
+              {statusMeta.icon}
+              {statusMeta.label}
+            </Badge>
+            <span className="text-xs text-text-tertiary">
+              {checkedAt ? t('update.lastChecked', { time: checkedAt }) : t('update.notChecked')}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {status === 'downloading' && (
+        <div className="flex items-center gap-3">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${progress ?? 0}%` }}
+            />
+          </div>
+          <span className="w-10 text-right text-xs tabular-nums text-text-tertiary">{progress ?? 0}%</span>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-danger" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-danger">{errorLabel}</p>
+              {error && <p className="mt-1 break-words text-xs text-text-secondary">{error}</p>}
+              {(errorCode != null || errorDetail?.stack) && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDetailsOpen(v => !v)}
+                    className="text-xs text-text-tertiary transition-colors hover:text-text-primary"
+                  >
+                    {detailsOpen ? '▼' : '▶'} {t('update.details')}
+                  </button>
+                  {detailsOpen && (
+                    <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-surface-1 p-2 text-xs text-text-tertiary whitespace-pre-wrap break-all">
+                      {errorCode != null && `code: ${errorCode}\n`}
+                      {errorDetail?.stack ?? ''}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notes && (
+        <details className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-text-primary">
+            {t('update.releaseNotes')}
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{notes}</p>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function OfficeRuntimePanel({
+  readiness,
+  preparing,
+  onPrepare,
+  onRefresh,
+}: {
+  readiness: api.OfficeRuntimeReadiness | null;
+  preparing: boolean;
+  onPrepare: () => void;
+  onRefresh: () => void;
+}) {
+  const { t } = useTranslation();
+  const status = readiness?.status ?? 'missing';
+  const statusMeta = (() => {
+    if (!readiness) {
+      return { label: t('settings.documentToolsChecking'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
+    }
+    switch (status) {
+      case 'ready':
+        return { label: t('settings.documentToolsReady'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
+      case 'degraded':
+        return { label: t('settings.documentToolsDegraded'), variant: 'warning' as const, icon: <AlertTriangle size={14} /> };
+      case 'blocked':
+        return { label: t('settings.documentToolsBlocked'), variant: 'danger' as const, icon: <XCircle size={14} /> };
+      default:
+        return { label: t('settings.documentToolsMissing'), variant: 'warning' as const, icon: <AlertTriangle size={14} /> };
+    }
+  })();
+  const requiredDeps = readiness?.dependencies.filter((dep) => dep.required) ?? [];
+  const optionalDeps = readiness?.dependencies.filter((dep) => !dep.required) ?? [];
+  const canPrepare = Boolean(readiness?.canPrepare) || !readiness;
+
+  const renderDep = (dep: api.OfficeDependencyStatus) => (
+    <div key={dep.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-text-primary">{dep.label}</span>
+          <Badge variant={dep.status === 'ready' ? 'success' : dep.status === 'broken' ? 'danger' : 'warning'} className="shrink-0">
+            {dep.status === 'ready'
+              ? t('settings.modelReady')
+              : dep.status === 'broken'
+                ? t('settings.documentToolsBlocked')
+                : t('settings.documentToolsMissing')}
+          </Badge>
+        </div>
+        {(dep.version || dep.path) && (
+          <p className="mt-1 truncate text-xs text-text-tertiary">
+            {dep.version ? `v${dep.version}` : dep.path}
+          </p>
+        )}
+      </div>
+      {dep.detail && dep.status !== 'ready' && (
+        <p className="max-w-sm text-left text-xs leading-relaxed text-text-tertiary sm:text-right">
+          {dep.detail}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-1 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-medium text-text-primary">{t('settings.documentTools')}</h4>
+            <Badge variant={statusMeta.variant} className="gap-1">
+              {statusMeta.icon}
+              {statusMeta.label}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-text-tertiary">
+            {readiness?.summary ?? t('settings.documentToolsDesc')}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RefreshCw size={14} />}
+            iconOnly
+            onClick={onRefresh}
+            title={t('settings.documentToolsRefresh')}
+            aria-label={t('settings.documentToolsRefresh')}
+          />
+          <Button
+            variant={readiness?.status === 'blocked' ? 'secondary' : 'primary'}
+            size="sm"
+            icon={<Wrench size={14} />}
+            loading={preparing}
+            disabled={!canPrepare}
+            onClick={onPrepare}
+          >
+            {preparing ? t('settings.documentToolsPreparing') : t('settings.documentToolsPrepare')}
+          </Button>
+        </div>
+      </div>
+
+      {readiness && (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 text-xs sm:grid-cols-2">
+            <div className="min-w-0">
+              <p className="font-medium text-text-secondary">{t('settings.documentToolsManagedEnv')}</p>
+              <p className="mt-1 truncate text-text-tertiary" title={readiness.appManagedEnvPath}>
+                {readiness.appManagedEnvPath}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="font-medium text-text-secondary">{t('settings.documentToolsPython')}</p>
+              <p className="mt-1 truncate text-text-tertiary" title={readiness.pythonPath ?? readiness.pythonDownloadUrl}>
+                {readiness.pythonPath ?? t('settings.documentToolsPythonMissing')}
+              </p>
+            </div>
+          </div>
+
+          {readiness.needsPythonInstall && (
+            <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
+              {t('settings.documentToolsPythonMissing')}: <span className="break-all">{readiness.pythonDownloadUrl}</span>
+            </div>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsRequired')}</p>
+              <div className="divide-y divide-border">{requiredDeps.map(renderDep)}</div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsOptional')}</p>
+              <div className="divide-y divide-border">{optionalDeps.map(renderDep)}</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Settings page ────────────────────────────────────────────────── */
 type SettingsTab = 'appearance' | 'models_embedding' | 'providers' | 'media' | 'data_privacy' | 'extensions';
 const MEMORY_CHAR_LIMIT = 240;
@@ -127,6 +451,8 @@ const TAB_STRIP_EDGE_EPSILON = 4;
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
   const navigate = useNavigate();
+  const updater = useUpdater(false);
+  const [appVersion, setAppVersion] = useState('');
   const { devices: micDevices, selectedDeviceId: micDeviceId, setSelectedDeviceId: setMicDeviceId, refresh: refreshMics } = useMicrophoneDevices();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const extensionCopy = {
@@ -145,6 +471,10 @@ export function SettingsPage() {
   const [skillEditorDirty, setSkillEditorDirty] = useState(false);
   const [mcpFormDirty, setMcpFormDirty] = useState(false);
   const hasDirtyTabs = dirtyTabs.size > 0;
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion(''));
+  }, []);
 
   const isTabDirty = useCallback((tabId: SettingsTab) => {
     if (tabId === 'media') return dirtyTabs.has('ocr') || dirtyTabs.has('video');
@@ -288,6 +618,8 @@ export function SettingsPage() {
   /* ── App Config state ─────────────────────────────────────────────── */
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [appConfigLoading, setAppConfigLoading] = useState(false);
+  const [officeRuntime, setOfficeRuntime] = useState<api.OfficeRuntimeReadiness | null>(null);
+  const [officePreparing, setOfficePreparing] = useState(false);
 
   /* ── OCR state ────────────────────────────────────────────────────── */
   const [ocrConfig, setOcrConfig] = useState<OcrConfig | null>(null);
@@ -475,6 +807,39 @@ export function SettingsPage() {
       toast.error(t('common.error'));
     } finally {
       setAppConfigLoading(false);
+    }
+  };
+
+  const loadOfficeRuntime = useCallback(async () => {
+    try {
+      const readiness = await api.checkOfficeRuntime();
+      setOfficeRuntime(readiness);
+      return true;
+    } catch {
+      setOfficeRuntime(null);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOfficeRuntime();
+  }, [loadOfficeRuntime]);
+
+  const handlePrepareOfficeRuntime = async () => {
+    if (officePreparing) return;
+    setOfficePreparing(true);
+    try {
+      const result = await api.prepareOfficeRuntime();
+      setOfficeRuntime(result.readiness);
+      if (result.success) {
+        toast.success(t('settings.documentToolsInstallSuccess'));
+      } else {
+        toast.error(result.readiness.summary || t('settings.documentToolsInstallFail'));
+      }
+    } catch (e) {
+      toast.error(t('settings.documentToolsInstallFail') + ': ' + String(e));
+    } finally {
+      setOfficePreparing(false);
     }
   };
 
@@ -1369,6 +1734,9 @@ export function SettingsPage() {
               </div>
             </div>
 
+            {/* App update */}
+            <UpdateSettingsPanel appVersion={appVersion} updater={updater} />
+
             {/* Re-run setup wizard */}
             <div className="border-t border-border pt-4 mt-4">
               <p className="mb-2 text-sm font-medium text-text-primary">{t('wizard.rerunLabel')}</p>
@@ -1819,6 +2187,13 @@ export function SettingsPage() {
                 </div>
               )}
             </ModelCard>
+
+            <OfficeRuntimePanel
+              readiness={officeRuntime}
+              preparing={officePreparing}
+              onPrepare={handlePrepareOfficeRuntime}
+              onRefresh={() => void loadOfficeRuntime()}
+            />
 
             {/* Disk Usage Summary */}
             <div className="rounded-lg border border-border p-4 bg-surface-1">
@@ -3019,10 +3394,10 @@ export function SettingsPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-12 text-text-tertiary">
             <Film size={32} className="mb-3 opacity-50" />
-            <p className="text-sm font-medium text-text-primary mb-1">Video analysis not available</p>
+            <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoUnavailable')}</p>
             <p className="text-xs text-center max-w-md">
-              Video analysis requires the <code className="px-1 py-0.5 bg-surface-3 rounded text-xs">video</code> feature to be enabled at build time.
-              Rebuild with <code className="px-1 py-0.5 bg-surface-3 rounded text-xs">cargo build --features video</code> to enable this feature.
+              {t('settings.videoUnavailableRequires')}{' '}
+              {t('settings.videoUnavailableRebuild')}
             </p>
           </div>
         )}
@@ -3460,6 +3835,7 @@ function ToolApprovalControl({
   mode: 'ask' | 'allow_all' | 'deny_all';
   onChange: (m: 'ask' | 'allow_all' | 'deny_all') => void;
 }) {
+  const { t } = useTranslation();
   const [policies, setPolicies] = useState<ApprovalPolicyList>({ persisted: [], session: [] });
   const [loading, setLoading] = useState(false);
 
@@ -3497,16 +3873,16 @@ function ToolApprovalControl({
   }, [load]);
 
   const options: Array<{ value: 'ask' | 'allow_all' | 'deny_all'; label: string; desc: string }> = [
-    { value: 'ask', label: 'Ask every time', desc: 'Prompt before each high-risk tool call (default).' },
-    { value: 'allow_all', label: 'Allow all', desc: 'Skip approvals. Use only in trusted environments.' },
-    { value: 'deny_all', label: 'Deny all', desc: 'Block every high-risk tool call silently.' },
+    { value: 'ask', label: t('settings.toolApprovalAsk'), desc: t('settings.toolApprovalAskDesc') },
+    { value: 'allow_all', label: t('settings.toolApprovalAllowAll'), desc: t('settings.toolApprovalAllowAllDesc') },
+    { value: 'deny_all', label: t('settings.toolApprovalDenyAll'), desc: t('settings.toolApprovalDenyAllDesc') },
   ];
 
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium text-text-primary">Tool Approval</label>
+      <label className="text-sm font-medium text-text-primary">{t('settings.toolApproval')}</label>
       <p className="text-xs text-text-tertiary">
-        Per-call confirmation for high-risk tools (shell, archive, destructive ops).
+        {t('settings.toolApprovalDesc')}
       </p>
       <div className="grid gap-2 md:grid-cols-3">
         {options.map((o) => (
@@ -3536,40 +3912,44 @@ function ToolApprovalControl({
 
       <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3 space-y-2">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-text-primary">Remembered decisions</div>
+          <div className="text-sm font-medium text-text-primary">{t('settings.toolApprovalRemembered')}</div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={() => void load()} loading={loading}>Refresh</Button>
+            <Button size="sm" variant="ghost" onClick={() => void load()} loading={loading}>
+              {t('settings.toolApprovalRefresh')}
+            </Button>
             {(policies.persisted.length > 0 || policies.session.length > 0) && (
-              <Button size="sm" variant="ghost" onClick={() => void clearAll()}>Clear all</Button>
+              <Button size="sm" variant="ghost" onClick={() => void clearAll()}>
+                {t('common.clearAll')}
+              </Button>
             )}
           </div>
         </div>
 
         {policies.persisted.length === 0 && policies.session.length === 0 ? (
-          <div className="text-xs text-text-tertiary">No remembered approvals yet.</div>
+          <div className="text-xs text-text-tertiary">{t('settings.toolApprovalNoRemembered')}</div>
         ) : (
           <div className="space-y-1">
             {policies.persisted.map((p) => (
               <div key={`f-${p.toolName}`} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <Badge variant="default" className="text-[10px]">FOREVER</Badge>
+                  <Badge variant="default" className="text-[10px]">{t('settings.toolApprovalForever')}</Badge>
                   <span className="text-text-primary">{p.toolName}</span>
                   <span className="text-xs text-text-tertiary">{p.decision}</span>
                 </div>
                 <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} onClick={() => void remove(p, 'forever')}>
-                  Remove
+                  {t('common.remove')}
                 </Button>
               </div>
             ))}
             {policies.session.map((p) => (
               <div key={`s-${p.toolName}`} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <Badge variant="default" className="text-[10px]">SESSION</Badge>
+                  <Badge variant="default" className="text-[10px]">{t('settings.toolApprovalSession')}</Badge>
                   <span className="text-text-primary">{p.toolName}</span>
                   <span className="text-xs text-text-tertiary">{p.decision}</span>
                 </div>
                 <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} onClick={() => void remove(p, 'session')}>
-                  Remove
+                  {t('common.remove')}
                 </Button>
               </div>
             ))}

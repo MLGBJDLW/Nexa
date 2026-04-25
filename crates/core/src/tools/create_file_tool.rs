@@ -126,7 +126,7 @@ impl Tool for CreateFileTool {
                 return Ok(ToolResult {
                     call_id: call_id.clone(),
                     content: edit_guidance_for_path(&canonical)
-                        .unwrap_or_else(|| "Use run_shell + doc-script-editor or the format-specific Office generators for Office files.".to_string()),
+                        .unwrap_or_else(|| "Use run_shell + doc-script-editor for Office/PDF creation, validation, conversion, rendering, template work, and rich edits. The format-specific Office generators are compatibility fallbacks for very simple new files only.".to_string()),
                     is_error: true,
                     artifacts: None,
                 });

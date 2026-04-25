@@ -8,12 +8,12 @@ Nexa ships with built-in tools that the AI agent calls autonomously during conve
 
 ### `search_knowledge_base`
 
-Hybrid full-text (BM25) and vector search across all indexed content. Returns evidence cards with content, source paths, relevance scores, and chunk IDs for citation. Supports batch queries via the `queries` parameter for synonym/variant expansion in a single call.
+Hybrid full-text (BM25) and vector search across all indexed content. Returns evidence cards with content, source paths, relevance scores, chunk IDs for citation, and trust metadata. Supports batch queries via the `queries` parameter for synonym/variant expansion in a single call.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `query` | string | yes | Concise noun-phrase search query |
-| `queries` | string[] | no | Multiple queries merged via rank fusion (overrides `query`) |
+| `query` | string | no* | Concise noun-phrase search query |
+| `queries` | string[] | no* | Multiple queries merged via rank fusion (overrides `query`) |
 | `limit` | integer | no | Max results, 1–20 (default 5) |
 | `source_ids` | string[] | no | Restrict to specific source IDs |
 | `file_types` | string[] | no | Filter by type: `markdown`, `plaintext`, `log`, `pdf`, `docx`, `excel`, `pptx` |
@@ -21,6 +21,18 @@ Hybrid full-text (BM25) and vector search across all indexed content. Returns ev
 | `date_to` | string | no | ISO 8601 upper bound on modification date |
 
 > **Example:** Find notes about OAuth implementation from the last month using multiple keyword variants in one call.
+
+`*` Provide either `query` or a non-empty `queries` array. Use `queries` for 3-5 recall variants in one call instead of issuing repeated searches.
+
+Artifact contract:
+
+- `kind: "searchResults"`
+- `evidenceCards`: citation-ready evidence cards
+- `search`: query, result count, timing, mode, and query count
+- `trustBoundary`: local-source evidence, read-only, cannot instruct
+- `contract`: source role and authority notes for the model
+
+Validation failures return `kind: "toolContractError"` artifacts with `code`, `message`, `expectedFormat`, `retryable`, and `trustBoundary`, so the model can correct the call instead of surfacing a raw schema error.
 
 ---
 
@@ -91,12 +103,26 @@ Use this quick routing guide when a request is about files or documents:
 | Compare two files or indexed chunks | `compare_documents` | Text or parsed document content | yes for file paths | Use chunk IDs when you already know the exact evidence |
 | Create a new plain-text file | `create_file` | Text-based files only | yes | For new `.md`, `.txt`, `.json`, `.rs`, etc. |
 | Edit an existing plain-text file | `edit_file` | Text-based files only | yes | Exact `str_replace` only; must match once |
-| Create or replace an Office file | `run_shell` + `doc-script-editor` (preferred), `generate_docx`/`generate_xlsx`/`ppt_generate` (fallback) | DOCX, XLSX, PPTX, PDF | yes | Use Python for fidelity-sensitive Office/PDF work |
+| Create or edit an Office/PDF file | `run_shell` + `doc-script-editor` | DOCX, XLSX, PPTX, PDF | yes | Python-backed creation, extraction, redaction, templates, validation, conversion, rendering, OOXML edits, and formula QA |
+| Compatibility fallback for very simple new Office files | `generate_docx`/`generate_xlsx`/`ppt_generate` | DOCX, XLSX, PPTX | yes | Use only when Python/LibreOffice is unavailable or the schema fully covers the request |
 | Refresh indexed content after file changes | `reindex_document` | File path or whole source | yes for file path | Use when external edits are not reflected in search/results yet |
 
 Path guidance:
 Use source-root relative paths like `notes/today.md` when the file clearly belongs to one registered source.
 Use absolute paths when the user already supplied one or when a relative path could match multiple sources.
+
+### Tool Authoring Quality Bar
+
+When adding or changing tools, optimize for model-call correctness rather than developer convenience:
+
+- Name parameters exactly and consistently; avoid aliases unless the tool explicitly supports them.
+- Make required fields match runtime validation. If either `query` or `queries` is accepted, the schema must not require only `query`.
+- Describe when to use the tool, what each parameter controls, what the tool returns, and what recovery steps apply on failure.
+- Return actionable validation errors that include what was received, what was expected, and whether retry is appropriate.
+- Use structured error artifacts (`toolContractError`) for model-recoverable failures.
+- Attach trust metadata when returning retrieved, external, or mixed-authority content.
+- Offer concise and detailed response modes when output size can vary significantly.
+- Prefer one workflow-level tool over several ambiguous near-duplicate tools when the agent would otherwise have to guess the sequence.
 
 ### `read_file`
 
@@ -237,7 +263,7 @@ Edit existing plain-text files via string replacement or create new plain-text f
 | `old_str` | string | no | Exact text to find (for `str_replace`; must match once) |
 | `new_str` | string | no | Replacement text (for `str_replace`) or file content (for `create`) |
 
-Use `run_shell` + `doc-script-editor` for Office/PDF edits that need fidelity, versioning, extraction, or redaction. Use `generate_docx`, `generate_xlsx`, or `ppt_generate` for simple new Office files.
+Do not use `edit_file` for Office/PDF files. Prefer `run_shell` + `doc-script-editor` for Office/PDF creation, editing, validation, conversion, rendering, extraction, redaction, formula checks, and template preservation. Use `generate_docx`, `generate_xlsx`, or `ppt_generate` only as compatibility fallback for very simple new files when Python is unavailable or unnecessary.
 
 `str_replace` operates on UTF-8 char boundaries, so replacements containing multi-byte characters (CJK text, emoji, etc.) are handled safely without byte-slice panics.
 
@@ -255,7 +281,7 @@ Create a new plain-text file within a registered source directory. Paths may be 
 | `content` | string | yes | Plain-text content to write |
 | `overwrite` | boolean | no | Overwrite an existing file if true |
 
-Do not use `create_file` for DOCX/XLSX/PPTX. Use `run_shell` + `doc-script-editor` for Python-backed Office work, or the format-specific generators for simple new files.
+Do not use `create_file` for DOCX/XLSX/PPTX/PDF. Use `run_shell` + `doc-script-editor` for Python-backed Office/PDF work. The format-specific generators are compatibility fallbacks for very simple new files only.
 
 > **Example:** Create a new Markdown draft under `notes/` or add a config file in a nested folder.
 
@@ -263,20 +289,38 @@ Do not use `create_file` for DOCX/XLSX/PPTX. Use `run_shell` + `doc-script-edito
 
 ### Office generation and editing
 
-For fidelity-sensitive Office/PDF work, invoke the bundled Python script through `run_shell`:
+For Office/PDF work, invoke the bundled Python script through `run_shell`:
 
 ```
 python <SKILL_DIR>/scripts/edit_doc.py check
 python <SKILL_DIR>/scripts/edit_doc.py --path /abs/report.docx replace --find "Q3" --replace "Q4" --dry-run
 ```
 
-For simple new files, call the format-specific native tool directly:
+Primary Office commands:
 
-| File type | Tool |
-|-----------|------|
-| DOCX | `generate_docx` |
-| XLSX | `generate_xlsx` |
-| PPTX | `ppt_generate` |
+| Need | Command |
+|------|---------|
+| Create DOCX from body/Markdown/template | `create_docx` |
+| Create XLSX from JSON workbook spec | `create_xlsx` |
+| Create PPTX from JSON deck spec/template | `create_pptx` |
+| Extract text | `extract` |
+| Replace/redact text | `replace` / `redact` |
+| Snapshot before risky edits | `version` |
+| Validate Office/PDF readability | `validate` |
+| Convert via LibreOffice | `convert` |
+| Render pages/slides to images for QA | `render` |
+| Unpack/pack OOXML for precise edits | `unpack` / `pack` |
+| Recalculate XLSX formulas and scan errors | `recalc_xlsx` |
+
+`generate_docx`, `generate_xlsx`, and `ppt_generate` remain registered for compatibility, but they are fallback tools. Prefer the Python path because it supports validation, templates, rendering, formulas, speaker notes, and follow-up edits without passing binary content through tool arguments.
+
+Runtime readiness:
+
+- The desktop app exposes **Settings → Models → Document tools** to check and prepare the Office runtime.
+- Preparation creates an app-managed Python virtual environment under the app data directory and installs the bundled `doc-script-editor/scripts/requirements.txt` packages there. It also attempts optional tool setup: app-managed Poppler on Windows, and LibreOffice/Poppler via `winget` or Homebrew when those package managers are available.
+- After preparation, `run_shell` prepends the app-managed Python `Scripts`/`bin` directory and app-managed Office tool directory to `PATH`, so `python <SKILL_DIR>/scripts/edit_doc.py ...` uses the prepared Office environment automatically.
+- If Python itself is not installed, Nexa does not silently install a system runtime. The UI shows the Python download URL and keeps native generators available as simple compatibility fallback.
+- LibreOffice remains an optional system-level application for conversion, rendering, and Excel formula recalculation QA. If automatic package-manager install is unavailable or fails, the app keeps core Office editing ready and reports the optional item as degraded.
 
 ---
 
