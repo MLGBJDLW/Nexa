@@ -37,6 +37,7 @@ pub mod migrations;
 pub mod models;
 #[cfg(feature = "ocr")]
 pub mod ocr;
+pub mod office_runtime;
 pub mod parse;
 pub mod personalization;
 pub mod playbook;

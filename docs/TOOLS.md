@@ -314,6 +314,14 @@ Primary Office commands:
 
 `generate_docx`, `generate_xlsx`, and `ppt_generate` remain registered for compatibility, but they are fallback tools. Prefer the Python path because it supports validation, templates, rendering, formulas, speaker notes, and follow-up edits without passing binary content through tool arguments.
 
+Runtime readiness:
+
+- The desktop app exposes **Settings → Models → Document tools** to check and prepare the Office runtime.
+- Preparation creates an app-managed Python virtual environment under the app data directory and installs the bundled `doc-script-editor/scripts/requirements.txt` packages there.
+- After preparation, `run_shell` prepends that app-managed Python `Scripts`/`bin` directory to `PATH`, so `python <SKILL_DIR>/scripts/edit_doc.py ...` uses the prepared Office environment automatically.
+- If Python itself is not installed, Nexa does not silently install a system runtime. The UI shows the Python download URL and keeps native generators available as simple compatibility fallback.
+- LibreOffice and Poppler remain optional system tools for conversion, rendering, and Excel formula recalculation QA.
+
 ---
 
 ## 📋 Knowledge Management

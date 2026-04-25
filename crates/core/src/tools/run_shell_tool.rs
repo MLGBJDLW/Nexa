@@ -606,11 +606,53 @@ where
         }
     }
 
+    prepend_office_python_path(&mut out, &parent);
+
     // Force UTF-8 output from Python subprocesses regardless of system locale.
     out.push((OsString::from("PYTHONUTF8"), OsString::from("1")));
     out.push((OsString::from("PYTHONIOENCODING"), OsString::from("utf-8")));
 
     out
+}
+
+fn prepend_office_python_path(
+    env: &mut Vec<(OsString, OsString)>,
+    parent: &[(OsString, OsString)],
+) {
+    let Some((_, bin_dir)) = parent.iter().find(|(k, _)| {
+        k.to_string_lossy()
+            .eq_ignore_ascii_case(crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV)
+    }) else {
+        return;
+    };
+    if bin_dir.is_empty() {
+        return;
+    }
+    let bin = PathBuf::from(bin_dir);
+    if !bin.exists() {
+        return;
+    }
+
+    let mut paths = vec![bin];
+    let existing_path = env
+        .iter()
+        .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+        .map(|(_, v)| v.clone());
+    if let Some(existing) = existing_path {
+        paths.extend(std::env::split_paths(&existing));
+    }
+    let Ok(joined) = std::env::join_paths(paths) else {
+        return;
+    };
+
+    if let Some((_, value)) = env
+        .iter_mut()
+        .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+    {
+        *value = joined;
+    } else {
+        env.push((OsString::from("PATH"), joined));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1304,6 +1346,29 @@ mod tests {
             .map(|(_, v)| v.to_string_lossy().to_string())
             .unwrap();
         assert_eq!(pyioenc_val, "utf-8");
+    }
+
+    #[test]
+    fn test_env_prepends_app_managed_office_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let office_bin = dir.path().join("office-python-bin");
+        std::fs::create_dir_all(&office_bin).unwrap();
+        let original_path = std::env::join_paths([PathBuf::from("/usr/bin")]).unwrap();
+        let parent: Vec<(OsString, OsString)> = vec![
+            (OsString::from("PATH"), original_path),
+            (
+                OsString::from(crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV),
+                office_bin.as_os_str().to_os_string(),
+            ),
+        ];
+        let built = build_env_from(parent);
+        let path_value = built
+            .iter()
+            .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        let first = std::env::split_paths(&path_value).next().unwrap();
+        assert_eq!(first, office_bin);
     }
 
     // --- format_output ------------------------------------------------------

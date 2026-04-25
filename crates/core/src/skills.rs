@@ -268,6 +268,14 @@ pub fn materialize_skills_to_disk(app_data_dir: &Path) -> Result<PathBuf, CoreEr
     Ok(base)
 }
 
+/// Return the on-disk directory where a bundled skill is materialized.
+///
+/// This is intentionally path-only: callers that need guaranteed files should
+/// call [`materialize_skills_to_disk`] first.
+pub fn builtin_skill_dir(app_data_dir: &Path, slug: &str) -> PathBuf {
+    app_data_dir.join("skills").join(slug)
+}
+
 fn write_if_changed(path: &Path, bytes: &[u8], skill_slug: &str) {
     if let Ok(existing) = fs::read(path) {
         if existing == bytes {

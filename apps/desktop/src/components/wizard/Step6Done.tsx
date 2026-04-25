@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, CheckCircle, FolderOpen, MessageSquare, Sparkles } from 'lucide-react';
+import { Brain, CheckCircle, FileText, FolderOpen, MessageSquare, Sparkles, Wrench } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../ui/Button';
 import { useTranslation } from '../../i18n';
+import * as api from '../../lib/api';
 import type { ProviderPreset } from '../../lib/providerPresets';
 
 interface Step6DoneProps {
@@ -29,6 +32,39 @@ export function Step6Done({
   indexingCompleted,
 }: Step6DoneProps) {
   const { t } = useTranslation();
+  const [officeRuntime, setOfficeRuntime] = useState<api.OfficeRuntimeReadiness | null>(null);
+  const [officePreparing, setOfficePreparing] = useState(false);
+  const officeReady = officeRuntime?.status === 'ready' || officeRuntime?.status === 'degraded';
+
+  useEffect(() => {
+    let cancelled = false;
+    api.checkOfficeRuntime()
+      .then((readiness) => {
+        if (!cancelled) setOfficeRuntime(readiness);
+      })
+      .catch(() => {
+        if (!cancelled) setOfficeRuntime(null);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handlePrepareOfficeRuntime = async () => {
+    if (officePreparing) return;
+    setOfficePreparing(true);
+    try {
+      const result = await api.prepareOfficeRuntime();
+      setOfficeRuntime(result.readiness);
+      if (result.success) {
+        toast.success(t('wizard.documentToolsSetupSuccess'));
+      } else {
+        toast.error(result.readiness.summary || t('wizard.documentToolsSetupError'));
+      }
+    } catch (e) {
+      toast.error(t('wizard.documentToolsSetupError') + ': ' + String(e));
+    } finally {
+      setOfficePreparing(false);
+    }
+  };
 
   const items = [
     {
@@ -51,6 +87,13 @@ export function Step6Done({
       label: indexingCompleted
         ? t('wizard.indexingDoneTitle')
         : `${t('wizard.indexingTitle')} — ${t('wizard.indexingBackground')}`,
+    },
+    {
+      icon: <FileText size={14} />,
+      done: Boolean(officeReady),
+      label: officeReady
+        ? t('wizard.documentToolsReady')
+        : t('wizard.documentToolsNeedsSetup'),
     },
   ];
 
@@ -86,6 +129,30 @@ export function Step6Done({
           </div>
         ))}
       </div>
+
+      {!officeReady && (
+        <div className="mb-8 w-full rounded-lg border border-border bg-surface-1 p-3 text-left">
+          <div className="mb-1 flex items-center gap-2 text-sm font-medium text-text-primary">
+            <FileText size={15} />
+            {t('wizard.documentToolsTitle')}
+          </div>
+          <p className="mb-3 text-xs leading-relaxed text-text-tertiary">
+            {officeRuntime?.needsPythonInstall
+              ? `${t('settings.documentToolsPythonMissing')}: ${officeRuntime.pythonDownloadUrl}`
+              : t('wizard.documentToolsDescription')}
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Wrench size={14} />}
+            loading={officePreparing}
+            disabled={officeRuntime !== null && !officeRuntime.canPrepare}
+            onClick={handlePrepareOfficeRuntime}
+          >
+            {t('wizard.documentToolsSetup')}
+          </Button>
+        </div>
+      )}
 
       <div className="flex w-full flex-col sm:flex-row gap-3">
         <Button size="lg" onClick={onFinish} className="flex-1">

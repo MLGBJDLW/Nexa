@@ -438,6 +438,53 @@ export const getAppConfig = () =>
 export const saveAppConfig = (config: AppConfig) =>
   invoke<void>('save_app_config_cmd', { config });
 
+export type OfficeRuntimeStatus = 'ready' | 'degraded' | 'missing' | 'blocked';
+
+export interface OfficeDependencyStatus {
+  id: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  status: string;
+  version?: string | null;
+  path?: string | null;
+  detail?: string | null;
+  installHint?: string | null;
+}
+
+export interface OfficeRuntimeReadiness {
+  status: OfficeRuntimeStatus;
+  summary: string;
+  pythonPath?: string | null;
+  appManagedPythonPath?: string | null;
+  appManagedEnvPath: string;
+  skillScriptPath: string;
+  requirementsPath: string;
+  canPrepare: boolean;
+  canInstallPythonPackages: boolean;
+  needsPythonInstall: boolean;
+  pythonDownloadUrl: string;
+  dependencies: OfficeDependencyStatus[];
+}
+
+export interface OfficePrepareAction {
+  name: string;
+  status: string;
+  detail?: string | null;
+}
+
+export interface OfficePrepareResult {
+  success: boolean;
+  actions: OfficePrepareAction[];
+  readiness: OfficeRuntimeReadiness;
+}
+
+export const checkOfficeRuntime = () =>
+  invoke<OfficeRuntimeReadiness>('check_office_runtime_cmd');
+
+export const prepareOfficeRuntime = () =>
+  invoke<OfficePrepareResult>('prepare_office_runtime_cmd');
+
 // ── Setup Wizard ────────────────────────────────────────────────────
 
 export const getWizardState = () =>

@@ -111,7 +111,9 @@ python <SKILL_DIR>/scripts/edit_doc.py check
 - **Formula safety** — `recalc_xlsx` uses LibreOffice when available and reports Excel formula errors as structured JSON
 
 ## Dependencies
-Install before first Office/PDF operation (only what's needed for the target format):
+In the desktop app, first prefer Settings → Models → Document tools → Prepare. That creates an app-managed virtual environment, installs the bundled requirements there, and makes `run_shell` prefer that Python automatically.
+
+For CLI/dev environments, install before first Office/PDF operation (only what's needed for the target format):
 ```
 python -m pip install -r <SKILL_DIR>/scripts/requirements.txt
 ```
@@ -126,14 +128,15 @@ python <SKILL_DIR>/scripts/edit_doc.py check
 
 The `check` subcommand lists each backend as `OK (version)` or `MISSING`. If any required backend is missing:
 
-1. Tell the user (in their language) which packages are missing and ask permission to install them.
-2. If approved, invoke `run_shell` with:
+1. In the desktop app, ask the user to run Settings → Models → Document tools → Prepare first, or invoke the app readiness/prepare flow when available.
+2. In CLI/dev contexts, tell the user (in their language) which packages are missing and ask permission to install them.
+3. If approved, invoke `run_shell` with:
    ```
    python -m pip install <pkg1> <pkg2> ...
    ```
    Use `python -m pip install` rather than `pip install` — `run_shell` whitelists `python`, not `pip`, and `-m pip` is the canonical way to reach pip for the same interpreter.
-3. Re-run `check` to confirm, then proceed with the original operation.
-4. If install fails (network / permissions / no pip): relay stderr verbatim and suggest the user either install Python (https://python.org/downloads) or run `pip install <pkg>` manually in their own terminal.
+4. Re-run `check` to confirm, then proceed with the original operation.
+5. If install fails (network / permissions / no pip): relay stderr verbatim and suggest the user either install Python (https://python.org/downloads) or run `pip install <pkg>` manually in their own terminal.
 
 Only install backends the user actually needs — don't pull `python-pptx` for a pure docx edit.
 

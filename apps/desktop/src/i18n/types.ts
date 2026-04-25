@@ -312,6 +312,23 @@ export interface TranslationKeys {
   'settings.embeddingSave': string;
   'settings.embeddingRebuild': string;
   'settings.embeddingRebuilding': string;
+  'settings.documentTools': string;
+  'settings.documentToolsDesc': string;
+  'settings.documentToolsReady': string;
+  'settings.documentToolsDegraded': string;
+  'settings.documentToolsMissing': string;
+  'settings.documentToolsBlocked': string;
+  'settings.documentToolsChecking': string;
+  'settings.documentToolsPrepare': string;
+  'settings.documentToolsPreparing': string;
+  'settings.documentToolsRefresh': string;
+  'settings.documentToolsManagedEnv': string;
+  'settings.documentToolsPython': string;
+  'settings.documentToolsRequired': string;
+  'settings.documentToolsOptional': string;
+  'settings.documentToolsPythonMissing': string;
+  'settings.documentToolsInstallSuccess': string;
+  'settings.documentToolsInstallFail': string;
 
   // Settings - Models
   'settings.models': string;
@@ -1211,6 +1228,13 @@ export interface TranslationKeys {
   'wizard.rerunButton': string;
   'wizard.rerunSuccess': string;
   'wizard.rerunError': string;
+  'wizard.documentToolsTitle': string;
+  'wizard.documentToolsReady': string;
+  'wizard.documentToolsNeedsSetup': string;
+  'wizard.documentToolsDescription': string;
+  'wizard.documentToolsSetup': string;
+  'wizard.documentToolsSetupSuccess': string;
+  'wizard.documentToolsSetupError': string;
 }
 
 export type TranslationKey = keyof TranslationKeys;

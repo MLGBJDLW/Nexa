@@ -217,7 +217,7 @@ def _pretty_xml_file(path: Path) -> None:
 # check
 # ---------------------------------------------------------------------------
 
-def cmd_check(_args: argparse.Namespace) -> int:
+def cmd_check(args: argparse.Namespace) -> int:
     backends = [
         ("python-docx", "docx"),
         ("python-pptx", "pptx"),
@@ -225,34 +225,98 @@ def cmd_check(_args: argparse.Namespace) -> int:
         ("openpyxl", "openpyxl"),
     ]
     missing_core = []
-    print(f"python: {sys.version.split()[0]}")
+    results: list[dict[str, Any]] = []
+    if not args.json:
+        print(f"python: {sys.version.split()[0]}")
     for display, mod in backends:
         try:
             imported = __import__(mod)
             ver = getattr(imported, "__version__", "unknown")
-            print(f"  {display:<14} OK      ({ver})")
+            results.append({
+                "id": display,
+                "module": mod,
+                "status": "ok",
+                "version": str(ver),
+                "required": True,
+            })
+            if not args.json:
+                print(f"  {display:<14} OK      ({ver})")
         except ImportError:
-            print(f"  {display:<14} MISSING")
+            results.append({
+                "id": display,
+                "module": mod,
+                "status": "missing",
+                "required": True,
+            })
+            if not args.json:
+                print(f"  {display:<14} MISSING")
             missing_core.append(display)
         except Exception as e:  # noqa: BLE001
             # Backend present but broken (e.g. numpy ABI mismatch). Treat as missing.
-            print(f"  {display:<14} BROKEN  ({type(e).__name__}: {e})")
+            results.append({
+                "id": display,
+                "module": mod,
+                "status": "broken",
+                "required": True,
+                "detail": f"{type(e).__name__}: {e}",
+            })
+            if not args.json:
+                print(f"  {display:<14} BROKEN  ({type(e).__name__}: {e})")
             missing_core.append(display)
     soffice = _find_soffice()
     if soffice:
-        print(f"  LibreOffice    OK      ({soffice})")
+        results.append({
+            "id": "LibreOffice",
+            "status": "ok",
+            "path": soffice,
+            "required": False,
+        })
+        if not args.json:
+            print(f"  LibreOffice    OK      ({soffice})")
     else:
-        print("  LibreOffice    MISSING (needed for convert/recalc/render QA)")
+        results.append({
+            "id": "LibreOffice",
+            "status": "missing",
+            "required": False,
+            "detail": "needed for convert/recalc/render QA",
+        })
+        if not args.json:
+            print("  LibreOffice    MISSING (needed for convert/recalc/render QA)")
     pdftoppm = _find_pdftoppm()
     if pdftoppm:
-        print(f"  Poppler        OK      ({pdftoppm})")
+        results.append({
+            "id": "Poppler",
+            "status": "ok",
+            "path": pdftoppm,
+            "required": False,
+        })
+        if not args.json:
+            print(f"  Poppler        OK      ({pdftoppm})")
     else:
-        print("  Poppler        MISSING (needed for render QA)")
+        results.append({
+            "id": "Poppler",
+            "status": "missing",
+            "required": False,
+            "detail": "needed for render QA",
+        })
+        if not args.json:
+            print("  Poppler        MISSING (needed for render QA)")
+    if args.json:
+        payload = {
+            "python": {
+                "version": sys.version.split()[0],
+                "executable": sys.executable,
+            },
+            "status": "ok" if not missing_core else "missing",
+            "dependencies": results,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
     if missing_core:
-        print(
-            "\nInstall missing deps with:\n"
-            f"  python -m pip install {' '.join(missing_core)}"
-        )
+        if not args.json:
+            print(
+                "\nInstall missing deps with:\n"
+                f"  python -m pip install {' '.join(missing_core)}"
+            )
         return 2
     return 0
 
@@ -1012,7 +1076,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--path", help="Absolute path to the target file")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("check", help="Report available backends").set_defaults(func=cmd_check)
+    p_check = sub.add_parser("check", help="Report available backends")
+    p_check.add_argument("--json", action="store_true", help="Emit machine-readable readiness JSON")
+    p_check.set_defaults(func=cmd_check)
 
     p_rep = sub.add_parser("replace", help="Replace text (docx/pptx/xlsx)")
     p_rep.add_argument("--find", required=True)
