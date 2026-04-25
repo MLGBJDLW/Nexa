@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.9...nexa-monorepo-v0.2.10) (2026-04-25)
+
+
+### Bug Fixes
+
+* match reasoning controls to model capabilities ([f66d1a3](https://github.com/MLGBJDLW/Nexa/commit/f66d1a337f3384d9f7811701f820aa920438833d))
+* sync providers skills and release notes ([06a197e](https://github.com/MLGBJDLW/Nexa/commit/06a197eb2bbabbbba41d6d19b4ad8a89330c3f66))
+* update OpenAI presets for GPT-5.5 ([203efbc](https://github.com/MLGBJDLW/Nexa/commit/203efbcff1ce66665f18a011364b8596471d0d7b))
+
 ## [0.2.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.8...nexa-monorepo-v0.2.9) (2026-04-24)
 
 
