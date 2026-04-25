@@ -606,7 +606,16 @@ where
         }
     }
 
-    prepend_office_python_path(&mut out, &parent);
+    prepend_path_from_parent_env(
+        &mut out,
+        &parent,
+        crate::office_runtime::OFFICE_TOOLS_BIN_DIR_ENV,
+    );
+    prepend_path_from_parent_env(
+        &mut out,
+        &parent,
+        crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV,
+    );
 
     // Force UTF-8 output from Python subprocesses regardless of system locale.
     out.push((OsString::from("PYTHONUTF8"), OsString::from("1")));
@@ -615,14 +624,15 @@ where
     out
 }
 
-fn prepend_office_python_path(
+fn prepend_path_from_parent_env(
     env: &mut Vec<(OsString, OsString)>,
     parent: &[(OsString, OsString)],
+    key: &str,
 ) {
-    let Some((_, bin_dir)) = parent.iter().find(|(k, _)| {
-        k.to_string_lossy()
-            .eq_ignore_ascii_case(crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV)
-    }) else {
+    let Some((_, bin_dir)) = parent
+        .iter()
+        .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case(key))
+    else {
         return;
     };
     if bin_dir.is_empty() {
@@ -1369,6 +1379,36 @@ mod tests {
             .unwrap();
         let first = std::env::split_paths(&path_value).next().unwrap();
         assert_eq!(first, office_bin);
+    }
+
+    #[test]
+    fn test_env_prepends_app_managed_office_tools_after_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let python_bin = dir.path().join("office-python-bin");
+        let tools_bin = dir.path().join("office-tools-bin");
+        std::fs::create_dir_all(&python_bin).unwrap();
+        std::fs::create_dir_all(&tools_bin).unwrap();
+        let original_path = std::env::join_paths([PathBuf::from("/usr/bin")]).unwrap();
+        let parent: Vec<(OsString, OsString)> = vec![
+            (OsString::from("PATH"), original_path),
+            (
+                OsString::from(crate::office_runtime::OFFICE_PYTHON_BIN_DIR_ENV),
+                python_bin.as_os_str().to_os_string(),
+            ),
+            (
+                OsString::from(crate::office_runtime::OFFICE_TOOLS_BIN_DIR_ENV),
+                tools_bin.as_os_str().to_os_string(),
+            ),
+        ];
+        let built = build_env_from(parent);
+        let path_value = built
+            .iter()
+            .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        let paths: Vec<PathBuf> = std::env::split_paths(&path_value).take(3).collect();
+        assert_eq!(paths[0], python_bin);
+        assert_eq!(paths[1], tools_bin);
     }
 
     // --- format_output ------------------------------------------------------

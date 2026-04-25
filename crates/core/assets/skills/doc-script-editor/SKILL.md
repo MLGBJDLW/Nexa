@@ -111,13 +111,13 @@ python <SKILL_DIR>/scripts/edit_doc.py check
 - **Formula safety** — `recalc_xlsx` uses LibreOffice when available and reports Excel formula errors as structured JSON
 
 ## Dependencies
-In the desktop app, first prefer Settings → Models → Document tools → Prepare. That creates an app-managed virtual environment, installs the bundled requirements there, and makes `run_shell` prefer that Python automatically.
+In the desktop app, first prefer Settings → Models → Document tools → Prepare. That creates an app-managed virtual environment, installs the bundled requirements there, attempts optional tool setup (app-managed Poppler on Windows, system package-manager install for LibreOffice/Poppler when available), and makes `run_shell` prefer those managed paths automatically.
 
 For CLI/dev environments, install before first Office/PDF operation (only what's needed for the target format):
 ```
 python -m pip install -r <SKILL_DIR>/scripts/requirements.txt
 ```
-Optional for format conversion / PDF rendering: `libreoffice`, Poppler.
+Optional for format conversion / PDF rendering: `libreoffice`, Poppler. These are best prepared through the desktop readiness flow because they are system or app-managed binaries rather than Python packages.
 
 ## Handling missing dependencies
 Before first use, or when the user targets an unfamiliar file type, run:

@@ -3089,14 +3089,21 @@ pub fn check_office_runtime_cmd(
 #[tauri::command]
 pub async fn prepare_office_runtime_cmd(
     app_handle: AppHandle,
+    state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::office_runtime::OfficePrepareResult, String> {
     let data_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    let ghproxy_base = state
+        .db
+        .load_app_config()
+        .map(|cfg| cfg.ghproxy_base_url)
+        .unwrap_or_default();
 
     tokio::task::spawn_blocking(move || {
-        nexa_core::office_runtime::prepare_office_runtime(&data_dir).map_err(|e| e.to_string())
+        nexa_core::office_runtime::prepare_office_runtime_with_options(&data_dir, &ghproxy_base)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
