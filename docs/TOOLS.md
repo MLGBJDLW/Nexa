@@ -103,8 +103,8 @@ Use this quick routing guide when a request is about files or documents:
 | Compare two files or indexed chunks | `compare_documents` | Text or parsed document content | yes for file paths | Use chunk IDs when you already know the exact evidence |
 | Create a new plain-text file | `create_file` | Text-based files only | yes | For new `.md`, `.txt`, `.json`, `.rs`, etc. |
 | Edit an existing plain-text file | `edit_file` | Text-based files only | yes | Exact `str_replace` only; must match once |
-| Create a simple new Office file | `generate_docx`/`generate_xlsx`/`ppt_generate` | DOCX, XLSX, PPTX | yes | Preferred for markdown-to-DOCX or structured new documents |
-| Edit or fidelity-convert an Office/PDF file | `run_shell` + `doc-script-editor` | DOCX, XLSX, PPTX, PDF | yes | Use Python for existing files, extraction, redaction, templates, and fidelity-sensitive work |
+| Create or edit an Office/PDF file | `run_shell` + `doc-script-editor` | DOCX, XLSX, PPTX, PDF | yes | Python-backed creation, extraction, redaction, templates, validation, conversion, rendering, OOXML edits, and formula QA |
+| Compatibility fallback for very simple new Office files | `generate_docx`/`generate_xlsx`/`ppt_generate` | DOCX, XLSX, PPTX | yes | Use only when Python/LibreOffice is unavailable or the schema fully covers the request |
 | Refresh indexed content after file changes | `reindex_document` | File path or whole source | yes for file path | Use when external edits are not reflected in search/results yet |
 
 Path guidance:
@@ -263,7 +263,7 @@ Edit existing plain-text files via string replacement or create new plain-text f
 | `old_str` | string | no | Exact text to find (for `str_replace`; must match once) |
 | `new_str` | string | no | Replacement text (for `str_replace`) or file content (for `create`) |
 
-Use `generate_docx`, `generate_xlsx`, or `ppt_generate` for simple new Office files. For markdown-to-DOCX, pass the markdown directly as `generate_docx.content.markdown`; do not create a temporary `.md` file unless the user asked for one too. Use `run_shell` + `doc-script-editor` for Office/PDF edits that need fidelity, versioning, extraction, redaction, or template preservation.
+Do not use `edit_file` for Office/PDF files. Prefer `run_shell` + `doc-script-editor` for Office/PDF creation, editing, validation, conversion, rendering, extraction, redaction, formula checks, and template preservation. Use `generate_docx`, `generate_xlsx`, or `ppt_generate` only as compatibility fallback for very simple new files when Python is unavailable or unnecessary.
 
 `str_replace` operates on UTF-8 char boundaries, so replacements containing multi-byte characters (CJK text, emoji, etc.) are handled safely without byte-slice panics.
 
@@ -281,7 +281,7 @@ Create a new plain-text file within a registered source directory. Paths may be 
 | `content` | string | yes | Plain-text content to write |
 | `overwrite` | boolean | no | Overwrite an existing file if true |
 
-Do not use `create_file` for DOCX/XLSX/PPTX. Use the format-specific generators for simple new files, or `run_shell` + `doc-script-editor` for Python-backed fidelity-sensitive Office/PDF work.
+Do not use `create_file` for DOCX/XLSX/PPTX/PDF. Use `run_shell` + `doc-script-editor` for Python-backed Office/PDF work. The format-specific generators are compatibility fallbacks for very simple new files only.
 
 > **Example:** Create a new Markdown draft under `notes/` or add a config file in a nested folder.
 
@@ -289,22 +289,30 @@ Do not use `create_file` for DOCX/XLSX/PPTX. Use the format-specific generators 
 
 ### Office generation and editing
 
-For fidelity-sensitive Office/PDF work, invoke the bundled Python script through `run_shell`:
+For Office/PDF work, invoke the bundled Python script through `run_shell`:
 
 ```
 python <SKILL_DIR>/scripts/edit_doc.py check
 python <SKILL_DIR>/scripts/edit_doc.py --path /abs/report.docx replace --find "Q3" --replace "Q4" --dry-run
 ```
 
-For simple new files, call the format-specific native tool directly:
+Primary Office commands:
 
-| File type | Tool |
-|-----------|------|
-| DOCX | `generate_docx` |
-| XLSX | `generate_xlsx` |
-| PPTX | `ppt_generate` |
+| Need | Command |
+|------|---------|
+| Create DOCX from body/Markdown/template | `create_docx` |
+| Create XLSX from JSON workbook spec | `create_xlsx` |
+| Create PPTX from JSON deck spec/template | `create_pptx` |
+| Extract text | `extract` |
+| Replace/redact text | `replace` / `redact` |
+| Snapshot before risky edits | `version` |
+| Validate Office/PDF readability | `validate` |
+| Convert via LibreOffice | `convert` |
+| Render pages/slides to images for QA | `render` |
+| Unpack/pack OOXML for precise edits | `unpack` / `pack` |
+| Recalculate XLSX formulas and scan errors | `recalc_xlsx` |
 
-`generate_docx` accepts either structured `sections` or raw `content.markdown`. The markdown path supports headings, paragraphs, bullets, numbered lists, blockquote callouts, and pipe tables, which covers the common "write this report/business plan as DOCX" workflow without Python package installation.
+`generate_docx`, `generate_xlsx`, and `ppt_generate` remain registered for compatibility, but they are fallback tools. Prefer the Python path because it supports validation, templates, rendering, formulas, speaker notes, and follow-up edits without passing binary content through tool arguments.
 
 ---
 

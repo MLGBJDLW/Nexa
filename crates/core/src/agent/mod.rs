@@ -732,7 +732,7 @@ fn route_user_turn(query: &str, system_prompt: &str, has_sources: bool) -> Agent
     if file_operation {
         return AgentRoutePlan {
             kind: AgentRouteKind::FileOperation,
-            prompt_section: "## Active Routing Plan\nThis request is file-centric. Prefer reading, comparing, generating, or editing the relevant files directly before broad knowledge-base search. For requested DOCX/XLSX/PPTX outputs, use the native Office generator tool for that format; for DOCX from markdown, pass markdown directly to generate_docx.content.markdown instead of creating a temporary Markdown file.".to_string(),
+            prompt_section: "## Active Routing Plan\nThis request is file-centric. Prefer reading, comparing, generating, or editing the relevant files directly before broad knowledge-base search. For requested DOCX/XLSX/PPTX/PDF work, prefer run_shell + the doc-script-editor skill for Python-backed creation, validation, conversion, rendering, extraction, redaction, formula QA, template preservation, and OOXML edits. Use generate_docx/generate_xlsx/ppt_generate only as compatibility fallbacks for very simple new files when Python is unavailable.".to_string(),
             extra_categories: vec![ToolCategory::FileSystem, ToolCategory::DocumentAnalysis],
         };
     }
