@@ -809,6 +809,7 @@ export const zhTW: TranslationKeys = {
   'settings.thinkingBudget': '思考預算 (token數)',
   'settings.thinkingBudgetHelp': '適用於支援思考 token 預算控制的模型。',
   'settings.reasoningEffort': '推理強度',
+  'settings.reasoningNone': '無',
   'settings.reasoningMinimal': '最小',
   'settings.reasoningLow': '低',
   'settings.reasoningMedium': '中',

@@ -811,6 +811,7 @@ export const ko: TranslationKeys = {
   'settings.thinkingBudget': '사고 예산 (토큰)',
   'settings.thinkingBudgetHelp': '사고 토큰 예산 제어를 제공하는 모델에서 사용됩니다.',
   'settings.reasoningEffort': '추론 강도',
+  'settings.reasoningNone': '없음',
   'settings.reasoningMinimal': '최소',
   'settings.reasoningLow': '낮음',
   'settings.reasoningMedium': '보통',

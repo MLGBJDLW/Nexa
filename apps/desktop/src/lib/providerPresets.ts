@@ -1,6 +1,7 @@
 import providerPresets from "../../../../shared/provider-presets.json";
 
 export type ReasoningEffortLevel =
+  | "none"
   | "minimal"
   | "low"
   | "medium"
@@ -55,15 +56,33 @@ const OPENAI_O_REASONING: ReasoningCapability = {
   thinkingBudget: { enabled: false },
 };
 
-const OPENAI_GPT5_REASONING: ReasoningCapability = {
-  effortLevels: ["minimal", "low", "medium", "high"],
+const OPENAI_GPT55_REASONING: ReasoningCapability = {
+  effortLevels: ["none", "low", "medium", "high", "xhigh"],
   defaultEffort: "medium",
   thinkingBudget: { enabled: false },
 };
 
+const OPENAI_GPT5_FRONTIER_REASONING: ReasoningCapability = {
+  effortLevels: ["none", "low", "medium", "high", "xhigh"],
+  defaultEffort: "none",
+  thinkingBudget: { enabled: false },
+};
+
 const OPENAI_GPT5_PRO_REASONING: ReasoningCapability = {
-  effortLevels: ["high"],
-  defaultEffort: "high",
+  effortLevels: ["medium", "high", "xhigh"],
+  defaultEffort: "medium",
+  thinkingBudget: { enabled: false },
+};
+
+const OPENAI_GPT51_REASONING: ReasoningCapability = {
+  effortLevels: ["none", "low", "medium", "high"],
+  defaultEffort: "none",
+  thinkingBudget: { enabled: false },
+};
+
+const OPENAI_GPT5_REASONING: ReasoningCapability = {
+  effortLevels: ["minimal", "low", "medium", "high"],
+  defaultEffort: "medium",
   thinkingBudget: { enabled: false },
 };
 
@@ -200,8 +219,20 @@ function inferReasoningCapability(input: {
     if (/^gpt-5.*codex/.test(model)) {
       return OPENAI_CODEX_REASONING;
     }
-    if (/^gpt-5.*-pro$/.test(model)) {
+    if (model.startsWith("gpt-5.5-pro")) {
+      return null;
+    }
+    if (/^gpt-5\.(2|4).*?-pro$/.test(model)) {
       return OPENAI_GPT5_PRO_REASONING;
+    }
+    if (model.startsWith("gpt-5.5")) {
+      return OPENAI_GPT55_REASONING;
+    }
+    if (model.startsWith("gpt-5.4") || model.startsWith("gpt-5.2")) {
+      return OPENAI_GPT5_FRONTIER_REASONING;
+    }
+    if (model.startsWith("gpt-5.1")) {
+      return OPENAI_GPT51_REASONING;
     }
     if (model.startsWith("gpt-5")) {
       return OPENAI_GPT5_REASONING;

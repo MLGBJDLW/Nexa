@@ -152,4 +152,43 @@ mod tests {
             Some(false)
         );
     }
+
+    #[test]
+    fn openai_catalog_defaults_to_gpt_55() {
+        let openai = find_provider_preset("open_ai", Some("https://api.openai.com/v1"))
+            .expect("openai preset should match");
+        let ids = openai
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids.first(), Some(&"gpt-5.5"));
+        assert!(ids.contains(&"gpt-5.5-pro"));
+        assert!(ids.contains(&"gpt-5.4"));
+
+        let gpt_55 = openai
+            .models
+            .iter()
+            .find(|model| model.id == "gpt-5.5")
+            .expect("gpt-5.5 should be listed");
+        assert_eq!(gpt_55.recommended, Some(true));
+
+        let reasoning = gpt_55
+            .capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.reasoning.as_ref())
+            .expect("gpt-5.5 should expose reasoning capability");
+        assert_eq!(
+            reasoning.effort_levels,
+            vec![
+                "none".to_string(),
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string(),
+                "xhigh".to_string(),
+            ]
+        );
+        assert_eq!(reasoning.default_effort.as_deref(), Some("medium"));
+    }
 }

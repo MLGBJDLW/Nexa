@@ -809,6 +809,7 @@ export const ja: TranslationKeys = {
   'settings.thinkingBudget': '思考バジェット（トークン数）',
   'settings.thinkingBudgetHelp': '思考トークン予算を公開しているモデルで使用します。',
   'settings.reasoningEffort': '推論の強度',
+  'settings.reasoningNone': 'なし',
   'settings.reasoningMinimal': '最小',
   'settings.reasoningLow': '低',
   'settings.reasoningMedium': '中',

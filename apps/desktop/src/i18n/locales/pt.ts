@@ -811,6 +811,7 @@ export const pt: TranslationKeys = {
   'settings.thinkingBudget': 'Orçamento de pensamento (tokens)',
   'settings.thinkingBudgetHelp': 'Orçamento de tokens para modelos que expõem controle de pensamento.',
   'settings.reasoningEffort': 'Esforço de raciocínio',
+  'settings.reasoningNone': 'Nenhum',
   'settings.reasoningMinimal': 'Mínimo',
   'settings.reasoningLow': 'Baixo',
   'settings.reasoningMedium': 'Médio',

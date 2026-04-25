@@ -221,6 +221,7 @@ fn deepseek_reasoning_effort(effort: Option<&ReasoningEffort>) -> String {
 
 fn openai_reasoning_effort(effort: Option<&ReasoningEffort>) -> String {
     match effort {
+        Some(ReasoningEffort::None) => "none",
         Some(ReasoningEffort::Minimal) => "minimal",
         Some(ReasoningEffort::Low) => "low",
         Some(ReasoningEffort::Medium) => "medium",
@@ -230,6 +231,69 @@ fn openai_reasoning_effort(effort: Option<&ReasoningEffort>) -> String {
         None => "medium",
     }
     .to_string()
+}
+
+fn requires_non_streaming_fallback(model: &str) -> bool {
+    model.to_lowercase().starts_with("gpt-5.5-pro")
+}
+
+fn completion_response_to_stream_chunks(
+    response: CompletionResponse,
+) -> Vec<Result<StreamChunk, CoreError>> {
+    let mut chunks = Vec::new();
+
+    if let Some(thinking) = response.thinking {
+        if !thinking.is_empty() {
+            chunks.push(Ok(StreamChunk {
+                delta: String::new(),
+                tool_call_delta: None,
+                finish_reason: None,
+                usage: None,
+                thinking_delta: Some(thinking),
+            }));
+        }
+    }
+
+    if !response.content.is_empty() {
+        chunks.push(Ok(StreamChunk {
+            delta: response.content,
+            tool_call_delta: None,
+            finish_reason: None,
+            usage: None,
+            thinking_delta: None,
+        }));
+    }
+
+    for (index, tool_call) in response
+        .tool_calls
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+    {
+        chunks.push(Ok(StreamChunk {
+            delta: String::new(),
+            tool_call_delta: Some(super::ToolCallDelta {
+                id: tool_call.id,
+                name: Some(tool_call.name),
+                arguments_delta: tool_call.arguments,
+                index: Some(index as u32),
+                thought_signature: tool_call.thought_signature,
+            }),
+            finish_reason: None,
+            usage: None,
+            thinking_delta: None,
+        }));
+    }
+
+    chunks.push(Ok(StreamChunk {
+        delta: String::new(),
+        tool_call_delta: None,
+        finish_reason: Some(response.finish_reason),
+        usage: Some(response.usage),
+        thinking_delta: None,
+    }));
+
+    chunks
 }
 
 /// Some code-specialized OpenAI-compatible models require tool-call
@@ -410,7 +474,10 @@ fn build_request_body(request: &CompletionRequest, stream: bool) -> OaiRequest {
         reasoning_effort: if deepseek_thinking_enabled {
             Some(deepseek_reasoning_effort(request.reasoning_effort.as_ref()))
         } else if is_reasoning {
-            Some(openai_reasoning_effort(request.reasoning_effort.as_ref()))
+            request
+                .reasoning_effort
+                .as_ref()
+                .map(|effort| openai_reasoning_effort(Some(effort)))
         } else {
             None
         },
@@ -610,6 +677,13 @@ impl LlmProvider for OpenAiProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, Result<StreamChunk, CoreError>>, CoreError> {
+        if requires_non_streaming_fallback(&request.model) {
+            let response = self.complete(request).await?;
+            return Ok(Box::pin(futures::stream::iter(
+                completion_response_to_stream_chunks(response),
+            )));
+        }
+
         let url = format!("{}/chat/completions", self.base_url());
         let api_key = self.api_key()?;
         let body = build_request_body(request, true);
@@ -709,5 +783,82 @@ mod tests {
 
         assert_eq!(body["thinking"]["type"], "enabled");
         assert_eq!(body["reasoning_effort"], "max");
+    }
+
+    #[test]
+    fn openai_reasoning_effort_is_only_sent_when_configured() {
+        let request = CompletionRequest {
+            model: "gpt-5.5".to_string(),
+            messages: vec![Message::text(Role::User, "hello")],
+            temperature: Some(0.4),
+            max_tokens: Some(100),
+            tools: None,
+            stop: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            provider_type: Some(ProviderType::OpenAi),
+            parallel_tool_calls: true,
+        };
+
+        let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
+        assert!(body.get("reasoning_effort").is_none());
+
+        let request = CompletionRequest {
+            reasoning_effort: Some(ReasoningEffort::None),
+            ..request
+        };
+        let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
+        assert_eq!(body["reasoning_effort"], "none");
+    }
+
+    #[test]
+    fn completion_response_stream_fallback_preserves_content_tool_calls_and_usage() {
+        let chunks = completion_response_to_stream_chunks(CompletionResponse {
+            content: "done".to_string(),
+            tool_calls: Some(vec![ToolCallRequest {
+                id: "call_1".to_string(),
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"x\"}".to_string(),
+                thought_signature: None,
+            }]),
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage {
+                prompt_tokens: 3,
+                completion_tokens: 4,
+                total_tokens: 7,
+                thinking_tokens: None,
+            },
+            thinking: Some("thinking".to_string()),
+        });
+
+        assert_eq!(chunks.len(), 4);
+        assert_eq!(
+            chunks[0].as_ref().unwrap().thinking_delta.as_deref(),
+            Some("thinking")
+        );
+        assert_eq!(chunks[1].as_ref().unwrap().delta, "done");
+        let tool_delta = chunks[2]
+            .as_ref()
+            .unwrap()
+            .tool_call_delta
+            .as_ref()
+            .expect("tool delta should be emitted");
+        assert_eq!(tool_delta.id, "call_1");
+        assert_eq!(tool_delta.name.as_deref(), Some("lookup"));
+        assert_eq!(tool_delta.arguments_delta, "{\"q\":\"x\"}");
+        assert_eq!(
+            chunks[3].as_ref().unwrap().finish_reason,
+            Some(FinishReason::ToolCalls)
+        );
+        assert_eq!(
+            chunks[3]
+                .as_ref()
+                .unwrap()
+                .usage
+                .as_ref()
+                .unwrap()
+                .total_tokens,
+            7
+        );
     }
 }

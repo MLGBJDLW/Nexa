@@ -6,22 +6,51 @@
     "baseUrl": "https://api.openai.com/v1",
     "requiresApiKey": true,
     "icon": "🤖",
-    "description": "GPT-5.4, GPT-4.1, o3/o4 series",
+    "description": "GPT-5.5, GPT-5.4, GPT-4.1, o3/o4 series",
     "models": [
       {
-        "id": "gpt-5.4",
-        "name": "GPT-5.4",
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
         "tagKey": "providers.tagLatest",
         "recommended": true,
         "capabilities": {
           "reasoning": {
             "effortLevels": [
-              "minimal",
+              "none",
               "low",
               "medium",
-              "high"
+              "high",
+              "xhigh"
             ],
             "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gpt-5.5-pro",
+        "name": "GPT-5.5 Pro",
+        "tagKey": "providers.tagMostIntelligent",
+        "capabilities": {
+          "reasoning": null
+        }
+      },
+      {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4",
+        "tagKey": "providers.tagBestBalance",
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "none",
             "thinkingBudget": {
               "enabled": false
             }
@@ -35,9 +64,11 @@
         "capabilities": {
           "reasoning": {
             "effortLevels": [
-              "high"
+              "medium",
+              "high",
+              "xhigh"
             ],
-            "defaultEffort": "high",
+            "defaultEffort": "medium",
             "thinkingBudget": {
               "enabled": false
             }
@@ -69,12 +100,13 @@
         "capabilities": {
           "reasoning": {
             "effortLevels": [
-              "minimal",
+              "none",
               "low",
               "medium",
-              "high"
+              "high",
+              "xhigh"
             ],
-            "defaultEffort": "medium",
+            "defaultEffort": "none",
             "thinkingBudget": {
               "enabled": false
             }

@@ -85,6 +85,7 @@ const REASONING_EFFORT_LABEL_KEYS: Record<
   ReasoningEffortLevel,
   TranslationKey
 > = {
+  none: "settings.reasoningNone",
   minimal: "settings.reasoningMinimal",
   low: "settings.reasoningLow",
   medium: "settings.reasoningMedium",
@@ -741,7 +742,7 @@ export function AgentConfigForm({
             onChange={(e) => setModel(e.target.value)}
             placeholder={
               provider === "open_ai"
-                ? "gpt-5.4"
+                ? "gpt-5.5"
                 : provider === "anthropic"
                   ? "claude-sonnet-4-6"
                   : provider === "google"

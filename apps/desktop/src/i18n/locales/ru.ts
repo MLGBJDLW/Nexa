@@ -811,6 +811,7 @@ export const ru: TranslationKeys = {
   'settings.thinkingBudget': 'Бюджет на размышление (токены)',
   'settings.thinkingBudgetHelp': 'Бюджет токенов для моделей с управлением thinking-токенами.',
   'settings.reasoningEffort': 'Интенсивность рассуждения',
+  'settings.reasoningNone': 'Нет',
   'settings.reasoningMinimal': 'Минимальная',
   'settings.reasoningLow': 'Низкая',
   'settings.reasoningMedium': 'Средняя',

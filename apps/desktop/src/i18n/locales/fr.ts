@@ -808,6 +808,7 @@ export const fr: TranslationKeys = {
   'settings.thinkingBudget': 'Budget de réflexion (tokens)',
   'settings.thinkingBudgetHelp': 'Budget de tokens pour les modèles qui exposent un contrôle de réflexion.',
   'settings.reasoningEffort': 'Effort de raisonnement',
+  'settings.reasoningNone': 'Aucun',
   'settings.reasoningMinimal': 'Minimal',
   'settings.reasoningLow': 'Faible',
   'settings.reasoningMedium': 'Moyen',

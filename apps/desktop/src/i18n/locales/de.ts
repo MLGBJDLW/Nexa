@@ -808,6 +808,7 @@ export const de: TranslationKeys = {
   'settings.thinkingBudget': 'Denkbudget (Token)',
   'settings.thinkingBudgetHelp': 'Token-Budget für Modelle mit Steuerung des Denkbudgets.',
   'settings.reasoningEffort': 'Reasoning-Intensität',
+  'settings.reasoningNone': 'Keine',
   'settings.reasoningMinimal': 'Minimal',
   'settings.reasoningLow': 'Niedrig',
   'settings.reasoningMedium': 'Mittel',

@@ -811,6 +811,7 @@ export const zhCN: TranslationKeys = {
   'settings.thinkingBudget': '思考预算 (token数)',
   'settings.thinkingBudgetHelp': '适用于支持思考 token 预算控制的模型。',
   'settings.reasoningEffort': '推理强度',
+  'settings.reasoningNone': '无',
   'settings.reasoningMinimal': '最小',
   'settings.reasoningLow': '低',
   'settings.reasoningMedium': '中',

@@ -132,6 +132,7 @@ pub struct ToolCallRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
+    None,
     Minimal,
     Low,
     Medium,
@@ -143,6 +144,7 @@ pub enum ReasoningEffort {
 impl std::fmt::Display for ReasoningEffort {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::None => write!(f, "none"),
             Self::Minimal => write!(f, "minimal"),
             Self::Low => write!(f, "low"),
             Self::Medium => write!(f, "medium"),

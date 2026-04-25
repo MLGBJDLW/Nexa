@@ -833,6 +833,7 @@ export interface TranslationKeys {
   'settings.thinkingBudget': string;
   'settings.thinkingBudgetHelp': string;
   'settings.reasoningEffort': string;
+  'settings.reasoningNone': string;
   'settings.reasoningMinimal': string;
   'settings.reasoningLow': string;
   'settings.reasoningMedium': string;

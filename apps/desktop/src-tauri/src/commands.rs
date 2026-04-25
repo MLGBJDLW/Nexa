@@ -2315,6 +2315,7 @@ pub async fn agent_chat_cmd(
             .reasoning_effort
             .as_ref()
             .and_then(|s| match s.as_str() {
+                "none" => Some(ReasoningEffort::None),
                 "minimal" => Some(ReasoningEffort::Minimal),
                 "low" => Some(ReasoningEffort::Low),
                 "medium" => Some(ReasoningEffort::Medium),
