@@ -142,24 +142,6 @@ static BUILTIN_SKILLS: &[BuiltinSkillBundle] = &[
         skill_md: include_str!("../assets/skills/office-document-design/SKILL.md"),
         resources: &[
             BuiltinSkillResource {
-                path: "references/docx-playbook.md",
-                content: include_str!(
-                    "../assets/skills/office-document-design/references/docx-playbook.md"
-                ),
-            },
-            BuiltinSkillResource {
-                path: "references/pptx-playbook.md",
-                content: include_str!(
-                    "../assets/skills/office-document-design/references/pptx-playbook.md"
-                ),
-            },
-            BuiltinSkillResource {
-                path: "references/xlsx-playbook.md",
-                content: include_str!(
-                    "../assets/skills/office-document-design/references/xlsx-playbook.md"
-                ),
-            },
-            BuiltinSkillResource {
                 path: "scripts/outline-blueprint.md",
                 content: include_str!(
                     "../assets/skills/office-document-design/scripts/outline-blueprint.md"
@@ -169,6 +151,60 @@ static BUILTIN_SKILLS: &[BuiltinSkillBundle] = &[
                 path: "assets/theme-presets.json",
                 content: include_str!(
                     "../assets/skills/office-document-design/assets/theme-presets.json"
+                ),
+            },
+        ],
+    },
+    BuiltinSkillBundle {
+        slug: "docx-document-design",
+        skill_md: include_str!("../assets/skills/docx-document-design/SKILL.md"),
+        resources: &[
+            BuiltinSkillResource {
+                path: "references/docx-playbook.md",
+                content: include_str!(
+                    "../assets/skills/docx-document-design/references/docx-playbook.md"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/docx_audit.py",
+                content: include_str!(
+                    "../assets/skills/docx-document-design/scripts/docx_audit.py"
+                ),
+            },
+        ],
+    },
+    BuiltinSkillBundle {
+        slug: "pptx-presentation-design",
+        skill_md: include_str!("../assets/skills/pptx-presentation-design/SKILL.md"),
+        resources: &[
+            BuiltinSkillResource {
+                path: "references/pptx-playbook.md",
+                content: include_str!(
+                    "../assets/skills/pptx-presentation-design/references/pptx-playbook.md"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/pptx_audit.py",
+                content: include_str!(
+                    "../assets/skills/pptx-presentation-design/scripts/pptx_audit.py"
+                ),
+            },
+        ],
+    },
+    BuiltinSkillBundle {
+        slug: "xlsx-workbook-design",
+        skill_md: include_str!("../assets/skills/xlsx-workbook-design/SKILL.md"),
+        resources: &[
+            BuiltinSkillResource {
+                path: "references/xlsx-playbook.md",
+                content: include_str!(
+                    "../assets/skills/xlsx-workbook-design/references/xlsx-playbook.md"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/xlsx_audit.py",
+                content: include_str!(
+                    "../assets/skills/xlsx-workbook-design/scripts/xlsx_audit.py"
                 ),
             },
         ],
@@ -191,6 +227,86 @@ static BUILTIN_SKILLS: &[BuiltinSkillBundle] = &[
                 content: include_str!(
                     "../assets/skills/doc-script-editor/scripts/requirements.txt"
                 ),
+            },
+        ],
+    },
+    BuiltinSkillBundle {
+        slug: "skill-creator",
+        skill_md: include_str!("../assets/skills/skill-creator/SKILL.md"),
+        resources: &[
+            BuiltinSkillResource {
+                path: "LICENSE.txt",
+                content: include_str!("../assets/skills/skill-creator/LICENSE.txt"),
+            },
+            BuiltinSkillResource {
+                path: "agents/analyzer.md",
+                content: include_str!("../assets/skills/skill-creator/agents/analyzer.md"),
+            },
+            BuiltinSkillResource {
+                path: "agents/comparator.md",
+                content: include_str!("../assets/skills/skill-creator/agents/comparator.md"),
+            },
+            BuiltinSkillResource {
+                path: "agents/grader.md",
+                content: include_str!("../assets/skills/skill-creator/agents/grader.md"),
+            },
+            BuiltinSkillResource {
+                path: "assets/eval_review.html",
+                content: include_str!("../assets/skills/skill-creator/assets/eval_review.html"),
+            },
+            BuiltinSkillResource {
+                path: "eval-viewer/generate_review.py",
+                content: include_str!(
+                    "../assets/skills/skill-creator/eval-viewer/generate_review.py"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "eval-viewer/viewer.html",
+                content: include_str!("../assets/skills/skill-creator/eval-viewer/viewer.html"),
+            },
+            BuiltinSkillResource {
+                path: "references/schemas.md",
+                content: include_str!("../assets/skills/skill-creator/references/schemas.md"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/__init__.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/__init__.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/aggregate_benchmark.py",
+                content: include_str!(
+                    "../assets/skills/skill-creator/scripts/aggregate_benchmark.py"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/generate_report.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/generate_report.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/improve_description.py",
+                content: include_str!(
+                    "../assets/skills/skill-creator/scripts/improve_description.py"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/package_skill.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/package_skill.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/quick_validate.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/quick_validate.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/run_eval.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/run_eval.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/run_loop.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/run_loop.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/utils.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/utils.py"),
             },
         ],
     },
@@ -1358,7 +1474,7 @@ pub fn build_skills_section_for_query(skills: &[Skill], query: &str) -> String {
             section.push_str(&format!("\n{}\n", body_excerpt));
         }
         if !resource_excerpt.is_empty() {
-            section.push_str("\n#### Bundled References\n");
+            section.push_str("\n#### Bundled Resources\n");
             section.push_str(&resource_excerpt);
             section.push('\n');
         }
@@ -1585,7 +1701,7 @@ mod tests {
     #[test]
     fn test_load_builtin_skills() {
         let skills = load_builtin_skills();
-        assert_eq!(skills.len(), 4, "four bundled SKILL.md files must parse");
+        assert_eq!(skills.len(), 8, "eight bundled SKILL.md files must parse");
         for s in &skills {
             assert!(s.builtin);
             assert!(!s.name.is_empty());
@@ -1597,8 +1713,54 @@ mod tests {
         assert!(skills
             .iter()
             .any(|s| s.id == "builtin-office-document-design"));
+        assert!(skills
+            .iter()
+            .any(|s| s.id == "builtin-docx-document-design"));
+        assert!(skills
+            .iter()
+            .any(|s| s.id == "builtin-pptx-presentation-design"));
+        assert!(skills
+            .iter()
+            .any(|s| s.id == "builtin-xlsx-workbook-design"));
         assert!(skills.iter().any(|s| s.id == "builtin-evidence-first"));
         assert!(skills.iter().any(|s| s.id == "builtin-doc-script-editor"));
+        assert!(skills.iter().any(|s| s.id == "builtin-skill-creator"));
+    }
+
+    #[test]
+    fn test_split_office_skills_include_audit_scripts() {
+        let skills = load_builtin_skills();
+        let expected = [
+            (
+                "builtin-docx-document-design",
+                "scripts/docx_audit.py",
+                SkillResourceKind::Script,
+            ),
+            (
+                "builtin-pptx-presentation-design",
+                "scripts/pptx_audit.py",
+                SkillResourceKind::Script,
+            ),
+            (
+                "builtin-xlsx-workbook-design",
+                "scripts/xlsx_audit.py",
+                SkillResourceKind::Script,
+            ),
+        ];
+
+        for (skill_id, path, kind) in expected {
+            let skill = skills
+                .iter()
+                .find(|skill| skill.id == skill_id)
+                .unwrap_or_else(|| panic!("missing {skill_id}"));
+            assert!(
+                skill
+                    .resources
+                    .iter()
+                    .any(|resource| resource.path == path && resource.kind == kind),
+                "{skill_id} should bundle {path}"
+            );
+        }
     }
 
     #[test]
@@ -1657,8 +1819,28 @@ mod tests {
         assert!(
             active
                 .iter()
-                .any(|s| s.id == "builtin-office-document-design"),
-            "office-document-design should match deck/presentation queries"
+                .any(|s| s.id == "builtin-pptx-presentation-design"),
+            "pptx-presentation-design should match deck/presentation queries"
+        );
+
+        let active =
+            get_active_skills_for_query(&db, "create an editable docx board report with tables", 5)
+                .unwrap();
+        assert!(
+            active
+                .iter()
+                .any(|s| s.id == "builtin-docx-document-design"),
+            "docx-document-design should match Word/DOCX queries"
+        );
+
+        let active =
+            get_active_skills_for_query(&db, "build an xlsx financial model with formulas", 5)
+                .unwrap();
+        assert!(
+            active
+                .iter()
+                .any(|s| s.id == "builtin-xlsx-workbook-design"),
+            "xlsx-workbook-design should match workbook/spreadsheet queries"
         );
     }
 
@@ -1762,14 +1944,14 @@ mod tests {
 
     #[test]
     fn test_build_skills_section_includes_relevant_bundled_references() {
-        let office_skill = load_builtin_skills()
+        let pptx_skill = load_builtin_skills()
             .into_iter()
-            .find(|skill| skill.id == "builtin-office-document-design")
+            .find(|skill| skill.id == "builtin-pptx-presentation-design")
             .unwrap();
 
         let section =
-            build_skills_section_for_query(&[office_skill], "make a slide deck for q3 metrics");
-        assert!(section.contains("Bundled References"));
+            build_skills_section_for_query(&[pptx_skill], "make a slide deck for q3 metrics");
+        assert!(section.contains("Bundled Resources"));
         assert!(section.contains("pptx-playbook.md"));
     }
 

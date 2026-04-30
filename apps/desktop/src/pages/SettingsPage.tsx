@@ -106,6 +106,59 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
   );
 }
 
+function CollapsiblePanel({
+  title,
+  description,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-surface-1">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-label={open ? t('common.collapse') : t('common.expand')}
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/70"
+      >
+        <div className="min-w-0">
+          <h4 className="text-sm font-medium text-text-primary">{title}</h4>
+          {description && (
+            <p className="mt-1 text-xs leading-relaxed text-text-tertiary">{description}</p>
+          )}
+        </div>
+        <ChevronDown
+          size={16}
+          className={`mt-0.5 shrink-0 text-text-tertiary transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-border px-4 py-4">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 /* ── Helpers ───────────────────────────────────────────────────────── */
 function estimateTokens(text: string): number {
   if (!text) return 0;
@@ -312,13 +365,16 @@ function OfficeRuntimePanel({
   preparing,
   onPrepare,
   onRefresh,
+  onAskAiPrepare,
 }: {
   readiness: api.OfficeRuntimeReadiness | null;
   preparing: boolean;
   onPrepare: () => void;
   onRefresh: () => void;
+  onAskAiPrepare: () => void;
 }) {
   const { t } = useTranslation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const status = readiness?.status ?? 'missing';
   const statusMeta = (() => {
     if (!readiness) {
@@ -383,6 +439,14 @@ function OfficeRuntimePanel({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button
+            variant="secondary"
+            size="sm"
+            icon={<Bot size={14} />}
+            onClick={onAskAiPrepare}
+          >
+            {t('chat.askAi')}
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             icon={<RefreshCw size={14} />}
@@ -401,44 +465,66 @@ function OfficeRuntimePanel({
           >
             {preparing ? t('settings.documentToolsPreparing') : t('settings.documentToolsPrepare')}
           </Button>
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((value) => !value)}
+            className="rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-secondary"
+            aria-expanded={detailsOpen}
+            aria-label={detailsOpen ? t('common.collapse') : t('common.expand')}
+          >
+            <ChevronDown
+              size={16}
+              className={`transition-transform ${detailsOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
         </div>
       </div>
 
-      {readiness && (
-        <div className="mt-4 space-y-4">
-          <div className="grid gap-3 text-xs sm:grid-cols-2">
-            <div className="min-w-0">
-              <p className="font-medium text-text-secondary">{t('settings.documentToolsManagedEnv')}</p>
-              <p className="mt-1 truncate text-text-tertiary" title={readiness.appManagedEnvPath}>
-                {readiness.appManagedEnvPath}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <p className="font-medium text-text-secondary">{t('settings.documentToolsPython')}</p>
-              <p className="mt-1 truncate text-text-tertiary" title={readiness.pythonPath ?? readiness.pythonDownloadUrl}>
-                {readiness.pythonPath ?? t('settings.documentToolsPythonMissing')}
-              </p>
-            </div>
-          </div>
+      <AnimatePresence initial={false}>
+        {detailsOpen && readiness && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-4 space-y-4 border-t border-border pt-4">
+              <div className="grid gap-3 text-xs sm:grid-cols-2">
+                <div className="min-w-0">
+                  <p className="font-medium text-text-secondary">{t('settings.documentToolsManagedEnv')}</p>
+                  <p className="mt-1 truncate text-text-tertiary" title={readiness.appManagedEnvPath}>
+                    {readiness.appManagedEnvPath}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-medium text-text-secondary">{t('settings.documentToolsPython')}</p>
+                  <p className="mt-1 truncate text-text-tertiary" title={readiness.pythonPath ?? readiness.pythonDownloadUrl}>
+                    {readiness.pythonPath ?? t('settings.documentToolsPythonMissing')}
+                  </p>
+                </div>
+              </div>
 
-          {readiness.needsPythonInstall && (
-            <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
-              {t('settings.documentToolsPythonMissing')}: <span className="break-all">{readiness.pythonDownloadUrl}</span>
-            </div>
-          )}
+              {readiness.needsPythonInstall && (
+                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
+                  {t('settings.documentToolsPythonMissing')}: <span className="break-all">{readiness.pythonDownloadUrl}</span>
+                </div>
+              )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div>
-              <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsRequired')}</p>
-              <div className="divide-y divide-border">{requiredDeps.map(renderDep)}</div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsRequired')}</p>
+                  <div className="divide-y divide-border">{requiredDeps.map(renderDep)}</div>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsOptional')}</p>
+                  <div className="divide-y divide-border">{optionalDeps.map(renderDep)}</div>
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsOptional')}</p>
-              <div className="divide-y divide-border">{optionalDeps.map(renderDep)}</div>
-            </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -657,7 +743,7 @@ export function SettingsPage() {
       const cfg = await api.getEmbedderConfig();
       setEmbedConfig(cfg);
       if (cfg.provider === 'local') {
-        api.checkLocalModel(cfg.localModel).then(setLocalModelReady).catch(() => setLocalModelReady(false));
+        setLocalModelReady(null);
       } else {
         setLocalModelReady(null);
       }
@@ -812,7 +898,7 @@ export function SettingsPage() {
 
   const loadOfficeRuntime = useCallback(async () => {
     try {
-      const readiness = await api.checkOfficeRuntime();
+      const readiness = await getModelStatus('office', 'runtime', () => api.checkOfficeRuntime());
       setOfficeRuntime(readiness);
       return true;
     } catch {
@@ -831,6 +917,7 @@ export function SettingsPage() {
     try {
       const result = await api.prepareOfficeRuntime();
       setOfficeRuntime(result.readiness);
+      invalidateModelStatus('office');
       if (result.success) {
         toast.success(t('settings.documentToolsInstallSuccess'));
       } else {
@@ -842,6 +929,22 @@ export function SettingsPage() {
       setOfficePreparing(false);
     }
   };
+
+  const handleAskAiPrepareOfficeRuntime = useCallback(() => {
+    const readinessSummary = officeRuntime
+      ? `Current document tools status: ${officeRuntime.status}. ${officeRuntime.summary}`
+      : 'Current document tools status has not been checked yet.';
+    navigate('/chat', {
+      state: {
+        initialMessage:
+          `请帮我准备本机文档工具，用于 DOCX、XLSX、PPTX 和 PDF 的创建、编辑、转换与渲染。\n\n` +
+          `${readinessSummary}\n\n` +
+          `请先调用 prepare_document_tools 检查当前状态。若必需依赖缺失，请帮我准备必需的 Python 环境和包。` +
+          `在安装或下载可选依赖（LibreOffice、Poppler）之前，请先询问我是否需要这些能力；` +
+          `如果准备过程中发生权限、网络或路径问题，请继续诊断并给出可执行的下一步。`,
+      },
+    });
+  }, [navigate, officeRuntime]);
 
   /**
    * Reset the "wizard_completed" flag and navigate to `/wizard`.
@@ -1018,8 +1121,10 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    void loadPrivacyConfig();
-  }, [loadPrivacyConfig]);
+    if (activeTab === 'data_privacy' && !privacyConfig) {
+      void loadPrivacyConfig();
+    }
+  }, [activeTab, loadPrivacyConfig, privacyConfig]);
 
   const loadAnalytics = useCallback(async () => {
     setAnalyticsLoading(true);
@@ -1561,8 +1666,10 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    loadAgentConfigs();
-  }, [loadAgentConfigs]);
+    if (activeTab === 'providers') {
+      loadAgentConfigs();
+    }
+  }, [activeTab, loadAgentConfigs]);
 
   const handleSaveAgent = async (input: SaveAgentConfigInput) => {
     setAgentSaveLoading(true);
@@ -2040,9 +2147,10 @@ export function SettingsPage() {
               description={t('settings.modelsEmbeddingDesc')}
               status={
                 downloadLoading ? 'downloading'
+                : !embedConfig ? 'checking'
+                : embedConfig?.provider !== 'local' ? 'downloaded'
                 : localModelReady === null ? 'checking'
                 : localModelReady ? 'downloaded'
-                : embedConfig?.provider !== 'local' ? 'downloaded'
                 : 'not-downloaded'
               }
               size={embedConfig?.localModel === 'MultilingualE5Base' ? '~470 MB' : '~46 MB'}
@@ -2193,11 +2301,11 @@ export function SettingsPage() {
               preparing={officePreparing}
               onPrepare={handlePrepareOfficeRuntime}
               onRefresh={() => void loadOfficeRuntime()}
+              onAskAiPrepare={handleAskAiPrepareOfficeRuntime}
             />
 
             {/* Disk Usage Summary */}
-            <div className="rounded-lg border border-border p-4 bg-surface-1">
-              <h4 className="text-sm font-medium text-text-primary mb-2">{t('settings.modelDiskUsage')}</h4>
+            <CollapsiblePanel title={t('settings.modelDiskUsage')}>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-accent" />
@@ -2220,49 +2328,50 @@ export function SettingsPage() {
                   }
                 </span>
               </div>
-            </div>
+            </CollapsiblePanel>
 
             {/* Network mirrors (advanced) */}
             {appConfig && (
-              <div className="rounded-lg border border-border p-4 bg-surface-1 space-y-3">
-                <div>
-                  <h4 className="text-sm font-medium text-text-primary">{t('settings.networkMirrors')}</h4>
-                  <p className="mt-1 text-xs text-text-tertiary">{t('settings.networkMirrorsDesc')}</p>
+              <CollapsiblePanel
+                title={t('settings.networkMirrors')}
+                description={t('settings.networkMirrorsDesc')}
+              >
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-text-primary">{t('settings.hfMirrorLabel')}</label>
+                    <Input
+                      value={appConfig.hfMirrorBaseUrl ?? ''}
+                      onChange={(e) => {
+                        setAppConfig({ ...appConfig, hfMirrorBaseUrl: e.target.value });
+                        markDirty('models_embedding');
+                      }}
+                      placeholder="https://hf-mirror.com"
+                    />
+                    <p className="text-xs text-text-tertiary">{t('settings.hfMirrorHint')}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-text-primary">{t('settings.ghproxyLabel')}</label>
+                    <Input
+                      value={appConfig.ghproxyBaseUrl ?? ''}
+                      onChange={(e) => {
+                        setAppConfig({ ...appConfig, ghproxyBaseUrl: e.target.value });
+                        markDirty('models_embedding');
+                      }}
+                      placeholder="https://mirror.ghproxy.com"
+                    />
+                    <p className="text-xs text-text-tertiary">{t('settings.ghproxyHint')}</p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={handleAppConfigSave}
+                      disabled={appConfigLoading}
+                    >
+                      {appConfigLoading ? '...' : t('common.save')}
+                    </Button>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.hfMirrorLabel')}</label>
-                  <Input
-                    value={appConfig.hfMirrorBaseUrl ?? ''}
-                    onChange={(e) => {
-                      setAppConfig({ ...appConfig, hfMirrorBaseUrl: e.target.value });
-                      markDirty('models_embedding');
-                    }}
-                    placeholder="https://hf-mirror.com"
-                  />
-                  <p className="text-xs text-text-tertiary">{t('settings.hfMirrorHint')}</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ghproxyLabel')}</label>
-                  <Input
-                    value={appConfig.ghproxyBaseUrl ?? ''}
-                    onChange={(e) => {
-                      setAppConfig({ ...appConfig, ghproxyBaseUrl: e.target.value });
-                      markDirty('models_embedding');
-                    }}
-                    placeholder="https://mirror.ghproxy.com"
-                  />
-                  <p className="text-xs text-text-tertiary">{t('settings.ghproxyHint')}</p>
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={handleAppConfigSave}
-                    disabled={appConfigLoading}
-                  >
-                    {appConfigLoading ? '…' : t('common.save')}
-                  </Button>
-                </div>
-              </div>
+              </CollapsiblePanel>
             )}
           </div>
 

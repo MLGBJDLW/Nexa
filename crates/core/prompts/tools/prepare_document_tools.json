@@ -1,0 +1,19 @@
+{
+  "name": "prepare_document_tools",
+  "description": "Check or prepare the local Python-backed document tools used by the Office skills. Use this before DOCX, XLSX, PPTX, or PDF creation/editing when dependencies may be missing. The prepare action creates or updates the app-managed Python environment and installs required Python packages. Ask the user before setting include_optional_tools=true because that may download or install LibreOffice/Poppler.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["check", "prepare"],
+        "description": "Use check to report current readiness. Use prepare to install or update required document-tool dependencies."
+      },
+      "include_optional_tools": {
+        "type": "boolean",
+        "description": "When true, also prepare optional LibreOffice/Poppler helpers for Office-to-PDF conversion, rendering QA, and spreadsheet recalculation. Ask the user before enabling this."
+      }
+    },
+    "required": ["action"]
+  }
+}
