@@ -75,6 +75,19 @@ pub struct OfficePrepareResult {
     pub readiness: OfficeRuntimeReadiness,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OfficePrepareOptions {
+    pub include_optional_tools: bool,
+}
+
+impl Default for OfficePrepareOptions {
+    fn default() -> Self {
+        Self {
+            include_optional_tools: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct PythonCommand {
     program: OsString,
@@ -950,6 +963,18 @@ pub fn prepare_office_runtime_with_options(
     app_data_dir: &Path,
     ghproxy_base: &str,
 ) -> Result<OfficePrepareResult, CoreError> {
+    prepare_office_runtime_with_prepare_options(
+        app_data_dir,
+        ghproxy_base,
+        OfficePrepareOptions::default(),
+    )
+}
+
+pub fn prepare_office_runtime_with_prepare_options(
+    app_data_dir: &Path,
+    ghproxy_base: &str,
+    options: OfficePrepareOptions,
+) -> Result<OfficePrepareResult, CoreError> {
     crate::skills::materialize_skills_to_disk(app_data_dir)?;
 
     let env_dir = office_env_dir(app_data_dir);
@@ -1036,7 +1061,16 @@ pub fn prepare_office_runtime_with_options(
         }
     }
 
-    prepare_optional_office_tools(app_data_dir, ghproxy_base, &mut actions);
+    if options.include_optional_tools {
+        prepare_optional_office_tools(app_data_dir, ghproxy_base, &mut actions);
+    } else {
+        push_action(
+            &mut actions,
+            "optional-office-tools",
+            "skipped",
+            Some("Skipped optional LibreOffice/Poppler setup.".to_string()),
+        );
+    }
     configure_app_managed_python_env(app_data_dir);
     let readiness = check_office_runtime(app_data_dir);
     let success = matches!(readiness.status.as_str(), "ready" | "degraded");

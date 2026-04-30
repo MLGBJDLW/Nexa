@@ -117,7 +117,7 @@ python <SKILL_DIR>/scripts/edit_doc.py check
 - **Formula safety** — `recalc_xlsx` uses LibreOffice when available and reports Excel formula errors as structured JSON
 
 ## Dependencies
-In the desktop app, first prefer Settings → Models → Document tools → Prepare. That creates an app-managed virtual environment, installs the bundled requirements there, attempts optional tool setup (app-managed Poppler on Windows, system package-manager install for LibreOffice/Poppler when available), and makes `run_shell` prefer those managed paths automatically.
+In the desktop app, first prefer `prepare_document_tools` when that tool is available. Call `action: "check"` to inspect readiness, then call `action: "prepare"` with `include_optional_tools: false` for missing required Python dependencies. Ask the user before retrying with `include_optional_tools: true` because LibreOffice/Poppler setup may download binaries or touch system package managers. The same flow is exposed in Settings → Models → Document tools → Prepare. It creates an app-managed virtual environment, installs the bundled requirements there, attempts optional tool setup (app-managed Poppler on Windows, system package-manager install for LibreOffice/Poppler when available), and makes `run_shell` prefer those managed paths automatically.
 
 For CLI/dev environments, install before first Office/PDF operation (only what's needed for the target format):
 ```
@@ -134,7 +134,7 @@ python <SKILL_DIR>/scripts/edit_doc.py check
 
 The `check` subcommand lists each backend as `OK (version)` or `MISSING`. If any required backend is missing:
 
-1. In the desktop app, ask the user to run Settings → Models → Document tools → Prepare first, or invoke the app readiness/prepare flow when available.
+1. In the desktop app, invoke `prepare_document_tools` when available; otherwise ask the user to run Settings → Models → Document tools → Prepare first.
 2. In CLI/dev contexts, tell the user (in their language) which packages are missing and ask permission to install them.
 3. If approved, invoke `run_shell` with:
    ```

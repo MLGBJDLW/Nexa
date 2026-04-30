@@ -88,6 +88,7 @@ pub mod manage_source_tool;
 pub mod mcp_tool;
 pub mod path_utils;
 pub mod playbook_tool;
+pub mod prepare_document_tools_tool;
 pub mod read_files_tool;
 pub mod record_verification_tool;
 pub mod reindex_tool;
@@ -659,6 +660,9 @@ pub fn default_tool_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(search_tool::SearchTool));
     registry.register(Box::new(playbook_tool::PlaybookTool));
+    registry.register(Box::new(
+        prepare_document_tools_tool::PrepareDocumentToolsTool,
+    ));
     registry.register(Box::new(file_tool::FileTool));
     registry.register(Box::new(read_files_tool::ReadFilesTool));
     registry.register(Box::new(summarize_tool::RetrieveEvidenceTool));
@@ -746,5 +750,6 @@ mod tests {
         assert!(!names.iter().any(|name| name == "generate_docx"));
         assert!(!names.iter().any(|name| name == "generate_xlsx"));
         assert!(!names.iter().any(|name| name == "ppt_generate"));
+        assert!(names.iter().any(|name| name == "prepare_document_tools"));
     }
 }

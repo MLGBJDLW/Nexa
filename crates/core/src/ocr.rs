@@ -14,7 +14,7 @@ use crate::error::CoreError;
 // ── Configuration ───────────────────────────────────────────────────
 
 /// User-configurable OCR settings, persisted in the database.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OcrConfig {
     /// Master toggle — set `false` to skip OCR entirely (images become
@@ -109,7 +109,8 @@ pub struct OcrDownloadProgress {
 
 /// Thread-safe, lazily-initialized PaddleOCR engine.
 ///
-/// Uses `OnceLock` so models are loaded exactly once on first call.
+/// Uses a process-wide cache so models are loaded lazily and reused while the
+/// OCR configuration stays unchanged.
 /// The inner `ort::Session` objects are wrapped in `Mutex` so multiple
 /// threads can share the engine without data races (ONNX Runtime itself
 /// is thread-safe for inference, but session mutation isn't).
@@ -121,24 +122,40 @@ pub struct OcrEngine {
     config: OcrConfig,
 }
 
-/// Global singleton — initialised on first `ocr_engine()` call.
-static OCR_ENGINE: OnceLock<Result<Arc<OcrEngine>, String>> = OnceLock::new();
+struct CachedOcrEngine {
+    config: OcrConfig,
+    engine: Arc<OcrEngine>,
+}
+
+/// Global singleton for successful OCR engine instances.
+///
+/// Failed initialisation is intentionally not cached: users can download OCR
+/// models from Settings after an earlier miss, and the next image should retry
+/// immediately without requiring an app restart.
+static OCR_ENGINE: OnceLock<Mutex<Option<CachedOcrEngine>>> = OnceLock::new();
 
 /// Get or initialise the global OCR engine.
 ///
 /// Returns `Err` with a human-readable message if model files are missing
 /// or ONNX sessions fail to build.
 pub fn ocr_engine(config: &OcrConfig) -> Result<Arc<OcrEngine>, CoreError> {
-    let result = OCR_ENGINE.get_or_init(|| {
-        OcrEngine::new(config)
-            .map(Arc::new)
-            .map_err(|e| e.to_string())
-    });
+    let cache = OCR_ENGINE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache
+        .lock()
+        .map_err(|_| CoreError::Ocr("OCR engine cache lock poisoned".into()))?;
 
-    match result {
-        Ok(engine) => Ok(Arc::clone(engine)),
-        Err(msg) => Err(CoreError::Ocr(format!("OCR engine init failed: {msg}"))),
+    if let Some(cached) = guard.as_ref() {
+        if cached.config == *config {
+            return Ok(Arc::clone(&cached.engine));
+        }
     }
+
+    let engine = Arc::new(OcrEngine::new(config)?);
+    *guard = Some(CachedOcrEngine {
+        config: config.clone(),
+        engine: Arc::clone(&engine),
+    });
+    Ok(engine)
 }
 
 impl OcrEngine {

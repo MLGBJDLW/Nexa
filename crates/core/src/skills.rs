@@ -230,6 +230,86 @@ static BUILTIN_SKILLS: &[BuiltinSkillBundle] = &[
             },
         ],
     },
+    BuiltinSkillBundle {
+        slug: "skill-creator",
+        skill_md: include_str!("../assets/skills/skill-creator/SKILL.md"),
+        resources: &[
+            BuiltinSkillResource {
+                path: "LICENSE.txt",
+                content: include_str!("../assets/skills/skill-creator/LICENSE.txt"),
+            },
+            BuiltinSkillResource {
+                path: "agents/analyzer.md",
+                content: include_str!("../assets/skills/skill-creator/agents/analyzer.md"),
+            },
+            BuiltinSkillResource {
+                path: "agents/comparator.md",
+                content: include_str!("../assets/skills/skill-creator/agents/comparator.md"),
+            },
+            BuiltinSkillResource {
+                path: "agents/grader.md",
+                content: include_str!("../assets/skills/skill-creator/agents/grader.md"),
+            },
+            BuiltinSkillResource {
+                path: "assets/eval_review.html",
+                content: include_str!("../assets/skills/skill-creator/assets/eval_review.html"),
+            },
+            BuiltinSkillResource {
+                path: "eval-viewer/generate_review.py",
+                content: include_str!(
+                    "../assets/skills/skill-creator/eval-viewer/generate_review.py"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "eval-viewer/viewer.html",
+                content: include_str!("../assets/skills/skill-creator/eval-viewer/viewer.html"),
+            },
+            BuiltinSkillResource {
+                path: "references/schemas.md",
+                content: include_str!("../assets/skills/skill-creator/references/schemas.md"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/__init__.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/__init__.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/aggregate_benchmark.py",
+                content: include_str!(
+                    "../assets/skills/skill-creator/scripts/aggregate_benchmark.py"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/generate_report.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/generate_report.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/improve_description.py",
+                content: include_str!(
+                    "../assets/skills/skill-creator/scripts/improve_description.py"
+                ),
+            },
+            BuiltinSkillResource {
+                path: "scripts/package_skill.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/package_skill.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/quick_validate.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/quick_validate.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/run_eval.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/run_eval.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/run_loop.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/run_loop.py"),
+            },
+            BuiltinSkillResource {
+                path: "scripts/utils.py",
+                content: include_str!("../assets/skills/skill-creator/scripts/utils.py"),
+            },
+        ],
+    },
 ];
 
 /// Global base directory where built-in skill bundles have been materialized to
@@ -1621,7 +1701,7 @@ mod tests {
     #[test]
     fn test_load_builtin_skills() {
         let skills = load_builtin_skills();
-        assert_eq!(skills.len(), 7, "seven bundled SKILL.md files must parse");
+        assert_eq!(skills.len(), 8, "eight bundled SKILL.md files must parse");
         for s in &skills {
             assert!(s.builtin);
             assert!(!s.name.is_empty());
@@ -1644,6 +1724,7 @@ mod tests {
             .any(|s| s.id == "builtin-xlsx-workbook-design"));
         assert!(skills.iter().any(|s| s.id == "builtin-evidence-first"));
         assert!(skills.iter().any(|s| s.id == "builtin-doc-script-editor"));
+        assert!(skills.iter().any(|s| s.id == "builtin-skill-creator"));
     }
 
     #[test]
