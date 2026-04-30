@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.11...nexa-monorepo-v0.3.0) (2026-04-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* improve settings model tools
+* move office document workflows to skills
+
+### Features
+
+* improve settings model tools ([4be717c](https://github.com/MLGBJDLW/Nexa/commit/4be717cc96e447a9b3f273c351ce60740b07bf9d))
+* move office document workflows to skills ([7367881](https://github.com/MLGBJDLW/Nexa/commit/736788139cd7aeea6be9a6dccec2f88a19ef30e6))
+
 ## [0.2.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.2.10...nexa-monorepo-v0.2.11) (2026-04-25)
 
 
