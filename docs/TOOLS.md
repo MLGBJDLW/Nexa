@@ -413,7 +413,7 @@ Execute a whitelisted program with explicit argv arguments inside a registered s
 | `cwd` | string | yes | Working directory (absolute or relative to a source root) |
 | `timeout_secs` | integer | no | Timeout in seconds, 1–300 (default 30) |
 
-**Program whitelist:** `python`, `python3`, `node`, `npm`, `npx`, `git` (read-only subcommands only: `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `branch`, `tag`, `config`, `remote`, `describe`, `blame`). `git config` additionally requires an explicit read-only flag such as `--get`, `--list`, or `--get-regexp`.
+**Default restricted whitelist:** `python`, `python3`, `pip`, `pip3`, `node`, `npm`, `npx`, `git`, `pwd`, `ls`, `cat`, `mkdir`, `cp`, `mv` (`pip`/`pip3` are normalized to `python -m pip` / `python3 -m pip`; `copy`/`move` aliases normalize to `cp`/`mv`). `git` is read-only by default: allowed subcommands are `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `branch`, `tag`, `config`, `remote`, `describe`, and `blame`. `git config` additionally requires an explicit read-only flag such as `--get`, `--list`, or `--get-regexp`. In less-restricted Shell Access modes, arbitrary bare command names (for example `bash` or `powershell` when available) may be allowed, but `run_shell` still does not invoke a shell automatically.
 
 **Safety posture:**
 - Always requires user confirmation before executing.
@@ -427,10 +427,10 @@ Execute a whitelisted program with explicit argv arguments inside a registered s
 
 **Usage examples:** `python script.py`, `python -m pytest -q`, `node script.js`, `npm test`, `git status`, `git diff --stat`, `git log --oneline -n 20`, `git config --list`.
 
-**Cannot do (by design):**
+**Cannot do in default restricted mode (by design):**
 - No file-deletion helpers (no `rm`, `Remove-Item`, `del`).
 - No network fetchers (no `curl`, `wget`, `Invoke-WebRequest`).
 - No git write operations (`push`, `pull`, `fetch`, `commit`, `reset`, `merge`, `rebase`, `clone`, `add`, `checkout`, `stash`, `--set`, `--unset`, `--add`, …).
-- No shell interpreter wrappers (no `sh -c`, `bash -c`, `cmd /c`, `powershell -c`). Metacharacters do not expand.
+- No shell interpreter wrappers from the restricted whitelist (no `sh -c`, `bash -c`, `cmd /c`, `powershell -c`). Metacharacters do not expand unless the user explicitly relaxes Shell Access and runs a shell program themselves.
 
 > **Example:** Run `python -m pytest -q` in a project source root and capture the summary output, or run `git diff --stat HEAD~1` to preview recent changes.

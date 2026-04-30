@@ -4,40 +4,13 @@ import { useBlocker, useNavigate } from 'react-router-dom';
 import { getVersion } from '@tauri-apps/api/app';
 import {
   Database,
-  Shield,
-  RefreshCw,
-  Zap,
-  Plus,
-  Trash2,
-  Save,
   Brain,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  KeyRound,
-  AlertTriangle,
   Bot,
   Star,
-  Pencil,
-  Settings2,
-  X,
-  ScanLine,
   Film,
   Blocks,
-  Plug,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  Mic,
-  HardDrive,
-  Clock,
-  BarChart3,
-  Search,
-  Download,
-  Eye,
-  RotateCcw,
-  Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../lib/api';
@@ -47,487 +20,23 @@ import type { IndexStats } from '../types/index-stats';
 import type { PrivacyConfig, RedactRule } from '../types/privacy';
 import type { EmbedderConfig } from '../types/embedder';
 import type { AgentConfig, AppConfig, SaveAgentConfigInput, UserMemory } from '../types/conversation';
-import type { ApprovalPolicy, ApprovalPolicyList } from '../types';
 import type { OcrConfig } from '../types/ocr';
 import type { VideoConfig } from '../types/video';
 import type { Skill, McpServer, McpToolInfo, SaveSkillInput, SaveMcpServerInput } from '../types/extensions';
 import type { TraceSummary, AgentTrace } from '../types/trace';
 import { useTranslation } from '../i18n';
-import { ThemeSwitcher } from '../components/ui/ThemeSwitcher';
-import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
-import { Badge } from '../components/ui/Badge';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { AgentConfigForm } from '../components/settings/AgentConfigForm';
-import { SkillEditor } from '../components/settings/SkillEditor';
-import { SkillMarkdownPreview } from '../components/settings/SkillMarkdownPreview';
-import { McpServerForm } from '../components/settings/McpServerForm';
-import { PROVIDER_PRESETS, type ProviderPreset } from '../lib/providerPresets';
-import { DEFAULT_SUBAGENT_TOOL_NAMES } from '../lib/subagentTools';
-import { ModelCard } from '../components/settings/ModelCard';
+import { AppearanceSettingsTab } from '../components/settings/AppearanceSettingsTab';
+import { DataPrivacySettingsTab } from '../components/settings/DataPrivacySettingsTab';
+import { EmbeddingConfigSection } from '../components/settings/EmbeddingConfigSection';
+import { ExtensionsSettingsTab, type SkillFilter } from '../components/settings/ExtensionsSettingsTab';
+import { ModelDownloadsSection } from '../components/settings/ModelDownloadsSection';
+import { OcrSettingsSection } from '../components/settings/OcrSettingsSection';
+import { ProvidersSettingsTab, type ProviderView } from '../components/settings/ProvidersSettingsTab';
+import { VideoSettingsSection } from '../components/settings/VideoSettingsSection';
+import type { ProviderPreset } from '../lib/providerPresets';
 import { useMicrophoneDevices } from '../lib/useMicrophoneDevices';
 import { useUpdater } from '../lib/useUpdater';
-
-/* ── Section wrapper ──────────────────────────────────────────────── */
-function Section({
-  icon,
-  title,
-  children,
-  delay = 0,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-  delay?: number;
-}) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay, ease: [0.16, 1, 0.3, 1] }}
-      className="rounded-xl border border-border bg-surface-1 p-6"
-    >
-      <div className="mb-5 flex items-center gap-2.5">
-        <span className="text-accent">{icon}</span>
-        <h2 className="text-base font-semibold text-text-primary">{title}</h2>
-      </div>
-      {children}
-    </motion.section>
-  );
-}
-
-/* ── Stat card ────────────────────────────────────────────────────── */
-function StatCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg bg-surface-2 px-4 py-3">
-      <p className="text-xs text-text-tertiary">{label}</p>
-      <p className="mt-1 text-xl font-bold text-text-primary">{value}</p>
-    </div>
-  );
-}
-
-function CollapsiblePanel({
-  title,
-  description,
-  children,
-  defaultOpen = false,
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface-1">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        aria-label={open ? t('common.collapse') : t('common.expand')}
-        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/70"
-      >
-        <div className="min-w-0">
-          <h4 className="text-sm font-medium text-text-primary">{title}</h4>
-          {description && (
-            <p className="mt-1 text-xs leading-relaxed text-text-tertiary">{description}</p>
-          )}
-        </div>
-        <ChevronDown
-          size={16}
-          className={`mt-0.5 shrink-0 text-text-tertiary transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-border px-4 py-4">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/* ── Helpers ───────────────────────────────────────────────────────── */
-function estimateTokens(text: string): number {
-  if (!text) return 0;
-  let tokens = 0;
-  for (let i = 0; i < text.length; i++) {
-    tokens += text.charCodeAt(i) > 0x2fff ? 1.5 : 0.25;
-  }
-  return Math.ceil(tokens);
-}
-
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-type UpdaterState = ReturnType<typeof useUpdater>;
-
-function formatUpdateTimestamp(value: string | undefined, locale: string): string {
-  if (!value) return '';
-  const time = new Date(value);
-  if (Number.isNaN(time.getTime())) return '';
-  return time.toLocaleString(locale);
-}
-
-function UpdateSettingsPanel({
-  appVersion,
-  updater,
-}: {
-  appVersion: string;
-  updater: UpdaterState;
-}) {
-  const { t, locale } = useTranslation();
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const {
-    status,
-    version,
-    notes,
-    progress,
-    error,
-    errorCode,
-    errorDetail,
-    errorStage,
-    lastCheckedAt,
-    checkForUpdate,
-    downloadAndInstall,
-    restart,
-  } = updater;
-
-  const statusMeta = (() => {
-    switch (status) {
-      case 'checking':
-        return { label: t('knowledge.checking'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
-      case 'available':
-        return { label: t('update.available'), variant: 'warning' as const, icon: <Download size={14} /> };
-      case 'downloading':
-        return { label: t('update.downloading'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
-      case 'ready':
-        return { label: t('update.ready'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
-      case 'error':
-        return { label: t('update.error'), variant: 'danger' as const, icon: <XCircle size={14} /> };
-      case 'up-to-date':
-        return { label: t('update.upToDate'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
-      default:
-        return { label: t('update.notChecked'), variant: 'default' as const, icon: <RefreshCw size={14} /> };
-    }
-  })();
-
-  const checkedAt = formatUpdateTimestamp(lastCheckedAt, locale);
-  const errorLabel =
-    errorStage === 'download'
-      ? t('update.downloadFailed')
-      : errorStage === 'install'
-        ? t('update.installFailed')
-        : t('update.error');
-
-  return (
-    <div className="space-y-4 border-t border-border pt-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-            <RefreshCw size={16} className="text-accent" />
-            {t('update.appUpdate')}
-          </h3>
-          <p className="max-w-2xl text-xs text-text-tertiary">{t('update.appUpdateDescription')}</p>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {status === 'available' && (
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Download size={14} />}
-              onClick={downloadAndInstall}
-            >
-              {t('update.downloadInstall')}
-            </Button>
-          )}
-          {status === 'ready' && (
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<RefreshCw size={14} />}
-              onClick={restart}
-            >
-              {t('update.restart')}
-            </Button>
-          )}
-          {status !== 'available' && status !== 'ready' && (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={status === 'checking' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              loading={status === 'checking'}
-              disabled={status === 'downloading'}
-              onClick={checkForUpdate}
-            >
-              {t('update.checkNow')}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.25fr]">
-        <div className="rounded-lg bg-surface-2 px-4 py-3">
-          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.currentVersion')}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums text-text-primary">v{appVersion || '...'}</p>
-        </div>
-        <div className="rounded-lg bg-surface-2 px-4 py-3">
-          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.latestVersion')}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums text-text-primary">
-            {version ? `v${version}` : '-'}
-          </p>
-        </div>
-        <div className="rounded-lg bg-surface-2 px-4 py-3">
-          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.status')}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Badge variant={statusMeta.variant} className="gap-1.5">
-              {statusMeta.icon}
-              {statusMeta.label}
-            </Badge>
-            <span className="text-xs text-text-tertiary">
-              {checkedAt ? t('update.lastChecked', { time: checkedAt }) : t('update.notChecked')}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {status === 'downloading' && (
-        <div className="flex items-center gap-3">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
-            <div
-              className="h-full rounded-full bg-accent transition-all duration-300"
-              style={{ width: `${progress ?? 0}%` }}
-            />
-          </div>
-          <span className="w-10 text-right text-xs tabular-nums text-text-tertiary">{progress ?? 0}%</span>
-        </div>
-      )}
-
-      {status === 'error' && (
-        <div className="rounded-lg border border-danger/20 bg-danger/5 px-4 py-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-danger" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-danger">{errorLabel}</p>
-              {error && <p className="mt-1 break-words text-xs text-text-secondary">{error}</p>}
-              {(errorCode != null || errorDetail?.stack) && (
-                <div className="mt-2">
-                  <button
-                    type="button"
-                    onClick={() => setDetailsOpen(v => !v)}
-                    className="text-xs text-text-tertiary transition-colors hover:text-text-primary"
-                  >
-                    {detailsOpen ? '▼' : '▶'} {t('update.details')}
-                  </button>
-                  {detailsOpen && (
-                    <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-surface-1 p-2 text-xs text-text-tertiary whitespace-pre-wrap break-all">
-                      {errorCode != null && `code: ${errorCode}\n`}
-                      {errorDetail?.stack ?? ''}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {notes && (
-        <details className="rounded-lg border border-border bg-surface-2 px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-text-primary">
-            {t('update.releaseNotes')}
-          </summary>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{notes}</p>
-        </details>
-      )}
-    </div>
-  );
-}
-
-function OfficeRuntimePanel({
-  readiness,
-  preparing,
-  onPrepare,
-  onRefresh,
-  onAskAiPrepare,
-}: {
-  readiness: api.OfficeRuntimeReadiness | null;
-  preparing: boolean;
-  onPrepare: () => void;
-  onRefresh: () => void;
-  onAskAiPrepare: () => void;
-}) {
-  const { t } = useTranslation();
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const status = readiness?.status ?? 'missing';
-  const statusMeta = (() => {
-    if (!readiness) {
-      return { label: t('settings.documentToolsChecking'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
-    }
-    switch (status) {
-      case 'ready':
-        return { label: t('settings.documentToolsReady'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
-      case 'degraded':
-        return { label: t('settings.documentToolsDegraded'), variant: 'warning' as const, icon: <AlertTriangle size={14} /> };
-      case 'blocked':
-        return { label: t('settings.documentToolsBlocked'), variant: 'danger' as const, icon: <XCircle size={14} /> };
-      default:
-        return { label: t('settings.documentToolsMissing'), variant: 'warning' as const, icon: <AlertTriangle size={14} /> };
-    }
-  })();
-  const requiredDeps = readiness?.dependencies.filter((dep) => dep.required) ?? [];
-  const optionalDeps = readiness?.dependencies.filter((dep) => !dep.required) ?? [];
-  const canPrepare = Boolean(readiness?.canPrepare) || !readiness;
-
-  const renderDep = (dep: api.OfficeDependencyStatus) => (
-    <div key={dep.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-text-primary">{dep.label}</span>
-          <Badge variant={dep.status === 'ready' ? 'success' : dep.status === 'broken' ? 'danger' : 'warning'} className="shrink-0">
-            {dep.status === 'ready'
-              ? t('settings.modelReady')
-              : dep.status === 'broken'
-                ? t('settings.documentToolsBlocked')
-                : t('settings.documentToolsMissing')}
-          </Badge>
-        </div>
-        {(dep.version || dep.path) && (
-          <p className="mt-1 truncate text-xs text-text-tertiary">
-            {dep.version ? `v${dep.version}` : dep.path}
-          </p>
-        )}
-      </div>
-      {dep.detail && dep.status !== 'ready' && (
-        <p className="max-w-sm text-left text-xs leading-relaxed text-text-tertiary sm:text-right">
-          {dep.detail}
-        </p>
-      )}
-    </div>
-  );
-
-  return (
-    <div className="rounded-lg border border-border bg-surface-1 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-sm font-medium text-text-primary">{t('settings.documentTools')}</h4>
-            <Badge variant={statusMeta.variant} className="gap-1">
-              {statusMeta.icon}
-              {statusMeta.label}
-            </Badge>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-text-tertiary">
-            {readiness?.summary ?? t('settings.documentToolsDesc')}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Bot size={14} />}
-            onClick={onAskAiPrepare}
-          >
-            {t('chat.askAi')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<RefreshCw size={14} />}
-            iconOnly
-            onClick={onRefresh}
-            title={t('settings.documentToolsRefresh')}
-            aria-label={t('settings.documentToolsRefresh')}
-          />
-          <Button
-            variant={readiness?.status === 'blocked' ? 'secondary' : 'primary'}
-            size="sm"
-            icon={<Wrench size={14} />}
-            loading={preparing}
-            disabled={!canPrepare}
-            onClick={onPrepare}
-          >
-            {preparing ? t('settings.documentToolsPreparing') : t('settings.documentToolsPrepare')}
-          </Button>
-          <button
-            type="button"
-            onClick={() => setDetailsOpen((value) => !value)}
-            className="rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-secondary"
-            aria-expanded={detailsOpen}
-            aria-label={detailsOpen ? t('common.collapse') : t('common.expand')}
-          >
-            <ChevronDown
-              size={16}
-              className={`transition-transform ${detailsOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
-        </div>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {detailsOpen && readiness && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="mt-4 space-y-4 border-t border-border pt-4">
-              <div className="grid gap-3 text-xs sm:grid-cols-2">
-                <div className="min-w-0">
-                  <p className="font-medium text-text-secondary">{t('settings.documentToolsManagedEnv')}</p>
-                  <p className="mt-1 truncate text-text-tertiary" title={readiness.appManagedEnvPath}>
-                    {readiness.appManagedEnvPath}
-                  </p>
-                </div>
-                <div className="min-w-0">
-                  <p className="font-medium text-text-secondary">{t('settings.documentToolsPython')}</p>
-                  <p className="mt-1 truncate text-text-tertiary" title={readiness.pythonPath ?? readiness.pythonDownloadUrl}>
-                    {readiness.pythonPath ?? t('settings.documentToolsPythonMissing')}
-                  </p>
-                </div>
-              </div>
-
-              {readiness.needsPythonInstall && (
-                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
-                  {t('settings.documentToolsPythonMissing')}: <span className="break-all">{readiness.pythonDownloadUrl}</span>
-                </div>
-              )}
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsRequired')}</p>
-                  <div className="divide-y divide-border">{requiredDeps.map(renderDep)}</div>
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium text-text-secondary">{t('settings.documentToolsOptional')}</p>
-                  <div className="divide-y divide-border">{optionalDeps.map(renderDep)}</div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 /* ── Settings page ────────────────────────────────────────────────── */
 type SettingsTab = 'appearance' | 'models_embedding' | 'providers' | 'media' | 'data_privacy' | 'extensions';
@@ -541,12 +50,6 @@ export function SettingsPage() {
   const [appVersion, setAppVersion] = useState('');
   const { devices: micDevices, selectedDeviceId: micDeviceId, setSelectedDeviceId: setMicDeviceId, refresh: refreshMics } = useMicrophoneDevices();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const extensionCopy = {
-    toolCount: (count: number) => t('settings.extensions.toolCount', { count }),
-    connectionFailed: t('settings.extensions.connectionFailed'),
-    availableTools: t('settings.extensions.availableTools'),
-    toggleTools: t('settings.extensions.toggleTools'),
-  };
   const [activeTab, setActiveTab] = useState<SettingsTab>('models_embedding');
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
   const [pendingTab, setPendingTab] = useState<SettingsTab | null>(null);
@@ -1432,7 +935,7 @@ export function SettingsPage() {
   const [mcpToolCounts, setMcpToolCounts] = useState<Record<string, { tools: McpToolInfo[]; loading: boolean; error?: string }>>({});
   const [mcpToolsExpanded, setMcpToolsExpanded] = useState<Record<string, boolean>>({});
   const [skillSearch, setSkillSearch] = useState('');
-  const [skillFilter, setSkillFilter] = useState<'all' | 'builtin' | 'user' | 'enabled' | 'disabled'>('all');
+  const [skillFilter, setSkillFilter] = useState<SkillFilter>('all');
   const [viewSkill, setViewSkill] = useState<Skill | null>(null);
 
   const loadSkills = useCallback(() => {
@@ -1506,25 +1009,6 @@ export function SettingsPage() {
       return true;
     });
   }, [skills, skillSearch, skillFilter]);
-
-  /** Extract first-line trigger chips from a SKILL.md description: a comma-
-   *  separated descriptor like "Use when X, Y, Z". Returns [] when the
-   *  description is prose. Non-fatal heuristic purely for card metadata. */
-  const extractTriggers = useCallback((desc: string): string[] => {
-    const text = (desc ?? '').trim();
-    if (!text) return [];
-    // Look for "Use when …" / "Activates on …" comma lists.
-    const firstSentence = text.split(/[.。!?！？\n]/)[0]?.trim() ?? '';
-    const m = firstSentence.match(
-      /^(?:Use (?:when|for)|Activates (?:on|when)|Triggers on|When)\s*:?\s*(.+)$/i,
-    );
-    if (!m) return [];
-    return m[1]
-      .split(/[,;，；]/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.length <= 40)
-      .slice(0, 4);
-  }, []);
 
   const handleExportAllSkills = useCallback(async () => {
     if (skills.length === 0) return;
@@ -1650,7 +1134,6 @@ export function SettingsPage() {
 
   /* ── AI Providers state ──────────────────────────────────────────── */
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
-  type ProviderView = 'list' | 'selector' | 'form';
   const [providerView, setProviderView] = useState<ProviderView>('list');
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | undefined>(undefined);
@@ -1711,17 +1194,6 @@ export function SettingsPage() {
     } catch {
       toast.error(t('common.error'));
     }
-  };
-
-  const PROVIDER_LABELS: Record<string, string> = {
-    open_ai: t('settings.providerOpenAI'),
-    anthropic: t('settings.providerAnthropic'),
-    google: t('settings.providerGoogle'),
-    deep_seek: t('settings.providerDeepSeek'),
-    ollama: t('settings.providerOllama'),
-    lm_studio: t('settings.providerLMStudio'),
-    azure_open_ai: t('settings.providerAzure'),
-    custom: t('settings.providerCustom'),
   };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -1808,877 +1280,104 @@ export function SettingsPage() {
 
       {/* ── Tab: Appearance ─────────────────────────────────────── */}
       {activeTab === 'appearance' && (
-        <Section icon={<Star size={20} />} title={t('settings.appearance')} delay={0.03}>
-          <div className="space-y-6">
-            {/* Theme section */}
-            <div>
-              <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.appearance.theme')}</p>
-              <p className="mb-3 text-xs text-text-tertiary">{t('settings.appearance.theme.description')}</p>
-              <ThemeSwitcher />
-            </div>
-
-            {/* Separator */}
-            <div className="border-t border-border" />
-
-            {/* Language section */}
-            <div>
-              <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.appearance.language')}</p>
-              <p className="mb-3 text-xs text-text-tertiary">{t('settings.appearance.language.description')}</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                {availableLocales.map((l) => (
-                  <button
-                    key={l.code}
-                    onClick={() => setLocale(l.code)}
-                    className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-all duration-fast cursor-pointer ${
-                      locale === l.code
-                        ? 'border-accent bg-accent-subtle text-accent ring-1 ring-accent/20'
-                        : 'border-border bg-surface-2 text-text-secondary hover:border-border-hover hover:bg-surface-3'
-                    }`}
-                  >
-                    {l.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* App update */}
-            <UpdateSettingsPanel appVersion={appVersion} updater={updater} />
-
-            {/* Re-run setup wizard */}
-            <div className="border-t border-border pt-4 mt-4">
-              <p className="mb-2 text-sm font-medium text-text-primary">{t('wizard.rerunLabel')}</p>
-              <p className="mb-3 text-xs text-text-tertiary">{t('wizard.rerunDescription')}</p>
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<RotateCcw size={14} />}
-                onClick={handleRerunWizard}
-              >
-                {t('wizard.rerunButton')}
-              </Button>
-            </div>
-
-            {/* Timeout Settings */}
-            <div className="space-y-4 border-t border-border pt-4 mt-4">
-              <h3 className="text-sm font-medium text-text-primary flex items-center gap-2">
-                <Clock size={16} />
-                {t('settings.timeout')}
-              </h3>
-              {appConfig && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.toolTimeout')}</label>
-                      <Input
-                        type="number"
-                        value={appConfig.toolTimeoutSecs}
-                        onChange={(e) => setAppConfig({ ...appConfig, toolTimeoutSecs: parseInt(e.target.value) || 30 })}
-                        min={5}
-                        max={300}
-                        step={5}
-                      />
-                      <p className="text-xs text-text-tertiary">
-                        {t('settings.toolTimeoutDesc')}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.agentTimeout')}</label>
-                      <Input
-                        type="number"
-                        value={appConfig.agentTimeoutSecs}
-                        onChange={(e) => setAppConfig({ ...appConfig, agentTimeoutSecs: parseInt(e.target.value) || 180 })}
-                        min={30}
-                        max={600}
-                        step={30}
-                      />
-                      <p className="text-xs text-text-tertiary">
-                        {t('settings.agentTimeoutDesc')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.llmTimeout')}</label>
-                      <Input
-                        type="number"
-                        value={appConfig.llmTimeoutSecs}
-                        onChange={(e) => setAppConfig({ ...appConfig, llmTimeoutSecs: parseInt(e.target.value) || 300 })}
-                        min={10}
-                        max={600}
-                        step={10}
-                      />
-                      <p className="text-xs text-text-tertiary">
-                        {t('settings.llmTimeoutDesc')}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.mcpTimeout')}</label>
-                      <Input
-                        type="number"
-                        value={appConfig.mcpCallTimeoutSecs}
-                        onChange={(e) => setAppConfig({ ...appConfig, mcpCallTimeoutSecs: parseInt(e.target.value) || 60 })}
-                        min={5}
-                        max={300}
-                        step={5}
-                      />
-                      <p className="text-xs text-text-tertiary">
-                        {t('settings.mcpTimeoutDesc')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      icon={<Save size={14} />}
-                      loading={appConfigLoading}
-                      onClick={handleAppConfigSave}
-                    >
-                      {t('common.save')}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Advanced Settings */}
-            <div className="space-y-4 border-t border-border pt-4 mt-4">
-              <h3 className="text-sm font-medium text-text-primary flex items-center gap-2">
-                <Settings2 size={16} />
-                {t('settings.advanced')}
-              </h3>
-              {appConfig && (
-                <div className="space-y-4">
-                  {/* Cache & Search */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.cacheTtl')}</label>
-                      <Input
-                        type="number"
-                        value={appConfig.cacheTtlHours}
-                        onChange={(e) => setAppConfig({ ...appConfig, cacheTtlHours: Math.max(0, Math.min(168, parseInt(e.target.value) || 0)) })}
-                        min={0}
-                        max={168}
-                      />
-                      <p className="text-xs text-text-tertiary">{t('settings.cacheTtlDesc')}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.searchLimit')}</label>
-                      <Input
-                        type="number"
-                        value={appConfig.defaultSearchLimit}
-                        onChange={(e) => setAppConfig({ ...appConfig, defaultSearchLimit: Math.max(1, Math.min(100, parseInt(e.target.value) || 20)) })}
-                        min={1}
-                        max={100}
-                      />
-                      <p className="text-xs text-text-tertiary">{t('settings.searchLimitDesc')}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-primary">{t('settings.searchSimilarity')}</label>
-                    <Input
-                      type="number"
-                      value={appConfig.minSearchSimilarity}
-                      onChange={(e) => setAppConfig({ ...appConfig, minSearchSimilarity: Math.max(0, Math.min(1, parseFloat(e.target.value) || 0.2)) })}
-                      min={0}
-                      max={1}
-                      step={0.05}
-                    />
-                    <p className="text-xs text-text-tertiary">{t('settings.searchSimilarityDesc')}</p>
-                  </div>
-
-                  {/* File Size Limits */}
-                  <h4 className="text-xs font-medium text-text-secondary mt-2">{t('settings.fileSizeLimits')}</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.maxTextFileSize')}</label>
-                      <Input
-                        type="number"
-                        value={Math.round(appConfig.maxTextFileSize / (1024 * 1024))}
-                        onChange={(e) => setAppConfig({ ...appConfig, maxTextFileSize: Math.max(1, parseInt(e.target.value) || 100) * 1024 * 1024 })}
-                        min={1}
-                        max={1024}
-                      />
-                      <p className="text-xs text-text-tertiary">{t('settings.maxTextFileSizeDesc')}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.maxVideoFileSize')}</label>
-                      <Input
-                        type="number"
-                        value={Math.round(appConfig.maxVideoFileSize / (1024 * 1024 * 1024))}
-                        onChange={(e) => setAppConfig({ ...appConfig, maxVideoFileSize: Math.max(1, parseInt(e.target.value) || 2) * 1024 * 1024 * 1024 })}
-                        min={1}
-                        max={10}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.maxAudioFileSize')}</label>
-                      <Input
-                        type="number"
-                        value={Math.round(appConfig.maxAudioFileSize / (1024 * 1024))}
-                        onChange={(e) => setAppConfig({ ...appConfig, maxAudioFileSize: Math.max(1, parseInt(e.target.value) || 500) * 1024 * 1024 })}
-                        min={1}
-                        max={2048}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Agent Behavior */}
-                  <div className="space-y-3 mt-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={appConfig.dynamicToolVisibility ?? true}
-                        onChange={(e) => setAppConfig({ ...appConfig, dynamicToolVisibility: e.target.checked })}
-                        className="rounded border-border"
-                      />
-                      <span className="text-sm font-medium text-text-primary">{t('settings.dynamicTools')}</span>
-                    </label>
-                    <p className="text-xs text-text-tertiary ml-6">{t('settings.dynamicToolsDesc')}</p>
-
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={appConfig.traceEnabled ?? true}
-                        onChange={(e) => setAppConfig({ ...appConfig, traceEnabled: e.target.checked })}
-                        className="rounded border-border"
-                      />
-                      <span className="text-sm font-medium text-text-primary">{t('settings.traceEnabled')}</span>
-                    </label>
-                    <p className="text-xs text-text-tertiary ml-6">{t('settings.traceEnabledDesc')}</p>
-
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={appConfig.confirmDestructive ?? false}
-                        onChange={(e) => setAppConfig({ ...appConfig, confirmDestructive: e.target.checked })}
-                        className="rounded border-border"
-                      />
-                      <span className="text-sm font-medium text-text-primary">{t('settings.confirmDestructive')}</span>
-                    </label>
-                    <p className="text-xs text-text-tertiary ml-6">{t('settings.confirmDestructiveDesc')}</p>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">{t('settings.shellAccessMode')}</label>
-                      <p className="text-xs text-text-tertiary">{t('settings.shellAccessModeDesc')}</p>
-                      <div className="grid gap-2 md:grid-cols-3">
-                        {[
-                          {
-                            value: 'restricted',
-                            label: t('settings.shellAccessRestricted'),
-                            desc: t('settings.shellAccessRestrictedDesc'),
-                          },
-                          {
-                            value: 'confirm_all',
-                            label: t('settings.shellAccessConfirmAll'),
-                            desc: t('settings.shellAccessConfirmAllDesc'),
-                          },
-                          {
-                            value: 'open',
-                            label: t('settings.shellAccessOpen'),
-                            desc: t('settings.shellAccessOpenDesc'),
-                          },
-                        ].map((option) => (
-                          <label
-                            key={option.value}
-                            className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-                              (appConfig.shellAccessMode ?? 'restricted') === option.value
-                                ? 'border-accent bg-accent/10'
-                                : 'border-border bg-surface-2'
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <input
-                                type="radio"
-                                name="shell-access-mode"
-                                value={option.value}
-                                checked={(appConfig.shellAccessMode ?? 'restricted') === option.value}
-                                onChange={() => setAppConfig({
-                                  ...appConfig,
-                                  shellAccessMode: option.value as 'restricted' | 'confirm_all' | 'open',
-                                })}
-                                className="mt-1"
-                              />
-                              <div className="space-y-1">
-                                <div className="text-sm font-medium text-text-primary">{option.label}</div>
-                                <div className="text-xs text-text-tertiary">{option.desc}</div>
-                              </div>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <ToolApprovalControl
-                      mode={appConfig.toolApprovalMode ?? 'ask'}
-                      onChange={(m) => setAppConfig({ ...appConfig, toolApprovalMode: m })}
-                    />
-                  </div>
-
-                  <div className="flex justify-end">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      icon={<Save size={14} />}
-                      loading={appConfigLoading}
-                      onClick={handleAppConfigSave}
-                    >
-                      {t('common.save')}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </Section>
+        <AppearanceSettingsTab
+          locale={locale}
+          setLocale={setLocale}
+          availableLocales={availableLocales}
+          appVersion={appVersion}
+          updater={updater}
+          appConfig={appConfig}
+          appConfigLoading={appConfigLoading}
+          onAppConfigChange={setAppConfig}
+          onAppConfigSave={() => { void handleAppConfigSave(); }}
+          onRerunWizard={() => { void handleRerunWizard(); }}
+        />
       )}
 
       {/* ── Tab: Models & Embedding ──────────────────────────────── */}
       {activeTab === 'models_embedding' && (
         <>
         {/* Models section */}
-        <Section icon={<HardDrive size={20} />} title={t('settings.models')} delay={0.03}>
-          <p className="mb-5 text-xs text-text-tertiary">{t('settings.modelsDesc')}</p>
-          <div className="space-y-4">
-            {/* Embedding Model */}
-            <ModelCard
-              title={t('settings.modelsEmbedding')}
-              icon={<Brain size={18} />}
-              description={t('settings.modelsEmbeddingDesc')}
-              status={
-                downloadLoading ? 'downloading'
-                : !embedConfig ? 'checking'
-                : embedConfig?.provider !== 'local' ? 'downloaded'
-                : localModelReady === null ? 'checking'
-                : localModelReady ? 'downloaded'
-                : 'not-downloaded'
-              }
-              size={embedConfig?.localModel === 'MultilingualE5Base' ? '~470 MB' : '~46 MB'}
-              onDownload={handleDownloadModel}
-              onCancel={handleCancelDownload}
-              onDelete={() => setDeleteEmbedModelConfirmOpen(true)}
-              downloadProgress={downloadProgress}
-            >
-              {embedConfig?.provider === 'local' && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-text-primary">{t('settings.embeddingLocalModelSelect')}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {([
-                      {
-                        id: 'MultilingualMiniLM' as const,
-                        label: t('settings.embeddingModelLight'),
-                        desc: t('settings.embeddingModelLightDesc'),
-                      },
-                      {
-                        id: 'MultilingualE5Base' as const,
-                        label: t('settings.embeddingModelQuality'),
-                        desc: t('settings.embeddingModelQualityDesc'),
-                      },
-                    ]).map((opt) => (
-                      <button
-                        key={opt.id}
-                        onClick={() => {
-                          if (embedConfig) {
-                            setEmbedConfig({ ...embedConfig, localModel: opt.id });
-                            setLocalModelReady(null);
-                            markDirty('models_embedding');
-                          }
-                        }}
-                        className={`rounded-lg border p-3 text-left transition-all duration-fast cursor-pointer ${
-                          embedConfig?.localModel === opt.id
-                            ? 'border-accent bg-accent-subtle ring-1 ring-accent/20'
-                            : 'border-border bg-surface-1 hover:border-border-hover hover:bg-surface-3/50'
-                        }`}
-                      >
-                        <div className="text-sm font-medium text-text-primary">{opt.label}</div>
-                        <div className="mt-1 text-xs text-text-tertiary">{opt.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
-                    <AlertTriangle size={14} className="mt-0.5 shrink-0 text-info" />
-                    <p className="text-xs text-info">{t('settings.embeddingModelChangeWarning')}</p>
-                  </div>
-                </div>
-              )}
-            </ModelCard>
+        <ModelDownloadsSection
+          embedConfig={embedConfig}
+          localModelReady={localModelReady}
+          downloadLoading={downloadLoading}
+          downloadProgress={downloadProgress}
+          ocrDownloading={ocrDownloading}
+          ocrModelsExist={ocrModelsExist}
+          ocrProgress={ocrProgress}
+          videoConfig={videoConfig}
+          videoDownloading={videoDownloading}
+          videoProgress={videoProgress}
+          whisperModelExists={whisperModelExists}
+          officeRuntime={officeRuntime}
+          officePreparing={officePreparing}
+          appConfig={appConfig}
+          appConfigLoading={appConfigLoading}
+          deleteEmbedModelConfirmOpen={deleteEmbedModelConfirmOpen}
+          onEmbedLocalModelChange={(localModel) => {
+            if (!embedConfig) return;
+            setEmbedConfig({ ...embedConfig, localModel });
+            setLocalModelReady(null);
+            markDirty('models_embedding');
+          }}
+          onDownloadModel={handleDownloadModel}
+          onCancelDownload={handleCancelDownload}
+          onRequestDeleteEmbedModel={() => setDeleteEmbedModelConfirmOpen(true)}
+          onCloseDeleteEmbedModel={() => setDeleteEmbedModelConfirmOpen(false)}
+          onConfirmDeleteEmbedModel={() => { void handleDeleteModel(); }}
+          onDownloadOcrModels={handleDownloadOcrModels}
+          onWhisperDownload={handleWhisperDownload}
+          onWhisperModelChange={(whisperModel) => {
+            if (!videoConfig) return;
+            const updated = { ...videoConfig, whisperModel };
+            setVideoConfig(updated);
+            setWhisperModelExists(null);
+            markDirty('video');
+            api.checkWhisperModel(updated)
+              .then(setWhisperModelExists)
+              .catch(() => setWhisperModelExists(false));
+          }}
+          onPrepareOfficeRuntime={handlePrepareOfficeRuntime}
+          onRefreshOfficeRuntime={() => { void loadOfficeRuntime(); }}
+          onAskAiPrepareOfficeRuntime={handleAskAiPrepareOfficeRuntime}
+          onAppConfigChange={setAppConfig}
+          onAppConfigSave={() => { void handleAppConfigSave(); }}
+          onMarkModelsDirty={() => markDirty('models_embedding')}
+        />
 
-            {/* OCR Model */}
-            <ModelCard
-              title={t('settings.modelsOcr')}
-              icon={<ScanLine size={18} />}
-              description={t('settings.modelsOcrDesc')}
-              status={
-                ocrDownloading ? 'downloading'
-                : ocrModelsExist === null ? 'checking'
-                : ocrModelsExist ? 'downloaded'
-                : 'not-downloaded'
-              }
-              size={t('settings.ocrModelSize')}
-              onDownload={handleDownloadOcrModels}
-              downloadProgress={ocrProgress ? {
-                filename: ocrProgress.filename,
-                bytesDownloaded: ocrProgress.bytesDownloaded,
-                totalBytes: ocrProgress.totalBytes ?? null,
-                fileIndex: ocrProgress.fileIndex,
-                totalFiles: ocrProgress.totalFiles,
-              } : null}
-            />
-
-            {/* Whisper Model */}
-            <ModelCard
-              title={t('settings.modelsWhisper')}
-              icon={<Mic size={18} />}
-              description={t('settings.modelsWhisperDesc')}
-              status={
-                videoDownloading ? 'downloading'
-                : whisperModelExists === null ? 'checking'
-                : whisperModelExists ? 'downloaded'
-                : 'not-downloaded'
-              }
-              size={
-                videoConfig?.whisperModel === 'tiny' ? '~39 MB'
-                : videoConfig?.whisperModel === 'base' ? '~142 MB'
-                : videoConfig?.whisperModel === 'small' ? '~466 MB'
-                : videoConfig?.whisperModel === 'medium' ? '~1.5 GB'
-                : videoConfig?.whisperModel === 'large' ? '~3.1 GB'
-                : videoConfig?.whisperModel === 'large_turbo' ? '~1.6 GB'
-                : undefined
-              }
-              onDownload={handleWhisperDownload}
-              downloadProgress={videoProgress ? {
-                filename: videoProgress.filename,
-                bytesDownloaded: videoProgress.bytesDownloaded,
-                totalBytes: videoProgress.totalBytes ?? null,
-                fileIndex: 0,
-                totalFiles: 1,
-              } : null}
-            >
-              {videoConfig && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-text-primary">{t('settings.videoWhisperModel')}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {([
-                      { id: 'tiny' as const, label: t('settings.videoModelTiny'), desc: t('settings.videoModelTinyDesc') },
-                      { id: 'base' as const, label: t('settings.videoModelBase'), desc: t('settings.videoModelBaseDesc') },
-                      { id: 'small' as const, label: t('settings.videoModelSmall'), desc: t('settings.videoModelSmallDesc') },
-                      { id: 'medium' as const, label: t('settings.videoModelMedium'), desc: t('settings.videoModelMediumDesc') },
-                      { id: 'large' as const, label: t('settings.videoModelLarge'), desc: t('settings.videoModelLargeDesc') },
-                      { id: 'large_turbo' as const, label: t('settings.videoModelLargeTurbo'), desc: t('settings.videoModelLargeTurboDesc') },
-                    ]).map((opt) => (
-                      <button
-                        key={opt.id}
-                        onClick={() => {
-                          const updated = { ...videoConfig, whisperModel: opt.id };
-                          setVideoConfig(updated);
-                          setWhisperModelExists(null);
-                          markDirty('video');
-                          api.checkWhisperModel(updated)
-                            .then(setWhisperModelExists)
-                            .catch(() => setWhisperModelExists(false));
-                        }}
-                        className={`rounded-lg border p-3 text-left transition-all duration-fast cursor-pointer ${
-                          videoConfig.whisperModel === opt.id
-                            ? 'border-accent bg-accent-subtle ring-1 ring-accent/20'
-                            : 'border-border bg-surface-1 hover:border-border-hover hover:bg-surface-3/50'
-                        }`}
-                      >
-                        <div className="text-sm font-medium text-text-primary">{opt.label}</div>
-                        <div className="mt-1 text-xs text-text-tertiary">{opt.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
-                    <AlertTriangle size={14} className="mt-0.5 shrink-0 text-info" />
-                    <p className="text-xs text-info">{t('settings.videoModelChangeWarning')}</p>
-                  </div>
-                </div>
-              )}
-            </ModelCard>
-
-            <OfficeRuntimePanel
-              readiness={officeRuntime}
-              preparing={officePreparing}
-              onPrepare={handlePrepareOfficeRuntime}
-              onRefresh={() => void loadOfficeRuntime()}
-              onAskAiPrepare={handleAskAiPrepareOfficeRuntime}
-            />
-
-            {/* Disk Usage Summary */}
-            <CollapsiblePanel title={t('settings.modelDiskUsage')}>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-accent" />
-                  {t('settings.modelsEmbedding')}: {embedConfig?.localModel === 'MultilingualE5Base' ? '~470 MB' : '~46 MB'}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-success" />
-                  {t('settings.modelsOcr')}: ~16 MB
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-warning" />
-                  {t('settings.modelsWhisper')}: {
-                    videoConfig?.whisperModel === 'tiny' ? '~39 MB'
-                    : videoConfig?.whisperModel === 'base' ? '~142 MB'
-                    : videoConfig?.whisperModel === 'small' ? '~466 MB'
-                    : videoConfig?.whisperModel === 'medium' ? '~1.5 GB'
-                    : videoConfig?.whisperModel === 'large' ? '~3.1 GB'
-                    : videoConfig?.whisperModel === 'large_turbo' ? '~1.6 GB'
-                    : '—'
-                  }
-                </span>
-              </div>
-            </CollapsiblePanel>
-
-            {/* Network mirrors (advanced) */}
-            {appConfig && (
-              <CollapsiblePanel
-                title={t('settings.networkMirrors')}
-                description={t('settings.networkMirrorsDesc')}
-              >
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-primary">{t('settings.hfMirrorLabel')}</label>
-                    <Input
-                      value={appConfig.hfMirrorBaseUrl ?? ''}
-                      onChange={(e) => {
-                        setAppConfig({ ...appConfig, hfMirrorBaseUrl: e.target.value });
-                        markDirty('models_embedding');
-                      }}
-                      placeholder="https://hf-mirror.com"
-                    />
-                    <p className="text-xs text-text-tertiary">{t('settings.hfMirrorHint')}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-primary">{t('settings.ghproxyLabel')}</label>
-                    <Input
-                      value={appConfig.ghproxyBaseUrl ?? ''}
-                      onChange={(e) => {
-                        setAppConfig({ ...appConfig, ghproxyBaseUrl: e.target.value });
-                        markDirty('models_embedding');
-                      }}
-                      placeholder="https://mirror.ghproxy.com"
-                    />
-                    <p className="text-xs text-text-tertiary">{t('settings.ghproxyHint')}</p>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      onClick={handleAppConfigSave}
-                      disabled={appConfigLoading}
-                    >
-                      {appConfigLoading ? '...' : t('common.save')}
-                    </Button>
-                  </div>
-                </div>
-              </CollapsiblePanel>
-            )}
-          </div>
-
-          {/* Delete embedding model confirmation */}
-          <ConfirmDialog
-            open={deleteEmbedModelConfirmOpen}
-            onClose={() => setDeleteEmbedModelConfirmOpen(false)}
-            onConfirm={handleDeleteModel}
-            title={t('settings.deleteModel')}
-            message={t('settings.deleteModelConfirm')}
-            confirmText={t('common.delete')}
-            variant="danger"
-          />
-        </Section>
-
-        {/* Embedding Configuration section */}
-        <Section icon={<Brain size={20} />} title={t('settings.embeddingSection')} delay={0.06}>
-        {embedConfig && (
-          <div className="space-y-5">
-            {/* Provider pills */}
-            <div>
-              <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.embeddingProvider')}</p>
-              <div className="inline-flex rounded-full border border-border bg-surface-1 p-0.5">
-                {(['local', 'api', 'tfidf'] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => { setEmbedConfig({ ...embedConfig, provider: p }); markDirty('models_embedding'); }}
-                    className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-fast cursor-pointer ${
-                      embedConfig.provider === p
-                        ? 'bg-accent text-white shadow-sm'
-                        : 'text-text-tertiary hover:text-text-secondary'
-                    }`}
-                  >
-                    {p === 'local' ? t('settings.embeddingLocal') : p === 'api' ? t('settings.embeddingApi') : t('settings.embeddingTfidf')}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Local model status */}
-            {embedConfig.provider === 'local' && (
-              <div className="rounded-lg border border-border bg-surface-2 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-text-primary">{t('settings.embeddingLocalModel')}</p>
-                  <div className="flex items-center gap-2 text-sm">
-                    {localModelReady === null ? (
-                      <Loader2 size={14} className="animate-spin text-text-tertiary" />
-                    ) : localModelReady ? (
-                      <Badge variant="default" className="gap-1">
-                        <CheckCircle size={12} className="text-success" />
-                        {t('settings.embeddingDownloaded')}
-                      </Badge>
-                    ) : (
-                      <Badge variant="default" className="gap-1">
-                        <XCircle size={12} className="text-danger" />
-                        {t('settings.embeddingNotDownloaded')}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <p className="text-xs text-text-tertiary">
-                  {embedConfig.localModel === 'MultilingualE5Base' ? t('settings.embeddingModelQuality') : t('settings.embeddingModelLight')}
-                </p>
-              </div>
-            )}
-
-            {/* API panel */}
-            {embedConfig.provider === 'api' && (
-              <div className="rounded-lg border border-border bg-surface-2 p-4 space-y-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.embeddingApiKey')}</label>
-                  <div className="relative">
-                    <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
-                    <Input
-                      type="password"
-                      value={embedConfig.apiKey}
-                      onChange={(e) => { setEmbedConfig({ ...embedConfig, apiKey: e.target.value }); markDirty('models_embedding'); }}
-                      className="pl-9"
-                      placeholder="sk-..."
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.embeddingBaseUrl')}</label>
-                  <Input
-                    value={embedConfig.apiBaseUrl}
-                    onChange={(e) => { setEmbedConfig({ ...embedConfig, apiBaseUrl: e.target.value }); markDirty('models_embedding'); }}
-                    placeholder="https://api.openai.com/v1"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.embeddingModel')}</label>
-                  <Input
-                    value={embedConfig.apiModel}
-                    onChange={(e) => { setEmbedConfig({ ...embedConfig, apiModel: e.target.value }); markDirty('models_embedding'); }}
-                    placeholder="text-embedding-3-small"
-                  />
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={testLoading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                  loading={testLoading}
-                  onClick={handleTestConnection}
-                  disabled={!embedConfig.apiKey.trim() || !embedConfig.apiBaseUrl.trim()}
-                >
-                  {t('settings.embeddingTestConnection')}
-                </Button>
-              </div>
-            )}
-
-            {/* TF-IDF warning */}
-            {embedConfig.provider === 'tfidf' && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
-                <p className="text-sm text-warning">{t('settings.embeddingTfidfWarning')}</p>
-              </div>
-            )}
-
-            {/* Provider change warning + actions */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
-                <p className="text-sm text-warning">{t('settings.embeddingProviderChangeWarning')}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="primary"
-                  size="md"
-                  icon={<Save size={16} />}
-                  loading={embedSaveLoading}
-                  onClick={handleSaveEmbedConfig}
-                >
-                  {t('settings.embeddingSave')}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="md"
-                  icon={rebuildEmbedLoading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                  loading={rebuildEmbedLoading}
-                  onClick={handleRebuildEmbeddings}
-                >
-                  {rebuildEmbedLoading ? t('settings.embeddingRebuilding') : t('settings.embeddingRebuild')}
-                </Button>
-              </div>
-              {embedRebuildProgress && (
-                <div className="mt-2">
-                  <div className="flex items-center gap-2 text-xs text-muted">
-                    <RefreshCw size={12} className="animate-spin" />
-                    <span>{embedRebuildProgress.current}/{embedRebuildProgress.total}</span>
-                  </div>
-                  {embedRebuildProgress.total > 0 && (
-                    <div className="w-full bg-surface-3 rounded h-1 mt-1">
-                      <div
-                        className="bg-accent h-1 rounded transition-all duration-300"
-                        style={{ width: `${Math.min(100, (embedRebuildProgress.current / embedRebuildProgress.total) * 100)}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </Section>
+        <EmbeddingConfigSection
+          embedConfig={embedConfig}
+          localModelReady={localModelReady}
+          testLoading={testLoading}
+          embedSaveLoading={embedSaveLoading}
+          rebuildEmbedLoading={rebuildEmbedLoading}
+          embedRebuildProgress={embedRebuildProgress}
+          onConfigChange={setEmbedConfig}
+          onMarkDirty={() => markDirty('models_embedding')}
+          onTestConnection={handleTestConnection}
+          onSave={handleSaveEmbedConfig}
+          onRebuild={handleRebuildEmbeddings}
+        />
       </>
       )}
 
       {/* ── Tab: AI Providers ──────────────────────────────────────── */}
       {activeTab === 'providers' && (
-      <Section icon={<Bot size={20} />} title={t('settings.aiProviders')} delay={0.03}>
-        {providerView === 'form' ? (
-          <AgentConfigForm
-            config={editingConfig}
-            preset={editingConfig ? undefined : selectedPreset}
-            onSave={handleSaveAgent}
-            onCancel={() => {
-              setProviderFormDirty(false);
-              setProviderView('list');
-              setEditingConfig(undefined);
-              setSelectedPreset(null);
-            }}
-            isSaving={agentSaveLoading}
-            onDirtyChange={setProviderFormDirty}
-          />
-        ) : providerView === 'selector' ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-text-primary">{t('settings.selectProvider')}</h3>
-              <button
-                onClick={() => setProviderView('list')}
-                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-text-tertiary hover:text-text-secondary hover:bg-surface-3/50 transition-colors cursor-pointer"
-              >
-                <X size={16} /> {t('common.cancel')}
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {PROVIDER_PRESETS.map(preset => (
-                <button
-                  key={preset.id}
-                  onClick={() => { setSelectedPreset(preset); setProviderView('form'); }}
-                  className="flex items-start gap-3 rounded-lg border border-border bg-surface-2 p-4 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50 cursor-pointer"
-                >
-                  <span className="text-2xl">{preset.icon}</span>
-                  <div>
-                    <div className="font-medium text-text-primary">{preset.name}</div>
-                    <div className="text-sm text-text-tertiary">{preset.description}</div>
-                  </div>
-                </button>
-              ))}
-              {/* Custom / Manual option */}
-              <button
-                onClick={() => { setSelectedPreset(null); setProviderView('form'); }}
-                className="flex items-start gap-3 rounded-lg border border-dashed border-border bg-surface-2 p-4 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50 cursor-pointer"
-              >
-                <Settings2 className="mt-0.5 text-text-tertiary" size={24} />
-                <div>
-                  <div className="font-medium text-text-primary">{t('settings.customProvider')}</div>
-                  <div className="text-sm text-text-tertiary">{t('settings.customProviderDesc')}</div>
-                </div>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Add button */}
-            <div className="flex justify-end">
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus size={14} />}
-                onClick={() => { setEditingConfig(undefined); setSelectedPreset(null); setProviderView('selector'); }}
-              >
-                {t('settings.addProvider')}
-              </Button>
-            </div>
-
-            {/* Config list */}
-            {agentConfigs.length === 0 ? (
-              <div className="py-8 text-center">
-                <Bot size={32} className="mx-auto mb-3 text-text-tertiary" />
-                <p className="text-sm font-medium text-text-secondary">{t('settings.noProviders')}</p>
-                <p className="mt-1 text-xs text-text-tertiary">{t('settings.noProvidersDesc')}</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {agentConfigs.map((cfg) => (
-                  <div
-                    key={cfg.id}
-                    className="flex items-center justify-between rounded-lg border border-border bg-surface-2 p-4 transition-colors hover:bg-surface-3/50"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      {cfg.isDefault && (
-                        <Star size={14} className="shrink-0 fill-warning text-warning" />
-                      )}
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-text-primary truncate">{cfg.name}</p>
-                          <Badge variant="default" className="text-[10px] shrink-0">
-                            {PROVIDER_LABELS[cfg.provider] ?? cfg.provider}
-                          </Badge>
-                          <Badge variant="default" className="text-[10px] shrink-0 bg-accent/10 text-accent border-accent/20">
-                            {`subagents ${(cfg.subagentAllowedTools ?? DEFAULT_SUBAGENT_TOOL_NAMES).length}`}
-                          </Badge>
-                        </div>
-                        <p className="mt-0.5 text-xs text-text-tertiary truncate">
-                          {cfg.model}
-                          {cfg.baseUrl ? ` · ${cfg.baseUrl}` : ''}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0 ml-3">
-                      {!cfg.isDefault && (
-                        <button
-                          onClick={() => handleSetDefault(cfg.id)}
-                          className="rounded p-1.5 text-text-tertiary hover:text-warning hover:bg-warning/10 transition-colors cursor-pointer"
-                          aria-label={t('settings.setDefault')}
-                          title={t('settings.setDefault')}
-                        >
-                          <Star size={14} />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => { setEditingConfig(cfg); setProviderView('form'); }}
-                        className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
-                        aria-label={t('common.edit')}
-                        title={t('common.edit')}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(cfg)}
-                        className="rounded p-1.5 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
-                        aria-label={t('common.delete')}
-                        title={t('common.delete')}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Section>
+        <ProvidersSettingsTab
+          providerView={providerView}
+          agentConfigs={agentConfigs}
+          editingConfig={editingConfig}
+          selectedPreset={selectedPreset}
+          agentSaveLoading={agentSaveLoading}
+          onSaveAgent={handleSaveAgent}
+          onProviderViewChange={setProviderView}
+          onProviderFormDirtyChange={setProviderFormDirty}
+          onEditingConfigChange={setEditingConfig}
+          onSelectedPresetChange={setSelectedPreset}
+          onSetDefault={handleSetDefault}
+          onDeleteTargetChange={setDeleteTarget}
+        />
       )}
 
       {/* Delete confirm dialog */}
@@ -2695,1222 +1394,133 @@ export function SettingsPage() {
 
       {/* ── Tab: Data & Privacy ─────────────────────────────────── */}
       {activeTab === 'data_privacy' && (
-      <>
-
-      {/* Analytics section */}
-      <Section icon={<BarChart3 size={20} />} title={t('analytics.title')} delay={0.02}>
-        {analyticsLoading && !traceSummary ? (
-          <div className="flex items-center gap-2 text-sm text-text-tertiary">
-            <Loader2 size={14} className="animate-spin" />
-            <span>{t('common.loading')}</span>
-          </div>
-        ) : traceSummary && traceSummary.totalSessions > 0 ? (
-          <div className="space-y-5">
-            {/* Summary cards */}
-            <div className="grid grid-cols-3 gap-3">
-              <StatCard label={t('analytics.totalSessions')} value={formatCompact(traceSummary.totalSessions)} />
-              <StatCard label={t('analytics.successRate')} value={`${(traceSummary.successRate * 100).toFixed(1)}%`} />
-              <StatCard label={t('analytics.cacheHitRate')} value={`${(traceSummary.cacheHitRate * 100).toFixed(1)}%`} />
-              <StatCard label={t('analytics.totalTokens')} value={formatCompact(traceSummary.totalInputTokens + traceSummary.totalOutputTokens)} />
-              <StatCard label={t('analytics.avgIterations')} value={traceSummary.avgIterationsPerSession.toFixed(1)} />
-              <StatCard label={t('analytics.avgContextUsage')} value={`${(traceSummary.avgContextUsagePct * 100).toFixed(1)}%`} />
-              <StatCard label={t('analytics.sessionsLast7Days')} value={formatCompact(traceSummary.sessionsLast7Days)} />
-              <StatCard label={t('analytics.tokensLast7Days')} value={formatCompact(traceSummary.tokensLast7Days)} />
-            </div>
-
-            {/* Top tools */}
-            {traceSummary.topTools.length > 0 && (
-              <div>
-                <h3 className="mb-2 text-sm font-medium text-text-primary">{t('analytics.topTools')}</h3>
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-2">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('analytics.toolName')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.count')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {traceSummary.topTools.map(([name, count]) => (
-                        <tr key={name} className="border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors">
-                          <td className="px-3 py-1.5 font-mono text-xs text-text-primary">{name}</td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{formatCompact(count)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Recent sessions */}
-            {recentTraces.length > 0 && (
-              <div>
-                <h3 className="mb-2 text-sm font-medium text-text-primary">{t('analytics.recentSessions')}</h3>
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-2">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('analytics.message')}</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('analytics.outcome')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.iterations')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.tools')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.tokens')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentTraces.map((trace) => (
-                        <tr key={trace.id} className="border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors">
-                          <td className="px-3 py-1.5 text-text-primary max-w-[200px] truncate" title={trace.userMessagePreview}>{trace.userMessagePreview || '—'}</td>
-                          <td className="px-3 py-1.5">
-                            <Badge variant={trace.outcome === 'success' ? 'success' : trace.outcome === 'error' ? 'danger' : 'default'}>
-                              {trace.outcome}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{trace.totalIterations}</td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{trace.totalToolCalls}</td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{formatCompact(trace.totalInputTokens + trace.totalOutputTokens)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-text-tertiary">{t('analytics.noData')}</p>
-        )}
-      </Section>
-
-      {/* Index section */}
-      <Section icon={<Database size={20} />} title={t('settings.indexSection')} delay={0.05}>
-        {/* Stats grid */}
-        <div className="mb-5 grid grid-cols-3 gap-3">
-          <StatCard label={t('settings.totalDocs')} value={stats?.totalDocuments ?? '—'} />
-          <StatCard label={t('settings.totalChunks')} value={stats?.totalChunks ?? '—'} />
-          <StatCard label={t('settings.ftsEntries')} value={stats?.ftsRows ?? '—'} />
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RefreshCw size={14} />}
-            loading={rebuildLoading}
-            onClick={handleRebuild}
-          >
-            {t('settings.rebuildIndex')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Zap size={14} />}
-            loading={optimizeLoading}
-            onClick={handleOptimize}
-          >
-            {t('settings.optimizeIndex')}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Trash2 size={14} />}
-            loading={clearCacheLoading}
-            onClick={handleClearCache}
-          >
-            {t('settings.clearCache')}
-          </Button>
-        </div>
-        {ftsProgress && (
-          <div className="mt-2">
-            <div className="flex items-center gap-2 text-xs text-muted">
-              <RefreshCw size={12} className="animate-spin" />
-              <span>{ftsProgress.operation === 'rebuild-fts' ? t('settings.rebuildingIndex') : t('settings.optimizingIndex')}</span>
-            </div>
-            <div className="w-full bg-surface-3 rounded h-1 mt-1 overflow-hidden">
-              <div className="bg-accent h-1 rounded animate-pulse w-full" />
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* Privacy section */}
-      <Section icon={<Shield size={20} />} title={t('settings.privacySection')} delay={0.1}>
-        {privacyConfig && (
-          <div className="space-y-6">
-            {/* Exclude patterns */}
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-text-primary">{t('settings.excludePatterns')}</h3>
-              <p className="mb-3 text-xs text-text-tertiary">{t('settings.excludePatternsDesc')}</p>
-
-              {/* Pattern chips */}
-              {privacyConfig.excludePatterns.length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {privacyConfig.excludePatterns.map((pat, i) => (
-                    <Badge key={i} variant="default" className="gap-1.5 pl-2.5 pr-1.5 py-1">
-                      <span className="font-mono text-[11px]">{pat}</span>
-                      <button
-                        onClick={() => removePattern(i)}
-                        className="ml-0.5 rounded hover:bg-surface-4 p-0.5 text-text-tertiary hover:text-danger transition-colors cursor-pointer"
-                        aria-label={`${t('common.remove')} ${pat}`}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              )}
-
-              {/* Add pattern */}
-              <div className="flex gap-2">
-                <Input
-                  placeholder="*.log, .git/**, node_modules/**"
-                  value={newPattern}
-                  onChange={(e) => setNewPattern(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') addPattern(); }}
-                  className="flex-1"
-                />
-                <Button
-                  variant="ghost"
-                  size="md"
-                  icon={<Plus size={16} />}
-                  onClick={addPattern}
-                  disabled={!newPattern.trim()}
-                >
-                  {t('settings.addPattern')}
-                </Button>
-              </div>
-            </div>
-
-            {/* Redaction rules */}
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-text-primary">{t('settings.redactRules')}</h3>
-              <p className="mb-3 text-xs text-text-tertiary">{t('settings.redactRulesDesc')}</p>
-
-              {/* Rules table */}
-              {privacyConfig.redactPatterns.length > 0 && (
-                <div className="mb-3 overflow-hidden rounded-lg border border-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-2">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('settings.ruleName')}</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('settings.rulePattern')}</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('settings.ruleReplacement')}</th>
-                        <th className="w-10 px-3 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {privacyConfig.redactPatterns.map((rule, i) => (
-                        <tr
-                          key={i}
-                          className="border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors"
-                        >
-                          <td className="px-3 py-2 text-text-primary">{rule.name}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-text-secondary">{rule.pattern}</td>
-                          <td className="px-3 py-2 font-mono text-xs text-text-secondary">{rule.replacement}</td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              onClick={() => removeRule(i)}
-                              className="rounded p-1 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
-                              aria-label={`${t('common.delete')} ${rule.name}`}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Add rule form */}
-              <div className="flex gap-2">
-                <Input
-                  placeholder={t('settings.ruleName')}
-                  value={newRule.name}
-                  onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
-                  className="flex-1"
-                />
-                <Input
-                  placeholder={t('settings.rulePattern')}
-                  value={newRule.pattern}
-                  onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
-                  className="flex-1"
-                />
-                <Input
-                  placeholder={t('settings.ruleReplacement')}
-                  value={newRule.replacement}
-                  onChange={(e) => setNewRule({ ...newRule, replacement: e.target.value })}
-                  className="flex-1"
-                />
-                <Button
-                  variant="ghost"
-                  size="md"
-                  icon={<Plus size={16} />}
-                  onClick={addRule}
-                  disabled={!newRule.name.trim() || !newRule.pattern.trim()}
-                >
-                  {t('settings.addRule')}
-                </Button>
-              </div>
-            </div>
-
-            {/* Local user memory */}
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-text-primary">{t('settings.memorySection')}</h3>
-              <p className="mb-3 text-xs text-text-tertiary">
-                {t('settings.memoryDescription')}
-              </p>
-
-              <div className="space-y-2 mb-3">
-                {userMemories.length === 0 && (
-                  <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-text-tertiary">
-                    {t('settings.memoryEmpty')}
-                  </div>
-                )}
-                {userMemories.map((memory) => (
-                  <div key={memory.id} className="flex items-start gap-2 rounded-md border border-border bg-surface-2 px-3 py-2">
-                    {editingMemoryId === memory.id ? (
-                      <div className="flex-1 space-y-2">
-                        <Input
-                          value={editingMemoryDraft}
-                          onChange={(e) => setEditingMemoryDraft(e.target.value)}
-                          maxLength={MEMORY_CHAR_LIMIT}
-                          disabled={memoryLoading}
-                          className="w-full"
-                        />
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs text-text-tertiary">
-                            {editingMemoryDraft.length}/{MEMORY_CHAR_LIMIT}
-                          </p>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={handleUpdateUserMemory}
-                              disabled={!editingMemoryDraft.trim() || memoryLoading}
-                              className="rounded p-1 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                              aria-label={t('common.save')}
-                            >
-                              <Save size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleCancelEditUserMemory}
-                              disabled={memoryLoading}
-                              className="rounded p-1 text-text-tertiary hover:text-text-primary hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                              aria-label={t('common.cancel')}
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="flex-1 text-sm text-text-primary whitespace-pre-wrap break-words">
-                          {memory.content}
-                        </p>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditUserMemory(memory)}
-                            disabled={memoryLoading}
-                            className="mt-0.5 rounded p-1 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            aria-label={t('common.edit')}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteUserMemory(memory.id)}
-                            disabled={memoryLoading}
-                            className="mt-0.5 rounded p-1 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            aria-label={t('common.delete')}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex gap-2">
-                <Input
-                  placeholder={t('settings.memoryPlaceholder')}
-                  value={newMemory}
-                  onChange={(e) => setNewMemory(e.target.value)}
-                  maxLength={MEMORY_CHAR_LIMIT}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddUserMemory(); } }}
-                  className="flex-1"
-                />
-                <Button
-                  variant="ghost"
-                  size="md"
-                  icon={<Plus size={16} />}
-                  onClick={handleAddUserMemory}
-                  loading={memoryLoading}
-                  disabled={!newMemory.trim()}
-                >
-                  {t('settings.addMemory')}
-                </Button>
-              </div>
-              <p className="mt-2 text-xs text-text-tertiary">
-                {t('settings.memoryCharHelper', { length: String(newMemory.length), limit: String(MEMORY_CHAR_LIMIT) })}
-              </p>
-            </div>
-
-            {/* Save button */}
-            <div className="flex justify-end border-t border-border pt-4">
-              <Button
-                variant="primary"
-                size="md"
-                icon={<Save size={16} />}
-                loading={saveLoading}
-                onClick={handleSavePrivacy}
-              >
-                {t('settings.saveConfig')}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Section>
-      </>
+        <DataPrivacySettingsTab
+          analyticsLoading={analyticsLoading}
+          traceSummary={traceSummary}
+          recentTraces={recentTraces}
+          stats={stats}
+          rebuildLoading={rebuildLoading}
+          optimizeLoading={optimizeLoading}
+          clearCacheLoading={clearCacheLoading}
+          ftsProgress={ftsProgress}
+          privacyConfig={privacyConfig}
+          newPattern={newPattern}
+          newRule={newRule}
+          userMemories={userMemories}
+          editingMemoryId={editingMemoryId}
+          editingMemoryDraft={editingMemoryDraft}
+          memoryLoading={memoryLoading}
+          newMemory={newMemory}
+          memoryCharLimit={MEMORY_CHAR_LIMIT}
+          saveLoading={saveLoading}
+          onRebuild={handleRebuild}
+          onOptimize={handleOptimize}
+          onClearCache={handleClearCache}
+          onNewPatternChange={setNewPattern}
+          onAddPattern={addPattern}
+          onRemovePattern={removePattern}
+          onNewRuleChange={setNewRule}
+          onAddRule={addRule}
+          onRemoveRule={removeRule}
+          onEditingMemoryDraftChange={setEditingMemoryDraft}
+          onStartEditMemory={handleStartEditUserMemory}
+          onCancelEditMemory={handleCancelEditUserMemory}
+          onUpdateMemory={handleUpdateUserMemory}
+          onDeleteMemory={handleDeleteUserMemory}
+          onNewMemoryChange={setNewMemory}
+          onAddMemory={handleAddUserMemory}
+          onSavePrivacy={handleSavePrivacy}
+        />
       )}
 
       {/* ── Tab: Media Processing ─────────────────────────────────── */}
       {activeTab === 'media' && (
       <>
       {/* OCR section */}
-      <Section icon={<ScanLine size={20} />} title={t('settings.ocrSection')} delay={0.03}>
-        {ocrConfig && (
-          <div className="space-y-5">
-            {/* Enable toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-text-primary">{t('settings.ocrEnabled')}</p>
-                <p className="text-xs text-text-tertiary">{t('settings.ocrEnabledDesc')}</p>
-              </div>
-              <button
-                onClick={() => { setOcrConfig({ ...ocrConfig, enabled: !ocrConfig.enabled }); markDirty('ocr'); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                  ocrConfig.enabled ? 'bg-accent' : 'bg-surface-3'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                    ocrConfig.enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Confidence threshold */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm font-medium text-text-primary">{t('settings.ocrConfidence')}</p>
-                <span className="text-xs font-mono text-text-tertiary">{ocrConfig.confidenceThreshold.toFixed(2)}</span>
-              </div>
-              <p className="text-xs text-text-tertiary mb-2">{t('settings.ocrConfidenceDesc')}</p>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={ocrConfig.confidenceThreshold}
-                onChange={(e) => { setOcrConfig({ ...ocrConfig, confidenceThreshold: parseFloat(e.target.value) }); markDirty('ocr'); }}
-                className="w-full accent-accent"
-              />
-            </div>
-
-            {/* LLM fallback toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-text-primary">{t('settings.ocrLlmFallback')}</p>
-                <p className="text-xs text-text-tertiary">{t('settings.ocrLlmFallbackDesc')}</p>
-              </div>
-              <button
-                onClick={() => { setOcrConfig({ ...ocrConfig, llmFallbackEnabled: !ocrConfig.llmFallbackEnabled }); markDirty('ocr'); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                  ocrConfig.llmFallbackEnabled ? 'bg-accent' : 'bg-surface-3'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                    ocrConfig.llmFallbackEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Detection size limit */}
-            <div>
-              <p className="text-sm font-medium text-text-primary mb-1">{t('settings.ocrDetLimit')}</p>
-              <p className="text-xs text-text-tertiary mb-2">{t('settings.ocrDetLimitDesc')}</p>
-              <Input
-                type="number"
-                value={ocrConfig.detLimitSideLen}
-                onChange={(e) => { setOcrConfig({ ...ocrConfig, detLimitSideLen: parseInt(e.target.value) || 960 }); markDirty('ocr'); }}
-                className="w-32"
-              />
-            </div>
-
-            {/* Orientation detection toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-text-primary">{t('settings.ocrUseCls')}</p>
-                <p className="text-xs text-text-tertiary">{t('settings.ocrUseClsDesc')}</p>
-              </div>
-              <button
-                onClick={() => { setOcrConfig({ ...ocrConfig, useCls: !ocrConfig.useCls }); markDirty('ocr'); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                  ocrConfig.useCls ? 'bg-accent' : 'bg-surface-3'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                    ocrConfig.useCls ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Save button */}
-            <div className="flex justify-end pt-2">
-              <Button
-                variant="primary"
-                size="md"
-                icon={<Save size={16} />}
-                loading={ocrSaveLoading}
-                onClick={handleSaveOcrConfig}
-              >
-                {t('settings.saveConfig')}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Section>
+      <OcrSettingsSection
+        ocrConfig={ocrConfig}
+        ocrSaveLoading={ocrSaveLoading}
+        onConfigChange={setOcrConfig}
+        onMarkDirty={() => markDirty('ocr')}
+        onSave={handleSaveOcrConfig}
+      />
 
       {/* Video section */}
-      <Section icon={<Film size={20} />} title={t('settings.videoSection')} delay={0.06}>
-        {videoConfig ? (
-          <div className="space-y-5">
-            {/* Enable toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-text-primary">{t('settings.videoEnabled')}</p>
-                <p className="text-xs text-text-tertiary">{t('settings.videoEnabledDesc')}</p>
-              </div>
-              <button
-                onClick={() => { setVideoConfig({ ...videoConfig, enabled: !videoConfig.enabled }); markDirty('video'); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                  videoConfig.enabled ? 'bg-accent' : 'bg-surface-3'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                    videoConfig.enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* FFmpeg Status */}
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-text-secondary">{t('settings.videoFfmpegStatus')}:</span>
-              {ffmpegAvailable === null ? (
-                <Loader2 size={14} className="animate-spin text-text-tertiary" />
-              ) : ffmpegAvailable ? (
-                <Badge variant="default" className="gap-1">
-                  <CheckCircle size={12} className="text-success" />
-                  {t('settings.videoFfmpegAvailable')}
-                </Badge>
-              ) : ffmpegDownloading ? (
-                <Badge variant="default" className="gap-1">
-                  <Loader2 size={12} className="animate-spin" />
-                  {t('settings.videoFfmpegDownloading')}
-                </Badge>
-              ) : (
-                <Badge variant="default" className="gap-1">
-                  <XCircle size={12} className="text-danger" />
-                  {t('settings.videoFfmpegNotFound')}
-                </Badge>
-              )}
-            </div>
-            {ffmpegDownloading && ffmpegProgress && (
-              <div className="space-y-1">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
-                  <div
-                    className="h-full rounded-full bg-accent transition-all duration-300"
-                    style={{ width: `${Math.min(ffmpegProgress.progressPct, 100)}%` }}
-                  />
-                </div>
-                <p className="text-xs text-text-tertiary">{ffmpegProgress.status}</p>
-              </div>
-            )}
-            {ffmpegAvailable === false && !ffmpegDownloading && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warning" />
-                <div className="flex flex-col gap-2">
-                  <p className="text-xs text-warning">{t('settings.videoFfmpegHint')}</p>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={handleFfmpegDownload}
-                    disabled={ffmpegDownloading}
-                  >
-                    {t('settings.videoFfmpegDownload')}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Language */}
-            <div>
-              <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoLanguage')}</p>
-              <p className="text-xs text-text-tertiary mb-2">{t('settings.videoLanguageDesc')}</p>
-              <Input
-                type="text"
-                value={videoConfig.language ?? ''}
-                onChange={(e) => { setVideoConfig({ ...videoConfig, language: e.target.value || null }); markDirty('video'); }}
-                placeholder="en, zh, ja..."
-                className="w-40"
-              />
-            </div>
-
-            {/* Translate to English */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-text-primary">{t('settings.videoTranslate')}</p>
-                <p className="text-xs text-text-tertiary">{t('settings.videoTranslateDesc')}</p>
-              </div>
-              <button
-                onClick={() => { setVideoConfig({ ...videoConfig, translateToEnglish: !videoConfig.translateToEnglish }); markDirty('video'); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                  videoConfig.translateToEnglish ? 'bg-accent' : 'bg-surface-3'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                    videoConfig.translateToEnglish ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Frame Extraction */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-text-primary">{t('settings.videoFrameExtraction')}</p>
-                <p className="text-xs text-text-tertiary">{t('settings.videoFrameExtractionDesc')}</p>
-              </div>
-              <button
-                onClick={() => { setVideoConfig({ ...videoConfig, frameExtractionEnabled: !videoConfig.frameExtractionEnabled }); markDirty('video'); }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                  videoConfig.frameExtractionEnabled ? 'bg-accent' : 'bg-surface-3'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                    videoConfig.frameExtractionEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Frame Interval */}
-            {videoConfig.frameExtractionEnabled && (
-              <div>
-                <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoFrameInterval')}</p>
-                <p className="text-xs text-text-tertiary mb-2">{t('settings.videoFrameIntervalDesc')}</p>
-                <Input
-                  type="number"
-                  value={videoConfig.frameIntervalSecs}
-                  onChange={(e) => { setVideoConfig({ ...videoConfig, frameIntervalSecs: parseInt(e.target.value) || 30 }); markDirty('video'); }}
-                  className="w-32"
-                />
-              </div>
-            )}
-
-            {/* Voice Input - Microphone Selection */}
-            <div className="space-y-3 border-t border-border pt-4 mt-4">
-              <div className="flex items-center gap-2">
-                <Mic size={16} className="text-text-secondary" />
-                <p className="text-sm font-medium text-text-primary">{t('voice.microphoneSection')}</p>
-              </div>
-              <div>
-                <p className="text-xs text-text-tertiary mb-2">{t('voice.microphoneDeviceDesc')}</p>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={micDeviceId ?? ''}
-                    onChange={(e) => setMicDeviceId(e.target.value || null)}
-                    className="flex-1 rounded-lg border border-border bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none transition-colors duration-fast hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30"
-                  >
-                    <option value="">{t('voice.microphoneDefault')}</option>
-                    {micDevices.map((d, i) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.label || `${t('voice.microphoneDeviceN')} ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={refreshMics}
-                    className="rounded-lg border border-border bg-surface-0 p-2 text-text-tertiary transition-colors hover:border-border-hover hover:text-text-secondary cursor-pointer"
-                    title={t('voice.microphoneRefresh')}
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Advanced Settings - collapsible */}
-            <div className="space-y-4 border-t border-border pt-4 mt-4">
-              <button
-                type="button"
-                onClick={() => setShowAdvancedVideo(!showAdvancedVideo)}
-                className="flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer w-full"
-              >
-                <Settings2 size={16} />
-                {t('settings.videoAdvanced')}
-                <ChevronDown
-                  size={16}
-                  className={`transition-transform duration-fast ${showAdvancedVideo ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              {showAdvancedVideo && (
-                <div className="space-y-4 pl-4">
-                  {/* GPU Acceleration */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-text-primary">{t('settings.videoGpu')}</p>
-                      <p className="text-xs text-text-tertiary">{t('settings.videoGpuDesc')}</p>
-                    </div>
-                    <button
-                      onClick={() => { setVideoConfig({ ...videoConfig, useGpu: !videoConfig.useGpu }); markDirty('video'); }}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                        videoConfig.useGpu ? 'bg-accent' : 'bg-surface-3'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                          videoConfig.useGpu ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Prefer Embedded Subtitles */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-text-primary">{t('settings.videoPreferSubtitles')}</p>
-                      <p className="text-xs text-text-tertiary">{t('settings.videoPreferSubtitlesDesc')}</p>
-                    </div>
-                    <button
-                      onClick={() => { setVideoConfig({ ...videoConfig, preferEmbeddedSubtitles: !videoConfig.preferEmbeddedSubtitles }); markDirty('video'); }}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                        videoConfig.preferEmbeddedSubtitles ? 'bg-accent' : 'bg-surface-3'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                          videoConfig.preferEmbeddedSubtitles ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Scene Detection Threshold */}
-                  <div>
-                    <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoSceneThreshold')}</p>
-                    <p className="text-xs text-text-tertiary mb-2">{t('settings.videoSceneThresholdDesc')}</p>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min={10}
-                        max={90}
-                        step={5}
-                        value={Math.round(videoConfig.sceneThreshold * 100)}
-                        onChange={(e) => { setVideoConfig({ ...videoConfig, sceneThreshold: parseInt(e.target.value) / 100 }); markDirty('video'); }}
-                        className="flex-1 accent-accent"
-                      />
-                      <span className="text-xs text-text-secondary w-10 text-right">{videoConfig.sceneThreshold.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  {/* Beam Size */}
-                  <div>
-                    <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoBeamSize')}</p>
-                    <p className="text-xs text-text-tertiary mb-2">{t('settings.videoBeamSizeDesc')}</p>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min={1}
-                        max={10}
-                        step={1}
-                        value={videoConfig.beamSize}
-                        onChange={(e) => { setVideoConfig({ ...videoConfig, beamSize: parseInt(e.target.value) }); markDirty('video'); }}
-                        className="flex-1 accent-accent"
-                      />
-                      <span className="text-xs text-text-secondary w-6 text-right">{videoConfig.beamSize}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Save button */}
-            <div className="flex items-center justify-between pt-2">
-              {whisperModelExists && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<Trash2 size={14} />}
-                  onClick={() => setDeleteModelConfirmOpen(true)}
-                  className="text-danger hover:bg-danger/10"
-                >
-                  {t('settings.videoDeleteModel')}
-                </Button>
-              )}
-              <div className="flex-1" />
-              <Button
-                variant="primary"
-                size="md"
-                icon={<Save size={16} />}
-                loading={videoSaveLoading}
-                onClick={handleVideoSave}
-              >
-                {t('settings.videoSave')}
-              </Button>
-            </div>
-
-            {/* Delete model confirmation */}
-            <ConfirmDialog
-              open={deleteModelConfirmOpen}
-              onClose={() => setDeleteModelConfirmOpen(false)}
-              onConfirm={handleWhisperDelete}
-              title={t('settings.videoDeleteModel')}
-              message={t('settings.videoDeleteConfirm')}
-              confirmText={t('common.delete')}
-              variant="danger"
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-12 text-text-tertiary">
-            <Film size={32} className="mb-3 opacity-50" />
-            <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoUnavailable')}</p>
-            <p className="text-xs text-center max-w-md">
-              {t('settings.videoUnavailableRequires')}{' '}
-              {t('settings.videoUnavailableRebuild')}
-            </p>
-          </div>
-        )}
-      </Section>
+      <VideoSettingsSection
+        videoConfig={videoConfig}
+        ffmpegAvailable={ffmpegAvailable}
+        ffmpegDownloading={ffmpegDownloading}
+        ffmpegProgress={ffmpegProgress}
+        whisperModelExists={whisperModelExists}
+        videoSaveLoading={videoSaveLoading}
+        showAdvancedVideo={showAdvancedVideo}
+        deleteModelConfirmOpen={deleteModelConfirmOpen}
+        micDevices={micDevices}
+        micDeviceId={micDeviceId}
+        onConfigChange={setVideoConfig}
+        onMarkDirty={() => markDirty('video')}
+        onFfmpegDownload={handleFfmpegDownload}
+        onAdvancedToggle={() => setShowAdvancedVideo((value) => !value)}
+        onMicDeviceChange={setMicDeviceId}
+        onRefreshMics={refreshMics}
+        onRequestDeleteModel={() => setDeleteModelConfirmOpen(true)}
+        onCloseDeleteModel={() => setDeleteModelConfirmOpen(false)}
+        onConfirmDeleteModel={handleWhisperDelete}
+        onSave={handleVideoSave}
+      />
       </>
       )}
 
       {/* ── Tab: Extensions ────────────────────────────────────────── */}
       {activeTab === 'extensions' && (
-        <>
-          {/* Skills */}
-          <Section icon={<Blocks size={20} />} title={t('settings.skills')} delay={0.03}>
-            <p className="mb-4 text-xs text-text-tertiary">{t('settings.skillsDescription')}</p>
-            {showSkillForm ? (
-              <SkillEditor
-                skill={editingSkill ?? undefined}
-                onSave={handleSaveSkill}
-                onCancel={() => {
-                  setSkillEditorDirty(false);
-                  setShowSkillForm(false);
-                  setEditingSkill(null);
-                }}
-                onDirtyChange={setSkillEditorDirty}
-              />
-            ) : (
-              <div className="space-y-4">
-                {/* Search + filter chips + actions */}
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative min-w-[220px] flex-1">
-                      <Search
-                        size={14}
-                        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary"
-                      />
-                      <input
-                        type="text"
-                        value={skillSearch}
-                        onChange={(e) => setSkillSearch(e.target.value)}
-                        placeholder={t('settings.skillSearchPlaceholder')}
-                        className="w-full rounded-md border border-border bg-surface-2 py-1.5 pl-8 pr-3 text-sm text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                      />
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Download size={14} />}
-                      onClick={handleExportAllSkills}
-                      disabled={skills.length === 0}
-                    >
-                      {t('settings.skillExportAll')}
-                    </Button>
-                    <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => { setEditingSkill(null); setShowSkillForm(true); }}>
-                      {t('settings.addSkill')}
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {([
-                      ['all', t('settings.skillFilterAll')],
-                      ['builtin', t('settings.skillFilterBuiltin')],
-                      ['user', t('settings.skillFilterUser')],
-                      ['enabled', t('settings.skillFilterEnabled')],
-                      ['disabled', t('settings.skillFilterDisabled')],
-                    ] as const).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setSkillFilter(id)}
-                        className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
-                          skillFilter === id
-                            ? 'border-accent/50 bg-accent/15 text-accent'
-                            : 'border-border bg-surface-2 text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {skills.length === 0 ? (
-                  <div className="py-8 text-center">
-                    <Blocks size={32} className="mx-auto mb-3 text-text-tertiary" />
-                    <p className="text-sm text-text-secondary">{t('settings.noSkills')}</p>
-                  </div>
-                ) : filteredSkills.length === 0 ? (
-                  <div className="py-8 text-center">
-                    <Search size={28} className="mx-auto mb-3 text-text-tertiary" />
-                    <p className="text-sm text-text-secondary">{t('settings.skillNoResults')}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {filteredSkills.map((skill) => {
-                      const triggers = extractTriggers(skill.description);
-                      return (
-                      <motion.div
-                        key={skill.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex items-center justify-between rounded-lg border border-border bg-surface-2 p-4 transition-colors hover:bg-surface-3/50"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-medium text-text-primary truncate">{skill.name}</p>
-                            {skill.builtin && (
-                              <Badge variant="default" className="text-[10px] shrink-0 border-accent/40 text-accent">
-                                built-in
-                              </Badge>
-                            )}
-                            <Badge variant="default" className="text-[10px] shrink-0">
-                              ~{estimateTokens(skill.content)} tok
-                            </Badge>
-                            {!skill.enabled && !skill.builtin && (
-                              <Badge variant="default" className="text-[10px] shrink-0 border-border text-text-tertiary">
-                                {t('settings.skillFilterDisabled')}
-                              </Badge>
-                            )}
-                          </div>
-                          {skill.description ? (
-                            <p className="mt-0.5 text-xs text-text-secondary line-clamp-2">
-                              {skill.description}
-                            </p>
-                          ) : (
-                            <p className="mt-0.5 text-xs text-text-tertiary truncate">
-                              {skill.content.slice(0, 80)}{skill.content.length > 80 ? '\u2026' : ''}
-                            </p>
-                          )}
-                          {triggers.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {triggers.map((trig) => (
-                                <span
-                                  key={trig}
-                                  className="inline-flex items-center rounded-full border border-border bg-surface-3/60 px-1.5 py-0.5 text-[10px] text-text-tertiary"
-                                >
-                                  {trig}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0 ml-3">
-                          <button
-                            onClick={() => setViewSkill(skill)}
-                            className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
-                            aria-label={t('settings.skillViewBtn')}
-                            title={t('settings.skillViewBtn')}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          {!skill.builtin && (
-                            <button
-                              onClick={() => handleToggleSkill(skill.id, !skill.enabled)}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                                skill.enabled ? 'bg-accent' : 'bg-surface-3'
-                              }`}
-                            >
-                              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                                skill.enabled ? 'translate-x-6' : 'translate-x-1'
-                              }`} />
-                            </button>
-                          )}
-                          {!skill.builtin && (
-                            <button
-                              onClick={() => { setEditingSkill(skill); setShowSkillForm(true); }}
-                              className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
-                              aria-label={t('common.edit')}
-                            >
-                              <Pencil size={14} />
-                            </button>
-                          )}
-                          {!skill.builtin && (
-                            <button
-                              onClick={() => setDeleteSkillTarget(skill)}
-                              className="rounded p-1.5 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
-                              aria-label={t('common.delete')}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </div>
-                      </motion.div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </Section>
-
-          {/* MCP Servers */}
-          <Section icon={<Plug size={20} />} title={t('settings.mcpServers')} delay={0.06}>
-            <p className="mb-4 text-xs text-text-tertiary">{t('settings.mcpServersDescription')}</p>
-            {showMcpForm ? (
-              <McpServerForm
-                server={editingMcpServer ?? undefined}
-                onSave={handleSaveMcpServer}
-                onCancel={() => {
-                  setMcpFormDirty(false);
-                  setShowMcpForm(false);
-                  setEditingMcpServer(null);
-                }}
-                onDirtyChange={setMcpFormDirty}
-              />
-            ) : (
-              <div className="space-y-4">
-                <div className="flex justify-end">
-                  <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => { setEditingMcpServer(null); setShowMcpForm(true); }}>
-                    {t('settings.addMcpServer')}
-                  </Button>
-                </div>
-                {mcpServers.length === 0 ? (
-                  <div className="py-8 text-center">
-                    <Plug size={32} className="mx-auto mb-3 text-text-tertiary" />
-                    <p className="text-sm text-text-secondary">{t('settings.noMcpServers')}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {mcpServers.map((server) => (
-                      <motion.div
-                        key={server.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="rounded-lg border border-border bg-surface-2 transition-colors hover:bg-surface-3/50"
-                      >
-                        <div className="flex items-center justify-between p-4">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-medium text-text-primary truncate">{server.name}</p>
-                              {server.builtinId && (
-                                <Badge variant="default" className="ml-1 text-xs">{t('settings.mcpBuiltIn')}</Badge>
-                              )}
-                              <Badge variant="default" className="text-[10px] shrink-0">{server.transport}</Badge>
-                              {server.enabled && mcpToolCounts[server.id] && !mcpToolCounts[server.id].loading && !mcpToolCounts[server.id].error && (
-                                <Badge variant="default" className="text-[10px] shrink-0 bg-accent/10 text-accent border-accent/20">
-                                  {extensionCopy.toolCount(mcpToolCounts[server.id].tools.length)}
-                                </Badge>
-                              )}
-                              {server.enabled && mcpToolCounts[server.id]?.error && !mcpToolCounts[server.id].loading && (
-                                <Badge
-                                  variant="default"
-                                  className="text-[10px] shrink-0 bg-danger/10 text-danger border-danger/20 cursor-help max-w-[180px] truncate"
-                                  title={mcpToolCounts[server.id].error}
-                                >
-                                  <AlertTriangle size={10} className="inline mr-0.5 -mt-px" />
-                                  {extensionCopy.connectionFailed}
-                                </Badge>
-                              )}
-                              {server.enabled && mcpToolCounts[server.id]?.loading && (
-                                <Loader2 size={12} className="animate-spin text-text-tertiary" />
-                              )}
-                            </div>
-                            <p className="mt-0.5 text-xs text-text-tertiary truncate">
-                              {server.transport === 'stdio' ? server.command : server.url}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0 ml-3">
-                            {server.enabled && mcpToolCounts[server.id]?.tools.length > 0 && (
-                              <button
-                                onClick={() => setMcpToolsExpanded((prev) => ({ ...prev, [server.id]: !prev[server.id] }))}
-                                className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
-                                aria-label={extensionCopy.toggleTools}
-                              >
-                                {mcpToolsExpanded[server.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleToggleMcpServer(server.id, !server.enabled)}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                                server.enabled ? 'bg-accent' : 'bg-surface-3'
-                              }`}
-                            >
-                              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                                server.enabled ? 'translate-x-6' : 'translate-x-1'
-                              }`} />
-                            </button>
-                            <button
-                              onClick={() => handleTestMcpServer(server.id)}
-                              disabled={mcpTestLoading === server.id}
-                              className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer disabled:opacity-50"
-                              aria-label={t('settings.mcpTestConnection')}
-                            >
-                              {mcpTestLoading === server.id ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                            </button>
-                            <button
-                              onClick={() => { setEditingMcpServer(server); setShowMcpForm(true); }}
-                              className="rounded p-1.5 text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer"
-                              aria-label={t('common.edit')}
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            {!server.builtinId && (
-                              <button
-                                onClick={() => setDeleteMcpTarget(server)}
-                                className="rounded p-1.5 text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
-                                aria-label={t('common.delete')}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {/* Expandable tool list */}
-                        <AnimatePresence initial={false}>
-                          {mcpToolsExpanded[server.id] && mcpToolCounts[server.id]?.tools.length > 0 && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                              className="overflow-hidden"
-                            >
-                              <div className="px-4 pb-3 border-t border-border/50">
-                                <p className="text-[10px] text-text-tertiary uppercase tracking-wider mt-2 mb-1.5">{extensionCopy.availableTools}</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {mcpToolCounts[server.id].tools.map((tool) => (
-                                    <span
-                                      key={tool.name}
-                                      title={tool.description ?? tool.name}
-                                      className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono
-                                        bg-surface-3 text-text-secondary border border-border/50"
-                                    >
-                                      {tool.name}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </Section>
-        </>
+        <ExtensionsSettingsTab
+          skills={skills}
+          filteredSkills={filteredSkills}
+          skillSearch={skillSearch}
+          skillFilter={skillFilter}
+          showSkillForm={showSkillForm}
+          editingSkill={editingSkill}
+          deleteSkillTarget={deleteSkillTarget}
+          viewSkill={viewSkill}
+          mcpServers={mcpServers}
+          showMcpForm={showMcpForm}
+          editingMcpServer={editingMcpServer}
+          deleteMcpTarget={deleteMcpTarget}
+          mcpTestLoading={mcpTestLoading}
+          mcpToolCounts={mcpToolCounts}
+          mcpToolsExpanded={mcpToolsExpanded}
+          onSkillSearchChange={setSkillSearch}
+          onSkillFilterChange={setSkillFilter}
+          onExportAllSkills={handleExportAllSkills}
+          onAddSkill={() => { setEditingSkill(null); setShowSkillForm(true); }}
+          onSaveSkill={handleSaveSkill}
+          onCancelSkillForm={() => {
+            setSkillEditorDirty(false);
+            setShowSkillForm(false);
+            setEditingSkill(null);
+          }}
+          onSkillEditorDirtyChange={setSkillEditorDirty}
+          onViewSkillChange={setViewSkill}
+          onToggleSkill={handleToggleSkill}
+          onEditSkill={(skill) => { setEditingSkill(skill); setShowSkillForm(true); }}
+          onDeleteSkillTargetChange={setDeleteSkillTarget}
+          onConfirmDeleteSkill={handleDeleteSkill}
+          onAddMcpServer={() => { setEditingMcpServer(null); setShowMcpForm(true); }}
+          onSaveMcpServer={handleSaveMcpServer}
+          onCancelMcpForm={() => {
+            setMcpFormDirty(false);
+            setShowMcpForm(false);
+            setEditingMcpServer(null);
+          }}
+          onMcpFormDirtyChange={setMcpFormDirty}
+          onToggleMcpServer={handleToggleMcpServer}
+          onTestMcpServer={handleTestMcpServer}
+          onEditMcpServer={(server) => { setEditingMcpServer(server); setShowMcpForm(true); }}
+          onDeleteMcpTargetChange={setDeleteMcpTarget}
+          onToggleMcpToolsExpanded={(serverId) => setMcpToolsExpanded((prev) => ({ ...prev, [serverId]: !prev[serverId] }))}
+          onConfirmDeleteMcpServer={handleDeleteMcpServer}
+        />
       )}
-
-      {/* Delete skill confirm */}
-      <ConfirmDialog
-        open={!!deleteSkillTarget}
-        onClose={() => setDeleteSkillTarget(null)}
-        onConfirm={handleDeleteSkill}
-        title={t('common.delete')}
-        message={t('settings.deleteSkillConfirm')}
-        confirmText={t('common.delete')}
-        variant="danger"
-      />
-
-      {/* Skill preview modal (inline — Modal in ui/ caps width at max-w-md,
-          which is too narrow for rendered markdown). */}
-      {viewSkill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setViewSkill(null)}
-            aria-hidden="true"
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={viewSkill.name}
-            className="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface-2 shadow-lg"
-          >
-            <div className="flex items-center justify-between border-b border-border px-5 py-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-sm font-semibold text-text-primary">
-                  {viewSkill.name}
-                </h2>
-                {viewSkill.builtin && (
-                  <Badge variant="default" className="text-[10px] shrink-0 border-accent/40 text-accent">
-                    built-in
-                  </Badge>
-                )}
-              </div>
-              <button
-                onClick={() => setViewSkill(null)}
-                className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-primary"
-                aria-label={t('common.close')}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="overflow-auto px-5 py-4">
-              <SkillMarkdownPreview
-                content={viewSkill.content}
-                fallbackName={viewSkill.name}
-                fallbackDescription={viewSkill.description}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete MCP server confirm */}
-      <ConfirmDialog
-        open={!!deleteMcpTarget}
-        onClose={() => setDeleteMcpTarget(null)}
-        onConfirm={handleDeleteMcpServer}
-        title={t('common.delete')}
-        message={t('settings.deleteMcpServerConfirm')}
-        confirmText={t('common.delete')}
-        variant="danger"
-      />
 
       <ConfirmDialog
         open={pendingTab !== null}
@@ -3932,139 +1542,6 @@ export function SettingsPage() {
         confirmText={t('settings.discardChanges')}
         variant="warning"
       />
-    </div>
-  );
-}
-
-/* ── Tool approval control ───────────────────────────────────────── */
-function ToolApprovalControl({
-  mode,
-  onChange,
-}: {
-  mode: 'ask' | 'allow_all' | 'deny_all';
-  onChange: (m: 'ask' | 'allow_all' | 'deny_all') => void;
-}) {
-  const { t } = useTranslation();
-  const [policies, setPolicies] = useState<ApprovalPolicyList>({ persisted: [], session: [] });
-  const [loading, setLoading] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await api.listToolApprovalPolicies();
-      setPolicies(list);
-    } catch (err) {
-      console.error('[approval] list policies failed', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const remove = useCallback(async (p: ApprovalPolicy, scope: 'session' | 'forever') => {
-    try {
-      await api.deleteToolApprovalPolicy(p.toolName, scope);
-      await load();
-    } catch (err) {
-      console.error('[approval] delete policy failed', err);
-      toast.error(String(err));
-    }
-  }, [load]);
-
-  const clearAll = useCallback(async () => {
-    try {
-      await api.clearToolApprovalPolicies();
-      await load();
-    } catch (err) {
-      toast.error(String(err));
-    }
-  }, [load]);
-
-  const options: Array<{ value: 'ask' | 'allow_all' | 'deny_all'; label: string; desc: string }> = [
-    { value: 'ask', label: t('settings.toolApprovalAsk'), desc: t('settings.toolApprovalAskDesc') },
-    { value: 'allow_all', label: t('settings.toolApprovalAllowAll'), desc: t('settings.toolApprovalAllowAllDesc') },
-    { value: 'deny_all', label: t('settings.toolApprovalDenyAll'), desc: t('settings.toolApprovalDenyAllDesc') },
-  ];
-
-  return (
-    <div className="space-y-2">
-      <label className="text-sm font-medium text-text-primary">{t('settings.toolApproval')}</label>
-      <p className="text-xs text-text-tertiary">
-        {t('settings.toolApprovalDesc')}
-      </p>
-      <div className="grid gap-2 md:grid-cols-3">
-        {options.map((o) => (
-          <label
-            key={o.value}
-            className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-              mode === o.value ? 'border-accent bg-accent/10' : 'border-border bg-surface-2'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <input
-                type="radio"
-                name="tool-approval-mode"
-                value={o.value}
-                checked={mode === o.value}
-                onChange={() => onChange(o.value)}
-                className="mt-1"
-              />
-              <div className="space-y-1">
-                <div className="text-sm font-medium text-text-primary">{o.label}</div>
-                <div className="text-xs text-text-tertiary">{o.desc}</div>
-              </div>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-text-primary">{t('settings.toolApprovalRemembered')}</div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={() => void load()} loading={loading}>
-              {t('settings.toolApprovalRefresh')}
-            </Button>
-            {(policies.persisted.length > 0 || policies.session.length > 0) && (
-              <Button size="sm" variant="ghost" onClick={() => void clearAll()}>
-                {t('common.clearAll')}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {policies.persisted.length === 0 && policies.session.length === 0 ? (
-          <div className="text-xs text-text-tertiary">{t('settings.toolApprovalNoRemembered')}</div>
-        ) : (
-          <div className="space-y-1">
-            {policies.persisted.map((p) => (
-              <div key={`f-${p.toolName}`} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <Badge variant="default" className="text-[10px]">{t('settings.toolApprovalForever')}</Badge>
-                  <span className="text-text-primary">{p.toolName}</span>
-                  <span className="text-xs text-text-tertiary">{p.decision}</span>
-                </div>
-                <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} onClick={() => void remove(p, 'forever')}>
-                  {t('common.remove')}
-                </Button>
-              </div>
-            ))}
-            {policies.session.map((p) => (
-              <div key={`s-${p.toolName}`} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <Badge variant="default" className="text-[10px]">{t('settings.toolApprovalSession')}</Badge>
-                  <span className="text-text-primary">{p.toolName}</span>
-                  <span className="text-xs text-text-tertiary">{p.decision}</span>
-                </div>
-                <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} onClick={() => void remove(p, 'session')}>
-                  {t('common.remove')}
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

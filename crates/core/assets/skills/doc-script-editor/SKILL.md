@@ -35,7 +35,7 @@ Use this skill as the execution backend. Pair it with the format skill that carr
 **NEVER paste file contents, binary bytes, or base64 blobs into tool arguments.** Pass only the absolute `--path` plus operation parameters. The script reads and writes bytes on disk itself.
 
 ## Invocation pattern
-All commands run through `run_shell` with `python` (or `python3`):
+For this skill, invoke the bundled document script through `run_shell` with `python` (or `python3`). This is a Python backend requirement for the Office/PDF workflow, not a general restriction on other `run_shell` programs or less-restricted shell access modes:
 
 1. DOCX text replace (with preview first):
    ```
@@ -140,7 +140,7 @@ The `check` subcommand lists each backend as `OK (version)` or `MISSING`. If any
    ```
    python -m pip install <pkg1> <pkg2> ...
    ```
-   Use `python -m pip install` rather than `pip install` — `run_shell` whitelists `python`, not `pip`, and `-m pip` is the canonical way to reach pip for the same interpreter.
+   Prefer `python -m pip install` over `pip install` so dependencies land in the same interpreter/environment that will run `edit_doc.py`. `run_shell` may normalize `pip`/`pip3` to `python -m pip`, but the explicit form is clearer and more portable.
 4. Re-run `check` to confirm, then proceed with the original operation.
 5. If install fails (network / permissions / no pip): relay stderr verbatim and suggest the user either install Python (https://python.org/downloads) or run `pip install <pkg>` manually in their own terminal.
 
