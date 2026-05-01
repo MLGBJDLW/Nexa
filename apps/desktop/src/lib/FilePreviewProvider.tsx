@@ -678,14 +678,28 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       {children}
       <AnimatePresence>
         {open && (
-          <motion.aside
-            initial={shouldReduceMotion ? false : { x: '100%', opacity: 0.8 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={shouldReduceMotion ? { opacity: 0 } : { x: '100%', opacity: 0.8 }}
-            transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[min(760px,100vw)] flex-col border-l border-border bg-surface-1 shadow-2xl md:w-[46vw] md:min-w-[420px]"
-            aria-label={labels.title}
-          >
+          <>
+            <motion.div
+              key="file-preview-backdrop"
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.15 }}
+              className="fixed inset-0 z-50 bg-black/35 backdrop-blur-[1px]"
+              onClick={close}
+              aria-hidden="true"
+            />
+            <motion.aside
+              key="file-preview-panel"
+              initial={shouldReduceMotion ? false : { x: '100%', opacity: 0.8 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={shouldReduceMotion ? { opacity: 0 } : { x: '100%', opacity: 0.8 }}
+              transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              className="fixed inset-y-0 right-0 z-[51] flex w-full max-w-full flex-col border-l border-border bg-surface-1 shadow-2xl md:w-[72vw] md:min-w-[640px] md:max-w-[1120px]"
+              role="dialog"
+              aria-modal="true"
+              aria-label={labels.title}
+            >
             <header className="shrink-0 border-b border-border bg-surface-1/95 px-4 py-3 backdrop-blur">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-accent">
@@ -1023,7 +1037,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                 </motion.div>
               )}
             </AnimatePresence>
-          </motion.aside>
+            </motion.aside>
+          </>
         )}
       </AnimatePresence>
     </FilePreviewContext.Provider>

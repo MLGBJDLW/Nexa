@@ -24,18 +24,18 @@ jobs:
         id: release
         with:
           target-branch: master
-          # Push runs only create the release/tag after a release PR is merged.
-          # Manual runs open or update the release PR.
-          skip-github-pull-request: ${{ github.event_name == 'push' }}
+          # Push runs create/update the release PR for new conventional commits,
+          # then create the release/tag when that release PR is merged.
+          # Manual runs are PR maintenance only.
           skip-github-release: ${{ github.event_name == 'workflow_dispatch' }}
 
       - uses: actions/checkout@v5
-        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.release_created != 'true'
+        if: steps.release.outputs.release_created != 'true'
         with:
           fetch-depth: 0
 
       - name: Deduplicate release PR changelog entries
-        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.release_created != 'true'
+        if: steps.release.outputs.release_created != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_PR_BRANCH: release-please--branches--master--components--nexa-monorepo

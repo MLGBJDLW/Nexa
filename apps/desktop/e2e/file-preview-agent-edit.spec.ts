@@ -348,6 +348,24 @@ test('sends an exact selected file range to the agent edit flow', async ({ page 
     .toEqual(['src-agent-edit']);
 });
 
+test('opens file preview as a large panel and closes it from outside clicks', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+
+  await page.getByRole('button', { name: /agent-edit\.md/i }).click();
+
+  const previewPanel = page.getByLabel('File Preview');
+  await expect(previewPanel).toBeVisible();
+  await expect
+    .poll(async () => {
+      const box = await previewPanel.boundingBox();
+      return box?.width ?? 0;
+    })
+    .toBeGreaterThan(900);
+
+  await page.mouse.click(32, 32);
+  await expect(previewPanel).toBeHidden();
+});
+
 test('shows the agent panel for read-only extracted Office text and routes to Python document skills', async ({ page }) => {
   await page.goto('/chat/conv-agent-edit');
 
