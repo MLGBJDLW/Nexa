@@ -742,6 +742,22 @@ Every answer that uses knowledge base search results.
         CREATE INDEX IF NOT EXISTS idx_file_checkpoints_path
             ON file_checkpoints(absolute_path, created_at);",
     ),
+    (
+        "v052_playwright_browser_connector",
+        "INSERT OR IGNORE INTO mcp_servers (id, name, transport, command, args, url, env_json, headers_json, enabled, builtin_id)
+        VALUES (
+            'builtin-playwright-browser',
+            'Browser Automation',
+            'streamable_http',
+            'npx',
+            '[\"-y\",\"@playwright/mcp@latest\",\"--port\",\"${PORT}\"]',
+            NULL,
+            NULL,
+            NULL,
+            0,
+            'playwright-browser'
+        );",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -924,5 +940,25 @@ mod tests {
             has_resource_bundle,
             "skills.resource_bundle_json column should exist"
         );
+    }
+
+    #[test]
+    fn test_builtin_browser_connector_seeded_disabled() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).expect("migrations should succeed");
+
+        let (name, enabled, builtin_id, args): (String, i64, String, String) = conn
+            .query_row(
+                "SELECT name, enabled, builtin_id, args FROM mcp_servers WHERE id = 'builtin-playwright-browser'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+
+        assert_eq!(name, "Browser Automation");
+        assert_eq!(enabled, 0);
+        assert_eq!(builtin_id, "playwright-browser");
+        assert!(args.contains("@playwright/mcp@latest"));
+        assert!(args.contains("${PORT}"));
     }
 }
