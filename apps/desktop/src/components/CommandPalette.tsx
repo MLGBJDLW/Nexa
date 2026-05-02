@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Command } from 'cmdk';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ScanSearch, Database, Clock, Keyboard } from 'lucide-react';
+import { Search, FolderOpen, BookOpen, MessageCircle, Settings, ScanSearch, Database, Clock, Keyboard, Archive } from 'lucide-react';
 import * as api from '../lib/api';
 import type { QueryLog } from '../types';
 import { useTranslation } from '../i18n';
@@ -29,6 +29,16 @@ function getFocusableElements(container: HTMLElement) {
   );
 }
 
+function activeConversationIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/chat\/([^/?#]+)/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
@@ -36,8 +46,10 @@ export function CommandPalette() {
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const shouldRestoreFocusRef = useRef(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
+  const activeConversationId = activeConversationIdFromPath(location.pathname);
 
   const closePalette = (reason: CloseReason = 'dismiss') => {
     shouldRestoreFocusRef.current = reason !== 'outside';
@@ -174,6 +186,15 @@ export function CommandPalette() {
     });
   };
 
+  const compactActiveConversation = () => {
+    if (!activeConversationId) return;
+    select(() => {
+      navigate(`/chat/${activeConversationId}`, {
+        state: { pendingChatAction: 'compact' },
+      });
+    });
+  };
+
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
     <AnimatePresence>
@@ -259,6 +280,15 @@ export function CommandPalette() {
                     <Database className="h-4 w-4 shrink-0 text-text-tertiary" />
                     {t('cmd.rebuildEmbeddings')}
                   </Command.Item>
+                  {activeConversationId && (
+                    <Command.Item
+                      value="compact conversation context"
+                      onSelect={compactActiveConversation}
+                    >
+                      <Archive className="h-4 w-4 shrink-0 text-text-tertiary" />
+                      {t('chat.compactNow')}
+                    </Command.Item>
+                  )}
                 </Command.Group>
 
                 {/* Recent queries */}
