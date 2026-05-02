@@ -1,6 +1,6 @@
 {
   "name": "edit_file",
-  "description": "Edit an existing plain-text file or create a new plain-text file within registered source directories. Paths may be absolute or relative to a source root. Supports exact string replacement and plain-text file creation.\n\nUse this tool when:\n- You need to modify an existing text file (use str_replace with the exact text to find and its replacement)\n- You need to create a new text file (use create with the file content)\n\nDo not use this tool for DOCX/XLSX/PPTX/PDF files. Use run_shell + doc-script-editor (Python Office libraries) for Office/PDF create/edit/validate/convert/render/recalc/unpack workflows.\n\nFor str_replace: old_str must match exactly once in the file. Include enough surrounding context to make it unique.",
+  "description": "Edit an existing plain-text file or create a new plain-text file within registered source directories. Paths may be absolute or relative to a source root. Supports exact string replacement and plain-text file creation.\n\nUse this tool when:\n- You need to modify an existing text file (use str_replace with the exact text to find and its replacement)\n- You need to create a new text file (use create with the file content)\n\nDo not use this tool for DOCX/XLSX/PPTX/PDF files. Use run_shell + doc-script-editor (Python Office libraries) for Office/PDF create/edit/validate/convert/render/recalc/unpack workflows.\n\nFor str_replace: old_str must match exactly once in the file. Include enough surrounding context to make it unique, or pass start_line/end_line to narrow the replacement. Common aliases are accepted: action 'replace' means 'str_replace', old_string means old_str, and new_string/content mean new_str. If action is omitted, the tool infers str_replace when old_str/old_string is present, otherwise create.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -10,18 +10,40 @@
       },
       "action": {
         "type": "string",
-        "enum": ["str_replace", "create"],
-        "description": "Edit action: 'str_replace' to find-and-replace text in an existing file, 'create' to create a new file"
+        "enum": ["str_replace", "replace", "create"],
+        "description": "Edit action: 'str_replace' to find-and-replace text in an existing file, 'replace' as a convenient alias, or 'create' to create a new file. Optional when the operation is clear from the supplied fields."
       },
       "old_str": {
         "type": "string",
         "description": "For str_replace: exact string to find in the file (must match exactly once)"
       },
+      "old_string": {
+        "type": "string",
+        "description": "Alias for old_str"
+      },
       "new_str": {
         "type": "string",
         "description": "For str_replace: replacement string. For create: file content"
+      },
+      "new_string": {
+        "type": "string",
+        "description": "Alias for new_str"
+      },
+      "content": {
+        "type": "string",
+        "description": "Alias for new_str, especially for create"
+      },
+      "start_line": {
+        "type": "integer",
+        "description": "Optional 1-based inclusive start line limiting where old_str is searched. Useful when old_str appears multiple times.",
+        "minimum": 1
+      },
+      "end_line": {
+        "type": "integer",
+        "description": "Optional 1-based inclusive end line limiting where old_str is searched. Useful when old_str appears multiple times.",
+        "minimum": 1
       }
     },
-    "required": ["path", "action"]
+    "required": ["path"]
   }
 }

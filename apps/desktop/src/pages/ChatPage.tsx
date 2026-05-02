@@ -298,6 +298,26 @@ export function ChatPage() {
     }
   }, [chat.activeId, chat.reloadMessages, isCompacting]);
 
+  const pendingChatAction = (
+    location.state as { pendingChatAction?: string } | null
+  )?.pendingChatAction;
+
+  useEffect(() => {
+    if (pendingChatAction !== 'compact') return;
+    if (!chat.activeId || chat.loadingMsgs || isCompacting) return;
+
+    navigate(location.pathname, { replace: true, state: null });
+    void handleCompactConversation();
+  }, [
+    chat.activeId,
+    chat.loadingMsgs,
+    handleCompactConversation,
+    isCompacting,
+    location.pathname,
+    navigate,
+    pendingChatAction,
+  ]);
+
   const latestTurn = useMemo(
     () => (chat.turns.length > 0 ? chat.turns[chat.turns.length - 1] : null),
     [chat.turns],

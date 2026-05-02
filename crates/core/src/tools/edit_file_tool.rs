@@ -25,9 +25,17 @@ const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 #[derive(Deserialize)]
 struct EditFileArgs {
     path: String,
-    action: String,
+    #[serde(default)]
+    action: Option<String>,
+    #[serde(default, alias = "old_string")]
     old_str: Option<String>,
+    #[serde(default, alias = "new_string", alias = "content")]
     new_str: Option<String>,
+    /// Optional 1-based inclusive line range limiting where replacement is searched.
+    #[serde(default)]
+    start_line: Option<usize>,
+    #[serde(default)]
+    end_line: Option<usize>,
 }
 
 pub struct EditFileTool;
@@ -91,6 +99,126 @@ fn snippet_around(content: &str, byte_offset: usize, replacement_len: usize) -> 
         out.push_str(&format!("{:>4} | {}\n", i + 1, line));
     }
     out
+}
+
+fn normalized_action(args: &EditFileArgs) -> &str {
+    match args.action.as_deref() {
+        Some("replace") | Some("str_replace") => "str_replace",
+        Some("create") => "create",
+        Some(other) => other,
+        None if args.old_str.as_ref().is_some_and(|s| !s.is_empty()) => "str_replace",
+        None => "create",
+    }
+}
+
+fn line_range_bounds(
+    content: &str,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> Result<(usize, usize), String> {
+    if start_line.is_none() && end_line.is_none() {
+        return Ok((0, content.len()));
+    }
+
+    let mut line_starts = vec![0usize];
+    for (idx, byte) in content.bytes().enumerate() {
+        if byte == b'\n' && idx + 1 < content.len() {
+            line_starts.push(idx + 1);
+        }
+    }
+
+    let line_count = if content.is_empty() {
+        1
+    } else {
+        line_starts.len()
+    };
+    let start = start_line.unwrap_or(1);
+    let end = end_line.unwrap_or(line_count);
+
+    if start == 0 || end == 0 {
+        return Err("start_line and end_line are 1-based; use values >= 1.".to_string());
+    }
+    if start > end {
+        return Err("start_line must be less than or equal to end_line.".to_string());
+    }
+    if start > line_count {
+        return Err(format!(
+            "start_line {start} is beyond the file length ({line_count} lines)."
+        ));
+    }
+
+    let start_byte = line_starts[start - 1];
+    let end_byte = if end >= line_count {
+        content.len()
+    } else {
+        line_starts[end]
+    };
+    Ok((start_byte, end_byte))
+}
+
+fn normalize_line_endings_with_map(input: &str) -> (String, Vec<usize>) {
+    let mut normalized = String::with_capacity(input.len());
+    let mut byte_map = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut idx = 0usize;
+
+    while idx < bytes.len() {
+        if bytes[idx] == b'\r' && idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
+            normalized.push('\n');
+            byte_map.push(idx);
+            idx += 2;
+            continue;
+        }
+
+        let ch = input[idx..]
+            .chars()
+            .next()
+            .expect("idx should always be on a char boundary");
+        normalized.push(ch);
+        byte_map.push(idx);
+        idx += ch.len_utf8();
+    }
+
+    (normalized, byte_map)
+}
+
+fn find_line_ending_normalized_matches(haystack: &str, needle: &str) -> Vec<(usize, usize)> {
+    let (normalized_haystack, haystack_map) = normalize_line_endings_with_map(haystack);
+    let (normalized_needle, _) = normalize_line_endings_with_map(needle);
+    if normalized_needle.is_empty() || normalized_haystack == haystack {
+        return Vec::new();
+    }
+
+    normalized_haystack
+        .match_indices(&normalized_needle)
+        .filter_map(|(start, matched)| {
+            let end = start + matched.len();
+            let original_start = *haystack_map.get(start)?;
+            let original_end = haystack_map.get(end).copied().unwrap_or(haystack.len());
+            Some((original_start, original_end.saturating_sub(original_start)))
+        })
+        .collect()
+}
+
+fn find_replacement_matches(
+    content: &str,
+    old_str: &str,
+    start_byte: usize,
+    end_byte: usize,
+) -> Vec<(usize, usize)> {
+    let search_area = &content[start_byte..end_byte];
+    let exact: Vec<(usize, usize)> = search_area
+        .match_indices(old_str)
+        .map(|(offset, matched)| (start_byte + offset, matched.len()))
+        .collect();
+    if !exact.is_empty() {
+        return exact;
+    }
+
+    find_line_ending_normalized_matches(search_area, old_str)
+        .into_iter()
+        .map(|(offset, len)| (start_byte + offset, len))
+        .collect()
 }
 
 #[async_trait]
@@ -176,14 +304,14 @@ impl EditFileTool {
 
             let requested = PathBuf::from(&args.path);
 
-            match args.action.as_str() {
+            match normalized_action(&args) {
                 "str_replace" => {
                     let old_str = match args.old_str.as_deref() {
                         Some(s) if !s.is_empty() => s,
                         _ => {
                             return Ok(ToolResult {
                                 call_id: call_id.clone(),
-                                content: "str_replace requires a non-empty 'old_str' parameter."
+                                content: "str_replace requires a non-empty 'old_str' parameter. The alias 'old_string' is also accepted."
                                     .to_string(),
                                 is_error: true,
                                 artifacts: None,
@@ -238,15 +366,48 @@ impl EditFileTool {
                         }
                     };
 
-                    // Count occurrences of old_str.
-                    let matches: Vec<_> = content.match_indices(old_str).collect();
+                    let (search_start, search_end) = match line_range_bounds(
+                        &content,
+                        args.start_line,
+                        args.end_line,
+                    ) {
+                        Ok(range) => range,
+                        Err(msg) => {
+                            return Ok(ToolResult {
+                                call_id: call_id.clone(),
+                                content: msg,
+                                is_error: true,
+                                artifacts: None,
+                            });
+                        }
+                    };
+
+                    // Count occurrences of old_str within the requested line range.
+                    let matches = find_replacement_matches(
+                        &content,
+                        old_str,
+                        search_start,
+                        search_end,
+                    );
 
                     if matches.is_empty() {
+                        let range_hint = match (args.start_line, args.end_line) {
+                            (None, None) => String::new(),
+                            (start, end) => format!(
+                                " within lines {}..{}",
+                                start
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_else(|| "1".to_string()),
+                                end.map(|n| n.to_string())
+                                    .unwrap_or_else(|| "end".to_string())
+                            ),
+                        };
                         return Ok(ToolResult {
                             call_id: call_id.clone(),
                             content: format!(
-                                "old_str not found in '{}'. Make sure the string matches exactly, including whitespace and newlines.",
-                                args.path
+                                "old_str not found in '{}'{}. Make sure the string matches exactly, including whitespace. Accepted aliases: old_string/new_string; action 'replace' is treated as 'str_replace'.",
+                                args.path,
+                                range_hint
                             ),
                             is_error: true,
                             artifacts: None,
@@ -257,7 +418,7 @@ impl EditFileTool {
                         return Ok(ToolResult {
                             call_id: call_id.clone(),
                             content: format!(
-                                "old_str found {} times in '{}'. It must match exactly once. Include more surrounding context to make it unique.",
+                                "old_str found {} times in '{}'. It must match exactly once. Include more surrounding context or pass start_line/end_line to narrow the replacement.",
                                 matches.len(),
                                 args.path
                             ),
@@ -266,12 +427,12 @@ impl EditFileTool {
                         });
                     }
 
-                    let byte_offset = matches[0].0;
+                    let (byte_offset, matched_len) = matches[0];
                     let new_content = format!(
                         "{}{}{}",
                         &content[..byte_offset],
                         new_str,
-                        &content[byte_offset + old_str.len()..]
+                        &content[byte_offset + matched_len..]
                     );
 
                     let checkpoint = db.create_file_checkpoint(CreateFileCheckpointInput {
@@ -388,7 +549,7 @@ impl EditFileTool {
                 other => Ok(ToolResult {
                     call_id,
                     content: format!(
-                        "Unknown action '{}'. Must be 'str_replace' or 'create'.",
+                        "Unknown action '{}'. Must be 'str_replace', 'replace', or 'create'.",
                         other
                     ),
                     is_error: true,
@@ -449,6 +610,112 @@ mod tests {
         db.restore_file_checkpoint(checkpoint_id).unwrap();
         let restored = std::fs::read_to_string(&file).unwrap();
         assert_eq!(restored, "hello world\ngoodbye world\n");
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_accepts_common_aliases_and_infers_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("overview.md");
+        std::fs::write(&file, "## Document Index\n\nold row\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "old_string": "old row",
+            "new_string": "new row"
+        });
+
+        let result = tool
+            .execute("c-alias", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "## Document Index\n\nnew row\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_replace_action_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "alpha beta\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "replace",
+            "old_str": "alpha",
+            "new_str": "omega"
+        });
+
+        let result = tool
+            .execute("c-replace", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "omega beta\n");
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_can_narrow_by_line_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "target\nkeep\nsection\nkeep\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "str_replace",
+            "old_str": "keep",
+            "new_str": "changed",
+            "start_line": 4,
+            "end_line": 4
+        });
+
+        let result = tool
+            .execute("c-range", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "target\nkeep\nsection\nchanged\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_tolerates_crlf_line_endings_in_old_string() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "alpha\r\nbeta\r\ngamma\r\n").unwrap();
+
+        let db = setup_db_with_source(dir.path());
+        let tool = EditFileTool;
+        let args = serde_json::json!({
+            "path": file.to_string_lossy(),
+            "action": "str_replace",
+            "old_str": "alpha\nbeta",
+            "new_str": "delta"
+        });
+
+        let result = tool
+            .execute("c-crlf", &args.to_string(), &db, &[])
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "delta\r\ngamma\r\n"
+        );
     }
 
     #[tokio::test]
