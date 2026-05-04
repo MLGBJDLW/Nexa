@@ -186,7 +186,7 @@ fn indexed_documents(
         let key = if doc_path_buf.is_absolute() {
             doc_path_buf
                 .strip_prefix(root)
-                .map(|p| normalize_path_for_tree(p))
+                .map(normalize_path_for_tree)
                 .unwrap_or_else(|_| normalize_path_string(&doc_path))
         } else {
             normalize_path_string(&doc_path)

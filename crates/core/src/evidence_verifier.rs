@@ -265,9 +265,7 @@ fn overall_status(counts: &EvidenceAuditCounts) -> &'static str {
         "partial"
     } else if counts.pending > 0 {
         "pending"
-    } else if counts.passed > 0 {
-        "passed"
-    } else if counts.skipped > 0 && counts.skipped == counts.total {
+    } else if counts.passed > 0 || (counts.skipped > 0 && counts.skipped == counts.total) {
         "passed"
     } else {
         "pending"
