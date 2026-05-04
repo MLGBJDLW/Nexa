@@ -21,7 +21,8 @@
 //!   `fetch`, `commit`, `reset`, `--set`, `--unset`, etc.) are rejected even
 //!   if they appear later in the argv.
 //! * **Argv size caps.** Individual args > 8 KB and total argv > 32 KB are
-//!   rejected to prevent argv stuffing.
+//!   rejected to prevent argv stuffing. Larger generated scripts or text can
+//!   be passed through the bounded `stdin` field instead of argv.
 //! * **Scoped cwd by default.** In restricted mode, `cwd` is resolved via the
 //!   same helper as `read_file` and `edit_file`, so it must canonicalize
 //!   inside a registered source root. Less-restricted modes may allow any
@@ -49,6 +50,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 
 use crate::app_settings::ShellAccessMode;
 use crate::db::Database;
@@ -73,6 +75,7 @@ const MAX_TIMEOUT_SECS: u64 = 300;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_SINGLE_ARG_BYTES: usize = 8 * 1024;
 const MAX_TOTAL_ARGV_BYTES: usize = 32 * 1024;
+const MAX_STDIN_BYTES: usize = 1024 * 1024;
 
 /// Whitelisted program basenames. Matched case-insensitively on Windows,
 /// case-sensitively on Unix. The model may only pass these names exactly.
@@ -181,6 +184,8 @@ struct RunShellArgs {
     cwd: String,
     #[serde(default)]
     timeout_secs: Option<u64>,
+    #[serde(default)]
+    stdin: Option<String>,
 }
 
 fn repair_invalid_json_string_escapes(input: &str) -> String {
@@ -409,6 +414,19 @@ fn validate_args(mode: ShellAccessMode, program: &str, args: &[String]) -> Resul
         return Err("pwd does not accept any arguments".to_string());
     }
 
+    Ok(())
+}
+
+fn validate_stdin(stdin: Option<&str>) -> Result<(), String> {
+    let Some(input) = stdin else {
+        return Ok(());
+    };
+    let bytes = input.len();
+    if bytes > MAX_STDIN_BYTES {
+        return Err(format!(
+            "stdin payload ({bytes} bytes) exceeds {MAX_STDIN_BYTES}"
+        ));
+    }
     Ok(())
 }
 
@@ -982,11 +1000,16 @@ async fn execute_inner(
     args: &[String],
     cwd: &Path,
     timeout_secs: u64,
+    stdin: Option<&str>,
 ) -> Result<RunShellOutput, String> {
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(cwd)
-        .stdin(Stdio::null())
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
@@ -997,13 +1020,35 @@ async fn execute_inner(
     apply_os_options(&mut cmd);
 
     let started = Instant::now();
-    let child = cmd
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn '{program}': {e}"))?;
+
+    let stdin_task = if let Some(input) = stdin {
+        let mut child_stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "failed to open child stdin".to_string())?;
+        let input = input.to_string();
+        Some(tokio::spawn(async move {
+            child_stdin.write_all(input.as_bytes()).await?;
+            child_stdin.shutdown().await
+        }))
+    } else {
+        None
+    };
 
     let wait = child.wait_with_output();
     match tokio::time::timeout(Duration::from_secs(timeout_secs), wait).await {
         Ok(Ok(output)) => {
+            if let Some(task) = stdin_task {
+                match task.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+                    Ok(Err(e)) => return Err(format!("failed to write stdin: {e}")),
+                    Err(e) => return Err(format!("stdin writer task failed: {e}")),
+                }
+            }
             let (stdout, t_out) = bytes_to_clamped_string(&output.stdout, MAX_OUTPUT_BYTES);
             let (stderr, t_err) = bytes_to_clamped_string(&output.stderr, MAX_OUTPUT_BYTES);
             Ok(RunShellOutput {
@@ -1018,6 +1063,9 @@ async fn execute_inner(
         }
         Ok(Err(e)) => Err(format!("process wait failed: {e}")),
         Err(_) => {
+            if let Some(task) = stdin_task {
+                task.abort();
+            }
             // Timeout: child is dropped at end of scope (kill_on_drop). We
             // don't have access to the child after wait_with_output consumed
             // it, but kill_on_drop took ownership of the pipes and will
@@ -1039,12 +1087,21 @@ async fn execute_inner(
 // Confirmation / formatting helpers
 // ---------------------------------------------------------------------------
 
-fn format_confirmation(program: &str, args: &[String], cwd: &str, timeout: u64) -> String {
+fn format_confirmation(
+    program: &str,
+    args: &[String],
+    cwd: &str,
+    timeout: u64,
+    stdin_bytes: Option<usize>,
+) -> String {
     let args_joined = args.join(" ");
+    let stdin_note = stdin_bytes
+        .map(|bytes| format!(", stdin {bytes} bytes"))
+        .unwrap_or_default();
     if args_joined.is_empty() {
-        format!("Run: {program} in {cwd} (timeout {timeout}s)")
+        format!("Run: {program} in {cwd} (timeout {timeout}s{stdin_note})")
     } else {
-        format!("Run: {program} {args_joined} in {cwd} (timeout {timeout}s)")
+        format!("Run: {program} {args_joined} in {cwd} (timeout {timeout}s{stdin_note})")
     }
 }
 
@@ -1149,7 +1206,14 @@ impl Tool for RunShellTool {
             .and_then(|v| v.as_u64())
             .map(|t| clamp_timeout(Some(t)))
             .unwrap_or(DEFAULT_TIMEOUT_SECS);
-        Some(format_confirmation(program, &args_vec, cwd, timeout))
+        let stdin_bytes = args.get("stdin").and_then(|v| v.as_str()).map(str::len);
+        Some(format_confirmation(
+            program,
+            &args_vec,
+            cwd,
+            timeout,
+            stdin_bytes,
+        ))
     }
 
     async fn execute(
@@ -1175,6 +1239,9 @@ impl Tool for RunShellTool {
         let resolved_program = resolve_program(&canonical_program);
 
         if let Err(msg) = validate_args(shell_access_mode, &canonical_program, &normalized_args) {
+            return Ok(error_result(call_id, msg));
+        }
+        if let Err(msg) = validate_stdin(parsed.stdin.as_deref()) {
             return Ok(error_result(call_id, msg));
         }
 
@@ -1225,12 +1292,26 @@ impl Tool for RunShellTool {
         };
 
         let output = if is_native_filesystem_program(&canonical_program) {
+            if parsed.stdin.is_some() {
+                return Ok(error_result(
+                    call_id,
+                    "stdin is only supported for external programs, not native filesystem commands",
+                ));
+            }
             match execute_native_filesystem(&canonical_program, &normalized_args, &cwd_path).await {
                 Ok(o) => o,
                 Err(msg) => return Ok(error_result(call_id, msg)),
             }
         } else {
-            match execute_inner(&resolved_program, &normalized_args, &cwd_path, timeout).await {
+            match execute_inner(
+                &resolved_program,
+                &normalized_args,
+                &cwd_path,
+                timeout,
+                parsed.stdin.as_deref(),
+            )
+            .await
+            {
                 Ok(o) => o,
                 Err(msg) => return Ok(error_result(call_id, msg)),
             }
@@ -1246,6 +1327,7 @@ impl Tool for RunShellTool {
             killed = output.killed_by_timeout,
             truncated_stdout = output.truncated_stdout,
             truncated_stderr = output.truncated_stderr,
+            stdin_bytes = parsed.stdin.as_deref().map(str::len).unwrap_or(0),
             "run_shell executed"
         );
 
@@ -1361,6 +1443,18 @@ mod tests {
         let chunk = "x".repeat(4 * 1024);
         let args: Vec<String> = (0..10).map(|_| chunk.clone()).collect();
         assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
+    }
+
+    #[test]
+    fn test_stdin_cap_allows_larger_than_single_argv() {
+        let input = "x".repeat(MAX_SINGLE_ARG_BYTES + 1);
+        assert!(validate_stdin(Some(&input)).is_ok());
+    }
+
+    #[test]
+    fn test_reject_oversized_stdin() {
+        let input = "x".repeat(MAX_STDIN_BYTES + 1);
+        assert!(validate_stdin(Some(&input)).is_err());
     }
 
     #[test]
@@ -1834,6 +1928,7 @@ mod tests {
             &["-c".to_string(), "print('hello')".to_string()],
             tmp.path(),
             10,
+            None,
         )
         .await
         .expect("run ok");
@@ -1852,6 +1947,7 @@ mod tests {
             &["-c".to_string(), "import time; time.sleep(60)".to_string()],
             tmp.path(),
             2,
+            None,
         )
         .await
         .expect("run ok");
@@ -1868,6 +1964,7 @@ mod tests {
             &["-c".to_string(), "print('x' * 200000)".to_string()],
             tmp.path(),
             10,
+            None,
         )
         .await
         .expect("run ok");
@@ -1883,6 +1980,7 @@ mod tests {
             &["status".to_string(), "--short".to_string()],
             Path::new("."),
             10,
+            None,
         )
         .await
         .expect("run ok");
