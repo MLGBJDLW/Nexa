@@ -17,6 +17,7 @@ import { Button } from '../ui/Button';
 
 interface SourceFileTreeProps {
   sourceId: string;
+  className?: string;
 }
 
 function formatBytes(bytes?: number | null): string {
@@ -31,7 +32,7 @@ function formatBytes(bytes?: number | null): string {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
-export function SourceFileTree({ sourceId }: SourceFileTreeProps) {
+export function SourceFileTree({ sourceId, className = '' }: SourceFileTreeProps) {
   const { openFilePreview } = useFilePreview();
   const [childrenByPath, setChildrenByPath] = useState<Record<string, api.SourceTreeNode[]>>({});
   const [truncatedByPath, setTruncatedByPath] = useState<Record<string, boolean>>({});
@@ -213,11 +214,18 @@ export function SourceFileTree({ sourceId }: SourceFileTreeProps) {
   const rootLoading = loadingPaths.has('');
 
   return (
-    <div className="mt-3 rounded-md border border-border bg-surface-1">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium text-text-secondary">
-          <Folder size={14} className="text-accent" />
-          文件树
+    <div className={`flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-0 ${className}`}>
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-1/70 px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+            <Folder size={15} className="text-accent" />
+            文件浏览器
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-text-tertiary">
+            {rootLoading && rootNodes.length === 0
+              ? '正在读取目录'
+              : `${rootNodes.length} 个顶层条目${truncatedByPath[''] ? '，已截断' : ''}`}
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -238,16 +246,19 @@ export function SourceFileTree({ sourceId }: SourceFileTreeProps) {
         </div>
       )}
 
-      <div className="max-h-80 overflow-auto p-1.5">
+      <div
+        className="min-h-0 overflow-auto p-2"
+        style={{ height: 'clamp(360px, 58vh, 760px)' }}
+      >
         {rootLoading && rootNodes.length === 0 ? (
-          <div className="flex h-16 items-center justify-center gap-2 text-xs text-text-tertiary">
+          <div className="flex h-full min-h-64 items-center justify-center gap-2 text-xs text-text-tertiary">
             <RefreshCw size={13} className="animate-spin" />
             加载文件树
           </div>
         ) : rootNodes.length > 0 ? (
           renderNodes(rootNodes, 0)
         ) : (
-          <div className="flex h-16 items-center justify-center text-xs text-text-tertiary">
+          <div className="flex h-full min-h-64 items-center justify-center text-xs text-text-tertiary">
             没有匹配当前包含/排除规则的文件。
           </div>
         )}
