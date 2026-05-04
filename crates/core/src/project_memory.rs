@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::conversation::memory::estimate_tokens;
 use crate::db::Database;
 use crate::error::CoreError;
+use strsim::jaro_winkler;
 
 const MAX_PROJECT_MEMORIES: usize = 300;
 const MAX_MEMORY_CONTENT_CHARS: usize = 2_000;
@@ -24,6 +25,9 @@ pub struct ProjectMemory {
     pub source: String,
     pub pinned: bool,
     pub archived: bool,
+    pub confidence: f32,
+    pub expires_at: Option<String>,
+    pub conflict_status: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -36,6 +40,9 @@ pub struct CreateProjectMemoryInput {
     pub content: String,
     pub pinned: Option<bool>,
     pub source: Option<String>,
+    pub confidence: Option<f32>,
+    pub expires_at: Option<String>,
+    pub conflict_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +53,9 @@ pub struct UpdateProjectMemoryInput {
     pub content: Option<String>,
     pub pinned: Option<bool>,
     pub archived: Option<bool>,
+    pub confidence: Option<f32>,
+    pub expires_at: Option<Option<String>>,
+    pub conflict_status: Option<String>,
 }
 
 fn normalize_kind(kind: Option<&str>) -> String {
@@ -64,6 +74,31 @@ fn clamp_text(value: &str, max_chars: usize) -> String {
     trimmed.chars().take(max_chars).collect()
 }
 
+fn normalize_conflict_status(status: Option<&str>) -> String {
+    match status
+        .unwrap_or("clear")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "clear" | "suspected" | "conflicting" | "resolved" => {
+            status.unwrap_or("clear").trim().to_ascii_lowercase()
+        }
+        _ => "clear".to_string(),
+    }
+}
+
+fn clamp_confidence(confidence: Option<f32>) -> f32 {
+    confidence.unwrap_or(0.75).clamp(0.0, 1.0)
+}
+
+fn normalize_optional_datetime(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(40).collect::<String>())
+}
+
 fn memory_from_row(row: &rusqlite::Row<'_>) -> Result<ProjectMemory, rusqlite::Error> {
     Ok(ProjectMemory {
         id: row.get(0)?,
@@ -74,8 +109,11 @@ fn memory_from_row(row: &rusqlite::Row<'_>) -> Result<ProjectMemory, rusqlite::E
         source: row.get(5)?,
         pinned: row.get::<_, i32>(6)? != 0,
         archived: row.get::<_, i32>(7)? != 0,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        confidence: row.get::<_, f32>(8)?,
+        expires_at: row.get(9)?,
+        conflict_status: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
@@ -112,11 +150,26 @@ impl Database {
         let title = clamp_text(input.title.as_deref().unwrap_or(""), 120);
         let source = input.source.as_deref().unwrap_or("manual").trim();
         let pinned: i32 = if input.pinned.unwrap_or(false) { 1 } else { 0 };
+        let confidence = clamp_confidence(input.confidence);
+        let expires_at = normalize_optional_datetime(input.expires_at.as_deref());
+        let conflict_status = normalize_conflict_status(input.conflict_status.as_deref());
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO project_memories (id, project_id, kind, title, content, source, pinned)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![&id, project_id, &kind, &title, &content, source, pinned],
+            "INSERT INTO project_memories
+             (id, project_id, kind, title, content, source, pinned, confidence, expires_at, conflict_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                &id,
+                project_id,
+                &kind,
+                &title,
+                &content,
+                source,
+                pinned,
+                confidence,
+                expires_at,
+                conflict_status
+            ],
         )?;
         drop(conn);
         self.get_project_memory(&id)
@@ -125,7 +178,8 @@ impl Database {
     pub fn get_project_memory(&self, id: &str) -> Result<ProjectMemory, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, project_id, kind, title, content, source, pinned, archived, created_at, updated_at
+            "SELECT id, project_id, kind, title, content, source, pinned, archived,
+                    confidence, expires_at, conflict_status, created_at, updated_at
              FROM project_memories WHERE id = ?1",
             params![id],
             memory_from_row,
@@ -142,9 +196,11 @@ impl Database {
         let _ = self.get_project(project_id)?;
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, kind, title, content, source, pinned, archived, created_at, updated_at
+            "SELECT id, project_id, kind, title, content, source, pinned, archived,
+                    confidence, expires_at, conflict_status, created_at, updated_at
              FROM project_memories
              WHERE project_id = ?1 AND archived = 0
+               AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
              ORDER BY pinned DESC, updated_at DESC",
         )?;
         let rows = stmt.query_map(params![project_id], memory_from_row)?;
@@ -200,6 +256,25 @@ impl Database {
                 params![value, id],
             )?;
         }
+        if let Some(confidence) = input.confidence {
+            conn.execute(
+                "UPDATE project_memories SET confidence = ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![clamp_confidence(Some(confidence)), id],
+            )?;
+        }
+        if let Some(expires_at) = &input.expires_at {
+            let normalized = normalize_optional_datetime(expires_at.as_deref());
+            conn.execute(
+                "UPDATE project_memories SET expires_at = ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![normalized, id],
+            )?;
+        }
+        if let Some(conflict_status) = &input.conflict_status {
+            conn.execute(
+                "UPDATE project_memories SET conflict_status = ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![normalize_conflict_status(Some(conflict_status.as_str())), id],
+            )?;
+        }
         drop(conn);
         self.get_project_memory(id)
     }
@@ -227,26 +302,7 @@ pub fn build_project_memory_summary_for_query(
         return Ok(String::new());
     }
 
-    let terms: Vec<String> = query
-        .unwrap_or("")
-        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
-        .filter(|s| s.chars().count() >= 2)
-        .map(|s| s.to_ascii_lowercase())
-        .collect();
-
-    memories.sort_by(|a, b| {
-        let score = |m: &ProjectMemory| -> i32 {
-            let haystack = format!("{} {} {}", m.kind, m.title, m.content).to_ascii_lowercase();
-            let matches = terms
-                .iter()
-                .filter(|term| haystack.contains(term.as_str()))
-                .count();
-            (if m.pinned { 100 } else { 0 }) + (matches as i32 * 10)
-        };
-        score(b)
-            .cmp(&score(a))
-            .then_with(|| b.updated_at.cmp(&a.updated_at))
-    });
+    memories = rank_project_memories_for_query(memories, query.unwrap_or(""));
 
     let mut lines = Vec::new();
     let mut tokens = 0u32;
@@ -282,6 +338,133 @@ pub fn build_project_memory_summary_for_query(
     ))
 }
 
+pub fn rank_project_memories_for_query(
+    mut memories: Vec<ProjectMemory>,
+    query: &str,
+) -> Vec<ProjectMemory> {
+    let terms = extract_memory_query_terms(query);
+    memories.sort_by(|a, b| {
+        let score_b = score_project_memory(b, query, &terms);
+        let score_a = score_project_memory(a, query, &terms);
+        score_b
+            .cmp(&score_a)
+            .then_with(|| b.updated_at.cmp(&a.updated_at))
+            .then_with(|| b.created_at.cmp(&a.created_at))
+    });
+    memories
+}
+
+fn extract_memory_query_terms(query: &str) -> Vec<String> {
+    let lower = query.to_ascii_lowercase();
+    let mut terms: Vec<String> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+        .filter(|s| s.chars().count() >= 2)
+        .map(ToString::to_string)
+        .collect();
+
+    let cjk_chars: Vec<char> = query.chars().filter(|ch| is_cjk(*ch)).collect();
+    if cjk_chars.len() >= 2 {
+        for window in cjk_chars.windows(2) {
+            terms.push(window.iter().collect::<String>());
+        }
+    }
+    if cjk_chars.len() >= 3 {
+        for window in cjk_chars.windows(3) {
+            terms.push(window.iter().collect::<String>());
+        }
+    }
+
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(ch, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}')
+}
+
+fn score_project_memory(memory: &ProjectMemory, query: &str, terms: &[String]) -> i32 {
+    let title = memory.title.to_ascii_lowercase();
+    let content = memory.content.to_ascii_lowercase();
+    let kind = memory.kind.to_ascii_lowercase();
+    let query_lower = query.to_ascii_lowercase();
+
+    let mut score = 0i32;
+    if memory.pinned {
+        score += 70;
+    }
+    score += (memory.confidence.clamp(0.0, 1.0) * 20.0).round() as i32;
+    score += match memory.conflict_status.as_str() {
+        "suspected" => -20,
+        "conflicting" => -55,
+        _ => 0,
+    };
+    if !query_lower.trim().is_empty() {
+        if title.contains(query_lower.trim()) {
+            score += 80;
+        } else if content.contains(query_lower.trim()) {
+            score += 50;
+        }
+    }
+
+    let mut matched_terms = 0i32;
+    for term in terms {
+        if title.contains(term) {
+            score += 22;
+            matched_terms += 1;
+        } else if content.contains(term) || kind.contains(term) {
+            score += 12;
+            matched_terms += 1;
+        }
+    }
+    if !terms.is_empty() {
+        let coverage = matched_terms as f32 / terms.len() as f32;
+        score += (coverage * 45.0).round() as i32;
+    }
+
+    score += memory_kind_intent_boost(&kind, &query_lower);
+
+    if query.chars().count() >= 8 {
+        let comparable = format!("{title} {content}");
+        score += (jaro_winkler(&comparable, &query_lower) * 28.0).round() as i32;
+    }
+
+    score
+}
+
+fn memory_kind_intent_boost(kind: &str, query: &str) -> i32 {
+    let style_intent = query.contains("style")
+        || query.contains("tone")
+        || query.contains("format")
+        || query.contains("风格")
+        || query.contains("语气")
+        || query.contains("格式");
+    let constraint_intent = query.contains("constraint")
+        || query.contains("rule")
+        || query.contains("must")
+        || query.contains("限制")
+        || query.contains("规则")
+        || query.contains("必须");
+    let decision_intent = query.contains("decision")
+        || query.contains("decided")
+        || query.contains("why")
+        || query.contains("决定")
+        || query.contains("为什么");
+    let preference_intent = query.contains("prefer")
+        || query.contains("preference")
+        || query.contains("喜欢")
+        || query.contains("偏好");
+
+    match kind {
+        "style" if style_intent => 35,
+        "constraint" if constraint_intent => 35,
+        "decision" if decision_intent => 30,
+        "preference" if preference_intent => 30,
+        "fact" if query.contains("what") || query.contains("什么") => 20,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +492,9 @@ mod tests {
                     content: "Use close third-person narration.".to_string(),
                     pinned: Some(true),
                     source: None,
+                    confidence: Some(0.9),
+                    expires_at: None,
+                    conflict_status: None,
                 },
             )
             .unwrap();
@@ -318,5 +504,164 @@ mod tests {
                 .unwrap();
         assert!(summary.contains("Project Memory"));
         assert!(summary.contains("close third-person"));
+    }
+
+    #[test]
+    fn project_memory_ranking_uses_kind_terms_and_cjk_ngrams() {
+        let base = |id: &str, kind: &str, title: &str, content: &str, pinned: bool| ProjectMemory {
+            id: id.to_string(),
+            project_id: "project".to_string(),
+            kind: kind.to_string(),
+            title: title.to_string(),
+            content: content.to_string(),
+            source: "manual".to_string(),
+            pinned,
+            archived: false,
+            confidence: 0.75,
+            expires_at: None,
+            conflict_status: "clear".to_string(),
+            created_at: "2026-01-01 00:00:00".to_string(),
+            updated_at: "2026-01-01 00:00:00".to_string(),
+        };
+        let ranked = rank_project_memories_for_query(
+            vec![
+                base("a", "note", "Backend backlog", "Tune indexing later.", true),
+                base(
+                    "b",
+                    "constraint",
+                    "Frontend i18n",
+                    "前端国际化适配必须覆盖所有新增文案。",
+                    false,
+                ),
+                base("c", "style", "Narration", "Use close third-person.", false),
+            ],
+            "前端国际化必须注意什么",
+        );
+
+        assert_eq!(ranked[0].id, "b");
+    }
+
+    #[test]
+    fn project_memory_summary_keeps_relevant_memory_under_budget() {
+        let db = Database::open_memory().unwrap();
+        let project = db
+            .create_project(&CreateProjectInput {
+                name: "Product".to_string(),
+                description: None,
+                icon: None,
+                color: None,
+                system_prompt: None,
+                source_scope: None,
+            })
+            .unwrap();
+
+        db.create_project_memory(
+            &project.id,
+            &CreateProjectMemoryInput {
+                kind: Some("note".to_string()),
+                title: Some("Unrelated".to_string()),
+                content: "Archived launch notes are stored elsewhere.".to_string(),
+                pinned: Some(false),
+                source: None,
+                confidence: None,
+                expires_at: None,
+                conflict_status: None,
+            },
+        )
+        .unwrap();
+        db.create_project_memory(
+            &project.id,
+            &CreateProjectMemoryInput {
+                kind: Some("constraint".to_string()),
+                title: Some("Frontend copy".to_string()),
+                content: "All frontend copy added during upgrades must have i18n coverage."
+                    .to_string(),
+                pinned: Some(false),
+                source: None,
+                confidence: Some(0.95),
+                expires_at: None,
+                conflict_status: None,
+            },
+        )
+        .unwrap();
+
+        let summary = build_project_memory_summary_for_query(
+            &db,
+            Some(&project.id),
+            Some("frontend i18n constraint"),
+        )
+        .unwrap();
+        let i18n_idx = summary.find("i18n coverage").unwrap();
+        let unrelated_idx = summary.find("Archived launch").unwrap();
+        assert!(i18n_idx < unrelated_idx);
+    }
+
+    #[test]
+    fn project_memory_lifecycle_filters_expired_and_penalizes_conflicts() {
+        let db = Database::open_memory().unwrap();
+        let project = db
+            .create_project(&CreateProjectInput {
+                name: "Research".to_string(),
+                description: None,
+                icon: None,
+                color: None,
+                system_prompt: None,
+                source_scope: None,
+            })
+            .unwrap();
+
+        db.create_project_memory(
+            &project.id,
+            &CreateProjectMemoryInput {
+                kind: Some("fact".to_string()),
+                title: Some("Expired".to_string()),
+                content: "Use the old export path.".to_string(),
+                pinned: Some(true),
+                source: None,
+                confidence: Some(1.0),
+                expires_at: Some("2000-01-01 00:00:00".to_string()),
+                conflict_status: None,
+            },
+        )
+        .unwrap();
+        let conflicting = db
+            .create_project_memory(
+                &project.id,
+                &CreateProjectMemoryInput {
+                    kind: Some("fact".to_string()),
+                    title: Some("Current export".to_string()),
+                    content: "Use the current export path.".to_string(),
+                    pinned: Some(false),
+                    source: None,
+                    confidence: Some(1.0),
+                    expires_at: None,
+                    conflict_status: Some("conflicting".to_string()),
+                },
+            )
+            .unwrap();
+        let clear = db
+            .create_project_memory(
+                &project.id,
+                &CreateProjectMemoryInput {
+                    kind: Some("fact".to_string()),
+                    title: Some("Current path".to_string()),
+                    content: "Use the current export path.".to_string(),
+                    pinned: Some(false),
+                    source: None,
+                    confidence: Some(0.8),
+                    expires_at: None,
+                    conflict_status: None,
+                },
+            )
+            .unwrap();
+
+        let listed = db.list_project_memories(&project.id).unwrap();
+        assert_eq!(listed.len(), 2);
+        assert!(!listed.iter().any(|memory| memory.title == "Expired"));
+
+        let ranked = rank_project_memories_for_query(listed, "current export path");
+        assert_eq!(ranked[0].id, clear.id);
+        assert_eq!(ranked[1].id, conflicting.id);
+        assert_eq!(ranked[1].conflict_status, "conflicting");
     }
 }
