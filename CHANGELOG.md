@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.3.5...nexa-monorepo-v0.3.6) (2026-05-04)
+
+
+### Features
+
+* allow unlimited agent turn timeout ([29a037f](https://github.com/MLGBJDLW/Nexa/commit/29a037fd25364f40e1cde6550ec87e24e71d0bd8))
+* **core:** add typed agent planning and evidence audit ([77af537](https://github.com/MLGBJDLW/Nexa/commit/77af537a6a902f214efeb8ba4dca4d7d814a3ac6))
+* **core:** persist subtask runs and memory lifecycle ([f4a9c0c](https://github.com/MLGBJDLW/Nexa/commit/f4a9c0c107761c92569d148e7464eabd3b0fd80e))
+* **desktop:** surface delegated subtask execution ([85e8325](https://github.com/MLGBJDLW/Nexa/commit/85e8325487d51103ac5430fb385dfad06f406867))
+* Upgrade agent intelligence architecture ([7db3e0b](https://github.com/MLGBJDLW/Nexa/commit/7db3e0b04ecf19bfdd40eedf71119cc2ed793a9c))
+
+
+### Bug Fixes
+
+* **ci:** resolve clippy warnings ([bb21140](https://github.com/MLGBJDLW/Nexa/commit/bb211402b8f62107821042657c026902046da9dc))
+* preserve steering message order ([ed5d49b](https://github.com/MLGBJDLW/Nexa/commit/ed5d49b280b288215c47fa340ce5f284eca878c1))
+* respect open access in file tools ([46469ea](https://github.com/MLGBJDLW/Nexa/commit/46469ea40d7cc3e41859fc7620f1a04fd5ed6521))
+* show only plan progress in task board ([44b3387](https://github.com/MLGBJDLW/Nexa/commit/44b3387b078af7fd7eedca64ccfb9d9cdbea8bf7))
+
 ## [0.3.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.3.4...nexa-monorepo-v0.3.5) (2026-05-04)
 
 
