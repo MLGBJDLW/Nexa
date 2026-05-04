@@ -488,6 +488,7 @@ export interface TranslationKeys {
   'settings.toolTimeout': string;
   'settings.toolTimeoutDesc': string;
   'settings.agentTimeout': string;
+  'settings.agentTimeoutNoLimit': string;
   'settings.agentTimeoutDesc': string;
   'settings.timeout': string;
 
@@ -767,6 +768,13 @@ export interface TranslationKeys {
   'chat.planPercentComplete': string;
   'chat.planInProgressCount': string;
   'chat.planPendingCount': string;
+  'chat.subtasksLabel': string;
+  'chat.subtasksDefaultSummary': string;
+  'chat.subtasksCompletedCount': string;
+  'chat.subtasksFailedCount': string;
+  'chat.subtasksRunningCount': string;
+  'chat.subtasksQueuedCount': string;
+  'chat.subtasksTokenBudget': string;
   'chat.verificationLabel': string;
   'chat.verificationDefaultSummary': string;
   'chat.verificationStatus': string;
@@ -781,6 +789,7 @@ export interface TranslationKeys {
   'chat.showLess': string;
   'chat.showAllSteps': string;
   'chat.showAllChecks': string;
+  'chat.showAllSubtasks': string;
   'chat.selectMode': string;
   'chat.exitSelectMode': string;
   'chat.deleteAll': string;

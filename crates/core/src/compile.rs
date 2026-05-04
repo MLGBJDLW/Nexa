@@ -91,6 +91,7 @@ struct LlmRelation {
 // ── Constants ──
 
 const COMPILE_SYSTEM_PROMPT: &str = include_str!("../prompts/compile.md");
+const COMPILE_INPUT_CHAR_BUDGET: usize = 12_000;
 
 // ── Core Functions ──
 
@@ -107,19 +108,17 @@ pub async fn compile_document(
         return Err(CoreError::InvalidInput("Document has no content".into()));
     }
 
-    // Truncate to ~8000 chars to stay within token limits
-    let truncated = if content.len() > 8000 {
-        &content[..8000]
-    } else {
-        &content
-    };
+    let compile_input = build_compile_input_excerpt(&content, COMPILE_INPUT_CHAR_BUDGET);
 
     // 2. Call LLM to compile
     let request = CompletionRequest {
         model: model.to_string(),
         messages: vec![
             Message::text(Role::System, COMPILE_SYSTEM_PROMPT.to_string()),
-            Message::text(Role::User, format!("Compile this document:\n\n{truncated}")),
+            Message::text(
+                Role::User,
+                format!("Compile this document:\n\n{compile_input}"),
+            ),
         ],
         max_tokens: Some(2000),
         temperature: Some(0.2),
@@ -183,6 +182,39 @@ pub async fn compile_document(
         entities_found,
         links_created,
     })
+}
+
+fn build_compile_input_excerpt(content: &str, max_chars: usize) -> String {
+    if content.chars().count() <= max_chars {
+        return content.to_string();
+    }
+
+    let head_budget = (max_chars as f32 * 0.45).round() as usize;
+    let middle_budget = (max_chars as f32 * 0.20).round() as usize;
+    let tail_budget = max_chars.saturating_sub(head_budget + middle_budget);
+    let total_chars = content.chars().count();
+
+    let head = take_chars(content, head_budget);
+    let middle_start = total_chars.saturating_sub(middle_budget).saturating_div(2);
+    let middle = skip_take_chars(content, middle_start, middle_budget);
+    let tail_start = total_chars.saturating_sub(tail_budget);
+    let tail = skip_take_chars(content, tail_start, tail_budget);
+
+    format!(
+        "## Document Excerpt\n\
+         The source document is longer than the compile input budget. This excerpt preserves the beginning, middle, and end so conclusions are not based only on the opening section.\n\n\
+         ### Beginning\n{head}\n\n\
+         ### Middle\n{middle}\n\n\
+         ### End\n{tail}"
+    )
+}
+
+fn take_chars(content: &str, count: usize) -> String {
+    content.chars().take(count).collect()
+}
+
+fn skip_take_chars(content: &str, skip: usize, count: usize) -> String {
+    content.chars().skip(skip).take(count).collect()
 }
 
 /// Progress information emitted during compilation.
@@ -549,5 +581,51 @@ impl Database {
             rusqlite::params![id, doc_id, content, len, hash],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compile_excerpt_keeps_beginning_middle_and_end() {
+        let content = format!(
+            "{}\n{}\n{}",
+            "BEGIN ".repeat(3000),
+            "MIDDLE ".repeat(3000),
+            "ENDMARK ".repeat(3000)
+        );
+
+        let excerpt = build_compile_input_excerpt(&content, 1200);
+
+        assert!(excerpt.contains("### Beginning"));
+        assert!(excerpt.contains("BEGIN"));
+        assert!(excerpt.contains("### Middle"));
+        assert!(excerpt.contains("MIDDLE"));
+        assert!(excerpt.contains("### End"));
+        assert!(excerpt.contains("ENDMARK"));
+    }
+
+    #[test]
+    fn compile_excerpt_is_utf8_safe() {
+        let content = format!(
+            "{}{}{}",
+            "开始".repeat(3000),
+            "中段".repeat(3000),
+            "结尾".repeat(3000)
+        );
+
+        let excerpt = build_compile_input_excerpt(&content, 999);
+
+        assert!(excerpt.contains("开始"));
+        assert!(excerpt.contains("中段"));
+        assert!(excerpt.contains("结尾"));
+    }
+
+    #[test]
+    fn compile_excerpt_returns_short_content_unchanged() {
+        let content = "short document";
+        assert_eq!(build_compile_input_excerpt(content, 1200), content);
     }
 }

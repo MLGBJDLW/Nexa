@@ -75,6 +75,26 @@ test.beforeEach(async ({ page }) => {
               {
                 kind: 'tool',
                 toolCall: {
+                  callId: 'tool-plan-1',
+                  toolName: 'update_plan',
+                  arguments: '{"steps":[{"step":"Draft fix","status":"in_progress"}]}',
+                  status: 'done',
+                  content: 'Plan updated',
+                  isError: false,
+                  artifacts: {
+                    kind: 'plan',
+                    title: 'Trace plan',
+                    steps: [
+                      { title: 'Draft fix', status: 'in_progress' },
+                      { title: 'Verify fix', status: 'pending' },
+                    ],
+                    counts: { total: 2, completed: 0, inProgress: 1, pending: 1 },
+                  },
+                },
+              },
+              {
+                kind: 'tool',
+                toolCall: {
                   callId: 'tool-artifact-1',
                   toolName: 'search_knowledge_base',
                   arguments: '{"query":"retry"}',
@@ -132,6 +152,8 @@ test.beforeEach(async ({ page }) => {
           return [clone(defaultAgentConfig)];
         case 'get_model_context_window':
           return 1047576;
+        case 'get_wizard_state_cmd':
+          return { completed: true, language: 'en', aiProvider: 'open_ai', sourceAdded: true };
         case 'list_conversations_cmd':
           return Object.values(conversations).map(clone);
         case 'get_conversation_cmd': {
@@ -212,11 +234,14 @@ test.beforeEach(async ({ page }) => {
 
 test('renders persisted trace artifacts as a single unified timeline', async ({ page }) => {
   await page.goto('/chat/conv-persisted-artifact-trace');
+  await page.getByRole('button', { name: /Thinking completed/ }).click();
 
   await expect(page.getByText('Investigating retry behaviour from persisted artifacts.')).toBeVisible();
   await expect(page.getByText('search_knowledge_base')).toBeVisible();
   await expect(page.getByText('Recovered from persisted trace data.')).toBeVisible();
   await expect(page.getByText('Final answer from persisted trace artifacts.')).toBeVisible();
+  await expect(page.getByText('Trace plan')).toBeVisible();
+  await expect(page.getByText('Draft fix')).toBeVisible();
 
   const chatLogText = await page.getByLabel('Chat messages').textContent();
   const text = chatLogText ?? '';
@@ -224,4 +249,6 @@ test('renders persisted trace artifacts as a single unified timeline', async ({ 
   expect(text.indexOf('search_knowledge_base')).toBeGreaterThan(text.indexOf('Investigating retry behaviour from persisted artifacts.'));
   expect(text.indexOf('Recovered from persisted trace data.')).toBeGreaterThan(text.indexOf('search_knowledge_base'));
   expect(text.indexOf('Final answer from persisted trace artifacts.')).toBeGreaterThan(text.indexOf('Recovered from persisted trace data.'));
+  expect(text).not.toContain('update_plan');
+  expect(text).not.toContain('Draft fix');
 });

@@ -580,7 +580,6 @@ export function ChatPage() {
               messages={chat.messages}
               toolCalls={chat.toolCalls}
               taskRun={chat.taskRun}
-              taskEvents={chat.taskEvents}
             />
             <ChatInput
               onSend={chat.send}

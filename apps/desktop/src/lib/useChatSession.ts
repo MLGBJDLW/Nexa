@@ -94,6 +94,23 @@ function isSteeringMessage(message: ConversationMessage): boolean {
   );
 }
 
+function isOptimisticSteeringMessage(message: ConversationMessage): boolean {
+  return message.id.startsWith('temp-steer-') && isSteeringMessage(message);
+}
+
+function insertMessagesByCreatedAt(
+  messages: ConversationMessage[],
+  inserts: ConversationMessage[],
+): ConversationMessage[] {
+  const ordered = [...messages];
+  for (const insert of inserts) {
+    const insertTime = appTimeMs(insert.createdAt);
+    const insertAt = ordered.findIndex((message) => appTimeMs(message.createdAt) > insertTime);
+    ordered.splice(insertAt === -1 ? ordered.length : insertAt, 0, insert);
+  }
+  return ordered.map((message, index) => ({ ...message, sortOrder: index }));
+}
+
 function mergeLocalMessageState(
   prev: ConversationMessage[],
   next: ConversationMessage[],
@@ -103,21 +120,14 @@ function mergeLocalMessageState(
     merged.filter((m) => m.role === 'user').map((m) => m.content.trim()),
   );
   const preservedSteering = prev.filter(
-    (m) => isSteeringMessage(m) && !nextUserContent.has(m.content.trim()),
+    (m) => isOptimisticSteeringMessage(m) && !nextUserContent.has(m.content.trim()),
   );
 
   if (preservedSteering.length === 0) {
     return merged;
   }
 
-  const maxSortOrder = merged.reduce((max, msg) => Math.max(max, msg.sortOrder), -1);
-  return [
-    ...merged,
-    ...preservedSteering.map((msg, index) => ({
-      ...msg,
-      sortOrder: maxSortOrder + index + 1,
-    })),
-  ];
+  return insertMessagesByCreatedAt(merged, preservedSteering);
 }
 
 function normalizeUsage(usage: UsageTotal): UsageTotal {

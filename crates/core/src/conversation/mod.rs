@@ -198,6 +198,30 @@ pub struct AgentTaskRunEvent {
     pub created_at: String,
 }
 
+/// A durable delegated worker run attached to a parent task run.
+///
+/// This is the core-side persistence model for future subagent execution. The
+/// current desktop subagent tools can be wired to this without changing the
+/// user-facing task run table or overloading conversation turns.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSubtaskRun {
+    pub id: String,
+    pub parent_run_id: String,
+    pub label: String,
+    pub role: String,
+    pub status: String,
+    pub phase: String,
+    pub input: Option<serde_json::Value>,
+    pub output: Option<serde_json::Value>,
+    pub error_message: Option<String>,
+    pub token_budget: Option<u32>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
+
 /// A snapshot of conversation state before compaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1278,6 +1302,160 @@ impl Database {
         }
         Ok(results)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Agent delegated subtask run CRUD
+// ---------------------------------------------------------------------------
+
+impl Database {
+    pub fn create_agent_subtask_run(
+        &self,
+        parent_run_id: &str,
+        label: &str,
+        role: &str,
+        input: Option<&serde_json::Value>,
+        token_budget: Option<u32>,
+    ) -> Result<AgentSubtaskRun, CoreError> {
+        let _ = self.get_agent_task_run(parent_run_id)?;
+        let id = new_id();
+        let input_json = match input {
+            Some(value) => Some(serde_json::to_string(value)?),
+            None => None,
+        };
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO agent_subtask_runs
+             (id, parent_run_id, label, role, status, phase, input_json, token_budget)
+             VALUES (?1, ?2, ?3, ?4, 'queued', 'queued', ?5, ?6)",
+            rusqlite::params![
+                &id,
+                parent_run_id,
+                label.trim(),
+                role.trim(),
+                input_json,
+                token_budget.map(|value| value as i64),
+            ],
+        )?;
+        drop(conn);
+        self.get_agent_subtask_run(&id)
+    }
+
+    pub fn mark_agent_subtask_run_started(
+        &self,
+        subtask_run_id: &str,
+        phase: &str,
+    ) -> Result<(), CoreError> {
+        let conn = self.conn();
+        let affected = conn.execute(
+            "UPDATE agent_subtask_runs
+             SET status = 'running',
+                 phase = ?2,
+                 started_at = COALESCE(started_at, datetime('now')),
+                 updated_at = datetime('now')
+             WHERE id = ?1",
+            rusqlite::params![subtask_run_id, phase],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!(
+                "Agent subtask run {subtask_run_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn finish_agent_subtask_run(
+        &self,
+        subtask_run_id: &str,
+        status: &str,
+        output: Option<&serde_json::Value>,
+        error_message: Option<&str>,
+    ) -> Result<(), CoreError> {
+        let output_json = match output {
+            Some(value) => Some(serde_json::to_string(value)?),
+            None => None,
+        };
+        let conn = self.conn();
+        let affected = conn.execute(
+            "UPDATE agent_subtask_runs
+             SET status = ?2,
+                 phase = 'done',
+                 output_json = COALESCE(?3, output_json),
+                 error_message = COALESCE(?4, error_message),
+                 finished_at = COALESCE(finished_at, datetime('now')),
+                 updated_at = datetime('now')
+             WHERE id = ?1",
+            rusqlite::params![subtask_run_id, status, output_json, error_message],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!(
+                "Agent subtask run {subtask_run_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn get_agent_subtask_run(
+        &self,
+        subtask_run_id: &str,
+    ) -> Result<AgentSubtaskRun, CoreError> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT id, parent_run_id, label, role, status, phase, input_json,
+                    output_json, error_message, token_budget, created_at, updated_at,
+                    started_at, finished_at
+             FROM agent_subtask_runs
+             WHERE id = ?1",
+            rusqlite::params![subtask_run_id],
+            agent_subtask_run_from_row,
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                CoreError::NotFound(format!("Agent subtask run {subtask_run_id}"))
+            }
+            other => CoreError::Database(other),
+        })
+    }
+
+    pub fn list_agent_subtask_runs(
+        &self,
+        parent_run_id: &str,
+    ) -> Result<Vec<AgentSubtaskRun>, CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, parent_run_id, label, role, status, phase, input_json,
+                    output_json, error_message, token_budget, created_at, updated_at,
+                    started_at, finished_at
+             FROM agent_subtask_runs
+             WHERE parent_run_id = ?1
+             ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![parent_run_id], agent_subtask_run_from_row)?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+}
+
+fn agent_subtask_run_from_row(row: &rusqlite::Row<'_>) -> Result<AgentSubtaskRun, rusqlite::Error> {
+    Ok(AgentSubtaskRun {
+        id: row.get(0)?,
+        parent_run_id: row.get(1)?,
+        label: row.get(2)?,
+        role: row.get(3)?,
+        status: row.get(4)?,
+        phase: row.get(5)?,
+        input: json_value_from_sql(row.get(6)?, 6)?,
+        output: json_value_from_sql(row.get(7)?, 7)?,
+        error_message: row.get(8)?,
+        token_budget: row.get::<_, Option<i64>>(9)?.map(|value| value as u32),
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        started_at: row.get(12)?,
+        finished_at: row.get(13)?,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2387,6 +2565,87 @@ mod tests {
         let events = db.get_agent_task_run_events(&run.id).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload.as_ref().unwrap()["callId"], "call-1");
+    }
+
+    #[test]
+    fn test_agent_subtask_run_lifecycle() {
+        let db = Database::open_memory().unwrap();
+        let conv = db
+            .create_conversation(&CreateConversationInput {
+                provider: "openai".into(),
+                model: "gpt-4o".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let user_msg = ConversationMessage {
+            id: new_id(),
+            conversation_id: conv.id.clone(),
+            role: Role::User,
+            content: "Compare three documents.".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 5,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&user_msg).unwrap();
+        let turn = db
+            .create_conversation_turn(&conv.id, &user_msg.id, None)
+            .unwrap();
+        let parent = db
+            .create_agent_task_run(
+                &conv.id,
+                &turn.id,
+                &user_msg.id,
+                "Compare three documents.",
+                Some("openai"),
+                Some("gpt-4o"),
+            )
+            .unwrap();
+
+        let subtask = db
+            .create_agent_subtask_run(
+                &parent.id,
+                "Inspect document A",
+                "researcher",
+                Some(&serde_json::json!({ "documentId": "doc-a" })),
+                Some(1200),
+            )
+            .unwrap();
+        assert_eq!(subtask.parent_run_id, parent.id);
+        assert_eq!(subtask.status, "queued");
+        assert_eq!(subtask.input.as_ref().unwrap()["documentId"], "doc-a");
+        assert_eq!(subtask.token_budget, Some(1200));
+
+        db.mark_agent_subtask_run_started(&subtask.id, "research")
+            .unwrap();
+        db.finish_agent_subtask_run(
+            &subtask.id,
+            "completed",
+            Some(&serde_json::json!({ "summary": "Document A inspected" })),
+            None,
+        )
+        .unwrap();
+
+        let fetched = db.get_agent_subtask_run(&subtask.id).unwrap();
+        assert_eq!(fetched.status, "completed");
+        assert_eq!(fetched.phase, "done");
+        assert_eq!(
+            fetched.output.as_ref().unwrap()["summary"],
+            "Document A inspected"
+        );
+        assert!(fetched.started_at.is_some());
+        assert!(fetched.finished_at.is_some());
+
+        let children = db.list_agent_subtask_runs(&parent.id).unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].id, subtask.id);
     }
 
     #[test]

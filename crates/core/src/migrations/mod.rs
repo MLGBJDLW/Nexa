@@ -803,6 +803,37 @@ Every answer that uses knowledge base search results.
             ON personas(enabled, created_at);
         ALTER TABLE conversations ADD COLUMN persona_id TEXT DEFAULT NULL;",
     ),
+    (
+        "v056_agent_subtask_runs",
+        "CREATE TABLE IF NOT EXISTS agent_subtask_runs (
+            id TEXT PRIMARY KEY,
+            parent_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+            label TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'queued',
+            phase TEXT NOT NULL DEFAULT 'queued',
+            input_json TEXT,
+            output_json TEXT,
+            error_message TEXT,
+            token_budget INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at TEXT,
+            finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_subtask_runs_parent
+            ON agent_subtask_runs(parent_run_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_subtask_runs_status
+            ON agent_subtask_runs(status, created_at);",
+    ),
+    (
+        "v057_project_memory_lifecycle",
+        "ALTER TABLE project_memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.75;
+        ALTER TABLE project_memories ADD COLUMN expires_at TEXT DEFAULT NULL;
+        ALTER TABLE project_memories ADD COLUMN conflict_status TEXT NOT NULL DEFAULT 'clear';
+        CREATE INDEX IF NOT EXISTS idx_project_memories_lifecycle
+            ON project_memories(project_id, archived, expires_at, conflict_status);",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -927,6 +958,7 @@ mod tests {
         assert!(tables.contains(&"agent_evolution_events".to_string()));
         assert!(tables.contains(&"agent_task_runs".to_string()));
         assert!(tables.contains(&"agent_task_run_events".to_string()));
+        assert!(tables.contains(&"agent_subtask_runs".to_string()));
         assert!(tables.contains(&"file_checkpoints".to_string()));
         assert!(tables.contains(&"personas".to_string()));
     }
@@ -1034,5 +1066,22 @@ mod tests {
             has_default_skills,
             "personas.default_skill_ids_json should exist"
         );
+    }
+
+    #[test]
+    fn test_project_memory_lifecycle_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).expect("migrations should succeed");
+
+        for column in ["confidence", "expires_at", "conflict_status"] {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('project_memories') WHERE name = ?1",
+                    [column],
+                    |row| row.get::<_, i64>(0).map(|n| n > 0),
+                )
+                .unwrap();
+            assert!(exists, "project_memories.{column} should exist");
+        }
     }
 }

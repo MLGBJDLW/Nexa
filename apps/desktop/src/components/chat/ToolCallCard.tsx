@@ -400,7 +400,17 @@ export function ToolCallCard({
   const traceSoft = status !== 'error';
 
   if (trace) {
-    const canExpand = Boolean(formattedArgs || content || searchItems || planArtifact || verificationArtifact || streamingArgsPreview);
+    const canExpand = Boolean(
+      formattedArgs ||
+      content ||
+      searchItems ||
+      subagentRun ||
+      subagentBatch ||
+      subagentJudgement ||
+      planArtifact ||
+      verificationArtifact ||
+      streamingArgsPreview,
+    );
     return (
       <div className="rounded-lg border border-border/45 bg-surface-0/35">
         <button
@@ -436,7 +446,35 @@ export function ToolCallCard({
                 {streamingArgsPreview}
               </pre>
             )}
-            {searchItems ? (
+            {subagentRun ? (
+              <SubagentCard run={subagentRun} defaultOpen />
+            ) : subagentBatch ? (
+              <div className="space-y-2">
+                {subagentBatch.runs.map((run) => (
+                  <SubagentCard key={run.id} run={run} compact defaultOpen />
+                ))}
+              </div>
+            ) : subagentJudgement ? (
+              <div className="rounded-lg border border-border/60 bg-surface-0/70 px-3 py-2">
+                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                  <span className="font-medium text-text-primary">
+                    {subagentJudgement.task || 'Delegated result adjudication'}
+                  </span>
+                  <span className="rounded-full border border-border/60 bg-surface-1 px-2 py-0.5">
+                    {subagentJudgement.decisionMode}
+                  </span>
+                  {subagentJudgement.confidence && (
+                    <span className="rounded-full border border-border/60 bg-surface-1 px-2 py-0.5">
+                      confidence {subagentJudgement.confidence}
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm text-text-primary">{subagentJudgement.summary}</div>
+                {subagentJudgement.rationale && (
+                  <div className="mt-2 text-xs text-text-secondary">{subagentJudgement.rationale}</div>
+                )}
+              </div>
+            ) : searchItems ? (
               <>
                 {trustBoundary && (
                   <div className="mb-2 flex flex-wrap gap-1.5 text-[10px] text-text-tertiary">

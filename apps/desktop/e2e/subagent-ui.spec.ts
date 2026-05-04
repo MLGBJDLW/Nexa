@@ -411,24 +411,25 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await page.getByTestId('chat-input-textarea').fill('Please review the answer.');
   await page.getByTestId('chat-send').click();
 
-  await expect(page.getByText(/Helpers 1(?:\/1 active)?/)).toBeVisible();
+  await page.getByRole('button', { name: /Thinking completed/ }).click();
 
-  const taskBoard = page.getByTestId('task-board');
-  const subagentCard = taskBoard.getByRole('button', {
+  const chatLog = page.getByLabel('Chat messages');
+  await chatLog.getByRole('button', { name: /spawn_subagent/ }).click();
+  const subagentCard = chatLog.getByRole('button', {
     name: /Critic\s+Complete\s+1 tool\s+Audit the last answer for risks/i,
   }).first();
   await expect(subagentCard).toBeVisible();
 
-  await taskBoard.getByText('Allowed tools').scrollIntoViewIfNeeded();
-  await expect(taskBoard.getByText('Allowed tools')).toBeVisible();
-  await expect(taskBoard.getByTitle('search_knowledge_base').first()).toBeVisible();
-  await expect(taskBoard.getByText('Allowed skills')).toBeVisible();
-  await expect(taskBoard.getByText('Critic Format')).toBeVisible();
-  await expect(taskBoard.getByText('Acceptance criteria')).toBeVisible();
-  await expect(taskBoard.getByText('Effective source scope')).toBeVisible();
-  await expect(taskBoard.getByText('Evidence handoff')).toBeVisible();
-  await expect(taskBoard.getByText('parallel: review-pass')).toBeVisible();
-  await expect(taskBoard.getByText('Inner trace')).toBeVisible();
+  await chatLog.getByText('Allowed tools').scrollIntoViewIfNeeded();
+  await expect(chatLog.getByText('Allowed tools')).toBeVisible();
+  await expect(chatLog.getByTitle('search_knowledge_base').first()).toBeVisible();
+  await expect(chatLog.getByText('Allowed skills')).toBeVisible();
+  await expect(chatLog.getByText('Critic Format')).toBeVisible();
+  await expect(chatLog.getByText('Acceptance criteria')).toBeVisible();
+  await expect(chatLog.getByText('Effective source scope')).toBeVisible();
+  await expect(chatLog.getByText('Evidence handoff')).toBeVisible();
+  await expect(chatLog.getByText('parallel: review-pass')).toBeVisible();
+  await expect(chatLog.getByText('Inner trace')).toBeVisible();
   await expect(page.getByText('Supervisor synthesis complete.')).toBeVisible();
 
   await page.goto('/settings');
