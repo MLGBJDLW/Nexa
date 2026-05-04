@@ -143,6 +143,52 @@ impl Tool for ManageSkillTool {
                     })),
                 })
             }
+            "list_skills" => {
+                let mut skills = crate::skills::load_builtin_skills();
+                skills.extend(db.list_skills()?);
+                let limit = args.limit.unwrap_or(50).min(100);
+                let summaries = skills
+                    .into_iter()
+                    .take(limit)
+                    .map(|skill| {
+                        serde_json::json!({
+                            "id": skill.id,
+                            "name": skill.name,
+                            "description": skill.description,
+                            "enabled": skill.enabled,
+                            "builtin": skill.builtin,
+                            "resources": skill.resources,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Ok(ToolResult {
+                    call_id: call_id.to_string(),
+                    content: format!("Found {} skill(s).", summaries.len()),
+                    is_error: false,
+                    artifacts: Some(serde_json::json!({
+                        "kind": "skillList",
+                        "skills": summaries
+                    })),
+                })
+            }
+            "view_skill" => {
+                let skill_id = args.skill_id.ok_or_else(|| missing("skill_id", action))?;
+                let mut skills = crate::skills::load_builtin_skills();
+                skills.extend(db.list_skills()?);
+                let skill = skills
+                    .into_iter()
+                    .find(|skill| skill.id == skill_id)
+                    .ok_or_else(|| CoreError::NotFound(format!("Skill {skill_id}")))?;
+                Ok(ToolResult {
+                    call_id: call_id.to_string(),
+                    content: format!("Skill: {} ({})", skill.name, skill.id),
+                    is_error: false,
+                    artifacts: Some(serde_json::json!({
+                        "kind": "skill",
+                        "skill": skill
+                    })),
+                })
+            }
             "view_proposal" => {
                 let proposal_id = args
                     .proposal_id
@@ -211,6 +257,37 @@ mod tests {
         assert_eq!(tool.name(), "manage_skill");
         assert!(tool.description().contains("skill"));
         assert_eq!(tool.parameters_schema()["type"], "object");
+    }
+
+    #[tokio::test]
+    async fn list_and_view_skills() {
+        let db = Database::open_memory().unwrap();
+        let tool = ManageSkillTool;
+        let list_args = serde_json::json!({
+            "action": "list_skills",
+            "limit": 3
+        });
+        let listed = tool
+            .execute("call-list", &list_args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(!listed.is_error);
+        assert_eq!(listed.artifacts.as_ref().unwrap()["kind"], "skillList");
+
+        let view_args = serde_json::json!({
+            "action": "view_skill",
+            "skill_id": "builtin-evidence-first"
+        });
+        let viewed = tool
+            .execute("call-view", &view_args.to_string(), &db, &[])
+            .await
+            .unwrap();
+        assert!(!viewed.is_error);
+        assert_eq!(viewed.artifacts.as_ref().unwrap()["kind"], "skill");
+        assert_eq!(
+            viewed.artifacts.as_ref().unwrap()["skill"]["id"],
+            "builtin-evidence-first"
+        );
     }
 
     #[tokio::test]

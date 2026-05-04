@@ -34,6 +34,7 @@ use nexa_core::llm::{
     ProviderConfig, ProviderType, ReasoningEffort, Role, Usage,
 };
 use nexa_core::mcp::{McpServer, McpToolInfo, SaveMcpServerInput};
+use nexa_core::persona::{PersonaProfile, SavePersonaInput};
 
 use base64::Engine;
 use chrono::{Local, SecondsFormat, Utc};
@@ -45,9 +46,13 @@ use nexa_core::ocr::extract_text_from_image;
 use nexa_core::playbook::QueryLog;
 use nexa_core::privacy::PrivacyConfig;
 use nexa_core::project::{CreateProjectInput, Project, UpdateProjectInput};
+use nexa_core::project_memory::{
+    CreateProjectMemoryInput, ProjectMemory, UpdateProjectMemoryInput,
+};
 use nexa_core::provider_catalog::{load_provider_presets, preset_model_ids, ProviderPreset};
 use nexa_core::search::{self, SearchResult};
 use nexa_core::skills::{DiscoveredSkillBundle, SaveSkillInput, Skill};
+use nexa_core::source_tree::SourceTree;
 use nexa_core::sources::{CreateSourceInput, UpdateSourceInput};
 use nexa_core::tools::default_tool_registry;
 use nexa_core::watcher::{FileWatcher, WatcherEventKind};
@@ -679,6 +684,29 @@ pub fn list_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, St
 #[tauri::command]
 pub fn get_source(state: tauri::State<'_, AppState>, source_id: String) -> Result<Source, String> {
     state.db.get_source(&source_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_source_tree_cmd(
+    state: tauri::State<'_, AppState>,
+    source_id: String,
+    relative_path: Option<String>,
+    depth: Option<usize>,
+    limit: Option<usize>,
+) -> Result<SourceTree, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        nexa_core::source_tree::list_source_tree(
+            &db,
+            &source_id,
+            relative_path.as_deref(),
+            depth,
+            limit,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1828,7 +1856,11 @@ fn decode_preview_text(bytes: &[u8]) -> (String, String, bool) {
             if !had_errors {
                 return (text.into_owned(), "gbk".to_string(), false);
             }
-            (String::from_utf8_lossy(bytes).into_owned(), "lossy".to_string(), false)
+            (
+                String::from_utf8_lossy(bytes).into_owned(),
+                "lossy".to_string(),
+                false,
+            )
         }
     }
 }
@@ -1908,7 +1940,9 @@ fn build_file_preview(db: &Database, raw_path: &str) -> Result<FilePreview, Stri
         binary = bytes[..bytes.len().min(8192)].contains(&0);
         truncated = size_bytes > PREVIEW_TEXT_BYTES_LIMIT;
         if binary {
-            warning = Some("This looks like a binary file, so inline text preview is disabled.".to_string());
+            warning = Some(
+                "This looks like a binary file, so inline text preview is disabled.".to_string(),
+            );
         } else {
             let (text, enc, editable_encoding) = decode_preview_text(&bytes);
             content = Some(text);
@@ -1920,7 +1954,10 @@ fn build_file_preview(db: &Database, raw_path: &str) -> Result<FilePreview, Stri
                     PREVIEW_TEXT_BYTES_LIMIT / 1024 / 1024
                 ));
             } else if !encoding_editable {
-                warning = Some("Preview decoded a non-UTF-8 encoding; edit externally to preserve encoding.".to_string());
+                warning = Some(
+                    "Preview decoded a non-UTF-8 encoding; edit externally to preserve encoding."
+                        .to_string(),
+                );
             }
         }
     } else {
@@ -1933,7 +1970,11 @@ fn build_file_preview(db: &Database, raw_path: &str) -> Result<FilePreview, Stri
     let kind = preview_kind(&ext, &mime_type, binary);
     let line_count = content
         .as_deref()
-        .map(|text| text.lines().count().max(if text.is_empty() { 0 } else { 1 }))
+        .map(|text| {
+            text.lines()
+                .count()
+                .max(if text.is_empty() { 0 } else { 1 })
+        })
         .unwrap_or(0);
     let editable = content.is_some()
         && !truncated
@@ -2138,6 +2179,36 @@ pub fn get_watcher_status(
             root_path: path.clone(),
         })
         .collect())
+}
+
+#[tauri::command]
+pub fn list_personas_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<PersonaProfile>, String> {
+    nexa_core::persona::list_personas(&state.db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    input: SavePersonaInput,
+) -> Result<PersonaProfile, String> {
+    state.db.save_persona(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_persona_cmd(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state.db.delete_persona(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn toggle_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_persona(&id, enabled)
+        .map_err(|e| e.to_string())
 }
 
 // ── Agent Helpers ───────────────────────────────────────────────────────
@@ -2484,6 +2555,52 @@ pub async fn delete_project_cmd(
 }
 
 #[tauri::command]
+pub async fn list_project_memories_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<ProjectMemory>, String> {
+    state
+        .db
+        .list_project_memories(&project_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_project_memory_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    input: CreateProjectMemoryInput,
+) -> Result<ProjectMemory, String> {
+    state
+        .db
+        .create_project_memory(&project_id, &input)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_project_memory_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: UpdateProjectMemoryInput,
+) -> Result<ProjectMemory, String> {
+    state
+        .db
+        .update_project_memory(&id, &input)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_project_memory_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .delete_project_memory(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn move_conversation_to_project_cmd(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
@@ -2516,6 +2633,7 @@ pub async fn create_conversation_cmd(
     system_prompt: Option<String>,
     collection_context: Option<CollectionContext>,
     project_id: Option<String>,
+    persona_id: Option<String>,
 ) -> Result<Conversation, String> {
     let input = CreateConversationInput {
         provider,
@@ -2523,6 +2641,7 @@ pub async fn create_conversation_cmd(
         system_prompt,
         collection_context,
         project_id,
+        persona_id,
     };
     state
         .db
@@ -2590,6 +2709,20 @@ pub async fn update_conversation_collection_context_cmd(
         .db
         .update_conversation_collection_context(&id, collection_context.as_ref())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_conversation_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    persona_id: Option<String>,
+) -> Result<Conversation, String> {
+    let normalized = persona_id.as_deref();
+    state
+        .db
+        .update_conversation_persona(&id, normalized)
+        .map_err(|e| e.to_string())?;
+    state.db.get_conversation(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3147,6 +3280,7 @@ pub async fn agent_chat_cmd(
     message: String,
     attachments: Option<Vec<ImageAttachment>>,
     agent_config_id: Option<String>,
+    persona_id: Option<String>,
 ) -> Result<(), String> {
     // 1. Load the conversation first so provider/model selection follows the
     // active chat, not whatever global default happened to be selected later.
@@ -3245,6 +3379,12 @@ pub async fn agent_chat_cmd(
     let memory_section =
         nexa_core::personalization::build_memory_summary_for_query(&state.db, Some(&message))
             .unwrap_or_default();
+    let project_memory_section = nexa_core::project_memory::build_project_memory_summary_for_query(
+        &state.db,
+        conv.project_id.as_deref(),
+        Some(&message),
+    )
+    .unwrap_or_default();
     let agent_memory_section =
         nexa_core::evolution::build_agent_procedural_memory_summary_for_query(
             &state.db,
@@ -3277,14 +3417,48 @@ pub async fn agent_chat_cmd(
         &state.db,
         Some(&conversation_id),
     );
+    let requested_persona_id = persona_id
+        .as_deref()
+        .or(conv.persona_id.as_deref())
+        .unwrap_or("default");
+    let persona_profile =
+        match nexa_core::persona::enabled_persona_by_id(&state.db, requested_persona_id) {
+            Ok(persona) => persona,
+            Err(err) => {
+                warn!("Failed to load persona '{requested_persona_id}': {err}");
+                None
+            }
+        };
+    let effective_persona_id = persona_profile
+        .as_ref()
+        .map(|persona| persona.id.as_str())
+        .unwrap_or("default");
+    if conv.persona_id.as_deref().unwrap_or("default") != effective_persona_id {
+        let _ = state.db.update_conversation_persona(
+            &conversation_id,
+            if effective_persona_id == "default" {
+                None
+            } else {
+                Some(effective_persona_id)
+            },
+        );
+    }
+    let persona_default_skill_ids = persona_profile
+        .as_ref()
+        .map(|persona| persona.default_skill_ids.clone())
+        .unwrap_or_default();
+    let persona_section =
+        nexa_core::persona::build_persona_prompt_section(persona_profile.as_ref());
     let current_turn_time_section = build_current_turn_time_section();
     let system_prompt = build_system_prompt(
         Some(&conv.system_prompt),
         &[
             &current_turn_time_section,
+            &persona_section,
             &collection_context_section,
             &source_scope_section,
             &memory_section,
+            &project_memory_section,
             &agent_memory_section,
             &preference_section,
             &learned_section,
@@ -3829,6 +4003,16 @@ pub async fn agent_chat_cmd(
         }
         if let Some(summ_provider) = summarization_provider {
             executor = executor.with_summarization_provider(summ_provider);
+        }
+        if !persona_default_skill_ids.is_empty() {
+            let selected_skills = nexa_core::skills::get_active_skills_for_query_with_pinned(
+                &db,
+                &message,
+                8,
+                &persona_default_skill_ids,
+            )
+            .unwrap_or_default();
+            executor = executor.with_skills_override(selected_skills);
         }
         let run_future = executor.run(
             history,

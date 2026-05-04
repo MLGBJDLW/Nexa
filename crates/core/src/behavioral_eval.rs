@@ -112,6 +112,15 @@ fn cases() -> Vec<BehavioralEvalCase> {
             required_tools: &[],
             forbidden_tools: &["create_file", "edit_file", "write_note", "run_shell"],
         },
+        BehavioralEvalCase {
+            id: "persona-text-does-not-pretend-collection-context",
+            query: "Say hello in one sentence.",
+            system_prompt: "## Active Persona\nInstructions: Prefer saved evidence when it exists.",
+            has_sources: false,
+            expected_route: "DirectResponse",
+            required_tools: &[],
+            forbidden_tools: &["create_file", "edit_file", "write_note", "run_shell"],
+        },
     ]
 }
 

@@ -159,6 +159,7 @@ fn main() {
             commands::add_source,
             commands::list_sources,
             commands::get_source,
+            commands::list_source_tree_cmd,
             commands::update_source,
             commands::delete_source,
             // Ingest
@@ -222,12 +223,21 @@ fn main() {
             commands::start_watching,
             commands::stop_watching,
             commands::get_watcher_status,
+            // Personas
+            commands::list_personas_cmd,
+            commands::save_persona_cmd,
+            commands::delete_persona_cmd,
+            commands::toggle_persona_cmd,
             // Projects
             commands::create_project_cmd,
             commands::list_projects_cmd,
             commands::get_project_cmd,
             commands::update_project_cmd,
             commands::delete_project_cmd,
+            commands::list_project_memories_cmd,
+            commands::create_project_memory_cmd,
+            commands::update_project_memory_cmd,
+            commands::delete_project_memory_cmd,
             commands::move_conversation_to_project_cmd,
             commands::remove_conversation_from_project_cmd,
             // Conversations
@@ -238,6 +248,7 @@ fn main() {
             commands::get_agent_task_runs_cmd,
             commands::get_agent_task_run_events_cmd,
             commands::update_conversation_collection_context_cmd,
+            commands::update_conversation_persona_cmd,
             commands::update_conversation_model_cmd,
             commands::delete_conversation_cmd,
             commands::delete_conversations_batch_cmd,

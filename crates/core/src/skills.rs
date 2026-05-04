@@ -866,11 +866,20 @@ fn score_skill(skill: &Skill, query_tokens: &[String], query_normalized: &str) -
     (lexical + phrase + fuzzy) / query_tokens.len() as f32
 }
 
-pub fn select_skills_from_pool(
-    mut skills: Vec<Skill>,
-    query: &str,
-    max_skills: usize,
-) -> Vec<Skill> {
+fn fallback_skill_order(a: &Skill, b: &Skill) -> std::cmp::Ordering {
+    a.builtin
+        .cmp(&b.builtin)
+        .then_with(|| a.created_at.cmp(&b.created_at))
+        .then_with(|| a.name.cmp(&b.name))
+}
+
+fn fallback_skills(mut skills: Vec<Skill>, max_skills: usize) -> Vec<Skill> {
+    skills.sort_by(fallback_skill_order);
+    skills.truncate(max_skills);
+    skills
+}
+
+pub fn select_skills_from_pool(skills: Vec<Skill>, query: &str, max_skills: usize) -> Vec<Skill> {
     if skills.is_empty() || max_skills == 0 {
         return Vec::new();
     }
@@ -878,8 +887,7 @@ pub fn select_skills_from_pool(
     let query_normalized = normalize_text(query);
     let query_tokens = enrich_tokens(&tokenize(&query_normalized));
     if query_tokens.len() < 2 {
-        skills.truncate(max_skills);
-        return skills;
+        return fallback_skills(skills, max_skills);
     }
 
     let mut scored: Vec<(f32, Skill)> = skills
@@ -892,14 +900,16 @@ pub fn select_skills_from_pool(
         .map(|(score, _)| *score)
         .fold(0.0_f32, f32::max);
     if top_score <= 0.05 {
-        let mut out: Vec<Skill> = scored.into_iter().map(|(_, skill)| skill).collect();
-        out.truncate(max_skills);
-        return out;
+        return fallback_skills(
+            scored.into_iter().map(|(_, skill)| skill).collect(),
+            max_skills,
+        );
     }
 
     scored.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.builtin.cmp(&b.1.builtin))
             .then_with(|| a.1.name.cmp(&b.1.name))
     });
 
@@ -912,12 +922,55 @@ pub fn select_skills_from_pool(
         .collect()
 }
 
+pub fn select_skills_from_pool_with_pinned(
+    skills: Vec<Skill>,
+    query: &str,
+    max_skills: usize,
+    pinned_skill_ids: &[String],
+) -> Vec<Skill> {
+    if skills.is_empty() || max_skills == 0 {
+        return Vec::new();
+    }
+
+    let mut by_id = BTreeMap::new();
+    for skill in &skills {
+        by_id.insert(skill.id.clone(), skill.clone());
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for id in pinned_skill_ids {
+        let id = id.trim();
+        if id.is_empty() || !seen.insert(id.to_string()) {
+            continue;
+        }
+        if let Some(skill) = by_id.get(id) {
+            out.push(skill.clone());
+            if out.len() >= max_skills {
+                return out;
+            }
+        }
+    }
+
+    let ranked = select_skills_from_pool(skills, query, max_skills);
+    for skill in ranked {
+        if seen.insert(skill.id.clone()) {
+            out.push(skill);
+            if out.len() >= max_skills {
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// Return the skills active for a given user query.
 ///
 /// Combines built-in (bundled) skills with enabled user skills from the DB,
 /// then ranks by keyword overlap against the query. Falls back to returning
-/// ALL skills (capped at `max_skills`) when the query is empty/short or when
-/// no skill matches — preserving always-on behaviour for non-task prompts.
+/// user skills before built-ins (capped at `max_skills`) when the query is
+/// empty/short or when no skill matches, so user-authored abilities do not get
+/// silently starved by bundled defaults.
 pub fn get_active_skills_for_query(
     db: &Database,
     query: &str,
@@ -926,6 +979,22 @@ pub fn get_active_skills_for_query(
     let mut all: Vec<Skill> = load_builtin_skills();
     all.extend(db.get_enabled_skills()?);
     Ok(select_skills_from_pool(all, query, max_skills))
+}
+
+pub fn get_active_skills_for_query_with_pinned(
+    db: &Database,
+    query: &str,
+    max_skills: usize,
+    pinned_skill_ids: &[String],
+) -> Result<Vec<Skill>, CoreError> {
+    let mut all: Vec<Skill> = load_builtin_skills();
+    all.extend(db.get_enabled_skills()?);
+    Ok(select_skills_from_pool_with_pinned(
+        all,
+        query,
+        max_skills,
+        pinned_skill_ids,
+    ))
 }
 
 /// Severity of a [`SkillWarning`].
@@ -1462,7 +1531,9 @@ pub fn build_skills_section_for_query(skills: &[Skill], query: &str) -> String {
     if skills.is_empty() {
         return String::new();
     }
-    let mut section = String::from("\n\n## Active Skills\n");
+    let mut section = String::from(
+        "\n\n## Active Skills\nUse these skill excerpts as active procedural guidance. If an excerpt is insufficient, call manage_skill with action \"view_skill\" and the skill_id to inspect the full skill before relying on details that are not shown here.\n",
+    );
     for skill in skills {
         let body_excerpt = select_skill_section_excerpt(skill, query);
         let resource_excerpt = select_resource_excerpt(skill, query);
@@ -1792,6 +1863,29 @@ mod tests {
     }
 
     #[test]
+    fn test_short_query_prefers_user_skills_before_builtins() {
+        let db = Database::open_memory().unwrap();
+        db.conn().execute("DELETE FROM skills", []).unwrap();
+        let saved = db
+            .save_skill(&SaveSkillInput {
+                id: None,
+                name: "Local House Style".into(),
+                description: "Use for local style rules".into(),
+                content: "Always follow the user's local house style.".into(),
+                enabled: true,
+                resource_bundle: Vec::new(),
+            })
+            .unwrap();
+
+        let active = get_active_skills_for_query(&db, "", 3).unwrap();
+        assert_eq!(
+            active.first().map(|s| s.id.as_str()),
+            Some(saved.id.as_str())
+        );
+        assert_eq!(active.len(), 3);
+    }
+
+    #[test]
     fn test_get_active_skills_matches_description() {
         let db = Database::open_memory().unwrap();
         db.conn().execute("DELETE FROM skills", []).unwrap();
@@ -1854,6 +1948,34 @@ mod tests {
             active.len(),
             load_builtin_skills().len(),
             "fallback: return all built-ins"
+        );
+    }
+
+    #[test]
+    fn test_pinned_skills_are_selected_even_without_query_match() {
+        let db = Database::open_memory().unwrap();
+        db.conn().execute("DELETE FROM skills", []).unwrap();
+        let saved = db
+            .save_skill(&SaveSkillInput {
+                id: None,
+                name: "Personal Operating Mode".into(),
+                description: "Use when this persona is active".into(),
+                content: "Prefer terse answers and explicit assumptions.".into(),
+                enabled: true,
+                resource_bundle: Vec::new(),
+            })
+            .unwrap();
+
+        let active = get_active_skills_for_query_with_pinned(
+            &db,
+            "unrelated gibberish query",
+            5,
+            std::slice::from_ref(&saved.id),
+        )
+        .unwrap();
+        assert_eq!(
+            active.first().map(|s| s.id.as_str()),
+            Some(saved.id.as_str())
         );
     }
 

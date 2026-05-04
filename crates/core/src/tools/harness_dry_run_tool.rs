@@ -35,6 +35,8 @@ struct HarnessCheck {
 #[serde(rename_all = "camelCase")]
 struct HarnessCounts {
     agent_configs: usize,
+    builtin_personas: usize,
+    user_personas: usize,
     builtin_skills: usize,
     user_skills: usize,
     procedural_memories: usize,
@@ -100,6 +102,9 @@ impl Tool for HarnessDryRunTool {
 
         let configs = db.list_agent_configs()?;
         let default_config = db.get_default_agent_config()?;
+        let personas = crate::persona::list_personas(db)?;
+        let builtin_persona_count = personas.iter().filter(|persona| persona.builtin).count();
+        let user_persona_count = personas.len().saturating_sub(builtin_persona_count);
         let user_skills = db.list_skills()?;
         let builtin_skills = crate::skills::load_builtin_skills();
         let memories = db.list_agent_procedural_memories(100)?;
@@ -129,6 +134,15 @@ impl Tool for HarnessDryRunTool {
             next_actions
                 .push("Configure a default agent model before running agent tasks.".to_string());
         }
+
+        checks.push(check(
+            "personas",
+            "ready",
+            format!(
+                "{} built-in persona(s), {} user persona(s).",
+                builtin_persona_count, user_persona_count
+            ),
+        ));
 
         checks.push(check(
             "skills",
@@ -253,6 +267,8 @@ impl Tool for HarnessDryRunTool {
             next_actions,
             counts: HarnessCounts {
                 agent_configs: configs.len(),
+                builtin_personas: builtin_persona_count,
+                user_personas: user_persona_count,
                 builtin_skills: builtin_skills.len(),
                 user_skills: user_skills.len(),
                 procedural_memories: memories.len(),

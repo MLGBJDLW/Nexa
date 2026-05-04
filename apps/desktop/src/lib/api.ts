@@ -179,6 +179,42 @@ export const getMessageFeedback = (messageId: string) =>
 export const getSource = (sourceId: string) =>
   invoke<Source>('get_source', { sourceId });
 
+export interface SourceTreeNode {
+  name: string;
+  path: string;
+  relativePath: string;
+  kind: 'directory' | 'file';
+  extension?: string | null;
+  sizeBytes?: number | null;
+  modifiedAt?: string | null;
+  indexed: boolean;
+  documentId?: string | null;
+  chunkCount?: number | null;
+  children?: SourceTreeNode[] | null;
+  childrenTruncated: boolean;
+}
+
+export interface SourceTree {
+  sourceId: string;
+  rootPath: string;
+  relativePath: string;
+  nodes: SourceTreeNode[];
+  totalEntries: number;
+  truncated: boolean;
+}
+
+export const listSourceTree = (
+  sourceId: string,
+  relativePath?: string,
+  depth?: number,
+  limit?: number,
+) => invoke<SourceTree>('list_source_tree_cmd', {
+  sourceId,
+  relativePath: relativePath ?? null,
+  depth: depth ?? null,
+  limit: limit ?? null,
+});
+
 export const updateSource = (
   sourceId: string,
   includeGlobs: string[],
@@ -305,6 +341,41 @@ export const stopWatching = (sourceId: string) =>
 export const getWatcherStatus = () =>
   invoke<WatchedSourceInfo[]>('get_watcher_status');
 
+// ── Personas ─────────────────────────────────────────────────────────────
+
+export interface PersonaProfile {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  enabled: boolean;
+  builtin?: boolean;
+  defaultSkillIds?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SavePersonaInput {
+  id?: string | null;
+  name: string;
+  description: string;
+  instructions: string;
+  enabled: boolean;
+  defaultSkillIds: string[];
+}
+
+export const listPersonas = () =>
+  invoke<PersonaProfile[]>('list_personas_cmd');
+
+export const savePersona = (input: SavePersonaInput) =>
+  invoke<PersonaProfile>('save_persona_cmd', { input });
+
+export const deletePersona = (id: string) =>
+  invoke<void>('delete_persona_cmd', { id });
+
+export const togglePersona = (id: string, enabled: boolean) =>
+  invoke<void>('toggle_persona_cmd', { id, enabled });
+
 // ── Agent Config ────────────────────────────────────────────────────────
 
 export const listAgentConfigs = () => invoke<AgentConfig[]>('list_agent_configs_cmd');
@@ -326,8 +397,20 @@ export const listProviderPresets = () =>
 
 // ── Conversations ───────────────────────────────────────────────────────
 
-export const createConversation = (provider: string, model: string, systemPrompt?: string, projectId?: string) =>
-  invoke<Conversation>('create_conversation_cmd', { provider, model, systemPrompt, projectId });
+export const createConversation = (
+  provider: string,
+  model: string,
+  systemPrompt?: string,
+  projectId?: string,
+  personaId?: string | null,
+) =>
+  invoke<Conversation>('create_conversation_cmd', {
+    provider,
+    model,
+    systemPrompt,
+    projectId,
+    personaId: personaId ?? null,
+  });
 
 export const createConversationWithContext = (
   provider: string,
@@ -335,7 +418,15 @@ export const createConversationWithContext = (
   systemPrompt?: string,
   collectionContext?: Conversation['collectionContext'],
   projectId?: string,
-) => invoke<Conversation>('create_conversation_cmd', { provider, model, systemPrompt, collectionContext, projectId });
+  personaId?: string | null,
+) => invoke<Conversation>('create_conversation_cmd', {
+  provider,
+  model,
+  systemPrompt,
+  collectionContext,
+  projectId,
+  personaId: personaId ?? null,
+});
 
 export const listConversations = () => invoke<Conversation[]>('list_conversations_cmd');
 
@@ -374,6 +465,9 @@ export const updateConversationCollectionContext = (
   collectionContext: Conversation['collectionContext'],
 ) => invoke<void>('update_conversation_collection_context_cmd', { id, collectionContext });
 
+export const updateConversationPersona = (id: string, personaId?: string | null) =>
+  invoke<Conversation>('update_conversation_persona_cmd', { id, personaId: personaId ?? null });
+
 export const updateConversationModel = (id: string, provider: string, model: string) =>
   invoke<Conversation>('update_conversation_model_cmd', { id, provider, model });
 
@@ -393,6 +487,47 @@ export const updateProject = (id: string, input: UpdateProjectInput) =>
 export const deleteProject = (id: string) =>
   invoke<void>('delete_project_cmd', { id });
 
+export interface ProjectMemory {
+  id: string;
+  projectId: string;
+  kind: string;
+  title: string;
+  content: string;
+  source: string;
+  pinned: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectMemoryInput {
+  kind?: string | null;
+  title?: string | null;
+  content: string;
+  pinned?: boolean | null;
+  source?: string | null;
+}
+
+export interface UpdateProjectMemoryInput {
+  kind?: string | null;
+  title?: string | null;
+  content?: string | null;
+  pinned?: boolean | null;
+  archived?: boolean | null;
+}
+
+export const listProjectMemories = (projectId: string) =>
+  invoke<ProjectMemory[]>('list_project_memories_cmd', { projectId });
+
+export const createProjectMemory = (projectId: string, input: CreateProjectMemoryInput) =>
+  invoke<ProjectMemory>('create_project_memory_cmd', { projectId, input });
+
+export const updateProjectMemory = (id: string, input: UpdateProjectMemoryInput) =>
+  invoke<ProjectMemory>('update_project_memory_cmd', { id, input });
+
+export const deleteProjectMemory = (id: string) =>
+  invoke<void>('delete_project_memory_cmd', { id });
+
 export const moveConversationToProject = (conversationId: string, projectId: string) =>
   invoke<void>('move_conversation_to_project_cmd', { conversationId, projectId });
 
@@ -406,12 +541,14 @@ export const agentChat = (
   message: string,
   attachments?: ImageAttachment[],
   agentConfigId?: string | null,
+  personaId?: string | null,
 ) =>
   invoke<void>('agent_chat_cmd', {
     conversationId,
     message,
     attachments: attachments ?? null,
     agentConfigId: agentConfigId ?? null,
+    personaId: personaId ?? null,
   });
 
 export const agentSteer = (conversationId: string, message: string) =>
