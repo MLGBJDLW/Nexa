@@ -125,6 +125,29 @@ test.beforeEach(async ({ page }) => {
           return [clone(conversation), clone(messages)];
         case 'get_conversation_turns_cmd':
           return [];
+        case 'get_agent_task_runs_cmd':
+          return [
+            {
+              id: 'task-steering',
+              conversationId: 'conv-steering',
+              turnId: 'turn-steering',
+              userMessageId: messages.find((message) => message.role === 'user')?.id ?? 'm-user-0',
+              status: 'completed',
+              phase: 'done',
+              title: 'Steering task run',
+              routeKind: 'DirectResponse',
+              summary: 'Task completed',
+              errorMessage: null,
+              provider: 'open_ai',
+              model: 'gpt-4.1',
+              plan: null,
+              artifacts: null,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              startedAt: nowIso,
+              finishedAt: nowIso,
+            },
+          ];
         case 'list_sources':
         case 'get_conversation_sources_cmd':
         case 'list_checkpoints_cmd':
@@ -184,7 +207,6 @@ test.beforeEach(async ({ page }) => {
           const conversationId = String(args.conversationId ?? '');
           const message = String(args.message ?? '');
           diagnostics.steerCalls.push({ conversationId, message });
-          appendUserMessage(conversationId, message, { kind: 'steering' });
 
           setTimeout(() => {
             emitEvent('agent:event', {
@@ -275,6 +297,20 @@ test('sends steering while an agent stream is running without stopping it', asyn
   await expect(page.getByText('Steering', { exact: true })).toBeVisible();
   await expect(page.getByText('focus on edge cases instead')).toBeVisible();
   await expect(page.getByText('Adjusted answer after steering.')).toBeVisible();
+  await expect(page.getByTestId('task-board')).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      page.locator('body').evaluate((body) => {
+        const text = body.innerText;
+        return (
+          text.indexOf('focus on edge cases instead') >= 0 &&
+          text.indexOf('Adjusted answer after steering.') >= 0 &&
+          text.indexOf('focus on edge cases instead') <
+            text.indexOf('Adjusted answer after steering.')
+        );
+      }),
+    )
+    .toBe(true);
 
   const diagnostics = await page.evaluate(() => (window as unknown as {
     __STEERING_E2E__: {
