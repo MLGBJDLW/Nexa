@@ -177,6 +177,10 @@ function shouldHideTraceStatus(text: string | null | undefined): boolean {
   );
 }
 
+function isBoardOnlyToolCall(toolName: string | null | undefined): boolean {
+  return (toolName ?? "").trim() === "update_plan";
+}
+
 function formatTurnStatus(status: string): string {
   switch (status) {
     case "success":
@@ -727,6 +731,9 @@ export function ChatMessages({
           });
           continue;
         }
+        if (isBoardOnlyToolCall(item.toolCall.toolName)) {
+          continue;
+        }
         fallbackSections.push({
           text: "",
           node: (
@@ -761,28 +768,58 @@ export function ChatMessages({
         .find((idx) => finalAssistantIndexes.has(idx));
       const anchorIdx = finalAssistantIdx ?? persistedTraceCarrierIdx ?? currentGroup[0];
 
-      const persistedStatusSections: ThinkingSection[] =
+      const persistedTraceSections: ThinkingSection[] =
         persistedTraceCarrierIdx == null
           ? []
           : (extractPersistedTraceItems(messages[persistedTraceCarrierIdx].artifacts) ?? [])
               .flatMap((item, itemIdx) => {
-                if (item.kind !== "status" || shouldHideTraceStatus(item.text)) {
+                if (item.kind === "status") {
+                  if (shouldHideTraceStatus(item.text)) return [];
+                  return {
+                    text: "",
+                    node: (
+                      <TraceStatusRow
+                        key={`persisted-status-${messages[persistedTraceCarrierIdx].id}-${itemIdx}`}
+                        text={item.text}
+                        tone={item.tone}
+                      />
+                    ),
+                  };
+                }
+                if (item.kind === "thinking") {
+                  return item.text.trim().length > 0 ? { text: item.text } : [];
+                }
+                if (item.kind === "reply") {
+                  return {
+                    text: "",
+                    node: renderTraceReplyNode(
+                      `persisted-reply-${messages[persistedTraceCarrierIdx].id}-${itemIdx}`,
+                      item.text,
+                    ),
+                  };
+                }
+                if (isBoardOnlyToolCall(item.toolCall.toolName)) {
                   return [];
                 }
                 return {
                   text: "",
                   node: (
-                    <TraceStatusRow
-                      key={`persisted-status-${messages[persistedTraceCarrierIdx].id}-${itemIdx}`}
-                      text={item.text}
-                      tone={item.tone}
+                    <ToolCallCard
+                      key={`persisted-tool-${messages[persistedTraceCarrierIdx].id}-${item.toolCall.callId}-${itemIdx}`}
+                      toolName={item.toolCall.toolName}
+                      arguments={item.toolCall.arguments}
+                      status={item.toolCall.status}
+                      content={item.toolCall.content}
+                      isError={item.toolCall.isError}
+                      artifacts={item.toolCall.artifacts}
+                      trace={true}
                     />
                   ),
                 };
               });
 
       const statusSections =
-        statusSectionsByAssistant.get(anchorIdx) ?? persistedStatusSections;
+        statusSectionsByAssistant.get(anchorIdx) ?? persistedTraceSections;
       const nodes: ReactNode[] = [];
       const hiddenMembers = new Set<number>();
       let activeSections: ThinkingSection[] = [...statusSections];
@@ -801,7 +838,7 @@ export function ChatMessages({
         const msg = messages[idx];
         const thinking = messageThinkingText.get(idx) ?? "";
         const renderedToolCalls = msg.toolCalls
-          .filter((tc) => tc.name !== "update_plan")
+          .filter((tc) => !isBoardOnlyToolCall(tc.name))
           .map((tc, toolIdx) => {
             const toolResult = messageToolCalls
               .get(idx)
@@ -922,6 +959,7 @@ export function ChatMessages({
         return event.text.trim().length > 0 ? [{ text: event.text }] : [];
       }
       if (event.kind === "tool") {
+        if (isBoardOnlyToolCall(event.toolCall.toolName)) return [];
         return [
           {
             text: "",
@@ -977,6 +1015,7 @@ export function ChatMessages({
         sections.push({ text: round.thinking });
       }
       for (const tc of round.toolCalls) {
+        if (isBoardOnlyToolCall(tc.toolName)) continue;
         sections.push({
           text: "",
           node: (

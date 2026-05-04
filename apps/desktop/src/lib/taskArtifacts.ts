@@ -135,12 +135,51 @@ function normalizeVerificationArtifact(value: unknown): VerificationArtifact | n
   };
 }
 
+function extractNestedArtifact<T>(
+  value: unknown,
+  normalize: (candidate: unknown) => T | null,
+  depth = 0,
+): T | null {
+  const direct = normalize(value);
+  if (direct) return direct;
+  if (depth >= 6 || value == null) return null;
+
+  if (Array.isArray(value)) {
+    for (let i = value.length - 1; i >= 0; i -= 1) {
+      const found = extractNestedArtifact(value[i], normalize, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const preferredKeys = ['artifacts', 'toolCall', 'toolCalls', 'items'];
+  const visited = new Set<string>();
+  for (const key of preferredKeys) {
+    if (!(key in record)) continue;
+    visited.add(key);
+    const found = extractNestedArtifact(record[key], normalize, depth + 1);
+    if (found) return found;
+  }
+
+  for (const [key, child] of Object.entries(record)) {
+    if (visited.has(key)) continue;
+    if (child == null || ['string', 'number', 'boolean'].includes(typeof child)) continue;
+    const found = extractNestedArtifact(child, normalize, depth + 1);
+    if (found) return found;
+  }
+
+  return null;
+}
+
 export function extractPlanArtifact(value: unknown): PlanArtifact | null {
-  return normalizePlanArtifact(value);
+  return extractNestedArtifact(value, normalizePlanArtifact);
 }
 
 export function extractVerificationArtifact(value: unknown): VerificationArtifact | null {
-  return normalizeVerificationArtifact(value);
+  return extractNestedArtifact(value, normalizeVerificationArtifact);
 }
 
 export function findLatestPlanArtifact(

@@ -579,8 +579,6 @@ export function ChatPage() {
             <TaskBoard
               messages={chat.messages}
               toolCalls={chat.toolCalls}
-              taskRun={chat.taskRun}
-              taskEvents={chat.taskEvents}
             />
             <ChatInput
               onSend={chat.send}
