@@ -27,6 +27,7 @@ pub struct Conversation {
     pub system_prompt: String,
     pub collection_context: Option<CollectionContext>,
     pub project_id: Option<String>,
+    pub persona_id: Option<String>,
     /// `true` when the title was set automatically (default after creation) and
     /// may be overwritten by auto-title regeneration. Set to `false` once the
     /// user renames the conversation manually.
@@ -222,6 +223,7 @@ pub struct CreateConversationInput {
     pub system_prompt: Option<String>,
     pub collection_context: Option<CollectionContext>,
     pub project_id: Option<String>,
+    pub persona_id: Option<String>,
 }
 
 /// Input for creating / updating an agent config.
@@ -365,17 +367,24 @@ impl Database {
         let system_prompt = input.system_prompt.as_deref().unwrap_or("");
         let collection_context_json =
             serialize_collection_context(input.collection_context.as_ref())?;
+        let persona_id = input
+            .persona_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "default")
+            .map(str::to_string);
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO conversations (id, provider, model, system_prompt, collection_context_json, project_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO conversations (id, provider, model, system_prompt, collection_context_json, project_id, persona_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 &id,
                 &input.provider,
                 &input.model,
                 system_prompt,
                 &collection_context_json,
-                &input.project_id
+                &input.project_id,
+                &persona_id
             ],
         )?;
         drop(conn);
@@ -386,7 +395,7 @@ impl Database {
     pub fn list_conversations(&self) -> Result<Vec<Conversation>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, title_is_auto, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, created_at, updated_at
              FROM conversations ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -398,9 +407,10 @@ impl Database {
                 system_prompt: row.get(4)?,
                 collection_context: parse_collection_context(row.get(5)?),
                 project_id: row.get(6)?,
-                title_is_auto: row.get::<_, i64>(7)? != 0,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                persona_id: row.get(7)?,
+                title_is_auto: row.get::<_, i64>(8)? != 0,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         })?;
         let mut results = Vec::new();
@@ -414,7 +424,7 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Conversation, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, title_is_auto, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, created_at, updated_at
              FROM conversations WHERE id = ?1",
             rusqlite::params![id],
             |row| {
@@ -426,9 +436,10 @@ impl Database {
                     system_prompt: row.get(4)?,
                     collection_context: parse_collection_context(row.get(5)?),
                     project_id: row.get(6)?,
-                    title_is_auto: row.get::<_, i64>(7)? != 0,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
+                    persona_id: row.get(7)?,
+                    title_is_auto: row.get::<_, i64>(8)? != 0,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
                 })
             },
         )
@@ -570,6 +581,26 @@ impl Database {
         let affected = conn.execute(
             "UPDATE conversations SET collection_context_json = ?2, updated_at = datetime('now') WHERE id = ?1",
             rusqlite::params![id, collection_context_json],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!("Conversation {id}")));
+        }
+        Ok(())
+    }
+
+    /// Persist the active persona/profile for a conversation.
+    pub fn update_conversation_persona(
+        &self,
+        id: &str,
+        persona_id: Option<&str>,
+    ) -> Result<(), CoreError> {
+        let normalized = persona_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "default");
+        let conn = self.conn();
+        let affected = conn.execute(
+            "UPDATE conversations SET persona_id = ?2, updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![id, normalized],
         )?;
         if affected == 0 {
             return Err(CoreError::NotFound(format!("Conversation {id}")));
@@ -2112,10 +2143,12 @@ mod tests {
                 system_prompt: Some("You are helpful.".into()),
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
         assert_eq!(conv.provider, "openai");
         assert_eq!(conv.system_prompt, "You are helpful.");
+        assert!(conv.persona_id.is_none());
 
         // Get
         let fetched = db.get_conversation(&conv.id).unwrap();
@@ -2136,6 +2169,15 @@ mod tests {
         let updated = db.get_conversation(&conv.id).unwrap();
         assert_eq!(updated.provider, "anthropic");
         assert_eq!(updated.model, "claude-sonnet-4-6");
+
+        db.update_conversation_persona(&conv.id, Some("researcher"))
+            .unwrap();
+        let updated = db.get_conversation(&conv.id).unwrap();
+        assert_eq!(updated.persona_id.as_deref(), Some("researcher"));
+        db.update_conversation_persona(&conv.id, Some("default"))
+            .unwrap();
+        let updated = db.get_conversation(&conv.id).unwrap();
+        assert!(updated.persona_id.is_none());
 
         // Delete
         db.delete_conversation(&conv.id).unwrap();
@@ -2158,6 +2200,7 @@ mod tests {
                     source_ids: vec!["source-1".into(), "source-2".into()],
                 }),
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
 
@@ -2177,6 +2220,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
 
@@ -2252,6 +2296,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
 
@@ -2354,6 +2399,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
 
@@ -2414,6 +2460,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
         let msg = ConversationMessage {
@@ -2669,6 +2716,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
 
@@ -2737,6 +2785,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
 

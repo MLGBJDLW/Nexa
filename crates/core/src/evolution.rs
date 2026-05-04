@@ -1037,6 +1037,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
         db.save_agent_config(&SaveAgentConfigInput {

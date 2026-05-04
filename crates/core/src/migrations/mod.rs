@@ -787,6 +787,22 @@ Every answer that uses knowledge base search results.
         CREATE INDEX IF NOT EXISTS idx_project_memories_kind
             ON project_memories(project_id, kind);",
     ),
+    (
+        "v055_custom_personas",
+        "CREATE TABLE IF NOT EXISTS personas (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            instructions TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            default_skill_ids_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_personas_enabled
+            ON personas(enabled, created_at);
+        ALTER TABLE conversations ADD COLUMN persona_id TEXT DEFAULT NULL;",
+    ),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -912,6 +928,7 @@ mod tests {
         assert!(tables.contains(&"agent_task_runs".to_string()));
         assert!(tables.contains(&"agent_task_run_events".to_string()));
         assert!(tables.contains(&"file_checkpoints".to_string()));
+        assert!(tables.contains(&"personas".to_string()));
     }
 
     #[test]
@@ -990,5 +1007,32 @@ mod tests {
         assert_eq!(builtin_id, "playwright-browser");
         assert!(args.contains("@playwright/mcp@latest"));
         assert!(args.contains("${PORT}"));
+    }
+
+    #[test]
+    fn test_custom_personas_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).expect("migrations should succeed");
+
+        let has_persona_id: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'persona_id'",
+                [],
+                |row| row.get::<_, i64>(0).map(|n| n > 0),
+            )
+            .unwrap();
+        assert!(has_persona_id, "conversations.persona_id should exist");
+
+        let has_default_skills: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('personas') WHERE name = 'default_skill_ids_json'",
+                [],
+                |row| row.get::<_, i64>(0).map(|n| n > 0),
+            )
+            .unwrap();
+        assert!(
+            has_default_skills,
+            "personas.default_skill_ids_json should exist"
+        );
     }
 }

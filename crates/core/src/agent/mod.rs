@@ -704,13 +704,9 @@ fn query_looks_like_question(query: &str) -> bool {
 }
 
 fn system_prompt_has_collection_context(system_prompt: &str) -> bool {
-    let prompt = system_prompt.to_lowercase();
-    prompt.contains("## collection context")
-        || prompt.contains("title:") && prompt.contains("saved evidence:")
-        || prompt.contains("collection description:")
-        || prompt.contains("base query:")
-        || prompt.contains("saved evidence")
-        || prompt.contains("focus first on this citation")
+    system_prompt
+        .lines()
+        .any(|line| line.trim().eq_ignore_ascii_case("## Collection Context"))
 }
 
 fn route_user_turn(query: &str, system_prompt: &str, has_sources: bool) -> AgentRoutePlan {
@@ -3481,7 +3477,9 @@ mod tests {
     fn test_default_config() {
         let cfg = AgentConfig::default();
         assert_eq!(cfg.max_iterations, 25);
-        assert!(cfg.system_prompt.contains("knowledge recall engine"));
+        assert!(cfg
+            .system_prompt
+            .contains("local-first personal workspace assistant"));
         assert_eq!(cfg.temperature, Some(0.3));
         assert_eq!(cfg.max_tokens, Some(4096));
     }
@@ -3525,12 +3523,23 @@ mod tests {
     fn test_route_user_turn_prefers_collection_context() {
         let route = route_user_turn(
             "Explain what this saved citation means",
-            "Collection description: Retry Collection\n\nPrefer the following saved evidence before widening to the full knowledge base.",
+            "## Collection Context\nTitle: Retry Collection\n\nUse this collection and its saved evidence as your primary working set.",
             true,
         );
 
         assert_eq!(route.kind, AgentRouteKind::CollectionFocused);
         assert!(route.extra_categories.contains(&ToolCategory::Knowledge));
+    }
+
+    #[test]
+    fn test_route_user_turn_ignores_persona_saved_evidence_phrase() {
+        let route = route_user_turn(
+            "Say hello in one sentence.",
+            "## Active Persona\nInstructions: Prefer saved evidence when it exists.",
+            false,
+        );
+
+        assert_eq!(route.kind, AgentRouteKind::DirectResponse);
     }
 
     #[test]
@@ -3864,6 +3873,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .expect("conversation");
         let (tx, _rx) = mpsc::channel(32);

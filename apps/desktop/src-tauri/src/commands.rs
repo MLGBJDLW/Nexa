@@ -34,7 +34,7 @@ use nexa_core::llm::{
     ProviderConfig, ProviderType, ReasoningEffort, Role, Usage,
 };
 use nexa_core::mcp::{McpServer, McpToolInfo, SaveMcpServerInput};
-use nexa_core::persona::PersonaProfile;
+use nexa_core::persona::{PersonaProfile, SavePersonaInput};
 
 use base64::Engine;
 use chrono::{Local, SecondsFormat, Utc};
@@ -2182,8 +2182,33 @@ pub fn get_watcher_status(
 }
 
 #[tauri::command]
-pub fn list_personas_cmd() -> Vec<PersonaProfile> {
-    nexa_core::persona::builtin_personas().to_vec()
+pub fn list_personas_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<PersonaProfile>, String> {
+    nexa_core::persona::list_personas(&state.db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    input: SavePersonaInput,
+) -> Result<PersonaProfile, String> {
+    state.db.save_persona(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_persona_cmd(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state.db.delete_persona(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn toggle_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_persona(&id, enabled)
+        .map_err(|e| e.to_string())
 }
 
 // ── Agent Helpers ───────────────────────────────────────────────────────
@@ -2608,6 +2633,7 @@ pub async fn create_conversation_cmd(
     system_prompt: Option<String>,
     collection_context: Option<CollectionContext>,
     project_id: Option<String>,
+    persona_id: Option<String>,
 ) -> Result<Conversation, String> {
     let input = CreateConversationInput {
         provider,
@@ -2615,6 +2641,7 @@ pub async fn create_conversation_cmd(
         system_prompt,
         collection_context,
         project_id,
+        persona_id,
     };
     state
         .db
@@ -2682,6 +2709,20 @@ pub async fn update_conversation_collection_context_cmd(
         .db
         .update_conversation_collection_context(&id, collection_context.as_ref())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_conversation_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    persona_id: Option<String>,
+) -> Result<Conversation, String> {
+    let normalized = persona_id.as_deref();
+    state
+        .db
+        .update_conversation_persona(&id, normalized)
+        .map_err(|e| e.to_string())?;
+    state.db.get_conversation(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3376,7 +3417,38 @@ pub async fn agent_chat_cmd(
         &state.db,
         Some(&conversation_id),
     );
-    let persona_section = nexa_core::persona::build_persona_prompt_section(persona_id.as_deref());
+    let requested_persona_id = persona_id
+        .as_deref()
+        .or(conv.persona_id.as_deref())
+        .unwrap_or("default");
+    let persona_profile =
+        match nexa_core::persona::enabled_persona_by_id(&state.db, requested_persona_id) {
+            Ok(persona) => persona,
+            Err(err) => {
+                warn!("Failed to load persona '{requested_persona_id}': {err}");
+                None
+            }
+        };
+    let effective_persona_id = persona_profile
+        .as_ref()
+        .map(|persona| persona.id.as_str())
+        .unwrap_or("default");
+    if conv.persona_id.as_deref().unwrap_or("default") != effective_persona_id {
+        let _ = state.db.update_conversation_persona(
+            &conversation_id,
+            if effective_persona_id == "default" {
+                None
+            } else {
+                Some(effective_persona_id)
+            },
+        );
+    }
+    let persona_default_skill_ids = persona_profile
+        .as_ref()
+        .map(|persona| persona.default_skill_ids.clone())
+        .unwrap_or_default();
+    let persona_section =
+        nexa_core::persona::build_persona_prompt_section(persona_profile.as_ref());
     let current_turn_time_section = build_current_turn_time_section();
     let system_prompt = build_system_prompt(
         Some(&conv.system_prompt),
@@ -3931,6 +4003,16 @@ pub async fn agent_chat_cmd(
         }
         if let Some(summ_provider) = summarization_provider {
             executor = executor.with_summarization_provider(summ_provider);
+        }
+        if !persona_default_skill_ids.is_empty() {
+            let selected_skills = nexa_core::skills::get_active_skills_for_query_with_pinned(
+                &db,
+                &message,
+                8,
+                &persona_default_skill_ids,
+            )
+            .unwrap_or_default();
+            executor = executor.with_skills_override(selected_skills);
         }
         let run_future = executor.run(
             history,

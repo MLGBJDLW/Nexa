@@ -225,6 +225,9 @@ fn main() {
             commands::get_watcher_status,
             // Personas
             commands::list_personas_cmd,
+            commands::save_persona_cmd,
+            commands::delete_persona_cmd,
+            commands::toggle_persona_cmd,
             // Projects
             commands::create_project_cmd,
             commands::list_projects_cmd,
@@ -245,6 +248,7 @@ fn main() {
             commands::get_agent_task_runs_cmd,
             commands::get_agent_task_run_events_cmd,
             commands::update_conversation_collection_context_cmd,
+            commands::update_conversation_persona_cmd,
             commands::update_conversation_model_cmd,
             commands::delete_conversation_cmd,
             commands::delete_conversations_batch_cmd,

@@ -81,6 +81,7 @@ mod tests {
                 system_prompt: None,
                 collection_context: None,
                 project_id: None,
+                persona_id: None,
             })
             .unwrap();
         db.add_message(&ConversationMessage {
