@@ -577,12 +577,44 @@ pub fn extract_keyframes(
     scene_threshold: f64,
     config: &VideoConfig,
 ) -> Result<Vec<ExtractedFrame>, CoreError> {
+    let filter = format!("select='gt(scene,{scene_threshold})',showinfo");
+    extract_selected_frames(video_path, output_dir, &filter, config).or_else(|error| {
+        tracing::warn!("Scene detection failed, will fall back to fixed-interval: {error}");
+        Ok(Vec::new())
+    })
+}
+
+/// Cover the first frame, scene changes, and quiet stretches in one decode.
+/// Periodic coverage is necessary even when a video contains some scene changes.
+pub fn extract_analysis_frames(
+    video_path: &Path,
+    output_dir: &Path,
+    config: &VideoConfig,
+) -> Result<Vec<ExtractedFrame>, CoreError> {
+    if !config.scene_threshold.is_finite() || !(0.0..=1.0).contains(&config.scene_threshold) {
+        return Err(CoreError::InvalidInput(
+            "Scene threshold must be between zero and one".into(),
+        ));
+    }
+    let interval = config.frame_interval_secs.max(1);
+    let filter = format!(
+        "select='isnan(prev_selected_t)+gte(t-prev_selected_t,{interval})+gt(scene,{})',showinfo",
+        config.scene_threshold
+    );
+    extract_selected_frames(video_path, output_dir, &filter, config)
+}
+
+fn extract_selected_frames(
+    video_path: &Path,
+    output_dir: &Path,
+    filter: &str,
+    config: &VideoConfig,
+) -> Result<Vec<ExtractedFrame>, CoreError> {
     std::fs::create_dir_all(output_dir)
         .map_err(|e| CoreError::Video(format!("Failed to create keyframe output dir: {e}")))?;
 
     let ffmpeg = config.ffmpeg_path.as_deref().unwrap_or("ffmpeg");
-    let vf = format!("select='gt(scene,{scene_threshold})',showinfo");
-    let output_pattern = output_dir.join("scene_%04d.jpg");
+    let output_pattern = output_dir.join("scene_%08d.jpg");
     let canonical_path =
         std::fs::canonicalize(video_path).unwrap_or_else(|_| video_path.to_path_buf());
     let video = canonical_path.to_string_lossy();
@@ -590,21 +622,13 @@ pub fn extract_keyframes(
 
     // Scene detection may legitimately produce zero frames (static video), so
     // we treat a non-zero exit as an error but zero output files as OK.
-    let result = run_ffmpeg_command(
+    let output = run_ffmpeg_command(
         ffmpeg,
         &[
-            "-i", &video, "-vf", &vf, "-vsync", "vfr", "-q:v", "3", "-y", &pattern,
+            "-i", &video, "-vf", filter, "-vsync", "vfr", "-q:v", "3", "-y", &pattern,
         ],
         1800,
-    );
-
-    let output = match result {
-        Ok(output) => output,
-        Err(e) => {
-            tracing::warn!("Scene detection failed, will fall back to fixed-interval: {e}");
-            return Ok(Vec::new());
-        }
-    };
+    )?;
 
     let mut frames: Vec<PathBuf> = std::fs::read_dir(output_dir)
         .map_err(|e| CoreError::Video(format!("Failed to read keyframe dir: {e}")))?
@@ -615,12 +639,11 @@ pub fn extract_keyframes(
     frames.sort();
     let timestamps = parse_showinfo_timestamps(&String::from_utf8_lossy(&output.stderr));
     if frames.len() != timestamps.len() {
-        tracing::warn!(
-            "Scene timestamp count ({}) did not match frame count ({}); falling back to fixed interval",
+        return Err(CoreError::Video(format!(
+            "Frame timestamp count ({}) did not match frame count ({})",
             timestamps.len(),
             frames.len(),
-        );
-        return Ok(Vec::new());
+        )));
     }
     Ok(frames
         .into_iter()
@@ -1461,12 +1484,12 @@ pub fn transcribe_audio_bounded(
         .ok_or_else(|| CoreError::InvalidInput("Whisper chunk size overflow".into()))?;
     // One second is enough to preserve speech around the seam while keeping
     // every native and mel window strictly bounded.
-    let overlap_samples = (max_chunk_seconds > 1)
-        .then_some(samples_per_second)
-        .unwrap_or_default();
-    let overlap_ms = (overlap_samples > 0)
-        .then_some(1_000_i64)
-        .unwrap_or_default();
+    let overlap_samples = if max_chunk_seconds > 1 {
+        samples_per_second
+    } else {
+        0
+    };
+    let overlap_ms = if overlap_samples > 0 { 1_000_i64 } else { 0 };
     let scratch_root = wav_path.parent().ok_or_else(|| {
         CoreError::Video("Managed Whisper input has no private parent directory".into())
     })?;
@@ -2775,20 +2798,7 @@ pub fn analyze_video(
                 detail: Some("Extracting key frames...".into()),
             });
             let frames_dir = temp_dir.join("frames");
-            let extracted =
-                extract_keyframes(video_path, &frames_dir, config.scene_threshold, config)
-                    .and_then(|keyframes| {
-                        if keyframes.is_empty() {
-                            extract_frames(
-                                video_path,
-                                &temp_dir.join("frames_fixed"),
-                                config.frame_interval_secs,
-                                config,
-                            )
-                        } else {
-                            Ok(keyframes)
-                        }
-                    });
+            let extracted = extract_analysis_frames(video_path, &frames_dir, config);
             let frame_paths = match extracted {
                 Ok(frames) => frames,
                 Err(error) => {
