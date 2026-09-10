@@ -54,11 +54,16 @@ export function useLiveSession(transport: LiveTransport) {
   const stop = useCallback(async () => {
     generation.current++; clearCapture();
     starting.current = false;
-    const id = active.current; active.current = null;
+    const id = active.current;
     if (mounted.current) setBusy(false);
     if (id) {
-      try { const ended = await transport.stop(id); if (mounted.current) setSnapshot(current => current?.id === id ? ended : current); return ended; }
-      catch (err) { if (mounted.current) setError(message(err)); }
+      try {
+        const ended = await transport.stop(id);
+        if (active.current === id && liveEnded(ended.phase)) active.current = null;
+        if (mounted.current) setSnapshot(current => current?.id === id && current.sequence <= ended.sequence ? ended : current);
+        return ended;
+      }
+      catch (err) { if (mounted.current && active.current === id) setError(message(err)); }
     }
   }, [transport, clearCapture]);
   const fail = useCallback((err: unknown) => { if (mounted.current) setError(message(err)); void stop(); }, [stop]);
