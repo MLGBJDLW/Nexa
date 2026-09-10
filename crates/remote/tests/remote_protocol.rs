@@ -16,6 +16,58 @@ struct Host {
 }
 
 #[tokio::test]
+async fn incomplete_post_bodies_do_not_starve_health_or_pairing() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let directory = tempfile::tempdir().unwrap();
+    let server = RemoteServer::new(
+        AuthStore::open(directory.path()).unwrap(),
+        Arc::new(Host::default()),
+    );
+    let listener = server
+        .listen(([127, 0, 0, 1], 0).into(), None)
+        .await
+        .unwrap();
+    let origin = format!("http://{}", listener.address);
+    let mut stalled = Vec::new();
+    for _ in 0..32 {
+        let mut socket = tokio::net::TcpStream::connect(listener.address)
+            .await
+            .unwrap();
+        socket.write_all(format!("POST /api/pair HTTP/1.1\r\nHost: {}\r\nOrigin: {origin}\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{{", listener.address).as_bytes()).await.unwrap();
+        stalled.push(socket);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap();
+    assert_eq!(
+        client
+            .get(format!("{origin}/api/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200,
+        "partial bodies must not consume all request permits"
+    );
+    let paired = client.post(format!("{origin}/api/pair")).header("Origin", &origin)
+        .json(&json!({"code":server.pairing().code,"name":"Phone","clientNonce":uuid::Uuid::new_v4().to_string()})).send().await.unwrap();
+    assert_eq!(paired.status(), 200);
+    let mut response = Vec::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        stalled[0].read_to_end(&mut response),
+    )
+    .await
+    .expect("incomplete body must expire")
+    .unwrap();
+    assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 408"));
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn fixed_https_origins_accept_browser_normalization_for_pairing_and_websockets() {
     let directory = tempfile::tempdir().unwrap();
     let server = RemoteServer::new(

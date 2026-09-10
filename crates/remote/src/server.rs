@@ -27,6 +27,7 @@ use tokio::sync::{broadcast, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 const MAX_BODY: usize = 768 * 1024;
+const BODY_READ_TIMEOUT: Duration = Duration::from_secs(10);
 pub const RECONNECT_GRACE: Duration = Duration::from_secs(30);
 
 pub struct RemoteServer {
@@ -364,17 +365,7 @@ async fn boundary(
             "An authorized browser origin is required",
         );
     }
-    let Ok(_permit) = server.requests.clone().try_acquire_owned() else {
-        return failure(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Remote request queue is full",
-        );
-    };
-    let mut response = if request.method() == Method::OPTIONS {
-        StatusCode::NO_CONTENT.into_response()
-    } else {
-        next.run(request).await
-    };
+    let mut response = admitted_request(&server, request, next).await;
     let headers = response.headers_mut();
     if let Some(origin) = origin.and_then(|value| HeaderValue::from_str(&value).ok()) {
         headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
@@ -421,6 +412,42 @@ async fn boundary(
     );
     response
 }
+
+async fn admitted_request(server: &Arc<RemoteServer>, request: Request, next: Next) -> Response {
+    let request = if request.method() == Method::POST {
+        let (parts, body) = request.into_parts();
+        let bytes =
+            match tokio::time::timeout(BODY_READ_TIMEOUT, axum::body::to_bytes(body, MAX_BODY))
+                .await
+            {
+                Ok(Ok(bytes)) => bytes,
+                Ok(Err(_)) => {
+                    return failure(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "Unable to read a bounded remote request body",
+                    )
+                }
+                Err(_) => {
+                    return failure(StatusCode::REQUEST_TIMEOUT, "Remote request body timed out")
+                }
+            };
+        Request::from_parts(parts, Body::from(bytes))
+    } else {
+        request
+    };
+    let Ok(_permit) = server.requests.clone().try_acquire_owned() else {
+        return failure(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Remote request queue is full",
+        );
+    };
+    if request.method() == Method::OPTIONS {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        next.run(request).await
+    }
+}
+
 async fn health(State(server): State<Arc<RemoteServer>>) -> Json<Value> {
     Json(json!({"serverId":server.server_id(),"version":1}))
 }
