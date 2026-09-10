@@ -27,5 +27,6 @@
   "builtIn": "內建",
   "bundled": "內建包",
   "userDefined": "使用者定義",
-  "none": "无"
+  "none": "无",
+  "retry": "重試"
 }

@@ -5,5 +5,8 @@
   "minimizeWindow": "最小化窗口",
   "maximizeWindow": "最大化窗口",
   "restoreWindow": "还原窗口",
-  "closeWindow": "关闭窗口"
+  "closeWindow": "关闭窗口",
+  "startupPreparing": "正在连接你的工作区…",
+  "startupWaiting": "Nexa 仍在启动，本地连接尚未完成。请重试连接。",
+  "startupConnectionFailed": "实时连接未能建立，请重试以恢复实时更新。"
 }

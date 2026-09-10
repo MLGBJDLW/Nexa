@@ -2,7 +2,7 @@ use super::*;
 use tauri::Emitter;
 
 fn materialize_theme_registry(
-    state: &AppState,
+    extensions: &nexa_core::user_extensions::UserExtensionLayout,
     registry: &nexa_core::appearance::AppearanceRegistry,
     preserved_theme_ids: &std::collections::BTreeSet<String>,
 ) -> Result<(), String> {
@@ -10,8 +10,7 @@ fn materialize_theme_registry(
         if preserved_theme_ids.contains(&plugin.id) {
             continue;
         }
-        state
-            .user_extensions
+        extensions
             .write_theme_plugin(plugin.clone())
             .map_err(|error| error.to_string())?;
     }
@@ -21,8 +20,14 @@ fn materialize_theme_registry(
 // ── App Config ──────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_app_config_cmd(state: tauri::State<'_, AppState>) -> Result<AppConfig, String> {
-    state.db.load_app_config().map_err(|e| e.to_string())
+pub async fn get_app_config_cmd(state: tauri::State<'_, AppState>) -> Result<AppConfig, String> {
+    // Loading may migrate saved defaults, so use the bounded writer lane.
+    state
+        .db_executor
+        .write(Database::load_app_config)
+        .await
+        .map(|result| result.value)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -45,49 +50,51 @@ pub fn save_app_config_cmd(
 }
 
 #[tauri::command]
-pub fn get_appearance_registry_cmd(
+pub async fn get_appearance_registry_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::appearance::AppearanceRegistry, String> {
     state
-        .db
-        .load_appearance_registry()
+        .db_executor
+        .read(Database::load_appearance_registry)
+        .await
+        .map(|result| result.value)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn hydrate_appearance_registry_cmd(
+pub async fn hydrate_appearance_registry_cmd(
     state: tauri::State<'_, AppState>,
     plugins: Vec<nexa_core::theme_resource_plugin::ThemeResourcePlugin>,
     active_theme_id: String,
 ) -> Result<nexa_core::appearance::AppearanceRegistry, String> {
-    let disk = state
-        .user_extensions
-        .load_theme_plugins()
-        .map_err(|error| error.to_string())?;
-    for warning in &disk.warnings {
-        log::warn!("{warning}");
-    }
-    let mut hydration_plugins = plugins;
-    hydration_plugins.extend(disk.plugins.iter().cloned());
+    let extensions = state.user_extensions.clone();
     state
-        .db
-        .hydrate_appearance_registry(hydration_plugins, active_theme_id)
-        .map_err(|e| e.to_string())?;
-    let preserved_theme_ids = disk.preserved_theme_ids.iter().cloned().collect::<Vec<_>>();
-    let registry = state
-        .db
-        .reconcile_appearance_file_plugins(disk.plugins, preserved_theme_ids)
-        .map_err(|e| e.to_string())?;
-    materialize_theme_registry(&state, &registry, &disk.preserved_theme_ids)?;
-    state
-        .db
-        .commit_appearance_file_projection(
-            registry
-                .plugins
-                .iter()
-                .map(|plugin| plugin.id.clone())
-                .collect(),
-        )
+        .db_executor
+        .write(move |db| {
+            let disk = extensions
+                .load_theme_plugins()
+                .map_err(|error| nexa_core::error::CoreError::Internal(error.to_string()))?;
+            for warning in &disk.warnings {
+                log::warn!("{warning}");
+            }
+            let mut hydration_plugins = plugins;
+            hydration_plugins.extend(disk.plugins.iter().cloned());
+            db.hydrate_appearance_registry(hydration_plugins, active_theme_id)?;
+            let preserved_theme_ids = disk.preserved_theme_ids.iter().cloned().collect::<Vec<_>>();
+            let registry =
+                db.reconcile_appearance_file_plugins(disk.plugins, preserved_theme_ids)?;
+            materialize_theme_registry(&extensions, &registry, &disk.preserved_theme_ids)
+                .map_err(nexa_core::error::CoreError::Internal)?;
+            db.commit_appearance_file_projection(
+                registry
+                    .plugins
+                    .iter()
+                    .map(|plugin| plugin.id.clone())
+                    .collect(),
+            )
+        })
+        .await
+        .map(|result| result.value)
         .map_err(|e| e.to_string())
 }
 
@@ -605,23 +612,34 @@ pub async fn prepare_office_runtime_cmd(
 // ── Setup Wizard ───────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_wizard_state_cmd(state: tauri::State<'_, AppState>) -> Result<WizardState, String> {
-    state.db.load_wizard_state().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn set_wizard_completed_cmd(state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn get_wizard_state_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<WizardState, String> {
     state
-        .db
-        .save_wizard_state(&WizardState { completed: true })
+        .db_executor
+        .read(Database::load_wizard_state)
+        .await
+        .map(|result| result.value)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn reset_wizard_cmd(state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn set_wizard_completed_cmd(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state
-        .db
-        .save_wizard_state(&WizardState { completed: false })
+        .db_executor
+        .write(|db| db.save_wizard_state(&WizardState { completed: true }))
+        .await
+        .map(|result| result.value)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn reset_wizard_cmd(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state
+        .db_executor
+        .write(|db| db.save_wizard_state(&WizardState { completed: false }))
+        .await
+        .map(|result| result.value)
         .map_err(|e| e.to_string())
 }
 

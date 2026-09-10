@@ -5,5 +5,8 @@
   "minimizeWindow": "ウィンドウを最小化",
   "maximizeWindow": "ウィンドウを最大化",
   "restoreWindow": "ウィンドウを元に戻す",
-  "closeWindow": "ウィンドウを閉じる"
+  "closeWindow": "ウィンドウを閉じる",
+  "startupPreparing": "ワークスペースに接続中…",
+  "startupWaiting": "Nexa は起動中です。ローカル接続が完了していません。再試行してください。",
+  "startupConnectionFailed": "リアルタイム接続を開始できませんでした。再試行して更新を復元してください。"
 }

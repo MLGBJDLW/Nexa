@@ -5,5 +5,8 @@
   "minimizeWindow": "창 최소화",
   "maximizeWindow": "창 최대화",
   "restoreWindow": "창 복원",
-  "closeWindow": "창 닫기"
+  "closeWindow": "창 닫기",
+  "startupPreparing": "작업 공간에 연결 중…",
+  "startupWaiting": "Nexa가 시작 중입니다. 로컬 연결이 완료되지 않았습니다. 다시 연결해 주세요.",
+  "startupConnectionFailed": "실시간 연결을 시작하지 못했습니다. 업데이트를 복구하려면 다시 시도하세요."
 }

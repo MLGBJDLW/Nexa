@@ -10,10 +10,11 @@ const DEBOUNCE_MS = 5_000;
  *
  * Non-blocking: errors are logged but never surface to the UI.
  */
-export function useAutoCompile(): void {
+export function useAutoCompile(enabled = true): void {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let unlisten: (() => void) | undefined;
 
@@ -42,7 +43,7 @@ export function useAutoCompile(): void {
       } else {
         unlisten = fn;
       }
-    });
+    }).catch((error: unknown) => console.debug('[auto-compile] listener unavailable', error));
 
     return () => {
       cancelled = true;
@@ -52,5 +53,5 @@ export function useAutoCompile(): void {
         timerRef.current = null;
       }
     };
-  }, []);
+  }, [enabled]);
 }

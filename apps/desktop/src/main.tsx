@@ -27,11 +27,12 @@ function revealMainWindowAfterFirstPaint() {
 
 revealMainWindowAfterFirstPaint();
 
-runLocalStorageMigrations();
-
 // Reveal the already-painted static shell independently of the React module
 // graph, while loading that graph in parallel with the first native frames.
-void import('./bootstrap').then(({ mountApp }) => mountApp()).catch((error: unknown) => {
+void Promise.resolve().then(() => {
+  runLocalStorageMigrations();
+  return import('./bootstrap');
+}).then(({ mountApp }) => mountApp()).catch((error: unknown) => {
   console.error('Unable to load the Nexa interface', error);
   const root = document.getElementById('root');
   if (!root) return;

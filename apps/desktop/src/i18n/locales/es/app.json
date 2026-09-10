@@ -5,5 +5,8 @@
   "minimizeWindow": "Minimizar ventana",
   "maximizeWindow": "Maximizar ventana",
   "restoreWindow": "Restaurar ventana",
-  "closeWindow": "Cerrar ventana"
+  "closeWindow": "Cerrar ventana",
+  "startupPreparing": "Conectando con su espacio de trabajo…",
+  "startupWaiting": "Nexa sigue iniciándose. La conexión local no ha terminado. Vuelva a intentarlo.",
+  "startupConnectionFailed": "No se pudo iniciar la conexión en directo. Reintente para restaurar las actualizaciones."
 }

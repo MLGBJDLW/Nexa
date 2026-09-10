@@ -19,6 +19,11 @@ test.beforeEach(async ({ page }) => {
       if (cmd.startsWith('plugin:window|')) windowCommands.push(cmd);
       switch (cmd) {
         case 'plugin:event|listen': {
+          const remaining = Number(localStorage.getItem('nexa-test-listener-failures') ?? '0');
+          if (args.event === 'agent://heartbeat' && remaining > 0) {
+            localStorage.setItem('nexa-test-listener-failures', String(remaining - 1));
+            throw new Error('Native event bridge is temporarily unavailable');
+          }
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
             event: String(args.event ?? ''),
@@ -39,12 +44,20 @@ test.beforeEach(async ({ page }) => {
             await new Promise<void>(resolve => { releaseWizardState = resolve; });
           }
           return null;
+        case 'list_agent_configs_cmd':
+        case 'list_conversations_cmd':
+        case 'list_sources':
+        case 'list_personas_cmd':
+        case 'list_projects_cmd':
+        case 'list_skills_cmd':
+          return [];
         default:
           return null;
       }
     };
 
     (window as unknown as { __NEXA_WINDOW_COMMANDS__: string[] }).__NEXA_WINDOW_COMMANDS__ = windowCommands;
+    (window as unknown as { __NEXA_ACTIVE_LISTENERS__: typeof listeners }).__NEXA_ACTIVE_LISTENERS__ = listeners;
     (window as unknown as { __releaseWizardState?: () => void }).__releaseWizardState = () => {
       releaseWizardState?.();
       releaseWizardState = null;
@@ -171,6 +184,29 @@ test('reveals the native window onto a branded startup surface', async ({ page }
   ).__releaseWizardState?.());
   await expect(splash).toHaveCount(0);
   await expect(page.getByText('404')).toBeVisible();
+});
+
+test('recovers from a hung startup read without entering a partially initialized workspace', async ({ page }) => {
+  await page.goto('/missing-route');
+  await page.evaluate(() => localStorage.setItem('nexa-test-delay-wizard', 'true'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('startup-splash')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Nexa is still starting', { timeout: 15_000 });
+  await expect(page.getByText('404', { exact: true })).toHaveCount(0);
+  await page.evaluate(() => localStorage.removeItem('nexa-test-delay-wizard'));
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(page.getByText('404', { exact: true })).toBeVisible();
+});
+
+test('retries failed stream subscriptions and admits the workspace with one listener per event', async ({ page }) => {
+  await page.goto('/missing-route');
+  await page.evaluate(() => localStorage.setItem('nexa-test-listener-failures', '1'));
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => {
+    const listeners = (window as unknown as { __NEXA_ACTIVE_LISTENERS__: Map<number, { event: string }> }).__NEXA_ACTIVE_LISTENERS__;
+    return [...listeners.values()].filter(({ event }) => event.startsWith('agent://')).map(({ event }) => event).sort();
+  })).toEqual(['agent://heartbeat', 'agent://run-event', 'agent://task-snapshot']);
+  await expect(page.getByText('404', { exact: true })).toBeVisible();
 });
 
 test('reveals the static startup surface while the React bootstrap is still loading', async ({ page }) => {
