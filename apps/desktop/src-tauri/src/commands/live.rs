@@ -276,31 +276,24 @@ pub async fn start(
             .unwrap_or_else(|e| e.into_inner())
             .insert(id.clone(), asr);
     }
-    let mut events = live.manager.subscribe(owner, &id)?;
+    let events = live.manager.subscribe(owner, &id)?;
     let app = app.clone();
     let actor_owner = owner.to_string();
     let actor_id = id.clone();
     let manager = live.manager.clone();
     tokio::spawn(async move {
-        loop {
-            if manager
-                .input_state(&actor_owner, &actor_id)
-                .map_or(true, |(_, phase)| phase.is_terminal())
-            {
-                break;
-            }
-            match events.recv().await {
-                Ok(event) => {
-                    if actor_owner == "desktop" {
-                        crate::app_events::emit_app_event(&app, "live:event", &event);
-                    } else if let Some(remote) = app.try_state::<crate::remote::RemoteState>() {
-                        remote.publish_live(&actor_owner, &event);
-                    }
+        forward_live_events(
+            events,
+            || terminal_live_event(&manager, &actor_owner, &actor_id),
+            |event| {
+                if actor_owner == "desktop" {
+                    crate::app_events::emit_app_event(&app, "live:event", event);
+                } else if let Some(remote) = app.try_state::<crate::remote::RemoteState>() {
+                    remote.publish_live(&actor_owner, event);
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(_) => break,
-            }
-        }
+            },
+        )
+        .await;
         cleanup_asr(&app, &actor_id).await;
         if let Ok(snapshot) = manager.snapshot(&actor_owner, &actor_id) {
             let _ = app
@@ -320,6 +313,62 @@ pub async fn start(
     });
     pending.armed = false;
     live.manager.snapshot(owner, &id)
+}
+
+fn terminal_live_event(
+    manager: &LiveSessionManager,
+    owner: &str,
+    id: &str,
+) -> Result<Option<LiveEvent>, String> {
+    if !manager.input_state(owner, id)?.1.is_terminal() {
+        return Ok(None);
+    }
+    let snapshot = manager.snapshot(owner, id)?;
+    Ok(Some(LiveEvent {
+        session_id: snapshot.id,
+        sequence: snapshot.sequence,
+        kind: LiveEventKind::State {
+            phase: snapshot.phase,
+            error: snapshot.error,
+        },
+    }))
+}
+
+async fn forward_live_events(
+    mut events: tokio::sync::broadcast::Receiver<LiveEvent>,
+    terminal: impl Fn() -> Result<Option<LiveEvent>, String>,
+    mut emit: impl FnMut(&LiveEvent),
+) {
+    use tokio::sync::broadcast::error::{RecvError, TryRecvError};
+
+    loop {
+        let event = match events.try_recv() {
+            Ok(event) => event,
+            Err(TryRecvError::Lagged(_)) => continue,
+            Err(TryRecvError::Empty | TryRecvError::Closed) => match terminal() {
+                // Completion may precede subscription. Recheck the queue after
+                // reading the snapshot so a concurrently published final entry
+                // is still forwarded before its terminal state.
+                Ok(Some(terminal)) => match events.try_recv() {
+                    Ok(event) => event,
+                    Err(TryRecvError::Lagged(_)) => continue,
+                    Err(TryRecvError::Empty | TryRecvError::Closed) => terminal,
+                },
+                Ok(None) => match events.recv().await {
+                    Ok(event) => event,
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
+                },
+                Err(_) => break,
+            },
+        };
+        let ended =
+            matches!(&event.kind, LiveEventKind::State { phase, .. } if phase.is_terminal());
+        emit(&event);
+        if ended {
+            break;
+        }
+    }
 }
 
 async fn cleanup_asr(app: &AppHandle, id: &str) {
@@ -513,4 +562,111 @@ pub async fn load_live_record_cmd(
         .await
         .map(|r| r.value)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn terminal_event() -> LiveEvent {
+        LiveEvent {
+            session_id: "live-1".into(),
+            sequence: 2,
+            kind: LiveEventKind::State {
+                phase: LivePhase::Error,
+                error: Some("Provider disconnected".into()),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn forwards_queued_entry_and_terminal_state_before_exiting() {
+        let (sender, receiver) = tokio::sync::broadcast::channel(4);
+        sender
+            .send(LiveEvent {
+                session_id: "live-1".into(),
+                sequence: 1,
+                kind: LiveEventKind::Entry {
+                    entry: LiveEntry {
+                        id: "last".into(),
+                        role: "assistant".into(),
+                        text: "Final observation".into(),
+                        at_ms: 1,
+                        complete: true,
+                    },
+                },
+            })
+            .unwrap();
+        sender.send(terminal_event()).unwrap();
+        let mut forwarded = Vec::new();
+        forward_live_events(
+            receiver,
+            || Ok(Some(terminal_event())),
+            |event| forwarded.push(event.clone()),
+        )
+        .await;
+        assert_eq!(
+            forwarded.len(),
+            2,
+            "queued entry and terminal state must both be forwarded"
+        );
+        assert!(
+            matches!(&forwarded[0].kind, LiveEventKind::Entry { entry } if entry.text == "Final observation")
+        );
+        assert!(matches!(
+            &forwarded[1].kind,
+            LiveEventKind::State {
+                phase: LivePhase::Error,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn forwards_terminal_snapshot_when_subscription_misses_completion() {
+        let (_sender, receiver) = tokio::sync::broadcast::channel(4);
+        let mut forwarded = Vec::new();
+        forward_live_events(
+            receiver,
+            || Ok(Some(terminal_event())),
+            |event| forwarded.push(event.clone()),
+        )
+        .await;
+        assert_eq!(forwarded.len(), 1);
+        assert_eq!(forwarded[0].sequence, 2);
+        assert!(matches!(
+            &forwarded[0].kind,
+            LiveEventKind::State {
+                phase: LivePhase::Error,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn rechecks_queue_when_completion_races_an_empty_read() {
+        let (sender, receiver) = tokio::sync::broadcast::channel(4);
+        let published = std::cell::Cell::new(false);
+        let mut sequences = Vec::new();
+        forward_live_events(
+            receiver,
+            || {
+                assert!(!published.replace(true));
+                sender
+                    .send(LiveEvent {
+                        session_id: "live-1".into(),
+                        sequence: 1,
+                        kind: LiveEventKind::Metrics {
+                            metrics: LiveMetrics::default(),
+                        },
+                    })
+                    .unwrap();
+                sender.send(terminal_event()).unwrap();
+                Ok(Some(terminal_event()))
+            },
+            |event| sequences.push(event.sequence),
+        )
+        .await;
+        assert_eq!(sequences, vec![1, 2]);
+    }
 }
