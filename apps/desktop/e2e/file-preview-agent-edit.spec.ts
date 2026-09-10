@@ -110,10 +110,39 @@ test.beforeEach(async ({ page }) => {
     const listeners = new Map<number, { event: string; handlerId: number }>();
     let callbackSeq = 1;
     let listenerSeq = 1;
+    const previewAcks: Record<string, unknown>[] = [];
+    const previewPending: Record<string, unknown>[] = [];
+    let externalOpens = 0;
+    let delayedPreview: (() => void) | undefined;
+    let browserSession: any = null;
+    let browserLoading = false;
+    const htmlOpens: unknown[] = [];
+    Object.assign(window, { __htmlOpens: htmlOpens, __holdBrowserLoad: () => { browserLoading = true; }, __finishBrowserLoad: () => { browserLoading = false; } });
+    const emitPreview = (requestId: string, path: string, line: number | null = null) => {
+      const payload = { requestId, path, line, conversationId: 'conv-agent-edit', callId: requestId };
+      previewPending.push(payload);
+      for (const [id, listener] of listeners) if (listener.event === 'preview:open') callbackMap.get(listener.handlerId)?.({ event: 'preview:open', id, payload });
+    };
+    Object.assign(window, { __emitAgentPreview: emitPreview, __previewAcks: previewAcks, __externalOpens: () => externalOpens, __releasePreview: () => delayedPreview?.(), __cancelAgentPreview: (requestId: string) => {
+      for (const [id, listener] of listeners) if (listener.event === 'preview:cancel') callbackMap.get(listener.handlerId)?.({ event: 'preview:cancel', id, payload: { requestId } });
+    } });
 
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'prepare_html_preview_cmd': htmlOpens.push(args); return { previewId: 'html-test', path: args.path, url: 'http://nexa-test.localhost:12345/__nexa_bootstrap/test' };
+        case 'release_html_preview_cmd': return null;
+        case 'browser_active_session_cmd': return browserSession ? { ...browserSession, tabs: browserSession.tabs.map((tab: any) => ({ ...tab, loading: browserLoading })) } : null;
+        case 'browser_create_session_cmd': {
+          const input = args.input as any;
+          browserSession = { id: 'browser-test', conversationId: input.conversationId, profileId: 'test', activeTabId: 'tab-html', tabs: [{ id: 'tab-html', sessionId: 'browser-test', url: input.url, title: 'index.html', active: true, loading: browserLoading, status: 'idle' }], controlOwner: { type: 'user' }, workspaceVisible: true, cleanupPending: false, visibilityRevision: 1, visibilityRequested: true };
+          return browserSession;
+        }
+        case 'browser_open_tab_cmd': browserSession.tabs = [{ ...browserSession.tabs[0], url: args.url }]; return browserSession.tabs[0];
+        case 'browser_set_bounds_cmd': return null;
+        case 'pending_preview_requests_cmd': return previewPending;
+        case 'acknowledge_preview_request_cmd': previewAcks.push(args.result as Record<string, unknown>); return null;
+        case 'open_file_in_default_app': externalOpens++; return null;
         case 'plugin:event|listen': {
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
@@ -189,6 +218,8 @@ test.beforeEach(async ({ page }) => {
           return false;
           return 0;
         case 'preview_file_cmd':
+          if (localStorage.getItem('e2e-delay-preview') === '1') await new Promise<void>(resolve => { delayedPreview = resolve; });
+          if (String(args.path).endsWith('image.svg')) return { path: String(args.path),displayName:'image.svg',sourceId:null,agentEditAllowed:true,sourceName:'Temporary',extension:'.svg',mimeType:'image/svg+xml',kind:'image',content:null,editable:false,sizeBytes:90,hash:'metadata:image',lineCount:0,truncated:false,warning:null };
           if (String(args.path ?? '').endsWith('index.html')) {
             return {
               path: 'D:\\Vault\\web\\index.html',
@@ -584,6 +615,47 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test('opens an agent-requested preview once and acknowledges the actual line selection',async({page})=>{
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(()=>{
+    const emit=(window as unknown as {__emitAgentPreview:(id:string,path:string,line:number)=>void}).__emitAgentPreview;
+    emit('preview-line','D:\\Vault\\notes\\agent-edit.md',4);emit('preview-line','D:\\Vault\\notes\\agent-edit.md',4);
+  });
+  const text=page.getByTestId('file-preview-text-view');
+  await expect(text).toBeVisible();
+  await expect.poll(()=>text.evaluate(node=>{const input=node as HTMLTextAreaElement;return input.value.slice(input.selectionStart,input.selectionEnd);})).toBe('Beta needs a clearer action item before launch.');
+  await expect.poll(()=>page.evaluate(()=>(window as unknown as {__previewAcks:unknown[]}).__previewAcks.length)).toBe(1);
+  expect(await page.evaluate(()=>(window as unknown as {__externalOpens:()=>number}).__externalOpens())).toBe(0);
+});
+
+test('blocks agent navigation when the preview contains unsaved edits',async({page})=>{
+  await page.goto('/chat/conv-agent-edit');
+  await page.getByRole('button',{name:/agent-edit\.md/i}).click();
+  await page.getByTestId('file-preview-editor').fill('Unsaved human correction');
+  await page.evaluate(()=>(window as unknown as {__emitAgentPreview:(id:string,path:string)=>void}).__emitAgentPreview('blocked','D:\\Vault\\web\\index.html'));
+  await expect.poll(()=>page.evaluate(()=>(window as unknown as {__previewAcks:{error?:string}[]}).__previewAcks[0]?.error)).toContain('unsaved edits');
+  await expect(page.getByTestId('file-preview-editor')).toHaveValue('Unsaved human correction');
+  expect(await page.evaluate(()=>(window as unknown as {__externalOpens:()=>number}).__externalOpens())).toBe(0);
+});
+
+test('does not reopen a preview after the agent cancels a pending load',async({page})=>{
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(()=>{localStorage.setItem('e2e-delay-preview','1');(window as unknown as {__emitAgentPreview:(id:string,path:string)=>void}).__emitAgentPreview('cancelled','D:\\Vault\\notes\\agent-edit.md');});
+  await expect(page.getByLabel('File Preview')).toBeVisible();
+  await page.evaluate(()=>{(window as unknown as {__cancelAgentPreview:(id:string)=>void}).__cancelAgentPreview('cancelled');(window as unknown as {__releasePreview:()=>void}).__releasePreview();});
+  await expect(page.getByLabel('File Preview')).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as unknown as {__previewAcks:unknown[]}).__previewAcks.length)).toBe(0);
+});
+
+test('opens an image inside Nexa and acknowledges only after decoding',async({page})=>{
+  await page.route('**/image.svg?preview=*',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="teal"/></svg>'}));
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(()=>(window as unknown as {__emitAgentPreview:(id:string,path:string)=>void}).__emitAgentPreview('image','/image.svg'));
+  await expect(page.getByTestId('file-preview-media').getByRole('img')).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>(window as unknown as {__previewAcks:{receipt?:{kind:string}}[]}).__previewAcks[0]?.receipt?.kind)).toBe('image');
+  expect(await page.evaluate(()=>(window as unknown as {__externalOpens:()=>number}).__externalOpens())).toBe(0);
+});
+
 for (const mode of ['indexed', 'unindexed-open', 'unindexed-restricted']) {
 const unindexed = mode !== 'indexed';
 const restricted = mode === 'unindexed-restricted';
@@ -682,39 +754,19 @@ test('opens file preview as a large panel and closes it from outside clicks', as
   await expect(previewPanel).toBeHidden();
 });
 
-test('opens editable HTML in a live sandboxed split preview', async ({ page }) => {
-  const escapedRequests: string[] = [];
-  page.on('request', (request) => {
-    if (request.url().startsWith('https://preview-leak.invalid/')) {
-      escapedRequests.push(request.url());
-    }
-  });
+test('opens HTML through the built-in browser and acknowledges actual load completion', async ({ page }) => {
   await page.goto('/chat/conv-agent-edit');
-
   await page.getByRole('button', { name: /index\.html/i }).click();
-  await expect(page.getByLabel('File Preview')).toBeVisible();
-  const editor = page.getByTestId('file-preview-editor');
-  const previewFrame = page.getByTestId('file-preview-html-preview');
-  await expect(editor).toBeVisible();
-  await expect(previewFrame).toBeVisible();
-  await expect(previewFrame).toHaveAttribute('sandbox', '');
-  await expect(previewFrame).toHaveAttribute('referrerpolicy', 'no-referrer');
-  await expect(previewFrame.contentFrame().getByRole('heading', { name: 'Original preview' })).toBeVisible();
-
-  await editor.fill([
-    '<!-- decoy <head><meta http-equiv="Content-Security-Policy" content="default-src *"></head> -->',
-    '<!doctype html><html><head><style>h1 { color: rgb(20, 80, 160); }</style></head>',
-    '<body><h1>Updated live preview</h1>',
-    '<img src="https://preview-leak.invalid/pixel.png" alt="blocked external image">',
-    '<script>parent.document.body.dataset.htmlPreviewEscaped = "true"</script></body></html>',
-  ].join('\n'));
-
-  const updatedHeading = previewFrame.contentFrame().getByRole('heading', { name: 'Updated live preview' });
-  await expect(updatedHeading).toBeVisible();
-  await expect(updatedHeading).toHaveCSS('color', 'rgb(20, 80, 160)');
-  expect(await page.evaluate(() => document.body.dataset.htmlPreviewEscaped)).toBeUndefined();
-  await expect(previewFrame.contentFrame().locator('head meta[http-equiv="Content-Security-Policy"]')).toHaveCount(1);
-  expect(escapedRequests).toEqual([]);
+  await expect(page.getByLabel('File Preview')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(1);
+  await expect(page.getByTestId('file-preview-html-preview')).toHaveCount(0);
+  await page.evaluate(() => { (window as any).__holdBrowserLoad(); (window as any).__emitAgentPreview('html-agent', 'D:\\Vault\\web\\index.html'); });
+  await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(2);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => (window as any).__previewAcks)).toEqual([]);
+  await page.evaluate(() => (window as any).__finishBrowserLoad());
+  await expect.poll(() => page.evaluate(() => (window as any).__previewAcks[0]?.receipt?.displayMode)).toBe('browser');
+  expect(await page.evaluate(() => (window as any).__externalOpens())).toBe(0);
 });
 
 test('closes file preview only after a dirty web link is confirmed and routed', async ({ page }) => {
@@ -774,8 +826,8 @@ test('renders structured XLSX sheets, formulas, and extracted text fallback', as
   await expect(workbook).toContainText('Detail row');
 
   await page.getByRole('button', { name: 'Extracted Text', exact: true }).click();
-  await expect(page.getByTestId('file-preview-readable-content')).toContainText('Name');
-  await expect(page.getByTestId('file-preview-readable-content')).toContainText('Q1');
+  await expect(page.getByTestId('file-preview-text-view')).toHaveValue(/Name/);
+  await expect(page.getByTestId('file-preview-text-view')).toHaveValue(/Q1/);
 });
 
 test('shows the agent panel for read-only extracted Office text and routes to Python document skills', async ({ page }) => {

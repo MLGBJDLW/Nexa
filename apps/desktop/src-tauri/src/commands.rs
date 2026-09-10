@@ -1876,6 +1876,7 @@ mod tests {
         let preview = build_file_preview(&db, &file.to_string_lossy(), None)
             .expect("an explicit local file must open without resource registration");
         assert!(preview.content.as_deref().unwrap().contains("Black hole"));
+        assert_eq!(preview.kind, "html");
         assert!(preview.editable);
         assert!(preview.source_id.is_none());
         assert!(!preview.agent_edit_allowed);
@@ -1888,6 +1889,27 @@ mod tests {
                 .agent_edit_allowed
         );
         assert!(db.list_sources().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn preview_media_streams_without_document_parsing_or_full_file_hashing() {
+        let root = unique_temp_dir("preview-media");
+        let db = Database::open_memory().unwrap();
+        for (name, kind) in [
+            ("image.png", "image"),
+            ("audio.wav", "audio"),
+            ("video.mp4", "video"),
+        ] {
+            let path = root.join(name);
+            std::fs::write(&path, [0_u8; 1024]).unwrap();
+            let preview = build_file_preview(&db, &path.to_string_lossy(), None).unwrap();
+            assert_eq!(preview.kind, kind);
+            assert!(preview.hash.starts_with("metadata:"));
+            assert!(preview.content.is_none());
+            assert!(!preview.editable);
+            assert!(preview.warning.is_none());
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -312,6 +312,7 @@ const FILE_WORKSPACE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDe
     tools: &[
         "read_file",
         "read_files",
+        "open_in_nexa",
         "list_dir",
         "glob_files",
         "search_files",

@@ -201,6 +201,39 @@ async fn managed_loopback_permit_allows_only_its_exact_origin() {
     );
 }
 
+#[tokio::test]
+async fn local_html_origin_requires_a_live_exact_conversation_permit() {
+    let issuer = ManagedLoopbackPermitIssuer::new("local-html", None);
+    let permit = issuer.issue(
+        "http://nexa-test.localhost:43210",
+        "nexa-test.localhost",
+        43210,
+    );
+    let url = url::Url::parse("http://nexa-test.localhost:43210/assets/main.js").unwrap();
+    assert!(validate_agent_network_url_with_permit(&url, None)
+        .await
+        .is_err());
+    validate_agent_network_url_with_permit(&url, Some(&permit))
+        .await
+        .unwrap();
+    for other in [
+        "http://nexa-other.localhost:43210/",
+        "http://nexa-test.localhost:43211/",
+        "http://127.0.0.1:43210/",
+    ] {
+        assert!(validate_agent_network_url_with_permit(
+            &url::Url::parse(other).unwrap(),
+            Some(&permit)
+        )
+        .await
+        .is_err());
+    }
+    issuer.revoke();
+    assert!(validate_agent_network_url_with_permit(&url, Some(&permit))
+        .await
+        .is_err());
+}
+
 #[test]
 fn validated_managed_loopback_navigation_is_single_use_without_global_private_access() {
     let target = url::Url::parse("http://127.0.0.1:4173/app").unwrap();

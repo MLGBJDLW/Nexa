@@ -1,9 +1,10 @@
 {
   "name": "desktop_automation",
-  "description": "Open or reveal files inside registered source directories on the user's visible desktop. HTTP(S) pages and searches belong to browser_session so the user and Agent share Nexa Browser.",
+  "description": "Open or reveal files inside registered source directories on the user's visible desktop. Prefer open_in_nexa for built-in file previews; opening a previewable file externally requires the user's explicit request and external_requested=true. HTTP(S) pages and searches belong to browser_session so the user and Agent share Nexa Browser.",
   "parameters": {
     "type": "object",
     "properties": {
+      "external_requested": {"type":"boolean","description":"Set true only when the user explicitly requested opening the file in an external application. Otherwise use open_in_nexa for previewable files."},
       "action": {
         "type": "string",
         "enum": ["open_path", "reveal_path"],

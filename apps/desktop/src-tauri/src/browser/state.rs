@@ -244,6 +244,7 @@ pub struct BrowserState {
     profile_root: Arc<PathBuf>,
     inner: Arc<Mutex<BrowserRuntimeState>>,
     creation_locks: Arc<Mutex<HashMap<String, Weak<AsyncMutex<()>>>>>,
+    html_previews: Arc<Mutex<HashMap<String, super::local_html::HtmlServer>>>,
 }
 
 struct AgentNavigationPermitGuard {
@@ -321,6 +322,7 @@ impl BrowserState {
                 sessions: HashMap::new(),
             })),
             creation_locks: Arc::new(Mutex::new(HashMap::new())),
+            html_previews: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -329,6 +331,52 @@ impl BrowserState {
             BROWSER_EVENT,
             serde_json::json!({ "kind": kind, "payload": payload }),
         );
+    }
+
+    pub async fn prepare_html_preview(
+        &self,
+        path: String,
+        conversation_id: String,
+    ) -> Result<super::local_html::HtmlPreview, String> {
+        let path = tokio::fs::canonicalize(path)
+            .await
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .into_owned();
+        if let Some(mut preview) = self
+            .html_previews
+            .lock()
+            .map_err(|_| "HTML previews are unavailable")?
+            .values()
+            .find(|server| {
+                server.preview.path == path
+                    && server.preview.conversation_id == conversation_id
+                    && server.permit.is_live()
+            })
+            .map(|server| server.preview.clone())
+        {
+            preview.reused = true;
+            return Ok(preview);
+        }
+        let server = super::local_html::start(path, conversation_id).await?;
+        let mut previews = self
+            .html_previews
+            .lock()
+            .map_err(|_| "HTML previews are unavailable")?;
+        if previews.len() >= 32 {
+            return Err(
+                "Close an existing browser workspace before opening more HTML previews".into(),
+            );
+        }
+        let preview = server.preview.clone();
+        previews.insert(preview.preview_id.clone(), server);
+        Ok(preview)
+    }
+
+    pub fn release_html_preview(&self, preview_id: &str) {
+        if let Ok(mut previews) = self.html_previews.lock() {
+            previews.remove(preview_id);
+        }
     }
 
     /// Run an atomic native-input check/commit on the UI thread. Wry getters
@@ -745,7 +793,7 @@ impl BrowserState {
         let agent_restricted = Arc::new(AtomicBool::new(actor == NavigationActor::Agent));
         let network_proxy = Arc::new(BrowserNetworkProxy::start(Arc::clone(&agent_restricted))?);
         if actor == NavigationActor::Agent && matches!(url.scheme(), "http" | "https") {
-            Self::prepare_proxy_network_access(conversation_id.as_deref(), &network_proxy, &url)
+            self.prepare_proxy_network_access(conversation_id.as_deref(), &network_proxy, &url)
                 .await?;
         }
         let network_proxy_url = network_proxy.url().clone();
@@ -1458,7 +1506,9 @@ impl BrowserState {
                 call_id.clone(),
             )
         };
-        let permit = Self::validated_agent_network_permit(conversation_id.as_deref(), url).await?;
+        let permit = self
+            .validated_agent_network_permit(conversation_id.as_deref(), url)
+            .await?;
         let runtime = self
             .inner
             .lock()
@@ -1485,20 +1535,35 @@ impl BrowserState {
     }
 
     async fn prepare_proxy_network_access(
+        &self,
         conversation_id: Option<&str>,
         network_proxy: &BrowserNetworkProxy,
         url: &Url,
     ) -> Result<Option<ManagedLoopbackPermit>, String> {
-        let permit = Self::validated_agent_network_permit(conversation_id, url).await?;
+        let permit = self
+            .validated_agent_network_permit(conversation_id, url)
+            .await?;
         network_proxy.replace_agent_loopback_permits(permit.iter().cloned().collect());
         Ok(permit)
     }
 
     async fn validated_agent_network_permit(
+        &self,
         conversation_id: Option<&str>,
         url: &Url,
     ) -> Result<Option<ManagedLoopbackPermit>, String> {
-        let permit = if let Some(conversation_id) = conversation_id {
+        let html_permit = self.html_previews.lock().ok().and_then(|previews| {
+            previews
+                .values()
+                .find(|server| {
+                    Some(server.preview.conversation_id.as_str()) == conversation_id
+                        && managed_permit_matches_url(&server.permit, url)
+                })
+                .map(|server| server.permit.clone())
+        });
+        let permit = if html_permit.is_some() {
+            html_permit
+        } else if let Some(conversation_id) = conversation_id {
             managed_loopback_permits(conversation_id)
                 .await
                 .into_iter()
@@ -2782,6 +2847,7 @@ impl BrowserState {
             );
         }
         let temporary_profile = session.temporary_profile;
+        let closed_conversation_id = session.conversation_id.clone();
         let profile_id = session.profile_id.clone();
         session.surface_gate.close();
         if temporary_profile {
@@ -2811,6 +2877,11 @@ impl BrowserState {
             .remove(session_id)
             .expect("validated empty browser session must remain registered until commit");
         drop(runtime);
+        if let Ok(mut previews) = self.html_previews.lock() {
+            previews.retain(|_, server| {
+                Some(&server.preview.conversation_id) != closed_conversation_id.as_ref()
+            });
+        }
         self.emit(
             "sessionClosed",
             serde_json::json!({ "sessionId": session_id }),
@@ -2819,6 +2890,9 @@ impl BrowserState {
     }
 
     pub fn close_all_sessions(&self) {
+        if let Ok(mut previews) = self.html_previews.lock() {
+            previews.clear();
+        }
         let session_ids = self
             .inner
             .lock()

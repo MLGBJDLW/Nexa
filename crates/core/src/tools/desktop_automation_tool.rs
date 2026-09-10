@@ -30,6 +30,8 @@ struct DesktopAutomationArgs {
     path: Option<String>,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(default)]
+    external_requested: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -220,6 +222,12 @@ impl Tool for DesktopAutomationTool {
                     CoreError::InvalidInput("open_path requires a non-empty path".to_string())
                 })?;
                 let canonical = resolve_source_path(db, source_scope, path)?;
+                if canonical.is_file()
+                    && crate::preview::prefers_internal_preview(&canonical)
+                    && !args.external_requested
+                {
+                    return Err(CoreError::InvalidInput("Use open_in_nexa to preview this file inside the app. Set external_requested only when the user explicitly asks for an external application.".into()));
+                }
                 let target = canonical.to_string_lossy().to_string();
                 let launch_target = target.clone();
                 spawn_detached(launcher_command(&launch_target), source_scope).await?;

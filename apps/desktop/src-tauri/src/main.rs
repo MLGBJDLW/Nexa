@@ -11,6 +11,7 @@ mod commands;
 mod companion_window;
 mod delegation_scheduler;
 mod desktop_agent_session;
+mod preview_tool;
 mod remote;
 mod subagent_lifecycle;
 mod subagent_tool;
@@ -707,6 +708,7 @@ fn main() {
             app.manage(ApprovalState::default());
             app.manage(RealtimeTranscriptionState::default());
             app.manage(commands::LiveState::default());
+            app.manage(preview_tool::PreviewBridgeState::default());
             app.manage(commands::TerminalState::default());
             app.manage(browser::BrowserState::new(
                 app.handle().clone(),
@@ -793,6 +795,10 @@ fn main() {
             remote::stop_remote_cmd,
             remote::revoke_remote_device_cmd,
             remote::remote_pairing_cmd,
+            commands::prepare_html_preview_cmd,
+            commands::release_html_preview_cmd,
+            preview_tool::pending_preview_requests_cmd,
+            preview_tool::acknowledge_preview_request_cmd,
             commands::save_text_file_cmd,
             commands::read_generated_image_data_url_cmd,
             commands::save_generated_image_cmd,

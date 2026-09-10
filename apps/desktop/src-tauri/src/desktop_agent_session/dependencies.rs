@@ -90,6 +90,7 @@ pub async fn build_desktop_agent_session_dependencies(
     request: DesktopAgentSessionDependencyRequest<'_>,
 ) -> DesktopAgentSessionDependencies {
     let DesktopAgentSessionDependencyRequest {
+        preview_host,
         subscription_runtime,
         db,
         mcp_manager,
@@ -277,6 +278,10 @@ pub async fn build_desktop_agent_session_dependencies(
     }
     tools = tools.without_names(&["browser_session"]);
     tools.register(Box::new(NativeBrowserSessionTool::new(browser_state)));
+    tools = tools.without_names(&["open_in_nexa"]);
+    tools.register(Box::new(
+        nexa_core::tools::open_in_nexa_tool::OpenInNexaTool::new(preview_host),
+    ));
     let before_package_filter_count = tools.tool_names().len();
     let current_prefilter = tools.clone();
     let assembled = package_assembler.and_then(|assembler| assembler.assemble_tool_registry(tools));
