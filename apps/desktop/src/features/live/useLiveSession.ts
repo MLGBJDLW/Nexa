@@ -69,7 +69,7 @@ export function useLiveSession(transport: LiveTransport) {
       const next = await transport.snapshot(id);
       if (active.current !== id || !mounted.current) return;
       setSnapshot(current => current?.id === id && current.sequence > next.sequence ? current : next);
-      if (liveEnded(next.phase)) { active.current = null; generation.current++; clearCapture(); setBusy(false); if (next.error) setError(next.error); }
+      if (liveEnded(next.phase)) { active.current = null; starting.current = false; generation.current++; clearCapture(); setBusy(false); if (next.error) setError(next.error); }
     } catch (err) { if (active.current === id && !transport.isTransientError?.(err)) fail(err); }
     finally { refreshing.current = false; }
   }, [transport, clearCapture, fail]);
@@ -92,7 +92,7 @@ export function useLiveSession(transport: LiveTransport) {
         if (event.sequence > current.sequence + 1) void refresh(event.sessionId);
         return applyLiveEvent(current, event);
       });
-      if (event.type === 'state' && liveEnded(event.phase)) { active.current = null; generation.current++; clearCapture(); setBusy(false); if (event.error) setError(event.error); }
+      if (event.type === 'state' && liveEnded(event.phase)) { active.current = null; starting.current = false; generation.current++; clearCapture(); setBusy(false); if (event.error) setError(event.error); }
     }).then(dispose => { if (disposed) dispose(); else unlisten = dispose; }).catch(err => { if (!disposed) setError(message(err)); });
     const heartbeat = setInterval(() => { if (active.current && connected.current) void refresh(active.current); }, 10_000);
     const leave = () => { void stop(); };

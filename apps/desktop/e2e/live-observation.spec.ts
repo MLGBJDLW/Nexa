@@ -9,8 +9,8 @@ test.beforeEach(async ({ page, context }) => {
     localStorage.setItem('last-insights-at', String(Date.now()));
     const callbacks = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, {event: string; handler: number}>();
-    let seq=1; let lid=1; let delayed=false; let release:(()=>void)|undefined;
-    const state={ audio:0, frames:0, stopped:0, earlyAudio:0, tracks:[] as MediaStreamTrack[], snapshot:{id:'live-1',mode:'qwenRealtime',model:'qwen3.5-omni-flash-realtime',phase:'connecting',sampleRate:16000,startedAt:new Date().toISOString(),sequence:0,entries:[] as {id:string;role:string;text:string;atMs:number;complete:boolean}[],metrics:{framesReceived:0,framesSubmitted:0,framesReplaced:0,audioMs:0,lastResponseMs:null as number|null,omittedEntries:0},error:null as string|null} };
+    let seq=1; let lid=1; let delayed=false; let holdReady=false; let release:(()=>void)|undefined;
+    const state={ audio:0, frames:0, stopped:0, starts:0, snapshots:0, earlyAudio:0, tracks:[] as MediaStreamTrack[], snapshot:{id:'live-1',mode:'qwenRealtime',model:'qwen3.5-omni-flash-realtime',phase:'connecting',sampleRate:16000,startedAt:new Date().toISOString(),sequence:0,entries:[] as {id:string;role:string;text:string;atMs:number;complete:boolean}[],metrics:{framesReceived:0,framesSubmitted:0,framesReplaced:0,audioMs:0,lastResponseMs:null as number|null,omittedEntries:0},error:null as string|null} };
     const getUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia=async constraints=>{const stream=await getUserMedia(constraints);state.tracks.push(...stream.getTracks());return stream;};
     const emit=(event:Record<string,unknown>)=>{
@@ -22,8 +22,8 @@ test.beforeEach(async ({ page, context }) => {
         case 'plugin:event|listen':{const id=lid++;listeners.set(id,{event:String(args.event),handler:Number(args.handler)});return id;}
         case 'plugin:event|unlisten':listeners.delete(Number(args.eventId));return null;
         case 'live_connections_cmd':return [{id:'qwen',name:'Qwen',model:'qwen-vl',isDefault:true,nativeProtocols:['qwenRealtime'],vision:'supported'},{id:'summary',name:'Summary',model:'deepseek',isDefault:false,nativeProtocols:[],vision:'unsupported'}];
-        case 'start_live_cmd':if(delayed)await new Promise<void>(resolve=>{release=resolve;});return structuredClone(state.snapshot);
-        case 'live_snapshot_cmd':state.snapshot.phase='listening';return structuredClone(state.snapshot);
+        case 'start_live_cmd':state.starts++;if(delayed)await new Promise<void>(resolve=>{release=resolve;});return structuredClone(state.snapshot);
+        case 'live_snapshot_cmd':state.snapshots++;if(!holdReady)state.snapshot.phase='listening';return structuredClone(state.snapshot);
         case 'live_audio_cmd':state.audio++;if(state.snapshot.phase==='connecting')state.earlyAudio++;return null;
         case 'live_frame_cmd':state.frames++;state.snapshot.metrics.framesSubmitted=state.frames;state.snapshot.metrics.lastResponseMs=85;state.snapshot.entries=[{id:'observation',role:'assistant',text:'A diagram is visible. The speaker proposes a Friday deadline.',atMs:1400,complete:false}];emit({type:'entry',entry:state.snapshot.entries[0]});emit({type:'metrics',metrics:state.snapshot.metrics});return null;
         case 'stop_live_cmd':state.stopped++;state.snapshot.phase='stopped';return structuredClone(state.snapshot);
@@ -35,6 +35,11 @@ test.beforeEach(async ({ page, context }) => {
       }
     };
     Object.assign(window,{__live:state,__delayLive:()=>{delayed=true;},__releaseLive:()=>release?.(),__disconnectLive:()=>emit({type:'state',phase:'error',error:'Fixture provider disconnected'})});
+    Object.assign(window,{
+      __holdReadyLive:()=>{holdReady=true;},
+      __failLiveSetup:()=>{state.snapshot.phase='error';state.snapshot.error='Setup failed';emit({type:'state',phase:'error',error:'Setup failed'});},
+      __resumeReadyLive:()=>{holdReady=false;state.snapshot.phase='connecting';state.snapshot.error=null;},
+    });
     Object.assign(window,{__TAURI_INTERNALS__:{invoke,metadata:{currentWindow:{label:'main'}},transformCallback:(cb:(event:unknown)=>void)=>{const id=seq++;callbacks.set(id,cb);return id;},unregisterCallback:(id:number)=>callbacks.delete(id),convertFileSrc:(path:string)=>path},__TAURI_EVENT_PLUGIN_INTERNALS__:{unregisterListener:(_:string,id:number)=>listeners.delete(id)}});
   });
 });
@@ -46,7 +51,23 @@ async function chooseQwen(page: import('@playwright/test').Page) {
   await page.getByLabel('Visual input').selectOption('camera');
   await page.getByLabel('Observation interval (seconds)',{exact:true}).fill('1');
 }
-const state = (page:import('@playwright/test').Page)=>page.evaluate(()=>{const s=(window as unknown as {__live:{audio:number;frames:number;stopped:number;earlyAudio:number;tracks:MediaStreamTrack[]}}).__live;return {...s,tracks:s.tracks.map(track=>track.readyState)};});
+const state = (page:import('@playwright/test').Page)=>page.evaluate(()=>{const s=(window as unknown as {__live:{audio:number;frames:number;stopped:number;starts:number;snapshots:number;earlyAudio:number;tracks:MediaStreamTrack[]}}).__live;return {...s,tracks:s.tracks.map(track=>track.readyState)};});
+
+test('can restart after a terminal event during the initial ready wait',async({page})=>{
+  await chooseQwen(page);
+  await page.evaluate(()=>(window as unknown as {__holdReadyLive:()=>void}).__holdReadyLive());
+  await page.getByRole('button',{name:'Start Live',exact:true}).click();
+  await expect.poll(async()=>(await state(page)).snapshots).toBeGreaterThan(0);
+  await page.evaluate(()=>(window as unknown as {__failLiveSetup:()=>void}).__failLiveSetup());
+  await expect(page.getByRole('alert')).toContainText('Setup failed');
+  await expect.poll(async()=>(await state(page)).tracks.every(track=>track==='ended')).toBe(true);
+  expect((await state(page)).audio).toBe(0);
+  await page.evaluate(()=>(window as unknown as {__resumeReadyLive:()=>void}).__resumeReadyLive());
+  await page.getByRole('button',{name:'Start Live',exact:true}).click();
+  await expect.poll(async()=>(await state(page)).starts).toBe(2);
+  await expect.poll(async()=>(await state(page)).audio).toBeGreaterThan(1);
+  await page.getByRole('button',{name:'Stop capture'}).click();
+});
 
 test('captures real browser PCM and frames only after ready, then stops and summarizes',async({page})=>{
   await chooseQwen(page);
