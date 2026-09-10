@@ -633,13 +633,10 @@ impl ToolDispatchRuntime<'_> {
         let registered_tool_names: HashSet<String> =
             discovery_tools.tool_names().into_iter().collect();
         let has_hidden_registered_tools = offered_tool_names.len() < registered_tool_names.len();
-        let layout = prompt_layout::PromptLayout::for_request(
-            self.config.provider_type,
-            self.config.model.as_deref(),
-        );
-        let effective_dynamic_tool_visibility = layout
-            .effective_dynamic_tool_visibility(self.config.dynamic_tool_visibility)
-            || has_hidden_registered_tools;
+        // Admission follows the actual offered/registered sets. Cache layout
+        // is a request concern and must not guess endpoint capabilities here.
+        let effective_dynamic_tool_visibility =
+            self.config.dynamic_tool_visibility || has_hidden_registered_tools;
         let tool_policy = ToolSchedulerPolicy::new(
             self.config.tool_timeout_secs,
             effective_dynamic_tool_visibility,

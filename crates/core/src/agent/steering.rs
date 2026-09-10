@@ -186,9 +186,12 @@ impl AgentExecutor {
         steering_texts: &[String],
         has_sources: bool,
     ) {
-        let layout = prompt_layout::PromptLayout::for_request(
+        let layout = prompt_layout::PromptLayout::for_cache_profile(
             self.config.provider_type,
             self.config.model.as_deref(),
+            &self
+                .provider
+                .prompt_cache_profile(self.config.model.as_deref().unwrap_or_default()),
         );
         if !layout.effective_dynamic_tool_visibility(self.config.dynamic_tool_visibility) {
             return;

@@ -59,8 +59,33 @@ impl PromptLayout {
         Self::for_request(provider_type, None)
     }
 
+    #[cfg(test)]
     pub(super) fn for_request(provider_type: Option<ProviderType>, model: Option<&str>) -> Self {
-        if uses_stable_prefix_cache(provider_type, model) {
+        let provider = provider_type.unwrap_or(ProviderType::Custom);
+        let style = match provider {
+            ProviderType::Google => crate::llm::prompt_cache::PromptCacheApiStyle::Gemini,
+            ProviderType::Anthropic => {
+                crate::llm::prompt_cache::PromptCacheApiStyle::AnthropicMessages
+            }
+            _ => crate::llm::prompt_cache::PromptCacheApiStyle::OpenAiCompatible,
+        };
+        let profile = crate::llm::prompt_cache::resolve_prompt_cache_profile(
+            provider,
+            None,
+            style,
+            model.unwrap_or_default(),
+        );
+        Self::for_cache_profile(provider_type, model, &profile)
+    }
+
+    pub(super) fn for_cache_profile(
+        provider_type: Option<ProviderType>,
+        model: Option<&str>,
+        profile: &crate::llm::prompt_cache::PromptCacheProfile,
+    ) -> Self {
+        if profile.requires_stable_tool_serialization
+            || uses_stable_prefix_cache(provider_type, model)
+        {
             return Self {
                 include_skill_system_prompt: true,
                 include_turn_scaffolding_system_prompts: true,
@@ -69,7 +94,8 @@ impl PromptLayout {
                 // activating tools after `tool_search` changes that prefix and
                 // can invalidate the entire warm cache. Keep the complete,
                 // deterministically sorted registry pinned for the request
-                // loop; volatile route/skill state remains append-only below.
+                // loop where it fits; larger registries use resident discovery.
+                // Volatile route/skill state remains append-only below.
                 allow_dynamic_tool_visibility: false,
                 append_volatile_system_prompt_to_tail: true,
             };
@@ -203,6 +229,48 @@ fn uses_stable_prefix_cache(provider_type: Option<ProviderType>, model: Option<&
             .unwrap_or(false)
 }
 
+/// Rebuild a previously offered surface from the currently authorized registry.
+/// Cached names never carry schemas or permissions across turns.
+pub(super) fn restore_cache_stable_tool_surface(
+    registry: &ToolRegistry,
+    model: &str,
+    context_window: Option<u32>,
+    max_response_tokens: u32,
+    previous_names: &[String],
+) -> Option<CacheStableToolSurface> {
+    let (max_definitions, max_tool_tokens) =
+        cache_stable_tool_surface_limits(model, context_window, max_response_tokens);
+    if previous_names.is_empty()
+        || previous_names.len() > max_definitions
+        || previous_names.iter().any(|name| !registry.contains(name))
+    {
+        return None;
+    }
+    let definitions = registry.filtered(previous_names).definitions();
+    let full = definitions.len() == registry.tool_names().len();
+    if (!full
+        && !definitions
+            .iter()
+            .any(|tool| tool.name == RESIDENT_DISCOVERY_TOOL_NAME))
+        || !tool_surface_fits_cache_stable_limits(
+            model,
+            &definitions,
+            max_definitions,
+            max_tool_tokens,
+        )
+    {
+        return None;
+    }
+    Some(CacheStableToolSurface {
+        mode: if full {
+            CacheStableToolSurfaceMode::FullPinned
+        } else {
+            CacheStableToolSurfaceMode::StableResidentDynamic
+        },
+        definitions,
+    })
+}
+
 pub(super) fn turn_scaffolding_sections(
     route_prompt_section: &str,
     task_plan: Option<&AgentTaskPlan>,
@@ -332,6 +400,95 @@ mod tests {
         assert!(layout.allow_dynamic_tool_visibility);
         assert!(!layout.append_volatile_system_prompt_to_tail);
         assert!(layout.effective_dynamic_tool_visibility(true));
+    }
+
+    #[test]
+    fn verified_gemini_cache_keeps_runtime_after_the_reusable_transcript() {
+        let layout =
+            PromptLayout::for_request(Some(ProviderType::Google), Some("gemini-3.8-flash"));
+        let messages = context::prepare_messages_with_options(
+            "stable policy",
+            &[
+                Message::text(Role::User, "old question"),
+                Message::text(Role::Assistant, "old answer"),
+            ],
+            &[ContentPart::Text {
+                text: "next question".into(),
+            }],
+            "gemini-3.8-flash",
+            4096,
+            Some(100_000),
+            &[],
+            &[],
+            &[],
+            context::PrepareMessagesOptions {
+                append_volatile_system_prompt_to_tail: layout.append_volatile_system_prompt_to_tail,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            messages[1].text_content(),
+            "old question",
+            "Volatile runtime context must not displace Gemini's reusable prefix"
+        );
+        assert!(
+            !layout.allow_dynamic_tool_visibility,
+            "A verified exact-prefix provider needs a stable tool surface"
+        );
+    }
+
+    #[test]
+    fn cache_layout_does_not_apply_public_gemini_capabilities_to_private_endpoints() {
+        let profile = crate::llm::prompt_cache::resolve_prompt_cache_profile(
+            ProviderType::Google,
+            Some("https://private.example/v1beta"),
+            crate::llm::prompt_cache::PromptCacheApiStyle::Gemini,
+            "gemini-3.8-flash",
+        );
+        let layout = PromptLayout::for_cache_profile(
+            Some(ProviderType::Google),
+            Some("gemini-3.8-flash"),
+            &profile,
+        );
+        assert!(layout.allow_dynamic_tool_visibility);
+    }
+
+    #[test]
+    fn restored_cache_surface_revalidates_registry_and_budget() {
+        let registry = crate::tools::default_tool_registry();
+        let names = vec!["tool_search".to_string(), "web_search".to_string()];
+        let restored = restore_cache_stable_tool_surface(
+            &registry,
+            "deepseek-chat",
+            Some(100_000),
+            4096,
+            &names,
+        )
+        .unwrap();
+        assert_eq!(
+            restored
+                .definitions
+                .iter()
+                .map(|tool| tool.name.clone())
+                .collect::<Vec<_>>(),
+            names
+        );
+        assert!(restore_cache_stable_tool_surface(
+            &registry.without_names(&["web_search"]),
+            "deepseek-chat",
+            Some(100_000),
+            4096,
+            &names
+        )
+        .is_none());
+        assert!(restore_cache_stable_tool_surface(
+            &registry,
+            "deepseek-chat",
+            Some(4096),
+            4096,
+            &names
+        )
+        .is_none());
     }
 
     #[test]

@@ -792,24 +792,41 @@ impl AgentExecutor {
         let balanced_model_tools =
             (!expose_model_task_plan).then(|| self.tools.without_names(&["update_plan"]));
         let model_tool_registry = balanced_model_tools.as_ref().unwrap_or(&self.tools);
-        let layout =
-            prompt_layout::PromptLayout::for_request(self.config.provider_type, Some(model));
+        let cache_profile = self.provider.prompt_cache_profile(model);
+        let layout = prompt_layout::PromptLayout::for_cache_profile(
+            self.config.provider_type,
+            Some(model),
+            &cache_profile,
+        );
         let effective_context_capacity = self
             .config
             .context_window_resolution
             .and_then(|resolved| resolved.capacity_tokens)
             .or(self.config.context_window);
         let tools_allowed_initially = turn_budget.can_dispatch_tool_round();
+        self.seed_prompt_cache_from_previous_turn(db, conversation_id, turn_id);
+        let previous_tool_names = self.previous_cache_tool_names(model, &cache_profile);
         let cache_stable_tool_surface =
             if !tools_allowed_initially || layout.allow_dynamic_tool_visibility {
                 None
             } else {
-                Some(prompt_layout::select_cache_stable_tool_surface(
-                    model_tool_registry,
-                    model,
-                    effective_context_capacity,
-                    max_response_tokens,
-                )?)
+                Some(
+                    match prompt_layout::restore_cache_stable_tool_surface(
+                        model_tool_registry,
+                        model,
+                        effective_context_capacity,
+                        max_response_tokens,
+                        &previous_tool_names,
+                    ) {
+                        Some(surface) => surface,
+                        None => prompt_layout::select_cache_stable_tool_surface(
+                            model_tool_registry,
+                            model,
+                            effective_context_capacity,
+                            max_response_tokens,
+                        )?,
+                    },
+                )
             };
         let effective_dynamic_tool_visibility = tools_allowed_initially
             && cache_stable_tool_surface
@@ -952,8 +969,6 @@ impl AgentExecutor {
         }
         append_persisted_trace_visibility(&mut persisted_trace_items, &route_plan.requirements);
         append_persisted_trace_loaded_skills(&mut persisted_trace_items, &auto_loaded_skills);
-        self.seed_prompt_cache_from_previous_turn(db, conversation_id, turn_id);
-
         // --- 3c. Extract user query text -----------------
         let user_query_text = &user_query_text_for_tools;
 

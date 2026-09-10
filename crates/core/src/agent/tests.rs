@@ -6629,17 +6629,23 @@ async fn test_prompt_cache_trace_compares_previous_turn_snapshot_with_new_execut
         stream_calls: Arc::new(AtomicUsize::new(0)),
         requests: Arc::new(Mutex::new(Vec::new())),
         first_chunks: vec![StreamChunk {
-            delta: "first answer".to_string(),
-            tool_call_delta: None,
-            finish_reason: Some(crate::llm::FinishReason::Stop),
+            delta: String::new(),
+            tool_call_delta: Some(ToolCallDelta {
+                id: "discover-web".into(),
+                name: Some("tool_search".into()),
+                arguments_delta: r#"{"query":"web_search","limit":1}"#.into(),
+                index: Some(0),
+                thought_signature: None,
+            }),
+            finish_reason: Some(crate::llm::FinishReason::ToolCalls),
             usage: None,
             thinking_delta: None,
         }],
-        final_answer: "unused",
+        final_answer: "first answer",
     };
     let first_executor = AgentExecutor::new(
         Box::new(first_provider),
-        ToolRegistry::new(),
+        crate::tools::default_tool_registry(),
         AgentConfig {
             system_prompt: "stable system".to_string(),
             model: Some("deepseek-chat".to_string()),
@@ -6647,7 +6653,7 @@ async fn test_prompt_cache_trace_compares_previous_turn_snapshot_with_new_execut
             ..AgentConfig::default()
         },
     );
-    let (tx, _rx) = mpsc::channel(32);
+    let (tx, _rx) = mpsc::channel(256);
     first_executor
         .run(
             vec![],
@@ -6722,7 +6728,7 @@ async fn test_prompt_cache_trace_compares_previous_turn_snapshot_with_new_execut
     };
     let second_executor = AgentExecutor::new(
         Box::new(second_provider),
-        ToolRegistry::new(),
+        crate::tools::default_tool_registry(),
         AgentConfig {
             system_prompt: "stable system".to_string(),
             model: Some("deepseek-chat".to_string()),
@@ -6760,6 +6766,8 @@ async fn test_prompt_cache_trace_compares_previous_turn_snapshot_with_new_execut
     let observation = first_prompt_cache
         .get("observation")
         .expect("prompt-cache observation");
+    assert!(observation["snapshot"]["toolNames"].as_array().unwrap().iter().any(|name| name == "web_search"),
+        "The next turn must retain an enabled tool discovered in the previous turn instead of resetting the cache prefix");
     assert_eq!(observation["requestKind"], "mainAgentStep");
     assert!(observation["snapshot"]["messageFingerprints"]
         .as_array()
