@@ -20,6 +20,11 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
   let uncertainStart = false;
   const launches: string[] = [];
   const actions: any[] = [];
+  let historyEnabled = false;
+  let holdLaunch = false;
+  const historyReplies: Array<() => void> = [];
+  const textReplies: Array<() => void> = [];
+  const launchReplies: Array<() => void> = [];
   const runEvents: any[] = [];
   let currentRunId = "run-1";
   let approvalItems: any[] = [];
@@ -113,18 +118,47 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
           value = { items: conversations, nextCursor: null };
           break;
         case "chat.read":
+          if (historyEnabled && params.beforeOrder != null) {
+            await new Promise<void>((resolve) => historyReplies.push(resolve));
+            value = {
+              messages: [
+                {
+                  id: `older-${params.beforeOrder}`,
+                  role: "assistant",
+                  content: `Earlier ${params.beforeOrder}`,
+                  totalChars: 10,
+                  sortOrder: params.beforeOrder - 1,
+                },
+              ],
+              beforeOrder: params.beforeOrder - 5,
+            };
+            break;
+          }
           value = {
             messages: [
               {
-                id: "m1",
+                id: params.conversationId === "chat-2" ? "m2" : "m1",
                 role: "assistant",
-                content: "The agent is ready on your computer.",
-                totalChars: 36,
+                content: historyEnabled
+                  ? params.conversationId === "chat-2"
+                    ? "Second conversation"
+                    : "First chunk"
+                  : "The agent is ready on your computer.",
+                totalChars: historyEnabled
+                  ? params.conversationId === "chat-2"
+                    ? 19
+                    : 18
+                  : 36,
                 sortOrder: 0,
               },
             ],
-            beforeOrder: null,
+            beforeOrder:
+              historyEnabled && params.conversationId === "chat-1" ? 10 : null,
           };
+          break;
+        case "chat.message":
+          await new Promise<void>((resolve) => textReplies.push(resolve));
+          value = { content: " + tail", totalChars: 18 };
           break;
         case "chat.create":
           value = conversations[0];
@@ -144,6 +178,8 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
           break;
         case "chat.start":
           launches.push(params.idempotencyKey);
+          if (holdLaunch)
+            await new Promise<void>((resolve) => launchReplies.push(resolve));
           if (uncertainStart) {
             uncertainStart = false;
             lan = false;
@@ -297,6 +333,21 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
       actions,
     }),
     emit,
+    history: () => {
+      historyEnabled = true;
+      conversations.push({ id: "chat-2", title: "Second chat", model: "Qwen" });
+    },
+    pendingPages: () => ({
+      history: historyReplies.length,
+      text: textReplies.length,
+      launches: launchReplies.length,
+    }),
+    releaseHistory: () => historyReplies.shift()?.(),
+    releaseText: () => textReplies.shift()?.(),
+    holdLaunch: () => {
+      holdLaunch = true;
+    },
+    releaseLaunch: () => launchReplies.shift()?.(),
     nextRun: () => {
       currentRunId = "run-2";
       runEvents.length = 0;
@@ -600,4 +651,72 @@ test("a slower public health probe still connects when the phone is away", async
     page.getByRole("button", { name: "Public connection", exact: true }),
   ).toBeVisible({ timeout: 10_000 });
   expect(app.counts().pairCount).toBe(1);
+});
+
+test("phone history paging rejects duplicate and cross-conversation responses", async ({
+  page,
+}) => {
+  const app = await fixture(page);
+  app.history();
+  await page.goto("/phone.html#pair=123456&server=desktop-1");
+  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await page.getByRole("button", { name: "Read more", exact: true }).click();
+  await page.getByRole("button", { name: "Read more", exact: true }).click();
+  await expect.poll(() => app.pendingPages().text).toBe(2);
+  app.releaseText();
+  app.releaseText();
+  await expect(
+    page.getByText("First chunk + tail", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Earlier messages", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Earlier messages", exact: true })
+    .click();
+  await expect.poll(() => app.pendingPages().history).toBe(2);
+  app.releaseHistory();
+  app.releaseHistory();
+  await expect(page.getByText("Earlier 10", { exact: true })).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Earlier messages", exact: true })
+    .click();
+  await expect.poll(() => app.pendingPages().history).toBe(1);
+  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-2");
+  await expect(
+    page.getByText("Second conversation", { exact: true }),
+  ).toBeVisible();
+  app.releaseHistory();
+  await page.waitForTimeout(200);
+  await expect(page.getByText("Earlier 5", { exact: true })).toHaveCount(0);
+});
+
+test("an old chat launch cannot clear the new conversation draft", async ({
+  page,
+}) => {
+  const app = await fixture(page);
+  app.history();
+  app.holdLaunch();
+  await page.goto("/phone.html#pair=123456&server=desktop-1");
+  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await page
+    .getByLabel("Message", { exact: true })
+    .fill("Start the first task");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => app.pendingPages().launches).toBe(1);
+  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-2");
+  await expect(
+    page.getByText("Second conversation", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Message", { exact: true }).fill("Keep this new draft");
+  app.releaseLaunch();
+  await expect(
+    page.getByRole("button", { name: "Send", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
+    "Keep this new draft",
+  );
+  await expect(
+    page.getByRole("button", { name: "Stop", exact: true }),
+  ).toHaveCount(0);
 });

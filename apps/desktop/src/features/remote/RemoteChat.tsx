@@ -84,6 +84,11 @@ export function RemoteChat({
         `nexa.remote.chat.${client.paired.manifest.serverId}`,
       ) || "",
   );
+  const selectedConversation = useRef(conversationId);
+  const selectConversation = (id: string) => {
+    selectedConversation.current = id;
+    setConversationId(id);
+  };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [beforeOrder, setBeforeOrder] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -181,7 +186,10 @@ export function RemoteChat({
       `nexa.remote.chat.${client.paired.manifest.serverId}`,
       conversationId,
     );
-    const valid = () => !stopped && scope.current === generation;
+    const valid = () =>
+      !stopped &&
+      scope.current === generation &&
+      selectedConversation.current === conversationId;
     const publishStream = () => {
       if (paint) return;
       paint = setTimeout(() => {
@@ -372,15 +380,24 @@ export function RemoteChat({
   }, [client, conversationId, list]);
   async function create() {
     if (sending || !connectionId) return;
+    const generation = scope.current;
     setSending(true);
     setError("");
     try {
       const conversation = await client.rpc<Conversation>("chat.create", {
         connectionId,
       });
-      setConversationId(conversation.id);
-      setConversations((current) => [conversation, ...current]);
-      pendingSend.current = null;
+      if (
+        scope.current === generation &&
+        selectedConversation.current === conversationId
+      ) {
+        selectConversation(conversation.id);
+        pendingSend.current = null;
+      }
+      setConversations((current) => [
+        conversation,
+        ...current.filter((item) => item.id !== conversation.id),
+      ]);
     } catch (error) {
       errorText(error);
     } finally {
@@ -389,6 +406,7 @@ export function RemoteChat({
   }
   async function send() {
     if (sending || !draft.trim() || !connectionId) return;
+    const generation = scope.current;
     setSending(true);
     setError("");
     try {
@@ -398,8 +416,15 @@ export function RemoteChat({
           connectionId,
         });
         id = conversation.id;
-        setConversationId(id);
-        setConversations((current) => [conversation, ...current]);
+        if (
+          scope.current === generation &&
+          selectedConversation.current === conversationId
+        )
+          selectConversation(id);
+        setConversations((current) => [
+          conversation,
+          ...current.filter((item) => item.id !== conversation.id),
+        ]);
       }
       const previous = pendingSend.current;
       const request =
@@ -421,10 +446,12 @@ export function RemoteChat({
         message: request.message,
         idempotencyKey: request.id,
       });
-      setDraft("");
-      pendingSend.current = null;
-      setRunning(true);
-      refreshRef.current();
+      if (pendingSend.current === request) pendingSend.current = null;
+      if (selectedConversation.current === id) {
+        setDraft((current) => (current === request.message ? "" : current));
+        setRunning(true);
+        refreshRef.current();
+      }
     } catch (error) {
       errorText(error);
     } finally {
@@ -441,18 +468,35 @@ export function RemoteChat({
     }
   }
   async function older() {
+    const generation = scope.current;
+    const valid = () =>
+      scope.current === generation &&
+      selectedConversation.current === conversationId;
     try {
       const page = await client.rpc<MessagePage>("chat.read", {
         conversationId,
         beforeOrder,
       });
-      setMessages((current) => [...page.messages, ...current]);
-      setBeforeOrder(page.beforeOrder);
+      if (!valid()) return;
+      setMessages((current) => {
+        const ids = new Set(current.map((message) => message.id));
+        return [
+          ...page.messages.filter((message) => !ids.has(message.id)),
+          ...current,
+        ];
+      });
+      setBeforeOrder((current) =>
+        current === beforeOrder ? page.beforeOrder : current,
+      );
     } catch (error) {
-      errorText(error);
+      if (valid()) errorText(error);
     }
   }
   async function more(message: ChatMessage) {
+    const generation = scope.current;
+    const valid = () =>
+      scope.current === generation &&
+      selectedConversation.current === conversationId;
     try {
       const page = await client.rpc<{ content: string; totalChars: number }>(
         "chat.message",
@@ -462,15 +506,16 @@ export function RemoteChat({
           offset: [...message.content].length,
         },
       );
+      if (!valid()) return;
       setMessages((current) =>
         current.map((item) =>
-          item.id === message.id
+          item.id === message.id && item.content === message.content
             ? { ...item, content: item.content + page.content }
             : item,
         ),
       );
     } catch (error) {
-      errorText(error);
+      if (valid()) errorText(error);
     }
   }
   return (
@@ -484,7 +529,7 @@ export function RemoteChat({
           className={`${remoteField} min-w-0 flex-1`}
           value={conversationId}
           onChange={(event) => {
-            setConversationId(event.target.value);
+            selectConversation(event.target.value);
             pendingSend.current = null;
           }}
         >
