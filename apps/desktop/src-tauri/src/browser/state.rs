@@ -379,7 +379,7 @@ impl BrowserState {
 
     pub fn release_html_preview(&self, preview_id: &str) {
         if let Ok(mut previews) = self.html_previews.lock() {
-            previews.remove(preview_id);
+            previews.retain(|id, server| id != preview_id || server.has_tabs());
         }
     }
 
@@ -445,6 +445,14 @@ impl BrowserState {
                     tab.url = url.to_string();
                     tab.loading = loading;
                     tab.status = if loading { "loading" } else { "idle" }.to_string();
+                    if let Ok(mut previews) = self.html_previews.lock() {
+                        super::local_html::bind_preview_tab(
+                            &mut previews,
+                            session.conversation_id.as_deref(),
+                            tab_id,
+                            url,
+                        );
+                    }
                 }
             }
         }
@@ -928,6 +936,14 @@ impl BrowserState {
                     trusted_input_guard,
                 },
             );
+            if let Ok(mut previews) = self.html_previews.lock() {
+                super::local_html::bind_preview_tab(
+                    &mut previews,
+                    conversation_id.as_deref(),
+                    &tab_id,
+                    &url,
+                );
+            }
             session_info(session)
                 .tabs
                 .into_iter()
@@ -2629,6 +2645,9 @@ impl BrowserState {
             .remove(tab_id)
             .expect("successfully closed browser tab must remain registered until commit");
         tab.network_proxy.shutdown();
+        if let Ok(mut previews) = self.html_previews.lock() {
+            super::local_html::release_preview_tab(&mut previews, tab_id);
+        }
         let mut show_result = Ok(());
         if session.active_tab_id.as_deref() == Some(tab_id) {
             session.active_tab_id = session.tabs.keys().next().cloned();
@@ -2884,6 +2903,7 @@ impl BrowserState {
         if let Ok(mut previews) = self.html_previews.lock() {
             previews.retain(|_, server| {
                 Some(&server.preview.conversation_id) != closed_conversation_id.as_ref()
+                    || server.has_tabs()
             });
         }
         self.emit(

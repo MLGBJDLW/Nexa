@@ -9,7 +9,7 @@ use axum::{
 use nexa_core::tools::run_shell_tool::{ManagedLoopbackPermit, ManagedLoopbackPermitIssuer};
 use serde::Serialize;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, HashSet},
     future::IntoFuture,
     path::{Path, PathBuf},
     sync::Arc,
@@ -33,11 +33,35 @@ pub struct HtmlServer {
     issuer: ManagedLoopbackPermitIssuer,
     stop: Option<oneshot::Sender<()>>,
     files: Arc<BTreeSet<PathBuf>>,
+    tab_ids: HashSet<String>,
 }
 impl HtmlServer {
     pub fn has_files(&self, files: &BTreeSet<PathBuf>) -> bool {
         self.files.as_ref() == files
     }
+
+    pub fn has_tabs(&self) -> bool {
+        !self.tab_ids.is_empty()
+    }
+}
+
+pub(super) fn bind_preview_tab(
+    previews: &mut HashMap<String, HtmlServer>,
+    conversation_id: Option<&str>,
+    tab_id: &str,
+    url: &url::Url,
+) {
+    for server in previews.values_mut() {
+        if Some(server.preview.conversation_id.as_str()) == conversation_id
+            && super::policy::managed_permit_matches_url(&server.permit, url)
+        {
+            server.tab_ids.insert(tab_id.into());
+        }
+    }
+}
+
+pub(super) fn release_preview_tab(previews: &mut HashMap<String, HtmlServer>, tab_id: &str) {
+    previews.retain(|_, server| !server.tab_ids.remove(tab_id) || !server.tab_ids.is_empty());
 }
 impl Drop for HtmlServer {
     fn drop(&mut self) {
@@ -151,6 +175,7 @@ pub async fn start(
         issuer,
         stop: Some(stop),
         files,
+        tab_ids: HashSet::new(),
     })
 }
 
@@ -292,6 +317,69 @@ fn web_mime(path: &Path) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn closing_preview_tabs_releases_servers_and_reuses_capacity() {
+        struct TestRoot(PathBuf);
+        impl Drop for TestRoot {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = TestRoot(
+            std::env::temp_dir().join(format!("nexa-html-close-{}", uuid::Uuid::new_v4())),
+        );
+        std::fs::create_dir_all(&root.0).unwrap();
+        let mut previews = HashMap::new();
+        for index in 0..35 {
+            let path = root.0.join(format!("preview-{index}.html"));
+            std::fs::write(&path, "<h1>Preview</h1>").unwrap();
+            let server = start(path.to_string_lossy().into(), "owner".into(), vec![])
+                .await
+                .unwrap();
+            let url = url::Url::parse(&server.preview.url).unwrap();
+            let address = std::net::SocketAddr::from(([127, 0, 0, 1], url.port().unwrap()));
+            let permit = server.permit.clone();
+            previews.insert(server.preview.preview_id.clone(), server);
+            bind_preview_tab(&mut previews, Some("owner"), "a", &url);
+            bind_preview_tab(&mut previews, Some("owner"), "b", &url);
+            bind_preview_tab(&mut previews, Some("other-owner"), "foreign", &url);
+            release_preview_tab(&mut previews, "foreign");
+            release_preview_tab(&mut previews, "a");
+            assert_eq!(previews.len(), 1, "another live tab still owns the server");
+            assert!(permit.is_live());
+            // Navigating elsewhere must not lose ownership needed for history
+            // and eventual cleanup when this last tab closes.
+            bind_preview_tab(
+                &mut previews,
+                Some("owner"),
+                "b",
+                &url::Url::parse("https://example.com").unwrap(),
+            );
+            release_preview_tab(&mut previews, "b");
+            assert!(
+                previews.is_empty(),
+                "closed tabs must release the preview capacity"
+            );
+            assert!(!permit.is_live());
+            tokio::time::timeout(Duration::from_secs(2), async {
+                // Windows can retry a refused connection for several seconds.
+                // Bound each probe instead of waiting on that OS retry policy.
+                while matches!(
+                    tokio::time::timeout(
+                        Duration::from_millis(100),
+                        tokio::net::TcpStream::connect(address)
+                    )
+                    .await,
+                    Ok(Ok(_))
+                ) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("closed preview must stop its listener");
+        }
+    }
+
     #[tokio::test]
     async fn local_html_requires_bootstrap_and_serves_relative_assets_until_closed() {
         let root = std::env::temp_dir().join(format!("nexa-html-test-{}", uuid::Uuid::new_v4()));
