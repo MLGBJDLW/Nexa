@@ -1,4 +1,4 @@
-use super::LiveSnapshot;
+use super::{LiveSessionManager, LiveSnapshot};
 use crate::{db::Database, error::CoreError};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,32 @@ use serde::{Deserialize, Serialize};
 pub struct LiveRecord {
     pub snapshot: LiveSnapshot,
     pub summary: Option<String>,
+}
+
+impl LiveSessionManager {
+    /// A terminal event may arrive before the asynchronous archive writer. Keep summaries
+    /// available from the same owner-checked retained snapshot during that interval.
+    pub fn record_for_summary(
+        &self,
+        db: &Database,
+        owner: &str,
+        id: &str,
+    ) -> Result<LiveRecord, CoreError> {
+        let record = match db.load_live_record(owner, id) {
+            Ok(record) => record,
+            Err(CoreError::Database(rusqlite::Error::QueryReturnedNoRows)) => LiveRecord {
+                snapshot: self.snapshot(owner, id).map_err(CoreError::InvalidInput)?,
+                summary: None,
+            },
+            Err(error) => return Err(error),
+        };
+        if !record.snapshot.phase.is_terminal() {
+            return Err(CoreError::InvalidInput(
+                "Stop Live before summarizing".into(),
+            ));
+        }
+        Ok(record)
+    }
 }
 
 impl Database {

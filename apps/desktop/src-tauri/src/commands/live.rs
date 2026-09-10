@@ -386,10 +386,11 @@ pub async fn summarize(
     let owner = owner.to_owned();
     let id = id.to_owned();
     let read_owner = owner.clone();
+    let manager = app.state::<LiveState>().manager.clone();
     let mut record = app
         .state::<AppState>()
         .db_executor
-        .read(move |db| db.load_live_record(&read_owner, &id))
+        .read(move |db| manager.record_for_summary(db, &read_owner, &id))
         .await
         .map_err(|e| e.to_string())?
         .value;

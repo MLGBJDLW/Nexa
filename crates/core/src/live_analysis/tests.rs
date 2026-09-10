@@ -158,6 +158,7 @@ async fn live_records_preserve_summary_and_enforce_device_ownership() {
 #[tokio::test]
 async fn stop_interrupts_a_model_that_never_finishes() {
     let manager = LiveSessionManager::default();
+    let db = crate::db::Database::open_memory().unwrap();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let opened = manager
         .start(
@@ -179,6 +180,9 @@ async fn stop_interrupts_a_model_that_never_finishes() {
         .transcript("owner", &opened.id, "speech", "test", false, true)
         .unwrap();
     until(|| !requests.lock().unwrap().is_empty()).await;
+    assert!(manager
+        .record_for_summary(&db, "owner", &opened.id)
+        .is_err());
     let stopped = tokio::time::timeout(
         Duration::from_millis(250),
         manager.stop("owner", &opened.id),
@@ -187,6 +191,23 @@ async fn stop_interrupts_a_model_that_never_finishes() {
     .expect("stop must interrupt the pending model request")
     .unwrap();
     assert_eq!(stopped.phase, LivePhase::Stopped);
+    assert!(db.load_live_record("owner", &opened.id).is_err());
+    let mut record = manager
+        .record_for_summary(&db, "owner", &opened.id)
+        .unwrap();
+    assert_eq!(record.snapshot.phase, LivePhase::Stopped);
+    assert!(manager
+        .record_for_summary(&db, "another-phone", &opened.id)
+        .is_err());
+    record.summary = Some("Already summarized".into());
+    db.save_live_record("owner", &record).unwrap();
+    assert_eq!(
+        manager
+            .record_for_summary(&db, "owner", &opened.id)
+            .unwrap()
+            .summary,
+        record.summary
+    );
     assert!(manager
         .transcript("owner", &opened.id, "late", "late speech", false, true)
         .is_err());
