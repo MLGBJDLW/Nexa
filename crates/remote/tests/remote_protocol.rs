@@ -223,6 +223,34 @@ async fn lan_tls_validates_with_the_public_certificate_and_reuses_the_same_ca() 
 }
 
 #[tokio::test]
+async fn lan_tls_recovers_each_incomplete_certificate_pair() {
+    for missing in ["Nexa-LAN-CA.crt", "lan-ca-key.pem"] {
+        let dir = tempfile::tempdir().unwrap();
+        let addresses = vec!["127.0.0.1".parse().unwrap()];
+        tls::identity(dir.path(), &addresses).await.unwrap();
+        let stored: Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join("lan-ca-identity.json")).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("lan-ca-key.pem"),
+            stored["key_pem"].as_str().unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_file(dir.path().join("lan-ca-identity.json")).unwrap();
+        std::fs::remove_file(dir.path().join(missing)).unwrap();
+        let recovered = tls::identity(dir.path(), &addresses).await.unwrap();
+        assert!(recovered.certificate_path.is_file());
+        let stable = std::fs::read(recovered.certificate_path).unwrap();
+        let repeated = tls::identity(dir.path(), &addresses).await.unwrap();
+        assert_eq!(stable, std::fs::read(repeated.certificate_path).unwrap());
+        std::fs::remove_file(dir.path().join("Nexa-LAN-CA.crt")).unwrap();
+        let exported = tls::identity(dir.path(), &addresses).await.unwrap();
+        assert_eq!(stable, std::fs::read(exported.certificate_path).unwrap());
+    }
+}
+
+#[tokio::test]
 #[ignore = "creates a temporary public tunnel exposing only this synthetic test host"]
 async fn verified_public_tunnel_serves_only_the_synthetic_host_and_stops_cleanly() {
     let directory = tempfile::tempdir().unwrap();
