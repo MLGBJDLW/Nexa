@@ -17,6 +17,7 @@ const DEF_JSON: &str = include_str!("../../prompts/tools/open_in_nexa.json");
 #[serde(rename_all = "camelCase")]
 pub struct PreviewOpenRequest {
     pub path: String,
+    pub resource_paths: Vec<String>,
     pub line: Option<usize>,
     pub conversation_id: Option<String>,
     pub call_id: String,
@@ -47,6 +48,8 @@ impl OpenInNexaTool {
 struct Arguments {
     path: String,
     line: Option<usize>,
+    #[serde(default)]
+    assets: Vec<String>,
 }
 
 #[async_trait]
@@ -78,22 +81,42 @@ impl Tool for OpenInNexaTool {
                 "Provide a file path and an optional positive line number".into(),
             ));
         }
+        if args.assets.len() > 256 {
+            return Err(CoreError::InvalidInput(
+                "An HTML preview supports at most 256 explicitly selected assets".into(),
+            ));
+        }
         let host=self.host.as_ref().ok_or_else(||CoreError::InvalidInput("This runtime has no Nexa preview surface. Do not silently fall back to an external application.".into()))?;
         let db = context.db.clone();
         let scope = context.source_scope.to_vec();
-        let canonical = tokio::task::spawn_blocking(move || {
+        let (canonical, resource_paths) = tokio::task::spawn_blocking(move || {
             let policy = file_access_policy(&db, &scope)?;
-            resolve_existing_file_for_file_access(
+            let resolve = |path: &str| {
+                resolve_existing_file_for_file_access(
+                    &PathBuf::from(path),
+                    &policy.sources,
+                    policy.allow_unregistered_absolute_paths,
+                )
+                .map_err(CoreError::InvalidInput)
+            };
+            let canonical = resolve_existing_file_for_file_access(
                 &PathBuf::from(&args.path),
                 &policy.sources,
                 policy.allow_unregistered_absolute_paths,
             )
-            .map_err(CoreError::InvalidInput)
+            .map_err(CoreError::InvalidInput)?;
+            let resources = args
+                .assets
+                .iter()
+                .map(|path| resolve(path).map(|path| path.to_string_lossy().into_owned()))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, CoreError>((canonical, resources))
         })
         .await
         .map_err(|error| CoreError::Internal(error.to_string()))??;
         let request = PreviewOpenRequest {
             path: canonical.to_string_lossy().into_owned(),
+            resource_paths,
             line: args.line,
             conversation_id: context.conversation_id.map(str::to_string),
             call_id: context.call_id.into(),
@@ -201,6 +224,40 @@ mod tests {
                 .unwrap()
                 .tools
                 .contains("open_in_nexa")
+        );
+        std::fs::write(
+            allowed.join("index.html"),
+            "<script src='main.js'></script>",
+        )
+        .unwrap();
+        std::fs::write(allowed.join("main.js"), "document.title='fixture'").unwrap();
+        let denied_asset =
+            serde_json::json!({"path":"index.html","assets":[dir.path().join("outside.md")]})
+                .to_string();
+        assert!(tool
+            .execute(ToolExecutionContext::new(
+                "denied-asset",
+                &denied_asset,
+                &db,
+                &scope
+            ))
+            .await
+            .is_err());
+        assert_eq!(host.requests.lock().unwrap().len(), 1);
+        tool.execute(ToolExecutionContext::new(
+            "html-assets",
+            r#"{"path":"index.html","assets":["main.js"]}"#,
+            &db,
+            &scope,
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            host.requests.lock().unwrap()[1].resource_paths,
+            vec![std::fs::canonicalize(allowed.join("main.js"))
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()]
         );
     }
 }

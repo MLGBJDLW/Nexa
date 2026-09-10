@@ -337,12 +337,15 @@ impl BrowserState {
         &self,
         path: String,
         conversation_id: String,
+        resource_paths: Vec<String>,
     ) -> Result<super::local_html::HtmlPreview, String> {
         let path = tokio::fs::canonicalize(path)
             .await
             .map_err(|e| e.to_string())?
             .to_string_lossy()
             .into_owned();
+        let files =
+            super::local_html::selected_files(std::path::Path::new(&path), &resource_paths).await?;
         if let Some(mut preview) = self
             .html_previews
             .lock()
@@ -351,6 +354,7 @@ impl BrowserState {
             .find(|server| {
                 server.preview.path == path
                     && server.preview.conversation_id == conversation_id
+                    && server.has_files(&files)
                     && server.permit.is_live()
             })
             .map(|server| server.preview.clone())
@@ -358,7 +362,7 @@ impl BrowserState {
             preview.reused = true;
             return Ok(preview);
         }
-        let server = super::local_html::start(path, conversation_id).await?;
+        let server = super::local_html::start(path, conversation_id, resource_paths).await?;
         let mut previews = self
             .html_previews
             .lock()

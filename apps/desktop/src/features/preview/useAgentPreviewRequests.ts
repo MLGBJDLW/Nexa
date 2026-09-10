@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { connectEventSubscriptions } from '../../lib/eventSubscriptions';
 
-export interface AgentPreviewRequest { requestId: string; path: string; line: number | null; conversationId: string | null; callId: string }
+export interface AgentPreviewRequest { requestId: string; path: string; resourcePaths?: string[]; line: number | null; conversationId: string | null; callId: string }
 export interface AgentPreviewReceipt { path: string; kind: string; displayMode: string; warning: string | null }
 
 export function useAgentPreviewRequests(open: (request: AgentPreviewRequest) => Promise<AgentPreviewReceipt>, cancel: (requestId: string) => void) {

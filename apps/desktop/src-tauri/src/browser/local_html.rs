@@ -9,6 +9,7 @@ use axum::{
 use nexa_core::tools::run_shell_tool::{ManagedLoopbackPermit, ManagedLoopbackPermitIssuer};
 use serde::Serialize;
 use std::{
+    collections::BTreeSet,
     future::IntoFuture,
     path::{Path, PathBuf},
     sync::Arc,
@@ -31,6 +32,12 @@ pub struct HtmlServer {
     pub permit: ManagedLoopbackPermit,
     issuer: ManagedLoopbackPermitIssuer,
     stop: Option<oneshot::Sender<()>>,
+    files: Arc<BTreeSet<PathBuf>>,
+}
+impl HtmlServer {
+    pub fn has_files(&self, files: &BTreeSet<PathBuf>) -> bool {
+        self.files.as_ref() == files
+    }
 }
 impl Drop for HtmlServer {
     fn drop(&mut self) {
@@ -47,9 +54,37 @@ struct WebRoot {
     host: String,
     token: String,
     capacity: Arc<Semaphore>,
+    files: Arc<BTreeSet<PathBuf>>,
 }
 
-pub async fn start(path: String, conversation_id: String) -> Result<HtmlServer, String> {
+pub async fn selected_files(path: &Path, assets: &[String]) -> Result<BTreeSet<PathBuf>, String> {
+    if assets.len() > 256 {
+        return Err("Too many local HTML resources".into());
+    }
+    let parent = path
+        .parent()
+        .ok_or("HTML parent directory is unavailable")?;
+    let mut files = BTreeSet::from([path.to_owned()]);
+    for asset in assets {
+        let asset = tokio::fs::canonicalize(asset)
+            .await
+            .map_err(|e| e.to_string())?;
+        if !asset.starts_with(parent) || !asset.is_file() || web_mime(&asset).is_none() {
+            return Err(
+                "HTML resources must be explicitly selected web files beneath the HTML parent"
+                    .into(),
+            );
+        }
+        files.insert(asset);
+    }
+    Ok(files)
+}
+
+pub async fn start(
+    path: String,
+    conversation_id: String,
+    assets: Vec<String>,
+) -> Result<HtmlServer, String> {
     let path = tokio::fs::canonicalize(&path)
         .await
         .map_err(|e| e.to_string())?;
@@ -65,6 +100,7 @@ pub async fn start(path: String, conversation_id: String) -> Result<HtmlServer, 
     {
         return Err("Expected a local HTML file".into());
     }
+    let files = Arc::new(selected_files(&path, &assets).await?);
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|e| e.to_string())?;
@@ -86,6 +122,7 @@ pub async fn start(path: String, conversation_id: String) -> Result<HtmlServer, 
         host: format!("{host}:{port}"),
         token: token.clone(),
         capacity: Arc::new(Semaphore::new(16)),
+        files: files.clone(),
     };
     let issuer = ManagedLoopbackPermitIssuer::new(format!("html-preview:{id}"), None);
     let permit = issuer.issue(&origin, &host, port);
@@ -113,6 +150,7 @@ pub async fn start(path: String, conversation_id: String) -> Result<HtmlServer, 
         permit,
         issuer,
         stop: Some(stop),
+        files,
     })
 }
 
@@ -184,6 +222,9 @@ async fn serve(State(root): State<WebRoot>, request: Request<Body>) -> Response 
     };
     if !file.starts_with(&root.root) {
         return StatusCode::FORBIDDEN.into_response();
+    }
+    if !root.files.contains(&file) {
+        return StatusCode::NOT_FOUND.into_response();
     }
     let Ok(metadata) = tokio::fs::metadata(&file).await else {
         return StatusCode::NOT_FOUND.into_response();
@@ -261,9 +302,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(root.join("assets/main.js"), "document.title='loaded'").unwrap();
+        std::fs::write(root.join("credentials.json"), "private-sibling-data").unwrap();
+        std::fs::write(root.join("private.js"), "private-sibling-script").unwrap();
+        std::fs::write(root.join("assets/private.csv"), "private-nested-data").unwrap();
         let server = start(
             root.join("index.html").to_string_lossy().into(),
             "test".into(),
+            vec![root.join("assets/main.js").to_string_lossy().into_owned()],
         )
         .await
         .unwrap();
@@ -302,6 +347,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(asset.text().await.unwrap(), "document.title='loaded'");
+        for path in ["credentials.json", "private.js", "assets/private.csv"] {
+            assert_eq!(
+                client
+                    .get(format!("{origin}/{path}"))
+                    .header(header::COOKIE, cookie)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                404,
+                "Opening an HTML file must not grant ambient access to its siblings"
+            );
+        }
         assert_eq!(
             client
                 .get(format!("{origin}/assets/main.js"))

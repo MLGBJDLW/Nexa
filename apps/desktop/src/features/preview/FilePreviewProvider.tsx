@@ -940,12 +940,12 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [dirty]);
 
   useEffect(() => () => htmlRequest.current?.abort(), []);
-  const openHtml = useCallback(async (path: string, conversationId?: string | null) => {
+  const openHtml = useCallback(async (path: string, conversationId?: string | null, resourcePaths: string[] = []) => {
     htmlRequest.current?.abort();
     const controller = new AbortController(); htmlRequest.current = controller;
     const currentChat = /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1];
     const owner = conversationId ?? currentChat ?? 'nexa-global-browser-workspace';
-    const prepared = await invoke<{ previewId: string; path: string; url: string; reused: boolean }>('prepare_html_preview_cmd', { path, conversationId: owner });
+    const prepared = await invoke<{ previewId: string; path: string; url: string; reused: boolean }>('prepare_html_preview_cmd', { path, conversationId: owner, resourcePaths });
     try {
       if (controller.signal.aborted) throw new Error('The HTML preview was cancelled.');
       const opened = requestNexaBrowser(prepared.url, owner, controller.signal);
@@ -1001,7 +1001,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (dirtyRef.current) throw new Error('The current preview has unsaved edits. Save or discard them before opening another file.');
     agentPreviewRequest.current = request.requestId;
     if (/\.html?$/i.test(request.path) && !request.line) {
-      const receipt = await openHtml(request.path, request.conversationId);
+      const receipt = await openHtml(request.path, request.conversationId, request.resourcePaths);
       if (agentPreviewRequest.current !== request.requestId) throw new Error('The preview request was cancelled.');
       agentPreviewRequest.current = null;
       return receipt;

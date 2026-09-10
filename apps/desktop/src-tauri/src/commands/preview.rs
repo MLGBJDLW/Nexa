@@ -51,8 +51,11 @@ pub async fn prepare_html_preview_cmd(
     browser: tauri::State<'_, crate::browser::BrowserState>,
     path: String,
     conversation_id: String,
+    resource_paths: Option<Vec<String>>,
 ) -> Result<crate::browser::local_html::HtmlPreview, String> {
-    browser.prepare_html_preview(path, conversation_id).await
+    browser
+        .prepare_html_preview(path, conversation_id, resource_paths.unwrap_or_default())
+        .await
 }
 
 #[tauri::command]

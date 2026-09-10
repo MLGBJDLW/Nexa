@@ -118,8 +118,8 @@ test.beforeEach(async ({ page }) => {
     let browserLoading = false;
     const htmlOpens: unknown[] = [];
     Object.assign(window, { __htmlOpens: htmlOpens, __holdBrowserLoad: () => { browserLoading = true; }, __finishBrowserLoad: () => { browserLoading = false; } });
-    const emitPreview = (requestId: string, path: string, line: number | null = null) => {
-      const payload = { requestId, path, line, conversationId: 'conv-agent-edit', callId: requestId };
+    const emitPreview = (requestId: string, path: string, line: number | null = null, resourcePaths: string[] = []) => {
+      const payload = { requestId, path, line, resourcePaths, conversationId: 'conv-agent-edit', callId: requestId };
       previewPending.push(payload);
       for (const [id, listener] of listeners) if (listener.event === 'preview:open') callbackMap.get(listener.handlerId)?.({ event: 'preview:open', id, payload });
     };
@@ -760,8 +760,10 @@ test('opens HTML through the built-in browser and acknowledges actual load compl
   await expect(page.getByLabel('File Preview')).toBeHidden();
   await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(1);
   await expect(page.getByTestId('file-preview-html-preview')).toHaveCount(0);
-  await page.evaluate(() => { (window as any).__holdBrowserLoad(); (window as any).__emitAgentPreview('html-agent', 'D:\\Vault\\web\\index.html'); });
+  await page.evaluate(() => { (window as any).__holdBrowserLoad(); (window as any).__emitAgentPreview('html-agent', 'D:\\Vault\\web\\index.html', null, ['D:\\Vault\\web\\assets\\main.js']); });
   await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(2);
+  expect(await page.evaluate(() => (window as any).__htmlOpens[0].resourcePaths)).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__htmlOpens[1].resourcePaths)).toEqual(['D:\\Vault\\web\\assets\\main.js']);
   await page.waitForTimeout(250);
   expect(await page.evaluate(() => (window as any).__previewAcks)).toEqual([]);
   await page.evaluate(() => (window as any).__finishBrowserLoad());
