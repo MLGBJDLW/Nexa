@@ -744,17 +744,29 @@ export function RemoteChat({
                       ),
                   )
                   .join("\n")}
-                onChange={(event) =>
-                  setAnswers((current) => ({
-                    ...current,
-                    [item.interactionId]: {
-                      ...current[item.interactionId],
-                      [question.id]: event.target.value
-                        ? [event.target.value]
-                        : [],
-                    },
-                  }))
-                }
+                onChange={(event) => {
+                  const custom = event.target.value;
+                  setAnswers((current) => {
+                    const selected =
+                      question.type === "multi_choice"
+                        ? (current[item.interactionId]?.[question.id] || []).filter(
+                            (value) =>
+                              question.options?.some(
+                                (option) => option.label === value,
+                              ),
+                          )
+                        : [];
+                    return {
+                      ...current,
+                      [item.interactionId]: {
+                        ...current[item.interactionId],
+                        [question.id]: [
+                          ...new Set([...selected, ...(custom ? [custom] : [])]),
+                        ],
+                      },
+                    };
+                  });
+                }}
               />
             </fieldset>
           ))}

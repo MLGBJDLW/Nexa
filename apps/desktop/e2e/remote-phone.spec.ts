@@ -352,7 +352,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
       currentRunId = "run-2";
       runEvents.length = 0;
     },
-    requests: () => {
+    requests: (questionType = "single_choice") => {
       approvalItems = [
         {
           runId: "run-1",
@@ -374,7 +374,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
             {
               id: "day",
               question: "When should this ship?",
-              type: "single_choice",
+              type: questionType,
               options: [{ label: "Friday" }, { label: "Monday" }],
             },
           ],
@@ -638,6 +638,46 @@ test("phone replays missing UTF-8 deltas and forwards explicit approvals, answer
       app.counts().actions.some((action) => action.method === "chat.stop"),
     )
     .toBe(true);
+});
+
+test("phone custom multi-choice answers preserve checked options through edits and clearing", async ({
+  page,
+}) => {
+  const app = await fixture(page);
+  await page.goto("/phone.html#pair=123456&server=desktop-1");
+  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await expect(
+    page.getByText("The agent is ready on your computer."),
+  ).toBeVisible();
+  app.requests("multi_choice");
+  app.emit("approvalRequested", {});
+  const friday = page.getByRole("checkbox", { name: "Friday", exact: true });
+  const monday = page.getByRole("checkbox", { name: "Monday", exact: true });
+  const custom = page.getByLabel("When should this ship?", { exact: true });
+  await friday.check();
+  await monday.check();
+  await custom.fill("After the review");
+  await expect(friday).toBeChecked();
+  await expect(monday).toBeChecked();
+  await custom.fill("");
+  await expect(friday).toBeChecked();
+  await expect(monday).toBeChecked();
+  await custom.fill("Tuesday morning");
+  await monday.uncheck();
+  await expect(custom).toHaveValue("Tuesday morning");
+  await page.getByRole("button", { name: "Submit answer", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        app.counts().actions.find(
+          (action) => action.method === "interactions.respond",
+        )?.params.input,
+    )
+    .toEqual({
+      interactionId: "question-1",
+      resumeToken: "resume-1",
+      answers: { day: ["Friday", "Tuesday morning"] },
+    });
 });
 
 test("a slower public health probe still connects when the phone is away", async ({
