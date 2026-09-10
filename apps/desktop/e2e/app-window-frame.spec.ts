@@ -14,6 +14,7 @@ test.beforeEach(async ({ page }) => {
     let listenerSeq = 1;
     let maximized = false;
     let releaseWizardState: (() => void) | null = null;
+    let wizardReleased = false;
 
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd.startsWith('plugin:window|')) windowCommands.push(cmd);
@@ -40,7 +41,7 @@ test.beforeEach(async ({ page }) => {
           maximized = !maximized;
           return null;
         case 'get_wizard_state_cmd':
-          if (localStorage.getItem('nexa-test-delay-wizard') === 'true') {
+          if (localStorage.getItem('nexa-test-delay-wizard') === 'true' && !wizardReleased) {
             await new Promise<void>(resolve => { releaseWizardState = resolve; });
           }
           return null;
@@ -59,6 +60,7 @@ test.beforeEach(async ({ page }) => {
     (window as unknown as { __NEXA_WINDOW_COMMANDS__: string[] }).__NEXA_WINDOW_COMMANDS__ = windowCommands;
     (window as unknown as { __NEXA_ACTIVE_LISTENERS__: typeof listeners }).__NEXA_ACTIVE_LISTENERS__ = listeners;
     (window as unknown as { __releaseWizardState?: () => void }).__releaseWizardState = () => {
+      wizardReleased = true;
       releaseWizardState?.();
       releaseWizardState = null;
     };
@@ -247,7 +249,8 @@ test('keeps route module failures behind the recoverable application error scree
   await expect(page.getByText('Unexpected Application Error!')).toHaveCount(0);
   await page.unroute('**/src/pages/ChatPage.tsx*');
   await page.getByRole('button', { name: 'Restart', exact: true }).click();
-  await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No AI provider configured' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Configure Provider' })).toBeVisible();
 });
 
 test('hydrates the startup surface from the last validated theme snapshot before React', async ({ page }) => {
