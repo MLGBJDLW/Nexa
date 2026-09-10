@@ -5,9 +5,13 @@ export class LiveAudioQueue {
   private queue: Uint8Array[] = [];
   private running = false;
   private closed = false;
+  private paused = false;
   constructor(private readonly packetBytes: number, private readonly send: (data: Uint8Array) => Promise<void>, private readonly fail: (error: unknown) => void) {}
   append(chunk: Uint8Array): boolean {
     if (this.closed) return false;
+    // Paused samples are intentionally omitted. Returning false would make the
+    // recorder's contiguous-delivery guard terminal and prevent reconnection.
+    if (this.paused) return true;
     if (this.queue.length >= 8 || this.bytes + chunk.byteLength > this.packetBytes * 2) {
       this.close(); this.fail(new Error('Live audio is backpressured. Reconnect to continue.')); return false;
     }
@@ -27,4 +31,6 @@ export class LiveAudioQueue {
     finally { this.running = false; }
   }
   close() { this.closed = true; this.queue = []; this.chunks = []; this.bytes = 0; }
+  pause() { this.paused = true; this.queue = []; this.chunks = []; this.bytes = 0; }
+  resume() { this.paused = false; }
 }

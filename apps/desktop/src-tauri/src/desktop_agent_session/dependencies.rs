@@ -443,6 +443,7 @@ pub(crate) fn build_desktop_approval_callback(
             pending.lock().await.insert(
                 req.id.clone(),
                 PendingToolApproval {
+                    request: req.clone(),
                     task_run_id: task_run_id.clone(),
                     sender: tx,
                 },

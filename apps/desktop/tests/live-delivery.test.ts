@@ -1,4 +1,5 @@
 import { LiveAudioQueue } from '../src/features/live/liveAudioQueue';
+import { TerminalPcmDelivery } from '../src/features/voice/terminalPcmDelivery';
 import { applyLiveEvent, type LiveSnapshot } from '../src/features/live/liveTransport';
 
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
@@ -14,6 +15,13 @@ async function run() {
   unblock(); await Promise.resolve(); await Promise.resolve();
   check(sent.length === 1 && failures === 1, 'overflow discards backlog and reports once');
   check(!queue.append(new Uint8Array([0,0])), 'closed capture cannot resume after the sink recovers');
+  const resumedPackets: number[] = [];
+  const resumable = new LiveAudioQueue(2, async chunk => { resumedPackets.push(chunk[0]); }, () => { throw new Error('pause must not become a terminal capture failure'); });
+  const recorder = new TerminalPcmDelivery(chunk => resumable.append(chunk));
+  recorder.deliver(new Uint8Array([1, 1])); resumable.pause();
+  check(recorder.deliver(new Uint8Array([2, 2])) === 'accepted', 'in-flight worklet samples during pause do not terminate the recorder');
+  resumable.resume(); recorder.deliver(new Uint8Array([3, 3])); await Promise.resolve(); await Promise.resolve();
+  check(resumedPackets.join(',') === '1,3', 'resume discards paused samples and continues ordered capture');
   const snapshot: LiveSnapshot = { id:'s',mode:'incremental',model:'qwen-vl',phase:'listening',sampleRate:16000,startedAt:'',sequence:3,entries:[],error:null,metrics:{framesReceived:0,framesSubmitted:0,framesReplaced:0,audioMs:0,lastResponseMs:null,omittedEntries:0} };
   check(applyLiveEvent(snapshot,{sessionId:'old',sequence:10,type:'state',phase:'error',error:'old'}) === snapshot,'late events from another session do not replace the current session');
   check(applyLiveEvent(snapshot,{sessionId:'s',sequence:2,type:'state',phase:'error',error:'old'}) === snapshot,'out-of-order events are ignored');

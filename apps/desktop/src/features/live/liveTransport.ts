@@ -19,6 +19,8 @@ export type LiveEvent = { sessionId: string; sequence: number } & (
   { type: 'entry'; entry: LiveEntry } | { type: 'metrics'; metrics: LiveMetrics }
 );
 export interface LiveTransport {
+  connection?(listener: (state: 'connected' | 'reconnecting' | 'closed') => void): () => void;
+  isTransientError?(error: unknown): boolean;
   connections(): Promise<LiveConnection[]>;
   start(request: StartLiveRequest): Promise<LiveSnapshot>;
   snapshot(sessionId: string): Promise<LiveSnapshot>;

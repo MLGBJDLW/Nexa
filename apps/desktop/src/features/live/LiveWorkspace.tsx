@@ -53,7 +53,7 @@ export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTran
     catch (error) { if (mounted.current) live.setError(String(error)); }
     finally { if (mounted.current) setSummarizing(false); }
   }
-  const status = live.snapshot?.phase ?? 'stopped';
+  const status = live.reconnecting && live.active ? 'connecting' : live.snapshot?.phase ?? 'stopped';
   const evidence = summary || live.snapshot?.entries.map(entry => `[${Math.floor(entry.atMs / 1000)}s · ${entry.role}${entry.complete ? '' : ' · partial'}] ${entry.text}`).join('\n') || '';
   return <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 p-4 text-text-primary sm:p-7" data-testid="live-workspace">
     <header className="flex flex-wrap items-start justify-between gap-4">
@@ -61,6 +61,7 @@ export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTran
       <span role="status" className="flex items-center gap-2 rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm"><span className={`h-2 w-2 rounded-full ${live.active ? 'bg-success motion-safe:animate-pulse' : 'bg-text-tertiary'}`} />{t(`live.${status}` as TranslationKey)}</span>
     </header>
     {live.error && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm text-danger"><span>{live.error}</span>{!live.active && <button className={button} onClick={() => { live.setError(''); setLoadRevision(value => value + 1); }}>{t('common.retry')}</button>}</div>}
+    {!loading && !connections.length && <p role="status" className="rounded-xl border border-border bg-surface-1 p-4 text-sm text-text-secondary">{t('live.noConnections')}</p>}
     <div className="grid items-start gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
       <section className="space-y-4 rounded-xl border border-border bg-surface-1/70 p-5" aria-label={t('live.setup')}>
         <h2 className="flex items-center gap-2 font-medium"><Activity size={17} className="text-accent" />{t('live.setup')}</h2>
@@ -89,7 +90,7 @@ export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTran
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3"><h2 className="flex items-center gap-2 text-sm font-medium"><FileText size={16} />{t('live.observations')}</h2><div className="flex gap-4 text-xs tabular-nums text-text-tertiary"><span>{t('live.frames')}: {live.snapshot?.metrics.framesSubmitted ?? 0}</span><span>{t('live.skipped')}: {live.snapshot?.metrics.framesReplaced ?? 0}</span><span>{t('live.latency')}: {live.snapshot?.metrics.lastResponseMs == null ? '—' : `${(live.snapshot.metrics.lastResponseMs / 1000).toFixed(1)}s`}</span></div></div>
           <div className="max-h-[540px] min-h-64 space-y-4 overflow-y-auto p-5" aria-live="polite" aria-relevant="additions text">
             {!live.snapshot?.entries.length && <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-center text-text-tertiary">{live.busy ? <Loader2 className="animate-spin" size={28} /> : <Camera size={28} strokeWidth={1.4} />}<p className="max-w-md text-sm leading-relaxed">{live.busy ? t('live.connecting') : t('live.empty')}</p></div>}
-            {live.snapshot?.entries.map(entry => <article key={entry.id} className="grid grid-cols-[54px_minmax(0,1fr)] gap-3"><span className="pt-0.5 text-xs tabular-nums text-text-tertiary">{Math.floor(entry.atMs / 60000)}:{String(Math.floor(entry.atMs / 1000) % 60).padStart(2, '0')}</span><div><div className="mb-1 flex items-center gap-2 text-xs font-medium text-text-tertiary">{entry.role === 'user' ? <Mic size={12} /> : <Activity size={12} />}{entry.role === 'user' ? t('live.speech') : t('live.observation')}{!entry.complete && <span className="font-normal">· {t('live.partial')}</span>}</div><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</p></div></article>)}
+            {live.snapshot?.entries.map(entry => <article key={entry.id} className="grid grid-cols-[54px_minmax(0,1fr)] gap-3"><span className="pt-0.5 text-xs tabular-nums text-text-tertiary">{Math.floor(entry.atMs / 60000)}:{String(Math.floor(entry.atMs / 1000) % 60).padStart(2, '0')}</span><div><div className="mb-1 flex items-center gap-2 text-xs font-medium text-text-tertiary">{entry.role === 'user' ? <Mic size={12} /> : <Activity size={12} />}{entry.role === 'user' ? t('live.speech') : entry.role === 'notice' ? t('live.captureStatus') : t('live.observation')}{!entry.complete && <span className="font-normal">· {t('live.partial')}</span>}</div><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</p></div></article>)}
           </div>
           {Boolean(live.snapshot?.metrics.omittedEntries) && <p className="border-t border-border px-5 py-2 text-xs text-text-tertiary">{t('live.omitted')}: {live.snapshot?.metrics.omittedEntries}</p>}
         </section>

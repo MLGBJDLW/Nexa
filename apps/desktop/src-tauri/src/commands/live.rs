@@ -100,7 +100,19 @@ fn connection(config: &DbAgentConfig) -> LiveConnection {
 pub async fn connections(app: &AppHandle) -> Result<Vec<LiveConnection>, String> {
     app.state::<AppState>()
         .db_executor
-        .read(|db| Ok(db.list_agent_configs()?.iter().map(connection).collect()))
+        .read(|db| {
+            Ok(db
+                .list_agent_configs()?
+                .iter()
+                .filter(|config| {
+                    crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(
+                        &config.provider,
+                    )
+                    .is_none()
+                })
+                .map(connection)
+                .collect())
+        })
         .await
         .map(|r| r.value)
         .map_err(|e| e.to_string())
@@ -142,6 +154,10 @@ pub async fn start(
         return Err("Choose microphone, camera, or screen input".into());
     }
     let cfg = config(app, &input.connection_id).await?;
+    if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&cfg.provider).is_some()
+    {
+        return Err("Live requires an API connection. You can hand the resulting record to a subscription agent in chat.".into());
+    }
     let available = connection(&cfg);
     let mut rate = 24_000;
     let route = if let Some(protocol) = input.protocol {
@@ -281,6 +297,8 @@ pub async fn start(
                 Ok(event) => {
                     if actor_owner == "desktop" {
                         crate::app_events::emit_app_event(&app, "live:event", &event);
+                    } else if let Some(remote) = app.try_state::<crate::remote::RemoteState>() {
+                        remote.publish_live(&actor_owner, &event);
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -376,6 +394,10 @@ pub async fn summarize(
         .map_err(|e| e.to_string())?
         .value;
     let cfg = config(app, connection_id).await?;
+    if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&cfg.provider).is_some()
+    {
+        return Err("Live summaries require an API connection. Continue in chat to use a subscription agent.".into());
+    }
     let mut req = request(&cfg);
     let evidence = record
         .snapshot

@@ -152,6 +152,11 @@ jobs:
       - name: Cargo test
         run: cargo test -p nexa-core
 
+      - name: Remote protocol contracts
+        run: |
+          cargo clippy -p nexa-remote --all-targets -- -D warnings
+          cargo test -p nexa-remote
+
   office_smoke:
     name: Office Artifact Smoke
     needs: classify
@@ -321,6 +326,18 @@ jobs:
           e2e/chat-recording-dock.spec.ts
           e2e/settings-provider-models.spec.ts
           --grep "themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|hydrates a paused run with its durable partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD keeps the conversation cache rate|conversation cache fallback keeps its own prompt denominator|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login"
+
+      - name: Live, phone pairing, startup, and local preview regressions
+        working-directory: apps/desktop
+        run: >-
+          npx playwright test
+          e2e/live-observation.spec.ts
+          e2e/remote-phone.spec.ts
+          e2e/remote-setup.spec.ts
+          e2e/file-preview-agent-edit.spec.ts
+          e2e/knowledge-graph-filters.spec.ts
+          e2e/knowledge-graph-dark-theme.spec.ts
+          e2e/app-window-frame.spec.ts
 
       - name: Upload browser regression diagnostics
         if: ${{ failure() }}

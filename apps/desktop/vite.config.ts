@@ -46,6 +46,7 @@ export default defineConfig(async () => ({
   build: {
     chunkSizeWarningLimit: 650,
     rollupOptions: {
+      input: { main: 'index.html', remote: 'phone.html' },
       output: {
         manualChunks,
       },

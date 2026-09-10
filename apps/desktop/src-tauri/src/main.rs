@@ -11,6 +11,7 @@ mod commands;
 mod companion_window;
 mod delegation_scheduler;
 mod desktop_agent_session;
+mod remote;
 mod subagent_lifecycle;
 mod subagent_tool;
 mod subscription_runtime;
@@ -677,6 +678,7 @@ fn main() {
             );
 
             let (background_work, background_work_receiver) = BackgroundWorkGovernor::new();
+            app.manage(remote::RemoteState::default());
             app.manage(AppState {
                 db: db.clone(),
                 codex_account_runtime: commands::CodexAccountRuntime::default(),
@@ -786,6 +788,11 @@ fn main() {
             commands::open_file_in_default_app,
             commands::show_in_file_explorer,
             commands::preview_file_cmd,
+            remote::remote_status_cmd,
+            remote::start_remote_cmd,
+            remote::stop_remote_cmd,
+            remote::revoke_remote_device_cmd,
+            remote::remote_pairing_cmd,
             commands::save_text_file_cmd,
             commands::read_generated_image_data_url_cmd,
             commands::save_generated_image_cmd,
@@ -1214,6 +1221,9 @@ fn main() {
             }
         }
         tauri::RunEvent::Exit => {
+            if let Some(remote) = app_handle.try_state::<remote::RemoteState>() {
+                remote.shutdown();
+            }
             if let Some(browser_state) = app_handle.try_state::<browser::BrowserState>() {
                 browser_state.close_all_sessions();
             }

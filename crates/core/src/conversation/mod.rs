@@ -3,6 +3,7 @@
 mod cache_observation;
 pub mod goal;
 pub mod memory;
+mod remote_views;
 pub mod summarizer;
 
 pub use goal::{ConversationGoal, ConversationGoalStatus};

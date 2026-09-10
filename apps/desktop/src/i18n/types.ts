@@ -17,6 +17,7 @@ import type nav from './locales/en/nav.json';
 import type preview from './locales/en/preview.json';
 import type project from './locales/en/project.json';
 import type providers from './locales/en/providers.json';
+import type remote from './locales/en/remote.json';
 import type search from './locales/en/search.json';
 import type settings from './locales/en/settings.json';
 import type shortcuts from './locales/en/shortcuts.json';
@@ -67,6 +68,7 @@ export const translationNamespaces = [
   'preview',
   'project',
   'providers',
+  'remote',
   'search',
   'settings',
   'shortcuts',
@@ -105,6 +107,7 @@ type NamespaceKeyMap = {
   preview: typeof preview;
   project: typeof project;
   providers: typeof providers;
+  remote: typeof remote;
   search: typeof search;
   settings: typeof settings;
   shortcuts: typeof shortcuts;

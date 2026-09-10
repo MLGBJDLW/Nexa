@@ -241,6 +241,7 @@ pub struct ApprovalState {
 /// Stop/pause paths use that ownership to resolve the prompt before committing
 /// a resumable checkpoint.
 pub struct PendingToolApproval {
+    pub request: nexa_core::approval::ApprovalRequest,
     pub task_run_id: String,
     pub sender: tokio::sync::oneshot::Sender<ApprovalDecision>,
 }

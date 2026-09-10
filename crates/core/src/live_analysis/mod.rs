@@ -566,6 +566,28 @@ impl LiveSessionManager {
             session.cancel.cancel();
         }
     }
+    pub fn connection_notice(&self, owner: &str, connected: bool) {
+        let sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|session| session.owner == owner)
+            .cloned()
+            .collect::<Vec<_>>();
+        for session in sessions {
+            if session
+                .snapshot
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .phase
+                .is_terminal()
+            {
+                continue;
+            }
+            session.entry(&uuid::Uuid::new_v4().to_string(), "notice", if connected { "The phone reconnected. Input capture can resume; content during the connection gap was not captured." } else { "The phone disconnected. Input capture is paused; do not infer what happens during this gap." }, false, true);
+        }
+    }
     pub fn fail(&self, owner: &str, id: &str, error: &str) {
         if let Ok(session) = self.session(owner, id) {
             session.phase(LivePhase::Error, Some(error.chars().take(500).collect()));

@@ -28,6 +28,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../i18n';
 import { useUpdater } from '../lib/useUpdater';
 import { useTheme } from '../lib/ThemeProvider';
+import { RemoteSidebarLink } from '../features/remote/RemoteSidebarLink';
 import { isLightTheme } from '../lib/theme';
 import type { TranslationKey } from '../i18n';
 
@@ -287,6 +288,7 @@ export function Layout() {
 
         {/* Stable metadata and update controls */}
         <div className="space-y-1 border-t border-border px-2 py-2" data-theme-density-part="rail-footer">
+          <RemoteSidebarLink />
           <Tooltip content={t('nav.settings')} side="right" delay={180}>
             <NavLink
               to="/settings"

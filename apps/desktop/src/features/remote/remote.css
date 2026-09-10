@@ -1,0 +1,23 @@
+html[data-remote='true'],
+html[data-remote='true'] body,
+html[data-remote='true'] #root {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}
+html[data-remote='true'] {
+  color-scheme: light;
+}
+html[data-remote='true'] button,
+html[data-remote='true'] input,
+html[data-remote='true'] select,
+html[data-remote='true'] textarea {
+  touch-action: manipulation;
+}
+@media (max-width: 600px) {
+  html[data-remote='true'] input,
+  html[data-remote='true'] select,
+  html[data-remote='true'] textarea {
+    font-size: 16px;
+  }
+}

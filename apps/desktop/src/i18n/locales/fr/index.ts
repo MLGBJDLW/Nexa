@@ -19,6 +19,7 @@ import nav from './nav.json';
 import preview from './preview.json';
 import project from './project.json';
 import providers from './providers.json';
+import remote from './remote.json';
 import search from './search.json';
 import settings from './settings.json';
 import shortcuts from './shortcuts.json';
@@ -54,6 +55,7 @@ export const fr: TranslationKeys = flattenTranslationNamespaces({
   preview,
   project,
   providers,
+  remote,
   search,
   settings,
   shortcuts,

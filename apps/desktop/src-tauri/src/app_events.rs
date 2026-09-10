@@ -8,6 +8,11 @@ pub(crate) fn emit_window_event<T: Serialize + ?Sized>(
     event: &str,
     payload: &T,
 ) {
+    if window_label == "main" {
+        if let Some(remote) = app_handle.try_state::<crate::remote::RemoteState>() {
+            remote.publish(event, payload);
+        }
+    }
     let Some(window) = app_handle.get_webview_window(window_label) else {
         return;
     };

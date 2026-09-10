@@ -28,6 +28,10 @@ export function useLiveSession(transport: LiveTransport) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<MediaStream | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const connected = useRef(true);
+  const captureTransition = useRef<Promise<void>>(Promise.resolve());
+  const reconnectDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voice = useVoiceRecorder();
   const voiceRef = useRef(voice); voiceRef.current = voice;
   const active = useRef<string | null>(null);
@@ -40,6 +44,7 @@ export function useLiveSession(transport: LiveTransport) {
   const mounted = useRef(true);
   const refreshing = useRef(false);
   const clearCapture = useCallback(() => {
+    if (reconnectDeadline.current) clearTimeout(reconnectDeadline.current); reconnectDeadline.current = null;
     voiceRef.current.cancelRecording(); audioQueue.current?.close(); audioQueue.current = null;
     if (timer.current) clearInterval(timer.current); timer.current = null;
     media.current?.getTracks().forEach(track => { track.onended = null; track.stop(); }); media.current = null;
@@ -65,9 +70,19 @@ export function useLiveSession(transport: LiveTransport) {
       if (active.current !== id || !mounted.current) return;
       setSnapshot(current => current?.id === id && current.sequence > next.sequence ? current : next);
       if (liveEnded(next.phase)) { active.current = null; generation.current++; clearCapture(); setBusy(false); if (next.error) setError(next.error); }
-    } catch (err) { if (active.current === id) fail(err); }
+    } catch (err) { if (active.current === id && !transport.isTransientError?.(err)) fail(err); }
     finally { refreshing.current = false; }
   }, [transport, clearCapture, fail]);
+  useEffect(() => transport.connection?.(state => {
+    connected.current = state === 'connected'; setReconnecting(state === 'reconnecting');
+    if (state === 'closed') { fail(new Error('The remote device was disconnected. Pair again to start a new Live session.')); return; }
+    if (!active.current) return;
+    for (const track of media.current?.getTracks() ?? []) track.enabled = connected.current;
+    if (reconnectDeadline.current) clearTimeout(reconnectDeadline.current); reconnectDeadline.current = null;
+    if (connected.current) { audioQueue.current?.resume(); void refresh(active.current); }
+    else { audioQueue.current?.pause(); reconnectDeadline.current = setTimeout(() => { if (!connected.current && active.current) fail(new Error('Live reconnection expired. Reconnect and start capture again.')); }, 30_000); }
+    captureTransition.current = captureTransition.current.then(async () => { if (!active.current) return; if (connected.current) await voiceRef.current.resumeRecording(); else await voiceRef.current.pauseRecording(); }).catch(fail);
+  }), [transport, refresh, fail]);
   useEffect(() => {
     mounted.current = true; let disposed = false; let unlisten: (() => void) | undefined;
     void transport.subscribe(event => {
@@ -79,7 +94,7 @@ export function useLiveSession(transport: LiveTransport) {
       });
       if (event.type === 'state' && liveEnded(event.phase)) { active.current = null; generation.current++; clearCapture(); setBusy(false); if (event.error) setError(event.error); }
     }).then(dispose => { if (disposed) dispose(); else unlisten = dispose; }).catch(err => { if (!disposed) setError(message(err)); });
-    const heartbeat = setInterval(() => { if (active.current) void refresh(active.current); }, 10_000);
+    const heartbeat = setInterval(() => { if (active.current && connected.current) void refresh(active.current); }, 10_000);
     const leave = () => { void stop(); };
     window.addEventListener('pagehide', leave);
     return () => { mounted.current = false; disposed = true; unlisten?.(); clearInterval(heartbeat); window.removeEventListener('pagehide', leave); void stop(); };
@@ -91,6 +106,7 @@ export function useLiveSession(transport: LiveTransport) {
     setBusy(true); setError(''); setSnapshot(null);
     let pendingMedia: MediaStream | null = null;
     try {
+      if (!window.isSecureContext || !navigator.mediaDevices) throw new Error('Microphone and camera require a trusted HTTPS connection or localhost. Open the HTTPS pairing address to use Live.');
       // Display capture must be requested within the original click's activation.
       if (source !== 'none') pendingMedia = source === 'screen'
         ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
@@ -123,7 +139,7 @@ export function useLiveSession(transport: LiveTransport) {
         for (const track of pendingMedia.getTracks()) track.onended = () => { void stop(); };
         let sending = false;
         timer.current = setInterval(() => {
-          if (sending || generation.current !== mine) return;
+          if (sending || generation.current !== mine || !connected.current) return;
           sending = true;
           void captureFrame(element).then(data => {
             if (data && generation.current === mine) return transport.frame(opened.id, 'image/jpeg', data);
@@ -135,5 +151,5 @@ export function useLiveSession(transport: LiveTransport) {
       if (mounted.current) setBusy(false);
     } catch (err) { if (generation.current === mine) fail(err); else pendingMedia?.getTracks().forEach(track => track.stop()); }
   }, [transport, clearCapture, fail, stop]);
-  return { snapshot, setSnapshot, busy, error, setError, preview, start, stop, active: busy || Boolean(snapshot && !liveEnded(snapshot.phase)) };
+  return { snapshot, setSnapshot, busy, error, setError, preview, start, stop, reconnecting, active: busy || Boolean(snapshot && !liveEnded(snapshot.phase)) };
 }
