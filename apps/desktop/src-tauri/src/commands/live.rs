@@ -231,11 +231,36 @@ pub async fn start(
         armed: true,
     };
     if input.protocol.is_none() && input.microphone {
-        let asr = match start_realtime_transcription_cmd(
+        let manager = live.manager.clone();
+        let live_id = id.clone();
+        let callback_owner = owner.to_owned();
+        let callback: LiveTranscriptCallback = Arc::new(move |kind, text, update, utterance| {
+            if kind == "error" || kind == "closed" {
+                manager.fail(
+                    &callback_owner,
+                    &live_id,
+                    "Live speech recognition disconnected; reconnect to continue",
+                );
+            }
+            if let Some(text) = text.filter(|_| matches!(kind, "interim" | "final")) {
+                if let Err(error) = manager.transcript(
+                    &callback_owner,
+                    &live_id,
+                    &format!("speech:{}", utterance.unwrap_or("current")),
+                    text,
+                    update == Some("appendDelta"),
+                    kind == "final",
+                ) {
+                    manager.fail(&callback_owner, &live_id, &error);
+                }
+            }
+        });
+        let asr = match start_realtime_transcription(
             app.clone(),
             app.state(),
             app.state(),
             Some(true),
+            Some(callback),
         )
         .await
         {
@@ -246,35 +271,6 @@ pub async fn start(
                 return Err(error);
             }
         };
-        let manager = live.manager.clone();
-        let live_id = id.clone();
-        let owner = owner.to_owned();
-        let callback: LiveTranscriptCallback = Arc::new(move |kind, text, update, utterance| {
-            if kind == "error" || kind == "closed" {
-                manager.fail(
-                    &owner,
-                    &live_id,
-                    "Live speech recognition disconnected; reconnect to continue",
-                );
-            }
-            if let Some(text) = text.filter(|_| matches!(kind, "interim" | "final")) {
-                if let Err(error) = manager.transcript(
-                    &owner,
-                    &live_id,
-                    &format!("speech:{}", utterance.unwrap_or("current")),
-                    text,
-                    update == Some("appendDelta"),
-                    kind == "final",
-                ) {
-                    manager.fail(&owner, &live_id, &error);
-                }
-            }
-        });
-        app.state::<RealtimeTranscriptionState>()
-            .live_callbacks
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(asr.clone(), callback);
         live.bindings
             .lock()
             .unwrap_or_else(|e| e.into_inner())

@@ -8,7 +8,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
@@ -35,7 +35,6 @@ pub(super) type LiveTranscriptCallback =
 pub struct RealtimeTranscriptionState {
     sessions: RealtimeSessions,
     cancellations: Arc<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
-    pub(super) live_callbacks: Arc<std::sync::Mutex<HashMap<String, LiveTranscriptCallback>>>,
 }
 
 enum RealtimeCommand {
@@ -127,6 +126,12 @@ struct RealtimeTranscriptionFrontendEvent<'a> {
     update: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     utterance_id: Option<&'a str>,
+}
+
+struct RealtimeEventSink {
+    frontend: Arc<dyn Fn(&RealtimeTranscriptionFrontendEvent<'_>) + Send + Sync>,
+    // The actor owns its listener before it can consume any provider event.
+    live: Option<LiveTranscriptCallback>,
 }
 
 fn build_realtime_endpoint(base_url: &str, model: &str) -> Result<String, String> {
@@ -290,7 +295,7 @@ fn parse_server_event(dialect: RealtimeDialect, event: &Value) -> ParsedRealtime
 }
 
 fn emit_realtime_event(
-    app_handle: &AppHandle,
+    events: &RealtimeEventSink,
     session_id: &str,
     sequence: &mut u64,
     kind: &str,
@@ -301,46 +306,32 @@ fn emit_realtime_event(
     *sequence = sequence.saturating_add(1);
     if kind != "interim" && kind != "final" {
         emit_live_transcript(
-            app_handle,
-            session_id,
+            events,
             kind,
             text,
             update.map(TranscriptUpdate::wire_name),
             utterance_id,
         );
     }
-    emit_app_event(
-        app_handle,
-        REALTIME_TRANSCRIPTION_EVENT,
-        &RealtimeTranscriptionFrontendEvent {
-            session_id,
-            sequence: *sequence,
-            kind,
-            text,
-            update: update.map(TranscriptUpdate::wire_name),
-            utterance_id,
-        },
-    );
+    (events.frontend)(&RealtimeTranscriptionFrontendEvent {
+        session_id,
+        sequence: *sequence,
+        kind,
+        text,
+        update: update.map(TranscriptUpdate::wire_name),
+        utterance_id,
+    });
 }
 
 fn emit_live_transcript(
-    app_handle: &AppHandle,
-    session_id: &str,
+    events: &RealtimeEventSink,
     kind: &str,
     text: Option<&str>,
     update: Option<&str>,
     utterance_id: Option<&str>,
 ) {
-    if let Some(state) = app_handle.try_state::<RealtimeTranscriptionState>() {
-        let callback = state
-            .live_callbacks
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(session_id)
-            .cloned();
-        if let Some(callback) = callback {
-            callback(kind, text, update, utterance_id);
-        }
+    if let Some(callback) = &events.live {
+        callback(kind, text, update, utterance_id);
     }
 }
 
@@ -635,12 +626,37 @@ pub async fn start_realtime_transcription_cmd(
     realtime_state: State<'_, RealtimeTranscriptionState>,
     live_capture: Option<bool>,
 ) -> Result<String, String> {
+    start_realtime_transcription(app_handle, app_state, realtime_state, live_capture, None).await
+}
+
+pub(super) async fn start_realtime_transcription(
+    app_handle: AppHandle,
+    app_state: State<'_, super::AppState>,
+    realtime_state: State<'_, RealtimeTranscriptionState>,
+    live_capture: Option<bool>,
+    live_callback: Option<LiveTranscriptCallback>,
+) -> Result<String, String> {
     let config = app_state
         .db_executor
         .write(|db| Ok(db.load_app_config()?.speech_to_text))
         .await
         .map_err(|error| error.to_string())?
         .value;
+    let events = RealtimeEventSink {
+        frontend: Arc::new(move |event| {
+            emit_app_event(&app_handle, REALTIME_TRANSCRIPTION_EVENT, event);
+        }),
+        live: live_callback,
+    };
+    start_realtime_session(config, &realtime_state, live_capture, events).await
+}
+
+async fn start_realtime_session(
+    config: nexa_core::app_settings::SpeechToTextConfig,
+    realtime_state: &RealtimeTranscriptionState,
+    live_capture: Option<bool>,
+    events: RealtimeEventSink,
+) -> Result<String, String> {
     let dialect = RealtimeDialect::from_config(&config)?;
 
     let endpoint = build_realtime_endpoint(
@@ -692,7 +708,6 @@ pub async fn start_realtime_transcription_cmd(
 
     let sessions = realtime_state.sessions.clone();
     let cancellations = realtime_state.cancellations.clone();
-    let live_callbacks = realtime_state.live_callbacks.clone();
     let cancellation = Arc::new(tokio::sync::Notify::new());
     cancellations
         .lock()
@@ -744,7 +759,7 @@ pub async fn start_realtime_transcription_cmd(
                                     );
                                     let _ = socket_sink.send(Message::Close(None)).await;
                                     emit_realtime_event(
-                                        &app_handle,
+                                        &events,
                                         &actor_session_id,
                                         &mut frontend_sequence,
                                         "closed",
@@ -765,12 +780,12 @@ pub async fn start_realtime_transcription_cmd(
                                     };
                                     match parse_server_event(dialect, &event) {
                                         ParsedRealtimeServerEvent::Interim { utterance_id, text, update } => {
-                                            emit_live_transcript(&app_handle, &actor_session_id, "interim", Some(&text), Some(update.wire_name()), utterance_id.as_deref());
+                                            emit_live_transcript(&events, "interim", Some(&text), Some(update.wire_name()), utterance_id.as_deref());
                                             if live_capture == Some(true) { continue; }
                                             transcript.update(utterance_id.as_deref(), &text, update == TranscriptUpdate::AppendDelta, false);
                                             if update == TranscriptUpdate::ReplaceSnapshot || !text.is_empty() {
                                                 emit_realtime_event(
-                                                    &app_handle,
+                                                    &events,
                                                     &actor_session_id,
                                                     &mut frontend_sequence,
                                                     "interim",
@@ -781,11 +796,11 @@ pub async fn start_realtime_transcription_cmd(
                                             }
                                         }
                                         ParsedRealtimeServerEvent::Final { utterance_id, text } => {
-                                            emit_live_transcript(&app_handle, &actor_session_id, "final", Some(&text), Some("replace_snapshot"), utterance_id.as_deref());
+                                            emit_live_transcript(&events, "final", Some(&text), Some("replace_snapshot"), utterance_id.as_deref());
                                             if live_capture == Some(true) { continue; }
                                             transcript.update(utterance_id.as_deref(), &text, false, true);
                                             emit_realtime_event(
-                                                &app_handle,
+                                                &events,
                                                 &actor_session_id,
                                                 &mut frontend_sequence,
                                                 "final",
@@ -851,7 +866,7 @@ pub async fn start_realtime_transcription_cmd(
         cancellations.lock().await.remove(&actor_session_id);
         if let Some(message) = terminal_error {
             emit_realtime_event(
-                &app_handle,
+                &events,
                 &actor_session_id,
                 &mut frontend_sequence,
                 "error",
@@ -862,10 +877,6 @@ pub async fn start_realtime_transcription_cmd(
             resolve_pending_final(&mut pending_final, Err(message));
         }
         sessions.lock().await.remove(&actor_session_id);
-        live_callbacks
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&actor_session_id);
     });
 
     Ok(session_id)
@@ -978,6 +989,95 @@ mod tests {
     use futures::{SinkExt, StreamExt};
     use serde_json::Value;
     use tokio_tungstenite::tungstenite::Message;
+
+    #[tokio::test]
+    async fn live_start_delivers_immediate_transcript_and_terminal_error() {
+        use std::sync::{Arc, Mutex};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let Message::Text(setup) = socket.next().await.unwrap().unwrap() else {
+                panic!("expected session setup");
+            };
+            let setup: Value = serde_json::from_str(&setup).unwrap();
+            assert_eq!(
+                setup["session"]["audio"]["input"]["turn_detection"]["type"],
+                "server_vad"
+            );
+            for event in [
+                serde_json::json!({"type":"session.updated"}),
+                serde_json::json!({"type":"conversation.item.input_audio_transcription.completed", "item_id":"first", "transcript":"First utterance"}),
+            ] {
+                socket
+                    .send(Message::Text(event.to_string().into()))
+                    .await
+                    .unwrap();
+            }
+            socket.close(None).await.unwrap();
+        });
+        let state = super::RealtimeTranscriptionState::default();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let captured = received.clone();
+        let callback: super::LiveTranscriptCallback = Arc::new(move |kind, text, _, utterance| {
+            captured.lock().unwrap().push((
+                kind.to_owned(),
+                text.map(str::to_owned),
+                utterance.map(str::to_owned),
+            ));
+        });
+        let callback_lifetime = Arc::downgrade(&callback);
+        super::start_realtime_session(
+            nexa_core::app_settings::SpeechToTextConfig {
+                provider: "openai".into(),
+                api_style: "openai_realtime_transcription".into(),
+                api_key: "test".into(),
+                base_url: Some(format!("http://{address}/v1")),
+                model: "gpt-live-transcribe".into(),
+                ..Default::default()
+            },
+            &state,
+            Some(true),
+            super::RealtimeEventSink {
+                frontend: Arc::new(|_| {}),
+                live: Some(callback),
+            },
+        )
+        .await
+        .unwrap();
+        // The caller can be descheduled after startup returns while the actor
+        // consumes the already queued first utterance and close frame.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !state.sessions.lock().await.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        server.await.unwrap();
+        assert!(state.cancellations.lock().await.is_empty());
+        assert!(
+            callback_lifetime.upgrade().is_none(),
+            "the terminal actor must release its callback"
+        );
+        let received = received.lock().unwrap();
+        assert_eq!(
+            received.len(),
+            2,
+            "the first transcript and terminal error must reach Live"
+        );
+        assert_eq!(
+            received[0],
+            (
+                "final".into(),
+                Some("First utterance".into()),
+                Some("first".into())
+            )
+        );
+        assert_eq!(received[1].0, "error");
+    }
 
     #[test]
     fn realtime_audio_requires_bounded_aligned_raw_pcm() {
