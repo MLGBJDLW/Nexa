@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.14.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.13.13...nexa-monorepo-v0.14.0) (2026-09-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **remote:** add QR-paired phone chat and resilient Live connections
+* **live:** add native multimodal observation and model-coordinated summaries
+
+### Features
+
+* **knowledge:** preserve directed facts and add evidence reading view ([5d8685b](https://github.com/MLGBJDLW/Nexa/commit/5d8685b2a79969a8a1b79f65e1b0ebc9ded3b31e))
+* **live:** add native multimodal observation and model-coordinated summaries ([dc823ed](https://github.com/MLGBJDLW/Nexa/commit/dc823ed4243941c8cedf8ba8a37a1fac9ca3cddf))
+* **preview:** open agent files in Nexa and interactive HTML in Browser Workspace ([cd2a3ca](https://github.com/MLGBJDLW/Nexa/commit/cd2a3ca21b54a0988a401a5e3f52307abd812cd2))
+* **remote:** add QR-paired phone chat and resilient Live connections ([89ccd96](https://github.com/MLGBJDLW/Nexa/commit/89ccd966f21ed0ae9702e0429fd62fc9a8abccd4))
+* upgrade knowledge, Live analysis, and QR-paired remote access ([35017f8](https://github.com/MLGBJDLW/Nexa/commit/35017f8f5c88e7f171225aa520efc1475affad74))
+
+
+### Bug Fixes
+
+* **cache:** preserve endpoint-scoped prefixes across turns ([435558e](https://github.com/MLGBJDLW/Nexa/commit/435558e59d3561d84c151a04ab5f40b6a618de60))
+* **live:** attach transcription listeners before actor startup ([0af7261](https://github.com/MLGBJDLW/Nexa/commit/0af7261b845e48eaaa7e29a518b8db4db8b4e27e))
+* **live:** forward terminal events before stopping delivery ([395153e](https://github.com/MLGBJDLW/Nexa/commit/395153e9bde78aebe7edaa10d8111779f5dcc425))
+* **live:** release the startup latch on terminal events ([d3f80fb](https://github.com/MLGBJDLW/Nexa/commit/d3f80fbd3a620aaa89abacbf8106c72599752f7a))
+* **live:** retain session ownership when stopping fails ([5ef22c3](https://github.com/MLGBJDLW/Nexa/commit/5ef22c31096df9d9d16ae5f5d906087207e1b32c))
+* **live:** summarize terminal snapshots before archive persistence completes ([681c247](https://github.com/MLGBJDLW/Nexa/commit/681c2473bb47b87ba71fd39e56f951fe8dd8a693))
+* **preview:** authorize each local HTML resource explicitly ([18311aa](https://github.com/MLGBJDLW/Nexa/commit/18311aa0b159c6406202c12e20f663ebaffc158b))
+* **preview:** release HTML servers after their last tab closes ([8244106](https://github.com/MLGBJDLW/Nexa/commit/8244106c6e66311d15b73fd1e5e99674581ed999))
+* **remote:** bound body reads before request admission ([11171bd](https://github.com/MLGBJDLW/Nexa/commit/11171bddd9438e1a27fb9285674f967a8580f6a8))
+* **remote:** canonicalize configured connection origins ([4a89422](https://github.com/MLGBJDLW/Nexa/commit/4a89422471236087c2bfec857421381096e1eb79))
+* **remote:** recover interrupted LAN identity creation atomically ([a3f6532](https://github.com/MLGBJDLW/Nexa/commit/a3f65320f30c834bc3327cc6c9cc4d4ecdec458a))
+* **remote:** retain multi-choice options when editing custom answers ([f377296](https://github.com/MLGBJDLW/Nexa/commit/f3772966a0c5b8e9df466368bb0277569504cbfe))
+* **remote:** scope delayed chat responses to their conversation ([6efd2ba](https://github.com/MLGBJDLW/Nexa/commit/6efd2ba160fcd24640254945f8208e9740a3160a))
+* **remote:** tolerate public latency without delaying LAN connections ([01a4127](https://github.com/MLGBJDLW/Nexa/commit/01a412704d1b20e1d5bec35caddbf385250ad0c3))
+* **startup:** gate workspace readiness and recover native subscriptions ([8a1f906](https://github.com/MLGBJDLW/Nexa/commit/8a1f906e4bd3711779f4d66e199e4b873171fc17))
+* **voice:** preserve provider errors when finalizing dictation ([9044ea2](https://github.com/MLGBJDLW/Nexa/commit/9044ea250b0423445835438eff781e51f327d089))
+
+
+### Performance Improvements
+
+* **video:** select scene changes and periodic frames in one decode ([d5e871b](https://github.com/MLGBJDLW/Nexa/commit/d5e871bc3cedbfd7db7fab71ecc10f9aee2b0f82))
+
 ## [0.13.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.13.12...nexa-monorepo-v0.13.13) (2026-09-09)
 
 
