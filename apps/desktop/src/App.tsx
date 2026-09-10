@@ -233,6 +233,7 @@ const router = createBrowserRouter(
           <Route path="/sources" lazy={async () => ({ Component: withPageTransition((await import("./pages/SourcesPage")).SourcesPage) })} />
           <Route path="/playbooks" element={<Navigate to="/" replace />} />
           <Route path="/knowledge" lazy={async () => ({ Component: withPageTransition((await import("./pages/KnowledgePage")).KnowledgePage) })} />
+          <Route path="/live" lazy={async () => ({ Component: withPageTransition((await import("./pages/LivePage")).LivePage) })} />
           <Route path="/chat/:conversationId?" lazy={async () => ({ Component: withPageTransition((await import("./pages/ChatPage")).ChatPage) })} />
           <Route path="/tasks" lazy={async () => ({ Component: withPageTransition((await import("./pages/TaskCenterPage")).TaskCenterPage) })} />
           <Route path="/workflows" lazy={async () => ({ Component: withPageTransition((await import("./pages/WorkflowsPage")).WorkflowsPage) })} />

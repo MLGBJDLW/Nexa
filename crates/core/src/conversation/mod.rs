@@ -1,7 +1,7 @@
 //! Conversation persistence — types and CRUD for conversations, messages, and agent configs.
 
-pub mod goal;
 mod cache_observation;
+pub mod goal;
 pub mod memory;
 pub mod summarizer;
 

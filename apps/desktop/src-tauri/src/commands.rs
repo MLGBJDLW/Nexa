@@ -117,6 +117,8 @@ mod file_changes;
 mod fonts;
 pub use file_changes::*;
 mod knowledge;
+pub(crate) mod live;
+pub use live::*;
 mod media;
 mod media_generation;
 mod personas;

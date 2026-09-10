@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
@@ -49,6 +49,7 @@ const CANONICAL_NAV_ITEMS: NavItem[] = [
   { to: '/', labelKey: 'nav.search', icon: Search },
   { to: '/sources', labelKey: 'nav.sources', icon: FolderOpen },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: Brain },
+  { to: '/live', labelKey: 'live.title', icon: Radio },
   { to: '/chat', labelKey: 'nav.chat', icon: MessageCircle },
   { to: '/tasks', labelKey: 'nav.tasks', icon: ClipboardList },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },

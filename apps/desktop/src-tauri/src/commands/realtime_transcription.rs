@@ -8,7 +8,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
@@ -28,16 +28,19 @@ const SESSION_READY_TIMEOUT: Duration = Duration::from_secs(15);
 const REPLAY_CHUNK_MILLIS: u64 = 100;
 
 type RealtimeSessions = Arc<Mutex<HashMap<String, mpsc::Sender<RealtimeCommand>>>>;
+pub(super) type LiveTranscriptCallback =
+    Arc<dyn Fn(&str, Option<&str>, Option<&str>, Option<&str>) + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub struct RealtimeTranscriptionState {
     sessions: RealtimeSessions,
+    cancellations: Arc<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
+    pub(super) live_callbacks: Arc<std::sync::Mutex<HashMap<String, LiveTranscriptCallback>>>,
 }
 
 enum RealtimeCommand {
     Append(Vec<u8>),
     Finish(oneshot::Sender<Result<String, String>>),
-    Cancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,6 +299,16 @@ fn emit_realtime_event(
     utterance_id: Option<&str>,
 ) {
     *sequence = sequence.saturating_add(1);
+    if kind != "interim" && kind != "final" {
+        emit_live_transcript(
+            app_handle,
+            session_id,
+            kind,
+            text,
+            update.map(TranscriptUpdate::wire_name),
+            utterance_id,
+        );
+    }
     emit_app_event(
         app_handle,
         REALTIME_TRANSCRIPTION_EVENT,
@@ -308,6 +321,27 @@ fn emit_realtime_event(
             utterance_id,
         },
     );
+}
+
+fn emit_live_transcript(
+    app_handle: &AppHandle,
+    session_id: &str,
+    kind: &str,
+    text: Option<&str>,
+    update: Option<&str>,
+    utterance_id: Option<&str>,
+) {
+    if let Some(state) = app_handle.try_state::<RealtimeTranscriptionState>() {
+        let callback = state
+            .live_callbacks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned();
+        if let Some(callback) = callback {
+            callback(kind, text, update, utterance_id);
+        }
+    }
 }
 
 fn finish_messages(dialect: RealtimeDialect) -> Vec<Value> {
@@ -599,12 +633,14 @@ pub async fn start_realtime_transcription_cmd(
     app_handle: AppHandle,
     app_state: State<'_, super::AppState>,
     realtime_state: State<'_, RealtimeTranscriptionState>,
+    live_capture: Option<bool>,
 ) -> Result<String, String> {
     let config = app_state
-        .db
-        .load_app_config()
+        .db_executor
+        .write(|db| Ok(db.load_app_config()?.speech_to_text))
+        .await
         .map_err(|error| error.to_string())?
-        .speech_to_text;
+        .value;
     let dialect = RealtimeDialect::from_config(&config)?;
 
     let endpoint = build_realtime_endpoint(
@@ -634,12 +670,13 @@ pub async fn start_realtime_transcription_cmd(
     .await
     .map_err(|_| "Timed out connecting to realtime transcription".to_string())?
     .map_err(|error| format!("Unable to connect to realtime transcription: {error}"))?;
+    let mut setup = build_session_update(dialect, &config.model, config.language.as_deref());
+    if live_capture == Some(true) && dialect == RealtimeDialect::OpenAi {
+        setup["session"]["audio"]["input"]["turn_detection"] =
+            serde_json::json!({"type":"server_vad"});
+    }
     socket
-        .send(Message::Text(
-            build_session_update(dialect, &config.model, config.language.as_deref())
-                .to_string()
-                .into(),
-        ))
+        .send(Message::Text(setup.to_string().into()))
         .await
         .map_err(|error| format!("Unable to configure realtime transcription: {error}"))?;
     wait_for_session_ready(&mut socket).await?;
@@ -654,6 +691,13 @@ pub async fn start_realtime_transcription_cmd(
         .insert(session_id.clone(), command_tx);
 
     let sessions = realtime_state.sessions.clone();
+    let cancellations = realtime_state.cancellations.clone();
+    let live_callbacks = realtime_state.live_callbacks.clone();
+    let cancellation = Arc::new(tokio::sync::Notify::new());
+    cancellations
+        .lock()
+        .await
+        .insert(session_id.clone(), cancellation.clone());
     let actor_session_id = session_id.clone();
     tokio::spawn(async move {
         let mut pending_final = None;
@@ -661,137 +705,150 @@ pub async fn start_realtime_transcription_cmd(
         let mut transcript = RealtimeTranscript::default();
         let mut frontend_sequence = 0_u64;
 
-        loop {
-            tokio::select! {
-                command = command_rx.recv() => {
-                    match command {
-                        Some(RealtimeCommand::Append(audio_data)) => {
-                            let payload = append_message(&audio_data);
-                            if let Err(error) = socket_sink.send(Message::Text(payload.to_string().into())).await {
-                                terminal_error = Some(format!("Unable to stream audio to realtime transcription: {error}"));
-                                break;
-                            }
-                        }
-                        Some(RealtimeCommand::Finish(response)) => {
-                            if pending_final.is_some() {
-                                let _ = response.send(Err("Realtime transcription is already finishing".to_string()));
-                                continue;
-                            }
-                            let mut finish_error = None;
-                            for message in finish_messages(dialect) {
-                                if let Err(error) = socket_sink.send(Message::Text(message.to_string().into())).await {
-                                    finish_error = Some(format!("Unable to finish realtime transcription audio: {error}"));
-                                    break;
-                                }
-                            }
-                            if let Some(message) = finish_error {
-                                let _ = response.send(Err(message.clone()));
-                                terminal_error = Some(message);
-                                break;
-                            }
-                            pending_final = Some(response);
-                        }
-                        Some(RealtimeCommand::Cancel) | None => {
-                            resolve_pending_final(
-                                &mut pending_final,
-                                Err("Realtime transcription was cancelled".to_string()),
-                            );
-                            let _ = socket_sink.send(Message::Close(None)).await;
-                            emit_realtime_event(
-                                &app_handle,
-                                &actor_session_id,
-                                &mut frontend_sequence,
-                                "closed",
-                                None,
-                                None,
-                                None,
-                            );
-                            break;
-                        }
-                    }
-                }
-                incoming = socket_stream.next() => {
-                    match incoming {
-                        Some(Ok(Message::Text(text))) => {
-                            let event = match serde_json::from_str::<Value>(&text) {
-                                Ok(event) => event,
-                                Err(_) => continue,
-                            };
-                            match parse_server_event(dialect, &event) {
-                                ParsedRealtimeServerEvent::Interim { utterance_id, text, update } => {
-                                    transcript.update(utterance_id.as_deref(), &text, update == TranscriptUpdate::AppendDelta, false);
-                                    if update == TranscriptUpdate::ReplaceSnapshot || !text.is_empty() {
-                                        emit_realtime_event(
-                                            &app_handle,
-                                            &actor_session_id,
-                                            &mut frontend_sequence,
-                                            "interim",
-                                            Some(&transcript.snapshot()),
-                                            Some(TranscriptUpdate::ReplaceSnapshot),
-                                            utterance_id.as_deref(),
-                                        );
+        {
+            let work = async {
+                loop {
+                    tokio::select! {
+                        command = command_rx.recv() => {
+                            match command {
+                                Some(RealtimeCommand::Append(audio_data)) => {
+                                    let payload = append_message(&audio_data);
+                                    if let Err(error) = socket_sink.send(Message::Text(payload.to_string().into())).await {
+                                        terminal_error = Some(format!("Unable to stream audio to realtime transcription: {error}"));
+                                        break;
                                     }
                                 }
-                                ParsedRealtimeServerEvent::Final { utterance_id, text } => {
-                                    transcript.update(utterance_id.as_deref(), &text, false, true);
+                                Some(RealtimeCommand::Finish(response)) => {
+                                    if pending_final.is_some() {
+                                        let _ = response.send(Err("Realtime transcription is already finishing".to_string()));
+                                        continue;
+                                    }
+                                    let mut finish_error = None;
+                                    for message in finish_messages(dialect) {
+                                        if let Err(error) = socket_sink.send(Message::Text(message.to_string().into())).await {
+                                            finish_error = Some(format!("Unable to finish realtime transcription audio: {error}"));
+                                            break;
+                                        }
+                                    }
+                                    if let Some(message) = finish_error {
+                                        let _ = response.send(Err(message.clone()));
+                                        terminal_error = Some(message);
+                                        break;
+                                    }
+                                    pending_final = Some(response);
+                                }
+                            None => {
+                                    resolve_pending_final(
+                                        &mut pending_final,
+                                        Err("Realtime transcription was cancelled".to_string()),
+                                    );
+                                    let _ = socket_sink.send(Message::Close(None)).await;
                                     emit_realtime_event(
                                         &app_handle,
                                         &actor_session_id,
                                         &mut frontend_sequence,
-                                        "final",
-                                        Some(&transcript.snapshot()),
-                                        Some(TranscriptUpdate::ReplaceSnapshot),
-                                        utterance_id.as_deref(),
+                                        "closed",
+                                        None,
+                                        None,
+                                        None,
                                     );
-                                    if !dialect.waits_for_session_finished() {
-                                        resolve_pending_final(&mut pending_final, transcript.finish());
-                                        let _ = socket_sink.send(Message::Close(None)).await;
-                                        break;
-                                    }
+                                    break;
                                 }
-                                ParsedRealtimeServerEvent::SessionFinished => {
-                                    let transcript = match transcript.finish() {
-                                        Ok(transcript) => transcript,
-                                        Err(message) => {
+                            }
+                        }
+                        incoming = socket_stream.next() => {
+                            match incoming {
+                                Some(Ok(Message::Text(text))) => {
+                                    let event = match serde_json::from_str::<Value>(&text) {
+                                        Ok(event) => event,
+                                        Err(_) => continue,
+                                    };
+                                    match parse_server_event(dialect, &event) {
+                                        ParsedRealtimeServerEvent::Interim { utterance_id, text, update } => {
+                                            emit_live_transcript(&app_handle, &actor_session_id, "interim", Some(&text), Some(update.wire_name()), utterance_id.as_deref());
+                                            if live_capture == Some(true) { continue; }
+                                            transcript.update(utterance_id.as_deref(), &text, update == TranscriptUpdate::AppendDelta, false);
+                                            if update == TranscriptUpdate::ReplaceSnapshot || !text.is_empty() {
+                                                emit_realtime_event(
+                                                    &app_handle,
+                                                    &actor_session_id,
+                                                    &mut frontend_sequence,
+                                                    "interim",
+                                                    Some(&transcript.snapshot()),
+                                                    Some(TranscriptUpdate::ReplaceSnapshot),
+                                                    utterance_id.as_deref(),
+                                                );
+                                            }
+                                        }
+                                        ParsedRealtimeServerEvent::Final { utterance_id, text } => {
+                                            emit_live_transcript(&app_handle, &actor_session_id, "final", Some(&text), Some("replace_snapshot"), utterance_id.as_deref());
+                                            if live_capture == Some(true) { continue; }
+                                            transcript.update(utterance_id.as_deref(), &text, false, true);
+                                            emit_realtime_event(
+                                                &app_handle,
+                                                &actor_session_id,
+                                                &mut frontend_sequence,
+                                                "final",
+                                                Some(&transcript.snapshot()),
+                                                Some(TranscriptUpdate::ReplaceSnapshot),
+                                                utterance_id.as_deref(),
+                                            );
+                                            if !dialect.waits_for_session_finished() && live_capture != Some(true) {
+                                                resolve_pending_final(&mut pending_final, transcript.finish());
+                                                let _ = socket_sink.send(Message::Close(None)).await;
+                                                break;
+                                            }
+                                        }
+                                        ParsedRealtimeServerEvent::SessionFinished => {
+                                            let transcript = match transcript.finish() {
+                                                Ok(transcript) => transcript,
+                                                Err(message) => {
+                                                    terminal_error = Some(message);
+                                                    break;
+                                                }
+                                            };
+                                            resolve_pending_final(&mut pending_final, Ok(transcript));
+                                            let _ = socket_sink.send(Message::Close(None)).await;
+                                            break;
+                                        }
+                                        ParsedRealtimeServerEvent::Error(message) => {
                                             terminal_error = Some(message);
                                             break;
                                         }
-                                    };
-                                    resolve_pending_final(&mut pending_final, Ok(transcript));
-                                    let _ = socket_sink.send(Message::Close(None)).await;
+                                        ParsedRealtimeServerEvent::Other => {}
+                                    }
+                                }
+                                Some(Ok(Message::Ping(payload))) => {
+                                    if let Err(error) = socket_sink.send(Message::Pong(payload)).await {
+                                        terminal_error = Some(format!("Realtime transcription heartbeat failed: {error}"));
+                                        break;
+                                    }
+                                }
+                                Some(Ok(Message::Close(_))) | None => {
+                                    terminal_error = Some(if pending_final.is_some() {
+                                        "Realtime transcription closed before returning a transcript".to_string()
+                                    } else {
+                                        "Realtime transcription connection closed unexpectedly".to_string()
+                                    });
                                     break;
                                 }
-                                ParsedRealtimeServerEvent::Error(message) => {
-                                    terminal_error = Some(message);
+                                Some(Err(error)) => {
+                                    terminal_error = Some(format!("Realtime transcription connection failed: {error}"));
                                     break;
                                 }
-                                ParsedRealtimeServerEvent::Other => {}
+                                Some(Ok(_)) => {}
                             }
                         }
-                        Some(Ok(Message::Ping(payload))) => {
-                            if let Err(error) = socket_sink.send(Message::Pong(payload)).await {
-                                terminal_error = Some(format!("Realtime transcription heartbeat failed: {error}"));
-                                break;
-                            }
-                        }
-                        Some(Ok(Message::Close(_))) | None => {
-                            terminal_error = Some(if pending_final.is_some() {
-                                "Realtime transcription closed before returning a transcript".to_string()
-                            } else {
-                                "Realtime transcription connection closed unexpectedly".to_string()
-                            });
-                            break;
-                        }
-                        Some(Err(error)) => {
-                            terminal_error = Some(format!("Realtime transcription connection failed: {error}"));
-                            break;
-                        }
-                        Some(Ok(_)) => {}
                     }
                 }
-            }
+            };
+            tokio::select! { _ = cancellation.notified() => {}, _ = work => {} }
         }
-
+        resolve_pending_final(
+            &mut pending_final,
+            Err("Realtime transcription ended".into()),
+        );
+        cancellations.lock().await.remove(&actor_session_id);
         if let Some(message) = terminal_error {
             emit_realtime_event(
                 &app_handle,
@@ -805,6 +862,10 @@ pub async fn start_realtime_transcription_cmd(
             resolve_pending_final(&mut pending_final, Err(message));
         }
         sessions.lock().await.remove(&actor_session_id);
+        live_callbacks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&actor_session_id);
     });
 
     Ok(session_id)
@@ -877,7 +938,7 @@ pub async fn finish_realtime_transcription_cmd(
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("Realtime transcription session ended unexpectedly".to_string()),
         Err(_) => {
-            let _ = sender.send(RealtimeCommand::Cancel).await;
+            let _ = cancel_realtime_transcription_cmd(session_id, state).await;
             Err("Timed out waiting for the final Realtime transcript".to_string())
         }
     }
@@ -888,13 +949,23 @@ pub async fn cancel_realtime_transcription_cmd(
     session_id: String,
     state: State<'_, RealtimeTranscriptionState>,
 ) -> Result<(), String> {
-    let Some(sender) = state.sessions.lock().await.get(&session_id).cloned() else {
-        return Ok(());
-    };
-    sender
-        .send(RealtimeCommand::Cancel)
-        .await
-        .map_err(|_| "Realtime transcription session has closed".to_string())
+    if let Some(cancel) = state.cancellations.lock().await.remove(&session_id) {
+        cancel.notify_one();
+    }
+    state.sessions.lock().await.remove(&session_id);
+    Ok(())
+}
+
+pub(super) async fn append_live_transcription_audio(
+    state: &RealtimeTranscriptionState,
+    session_id: &str,
+    pcm: Vec<u8>,
+) -> Result<(), String> {
+    nexa_core::live_analysis::validate_pcm(&pcm)?;
+    session_sender(state, session_id)
+        .await?
+        .try_send(RealtimeCommand::Append(pcm))
+        .map_err(|_| "Live microphone transcription is backpressured or closed".into())
 }
 
 #[cfg(test)]

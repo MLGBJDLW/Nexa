@@ -704,6 +704,7 @@ fn main() {
             });
             app.manage(ApprovalState::default());
             app.manage(RealtimeTranscriptionState::default());
+            app.manage(commands::LiveState::default());
             app.manage(commands::TerminalState::default());
             app.manage(browser::BrowserState::new(
                 app.handle().clone(),
@@ -1074,6 +1075,15 @@ fn main() {
             #[cfg(feature = "video")]
             commands::cancel_voice_audio_spool_cmd,
             commands::start_realtime_transcription_cmd,
+            commands::live_connections_cmd,
+            commands::start_live_cmd,
+            commands::live_snapshot_cmd,
+            commands::live_frame_cmd,
+            commands::live_audio_cmd,
+            commands::stop_live_cmd,
+            commands::summarize_live_cmd,
+            commands::list_live_records_cmd,
+            commands::load_live_record_cmd,
             commands::append_realtime_transcription_audio_cmd,
             commands::finish_realtime_transcription_cmd,
             commands::cancel_realtime_transcription_cmd,

@@ -11,6 +11,7 @@ import type companion from './locales/en/companion.json';
 import type errorBoundary from './locales/en/errorBoundary.json';
 import type evidence from './locales/en/evidence.json';
 import type knowledge from './locales/en/knowledge.json';
+import type live from './locales/en/live.json';
 import type media from './locales/en/media.json';
 import type nav from './locales/en/nav.json';
 import type preview from './locales/en/preview.json';
@@ -60,6 +61,7 @@ export const translationNamespaces = [
   'errorBoundary',
   'evidence',
   'knowledge',
+  'live',
   'media',
   'nav',
   'preview',
@@ -97,6 +99,7 @@ type NamespaceKeyMap = {
   errorBoundary: typeof errorBoundary;
   evidence: typeof evidence;
   knowledge: typeof knowledge;
+  live: typeof live;
   media: typeof media;
   nav: typeof nav;
   preview: typeof preview;

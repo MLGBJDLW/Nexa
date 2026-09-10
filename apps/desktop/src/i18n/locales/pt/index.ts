@@ -13,6 +13,7 @@ import companion from './companion.json';
 import errorBoundary from './errorBoundary.json';
 import evidence from './evidence.json';
 import knowledge from './knowledge.json';
+import live from './live.json';
 import media from './media.json';
 import nav from './nav.json';
 import preview from './preview.json';
@@ -47,6 +48,7 @@ export const pt: TranslationKeys = flattenTranslationNamespaces({
   errorBoundary,
   evidence,
   knowledge,
+  live,
   media,
   nav,
   preview,
