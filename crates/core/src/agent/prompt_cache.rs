@@ -811,6 +811,26 @@ impl PromptCacheTracker {
 }
 
 impl AgentExecutor {
+    pub(super) fn previous_cache_tool_names(
+        &self,
+        model: &str,
+        profile: &PromptCacheProfile,
+    ) -> Vec<String> {
+        self.prompt_cache_tracker
+            .lock()
+            .ok()
+            .and_then(|tracker| {
+                tracker
+                    .previous_snapshot
+                    .as_ref()
+                    .filter(|snapshot| {
+                        snapshot.model == model && snapshot.cache_profile.key == profile.key
+                    })
+                    .map(|snapshot| snapshot.tool_names.clone())
+            })
+            .unwrap_or_default()
+    }
+
     pub(super) fn seed_prompt_cache_from_previous_turn(
         &self,
         db: &Database,
@@ -820,19 +840,14 @@ impl AgentExecutor {
         let Some(conversation_id) = conversation_id else {
             return;
         };
-        let Ok(turns) = db.get_conversation_turns(conversation_id) else {
+        let Ok(observations) =
+            db.recent_prompt_cache_observations(conversation_id, current_turn_id)
+        else {
             return;
         };
-        let Some((previous_turn_id, seed)) = turns
-            .iter()
-            .rev()
-            .filter(|turn| Some(turn.id.as_str()) != current_turn_id)
-            .filter(|turn| turn.finished_at.is_some())
-            .find_map(|turn| {
-                turn.trace
-                    .as_ref()
-                    .and_then(prompt_cache_seed_from_turn_trace)
-                    .map(|seed| (turn.id.clone(), seed))
+        let Some((previous_turn_id, seed)) =
+            observations.into_iter().find_map(|(turn_id, observation)| {
+                prompt_cache_seed_from_observation(&observation).map(|seed| (turn_id, seed))
             })
         else {
             return;
@@ -891,6 +906,19 @@ struct PromptCacheSeed {
     cache_read_tokens: Option<u32>,
 }
 
+fn prompt_cache_seed_from_observation(observation: &serde_json::Value) -> Option<PromptCacheSeed> {
+    let snapshot = serde_json::from_value(observation.get("snapshot")?.clone()).ok()?;
+    let cache_read_tokens = observation
+        .get("cacheReadTokens")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok());
+    Some(PromptCacheSeed {
+        snapshot,
+        cache_read_tokens,
+    })
+}
+
+#[cfg(test)]
 fn prompt_cache_seed_from_turn_trace(trace: &serde_json::Value) -> Option<PromptCacheSeed> {
     let items = trace.get("items")?.as_array()?;
     items
@@ -898,19 +926,7 @@ fn prompt_cache_seed_from_turn_trace(trace: &serde_json::Value) -> Option<Prompt
         .rev()
         .filter(|item| item.get("kind").and_then(serde_json::Value::as_str) == Some("promptCache"))
         .filter_map(|item| item.get("observation"))
-        .find_map(|observation| {
-            let snapshot = observation
-                .get("snapshot")
-                .and_then(|snapshot| serde_json::from_value(snapshot.clone()).ok())?;
-            let cache_read_tokens = observation
-                .get("cacheReadTokens")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|value| u32::try_from(value).ok());
-            Some(PromptCacheSeed {
-                snapshot,
-                cache_read_tokens,
-            })
-        })
+        .find_map(prompt_cache_seed_from_observation)
 }
 
 #[cfg(test)]

@@ -76,7 +76,7 @@ fn endpoint_matches(
     hosts.contains(&url.host_str().unwrap_or_default()) && path_is(&url, paths)
 }
 
-pub(super) fn is_openai_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
+pub(crate) fn is_openai_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
     endpoint_matches(provider, base_url, &["api.openai.com"], &["/v1"])
 }
 
@@ -132,7 +132,7 @@ pub(super) fn is_anthropic_public_endpoint(provider: ProviderType, base_url: Opt
     endpoint_matches(provider, base_url, &["api.anthropic.com"], &["/v1"])
 }
 
-pub(super) fn is_google_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
+pub(crate) fn is_google_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
     provider == ProviderType::Google
         && endpoint_matches(
             provider,

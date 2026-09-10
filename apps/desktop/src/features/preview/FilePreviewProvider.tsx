@@ -10,11 +10,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { useLocation, useNavigate } from 'react-router';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import {
   BotMessageSquare,
@@ -48,9 +47,22 @@ import * as api from '../../lib/api';
 import { isWebUrl } from '../../lib/sourceDisplay';
 import { useResizablePanel } from '../../lib/useResizablePanel';
 import { openNexaBrowser } from '../browser';
+import { requestNexaBrowser } from '../browser/openNexaBrowser';
 import { FilePreviewContext } from './filePreviewContext';
+import { useAgentPreviewRequests, type AgentPreviewRequest } from './useAgentPreviewRequests';
 
 type PreviewMode = 'preview' | 'text' | 'edit' | 'split';
+
+const isMediaPreview = (preview: api.FilePreview) => ['image', 'audio', 'video'].includes(preview.kind);
+
+function MediaPreview({ preview, ready, failed }: { preview: api.FilePreview; ready: () => void; failed: () => void }) {
+  const source = `${convertFileSrc(preview.path)}?preview=${encodeURIComponent(preview.hash)}`;
+  return <div className="flex h-full min-h-60 items-center justify-center bg-surface-0 p-4" data-testid="file-preview-media">
+    {preview.kind === 'image' ? <img src={source} alt={preview.displayName} className="max-h-full max-w-full object-contain" onLoad={ready} onError={failed} />
+      : preview.kind === 'audio' ? <audio src={source} controls preload="metadata" className="w-full" onLoadedMetadata={ready} onError={failed} />
+        : <video src={source} controls playsInline preload="metadata" className="max-h-full max-w-full" onLoadedMetadata={ready} onError={failed} />}
+  </div>;
+}
 
 const INSTANT_TRANSITION = { duration: 0 };
 const FILE_PREVIEW_WIDTH_KEY = 'file-preview-panel-width';
@@ -162,7 +174,6 @@ function hasStructuredPreview(preview: api.FilePreview | null): boolean {
 
 function defaultModeForPreview(preview: api.FilePreview): PreviewMode {
   if (preview.structuredPreview) return 'preview';
-  if (preview.editable && preview.kind === 'html') return 'split';
   if (preview.editable) return 'edit';
   return 'preview';
 }
@@ -293,60 +304,6 @@ function MarkdownPreview({ content }: { content: string }) {
     <Suspense fallback={<pre className="whitespace-pre-wrap break-words px-5 py-4 text-sm text-text-primary">{content}</pre>}>
       <RichMarkdownPreview content={content} />
     </Suspense>
-  );
-}
-
-const HTML_PREVIEW_POLICY = [
-  "default-src 'none'",
-  "style-src 'unsafe-inline'",
-  'img-src data: blob:',
-  'media-src data: blob:',
-  'font-src data:',
-  "script-src 'none'",
-  "connect-src 'none'",
-  "frame-src 'none'",
-  "child-src 'none'",
-  "object-src 'none'",
-  "form-action 'none'",
-  "base-uri 'none'",
-].join('; ');
-
-function secureHtmlPreviewDocument(content: string): string {
-  const securityHead = [
-    '<meta charset="utf-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_POLICY}">`,
-  ].join('');
-  const sanitized = String(DOMPurify.sanitize(content, {
-    WHOLE_DOCUMENT: true,
-    ADD_TAGS: ['style'],
-    FORBID_TAGS: ['script', 'iframe', 'frame', 'object', 'embed', 'base', 'meta', 'link'],
-    FORBID_ATTR: ['srcdoc', 'action', 'formaction', 'ping', 'target'],
-    ALLOWED_URI_REGEXP: /^(?:#|data:|blob:)/i,
-  }));
-  const parsed = new DOMParser().parseFromString(sanitized, 'text/html');
-  const authorStyles = Array.from(parsed.head.querySelectorAll('style'))
-    .map((style) => style.outerHTML)
-    .join('');
-  const staticBody = parsed.body.innerHTML;
-
-  // The policy must be parsed before any author-controlled markup. Splicing
-  // into a textual <head> is unsafe because comments and inert templates can
-  // contain decoy tags. DOMPurify supplies a static rendering fragment, while
-  // the host-owned wrapper guarantees that CSP is active before it is parsed.
-  return `<!doctype html><html><head>${securityHead}${authorStyles}</head><body>${staticBody}</body></html>`;
-}
-
-function HtmlPreview({ content, title }: { content: string; title: string }) {
-  const srcDoc = useMemo(() => secureHtmlPreviewDocument(content), [content]);
-  return (
-    <iframe
-      data-testid="file-preview-html-preview"
-      title={title}
-      sandbox=""
-      referrerPolicy="no-referrer"
-      srcDoc={srcDoc}
-      className="h-full w-full border-0 bg-white"
-    />
   );
 }
 
@@ -943,6 +900,7 @@ function ModeButton({
 export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const { locale, t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const labels = useMemo(() => createPreviewLabels(t), [t]);
   const shouldReduceMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
@@ -971,21 +929,49 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   });
   const dirty = Boolean(preview?.editable && draft !== (preview.content ?? ''));
   const dirtyRef = useRef(false);
+  const loadGeneration = useRef(0);
+  const agentPreviewRequest = useRef<string | null>(null);
+  const htmlRequest = useRef<AbortController | null>(null);
+  const textPreview = useRef<HTMLTextAreaElement>(null);
+  const mediaReady = useRef<{ path: string; resolve: () => void; reject: (error: Error) => void } | null>(null);
 
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
+
+  useEffect(() => () => htmlRequest.current?.abort(), []);
+  const openHtml = useCallback(async (path: string, conversationId?: string | null, resourcePaths: string[] = []) => {
+    htmlRequest.current?.abort();
+    const controller = new AbortController(); htmlRequest.current = controller;
+    const currentChat = /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1];
+    const owner = conversationId ?? currentChat ?? 'nexa-global-browser-workspace';
+    const prepared = await invoke<{ previewId: string; path: string; url: string; reused: boolean }>('prepare_html_preview_cmd', { path, conversationId: owner, resourcePaths });
+    try {
+      if (controller.signal.aborted) throw new Error('The HTML preview was cancelled.');
+      const opened = requestNexaBrowser(prepared.url, owner, controller.signal);
+      if (conversationId && currentChat !== conversationId) navigate(`/chat/${encodeURIComponent(conversationId)}`);
+      else if (!currentChat && location.pathname.startsWith('/chat')) navigate('/');
+      setOpen(false);
+      await opened;
+      return { path: prepared.path, kind: 'html', displayMode: 'browser', warning: null };
+    } catch (error) {
+      if (!prepared.reused) await invoke('release_html_preview_cmd', { previewId: prepared.previewId }).catch(() => {});
+      throw error;
+    } finally { if (htmlRequest.current === controller) htmlRequest.current = null; }
+  }, [location.pathname, navigate]);
 
   const loadFile = useCallback(
     async (
       path: string,
       options: { preferredMode?: PreviewMode } = {},
     ) => {
+      const generation = ++loadGeneration.current;
       setLoading(true);
       setError(null);
       setActivePath(path);
       try {
         const next = await api.previewFile(path);
+        if (generation !== loadGeneration.current) return null;
         setPreview(next);
         setDraft(next.content ?? '');
         setTextSelection(null);
@@ -993,7 +979,9 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
         setCopiedAgentRequest(false);
         setMode(options.preferredMode ?? defaultModeForPreview(next));
         setActivePath(next.path);
+        return next;
       } catch (err) {
+        if (generation !== loadGeneration.current) return null;
         const message = err instanceof Error ? err.message : String(err);
         setPreview(null);
         setDraft('');
@@ -1001,20 +989,70 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
         setAgentInstruction('');
         setError(message);
         toast.error(`${labels.loadFailed}: ${message}`);
+        return null;
       } finally {
-        setLoading(false);
+        if (generation === loadGeneration.current) setLoading(false);
       }
     },
     [labels.loadFailed],
   );
 
+  useAgentPreviewRequests(async (request: AgentPreviewRequest) => {
+    if (dirtyRef.current) throw new Error('The current preview has unsaved edits. Save or discard them before opening another file.');
+    agentPreviewRequest.current = request.requestId;
+    if (/\.html?$/i.test(request.path) && !request.line) {
+      const receipt = await openHtml(request.path, request.conversationId, request.resourcePaths);
+      if (agentPreviewRequest.current !== request.requestId) throw new Error('The preview request was cancelled.');
+      agentPreviewRequest.current = null;
+      return receipt;
+    }
+    setOpen(true);
+    const next = await loadFile(request.path, { preferredMode: request.line ? 'text' : 'preview' });
+    if (!next || agentPreviewRequest.current !== request.requestId) throw new Error('The preview failed or was replaced by another request.');
+    if (next.content == null && !isMediaPreview(next) && !next.structuredPreview && !next.renderedPreview?.pages.length) throw new Error('Nexa cannot preview this file. No external application was opened.');
+    if (isMediaPreview(next)) await new Promise<void>((resolve, reject) => { mediaReady.current = { path: next.path, resolve, reject }; });
+    await new Promise<void>(resolve => {
+      let frame = 0;
+      const finish = () => { cancelAnimationFrame(frame); clearTimeout(timer); resolve(); };
+      const timer = setTimeout(finish, 150);
+      frame = requestAnimationFrame(finish);
+    });
+    if (agentPreviewRequest.current !== request.requestId) throw new Error('The preview request was cancelled.');
+    if (request.line && next.content != null) {
+      const deadline = performance.now() + 5_000;
+      while (!textPreview.current || textPreview.current.value !== next.content) {
+        if (agentPreviewRequest.current !== request.requestId || performance.now() > deadline) throw new Error('The text preview did not become ready.');
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      const lines = next.content.split('\n');
+      const line = Math.min(request.line, lines.length);
+      const start = lines.slice(0, line - 1).reduce((sum, text) => sum + text.length + 1, 0);
+      setTextSelection({ start, end: start + (lines[line - 1]?.length ?? 0), origin: 'preview' });
+      if (textPreview.current) {
+        textPreview.current.focus(); textPreview.current.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
+        textPreview.current.scrollTop = Math.max(0, line - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
+      }
+    }
+    agentPreviewRequest.current = null;
+    return { path: next.path, kind: next.kind, displayMode: request.line ? 'text' : next.structuredPreview || next.renderedPreview ? 'structured' : 'preview', warning: next.warning ?? null };
+  }, requestId => {
+    if (agentPreviewRequest.current !== requestId) return;
+    agentPreviewRequest.current = null; loadGeneration.current++; setLoading(false);
+    htmlRequest.current?.abort();
+    mediaReady.current?.reject(new Error('The media preview was cancelled.')); mediaReady.current = null;
+    if (!dirtyRef.current) setOpen(false);
+  });
+
   const openFilePreview = useCallback((path: string) => {
     if (dirtyRef.current && !window.confirm(labels.discardPrompt)) {
       return;
     }
-    setOpen(true);
-    void loadFile(path);
-  }, [labels.discardPrompt, loadFile]);
+    agentPreviewRequest.current = null;
+    htmlRequest.current?.abort();
+    mediaReady.current?.reject(new Error('The media preview was replaced.')); mediaReady.current = null;
+    if (/\.html?$/i.test(path)) { void openHtml(path).catch(error => toast.error(`${labels.loadFailed}: ${String(error)}`)); }
+    else { setOpen(true); void loadFile(path); }
+  }, [labels.discardPrompt, labels.loadFailed, loadFile, openHtml]);
 
   const openWebLink = useCallback((url: string, title?: string) => {
     const trimmed = url.trim();
@@ -1039,6 +1077,10 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (dirty && !window.confirm(labels.discardPrompt)) {
       return;
     }
+    loadGeneration.current++;
+    agentPreviewRequest.current = null;
+    mediaReady.current?.reject(new Error('The media preview was closed.')); mediaReady.current = null;
+    setLoading(false);
     setOpen(false);
   }, [dirty, labels.discardPrompt]);
 
@@ -1213,9 +1255,9 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const content = preview?.content ?? '';
   const hasStructured = hasStructuredPreview(preview);
   const hasRenderedPreview = Boolean(preview?.renderedPreview?.pages?.length);
-  const canShowPreview = Boolean(hasStructured || hasRenderedPreview || preview?.content);
+  const canShowPreview = Boolean(hasStructured || hasRenderedPreview || preview?.content != null || (preview && isMediaPreview(preview)));
   const supportsSplitPreview = Boolean(
-    preview?.editable && (preview.kind === 'markdown' || preview.kind === 'html'),
+    preview?.editable && preview.kind === 'markdown',
   );
   const metadataBits = preview
     ? [
@@ -1480,6 +1522,12 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                     {labels.close}
                   </button>
                 </div>
+              ) : mode === 'text' && preview.content != null ? (
+                <textarea ref={textPreview} data-testid="file-preview-text-view" aria-label={`${labels.extracted}: ${preview.displayName}`} readOnly value={content} onSelect={event => updateSelectionFromEditor(event.currentTarget)} className="h-full w-full resize-none border-0 bg-surface-0 px-4 py-3 font-mono text-xs leading-5 text-text-primary outline-none" />
+              ) : isMediaPreview(preview) && error ? (
+                <div role="alert" className="flex h-full items-center justify-center p-6 text-sm text-text-secondary">{error}</div>
+              ) : isMediaPreview(preview) ? (
+                <MediaPreview key={`${preview.path}:${loadGeneration.current}`} preview={preview} ready={() => { if (mediaReady.current?.path === preview.path) { mediaReady.current.resolve(); mediaReady.current = null; } }} failed={() => { setError(labels.unsupported); mediaReady.current?.reject(new Error(labels.unsupported)); mediaReady.current = null; toast.error(labels.unsupported); }} />
               ) : mode === 'edit' && preview.editable ? (
                 <textarea
                   data-testid="file-preview-editor"
@@ -1504,11 +1552,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                     className="h-full w-full resize-none border-0 border-r border-border bg-surface-0 px-4 py-3 font-mono text-xs leading-5 text-text-primary outline-none placeholder:text-text-tertiary md:border-r"
                   />
                   <div className="h-full overflow-auto bg-surface-1">
-                    {preview.kind === 'markdown' ? (
-                      <MarkdownPreview content={draft} />
-                    ) : (
-                      <HtmlPreview content={draft} title={`${labels.preview}: ${preview.displayName}`} />
-                    )}
+                    <MarkdownPreview content={draft} />
                   </div>
                 </div>
               ) : canShowPreview ? (
@@ -1530,10 +1574,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                   {preview.kind === 'markdown' ? (
                     <MarkdownPreview content={preview.editable ? draft : content} />
                   ) : preview.kind === 'html' ? (
-                    <HtmlPreview
-                      content={preview.editable ? draft : content}
-                      title={`${labels.preview}: ${preview.displayName}`}
-                    />
+                    <div className="flex h-full items-center justify-center p-6"><button type="button" disabled={dirty} title={dirty ? labels.save : t('browser.title')} className="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-40" onClick={() => void openHtml(preview.path).catch(error => toast.error(String(error)))}>{t('browser.title')}</button></div>
                   ) : (
                     <TextPreview content={preview.editable ? draft : content} />
                   )}

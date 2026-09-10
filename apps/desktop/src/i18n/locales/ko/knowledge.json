@@ -149,5 +149,10 @@
   "learningStatus.error": "Nexa is learning: error",
   "graphSuggestions": "suggestions",
   "graphSuggestionMerge": "merge",
-  "dreamingKind.skillProposal": "Skill Proposal"
+  "dreamingKind.skillProposal": "Skill Proposal",
+  "readingView": "관계 읽기",
+  "mapView": "그래프 보기",
+  "readingHint": "각 관계를 왼쪽에서 오른쪽으로 읽으세요. 같은 자료에 등장한다고 인과관계가 있는 것은 아닙니다. 판단하기 전에 원본 근거를 확인하세요.",
+  "sharedEvidence": "함께 등장",
+  "explicitEvidence": "추출된 관계"
 }

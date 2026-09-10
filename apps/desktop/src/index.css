@@ -243,6 +243,17 @@ html[data-companion-window="true"] #root {
   }
 }
 
+.file-badge-shell {
+  border-radius: 5px;
+  vertical-align: baseline;
+  border-color: color-mix(in srgb, currentColor 20%, var(--color-border));
+  background: linear-gradient(105deg, transparent 62%, color-mix(in srgb, currentColor 7%, transparent) 82%, color-mix(in srgb, currentColor 16%, transparent));
+}
+
+.file-badge-shell:hover {
+  border-color: color-mix(in srgb, currentColor 45%, var(--color-border));
+}
+
 @media (forced-colors: active) {
   .file-badge-shell {
     border-color: ButtonText;

@@ -2874,6 +2874,7 @@ Every answer that uses knowledge base search results.
          BEGIN SELECT RAISE(IGNORE);
          END;",
     ),
+    ("v131_live_records", "CREATE TABLE IF NOT EXISTS live_records (id TEXT PRIMARY KEY NOT NULL, owner TEXT NOT NULL, started_at TEXT NOT NULL, record_json TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_live_records_owner_started ON live_records(owner, started_at DESC);"),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

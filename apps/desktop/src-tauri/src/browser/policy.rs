@@ -303,6 +303,7 @@ pub(super) fn managed_permit_matches_url(permit: &ManagedLoopbackPermit, url: &U
 
 fn managed_loopback_host(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost")
+        || host.to_ascii_lowercase().ends_with(".localhost")
         || host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback())
@@ -330,6 +331,10 @@ pub(super) async fn validate_agent_network_url_with_permit(
         .host_str()
         .ok_or_else(|| "Browser address has no host".to_string())?;
     let port = url.port_or_known_default().unwrap_or(443);
+    // Reserved .localhost names are pinned by the browser proxy, never external DNS.
+    if managed_loopback && host.to_ascii_lowercase().ends_with(".localhost") {
+        return Ok(());
+    }
     let resolved = tokio::time::timeout(
         AGENT_DNS_RESOLUTION_TIMEOUT,
         tokio::net::lookup_host((host, port)),

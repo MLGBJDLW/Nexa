@@ -117,6 +117,7 @@ fn normalize_target_host(host: &str) -> String {
 
 fn is_loopback_host(host: &str) -> bool {
     host == "localhost"
+        || host.ends_with(".localhost")
         || host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback())
@@ -644,6 +645,9 @@ enum TargetHost {
 fn resolve_target(target: &Target) -> io::Result<Vec<SocketAddr>> {
     match target {
         Target::Ip(ip, port) => Ok(vec![SocketAddr::new(*ip, *port)]),
+        Target::Domain(host, port) if host.to_ascii_lowercase().ends_with(".localhost") => {
+            Ok(vec![SocketAddr::from((Ipv4Addr::LOCALHOST, *port))])
+        }
         Target::Domain(host, port) => (host.as_str(), *port)
             .to_socket_addrs()
             .map(|addresses| addresses.collect()),

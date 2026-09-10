@@ -42,26 +42,26 @@ export function relationCategory(relationTypes: string[]): RelationCategory {
   return 'general';
 }
 
-function isUndirectedRelationType(relationType: string) {
+export function isUndirectedRelationType(relationType: string) {
   const normalized = relationType.toLowerCase();
   return (
     normalized.includes('related') ||
     normalized.includes('similar') ||
     normalized.includes('co_occurs') ||
     normalized.includes('cooccurs') ||
+    normalized.includes('cooccurrence') ||
     normalized.includes('associated')
   );
 }
 
 export function buildRelationBundles(edges: KnowledgeGraphEdge[]): KnowledgeGraphRelationBundle[] {
   const bundles: KnowledgeGraphRelationBundle[] = [];
+  const pairIndex = new Map<string, KnowledgeGraphRelationBundle>();
 
   for (const edge of edges) {
-    let bundle = bundles.find(
-      (candidate) =>
-        (candidate.source === edge.source && candidate.target === edge.target) ||
-        (candidate.source === edge.target && candidate.target === edge.source),
-    );
+    // Tuple encoding prevents IDs containing separators from aliasing another pair.
+    const key = JSON.stringify(edge.source <= edge.target ? [edge.source, edge.target] : [edge.target, edge.source]);
+    let bundle = pairIndex.get(key);
     if (!bundle) {
       bundle = {
         id: `${edge.source}::${edge.target}`,
@@ -78,31 +78,35 @@ export function buildRelationBundles(edges: KnowledgeGraphEdge[]): KnowledgeGrap
         evidenceTitles: [],
       };
       bundles.push(bundle);
+      pairIndex.set(key, bundle);
     }
 
     bundle.edges.push(edge);
     bundle.edgeIds.push(edge.id);
-    if (!bundle.relationTypes.includes(edge.relationType)) {
-      bundle.relationTypes.push(edge.relationType);
-    }
-    const edgeEvidenceTitles = edge.evidenceTitles?.length ? edge.evidenceTitles : edge.evidenceTitle ? [edge.evidenceTitle] : [];
-    for (const title of edgeEvidenceTitles) {
-      if (!bundle.evidenceTitles.includes(title)) {
-        bundle.evidenceTitles.push(title);
-      }
-    }
   }
 
   for (const bundle of bundles) {
-    const hasForward = bundle.edges.some((edge) => edge.source === bundle.source && edge.target === bundle.target);
-    const hasReverse = bundle.edges.some((edge) => edge.source === bundle.target && edge.target === bundle.source);
-    const hasDirected = bundle.edges.some((edge) => !isUndirectedRelationType(edge.relationType));
-    const totalStrength = bundle.edges.reduce((sum, edge) => sum + edge.strength, 0);
-    bundle.relationTypes.sort((a, b) => a.localeCompare(b));
+    const directedEdges = bundle.edges.filter((edge) => !isUndirectedRelationType(edge.relationType));
+    if (directedEdges.length > 0) {
+      bundle.source = directedEdges[0].source;
+      bundle.target = directedEdges[0].target;
+    }
+    const hasReverse = directedEdges.some((edge) => edge.source !== bundle.source);
+    let totalStrength = 0;
+    const types = new Set<string>();
+    const titles = new Set<string>();
+    for (const edge of bundle.edges) {
+      types.add(edge.relationType);
+      for (const title of edge.evidenceTitles ?? []) titles.add(title);
+      if (edge.evidenceTitle) titles.add(edge.evidenceTitle);
+      totalStrength += edge.strength;
+      bundle.strongestStrength = Math.max(bundle.strongestStrength, edge.strength);
+    }
+    bundle.relationTypes = [...types].sort((a, b) => a.localeCompare(b));
+    bundle.evidenceTitles = [...titles];
     bundle.relationCount = bundle.edges.length;
-    bundle.direction = !hasDirected ? 'undirected' : hasForward && hasReverse ? 'bidirectional' : 'directed';
+    bundle.direction = directedEdges.length === 0 ? 'undirected' : hasReverse ? 'bidirectional' : 'directed';
     bundle.category = relationCategory(bundle.relationTypes);
-    bundle.strongestStrength = Math.max(...bundle.edges.map((edge) => edge.strength), 0);
     bundle.averageStrength = bundle.edges.length > 0 ? totalStrength / bundle.edges.length : 0;
   }
 
@@ -113,4 +117,8 @@ export function buildRelationBundles(edges: KnowledgeGraphEdge[]): KnowledgeGrap
     if (strengthDelta !== 0) return strengthDelta;
     return a.id.localeCompare(b.id);
   });
+}
+
+export function relationArrow(direction: RelationDirection): string {
+  return direction === 'directed' ? '→' : direction === 'bidirectional' ? '↔' : '—';
 }

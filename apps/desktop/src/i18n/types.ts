@@ -11,11 +11,13 @@ import type companion from './locales/en/companion.json';
 import type errorBoundary from './locales/en/errorBoundary.json';
 import type evidence from './locales/en/evidence.json';
 import type knowledge from './locales/en/knowledge.json';
+import type live from './locales/en/live.json';
 import type media from './locales/en/media.json';
 import type nav from './locales/en/nav.json';
 import type preview from './locales/en/preview.json';
 import type project from './locales/en/project.json';
 import type providers from './locales/en/providers.json';
+import type remote from './locales/en/remote.json';
 import type search from './locales/en/search.json';
 import type settings from './locales/en/settings.json';
 import type shortcuts from './locales/en/shortcuts.json';
@@ -60,11 +62,13 @@ export const translationNamespaces = [
   'errorBoundary',
   'evidence',
   'knowledge',
+  'live',
   'media',
   'nav',
   'preview',
   'project',
   'providers',
+  'remote',
   'search',
   'settings',
   'shortcuts',
@@ -97,11 +101,13 @@ type NamespaceKeyMap = {
   errorBoundary: typeof errorBoundary;
   evidence: typeof evidence;
   knowledge: typeof knowledge;
+  live: typeof live;
   media: typeof media;
   nav: typeof nav;
   preview: typeof preview;
   project: typeof project;
   providers: typeof providers;
+  remote: typeof remote;
   search: typeof search;
   settings: typeof settings;
   shortcuts: typeof shortcuts;

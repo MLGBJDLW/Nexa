@@ -19,8 +19,9 @@ import { Layout } from "./components/Layout";
 import { AppWindowFrame } from "./components/AppWindowFrame";
 
 import { CommandPalette } from "./components/CommandPalette";
-import { StreamProvider } from "./lib/StreamProvider";
-import { ProgressProvider } from "./lib/ProgressProvider";
+import { StreamProvider, useStreamConnection } from "./lib/StreamProvider";
+import type { TranslationKey } from './i18n';
+import { Button } from './components/ui/Button';
 import { FilePreviewProvider } from "./features/preview";
 import { BrowserDock } from "./features/browser";
 import * as api from "./lib/api";
@@ -62,7 +63,7 @@ function NotFoundPage() {
   );
 }
 
-function PageLoader() {
+function PageLoader({ errorKey, onRetry }: { errorKey?: TranslationKey; onRetry?: () => void } = {}) {
   const { t } = useTranslation();
   return (
     <div
@@ -76,6 +77,12 @@ function PageLoader() {
           <img className="startup-splash__logo" src="/logo-small.svg" alt="" />
         </div>
         <span className="startup-splash__wordmark">Nexa</span>
+        {errorKey ? (
+          <div className="max-w-sm space-y-4 px-6 text-center">
+            <p role="alert" className="text-sm leading-6">{t(errorKey)}</p>
+            <Button variant="primary" onClick={onRetry}>{t('common.retry')}</Button>
+          </div>
+        ) : <span className="text-sm text-text-tertiary">{t('app.startupPreparing')}</span>}
       </div>
     </div>
   );
@@ -104,18 +111,37 @@ function RouteErrorScreen() {
 function AppShell() {
   // `null` = still loading; `true`/`false` = known state.
   const [wizardCompleted, setWizardCompleted] = useState<boolean | null>(null);
+  const [startupError, setStartupError] = useState(false);
+  const [startupAttempt, setStartupAttempt] = useState(0);
+  const streamConnection = useStreamConnection();
+  const startupReady = wizardCompleted !== null && streamConnection.state.status === 'ready';
   const location = useLocation();
   const navigate = useNavigate();
 
-  useAutoCompile();
-  useAutoHealthCheck(wizardCompleted === true);
-  useKnowledgeInsights(wizardCompleted === true);
+  useAutoCompile(startupReady);
+  useAutoHealthCheck(startupReady && wizardCompleted === true);
+  useKnowledgeInsights(startupReady && wizardCompleted === true);
 
   useEffect(() => {
-    api.getWizardState()
-      .then(state => setWizardCompleted(state == null ? true : Boolean(state.completed)))
-      .catch(() => setWizardCompleted(true)); // Fail-open: don't block on I/O errors.
-  }, []);
+    let active = true;
+    const timeout = setTimeout(() => {
+      if (active) { active = false; setStartupError(true); }
+    }, 10_000);
+    void api.getWizardState().then(state => {
+      if (active) setWizardCompleted(state == null ? true : Boolean(state.completed));
+    }).catch(() => {
+      if (active) setStartupError(true);
+    }).finally(() => clearTimeout(timeout));
+    return () => { active = false; clearTimeout(timeout); };
+  }, [startupAttempt]);
+
+  const retryStartup = () => {
+    if (streamConnection.state.status !== 'ready') streamConnection.retry();
+    if (startupError) {
+      setStartupError(false);
+      setStartupAttempt(attempt => attempt + 1);
+    }
+  };
 
   // Re-check whenever we think the wizard is incomplete.  This is a
   // belt-and-braces backstop: in practice WizardPage pushes the new state via
@@ -123,11 +149,13 @@ function AppShell() {
   // once `wizardCompleted === true`, the guard in the effect short-circuits
   // and no loop is possible.
   useEffect(() => {
+    let active = true;
     if (wizardCompleted === false) {
       api.getWizardState()
-        .then(state => setWizardCompleted(state == null ? true : Boolean(state.completed)))
+        .then(state => { if (active) setWizardCompleted(state == null ? true : Boolean(state.completed)); })
         .catch(() => {});
     }
+    return () => { active = false; };
   }, [location.pathname, wizardCompleted]);
 
   useEffect(() => {
@@ -140,8 +168,8 @@ function AppShell() {
       <MotionConfig reducedMotion="user">
         <AppWindowFrame area={location.pathname === '/' ? 'home' : 'task'}>
           <FilePreviewProvider>
-            <CommandPalette />
-            {wizardCompleted === false && location.pathname !== '/wizard' && (
+            {startupReady && <CommandPalette />}
+            {startupReady && wizardCompleted === false && location.pathname !== '/wizard' && (
               <Navigate to="/wizard" replace />
             )}
             <div
@@ -149,13 +177,13 @@ function AppShell() {
               className="flex h-full min-h-0 min-w-0 overflow-hidden"
             >
               <div className="h-full min-h-0 min-w-0 flex-1">
-                {wizardCompleted === null ? (
-                  <PageLoader />
+                {!startupReady ? (
+                  <PageLoader errorKey={startupError ? 'app.startupWaiting' : streamConnection.state.status === 'error' ? 'app.startupConnectionFailed' : undefined} onRetry={retryStartup} />
                 ) : (
                   <Outlet context={{ setWizardCompleted } satisfies AppShellOutletContext} />
                 )}
               </div>
-              <GlobalBrowserDock />
+              {startupReady && <GlobalBrowserDock />}
             </div>
           </FilePreviewProvider>
         </AppWindowFrame>
@@ -205,6 +233,8 @@ const router = createBrowserRouter(
           <Route path="/sources" lazy={async () => ({ Component: withPageTransition((await import("./pages/SourcesPage")).SourcesPage) })} />
           <Route path="/playbooks" element={<Navigate to="/" replace />} />
           <Route path="/knowledge" lazy={async () => ({ Component: withPageTransition((await import("./pages/KnowledgePage")).KnowledgePage) })} />
+          <Route path="/live" lazy={async () => ({ Component: withPageTransition((await import("./pages/LivePage")).LivePage) })} />
+          <Route path="/remote" lazy={async () => ({ Component: withPageTransition((await import("./pages/RemotePage")).RemotePage) })} />
           <Route path="/chat/:conversationId?" lazy={async () => ({ Component: withPageTransition((await import("./pages/ChatPage")).ChatPage) })} />
           <Route path="/tasks" lazy={async () => ({ Component: withPageTransition((await import("./pages/TaskCenterPage")).TaskCenterPage) })} />
           <Route path="/workflows" lazy={async () => ({ Component: withPageTransition((await import("./pages/WorkflowsPage")).WorkflowsPage) })} />
@@ -219,7 +249,6 @@ const router = createBrowserRouter(
 function App() {
   return (
     <ErrorBoundary>
-      <ProgressProvider />
       <StreamProvider>
         <RouterProvider router={router} />
       </StreamProvider>

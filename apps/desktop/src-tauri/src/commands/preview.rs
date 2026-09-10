@@ -46,6 +46,26 @@ pub async fn prepare_image_attachment(path: String) -> Result<ImageAttachment, S
 
 // ── File Commands ───────────────────────────────────────────────────────
 
+#[tauri::command]
+pub async fn prepare_html_preview_cmd(
+    browser: tauri::State<'_, crate::browser::BrowserState>,
+    path: String,
+    conversation_id: String,
+    resource_paths: Option<Vec<String>>,
+) -> Result<crate::browser::local_html::HtmlPreview, String> {
+    browser
+        .prepare_html_preview(path, conversation_id, resource_paths.unwrap_or_default())
+        .await
+}
+
+#[tauri::command]
+pub fn release_html_preview_cmd(
+    browser: tauri::State<'_, crate::browser::BrowserState>,
+    preview_id: String,
+) {
+    browser.release_html_preview(&preview_id);
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PreviewLaunchCommand {
     pub(super) program: String,
@@ -615,7 +635,11 @@ fn is_editable_extension(ext: &str) -> bool {
 }
 
 fn preview_kind(ext: &str, mime_type: &str, binary: bool) -> String {
-    if ext == ".md" || ext == ".markdown" {
+    if let Some(kind) = nexa_core::preview::direct_media_kind(mime_type) {
+        kind.into()
+    } else if ext == ".html" || ext == ".htm" {
+        "html".into()
+    } else if ext == ".md" || ext == ".markdown" {
         "markdown".to_string()
     } else if mime_type == "application/pdf"
         || mime_type.contains("officedocument")
@@ -754,7 +778,26 @@ pub(crate) fn build_file_preview(
         .and_then(|name| name.to_str())
         .unwrap_or("file")
         .to_string();
-    let hash = hash_file(&resolved.canonical)?;
+    let direct_media = nexa_core::preview::direct_media_kind(&mime_type).is_some();
+    // Read-only media is streamed by the webview. Hashing a multi-gigabyte video
+    // before opening its player adds no edit-conflict protection.
+    let hash = if direct_media {
+        format!(
+            "metadata:{}",
+            blake3::hash(
+                format!(
+                    "{}:{}:{:?}",
+                    resolved.canonical.display(),
+                    size_bytes,
+                    metadata.modified().ok()
+                )
+                .as_bytes()
+            )
+            .to_hex()
+        )
+    } else {
+        hash_file(&resolved.canonical)?
+    };
 
     let mut content: Option<String> = None;
     let mut encoding: Option<String> = None;
@@ -766,7 +809,9 @@ pub(crate) fn build_file_preview(
     let rendered_preview: Option<RenderedPreview> = None;
     let mut capabilities = nexa_core::preview::PreviewCapabilities::default();
 
-    if is_document_preview_type(&mime_type) && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
+    if direct_media {
+        // The player/image element reports decoding errors; no text extraction.
+    } else if is_document_preview_type(&mime_type) && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
         match nexa_core::parse::parse_file(
             &resolved.canonical,
             None,
@@ -908,9 +953,17 @@ pub async fn preview_file_cmd(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
-    tokio::task::spawn_blocking(move || build_file_preview(&db, &path, Some(&data_dir)))
-        .await
-        .map_err(|e| e.to_string())?
+    let preview =
+        tokio::task::spawn_blocking(move || build_file_preview(&db, &path, Some(&data_dir)))
+            .await
+            .map_err(|e| e.to_string())??;
+    if matches!(preview.kind.as_str(), "image" | "audio" | "video") {
+        app_handle
+            .asset_protocol_scope()
+            .allow_file(&preview.path)
+            .map_err(|error| format!("Unable to authorize this media preview: {error}"))?;
+    }
+    Ok(preview)
 }
 
 #[derive(Debug, Deserialize)]

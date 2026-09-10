@@ -609,6 +609,10 @@ pub fn infer_tool_access_profile(
             ApprovalRisk::Medium,
             "Downloads a remote image asset into the workspace after URL, content-type, size, and output-path validation.",
         ),
+        "open_in_nexa" => (
+            "filesystem",true,false,false,false,false,ApprovalRisk::Low,
+            "Opens an authorized local file in Nexa's preview without changing files or launching external apps.",
+        ),
         "desktop_automation" => (
             "automation",
             true,

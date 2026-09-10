@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
@@ -28,6 +28,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../i18n';
 import { useUpdater } from '../lib/useUpdater';
 import { useTheme } from '../lib/ThemeProvider';
+import { RemoteSidebarLink } from '../features/remote/RemoteSidebarLink';
 import { isLightTheme } from '../lib/theme';
 import type { TranslationKey } from '../i18n';
 
@@ -49,6 +50,7 @@ const CANONICAL_NAV_ITEMS: NavItem[] = [
   { to: '/', labelKey: 'nav.search', icon: Search },
   { to: '/sources', labelKey: 'nav.sources', icon: FolderOpen },
   { to: '/knowledge', labelKey: 'nav.knowledge', icon: Brain },
+  { to: '/live', labelKey: 'live.title', icon: Radio },
   { to: '/chat', labelKey: 'nav.chat', icon: MessageCircle },
   { to: '/tasks', labelKey: 'nav.tasks', icon: ClipboardList },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
@@ -286,6 +288,7 @@ export function Layout() {
 
         {/* Stable metadata and update controls */}
         <div className="space-y-1 border-t border-border px-2 py-2" data-theme-density-part="rail-footer">
+          <RemoteSidebarLink />
           <Tooltip content={t('nav.settings')} side="right" delay={180}>
             <NavLink
               to="/settings"

@@ -27,5 +27,6 @@
   "builtIn": "Built-in",
   "bundled": "bundled",
   "userDefined": "user-defined",
-  "none": "none"
+  "none": "none",
+  "retry": "Erneut versuchen"
 }

@@ -149,5 +149,10 @@
   "learningStatus.error": "Nexa is learning: error",
   "graphSuggestions": "suggestions",
   "graphSuggestionMerge": "merge",
-  "dreamingKind.skillProposal": "Skill Proposal"
+  "dreamingKind.skillProposal": "Skill Proposal",
+  "readingView": "Читать связи",
+  "mapView": "Показать граф",
+  "readingHint": "Читайте каждую связь слева направо. Упоминание в одном документе не доказывает причинную связь. Откройте источники перед выводами.",
+  "sharedEvidence": "Совместное упоминание",
+  "explicitEvidence": "Извлечённая связь"
 }

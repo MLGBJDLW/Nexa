@@ -149,5 +149,10 @@
   "learningStatus.error": "Nexa is learning: error",
   "graphSuggestions": "suggestions",
   "graphSuggestionMerge": "merge",
-  "dreamingKind.skillProposal": "Skill Proposal"
+  "dreamingKind.skillProposal": "Skill Proposal",
+  "readingView": "Lire les relations",
+  "mapView": "Afficher le graphe",
+  "readingHint": "Lisez chaque relation de gauche à droite. Une présence dans le même document ne prouve pas un lien de causalité. Consultez les sources avant de conclure.",
+  "sharedEvidence": "Présence conjointe",
+  "explicitEvidence": "Relation extraite"
 }

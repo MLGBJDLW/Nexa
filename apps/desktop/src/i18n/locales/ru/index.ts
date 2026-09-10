@@ -13,11 +13,13 @@ import companion from './companion.json';
 import errorBoundary from './errorBoundary.json';
 import evidence from './evidence.json';
 import knowledge from './knowledge.json';
+import live from './live.json';
 import media from './media.json';
 import nav from './nav.json';
 import preview from './preview.json';
 import project from './project.json';
 import providers from './providers.json';
+import remote from './remote.json';
 import search from './search.json';
 import settings from './settings.json';
 import shortcuts from './shortcuts.json';
@@ -47,11 +49,13 @@ export const ru: TranslationKeys = flattenTranslationNamespaces({
   errorBoundary,
   evidence,
   knowledge,
+  live,
   media,
   nav,
   preview,
   project,
   providers,
+  remote,
   search,
   settings,
   shortcuts,

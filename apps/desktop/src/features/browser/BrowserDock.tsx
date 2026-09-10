@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
 import * as api from '../../lib/api';
 import { formatUserError } from '../../lib/userError';
-import { OPEN_BROWSER_WORKSPACE_EVENT, type OpenNexaBrowserDetail } from './openNexaBrowser';
+import { OPEN_BROWSER_WORKSPACE_EVENT, registerBrowserOpener, type OpenNexaBrowserDetail } from './openNexaBrowser';
 
 export interface BrowserDockStatus {
   tabCount: number;
@@ -489,6 +489,31 @@ export function BrowserDock({
     window.addEventListener(OPEN_BROWSER_WORKSPACE_EVENT, handler);
     return () => window.removeEventListener(OPEN_BROWSER_WORKSPACE_EVENT, handler);
   }, [conversationId, ensureSession, onOpenChange, reportError, t]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    return registerBrowserOpener(conversationId, async (url, signal) => {
+      onOpenChange(true);
+      const opened = await ensureSession(url);
+      if (!opened) throw new Error('The browser workspace changed while opening the page.');
+      const origin = new URL(url).origin;
+      const tab = [...opened.tabs].reverse().find(item => { try { return new URL(item.url).origin === origin; } catch { return false; } });
+      if (!tab) throw new Error('The browser did not create the requested tab.');
+      try {
+        while (true) {
+          if (signal.aborted || conversationIdRef.current !== conversationId) throw new Error('The browser preview was cancelled.');
+          const current = await api.activeBrowserSession(conversationId);
+          const loaded = current?.tabs.find(item => item.id === tab.id);
+          if (!loaded) throw new Error('The browser tab was closed.');
+          if (!loaded.loading) return;
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } catch (error) {
+        await api.closeBrowserTab(opened.id, tab.id).catch(() => {});
+        throw error;
+      }
+    });
+  }, [conversationId, ensureSession, onOpenChange]);
 
   useEffect(() => {
     let disposed = false;

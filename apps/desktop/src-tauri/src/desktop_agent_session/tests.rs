@@ -360,7 +360,7 @@ async fn stop_fences_execution_and_resolves_approval_before_checkpoint() {
     outbox
         .submit(
             AgentRunEvent::from_agent_event(&AgentEvent::ApprovalRequested {
-                request: approval_request,
+                request: approval_request.clone(),
             })
             .with_context(Some(&run.id), Some(&turn.id), None),
         )
@@ -372,6 +372,7 @@ async fn stop_fences_execution_and_resolves_approval_before_checkpoint() {
     pending_approvals.lock().await.insert(
         "approval-stop".to_string(),
         crate::commands::PendingToolApproval {
+            request: approval_request,
             task_run_id: run.id.clone(),
             sender: approval_sender,
         },
