@@ -96,7 +96,7 @@ export class RemoteClient {
     this.failures = 0;
     void this.connect(true).catch(() => {});
   };
-  private async candidates(): Promise<RemoteEndpoint[]> {
+  private async *candidates(): AsyncGenerator<RemoteEndpoint> {
     const allowed = this.paired.manifest.endpoints.filter((endpoint) => {
       try {
         const url = new URL(endpoint.url);
@@ -118,11 +118,12 @@ export class RemoteClient {
         return false;
       }
     });
-    const available = await Promise.all(
-      allowed.map(async (endpoint) => {
+    const pending = allowed.map((endpoint) => ({
+      endpoint,
+      result: (async () => {
         try {
           const response = await fetch(`${endpoint.url}/api/health`, {
-            signal: timeoutSignal(1800),
+            signal: timeoutSignal(endpoint.kind === "tunnel" ? 6000 : 1800),
             cache: "no-store",
             credentials: "omit",
           });
@@ -134,15 +135,17 @@ export class RemoteClient {
         } catch {
           return null;
         }
-      }),
-    );
-    return available
-      .filter((endpoint): endpoint is RemoteEndpoint => endpoint !== null)
-      .sort(
-        (a, b) =>
-          ({ lan: 0, tunnel: 1, ssh: 2 })[a.kind] -
-          { lan: 0, tunnel: 1, ssh: 2 }[b.kind],
+      })(),
+    }));
+    // Probe concurrently without making a ready LAN route wait for the public Internet.
+    for (const kind of ["lan", "tunnel", "ssh"] as const) {
+      const available = await Promise.all(
+        pending
+          .filter((probe) => probe.endpoint.kind === kind)
+          .map((probe) => probe.result),
       );
+      for (const endpoint of available) if (endpoint) yield endpoint;
+    }
   }
   private connect(probe = false): Promise<void> {
     if (this.disposed || this.state.phase === "revoked")
@@ -157,8 +160,7 @@ export class RemoteClient {
     )
       return Promise.resolve();
     this.connecting = (async () => {
-      const endpoints = await this.candidates();
-      for (const endpoint of endpoints) {
+      for await (const endpoint of this.candidates()) {
         if (
           probe &&
           endpoint.url === this.state.endpoint?.url &&

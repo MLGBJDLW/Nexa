@@ -8,7 +8,7 @@ test.use({
     ],
   },
 });
-async function fixture(page: Page) {
+async function fixture(page: Page, publicProbeDelayMs = 0) {
   let lan = true;
   let away = true;
   let socket: WebSocketRoute | null = null;
@@ -88,8 +88,11 @@ async function fixture(page: Page) {
       return;
     }
     let result: unknown;
-    if (url.pathname === "/api/health") result = { serverId: "desktop-1" };
-    else if (url.pathname === "/api/pair") {
+    if (url.pathname === "/api/health") {
+      if (url.hostname === "nexa-away.test" && publicProbeDelayMs)
+        await new Promise((resolve) => setTimeout(resolve, publicProbeDelayMs));
+      result = { serverId: "desktop-1" };
+    } else if (url.pathname === "/api/pair") {
       pairCount++;
       result = {
         token: "a".repeat(64),
@@ -584,4 +587,17 @@ test("phone replays missing UTF-8 deltas and forwards explicit approvals, answer
       app.counts().actions.some((action) => action.method === "chat.stop"),
     )
     .toBe(true);
+});
+
+test("a slower public health probe still connects when the phone is away", async ({
+  page,
+}) => {
+  const app = await fixture(page, 2500);
+  app.disconnect();
+  app.restoreAway();
+  await page.goto("/phone.html#pair=123456&server=desktop-1");
+  await expect(
+    page.getByRole("button", { name: "Public connection", exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+  expect(app.counts().pairCount).toBe(1);
 });
