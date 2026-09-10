@@ -1,5 +1,33 @@
 import { expect, test, type Locator } from '@playwright/test';
 
+test('reads incoming facts without turning co-occurrence into causation', async ({ page }) => {
+  await page.goto('/knowledge');
+  await page.evaluate(() => {
+    const node = (id: string, label: string) => ({ id, label, entityType: 'concept', description: '', mentionCount: 2, documentCount: 1, linkCount: 2, firstSeenDoc: 'doc', documents: [] });
+    const edge = (id: string, source: string, target: string, relationType: string, evidenceSource: string) => ({ id, source, target, relationType, evidenceSource, strength: 0.8, evidenceDocId: 'doc', evidenceTitle: 'Evidence', evidencePath: 'D:/Books/evidence.md' });
+    (window as unknown as { __knowledgeGraphMock: unknown }).__knowledgeGraphMock = {
+      nodes: [node('a', 'Alpha'), node('b', 'Beta')],
+      edges: [edge('shared', 'a', 'b', 'co_occurs', 'cooccurrence'), edge('cause', 'b', 'a', 'causes', 'explicit')],
+      totalNodes: 2, totalEdges: 2, scopeLabel: 'Evidence',
+    };
+  });
+  await page.getByRole('button', { name: 'Topics & Connections' }).click();
+  await page.getByRole('button', { name: /Beta.*Alpha.*2 relations/i }).click();
+  await expect(page.locator('aside').getByRole('heading', { name: 'Beta → Alpha' })).toBeVisible();
+  await expect(page.locator('aside').getByText('Directed', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Read relationships' }).click();
+  const reading = page.getByTestId('knowledge-relation-list');
+  await expect(reading.getByText('Shared evidence', { exact: true })).toBeVisible();
+  await expect(reading.getByText('Extracted relationship', { exact: true })).toBeVisible();
+  const fact = reading.locator('li').filter({ hasText: 'causes' });
+  await expect(fact).toContainText('Beta');
+  await expect(fact).toContainText('Alpha');
+  const badge = fact.locator('.file-badge-shell');
+  await expect(badge).toHaveCSS('border-radius', '5px');
+  await expect(badge).toHaveCSS('background-image', /linear-gradient.*62%/);
+  await page.screenshot({ path: 'test-results/knowledge-reading-view.png', fullPage: true });
+});
+
 async function selectNexaOption(trigger: Locator, value: string) {
   await trigger.click();
   await trigger.page().locator(`[role="option"][data-value=${JSON.stringify(value)}]`).click();
@@ -336,20 +364,20 @@ test('starts with a hub overview, drills into a readable focus, and expands to a
   await expect(page.getByText(/Hidden/)).toBeVisible();
   await expect(page.getByText('40/65 Nodes')).toBeVisible();
 
-  const overviewViewBox = await page.locator('svg[role="img"]').getAttribute('viewBox');
+  const overviewViewBox = await page.getByRole('img', { name: 'Relationship Graph', exact: true }).getAttribute('viewBox');
   await page.getByRole('button', { name: /Anchor Topic, Person/i }).click();
 
   await expect(page.getByText('8/65 Nodes')).toBeVisible();
   await expect
-    .poll(() => page.locator('svg[role="img"]').getAttribute('viewBox'))
+    .poll(() => page.getByRole('img', { name: 'Relationship Graph', exact: true }).getAttribute('viewBox'))
     .not.toBe(overviewViewBox);
 
   const sideTopic = page.getByRole('button', { name: /^Side Topic 1, Place$/i });
   const sideTopicCore = sideTopic.locator('.kg-node-core');
   const beforeDragCx = await sideTopicCore.getAttribute('cx');
   const beforeDragCy = await sideTopicCore.getAttribute('cy');
-  const svgBox = await page.locator('svg[role="img"]').boundingBox();
-  const focusViewBox = (await page.locator('svg[role="img"]').getAttribute('viewBox'))?.split(' ').map(Number);
+  const svgBox = await page.getByRole('img', { name: 'Relationship Graph', exact: true }).boundingBox();
+  const focusViewBox = (await page.getByRole('img', { name: 'Relationship Graph', exact: true }).getAttribute('viewBox'))?.split(' ').map(Number);
   if (!svgBox || !focusViewBox || !beforeDragCx || !beforeDragCy) {
     throw new Error('Missing graph geometry for drag test');
   }

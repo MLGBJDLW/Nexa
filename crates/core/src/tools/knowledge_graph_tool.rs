@@ -3,7 +3,7 @@
 #[cfg(test)]
 use crate::db::Database;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -450,7 +450,7 @@ fn graph_contract() -> serde_json::Value {
         "sourceRole": "index",
         "authority": "evidence_index",
         "canInstruct": false,
-        "note": "Graph output is a compact navigation index. Relationship bundles summarize all relation types between the same two entities before raw evidence is retrieved.",
+        "note": "Graph output is a compact navigation index. Read exact directed facts for subject/predicate/object; bundles group a pair but do not imply that every predicate holds both ways. Co-occurrence means shared evidence, not causation.",
         "tokenStrategy": "graph-first: inspect entities and relationships cheaply, then retrieve only the smallest necessary evidence documents."
     })
 }
@@ -539,8 +539,9 @@ fn format_graph_llm_context(graph: &KnowledgeGraph, view: &GraphView<'_>) -> Str
                 .collect::<Vec<_>>()
                 .join("; ");
             lines.push(format!(
-                "- {} <-> {} relations:{} direction:{} category:{} strongest:{:.2} avg:{:.2} types: {}{}",
+                "- {} {} {} relations:{} direction:{} category:{} strongest:{:.2} avg:{:.2} types: {}{}",
                 node_names.get(&bundle.source).unwrap_or(&bundle.source),
+                match bundle.direction { "directed" => "->", "bidirectional" => "<->", _ => "--" },
                 node_names.get(&bundle.target).unwrap_or(&bundle.target),
                 bundle.relation_count,
                 bundle.direction,
@@ -553,6 +554,31 @@ fn format_graph_llm_context(graph: &KnowledgeGraph, view: &GraphView<'_>) -> Str
                 } else {
                     format!(" | evidence: {evidence}")
                 }
+            ));
+        }
+        lines.push(
+            "\nFacts (subject --predicate--> object; -- means shared/undirected evidence):"
+                .to_string(),
+        );
+        for edge in graph.edges.iter().take(24) {
+            lines.push(format!(
+                "- {} --{}{} {} | origin:{} document_id:{}",
+                node_names.get(&edge.source).unwrap_or(&edge.source),
+                edge.relation_type,
+                if is_undirected_relation_type(&edge.relation_type) {
+                    "--"
+                } else {
+                    "-->"
+                },
+                node_names.get(&edge.target).unwrap_or(&edge.target),
+                edge.evidence_source,
+                edge.evidence_doc_id.as_deref().unwrap_or("unknown"),
+            ));
+        }
+        if graph.edges.len() > 24 {
+            lines.push(format!(
+                "{} further facts omitted; narrow with related/path before drawing conclusions.",
+                graph.edges.len() - 24
             ));
         }
     }
@@ -618,55 +644,60 @@ struct GraphRelationBundle {
 
 #[derive(Debug, Clone)]
 struct GraphRelationBundleAccumulator {
+    id: String,
     source: String,
     target: String,
-    relation_types: Vec<String>,
+    relation_types: BTreeSet<String>,
     relation_count: usize,
     forward_count: usize,
     reverse_count: usize,
     directed_count: usize,
     total_strength: f64,
     strongest_strength: f64,
-    evidence_titles: Vec<String>,
+    evidence_titles: BTreeSet<String>,
     edge_ids: Vec<String>,
 }
 
 fn graph_relation_bundles(graph: &KnowledgeGraph) -> Vec<GraphRelationBundle> {
     let mut accumulators: Vec<GraphRelationBundleAccumulator> = Vec::new();
+    let mut pair_index = HashMap::new();
     for edge in &graph.edges {
-        let index = accumulators.iter().position(|bundle| {
-            (bundle.source == edge.source && bundle.target == edge.target)
-                || (bundle.source == edge.target && bundle.target == edge.source)
-        });
-        let index = match index {
-            Some(index) => index,
-            None => {
-                accumulators.push(GraphRelationBundleAccumulator {
-                    source: edge.source.clone(),
-                    target: edge.target.clone(),
-                    relation_types: Vec::new(),
-                    relation_count: 0,
-                    forward_count: 0,
-                    reverse_count: 0,
-                    directed_count: 0,
-                    total_strength: 0.0,
-                    strongest_strength: 0.0,
-                    evidence_titles: Vec::new(),
-                    edge_ids: Vec::new(),
-                });
-                accumulators.len() - 1
-            }
-        };
-        let bundle = &mut accumulators[index];
-        if !bundle.relation_types.contains(&edge.relation_type) {
-            bundle.relation_types.push(edge.relation_type.clone());
-        }
-        if edge.source == bundle.source && edge.target == bundle.target {
-            bundle.forward_count += 1;
+        let key = if edge.source <= edge.target {
+            (edge.source.as_str(), edge.target.as_str())
         } else {
-            bundle.reverse_count += 1;
-        }
+            (edge.target.as_str(), edge.source.as_str())
+        };
+        let index = *pair_index.entry(key).or_insert_with(|| {
+            accumulators.push(GraphRelationBundleAccumulator {
+                id: format!("{}::{}", edge.source, edge.target),
+                source: edge.source.clone(),
+                target: edge.target.clone(),
+                relation_types: BTreeSet::new(),
+                relation_count: 0,
+                forward_count: 0,
+                reverse_count: 0,
+                directed_count: 0,
+                total_strength: 0.0,
+                strongest_strength: 0.0,
+                evidence_titles: BTreeSet::new(),
+                edge_ids: Vec::new(),
+            });
+            accumulators.len() - 1
+        });
+        let bundle = &mut accumulators[index];
+        bundle.relation_types.insert(edge.relation_type.clone());
         if !is_undirected_relation_type(&edge.relation_type) {
+            // Shared evidence has no orientation. Anchor a directed bundle on
+            // its first directed fact, even when a co-occurrence arrived first.
+            if bundle.directed_count == 0 {
+                bundle.source.clone_from(&edge.source);
+                bundle.target.clone_from(&edge.target);
+            }
+            if edge.source == bundle.source && edge.target == bundle.target {
+                bundle.forward_count += 1;
+            } else {
+                bundle.reverse_count += 1;
+            }
             bundle.directed_count += 1;
         }
         bundle.relation_count += 1;
@@ -681,18 +712,16 @@ fn graph_relation_bundles(graph: &KnowledgeGraph) -> Vec<GraphRelationBundle> {
             edge_titles.push(title);
         }
         for title in edge_titles {
-            if !bundle.evidence_titles.iter().any(|value| value == title) {
-                bundle.evidence_titles.push(title.to_string());
-            }
+            bundle.evidence_titles.insert(title.to_string());
         }
         bundle.edge_ids.push(edge.id.clone());
     }
 
     let mut bundles = accumulators
         .into_iter()
-        .map(|mut bundle| {
-            bundle.relation_types.sort();
-            let category = relation_category(&bundle.relation_types);
+        .map(|bundle| {
+            let relation_types = bundle.relation_types.into_iter().collect::<Vec<_>>();
+            let category = relation_category(&relation_types);
             let direction = if bundle.directed_count == 0 {
                 "undirected"
             } else if bundle.forward_count > 0 && bundle.reverse_count > 0 {
@@ -701,10 +730,10 @@ fn graph_relation_bundles(graph: &KnowledgeGraph) -> Vec<GraphRelationBundle> {
                 "directed"
             };
             GraphRelationBundle {
-                id: format!("{}::{}", bundle.source, bundle.target),
+                id: bundle.id,
                 source: bundle.source,
                 target: bundle.target,
-                relation_types: bundle.relation_types,
+                relation_types,
                 relation_count: bundle.relation_count,
                 direction,
                 category,
@@ -714,7 +743,7 @@ fn graph_relation_bundles(graph: &KnowledgeGraph) -> Vec<GraphRelationBundle> {
                 } else {
                     bundle.total_strength / bundle.relation_count as f64
                 },
-                evidence_titles: bundle.evidence_titles,
+                evidence_titles: bundle.evidence_titles.into_iter().collect(),
                 edge_ids: bundle.edge_ids,
             }
         })
@@ -738,6 +767,7 @@ fn is_undirected_relation_type(relation_type: &str) -> bool {
         || normalized.contains("similar")
         || normalized.contains("co_occurs")
         || normalized.contains("cooccurs")
+        || normalized.contains("cooccurrence")
         || normalized.contains("associated")
 }
 
@@ -1217,5 +1247,38 @@ mod tests {
         let bundles = artifacts["usedGraphBundles"].as_array().expect("bundles");
         assert_eq!(bundles.len(), 1);
         assert_eq!(bundles[0]["relationCount"], 3);
+    }
+
+    #[test]
+    fn cooccurrence_does_not_reverse_directed_evidence() {
+        let edge = |id: &str, source: &str, target: &str, relation_type: &str| KnowledgeGraphEdge {
+            id: id.into(),
+            source: source.into(),
+            target: target.into(),
+            relation_type: relation_type.into(),
+            strength: 0.8,
+            confidence: None,
+            evidence_doc_id: Some("doc".into()),
+            evidence_title: Some("Evidence".into()),
+            evidence_path: None,
+            evidence_snippet: None,
+            evidence_count: 1,
+            evidence_titles: vec![],
+            evidence_source: "explicit".into(),
+        };
+        let graph = KnowledgeGraph {
+            nodes: vec![],
+            edges: vec![
+                edge("shared", "a", "b", "co_occurs"),
+                edge("cause", "b", "a", "causes"),
+            ],
+            total_nodes: 2,
+            total_edges: 2,
+            scope_label: None,
+        };
+        let bundles = graph_relation_bundles(&graph);
+        assert_eq!(bundles[0].direction, "directed");
+        assert_eq!(bundles[0].source, "b");
+        assert_eq!(bundles[0].target, "a");
     }
 }

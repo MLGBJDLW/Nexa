@@ -4,7 +4,7 @@ import type {
   KnowledgeGraphNode,
 } from '../types/knowledge';
 import type { Conversation } from '../types/conversation';
-import { buildRelationBundles } from './knowledgeGraphRelations';
+import { buildRelationBundles, isUndirectedRelationType, relationCategory } from './knowledgeGraphRelations';
 import type { KnowledgeGraphRelationBundle, RelationCategory, RelationDirection } from './knowledgeGraphRelations';
 
 export const GRAPH_AGENT_CONTEXT_STORAGE_KEY = 'nexa-graph-agent-context-v1';
@@ -27,6 +27,8 @@ export interface GraphAgentEdgeRef {
   source: string;
   target: string;
   relationType: string;
+  sourceLabel?: string;
+  targetLabel?: string;
   relationCategory?: RelationCategory;
   strength?: number;
   confidence?: number | null;
@@ -78,6 +80,7 @@ export interface GraphAgentContext {
   edges: GraphAgentEdgeRef[];
   relationBundles: GraphAgentRelationBundleRef[];
   documents: KnowledgeGraphDocumentRef[];
+  availableRelations?: number;
   tokenEstimate: GraphTokenEstimate;
 }
 
@@ -311,7 +314,7 @@ export function buildGraphAgentContext(input: {
     label: input.node.label,
     aliases: input.node.aliases,
     entityType: input.node.entityType,
-    description: input.node.description,
+    description: input.node.description.slice(0, 600),
     documentCount: input.node.documentCount,
     mentionCount: input.node.mentionCount,
   };
@@ -321,14 +324,16 @@ export function buildGraphAgentContext(input: {
       id: edge.id,
       source: edge.source,
       target: edge.target,
+      sourceLabel: input.nodeLabelById.get(edge.source) ?? edge.source,
+      targetLabel: input.nodeLabelById.get(edge.target) ?? edge.target,
       relationType: edge.relationType,
-      relationCategory: buildRelationBundles([edge])[0]?.category,
+      relationCategory: relationCategory([edge.relationType]),
       strength: edge.strength,
       confidence: edge.confidence,
       evidenceDocId: edge.evidenceDocId,
       evidenceTitle: edge.evidenceTitle,
       evidencePath: edge.evidencePath,
-      evidenceSnippet: edge.evidenceSnippet,
+      evidenceSnippet: edge.evidenceSnippet?.slice(0, 320),
       evidenceCount: edge.evidenceCount,
       evidenceSource: edge.evidenceSource,
       otherLabel: input.nodeLabelById.get(otherId) ?? otherId,
@@ -350,6 +355,7 @@ export function buildGraphAgentContext(input: {
     edges,
     relationBundles,
     documents,
+    availableRelations: input.edges.length,
     tokenEstimate: estimateGraphContextTokenSavings({ node, edges, relationBundles, documents }),
   };
 }
@@ -361,13 +367,14 @@ export function buildGraphCollectionContext(
   const focusLabel = context.focusLabel ?? context.node.label;
   const relationBundles = context.relationBundles ?? [];
   const bundleLines = relationBundles.slice(0, 8).map((bundle) => {
-    const other = bundle.otherLabel ?? bundle.targetLabel ?? bundle.target;
     const strength = ` strongest=${bundle.strongestStrength.toFixed(2)} avg=${bundle.averageStrength.toFixed(2)}`;
     const evidence = bundle.evidenceTitles.length ? ` evidence=${bundle.evidenceTitles.slice(0, 2).join('; ')}` : '';
-    return `- ${context.node.label} <-> ${other} relations=${bundle.relationCount} direction=${bundle.direction} category=${bundle.category}${strength} types=${bundle.relationTypes.join(', ')}${evidence}`;
+    const arrow = bundle.direction === 'directed' ? '->' : bundle.direction === 'bidirectional' ? '<->' : '--';
+    return `- ${bundle.sourceLabel ?? bundle.source} [${bundle.source}] ${arrow} ${bundle.targetLabel ?? bundle.target} [${bundle.target}] relations=${bundle.relationCount} direction=${bundle.direction} category=${bundle.category}${strength} types=${bundle.relationTypes.join(', ')}${evidence}`;
   });
   const relationLines = context.edges.slice(0, 12).map((edge) => {
-    const other = edge.otherLabel ?? (edge.source === context.node.id ? edge.target : edge.source);
+    const source = edge.sourceLabel ?? (edge.source === context.node.id ? context.node.label : edge.otherLabel ?? edge.source);
+    const target = edge.targetLabel ?? (edge.target === context.node.id ? context.node.label : edge.otherLabel ?? edge.target);
     const strength =
       typeof edge.strength === 'number' ? ` strength=${edge.strength.toFixed(2)}` : '';
     const confidence =
@@ -378,7 +385,8 @@ export function buildGraphCollectionContext(
       edge.evidenceDocId ? `evidenceDocId=${edge.evidenceDocId}` : '',
       edge.evidenceSnippet ? `evidence="${edge.evidenceSnippet}"` : '',
     ].filter(Boolean).join(' ');
-    return `- ${context.node.label} --${edge.relationType}${strength}${confidence}--> ${other}${evidence ? ` ${evidence}` : ''}`;
+    const arrow = isUndirectedRelationType(edge.relationType) ? '--' : '-->';
+    return `- ${source} [${edge.source}] --${edge.relationType}${arrow} ${target} [${edge.target}]${strength}${confidence}${evidence ? ` ${evidence}` : ''}`;
   });
   const documentLines = context.documents.slice(0, 8).map(
     (doc) => `- ${doc.title} | documentId=${doc.documentId} | sourceId=${doc.sourceId} | path=${doc.path}`,
@@ -401,6 +409,7 @@ export function buildGraphCollectionContext(
       'User-selected relationship graph context. Treat it as a compact navigation index, not final evidence.',
     queryText: [
       scope,
+      `coverage=showing ${Math.min(context.edges.length, 12)} of ${context.availableRelations ?? context.edges.length} available relations; omitted relations are unknown, not absent`,
       `tokenEstimate=graphIndexChars:${context.tokenEstimate.graphIndexChars},rawRetrievalCharsEstimate:${context.tokenEstimate.rawRetrievalCharsEstimate},savedPctEstimate:${context.tokenEstimate.savedPctEstimate}`,
       context.node.description ? `description=${context.node.description}` : '',
       bundleLines.length ? `Relationship bundles:\n${bundleLines.join('\n')}` : '',

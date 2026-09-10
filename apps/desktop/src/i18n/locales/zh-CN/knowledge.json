@@ -149,5 +149,10 @@
   "learningStatus.error": "Nexa 正在学习：错误",
   "graphSuggestions": "条建议",
   "graphSuggestionMerge": "合并",
-  "dreamingKind.skillProposal": "技能提案"
+  "dreamingKind.skillProposal": "技能提案",
+  "readingView": "阅读关系",
+  "mapView": "显示图谱",
+  "readingHint": "从左到右阅读每条关系。共同出现只说明两个主题出现在同一份材料中，并不代表因果关系。判断之前可以打开原始证据。",
+  "sharedEvidence": "共同出现",
+  "explicitEvidence": "提取的关系"
 }

@@ -7,7 +7,6 @@ import {
   CalendarClock,
   CircleDot,
   ArrowLeftRight,
-  ExternalLink,
   Filter,
   GitFork,
   Landmark,
@@ -31,6 +30,8 @@ import type {
 } from '../../types/knowledge';
 import { useTranslation, type TranslationKey } from '../../i18n';
 import { Badge } from '../ui/Badge';
+import { FileBadge } from '../ui/FileBadge';
+import { KnowledgeRelationList } from './KnowledgeRelationList';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { Input } from '../ui/Input';
@@ -46,6 +47,9 @@ import {
 } from '../../lib/knowledgeGraphAgent';
 import {
   buildRelationBundles,
+  isUndirectedRelationType,
+  relationArrow,
+  relationCategory,
   type KnowledgeGraphRelationBundle,
   type RelationCategory,
   type RelationDirection,
@@ -636,12 +640,14 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
   const [showExpandedRelations, setShowExpandedRelations] = useState(false);
+  const [readingView, setReadingView] = useState(false);
   const [graphMode, setGraphMode] = useState<GraphMode>('overview');
   const [maxVisibleNodes, setMaxVisibleNodes] = useState(DEFAULT_VISIBLE_NODE_BUDGET);
   const [manualNodePositions, setManualNodePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [agentUsage, setAgentUsage] = useState(() => readGraphAgentUsage());
   const [suggestedArtifacts, setSuggestedArtifacts] = useState<api.DreamArtifact[]>([]);
+  const graphRequestRef = useRef(0);
 
   const loadSources = useCallback(async () => {
     try {
@@ -653,6 +659,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
   }, [t]);
 
   const loadGraph = useCallback(async () => {
+    const requestId = ++graphRequestRef.current;
     setLoading(true);
     try {
       const nextGraph = await api.getKnowledgeGraph({
@@ -662,6 +669,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
         entityTypes: entityFilter === 'all' ? [] : [entityFilter],
         relationTypes: relationFilter ? [relationFilter] : [],
       });
+      if (requestId !== graphRequestRef.current) return;
       setGraph(nextGraph);
       setSelectedNodeId((current) => {
         if (current && nextGraph.nodes.some((node) => node.id === current)) return current;
@@ -674,9 +682,9 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
         return null;
       });
     } catch (e) {
-      toast.error(formatUserError(t('knowledge.relationshipGraph'), e));
+      if (requestId === graphRequestRef.current) toast.error(formatUserError(t('knowledge.relationshipGraph'), e));
     } finally {
-      setLoading(false);
+      if (requestId === graphRequestRef.current) setLoading(false);
     }
   }, [entityFilter, pathPrefix, relationFilter, selectedSourceId, t]);
 
@@ -697,6 +705,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
 
   useEffect(() => {
     void loadGraph();
+    return () => { graphRequestRef.current += 1; };
   }, [loadGraph]);
 
   useEffect(() => {
@@ -731,12 +740,16 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
   const visibleEdges = visibleGraph.edges;
   const visibleRelationBundles = useMemo(() => buildRelationBundles(visibleEdges), [visibleEdges]);
 
+  const computedLayout = useMemo(
+    () => computeLayout(visibleNodes, visibleEdges, graphMode, anchorNodeId),
+    [anchorNodeId, graphMode, visibleEdges, visibleNodes],
+  );
   const positionedNodes = useMemo(
-    () => computeLayout(visibleNodes, visibleEdges, graphMode, anchorNodeId).map((node) => {
+    () => computedLayout.map((node) => {
       const manualPosition = manualNodePositions[manualNodePositionKey(graphMode, node.id)];
       return manualPosition ? { ...node, ...manualPosition } : node;
     }),
-    [anchorNodeId, graphMode, manualNodePositions, visibleEdges, visibleNodes],
+    [computedLayout, graphMode, manualNodePositions],
   );
   const graphViewBox = useMemo(() => computeGraphViewBox(positionedNodes, graphMode), [graphMode, positionedNodes]);
   const nodeById = useMemo(() => new Map(positionedNodes.map((node) => [node.id, node])), [positionedNodes]);
@@ -755,8 +768,8 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
     [visibleRelationBundles],
   );
   const nodeLabelById = useMemo(
-    () => new Map(positionedNodes.map((node) => [node.id, node.label])),
-    [positionedNodes],
+    () => new Map((graph?.nodes ?? []).map((node) => [node.id, node.label])),
+    [graph],
   );
   const selectedNode = useMemo(() => {
     if (selectedBundleId) return null;
@@ -791,7 +804,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
         edges: selectedBundle.edges,
         nodeLabelById,
         focusKind: 'bundle',
-        focusLabel: `${sourceLabel} <-> ${targetLabel}`,
+        focusLabel: `${sourceLabel} ${relationArrow(selectedBundle.direction)} ${targetLabel}`,
       });
     }
     if (!selectedNode) return null;
@@ -801,10 +814,10 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
       pathPrefix: trimmedPathPrefix || null,
       scopeLabel: graph?.scopeLabel ?? null,
       node: selectedNode,
-      edges: selectedNodeEdges,
+      edges: graph?.edges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id) ?? [],
       nodeLabelById,
     });
-  }, [graph?.scopeLabel, nodeById, nodeLabelById, selectedBundle, selectedNode, selectedNodeEdges, selectedSource, selectedSourceId, trimmedPathPrefix]);
+  }, [graph, nodeById, nodeLabelById, selectedBundle, selectedNode, selectedSource, selectedSourceId, trimmedPathPrefix]);
   const agentUsedNodeIds = useMemo(
     () => new Set(agentUsage?.usedGraphNodes.map((node) => node.id) ?? []),
     [agentUsage],
@@ -1100,6 +1113,9 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+              <Button variant={readingView ? 'primary' : 'secondary'} size="sm" icon={<BookOpen size={14} />} onClick={() => setReadingView((value) => !value)} aria-pressed={readingView}>
+                {t(readingView ? 'knowledge.mapView' : 'knowledge.readingView')}
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"
@@ -1151,6 +1167,8 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                   : undefined
               }
             />
+          ) : readingView ? (
+            <KnowledgeRelationList bundles={visibleRelationBundles} nodes={nodeById} selectedId={selectedBundleId} onSelect={handleSelectBundle} />
           ) : (
             <div className="h-[562px]">
               <svg
@@ -1400,7 +1418,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                             const edgeSource = nodeById.get(edge.source);
                             const edgeTarget = nodeById.get(edge.target);
                             if (!edgeSource || !edgeTarget) return null;
-                            const edgeStyle = RELATION_CATEGORY_STYLE[buildRelationBundles([edge])[0]?.category ?? 'general'];
+                            const edgeStyle = RELATION_CATEGORY_STYLE[relationCategory([edge.relationType])];
                             const expandedPath = edgePath(edgeSource, edgeTarget, relationOffset(index, bundle.edges.length));
                             const edgePulsing = selected || agentUsedEdgeIds.has(edge.id);
                             const edgeWaveDuration = directlySelected || agentUsedEdgeIds.has(edge.id) ? '2.6s' : '3.4s';
@@ -1416,7 +1434,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                                   strokeWidth={selected ? 1.25 : agentUsedEdgeIds.has(edge.id) ? 1.15 : 0.9}
                                   opacity={selected || agentUsedEdgeIds.has(edge.id) ? 0.82 : 0.58}
                                   strokeDasharray={dash}
-                                  markerEnd={`url(#knowledge-edge-arrow-${edgeStyle.id})`}
+                                  markerEnd={isUndirectedRelationType(edge.relationType) ? undefined : `url(#knowledge-edge-arrow-${edgeStyle.id})`}
                                 />
                                 {edgePulsing && (
                                   <g className="kg-edge-transfer" style={{ color: edgeStyle.color }}>
@@ -1751,10 +1769,7 @@ function NodeDetail({
               node.documents.map((doc) => (
                 <div key={doc.documentId} className="rounded-md border border-border bg-surface-0 px-3 py-2">
                   <div className="line-clamp-1 text-sm font-medium text-text-primary">{doc.title}</div>
-                  <div className="mt-1 flex items-center gap-1 text-[11px] text-text-tertiary">
-                    <ExternalLink size={11} className="block shrink-0" />
-                    <span className="truncate">{shortPath(doc.path)}</span>
-                  </div>
+                  <div className="mt-1"><FileBadge path={doc.path} /></div>
                 </div>
               ))
             )}
@@ -1786,7 +1801,7 @@ function NodeDetail({
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-text-primary">
-                          {other?.label ?? otherId}
+                          <span className="mr-2 text-accent">{bundle.direction === 'directed' && bundle.target === node.id ? '←' : relationArrow(bundle.direction)}</span>{other?.label ?? otherId}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1">
                           {bundle.relationTypes.slice(0, 3).map((type) => (
@@ -1848,7 +1863,7 @@ function RelationBundleDetail({
               {t('knowledge.relationshipBundle')}
             </div>
             <h3 className="mt-1 line-clamp-2 text-base font-semibold text-text-primary">
-              {source?.label ?? bundle.source} <span className="text-text-tertiary">&lt;-&gt;</span> {target?.label ?? bundle.target}
+              {source?.label ?? bundle.source} <span className="text-accent">{relationArrow(bundle.direction)}</span> {target?.label ?? bundle.target}
             </h3>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <Badge variant={style.badge}>{relationCategoryLabel(bundle.category, t)}</Badge>
@@ -1925,19 +1940,19 @@ function RelationBundleDetail({
               const edgeSource = nodeById.get(edge.source);
               const edgeTarget = nodeById.get(edge.target);
               const evidenceTitle = edge.evidenceTitle || edge.evidenceTitles?.[0] || (edge.evidencePath ? shortPath(edge.evidencePath) : null);
-              const evidenceSource = edge.evidenceSource === 'cooccurrence' ? 'co-occurrence' : 'explicit';
+              const evidenceSource = t(edge.evidenceSource === 'cooccurrence' ? 'knowledge.sharedEvidence' : 'knowledge.explicitEvidence');
               return (
                 <div key={edge.id} className="rounded-md border border-border bg-surface-0 px-3 py-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-text-primary">
-                        {edgeSource?.label ?? edge.source} {'->'} {edgeTarget?.label ?? edge.target}
+                        {edgeSource?.label ?? edge.source} {isUndirectedRelationType(edge.relationType) ? '—' : '→'} {edgeTarget?.label ?? edge.target}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-text-tertiary">
                         <span>{relationLabel(edge.relationType, t)}</span>
                         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px]">{evidenceSource}</span>
                         {edge.evidenceCount ? (
-                          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px]">{edge.evidenceCount} evidence</span>
+                          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px]">{edge.evidenceCount} {t('knowledge.evidenceDocuments')}</span>
                         ) : null}
                         {typeof edge.confidence === 'number' ? (
                           <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px]">{Math.round(edge.confidence * 100)}%</span>
@@ -1951,6 +1966,7 @@ function RelationBundleDetail({
                       {evidenceTitle}
                     </div>
                   ) : null}
+                  {edge.evidencePath && <div className="mt-2"><FileBadge path={edge.evidencePath} /></div>}
                   {edge.evidenceSnippet ? (
                     <div className="mt-2 line-clamp-2 rounded bg-surface-2 px-2 py-1.5 text-[11px] leading-5 text-text-secondary">
                       {edge.evidenceSnippet}

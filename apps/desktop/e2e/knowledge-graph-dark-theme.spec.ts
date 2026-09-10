@@ -129,7 +129,7 @@ test('masks node frost to the node alpha and renders theme-owned graph colors', 
   await page.goto('/knowledge');
   await page.getByRole('button', { name: 'Topics & Connections' }).click();
 
-  const graph = page.locator('svg[role="img"]');
+  const graph = page.getByRole('img', { name: 'Relationship Graph', exact: true });
   await expect(graph.locator('.kg-node-core')).toHaveCount(2);
   await expect(graph.locator('#knowledge-node-frost feComposite[in2="SourceAlpha"][operator="in"]')).toHaveCount(1);
   await expect(graph.locator('#knowledge-node-frost feBlend[in2="masked-grain"]')).toHaveCount(1);

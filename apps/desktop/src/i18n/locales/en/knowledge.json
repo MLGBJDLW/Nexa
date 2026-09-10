@@ -149,5 +149,10 @@
   "learningStatus.error": "Nexa is learning: error",
   "graphSuggestions": "suggestions",
   "graphSuggestionMerge": "merge",
-  "dreamingKind.skillProposal": "Skill Proposal"
+  "dreamingKind.skillProposal": "Skill Proposal",
+  "readingView": "Read relationships",
+  "mapView": "Show map",
+  "readingHint": "Read each relationship from left to right. Shared evidence only means two topics appear together; it does not establish a cause. Open the evidence before relying on a claim.",
+  "sharedEvidence": "Shared evidence",
+  "explicitEvidence": "Extracted relationship"
 }

@@ -149,5 +149,10 @@
   "learningStatus.error": "Nexa is learning: error",
   "graphSuggestions": "suggestions",
   "graphSuggestionMerge": "merge",
-  "dreamingKind.skillProposal": "Skill Proposal"
+  "dreamingKind.skillProposal": "Skill Proposal",
+  "readingView": "Beziehungen lesen",
+  "mapView": "Graph anzeigen",
+  "readingHint": "Lesen Sie jede Beziehung von links nach rechts. Gemeinsames Auftreten in einer Quelle belegt keine Ursache. Prüfen Sie die Belege, bevor Sie Schlüsse ziehen.",
+  "sharedEvidence": "Gemeinsames Auftreten",
+  "explicitEvidence": "Extrahierte Beziehung"
 }
