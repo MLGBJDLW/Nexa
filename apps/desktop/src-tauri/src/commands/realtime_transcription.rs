@@ -859,10 +859,6 @@ async fn start_realtime_session(
             };
             tokio::select! { _ = cancellation.notified() => {}, _ = work => {} }
         }
-        resolve_pending_final(
-            &mut pending_final,
-            Err("Realtime transcription ended".into()),
-        );
         cancellations.lock().await.remove(&actor_session_id);
         if let Some(message) = terminal_error {
             emit_realtime_event(
@@ -875,6 +871,11 @@ async fn start_realtime_session(
                 None,
             );
             resolve_pending_final(&mut pending_final, Err(message));
+        } else {
+            resolve_pending_final(
+                &mut pending_final,
+                Err("Realtime transcription ended".into()),
+            );
         }
         sessions.lock().await.remove(&actor_session_id);
     });
@@ -989,6 +990,67 @@ mod tests {
     use futures::{SinkExt, StreamExt};
     use serde_json::Value;
     use tokio_tungstenite::tungstenite::Message;
+
+    #[tokio::test]
+    async fn finishing_dictation_returns_the_specific_provider_error() {
+        use std::sync::Arc;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let event: Value = serde_json::from_str(&text).unwrap();
+                match event["type"].as_str().unwrap() {
+                    "session.update" => socket
+                        .send(Message::Text(
+                            serde_json::json!({"type":"session.updated"})
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .unwrap(),
+                    "input_audio_buffer.commit" => {
+                        socket.send(Message::Text(serde_json::json!({"type":"error","error":{"message":"Provider quota exhausted"}}).to_string().into())).await.unwrap();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+        let state = super::RealtimeTranscriptionState::default();
+        let id = super::start_realtime_session(
+            nexa_core::app_settings::SpeechToTextConfig {
+                provider: "openai".into(),
+                api_style: "openai_realtime_transcription".into(),
+                api_key: "test".into(),
+                base_url: Some(format!("http://{address}/v1")),
+                model: "gpt-live-transcribe".into(),
+                ..Default::default()
+            },
+            &state,
+            None,
+            super::RealtimeEventSink {
+                frontend: Arc::new(|_| {}),
+                live: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        super::session_sender(&state, &id)
+            .await
+            .unwrap()
+            .send(super::RealtimeCommand::Finish(sender))
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, Err("Provider quota exhausted".into()));
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn live_start_delivers_immediate_transcript_and_terminal_error() {
