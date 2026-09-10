@@ -117,8 +117,12 @@ impl RemoteServer {
             reconnect_grace_seconds: RECONNECT_GRACE.as_secs(),
         }
     }
-    pub fn add_endpoint(&self, endpoint: Endpoint) -> Result<(), String> {
+    pub fn add_endpoint(&self, mut endpoint: Endpoint) -> Result<(), String> {
         validate_endpoint(&endpoint)?;
+        endpoint.url = url::Url::parse(&endpoint.url)
+            .map_err(|_| "Invalid connection address")?
+            .origin()
+            .ascii_serialization();
         let mut endpoints = self.endpoints.write().unwrap_or_else(|e| e.into_inner());
         if !endpoints.iter().any(|entry| entry.url == endpoint.url) {
             endpoints.push(endpoint);

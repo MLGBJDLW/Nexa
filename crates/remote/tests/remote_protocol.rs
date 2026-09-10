@@ -14,6 +14,85 @@ struct Host {
     calls: AtomicUsize,
     disconnected: Mutex<Vec<String>>,
 }
+
+#[tokio::test]
+async fn fixed_https_origins_accept_browser_normalization_for_pairing_and_websockets() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = RemoteServer::new(
+        AuthStore::open(directory.path()).unwrap(),
+        Arc::new(Host::default()),
+    );
+    let listener = server
+        .listen(([127, 0, 0, 1], 0).into(), None)
+        .await
+        .unwrap();
+    server
+        .add_endpoint(Endpoint {
+            url: "https://ExAmPlE.test:443".into(),
+            kind: EndpointKind::Tunnel,
+        })
+        .unwrap();
+    let origin = "https://example.test";
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let paired = client.post(format!("http://{}/api/pair", listener.address))
+        .header("Host", "example.test").header("Origin", origin)
+        .json(&json!({"code":server.pairing().code,"name":"Phone","clientNonce":uuid::Uuid::new_v4().to_string()}))
+        .send().await.unwrap();
+    assert_eq!(
+        paired.status(),
+        200,
+        "A browser-normalized Origin must match the configured HTTPS origin"
+    );
+    let paired: Value = paired.json().await.unwrap();
+    let mut request = format!("ws://{}/api/events", listener.address)
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("Host", "example.test".parse().unwrap());
+    request
+        .headers_mut()
+        .insert("Origin", origin.parse().unwrap());
+    let (mut socket, _) = connect_async(request).await.unwrap();
+    socket
+        .send(Message::Text(
+            json!({"token":paired["token"]}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+    let event: Value =
+        serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(event["event"], "connection:ready");
+    server
+        .add_endpoint(Endpoint {
+            url: origin.into(),
+            kind: EndpointKind::Tunnel,
+        })
+        .unwrap();
+    let manifest = server.manifest();
+    let public: Vec<_> = manifest
+        .endpoints
+        .iter()
+        .filter(|endpoint| endpoint.kind == EndpointKind::Tunnel)
+        .collect();
+    assert_eq!(public.len(), 1);
+    assert_eq!(public[0].url, origin);
+    for wrong in ["https://example.test:444", "https://example.test.evil"] {
+        assert_eq!(
+            client
+                .get(format!("http://{}/api/health", listener.address))
+                .header("Host", "example.test")
+                .header("Origin", wrong)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+    }
+    socket.close(None).await.unwrap();
+    server.stop().await;
+}
 #[async_trait::async_trait]
 impl RemoteHost for Host {
     async fn execute(&self, owner: &str, _command: RemoteCommand) -> Result<Value, String> {
