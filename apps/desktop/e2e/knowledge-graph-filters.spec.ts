@@ -25,7 +25,7 @@ test('reads incoming facts without turning co-occurrence into causation', async 
   const badge = fact.locator('.file-badge-shell');
   await expect(badge).toHaveCSS('border-radius', '5px');
   await expect(badge).toHaveCSS('background-image', /linear-gradient.*62%/);
-  await page.screenshot({ path: 'test-results/knowledge-reading-view.png', fullPage: true });
+  await page.screenshot({ path: '.artifacts/knowledge-reading-view.png', fullPage: true });
 });
 
 async function selectNexaOption(trigger: Locator, value: string) {
