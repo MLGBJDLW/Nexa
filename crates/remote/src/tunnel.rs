@@ -419,7 +419,11 @@ pub async fn start_ssh(
         ])
         .arg(format!(
             "UserKnownHostsFile=\"{}\"",
-            known_hosts.to_string_lossy().replace('\\', "/").replace('%', "%%").replace('"', "\\\"")
+            known_hosts
+                .to_string_lossy()
+                .replace('\\', "/")
+                .replace('%', "%%")
+                .replace('"', "\\\"")
         ));
     match provider {
         PublicTunnelProvider::LocalhostRun => {
