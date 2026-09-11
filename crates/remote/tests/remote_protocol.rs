@@ -16,6 +16,55 @@ struct Host {
 }
 
 #[tokio::test]
+async fn html_preview_is_opaque_bounded_and_revoked_with_its_owner() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = RemoteServer::new(
+        AuthStore::open(directory.path()).unwrap(),
+        Arc::new(Host::default()),
+    );
+    let listener = server
+        .listen(([127, 0, 0, 1], 0).into(), None)
+        .await
+        .unwrap();
+    let origin = format!("http://{}", listener.address);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let paired: Value = client.post(format!("{origin}/api/pair")).header("Origin", &origin)
+        .json(&json!({"code":server.pairing().code,"name":"Phone","clientNonce":uuid::Uuid::new_v4().to_string()}))
+        .send().await.unwrap().json().await.unwrap();
+    let owner = paired["device"]["id"].as_str().unwrap();
+    let path = server
+        .create_html_preview(
+            owner,
+            "<button>Interactive</button><script>document.body.dataset.ready='yes'</script>".into(),
+        )
+        .unwrap();
+    let response = client.get(format!("{origin}{path}")).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(response.headers().get("x-frame-options").is_none());
+    let csp = response.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
+    assert!(csp.contains("sandbox allow-scripts;"));
+    assert!(!csp.contains("allow-same-origin"));
+    assert!(csp.contains("connect-src 'none'"));
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert!(server
+        .create_html_preview(owner, "x".repeat(512 * 1024 + 1))
+        .is_err());
+    server.revoke(owner).await.unwrap();
+    assert_eq!(
+        client
+            .get(format!("{origin}{path}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn incomplete_post_bodies_do_not_starve_health_or_pairing() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let directory = tempfile::tempdir().unwrap();

@@ -24,7 +24,7 @@ pub struct RemoteState {
 struct RemoteRuntime {
     server: Arc<RemoteServer>,
     _listeners: Vec<RunningListener>,
-    tunnel: Option<tunnel::ManagedTunnel>,
+    tunnel: Option<public_access::ManagedPublicAccess>,
     certificate_path: Option<PathBuf>,
     warning: Option<String>,
 }
@@ -39,6 +39,8 @@ pub struct RemoteOptions {
     pub lan: bool,
     pub quick_tunnel: bool,
     pub public_url: Option<String>,
+    #[serde(default)]
+    pub public_provider: tunnel::PublicTunnelProvider,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,9 +54,15 @@ pub struct RemoteStatus {
     certificate_path: Option<String>,
     warning: Option<String>,
     tunnel_running: bool,
+    public_routes: Vec<public_access::PublicRouteStatus>,
 }
 
 impl RemoteState {
+    pub fn publish_voice(&self, owner: &str, event: &Value) {
+        if let Ok(server) = self.server() {
+            server.publish(Some(owner), "voice:event", event.clone());
+        }
+    }
     pub fn publish<T: Serialize + ?Sized>(&self, event: &str, payload: &T) {
         if event != "agent://run-event" {
             return;
@@ -129,6 +137,7 @@ impl RemoteState {
                 certificate_path: None,
                 warning: None,
                 tunnel_running: false,
+                public_routes: vec![],
             },
             Some(runtime) => RemoteStatus {
                 enabled: true,
@@ -146,7 +155,7 @@ impl RemoteState {
                     .as_ref()
                     .is_some_and(|tunnel| !tunnel.is_running())
                 {
-                    Some("The temporary public tunnel has stopped. Restart remote access to obtain a new QR code.".into())
+                    Some("remote_public_reconnecting".into())
                 } else {
                     runtime.warning.clone()
                 },
@@ -154,6 +163,11 @@ impl RemoteState {
                     .tunnel
                     .as_ref()
                     .is_some_and(|tunnel| tunnel.is_running()),
+                public_routes: runtime
+                    .tunnel
+                    .as_ref()
+                    .map(|access| access.statuses())
+                    .unwrap_or_default(),
             },
         }
     }
@@ -251,16 +265,15 @@ async fn build_remote_runtime(
         })?;
     }
     if options.quick_tunnel {
-        match tunnel::start(&directory.join("helper"), &loopback_url).await {
-            Ok(tunnel) => {
-                server.add_endpoint(Endpoint {
-                    url: tunnel.url.clone(),
-                    kind: EndpointKind::Tunnel,
-                })?;
-                runtime.tunnel = Some(tunnel);
-            }
-            Err(error) => runtime.warning = Some(error),
-        }
+        runtime.tunnel = Some(
+            public_access::start(
+                server.clone(),
+                directory.join("helper"),
+                loopback_url,
+                options.public_provider,
+            )
+            .await,
+        );
     }
     Ok(runtime)
 }
@@ -300,14 +313,42 @@ pub async fn revoke_remote_device_cmd(
     Ok(())
 }
 #[tauri::command]
-pub fn remote_pairing_cmd(app: AppHandle, state: State<'_, RemoteState>) -> Result<Value, String> {
+pub fn remote_pairing_cmd(
+    app: AppHandle,
+    state: State<'_, RemoteState>,
+    endpoint_url: Option<String>,
+) -> Result<Value, String> {
     let server = state.server()?;
     let pairing = server.pairing();
     let manifest = server.manifest();
+    let preferred = endpoint_url.or_else(|| {
+        state.runtime.lock().ok().and_then(|runtime| {
+            runtime.as_ref().and_then(|runtime| {
+                runtime
+                    .tunnel
+                    .as_ref()
+                    .and_then(|access| access.preferred_url())
+            })
+        })
+    });
+    if preferred.as_ref().is_some_and(|url| {
+        !manifest
+            .endpoints
+            .iter()
+            .any(|endpoint| &endpoint.url == url)
+    }) {
+        return Err("The selected remote address is no longer available".into());
+    }
     let endpoint = manifest
         .endpoints
         .iter()
-        .find(|endpoint| endpoint.kind == EndpointKind::Tunnel)
+        .find(|endpoint| preferred.as_ref() == Some(&endpoint.url))
+        .or_else(|| {
+            manifest
+                .endpoints
+                .iter()
+                .find(|endpoint| endpoint.kind == EndpointKind::Tunnel)
+        })
         .or_else(|| {
             manifest
                 .endpoints
@@ -322,7 +363,7 @@ pub fn remote_pairing_cmd(app: AppHandle, state: State<'_, RemoteState>) -> Resu
     );
     let svg = nexa_remote::pairing_qr(&url)?;
     crate::app_events::emit_main_window_event(&app, "remote:status-changed", &());
-    Ok(json!({"pairing":pairing,"url":url,"qrSvg":svg}))
+    Ok(json!({"pairing":pairing,"url":url,"qrSvg":svg,"endpointKind":endpoint.kind}))
 }
 
 struct DesktopHost {
@@ -353,6 +394,35 @@ fn project_run_event(mut event: Value) -> Value {
             payload.insert((*key).into(), value);
         }
     }
+    if event["visibility"] == "user"
+        && event["kind"]
+            .as_str()
+            .is_some_and(|kind| kind.starts_with("tool"))
+    {
+        let mut run = serde_json::Map::new();
+        for key in [
+            "callId",
+            "toolName",
+            "status",
+            "arguments",
+            "content",
+            "progressNote",
+            "durationMs",
+            "isError",
+        ] {
+            if let Some(value) = original["run"].get(key) {
+                run.insert(
+                    key.into(),
+                    if let Some(text) = value.as_str() {
+                        Value::String(text.chars().take(16_000).collect())
+                    } else {
+                        value.clone()
+                    },
+                );
+            }
+        }
+        payload.insert("run".into(), Value::Object(run));
+    }
     event["payload"] = Value::Object(payload);
     event
 }
@@ -363,11 +433,40 @@ impl RemoteHost for DesktopHost {
         let state = app.state::<AppState>();
         use RemoteCommand::*;
         match command {
+            PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
+            FilePreview { path } => value(commands::preview_file_cmd(app.state(), app.clone(), path).await?),
+            FileData { path } => {
+                // Resolve through the same source/path rules as the desktop preview.
+                let preview = commands::preview_file_cmd(app.state(), app.clone(), path).await?;
+                let file = tokio::fs::File::open(&preview.path).await.map_err(|e| e.to_string())?;
+                let mut bytes = Vec::new();
+                use tokio::io::AsyncReadExt;
+                file.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes).await.map_err(|e| e.to_string())?;
+                if bytes.len() > 8 * 1024 * 1024 { return Err("Remote preview download is limited to 8 MiB".into()); }
+                value(format!("data:{};base64,{}", preview.mime_type, B64.encode(bytes)))
+            }
+            Evidence { chunk_id } => value(commands::get_evidence_card(app.state(), chunk_id)?),
+            VoiceStart { request_id } => commands::remote_voice::start(app, owner, request_id).await,
+            VoiceAudio { session_id, data } => commands::remote_voice::audio(app, owner, &session_id, data).await,
+            VoiceFinish { session_id } => commands::remote_voice::finish(app, owner, &session_id).await,
+            VoiceCancel { session_id } => commands::remote_voice::cancel(app, owner, &session_id).await,
+            Preferences => state.db_executor.write(|db| {
+                let locale = db.load_app_config()?.ui_locale;
+                let appearance = db.load_appearance_registry()?;
+                Ok(json!({"locale":locale,"appearance":appearance}))
+            }).await.map(|result| result.value).map_err(|e| e.to_string()),
+            ThemeBackground { asset_id } => {
+                let asset = commands::resolve_theme_background_cmd(app.clone(), asset_id).await?;
+                if asset.bytes > 8 * 1024 * 1024 { return Err("Theme background is too large for remote delivery".into()); }
+                let bytes = tokio::fs::read(asset.path).await.map_err(|e| e.to_string())?;
+                value(format!("data:{};base64,{}", asset.media_type, B64.encode(bytes)))
+            }
             Connections => state.db_executor.read(|db| {
                 Ok(db.list_agent_configs()?.into_iter().map(|config| {
-                    json!({"id":config.id,"name":config.name,"model":config.model,"isDefault":config.is_default})
+                    json!({"id":config.id,"name":config.name,"provider":config.provider,"model":config.model,"isDefault":config.is_default})
                 }).collect::<Vec<_>>())
             }).await.map_err(|e| e.to_string()).and_then(|result| value(result.value)),
+            Models { connection_id } => value(commands::model_choices::model_choices(app, connection_id).await?),
             Conversations { before } => state.db_executor
                 .read(move |db| db.remote_conversations(before.as_deref()))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
@@ -377,18 +476,26 @@ impl RemoteHost for DesktopHost {
             Message { conversation_id, message_id, offset } => state.db_executor
                 .read(move |db| db.remote_message_text(&conversation_id, &message_id, offset))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
-            CreateConversation { connection_id } => state.db_executor.write(move |db| {
-                let config = db.get_agent_config(&connection_id)?;
+            CreateConversation { connection_id, model_selection } => state.db_executor.write(move |db| {
+                let saved = db.get_agent_config(&connection_id)?;
+                let config = match model_selection {
+                    Some(input) => serde_json::from_value::<nexa_core::conversation::TurnModelSelection>(input)?.apply(&saved)?,
+                    None => saved,
+                };
                 let conversation = db.create_conversation(&nexa_core::conversation::CreateConversationInput {
                     provider: config.provider, model: config.model, system_prompt: None,
                     collection_context: None, project_id: None, persona_id: None,
                 })?;
                 Ok(json!({"id":conversation.id,"title":conversation.title,"model":conversation.model}))
             }).await.map(|result| result.value).map_err(|e| e.to_string()),
-            StartTurn { conversation_id, connection_id, message, idempotency_key } => {
+            StartTurn { conversation_id, connection_id, message, idempotency_key, model_selection, attachments, execution_mode, power_mode, collaboration_mode, vision_turn_override } => {
                 let request = serde_json::from_value(json!({
                     "conversationId":conversation_id,"agentConfigId":connection_id,
-                    "message":message,"idempotencyKey":idempotency_key
+                    "message":message,"idempotencyKey":idempotency_key,"modelSelection":model_selection,
+                    "attachments":attachments,"executionMode":execution_mode.unwrap_or_else(|| "normal".into()),
+                    "powerMode":power_mode.unwrap_or_else(|| "standard".into()),
+                    "collaborationMode":collaboration_mode.unwrap_or_else(|| "direct".into()),
+                    "visionTurnOverride":vision_turn_override
                 })).map_err(|e| e.to_string())?;
                 value(commands::agent_chat_cmd(
                     app.state(), app.state(), app.state(), app.state(), app.state(), app.state(),
@@ -453,7 +560,10 @@ impl RemoteHost for DesktopHost {
                 Ok(Value::Null)
             }
             LiveStop { session_id } => value(live::stop(app, owner, &session_id).await?),
-            LiveSummarize { session_id, connection_id } => value(live::summarize(app, owner, &session_id, &connection_id).await?),
+            LiveSummarize { session_id, connection_id, model_selection } => {
+                let selection = model_selection.map(serde_json::from_value).transpose().map_err(|e| e.to_string())?;
+                value(live::summarize(app, owner, &session_id, &connection_id, selection).await?)
+            }
             LiveRecords => {
                 let owner = owner.to_owned();
                 state.db_executor.read(move |db| db.list_live_records(&owner))
@@ -475,6 +585,7 @@ impl RemoteHost for DesktopHost {
     }
     async fn disconnected(&self, owner: &str) {
         self.app.state::<LiveState>().manager.stop_owner(owner);
+        commands::remote_voice::stop_owner(&self.app, owner).await;
     }
     async fn connection_changed(&self, owner: &str, connected: bool) {
         self.app

@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     extract::{
         ws::{close_code, CloseFrame, Message, WebSocket},
-        DefaultBodyLimit, Request, State, WebSocketUpgrade,
+        DefaultBodyLimit, Path, Request, State, WebSocketUpgrade,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
@@ -26,13 +26,15 @@ use std::{
 use tokio::sync::{broadcast, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-const MAX_BODY: usize = 768 * 1024;
+// Eight MiB of attachments encoded as base64, plus bounded chat metadata.
+const MAX_BODY: usize = 12 * 1024 * 1024;
 const BODY_READ_TIMEOUT: Duration = Duration::from_secs(10);
 pub const RECONNECT_GRACE: Duration = Duration::from_secs(30);
 
 pub struct RemoteServer {
     auth: Mutex<AuthStore>,
     endpoints: RwLock<Vec<Endpoint>>,
+    page_origins: RwLock<Vec<String>>,
     host: Arc<dyn RemoteHost>,
     events: broadcast::Sender<RemoteEvent>,
     pub shutdown: CancellationToken,
@@ -40,6 +42,8 @@ pub struct RemoteServer {
     connections: Mutex<HashMap<String, (usize, u64)>>,
     sockets: Arc<Semaphore>,
     requests: Arc<Semaphore>,
+    uploads: Arc<Semaphore>,
+    previews: Mutex<HashMap<String, (String, String, std::time::Instant)>>,
 }
 pub struct RunningListener {
     pub address: SocketAddr,
@@ -64,6 +68,7 @@ impl RemoteServer {
         Arc::new(Self {
             auth: Mutex::new(auth),
             endpoints: RwLock::new(vec![]),
+            page_origins: RwLock::new(vec![]),
             host,
             events,
             shutdown: CancellationToken::new(),
@@ -71,6 +76,8 @@ impl RemoteServer {
             connections: Mutex::new(HashMap::new()),
             sockets: Arc::new(Semaphore::new(24)),
             requests: Arc::new(Semaphore::new(32)),
+            uploads: Arc::new(Semaphore::new(8)),
+            previews: Mutex::new(HashMap::new()),
         })
     }
     pub fn server_id(&self) -> String {
@@ -125,10 +132,22 @@ impl RemoteServer {
             .origin()
             .ascii_serialization();
         let mut endpoints = self.endpoints.write().unwrap_or_else(|e| e.into_inner());
-        if !endpoints.iter().any(|entry| entry.url == endpoint.url) {
+        let mut origins = self.page_origins.write().unwrap_or_else(|e| e.into_inner());
+        if !origins.contains(&endpoint.url) {
+            if origins.len() >= 64 {
+                origins.remove(0);
+            }
+            origins.push(endpoint.url.clone());
+        }
+        drop(origins);
+        let changed = !endpoints.iter().any(|entry| entry.url == endpoint.url);
+        if changed {
             endpoints.push(endpoint);
         }
         drop(endpoints);
+        if !changed {
+            return Ok(());
+        }
         self.publish(
             None,
             "connection:manifest",
@@ -136,6 +155,20 @@ impl RemoteServer {
                 .map_err(|_| "Unable to encode connection manifest")?,
         );
         Ok(())
+    }
+    pub fn retire_endpoint(&self, url: &str) {
+        let mut endpoints = self.endpoints.write().unwrap_or_else(|e| e.into_inner());
+        let before = endpoints.len();
+        endpoints.retain(|endpoint| endpoint.url != url);
+        let changed = before != endpoints.len();
+        drop(endpoints);
+        // An already loaded phone page remains on its original trusted origin
+        // while authenticated traffic moves to a newly allocated tunnel URL.
+        if changed {
+            if let Ok(manifest) = serde_json::to_value(self.manifest()) {
+                self.publish(None, "connection:manifest", manifest);
+            }
+        }
     }
     pub fn publish(&self, owner: Option<&str>, event: &str, payload: Value) {
         if self.shutdown.is_cancelled() {
@@ -150,6 +183,20 @@ impl RemoteServer {
     pub fn has_subscribers(&self) -> bool {
         self.events.receiver_count() > 0
     }
+    /// A short-lived read capability for an isolated, opaque-origin iframe.
+    pub fn create_html_preview(&self, owner: &str, html: String) -> Result<String, String> {
+        if html.len() > 512 * 1024 {
+            return Err("HTML preview exceeds 512 KiB".into());
+        }
+        let mut previews = self.previews.lock().unwrap_or_else(|e| e.into_inner());
+        previews.retain(|_, (_, _, time)| time.elapsed() < Duration::from_secs(1800));
+        if previews.len() >= 24 {
+            return Err("Too many active previews; retry after older previews expire".into());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        previews.insert(id.clone(), (owner.into(), html, std::time::Instant::now()));
+        Ok(format!("/preview/{id}"))
+    }
     pub async fn revoke(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let server = self.clone();
         let device_id = id.to_string();
@@ -163,6 +210,10 @@ impl RemoteServer {
         .await
         .map_err(|_| "Device revocation failed")??;
         self.devices_changed.notify_waiters();
+        self.previews
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, (owner, _, _)| owner != id);
         self.connections
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -178,11 +229,12 @@ impl RemoteServer {
     }
     pub fn router(self: &Arc<Self>) -> Router {
         Router::new()
-            .route("/api/health", get(health))
+            .route("/api/health", get(health).post(health_echo))
             .route("/api/pair", post(pair))
             .route("/api/manifest", get(manifest))
             .route("/api/rpc", post(rpc))
             .route("/api/events", get(events))
+            .route("/preview/{id}", get(html_preview))
             .fallback(get(asset))
             .layer(DefaultBodyLimit::max(MAX_BODY))
             .layer(tower_http::compression::CompressionLayer::new())
@@ -269,11 +321,11 @@ impl RemoteServer {
         }
     }
     fn allows_origin(&self, origin: &str) -> bool {
-        self.endpoints
+        self.page_origins
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .any(|endpoint| endpoint.url == origin)
+            .any(|allowed| allowed == origin)
     }
     fn allows_host(&self, host: &str) -> bool {
         self.endpoints
@@ -350,6 +402,7 @@ async fn boundary(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
     let immutable_asset = request.uri().path().starts_with("/assets/");
+    let isolated_preview = request.uri().path().starts_with("/preview/");
     if origin
         .as_deref()
         .is_some_and(|origin| !server.allows_origin(origin))
@@ -375,7 +428,7 @@ async fn boundary(
         );
         headers.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("Authorization, Content-Type"),
+            HeaderValue::from_static("Authorization, Content-Type, X-Pinggy-No-Screen"),
         );
         headers.insert(
             "access-control-allow-private-network",
@@ -396,7 +449,9 @@ async fn boundary(
         HeaderValue::from_static("nosniff"),
     );
     headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
-    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    if !isolated_preview {
+        headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    }
     let origins = server
         .endpoints
         .read()
@@ -405,7 +460,15 @@ async fn boundary(
         .flat_map(|endpoint| [endpoint.url.clone(), endpoint.url.replacen("http", "ws", 1)])
         .collect::<Vec<_>>()
         .join(" ");
-    if let Ok(csp)=HeaderValue::from_str(&format!("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' {origins}; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")) {headers.insert(header::CONTENT_SECURITY_POLICY,csp);}
+    let rotating = "https://*.lhr.life wss://*.lhr.life https://*.localhost.run wss://*.localhost.run https://*.free.pinggy.net wss://*.free.pinggy.net https://*.pinggy.link wss://*.pinggy.link https://*.pinggy.online wss://*.pinggy.online https://*.run.pinggy-free.link wss://*.run.pinggy-free.link https://*.trycloudflare.com wss://*.trycloudflare.com";
+    let csp = if isolated_preview {
+        format!("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https:; img-src https: data: blob:; font-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' {origins} {rotating}")
+    } else {
+        format!("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' data: blob:; frame-src 'self' data: blob: {origins} {rotating}; font-src 'self'; connect-src 'self' {origins} {rotating}; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+    };
+    if let Ok(csp) = HeaderValue::from_str(&csp) {
+        headers.insert(header::CONTENT_SECURITY_POLICY, csp);
+    }
     headers.insert(
         "permissions-policy",
         HeaderValue::from_static("camera=(self), microphone=(self), geolocation=()"),
@@ -414,23 +477,48 @@ async fn boundary(
 }
 
 async fn admitted_request(server: &Arc<RemoteServer>, request: Request, next: Next) -> Response {
+    let authenticated_rpc = request.method() == Method::POST && request.uri().path() == "/api/rpc";
+    if authenticated_rpc && server.authenticate(request.headers()).is_none() {
+        return unauthorized();
+    }
     let request = if request.method() == Method::POST {
-        let (parts, body) = request.into_parts();
-        let bytes =
-            match tokio::time::timeout(BODY_READ_TIMEOUT, axum::body::to_bytes(body, MAX_BODY))
-                .await
-            {
-                Ok(Ok(bytes)) => bytes,
-                Ok(Err(_)) => {
-                    return failure(
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        "Unable to read a bounded remote request body",
-                    )
-                }
+        let _upload = if authenticated_rpc {
+            match server.uploads.clone().try_acquire_owned() {
+                Ok(permit) => Some(permit),
                 Err(_) => {
-                    return failure(StatusCode::REQUEST_TIMEOUT, "Remote request body timed out")
+                    return failure(StatusCode::TOO_MANY_REQUESTS, "Remote upload queue is full")
                 }
-            };
+            }
+        } else {
+            None
+        };
+        let (parts, body) = request.into_parts();
+        let bytes = match tokio::time::timeout(
+            if authenticated_rpc {
+                Duration::from_secs(120)
+            } else {
+                BODY_READ_TIMEOUT
+            },
+            axum::body::to_bytes(
+                body,
+                if authenticated_rpc {
+                    MAX_BODY
+                } else {
+                    768 * 1024
+                },
+            ),
+        )
+        .await
+        {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(_)) => {
+                return failure(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Unable to read a bounded remote request body",
+                )
+            }
+            Err(_) => return failure(StatusCode::REQUEST_TIMEOUT, "Remote request body timed out"),
+        };
         Request::from_parts(parts, Body::from(bytes))
     } else {
         request
@@ -448,8 +536,43 @@ async fn admitted_request(server: &Arc<RemoteServer>, request: Request, next: Ne
     }
 }
 
+async fn html_preview(State(server): State<Arc<RemoteServer>>, Path(id): Path<String>) -> Response {
+    let previews = server.previews.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((owner, html, created)) = previews.get(&id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if created.elapsed() >= Duration::from_secs(1800)
+        || !server
+            .auth
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .has_device(owner)
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        html.clone(),
+    )
+        .into_response()
+}
+
 async fn health(State(server): State<Arc<RemoteServer>>) -> Json<Value> {
     Json(json!({"serverId":server.server_id(),"version":1}))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HealthProbe {
+    nonce: String,
+}
+async fn health_echo(
+    State(server): State<Arc<RemoteServer>>,
+    Json(probe): Json<HealthProbe>,
+) -> Response {
+    if uuid::Uuid::parse_str(&probe.nonce).is_err() {
+        return failure(StatusCode::BAD_REQUEST, "Invalid network probe");
+    }
+    Json(json!({"serverId":server.server_id(), "nonce":probe.nonce})).into_response()
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -526,10 +649,10 @@ async fn events(
         return failure(StatusCode::TOO_MANY_REQUESTS, "Too many remote connections");
     };
     upgrade
-        .max_message_size(MAX_BODY)
-        .max_frame_size(MAX_BODY)
+        .max_message_size(768 * 1024)
+        .max_frame_size(768 * 1024)
         .write_buffer_size(0)
-        .max_write_buffer_size(2 * MAX_BODY)
+        .max_write_buffer_size(2 * 768 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
             socket_session(server, socket).await

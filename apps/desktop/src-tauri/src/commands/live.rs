@@ -52,6 +52,7 @@ pub struct LiveConnection {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartLiveRequest {
     pub connection_id: String,
+    pub model_selection: Option<nexa_core::conversation::TurnModelSelection>,
     pub protocol: Option<NativeLiveProtocol>,
     pub native_model: Option<String>,
     pub native_endpoint: Option<String>,
@@ -153,7 +154,14 @@ pub async fn start(
     if !input.microphone && !input.images {
         return Err("Choose microphone, camera, or screen input".into());
     }
-    let cfg = config(app, &input.connection_id).await?;
+    let saved = config(app, &input.connection_id).await?;
+    let cfg = input
+        .model_selection
+        .as_ref()
+        .map(|selection| selection.apply(&saved))
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or(saved);
     if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&cfg.provider).is_some()
     {
         return Err("Live requires an API connection. You can hand the resulting record to a subscription agent in chat.".into());
@@ -427,6 +435,7 @@ pub async fn summarize(
     owner: &str,
     id: &str,
     connection_id: &str,
+    model_selection: Option<nexa_core::conversation::TurnModelSelection>,
 ) -> Result<LiveRecord, String> {
     let owner = owner.to_owned();
     let id = id.to_owned();
@@ -439,7 +448,13 @@ pub async fn summarize(
         .await
         .map_err(|e| e.to_string())?
         .value;
-    let cfg = config(app, connection_id).await?;
+    let saved = config(app, connection_id).await?;
+    let cfg = model_selection
+        .as_ref()
+        .map(|selection| selection.apply(&saved))
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or(saved);
     if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&cfg.provider).is_some()
     {
         return Err("Live summaries require an API connection. Continue in chat to use a subscription agent.".into());
@@ -537,8 +552,16 @@ pub async fn summarize_live_cmd(
     app: AppHandle,
     session_id: String,
     connection_id: String,
+    model_selection: Option<nexa_core::conversation::TurnModelSelection>,
 ) -> Result<LiveRecord, String> {
-    summarize(&app, "desktop", &session_id, &connection_id).await
+    summarize(
+        &app,
+        "desktop",
+        &session_id,
+        &connection_id,
+        model_selection,
+    )
+    .await
 }
 #[tauri::command]
 pub async fn list_live_records_cmd(

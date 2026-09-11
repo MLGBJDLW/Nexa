@@ -70,7 +70,10 @@ mod tests {
         let db = Database::new(directory.path().join("remote.db")).unwrap();
         let executor = crate::db_executor::DatabaseExecutor::new(db, 8).unwrap();
         let requests = executor.remote_pending_interactions(None).await;
-        assert!(requests.is_ok(), "remote Chat must load questions: {requests:?}");
+        assert!(
+            requests.is_ok(),
+            "remote Chat must load questions: {requests:?}"
+        );
         assert!(requests.unwrap().is_empty());
     }
     #[test]

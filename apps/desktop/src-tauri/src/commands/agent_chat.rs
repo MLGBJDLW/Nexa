@@ -290,6 +290,22 @@ pub async fn agent_chat_cmd(
         ));
     }
 
+    let model_override = if let Some(selection) = request.model_selection.as_ref() {
+        let id = request
+            .agent_config_id
+            .clone()
+            .ok_or("A model choice requires a configured connection")?;
+        let saved = state
+            .db_executor
+            .read(move |db| db.get_agent_config(&id))
+            .await
+            .map_err(|error| error.to_string())?
+            .value;
+        Some(selection.apply(&saved).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
+    let model_is_authoritative = model_override.is_some();
     launch_desktop_agent_chat_turn(DesktopAgentChatLaunchRequest {
         state: state.inner(),
         agent_state: agent_state.inner(),
@@ -302,8 +318,8 @@ pub async fn agent_chat_cmd(
         message: request.message,
         attachments: Some(request.attachments),
         agent_config_id: request.agent_config_id,
-        agent_config_override: None,
-        agent_config_override_is_authoritative: false,
+        agent_config_override: model_override,
+        agent_config_override_is_authoritative: model_is_authoritative,
         persona_id: request.persona_id,
         skill_ids: Some(request.skill_ids),
         execution_mode: Some(request.execution_mode.as_str().to_string()),

@@ -90,9 +90,9 @@ pub struct CodexAccountSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CopilotModelSummary {
-    id: String,
-    name: String,
-    reasoning_efforts: Vec<String>,
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) reasoning_efforts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
