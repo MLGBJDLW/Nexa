@@ -4,6 +4,11 @@ Protocol exits let other agents or hosts call bounded Nexa capabilities. They
 are not native plugins. They are host-owned interfaces with explicit source
 scope, approval policy, and exported capability lists.
 
+Status: [protocol_exports.rs](../crates/core/src/protocol_exports.rs) defines
+maturity metadata. MCP server export is `Candidate`; ACP and A2A are `Design`.
+The workspace does not ship a standalone `nexa-mcp-server` executable. These
+definitions are not server startup instructions or proof of an active listener.
+
 ## Ordering
 
 Nexa should add protocol exits in this order:
@@ -45,6 +50,7 @@ Every protocol exit must:
 
 ## Non-Goals
 
-Do not expose Nexa as a general remote-control surface. Protocol exits should
-share local evidence and bounded workflows, not bypass the desktop assistant's
-trust model.
+Protocol exits should share scoped evidence and bounded workflows while
+retaining the desktop assistant's trust model. The implemented
+[paired phone surface](remote-access.md) uses its own authenticated typed
+transport and is not an MCP, ACP, or A2A export.

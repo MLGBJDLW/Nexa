@@ -67,8 +67,9 @@ contaminated sample fails closed instead of becoming conversation history.
 
 - `agent://run-event` carries only `{ conversationId, runEvent }` to the main
   window. The runtime schema rejects unknown envelope or RunEvent fields.
-- `agent://heartbeat` carries liveness only. It has no sequence, trace entry, or
-  durable row.
+- `agent://heartbeat` carries liveness and a `durableHighWater` hint. It does
+  not consume an event sequence or create a trace entry/durable row, and must
+  not postpone recovery merely because the process is still alive.
 - `agent://task-snapshot` carries the materialized task projection at lifecycle
   boundaries, not for each output block.
 - `companion://projection-changed` invalidates the Companion's low-frequency
@@ -84,6 +85,19 @@ barrier open.
 Tool execution is projected through the typed `ToolRun` lifecycle. Provider
 assembly fragments such as partial `ToolCall` arguments are not a public UI
 protocol.
+
+### Phone delivery
+
+The [remote bridge](../apps/desktop/src-tauri/src/remote.rs) projects the same
+committed run state to authenticated phone clients. Its transport envelope is
+not another Agent Run ledger. A phone resume request binds a conversation/run
+and reads a bounded event page after its last accepted sequence. A changed run
+resets that cursor; another conversation's run is rejected.
+
+Phone replay pages are bounded separately from the desktop's frozen 2,048-row
+reconciliation API. Do not assume that transport RPC IDs or WebSocket liveness
+are Agent Run `eventSeq` values. See [Phone access](remote-access.md) for
+connection recovery and [Voice and Live](LIVE.md) for separate capture sessions.
 
 ## Ordering and blocks
 
@@ -242,3 +256,19 @@ stream completes so navigation and stop controls retain the urgent UI lane.
 When a suspended run is replayed after restart, elapsed-time presentation freezes
 at the latest durable suspension event timestamp (falling back to the task
 projection update time for legacy rows), not at the time the UI happens to load.
+
+## Implementation and verification
+
+- [Core outbox](../crates/core/src/run_event_outbox.rs) and
+  [Agent Run schema](../crates/core/src/agent_run.rs) own publication and storage.
+- [Desktop delivery](../apps/desktop/src-tauri/src/agent_run_outbox.rs) adapts
+  committed events to host surfaces.
+- [Wire validation](../apps/desktop/src/lib/streaming/runEventWire.ts),
+  [ordering](../apps/desktop/src/lib/streaming/ordering.ts), and
+  [reconciliation](../apps/desktop/src/lib/streaming/runReconciliation.ts)
+  own frontend admission and recovery.
+
+Run focused core/outbox tests and desktop `npm run test:streaming` when changing
+these contracts. Include missing-window, terminal race, event-gap, duplicate,
+pause/restart, and absent-final-message cases. Native and phone delivery need
+their own host-level verification in addition to reducer tests.

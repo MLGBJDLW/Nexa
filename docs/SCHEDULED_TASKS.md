@@ -161,3 +161,18 @@ definitions can be upgraded without changing their observed cadence. Legacy
 expressions whose previously ignored fields would change meaning must be paused
 for review instead of silently acquiring new cadence. `next_run_at` is a derived
 cache; the occurrence record is the authority for claiming and retrying work.
+
+## Implementation and verification
+
+[Workflow scheduling](../crates/core/src/workflow_automation/scheduling.rs),
+[approval handling](../crates/core/src/workflow_automation/approvals.rs),
+[scheduler policy](../crates/core/src/workflow_scheduler.rs), and
+[automation tests](../crates/core/src/workflow_automation/tests.rs) are the
+core references. The desktop Workbench is a projection of these records.
+
+When changing recurrence or launch behavior, test timezone previews, duplicate
+ticks, expired claimants, revisions, Run now cursor preservation, pending
+approvals, empty tool allowlists, overlap, and restart cleanup. Verify unattended
+execution through the saved definition rather than a manually launched Chat
+that happens to use the same prompt. See
+[Contributing](../CONTRIBUTING.md#verification) for checks and acceptance limits.

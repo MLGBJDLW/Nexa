@@ -5,6 +5,26 @@ extension point into a plugin. It is the durable reference for capability
 packages, connectors, skills, workflows, adapters, host surfaces, and future
 native plugins.
 
+## Current maturity
+
+| Surface | Implemented boundary |
+| --- | --- |
+| Built-in capabilities | Registered tools and projected capability metadata |
+| MCP connectors | External tool discovery/execution, approvals, and versioned user declarations |
+| Skills | Reviewed import, registered-file reload, resource materialization, and invocation through existing tools |
+| Themes | Validated declarative theme resources; no arbitrary JavaScript/CSS loader |
+| Workflows | Built-in templates and durable workflow/schedule execution |
+| Package discovery | Project capability manifest parsing/validation; not an executable package installer |
+| Protocol exits | MCP export candidate metadata; ACP/A2A design metadata |
+| Native plugins | Future isolation/host requirements; no general third-party code runtime |
+
+The migration criteria below describe the intended progression. Their presence
+does not mark every stage complete. Source authorities are
+[ecosystem.rs](../crates/core/src/ecosystem.rs),
+[capability manifests](../crates/core/src/capability_package.rs),
+[built-in capability views](../crates/core/src/plugins.rs), and
+[protocol maturity](../crates/core/src/protocol_exports.rs).
+
 ## Product Constraint
 
 Nexa is a local-first desktop assistant for everyday knowledge and office work.
@@ -98,7 +118,7 @@ Use the smallest ecosystem surface that provides the needed leverage:
 | Skill Package | Portable working instructions and resources | Yes | No direct host code | research synthesis, document editing, persona design |
 | Workflow Package | User-facing task template | Yes, after catalog format stabilizes | No | meeting summary, document compare, report brief |
 | Adapter | Replaceable backend implementation | Usually internal first | Maybe, behind host interface | LLM provider, web search provider, image provider |
-| Host Surface | Product shell | No | Host-owned | Desktop, CLI, IDE extension, browser extension |
+| Host Surface | Product shell | No | Host-owned | Desktop and paired phone browser; CLI/IDE/browser extensions are possible future hosts |
 | Native Plugin | Last-resort isolated extension | Later | Yes, isolated | custom tool implementation, UI panel, hook bundle |
 
 ## Non-Plugin Surfaces
@@ -109,7 +129,8 @@ The following are not native plugins:
 - Skills: they are skill packages.
 - Workflow templates: they are workflow packages.
 - Provider choices: they are adapters behind a capability package.
-- Desktop, CLI, IDE, or browser products: they are host surfaces.
+- Desktop and paired phone UI: they are host surfaces; future CLI, IDE, or
+  browser-extension products would also belong in that category.
 - Knowledge indexing, source scope, approval policy, task runs, and local
   persistence: they are core platform responsibilities.
 

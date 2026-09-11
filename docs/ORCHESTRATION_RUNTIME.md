@@ -1,9 +1,9 @@
 # Orchestration Runtime
 
-This document records the runtime contracts behind Nexa's Mixture-of-Agents
-(MoA), Nexus, and orchestration quality profiles. The implementation is based
-on primary-source review performed on 2026-07-31; it is not a claim of wire or
-configuration compatibility with another project.
+This document records the current runtime contracts behind Nexa's
+Mixture-of-Agents (MoA), Nexus, and orchestration quality profiles. Nexa owns the
+implementation and verification of these contracts; the design references below
+do not imply wire or configuration compatibility with another project.
 
 ## Design sources
 
@@ -14,8 +14,7 @@ configuration compatibility with another project.
   demonstrates production constraints that the original paper does not cover:
   advisors are tool-free, fan-out is bounded, partial advisor failure is not
   fatal, private reference context is filtered, and usage is attributed to the
-  model that incurred it. The current upstream release at review time was
-  [v0.19.1](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.7.30).
+  model that incurred it.
 - [Anthropic's orchestrator-workers and evaluator-optimizer patterns](https://www.anthropic.com/engineering/building-effective-agents)
   motivate independent parallel reconnaissance followed by explicit synthesis
   and verification.
@@ -242,6 +241,13 @@ stable instructions, and the deterministically sorted profile tool schema come
 first. Conversation growth, current routing state, clock data, and evidence are
 append-only tail units. Compaction is an explicit cold boundary; it must not
 silently rewrite earlier messages during a warm turn.
+
+Skill activation has its own reserved prompt lane. Loading a longer skill must
+not move the stable policy's truncation boundary; unused policy capacity can
+flow toward loaded skill bodies, never in the reverse direction. The available
+skill index uses only the remaining budget. See
+[context assembly](../crates/core/src/agent/context.rs), including the
+`long_policy_prefix_is_stable_when_loaded_skill_size_changes` regression.
 
 The ordinary `Balanced` profile therefore omits the model-facing task plan,
 default orchestration-profile prose, and the `update_plan` schema. Those

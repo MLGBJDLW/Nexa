@@ -177,3 +177,19 @@ dropped.
 ## Prompt ownership
 
 The active runtime prompt is composed from the core kernel, authoritative turn-capability requirements, route scaffolding, skills, and enabled tool definitions. Long-write instructions belong in the `create_file` tool definition because that schema is injected only when the capability is available and stays synchronized with executable parameters. Do not add a second standalone prompt copy: executable routing and completion rules must remain beside the runtime policy that enforces them.
+
+## Implementation references
+
+- [Tool input session](../crates/core/src/agent/tool_input_session.rs): argument
+  assembly and preview admission.
+- [Core outbox](../crates/core/src/run_event_outbox.rs) and
+  [desktop preview journal](../apps/desktop/src-tauri/src/tool_preview_journal.rs):
+  durable versus replaceable publication.
+- [Writer implementation](../crates/core/src/tools/create_file_tool.rs) and
+  [schema](../crates/core/prompts/tools/create_file.json): write modes and byte
+  preconditions.
+- [Frontend tool projection](../apps/desktop/src/lib/streaming/toolProjection.ts):
+  live and completed tool state.
+
+This document covers streaming text-file arguments. Microphone/camera/screen
+capture is the separate [Voice and Live](LIVE.md) contract.

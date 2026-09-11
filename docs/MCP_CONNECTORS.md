@@ -115,15 +115,15 @@ The JSON file does not carry trust receipts, tool approvals, health state, or
 native code. Those remain host-owned state. File-backed connectors are edited in
 the JSON rather than through the managed form.
 
-Nexa's generic capability package loader can already read connector manifests
-from `.nexa/capabilities/*/capability.yaml`. The next runtime step is to attach
-that connector package metadata to saved server configs:
+Nexa's generic capability package loader can read connector metadata from
+`.nexa/capabilities/*/capability.yaml`. A valid generic declaration looks like:
 
 ```yaml
 id: github-mcp
 name: GitHub
 surface: connector
-transport: streamable_http
+description: Connector package metadata for a separately configured MCP endpoint.
+version: 1
 permissions:
   read: true
   write: true
@@ -133,3 +133,14 @@ permissions:
 Connector package metadata should describe setup, required credentials,
 permissions, health checks, and safe default state. It should not load native
 code into Nexa core.
+
+The generic manifest does not launch or configure the transport. Actual command,
+URL, environment, headers, and activation belong to the saved connector or the
+versioned `mcp.json` declaration above. The `@example/docs-mcp` command is an
+illustrative placeholder, not an installation recommendation.
+
+Implementation: [MCP runtime](../crates/core/src/mcp),
+[extension storage](ECOSYSTEM_ARCHITECTURE.md#user-owned-extension-home), and
+[capability parser](../crates/core/src/capability_package.rs). Verify
+disabled-tool discovery, configuration-change trust reset, secret references,
+and invalid-file retention when changing connector behavior.

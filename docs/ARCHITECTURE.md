@@ -15,6 +15,10 @@ become architecture merely by being stored in the repository.
 | Desktop presentation | Navigation, chat, settings, task state, previews, accessibility, and user-controlled interaction | `apps/desktop/src` |
 | Native desktop bridge | Tauri commands, window and tray ownership, operating-system integration, and event projection | `apps/desktop/src-tauri` |
 | Core runtime | Agent turns, provider adapters, tools, retrieval, persistence, workflows, and local media/document capabilities | `crates/core/src` |
+| Remote transport | Device pairing/revocation, authenticated HTTP and WebSocket requests, encrypted LAN listeners, and managed public routes | `crates/remote/src` |
+| Phone presentation | Remote chat, model choices, previews, dictation, and Live using the desktop host | `apps/desktop/src/features/remote` |
+| Live observation | Bounded input/session lifecycle, native realtime or incremental observation, text records, and summaries | `crates/core/src/live_analysis` |
+| Office live host | Separately paired Word/Excel/PowerPoint operations with declared host capabilities | `integrations/office-addin` and `crates/core/src/office_live_bridge.rs` |
 | Shared catalogs | Provider, model, modality, and capability descriptors consumed by both frontend and backend | `shared/` |
 | Durable state | Conversations, turns, tool results, checkpoints, settings, sources, and indexes | SQLite migrations and stores under `crates/core/src` |
 
@@ -22,6 +26,27 @@ The UI is a projection of runtime state, not a second source of truth. Provider
 payloads and operating-system events enter through explicit adapters. Durable
 records authorize replay and recovery; transient UI state must not invent a
 successful tool execution or model response.
+
+```mermaid
+flowchart LR
+  Desktop[Desktop UI] --> Host[Tauri host]
+  Phone[Paired phone browser] --> Remote[Authenticated remote transport]
+  Remote --> Host
+  Host --> Agent[Agent runtime and tool dispatcher]
+  Host --> Live[Live session manager]
+  Agent --> State[Local durable state]
+  Agent --> Evidence[Scoped retrieval and files]
+  Agent --> Providers[Configured provider adapters]
+  Live --> Providers
+  Live --> State
+```
+
+Remote transport exposes typed host commands rather than arbitrary Tauri IPC.
+The desktop still owns execution, credentials, previews, and approval decisions.
+Transport liveness is distinct from committed Agent Run progress. Public route
+readiness verifies the actual HTTPS, RPC, and WebSocket path before advertising
+an endpoint. A browser session or Live observation is also a separate lifecycle
+from an Agent Run; it must not manufacture run completion.
 
 ## Run Event publication boundary
 
@@ -84,6 +109,15 @@ batching, failure, recovery, and wire rules are normative in the
    live adapters normalize append deltas versus replaceable snapshots before the
    composer sees them, and manual composer edits take ownership over provider
    hypotheses.
+10. **Evidence lineage.** Graphs, summaries, and compiled claims navigate to
+    supporting material. Source/path filters remain effective when opening
+    details or evidence; an edge is not independent factual support.
+11. **Explicit remote access.** Pairing grants a device access to the supported
+    desktop surface. Authentication, installation identity, revocation, and
+    approval ownership remain enforced on every request and reconnect.
+12. **Capture lifecycle.** Live input begins after provider readiness, stays
+    bounded, pauses on disconnect, and releases devices on exit or failure.
+    Stored text records do not imply raw media was never sent to a provider.
 
 ## Normative runtime contracts
 
@@ -101,6 +135,18 @@ batching, failure, recovery, and wire rules are normative in the
   claiming, unattended execution policy, and compatibility boundaries.
 - [Ecosystem Architecture](./ECOSYSTEM_ARCHITECTURE.md) defines capability,
   connector, skill, workflow, adapter, and native-plugin lanes.
+- [Models and Providers](./PROVIDERS_AND_MODELS.md) defines connection,
+  capability, and credential ownership; [Subscription Agents](./SUBSCRIPTION_AGENTS.md)
+  details official runtime integration.
+- [Knowledge and Retrieval](./KNOWLEDGE_AND_RETRIEVAL.md) defines source,
+  evidence, collection, and graph interpretation boundaries.
+- [Phone Access](./remote-access.md) covers pairing, routes, typed remote
+  commands, and recovery; [Voice and Live](./LIVE.md) owns capture contracts.
+- [Local HTML Preview](./local-html-preview.md) defines explicit asset grants
+  and preview-session revocation.
+- [Tool Reference](./TOOLS.md) links executable schemas and focused tool contracts.
+- [Office add-in](../integrations/office-addin/README.md) defines separately
+  authorized live Office operations and deployment trust.
 
 ## Change discipline
 

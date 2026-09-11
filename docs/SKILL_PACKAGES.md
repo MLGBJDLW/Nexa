@@ -122,9 +122,25 @@ entry under:
 .nexa/capabilities/builtin-skills/skills/<skill-id>/SKILL.md
 ```
 
-This is the migration bridge from today's bundled assets to the long-term
-capability package layout.
+These component paths are metadata for the package catalog. The actual bundled
+sources are [core skill assets](../crates/core/assets/skills); the desktop
+materializes them under `<app-data>/runtimes/builtin-skills/<slug>/` and resolves
+`<SKILL_DIR>` to that runtime location. Personal skills use the user-owned root
+described above. Neither is installed by creating the catalog path manually.
 
 Project-local skill package manifests can use the same
 `.nexa/capabilities/*/capability.yaml` discovery path as other capability
 packages.
+
+## Implementation and verification
+
+[skills.rs](../crates/core/src/skills.rs) exposes the module boundaries:
+registry, importer, storage, scanner, selector, prompt projection, and trust
+policy. [package.rs](../crates/core/src/skills/package.rs) owns built-in package
+metadata, and [storage.rs](../crates/core/src/skills/storage.rs) owns actual
+materialization paths.
+
+When changing imports or reloads, verify canonical-name validation, retained
+database identity, disabled-state preservation, rejected files, removed modeled
+resources, and unknown user files. A valid `SKILL.md` does not by itself grant
+permission to execute a bundled script or access a connector.

@@ -82,5 +82,14 @@ remain intact. Shell profiles continue to load, and `TERM=xterm-256color` plus
 ## Verification
 
 The critical browser contract lives in
-`apps/desktop/e2e/chat-terminal-dock.spec.ts`. Backend behavior is covered by
-tests next to `commands/terminal.rs` and `terminal_agent_tool.rs`.
+[chat-terminal-dock.spec.ts](../apps/desktop/e2e/chat-terminal-dock.spec.ts).
+Backend behavior is covered by tests next to
+[commands/terminal.rs](../apps/desktop/src-tauri/src/commands/terminal.rs) and
+[terminal_agent_tool.rs](../apps/desktop/src-tauri/src/terminal_agent_tool.rs).
+[TerminalDock.tsx](../apps/desktop/src/components/chat/TerminalDock.tsx) owns
+the xterm projection.
+
+The terminal tool acts on an existing user-owned session. The separate
+[`run_shell` tool](TOOLS.md#run_shell) starts an agent process with explicit
+argv and its own execution policy. A terminal receipt or shell exit code alone
+does not establish that an edited file or generated document is correct.
