@@ -1,3 +1,5 @@
+import { PreviewImage } from '../../features/preview/PreviewImage';
+import { localFileReference } from '../../features/preview/localFileReference';
 import { MAX_HIGHLIGHT_CODE_CHARS } from '../../lib/streaming/markdownPresentation';
 import { memo, useMemo, createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
@@ -154,7 +156,7 @@ function scrollAnchorIntoChatContainer(target: HTMLElement): boolean {
 /** Route web links through Nexa Browser, or render local/citation references. */
 function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>) {
   const citationCtx = useContext(CitationContext);
-  const { openFilePreview, openWebLink } = useFilePreview();
+  const { openFilePreview, openWebLink, remote } = useFilePreview();
 
   // Detect citation links: href="cite:CHUNK_ID"
   if (href && href.startsWith('cite:')) {
@@ -187,12 +189,12 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
   // File reference: open in default app
   if (href && href.startsWith('file:')) {
-    const filePath = href.slice(5);
+    const filePath = localFileReference(href);
     return (
       <button
         type="button"
         onClick={() => {
-          if (canPreviewInApp(filePath)) {
+          if (remote || canPreviewInApp(filePath)) {
             openFilePreview(filePath);
           } else {
             openFileInDefaultApp(filePath);
@@ -291,6 +293,7 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
 /** Fenced code block with syntax highlighting and copy button */
 const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; language: string }) {
+  const { openCodePreview } = useFilePreview();
   const { isStreaming, plainCode } = useContext(MarkdownRenderStateContext);
   const large = code.length > MAX_HIGHLIGHT_CODE_CHARS;
   const highlight = !isStreaming && !plainCode && !large;
@@ -309,6 +312,7 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
 
   return (
     <div className="group/code relative my-2">
+      {openCodePreview && /^(html|htm)$/i.test(language) && !isStreaming && <button type="button" onClick={() => openCodePreview(code, language)} className="absolute right-20 top-2 z-10 rounded border border-border bg-surface-0 px-2 py-0.5 text-xs text-accent">{t('preview.preview')}</button>}
       <button
         type="button"
         onClick={handleCopy}
@@ -1021,6 +1025,7 @@ export const sanitizeSchema = {
   protocols: {
     ...defaultSchema.protocols,
     href: [...(defaultSchema.protocols?.href || []), 'cite', 'doc', 'file', 'url'],
+    src: [...(defaultSchema.protocols?.src || []), 'file', 'data'],
   },
   clobber: [],
 };
@@ -1029,16 +1034,34 @@ export const sanitizeSchema = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const markdownRemarkPlugins: any[] = [remarkGfm, remarkMath, remarkLatex];
 
+// A Windows drive letter is parsed as a URL scheme by Markdown. Preserve it as
+// an explicit file reference before sanitization, never as a navigable scheme.
+function rehypeWindowsFileReferences() {
+  return (tree: { children?: unknown[] }) => {
+    const walk = (value: unknown) => {
+      const node = value as { type?:string; properties?:Record<string, unknown>; children?:unknown[] };
+      if (node.type === 'element' && node.properties) for (const key of ['href', 'src']) {
+        const path = node.properties[key];
+        if (typeof path === 'string' && /^[A-Za-z]:[\\/]/.test(path)) node.properties[key] = `file:${path}`;
+      }
+      node.children?.forEach(walk);
+    };
+    walk(tree);
+  };
+}
+
 /** Pre-built rehype plugin list for ReactMarkdown */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const rehypePlugins: any[] = [
   rehypeRaw,
+  rehypeWindowsFileReferences,
   [rehypeSanitize, sanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: 'ignore', trust: false, output: 'htmlAndMathml', maxExpand: 1000 }],
 ];
 
 /** Shared markdown component map for ReactMarkdown */
 export const markdownComponents: Record<string, React.ComponentType<ComponentPropsWithoutRef<any>>> = {
+  img: PreviewImage,
   a: MarkdownLink,
   pre({ children, ...rest }: ComponentPropsWithoutRef<'pre'>) {
     // Let CodeBlock handle its own <pre>; avoid double-wrapping

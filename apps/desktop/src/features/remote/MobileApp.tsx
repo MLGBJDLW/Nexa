@@ -1,11 +1,14 @@
+import { RemotePreviewProvider } from './RemotePreviewProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Camera, Link2, Loader2, MessageCircle, Radio, ShieldCheck, Wifi } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { LiveWorkspace } from '../live/LiveWorkspace';
-import { RemoteClient, type PairedRemote, type RemoteConnection } from './remoteClient';
+import { RemoteClient, remoteRouteHeaders, type PairedRemote, type RemoteConnection } from './remoteClient';
 import { remoteLiveTransport } from './remoteLiveTransport';
 import { RemoteChat } from './RemoteChat';
 import { remoteButton, remoteField } from './remoteUi';
+import { THEMES } from '../../lib/theme';
+import { useRemoteAppearance } from './useRemoteAppearance';
 
 const STORE = 'nexa.remote.paired';
 function saved(): PairedRemote | null {
@@ -25,7 +28,7 @@ const expectedServer = pairing.get('server');
 if (location.hash) history.replaceState(null, '', `${location.pathname}${location.search}`);
 
 export function MobileApp() {
-  const { t, locale, setLocale, availableLocales } = useTranslation();
+  const { t, availableLocales } = useTranslation();
   const [paired, setPaired] = useState<PairedRemote | null>(saved);
   const [code, setCode] = useState(initialCode);
   const [name, setName] = useState('');
@@ -48,6 +51,7 @@ export function MobileApp() {
     [paired],
   );
   const liveTransport = useMemo(() => (client ? remoteLiveTransport(client) : null), [client]);
+  const appearance = useRemoteAppearance(client);
   const draftConsumed = useCallback(() => setDraft(''), []);
   const pair = useCallback(
     async (pairCode: string, deviceName: string) => {
@@ -59,7 +63,7 @@ export function MobileApp() {
         sessionStorage.setItem(nonceKey, clientNonce);
         const response = await fetch('/api/pair', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...remoteRouteHeaders(location.origin), 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: pairCode, name: deviceName.trim() || 'Phone', clientNonce }),
           signal: AbortSignal.timeout(15_000),
         });
@@ -105,9 +109,10 @@ export function MobileApp() {
   }
   return (
     <div
-      className="flex min-h-dvh flex-col bg-surface-0 text-text-primary"
+      className="relative isolate flex min-h-dvh flex-col bg-surface-0 text-text-primary"
       data-testid="remote-app"
     >
+      <div className="app-theme-backdrop" aria-hidden="true" />
       <header className="sticky top-0 z-20 border-b border-border bg-surface-0/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -147,18 +152,32 @@ export function MobileApp() {
           <select
             aria-label={t('remote.language')}
             className={remoteField}
-            value={locale}
-            onChange={(event) => setLocale(event.target.value as typeof locale)}
+            value={appearance.language}
+            onChange={(event) => appearance.update({ language:event.target.value })}
           >
+            <option value="desktop">{t('remote.followDesktop')}</option>
             {availableLocales.map((item) => (
               <option key={item.code} value={item.code}>
                 {item.name}
               </option>
             ))}
           </select>
+          <select aria-label={t('remote.theme')} className={remoteField} value={appearance.theme} onChange={event => appearance.update({ theme:event.target.value })}>
+            <option value="desktop">{t('remote.followDesktop')}</option>
+            {THEMES.map(theme => <option value={theme.id} key={theme.id}>{t(`remote.theme_${theme.id}`)}</option>)}
+            {appearance.customThemes.map(theme => <option value={theme.id} key={theme.id}>{theme.name}</option>)}
+          </select>
+          {appearance.error && <p role="status" className="text-xs text-text-secondary">{t('remote.themeAssetUnavailable')}</p>}
           {client && (
             <>
               <p className="break-all text-xs text-text-secondary">{connection.endpoint?.url}</p>
+              <label className="block space-y-2 text-xs text-text-secondary"><span>{t('remote.preferredRoute')}</span>
+                <select className={remoteField} value={client.paired.preferredEndpoint || ''} onChange={event => void client.preferEndpoint(event.target.value || null).catch(error => setError(String(error)))}>
+                  <option value="">{t('remote.automaticProvider')}</option>
+                  {client.paired.manifest.endpoints.map(endpoint => <option key={endpoint.url} value={endpoint.url}>{endpoint.kind === 'lan' ? t('remote.lan') : t('remote.away')} · {endpoint.url}</option>)}
+                </select>
+              </label>
+              {connection.latencyMs != null && <p className="text-xs text-text-secondary">{t('remote.probeTime', { ms:connection.latencyMs })}</p>}
               <button className={remoteButton} onClick={() => void certificate()}>
                 <ShieldCheck size={16} />
                 {t('remote.certificate')}
@@ -260,6 +279,7 @@ export function MobileApp() {
               </button>
             ))}
           </nav>
+          <RemotePreviewProvider client={client}>
           {tab === 'chat' ? (
             <RemoteChat client={client} initialDraft={draft} onDraftConsumed={draftConsumed} />
           ) : (
@@ -273,6 +293,7 @@ export function MobileApp() {
               />
             )
           )}
+          </RemotePreviewProvider>
         </>
       )}
     </div>

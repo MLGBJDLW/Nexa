@@ -3,6 +3,13 @@ import { ArrowDown, CircleStop, Loader2, Plus, Send } from "lucide-react";
 import { useTranslation } from "../../i18n";
 import { RemoteClient } from "./remoteClient";
 import { remoteButton, remoteField } from "./remoteUi";
+import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
+import type { TurnModelSelection } from '../models/modelChoices';
+import { RemoteVoiceInput } from './RemoteVoiceInput';
+import { applyVoiceDictationEvent, type VoiceDraftSession } from '../voice/voiceDraftProjection';
+import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
+import { RemoteComposerOptions, defaultComposerSettings, type RemoteComposerSettings } from './RemoteComposerOptions';
+import type { ImageAttachment } from '../../types/conversation';
 
 interface Connection {
   id: string;
@@ -76,6 +83,7 @@ export function RemoteChat({
   const { t } = useTranslation();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState("");
+  const [modelSelection, setModelSelection] = useState<TurnModelSelection | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState(
@@ -92,10 +100,18 @@ export function RemoteChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [beforeOrder, setBeforeOrder] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef(draft); draftRef.current = draft;
+  const voiceDraft = useRef<VoiceDraftSession | null>(null);
+  const [dictating, setDictating] = useState(false);
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [composerSettings, setComposerSettings] = useState<RemoteComposerSettings>(defaultComposerSettings);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [stream, setStream] = useState("");
+  const [thinking, setThinking] = useState('');
+  const [tools, setTools] = useState<Record<string, Record<string, any>>>({});
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -110,6 +126,9 @@ export function RemoteChat({
     id: string;
     conversationId: string;
     connectionId: string;
+    modelSelection: TurnModelSelection | null;
+    attachments: ImageAttachment[];
+    settings: RemoteComposerSettings;
   } | null>(null);
   const errorText = (error: unknown) =>
     setError(error instanceof Error ? error.message : String(error));
@@ -171,10 +190,12 @@ export function RemoteChat({
     let sequence = 0;
     const waiting = new Map<number, RunEvent>();
     const blocks = new Map<string, { text: string; bytes: number }>();
+    const reasoning = new Map<string, { text: string; bytes: number }>();
     const encoder = new TextEncoder();
     let paint: ReturnType<typeof setTimeout> | null = null;
     const retired = new Set<string>();
     setStream("");
+    setThinking(''); setTools({});
     setProgress("");
     setRunning(false);
     setMessages([]);
@@ -226,6 +247,17 @@ export function RemoteChat({
       sequence = event.eventSeq;
       if (event.visibility === "user" && event.label) setProgress(event.label);
       const payload = event.payload;
+      if (event.visibility === 'user' && event.kind.startsWith('tool') && payload.run?.callId) {
+        setTools(current => { const next: Record<string, Record<string, any>> = { ...current, [payload.run.callId]:payload.run }; return Object.fromEntries(Object.entries(next).slice(-64)); });
+      }
+      if (payload.channel === 'thinking' && (event.kind === 'outputDelta' || event.kind === 'outputSnapshot')) {
+        const previous = reasoning.get(payload.blockId) || { text:'', bytes:0 };
+        if (event.kind === 'outputSnapshot' || previous.bytes === payload.offset) {
+          const text = (event.kind === 'outputSnapshot' ? String(payload.text ?? '') : previous.text + String(payload.delta ?? '')).slice(0, 128_000);
+          reasoning.set(payload.blockId, { text, bytes:encoder.encode(text).byteLength });
+          setThinking([...reasoning.values()].map(block => block.text).join('\n\n').slice(-128_000));
+        }
+      }
       if (event.kind === "outputDelta" && payload.channel === "answer") {
         const previous = blocks.get(payload.blockId) || { text: "", bytes: 0 };
         if (
@@ -250,6 +282,7 @@ export function RemoteChat({
       }
       if (event.kind === "streamReset" && payload.discardSample) {
         blocks.clear();
+        reasoning.clear(); setThinking('');
         setStream("");
       }
       if (event.kind === "done" || event.kind === "error") {
@@ -281,6 +314,7 @@ export function RemoteChat({
         sequence = 0;
         waiting.clear();
         blocks.clear();
+        reasoning.clear(); setThinking(''); setTools({});
         setStream("");
         setRunning(true);
       }
@@ -322,6 +356,7 @@ export function RemoteChat({
               sequence = 0;
               waiting.clear();
               blocks.clear();
+              reasoning.clear(); setThinking(''); setTools({});
               setStream("");
             }
             setRunning(
@@ -386,6 +421,7 @@ export function RemoteChat({
     try {
       const conversation = await client.rpc<Conversation>("chat.create", {
         connectionId,
+        modelSelection,
       });
       if (
         scope.current === generation &&
@@ -405,7 +441,7 @@ export function RemoteChat({
     }
   }
   async function send() {
-    if (sending || !draft.trim() || !connectionId) return;
+    if (sending || dictating || loadingAttachments || (!draft.trim() && !attachments.length) || !connectionId) return;
     const generation = scope.current;
     setSending(true);
     setError("");
@@ -414,6 +450,7 @@ export function RemoteChat({
       if (!id) {
         const conversation = await client.rpc<Conversation>("chat.create", {
           connectionId,
+          modelSelection,
         });
         id = conversation.id;
         if (
@@ -431,13 +468,18 @@ export function RemoteChat({
         previous &&
         previous.message === draft &&
         previous.conversationId === id &&
-        previous.connectionId === connectionId
+        previous.connectionId === connectionId &&
+        previous.attachments === attachments && previous.settings === composerSettings &&
+        JSON.stringify(previous.modelSelection) === JSON.stringify(modelSelection)
           ? previous
           : {
               message: draft,
               id: crypto.randomUUID(),
               conversationId: id,
               connectionId,
+              modelSelection,
+              attachments,
+              settings: composerSettings,
             };
       pendingSend.current = request;
       await client.rpc("chat.start", {
@@ -445,10 +487,14 @@ export function RemoteChat({
         connectionId,
         message: request.message,
         idempotencyKey: request.id,
+        modelSelection: request.modelSelection,
+        attachments: request.attachments,
+        ...request.settings,
       });
       if (pendingSend.current === request) pendingSend.current = null;
       if (selectedConversation.current === id) {
         setDraft((current) => (current === request.message ? "" : current));
+        setAttachments(current => current === request.attachments ? [] : current);
         setRunning(true);
         refreshRef.current();
       }
@@ -558,10 +604,10 @@ export function RemoteChat({
         </button>
       )}
       <select
-        aria-label={t("remote.model")}
+        aria-label={t("remote.providerConnection")}
         className={remoteField}
         value={connectionId}
-        onChange={(event) => setConnectionId(event.target.value)}
+        onChange={(event) => { setConnectionId(event.target.value); setModelSelection(null); }}
       >
         {connections.map((item) => (
           <option key={item.id} value={item.id}>
@@ -569,6 +615,8 @@ export function RemoteChat({
           </option>
         ))}
       </select>
+      <ConnectionModelPicker connectionId={connectionId} defaultModel={connections.find(item => item.id === connectionId)?.model || ''}
+        value={modelSelection} onChange={setModelSelection} load={client.models} label={t('remote.model')} disabled={sending} />
       {error && (
         <p
           role="alert"
@@ -592,9 +640,8 @@ export function RemoteChat({
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
               {message.role === "user" ? t("remote.you") : "Nexa"}
             </p>
-            <div className="whitespace-pre-wrap break-words text-sm leading-7">
-              {message.content}
-            </div>
+            {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
+              : <StreamingMarkdown content={message.content} isStreaming={false} reduceMotion />}
             {[...message.content].length < message.totalChars && (
               <button
                 className={`${remoteButton} mt-3`}
@@ -609,9 +656,7 @@ export function RemoteChat({
         {stream && (
           <article className="rounded-2xl border border-accent/20 bg-surface-1 p-4">
             <p className="mb-2 text-xs font-medium text-accent">Nexa</p>
-            <div className="whitespace-pre-wrap break-words text-sm leading-7">
-              {stream}
-            </div>
+            <StreamingMarkdown content={stream} isStreaming={running} reduceMotion />
           </article>
         )}
       </div>
@@ -623,6 +668,16 @@ export function RemoteChat({
           {progress}
         </p>
       )}
+      {(thinking || Object.keys(tools).length > 0) && <details className="rounded-xl border border-border bg-surface-1 p-3 text-sm">
+        <summary className="cursor-pointer text-text-secondary">{t('remote.activity')}</summary>
+        {thinking && <div className="mt-3 max-h-80 overflow-auto"><StreamingMarkdown content={thinking} isStreaming={running} reduceMotion /></div>}
+        {Object.entries(tools).map(([id, tool]) => <details key={id} className="mt-2 rounded-lg border border-border p-2">
+          <summary className="cursor-pointer">{tool.toolName} · {tool.status}</summary>
+          {tool.progressNote && <p className="mt-2 text-xs">{tool.progressNote}</p>}
+          {tool.arguments && <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs">{tool.arguments}</pre>}
+          {tool.content && <div className="max-h-80 overflow-auto"><StreamingMarkdown content={tool.content} isStreaming={false} reduceMotion /></div>}
+        </details>)}
+      </details>}
       {approvals.map((item) => (
         <section
           key={item.request.id}
@@ -793,9 +848,14 @@ export function RemoteChat({
           maxLength={64000}
           placeholder={t("remote.messageHint")}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
         />
-        <div className="flex justify-end gap-2">
+        <div className="mb-3"><RemoteComposerOptions attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} /></div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <RemoteVoiceInput key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
+            const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
+            voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
+          }} />
           {running && (
             <button
               type="button"
@@ -809,7 +869,7 @@ export function RemoteChat({
           <button
             type="submit"
             className={`${remoteButton} !border-accent !bg-accent text-white`}
-            disabled={sending || !connectionId || !draft.trim()}
+            disabled={sending || dictating || loadingAttachments || !connectionId || (!draft.trim() && !attachments.length)}
           >
             {sending ? (
               <Loader2 size={16} className="animate-spin" />

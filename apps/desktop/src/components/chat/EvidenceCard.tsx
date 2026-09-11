@@ -58,7 +58,7 @@ function formatScore(score: number): string {
 export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPopupProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
-  const { openFilePreview, openWebLink } = useFilePreview();
+  const { openFilePreview, openWebLink, remote } = useFilePreview();
   const popupRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const [videoPreviewPath, setVideoPreviewPath] = useState<string | null>(null);
@@ -89,12 +89,12 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
       openWebLink(card.documentPath, card.documentTitle || sourceHost(card.documentPath));
       return;
     }
-    if (canPreviewInApp(card.documentPath)) {
+    if (remote || canPreviewInApp(card.documentPath)) {
       openFilePreview(card.documentPath);
     } else {
       openFileInDefaultApp(card.documentPath);
     }
-  }, [card.documentPath, card.documentTitle, openFilePreview, openWebLink]);
+  }, [card.documentPath, card.documentTitle, openFilePreview, openWebLink, remote]);
 
   const handleShowInExplorer = useCallback(() => {
     if (card.documentPath && !isWebUrl(card.documentPath)) showInFileExplorer(card.documentPath);
@@ -200,14 +200,14 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
             <>
               <button
                 type="button"
-                onClick={isVideo ? () => setVideoPreviewPath(card.documentPath) : handleOpenFile}
+                onClick={isVideo && !remote ? () => setVideoPreviewPath(card.documentPath) : handleOpenFile}
                 className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md
                   bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer"
               >
                 <ExternalLink className="h-3 w-3" />
                 {isVideo ? t('media.videoDetails') : isWebSource ? sourceHost(card.documentPath) : t('citation.openFile')}
               </button>
-              {!isWebSource && (
+              {!isWebSource && !remote && (
                 <button
                   type="button"
                   onClick={handleShowInExplorer}
@@ -264,6 +264,7 @@ interface CitationChipProps {
 }
 
 export function CitationChip({ chunkId, displayText, card }: CitationChipProps) {
+  const { loadEvidence } = useFilePreview();
   const [popupOpen, setPopupOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const [fetchedCard, setFetchedCard] = useState<CitationCardData | null>(null);
@@ -283,7 +284,7 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
     if (!card && !fetchedCard && !fetching) {
       setFetching(true);
       try {
-        const ec = await getEvidenceCard(chunkId);
+        const ec = await (loadEvidence ?? getEvidenceCard)(chunkId);
         setFetchedCard({
           chunkId: ec.chunkId,
           documentPath: ec.documentPath,
@@ -302,7 +303,7 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
     }
 
     setPopupOpen((prev) => !prev);
-  }, [card, fetchedCard, fetching, chunkId]);
+  }, [card, fetchedCard, fetching, chunkId, loadEvidence]);
 
   const handleClose = useCallback(() => {
     setPopupOpen(false);

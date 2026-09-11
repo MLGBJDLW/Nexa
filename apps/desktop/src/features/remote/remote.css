@@ -5,9 +5,14 @@ html[data-remote='true'] #root {
   min-height: 100dvh;
   overflow: visible;
 }
-html[data-remote='true'] {
-  color-scheme: light;
-}
+html[data-remote='true'] .app-theme-backdrop { position: fixed; }
+html[data-remote='true'] [data-testid='remote-app'] > :not(.app-theme-backdrop):not([role='dialog']) { position: relative; z-index: 1; }
+html[data-remote='true'] [data-testid='remote-app'] > header { position: sticky; z-index: 20; }
+html[data-remote='true'] .prose-chat { min-width: 0; overflow-wrap: anywhere; }
+html[data-remote='true'] .prose-chat table { display: block; max-width: 100%; overflow-x: auto; }
+html[data-remote='true'] .prose-chat pre { max-width: 100%; overflow-x: auto; }
+html[data-remote='true'] .prose-chat img { max-width: 100%; height: auto; }
+html[data-remote='true'] .group\/code button { opacity: 1; }
 html[data-remote='true'] button,
 html[data-remote='true'] input,
 html[data-remote='true'] select,
