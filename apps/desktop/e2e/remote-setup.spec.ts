@@ -42,7 +42,7 @@ test('phone access stays above Settings and guides enable, scan, connected, and 
   await page.getByRole('button', { name: '启用并显示二维码', exact: true }).click();
   await expect(page.getByAltText('Nexa 一次性配对二维码')).toBeVisible();
   await expect(entry).toHaveAttribute('data-remote-status', 'ready');
-  expect(await page.evaluate(() => (window as any).__remoteSetupCalls.find((call: any) => call.cmd === 'start_remote_cmd').args.options)).toEqual({ lan: true, quickTunnel: true, publicUrl: null });
+  expect(await page.evaluate(() => (window as any).__remoteSetupCalls.find((call: any) => call.cmd === 'start_remote_cmd').args.options)).toEqual({ lan: true, quickTunnel: true, publicProvider: 'auto', publicUrl: null });
   await page.screenshot({ path: '.artifacts/remote-desktop-pair.png', fullPage: true });
   await page.evaluate(() => (window as any).__pairPhone());
   await expect(page.getByTestId('remote-pair-card')).toContainText('设备已配对');
