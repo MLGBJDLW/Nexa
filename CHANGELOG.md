@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.1...nexa-monorepo-v0.14.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* **tools:** align file and source help with runtime behavior ([a949650](https://github.com/MLGBJDLW/Nexa/commit/a949650e5b079396fec6d2236dc27327325a104c))
+* **tools:** scope PPTX renderer guidance to compatibility work ([6819108](https://github.com/MLGBJDLW/Nexa/commit/681910882baadc778ffcbf6b600d7ef1e0407f3a))
+
 ## [0.14.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.0...nexa-monorepo-v0.14.1) (2026-09-11)
 
 
