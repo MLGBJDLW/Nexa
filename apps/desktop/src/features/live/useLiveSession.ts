@@ -133,7 +133,7 @@ export function useLiveSession(transport: LiveTransport) {
       if (liveEnded(ready.phase)) throw new Error(ready.error || 'Live session ended before capture started');
       setSnapshot(ready);
       if (request.microphone) {
-        const queue = new LiveAudioQueue(Math.round(ready.sampleRate / 10) * 2, bytes => transport.audio(opened.id, bytes), fail);
+        const queue = new LiveAudioQueue(Math.round(ready.sampleRate / 10) * 2, bytes => transport.audio(opened.id, bytes), fail, transport.audioWindow);
         audioQueue.current = queue;
         await voiceRef.current.startRecording({ targetSampleRate: ready.sampleRate, onPcmChunk: chunk => queue.append(chunk), onCaptureIssue: () => fail(new Error('Microphone disconnected. Reconnect Live to continue.')) });
       }

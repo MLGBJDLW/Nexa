@@ -19,6 +19,8 @@ export type LiveEvent = { sessionId: string; sequence: number } & (
   { type: 'entry'; entry: LiveEntry } | { type: 'metrics'; metrics: LiveMetrics }
 );
 export interface LiveTransport {
+  /** Ordered sends that may await acknowledgements concurrently (desktop defaults to one). */
+  audioWindow?: number;
   connection?(listener: (state: 'connected' | 'reconnecting' | 'closed') => void): () => void;
   isTransientError?(error: unknown): boolean;
   connections(): Promise<LiveConnection[]>;

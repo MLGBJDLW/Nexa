@@ -8,7 +8,7 @@ test.use({
     ],
   },
 });
-async function fixture(page: Page, publicProbeDelayMs = 0) {
+async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) {
   let lan = true;
   let away = true;
   let socket: WebSocketRoute | null = null;
@@ -294,12 +294,12 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
         expect(Buffer.from(input.params.data, "base64").length).toBeGreaterThan(
           1000,
         );
-        ws.send(
+        setTimeout(() => ws.send(
           JSON.stringify({
             event: "connection:ack",
             payload: { id: input.id },
           }),
-        );
+        ), audioAckDelayMs);
       }
     });
   });
@@ -463,6 +463,19 @@ test("phone resumes the latest desktop run after missing its launch while offlin
     0,
   );
 });
+test("remote Live sustains microphone capture with 350 ms acknowledgement latency", async ({ page, context }) => {
+  await context.grantPermissions(["microphone"]);
+  const app = await fixture(page, 0, 350);
+  await page.goto("/phone.html#pair=123456&server=desktop-1");
+  await page.getByRole("button", { name: "Live", exact: true }).click();
+  await page.getByRole("button", { name: "Start Live", exact: true }).click();
+  await expect.poll(() => app.counts().audio, { timeout: 7000 }).toBeGreaterThan(35);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stop capture", exact: true })).toBeVisible();
+  expect(app.counts().starts).toBe(1);
+  await page.getByRole("button", { name: "Stop capture", exact: true }).click();
+});
+
 test("phone microphone and camera pause across a route change then resume the same Live session", async ({
   page,
   context,

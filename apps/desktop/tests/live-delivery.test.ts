@@ -15,6 +15,20 @@ async function run() {
   unblock(); await Promise.resolve(); await Promise.resolve();
   check(sent.length === 1 && failures === 1, 'overflow discards backlog and reports once');
   check(!queue.append(new Uint8Array([0,0])), 'closed capture cannot resume after the sink recovers');
+  const pipelined: number[] = [];
+  const acknowledgements: Array<() => void> = [];
+  const network = new LiveAudioQueue(2, chunk => {
+    pipelined.push(chunk[0]);
+    return new Promise<void>(resolve => acknowledgements.push(resolve));
+  }, () => { throw new Error('healthy remote acknowledgements must not overflow'); }, 4);
+  for (let i = 0; i < 6; i++) network.append(new Uint8Array([i, i]));
+  check(pipelined.join(',') === '0,1,2,3', 'network window sends ordered PCM without waiting for one RTT per packet');
+  acknowledgements[2](); await new Promise(resolve => setTimeout(resolve, 0));
+  check(pipelined.join(',') === '0,1,2,3,4', 'an acknowledgement releases exactly one bounded slot');
+  network.pause(); acknowledgements[0](); await new Promise(resolve => setTimeout(resolve, 0));
+  network.resume(); network.append(new Uint8Array([7, 7]));
+  check(pipelined.join(',') === '0,1,2,3,4,7', 'route changes discard queued stale PCM without reordering new audio');
+  network.close(); acknowledgements.forEach(ack => ack());
   const resumedPackets: number[] = [];
   const resumable = new LiveAudioQueue(2, async chunk => { resumedPackets.push(chunk[0]); }, () => { throw new Error('pause must not become a terminal capture failure'); });
   const recorder = new TerminalPcmDelivery(chunk => resumable.append(chunk));

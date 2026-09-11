@@ -3,10 +3,10 @@ export class LiveAudioQueue {
   private chunks: Uint8Array[] = [];
   private bytes = 0;
   private queue: Uint8Array[] = [];
-  private running = false;
+  private inFlight = 0;
   private closed = false;
   private paused = false;
-  constructor(private readonly packetBytes: number, private readonly send: (data: Uint8Array) => Promise<void>, private readonly fail: (error: unknown) => void) {}
+  constructor(private readonly packetBytes: number, private readonly send: (data: Uint8Array) => Promise<void>, private readonly fail: (error: unknown) => void, private readonly windowSize = 1) {}
   append(chunk: Uint8Array): boolean {
     if (this.closed) return false;
     // Paused samples are intentionally omitted. Returning false would make the
@@ -23,12 +23,19 @@ export class LiveAudioQueue {
     }
     return true;
   }
-  private async drain() {
-    if (this.running) return;
-    this.running = true;
-    try { while (!this.closed && this.queue.length) await this.send(this.queue.shift()!); }
-    catch (error) { if (!this.closed) { this.close(); this.fail(error); } }
-    finally { this.running = false; }
+  private drain() {
+    // Invocation order is PCM order. A remote WebSocket preserves that order;
+    // acknowledgements release window slots without serializing on network RTT.
+    while (!this.closed && !this.paused && this.queue.length && this.inFlight < this.windowSize) {
+      const chunk = this.queue.shift()!;
+      this.inFlight++;
+      let delivery: Promise<void>;
+      try { delivery = this.send(chunk); }
+      catch (error) { delivery = Promise.reject(error); }
+      void delivery.catch(error => {
+        if (!this.closed) { this.close(); this.fail(error); }
+      }).finally(() => { this.inFlight--; this.drain(); });
+    }
   }
   close() { this.closed = true; this.queue = []; this.chunks = []; this.bytes = 0; }
   pause() { this.paused = true; this.queue = []; this.chunks = []; this.bytes = 0; }

@@ -351,10 +351,13 @@ export class RemoteClient {
       this.socket?.readyState !== WebSocket.OPEN
     )
       return Promise.resolve();
-    if (this.audioPending.size >= 8 || this.socket.bufferedAmount > 128 * 1024)
-      return Promise.reject(
-        new Error("Live audio connection is backpressured."),
-      );
+    if (this.audioPending.size >= 16 || this.socket.bufferedAmount > 128 * 1024) {
+      // A stalled route pauses capture through the existing reconnect protocol.
+      // Never replay stale microphone data on the replacement connection.
+      this.socket.close();
+      this.lost();
+      return Promise.resolve();
+    }
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

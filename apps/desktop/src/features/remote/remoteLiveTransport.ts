@@ -2,6 +2,7 @@ import { encodeLiveAudio, type LiveEvent, type LiveTransport } from '../live/liv
 import { RemoteClient, RemoteNetworkError } from './remoteClient';
 export function remoteLiveTransport(client: RemoteClient): LiveTransport {
   return {
+    audioWindow: 16,
     connections: () => client.rpc('live.connections'),
     start: (request) => client.rpc('live.start', { request }),
     snapshot: (sessionId) => client.rpc('live.snapshot', { sessionId }),
