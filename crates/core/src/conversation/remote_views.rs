@@ -2,6 +2,19 @@
 use crate::{db::Database, error::CoreError};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
+
+impl crate::db_executor::DatabaseExecutor {
+    pub async fn remote_pending_interactions(
+        &self,
+        conversation_id: Option<String>,
+    ) -> Result<Vec<crate::interaction::InteractionRequest>, CoreError> {
+        // Listing also expires due requests and records their status transitions.
+        // File-backed readers are query-only, unlike the shared in-memory test DB.
+        self.write(move |db| db.list_interaction_requests(conversation_id.as_deref(), false))
+            .await
+            .map(|result| result.value)
+    }
+}
 impl Database {
     pub fn remote_conversations(&self, before: Option<&str>) -> Result<Value, CoreError> {
         let conn = self.conn();
@@ -51,6 +64,15 @@ mod tests {
         conversation::{ConversationMessage, CreateConversationInput},
         llm::Role,
     };
+    #[tokio::test]
+    async fn remote_interactions_work_with_a_file_backed_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::new(directory.path().join("remote.db")).unwrap();
+        let executor = crate::db_executor::DatabaseExecutor::new(db, 8).unwrap();
+        let requests = executor.remote_pending_interactions(None).await;
+        assert!(requests.is_ok(), "remote Chat must load questions: {requests:?}");
+        assert!(requests.unwrap().is_empty());
+    }
     #[test]
     fn remote_pages_preserve_unicode_and_skip_large_runtime_payloads() {
         let db = Database::open_memory().unwrap();

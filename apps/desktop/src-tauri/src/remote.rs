@@ -419,8 +419,8 @@ impl RemoteHost for DesktopHost {
                 }))
             }).await.map(|result| result.value).map_err(|e| e.to_string()),
             Interactions { conversation_id } => state.db_executor
-                .read(move |db| db.list_interaction_requests(conversation_id.as_deref(), false))
-                .await.map_err(|e| e.to_string()).and_then(|result| value(result.value)),
+                .remote_pending_interactions(conversation_id)
+                .await.map_err(|e| e.to_string()).and_then(value),
             RespondInteraction { input } => {
                 let input = serde_json::from_value(input).map_err(|e| e.to_string())?;
                 state.db_executor.write(move |db| db.submit_interaction_response(&input))
