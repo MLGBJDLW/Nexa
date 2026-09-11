@@ -1,6 +1,6 @@
 {
   "name": "manage_source",
-  "description": "Add, remove, or refresh knowledge source directories. Adding a source will begin indexing all documents in that directory. Removing a source will stop tracking that directory (indexed data is preserved). Updating/refreshing a source path is useful after a user or agent renames or moves a registered source folder, avoiding delete-and-add churn.",
+  "description": "Add, remove, or refresh knowledge source directories. Adding a source will begin indexing all documents in that directory. Removing a source deletes its registered source record and cascades to its indexed documents and chunks; the original files on disk are not deleted. Updating/refreshing a source path is useful after a user or agent renames or moves a registered source folder, avoiding delete-and-add churn.",
   "parameters": {
     "type": "object",
     "properties": {
