@@ -2,6 +2,8 @@
   "name": "nexa-monorepo",
   "private": true,
   "scripts": {
+    "docs:generate": "node scripts/docs-check.mjs generate",
+    "docs:check": "node --test scripts/docs-check.test.mjs && node scripts/docs-check.mjs check",
     "tauri": "npm run tauri --prefix apps/desktop --",
     "catalog:audit": "node scripts/model-catalog-audit.mjs",
     "catalog:audit:test": "node scripts/model-catalog-audit.test.mjs",

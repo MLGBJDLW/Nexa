@@ -58,6 +58,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Verify documentation links and schema index
+        run: npm run docs:check
+
       - name: Reject tracked local research docs
         shell: bash
         run: |
