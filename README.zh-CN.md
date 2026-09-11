@@ -83,7 +83,7 @@ npm run tauri -- dev
 
 ## 架构与仓库
 
-Nexa 使用 Tauri 2、React、TypeScript、Rust 和 SQLite。依赖版本以清单和锁文件为准，
+Nexa 使用 Tauri 2、React 19.2、React Router 8.3、TypeScript、Rust 和 SQLite。精确依赖版本以清单和锁文件为准，
 模型能力以共享目录与实际端点的发现结果为准。
 
 ```text

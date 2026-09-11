@@ -106,8 +106,8 @@ preparation, feature flags, tests, and platform troubleshooting.
 
 ## Architecture and repository
 
-Nexa uses Tauri 2, React, TypeScript, Rust, and SQLite. Dependency versions live
-in the package manifests and lockfiles; provider/model availability lives in the
+Nexa uses Tauri 2, React 19.2, React Router 8.3, TypeScript, Rust, and SQLite.
+Exact dependency versions live in the package manifests and lockfiles; provider/model availability lives in the
 shared catalog and the configured endpoint's discovery results.
 
 ```text
