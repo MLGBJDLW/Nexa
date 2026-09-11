@@ -32,6 +32,18 @@ test('release has no self-hosted Office dependency and keeps hosted safety gates
   assert.match(releaseWorkflow, /REQUIRED_UPDATER_PLATFORMS=\(windows-x86_64 linux-x86_64\)/);
 });
 
+test('browser CI image matches locked Playwright and avoids live APT installation', () => {
+  const lock = JSON.parse(fs.readFileSync(
+    path.join(repositoryRoot, 'apps', 'desktop', 'package-lock.json'), 'utf8',
+  ));
+  const browserJob = ciWorkflow.split('  browser_regressions:')[1].split('  linux_desktop:')[0];
+  const image = /image: mcr\.microsoft\.com\/playwright:v([\d.]+)-noble@sha256:([a-f0-9]{64})/u.exec(browserJob);
+  assert.ok(image, 'browser CI must pin the official image version and digest');
+  assert.equal(image[1], lock.packages['node_modules/@playwright/test'].version);
+  assert.equal(image[1], lock.packages['node_modules/playwright-core'].version);
+  assert.doesNotMatch(browserJob, /playwright install --with-deps|configure-ubuntu-apt/u);
+});
+
 test('manual dispatch can resume an existing draft release without creating a new tag', () => {
   assert.match(releaseWorkflow, /^      release_tag:\s*$/m);
   assert.match(

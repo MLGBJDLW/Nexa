@@ -5,6 +5,10 @@ coherent ability under one package root so tools, skills, workflows, commands,
 hooks, tests, settings, runtime checks, and permissions can be described through
 one interface.
 
+Status: manifest parsing, validation, built-in metadata, and project-local
+discovery are implemented. A discovered declaration does not install a tool,
+execute code, or activate a general package host.
+
 Capability packages are not automatically native plugins. A package can describe
 a core platform ability, a built-in capability, a connector, a skill package, a
 workflow package, an adapter, a host surface, or a future native plugin.
@@ -76,6 +80,16 @@ Duplicate package ids are rejected by the combined ecosystem catalog.
 This gives the ecosystem a real package boundary without enabling arbitrary
 third-party code execution.
 
+The required manifest fields are `id`, `name`, `surface`, `description`, and a
+positive integer `version` (the manifest format version). Lists and permissions
+have defaults in the
+[manifest type and validator](../crates/core/src/capability_package.rs).
+Fields shown in proposed workflow or native-plugin examples are not additional
+implemented capabilities of this generic manifest.
+
+Global `~/.nexa/capabilities/` is reserved. Project discovery above is a
+separate lane; see [user-owned extension storage](ECOSYSTEM_ARCHITECTURE.md#user-owned-extension-home).
+
 ## Built-In Bridge
 
 The existing built-in manifest API is still named `PluginManifest` for desktop
@@ -95,3 +109,12 @@ The core ecosystem catalog has two layers:
   `.nexa/capabilities/*/capability.yaml` and rejects duplicate package ids.
 
 These bridge today's bundled assets to the long-term package layout.
+
+The built-in component paths are catalog metadata, not proof that a matching
+directory is installed or executable. Runtime locations for skill assets are
+documented in [Skill packages](SKILL_PACKAGES.md).
+
+Implementation and focused tests live in
+[capability_package.rs](../crates/core/src/capability_package.rs),
+[ecosystem.rs](../crates/core/src/ecosystem.rs), and
+[skill/workflow package projection](../crates/core/src/skills/package.rs).

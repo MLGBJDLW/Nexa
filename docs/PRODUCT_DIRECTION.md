@@ -1,123 +1,60 @@
-# Product Direction
+# Product direction
 
-## Summary
+Nexa is a local-first desktop assistant with knowledge retrieval at its core.
+It helps people find and explain information, create and revise documents,
+organize evidence, and carry work across conversations, projects, and devices.
 
-Nexa has formally moved from being primarily a local-first personal knowledge recall engine to being a broader local-first desktop assistant with knowledge recall as a core capability.
+This document defines the durable product position. Implemented features and
+ongoing priorities are tracked in the [roadmap](ROADMAP.md); setup belongs in
+the [README](../README.md) and [user guides](README.md#use-nexa).
 
-The assistant should still excel at evidence-first recall over the user's own files, but it should also become genuinely useful for everyday desktop work:
+## Audience
 
-- finding and explaining information
-- creating and updating office-style documents
-- helping with planning, drafting, summarizing, and comparison
-- staying grounded in the user's local context instead of behaving like a generic chatbot
+Nexa serves office workers, students, researchers, operations teams, founders,
+and other people working with personal files and knowledge. Developer tools
+can support these tasks, but ordinary users should be able to understand the
+main workflow without learning agent internals.
 
-## Product Positioning
+## Core pillars
 
-Nexa should feel like:
+| Pillar | Product requirement |
+| --- | --- |
+| Local-first ownership | Sources, indexes, collections, conversations, and durable task state belong to the desktop. Make each external service and disclosure boundary understandable. |
+| Evidence-first answers | Show source scope and usable citations. Separate direct support, inference, and missing evidence. A graph relationship or generated summary is not a substitute for the underlying document. |
+| Useful desktop assistance | Help users create, inspect, edit, and compare real artifacts. Show validation and recovery options alongside the result. |
+| Clear interaction | Keep task progress, questions, approvals, stops, and failures understandable. Model/controller diagnostics belong in inspectable detail. |
+| Reusable working sets | Search, collections, projects, memory, and conversations should preserve the user's working context across surfaces. |
+| Continuity with control | Phone access, Live, and schedules reuse desktop ownership and permissions. Explain when the computer must remain running and which devices or services can access data. |
 
-- a trustworthy desktop assistant
-- a local knowledge investigator
-- a practical office helper for normal users, not only technical users
+## Product principles
 
-Nexa should not feel like:
+- Ground factual work in inspected evidence and show uncertainty when support is
+  missing or contradictory.
+- Make sources, model connections, and consequences visible before the user
+  grants access or starts a costly operation.
+- Preserve user edits and decisions across streaming, retry, navigation, and
+  reconnection.
+- Treat previews and validation reports as parts of the document workflow;
+  opening a file is not a content-quality verdict.
+- Put understandable defaults and language ahead of exposing every runtime knob.
+- Keep optional network services, credentials, device pairing, and native
+  integration trust separate from local storage.
 
-- a developer-only coding console
-- a generic web chatbot with local files bolted on
-- a raw model-debug surface that exposes internal agent mechanics as the main experience
+## Product boundaries
 
-## Primary Users
+Nexa is not intended to maximize autonomy at the cost of user control, make raw
+reasoning traces the primary interface, or present unknown provider capability
+as guaranteed support. A successful mock or compile check is not a claim that
+every physical device, paid account, or Office host has been tested.
 
-The product should work for:
+The phone client is a browser surface backed by the running desktop, not a
+separate always-on cloud executor. Scheduled tasks also require that runtime to
+be available. External extension declarations gain only the capabilities the
+host actually implements and authorizes.
 
-- office workers
-- students and researchers
-- operations and project coordinators
-- founders and general knowledge workers
-- personal knowledge users who are not programmers
+## Shipping heuristic
 
-This means the default UX must optimize for clarity, confidence, and usefulness over technical power-user aesthetics.
-
-## Core Pillars
-
-### 1. Local-first trust
-
-- Sources, indexing, search, collections, and conversation persistence stay local by default.
-- The UI should make scope and data boundaries obvious.
-- Users should understand what information is being used and where it came from.
-
-### 2. Evidence-first answers
-
-- Factual answers should be grounded in evidence from the user's data.
-- Citations, evidence strength, and scope boundaries should be visible.
-- If evidence is weak or absent, the product should say so clearly.
-
-### 3. Useful desktop assistance
-
-- The product should help create documents, summarize content, compare files, draft materials, and assist common office workflows.
-- File and document operations should feel safe, understandable, and reversible where possible.
-- The assistant should help with ordinary work, not just retrieval.
-
-### 4. Consumer-grade usability
-
-- Low jargon by default
-- Clear status, clear next step, clear scope
-- No confusing split between what is “live” and what is “final”
-- Strong defaults that work without technical setup knowledge
-
-### 5. Reusable working sets
-
-- Collections are not just bookmarks.
-- They should evolve into reusable investigation packs and working contexts.
-- Search -> collect -> ask should feel like one workflow.
-
-## Product Principles
-
-- Chat is an entry point, not the entire product.
-- Investigation is more important than spectacle.
-- Evidence is more important than chain-of-thought theater.
-- Source scope must always be understandable.
-- Consumer comprehension beats internal cleverness.
-- File/document help should be practical, not abstract.
-
-## Non-goals
-
-These are explicitly lower priority than the pillars above:
-
-- maximizing raw agent autonomy at the cost of clarity
-- developer-centric terminal-first interaction models
-- exposing large raw thinking traces by default
-- copying IDE agent products too closely
-- adding advanced controls before the default workflow is excellent
-
-## Priority Themes
-
-### Near-term
-
-- make Chat feel like an investigation workspace
-- strengthen scope/evidence visibility
-- improve document and office-assistance workflows
-- improve collection continuity across pages
-- keep all UI strings fully internationalized
-
-### Mid-term
-
-- dedicated recall mode for vague-memory lookup
-- stronger collection-as-workspace behavior
-- consumer-friendly workflow templates
-- guided office tasks and output helpers
-
-### Long-term
-
-- richer desktop-assistant actions
-- structured task flows for common office work
-- safer mutation/review patterns for document generation and editing
-
-## Shipping Heuristic
-
-A new feature is aligned only if it improves at least one of these without meaningfully harming the others:
-
-- trust
-- evidence quality
-- consumer usability
-- desktop usefulness
-- local-first clarity
+A feature is aligned when it improves trust, evidence quality, everyday
+usefulness, or continuity without weakening local ownership and clear control.
+Apply the [UX quality bar](UX_QUALITY_BAR.md) and
+[internationalization rules](I18N_GUIDELINES.md) to every affected surface.

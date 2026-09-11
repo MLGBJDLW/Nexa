@@ -58,6 +58,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Verify documentation links and schema index
+        run: npm run docs:check
+
       - name: Reject tracked local research docs
         shell: bash
         run: |
@@ -283,6 +291,13 @@ jobs:
     if: needs.classify.outputs.release_metadata_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    container:
+      # Match the locked Playwright version; avoid per-run Ubuntu mirror installs.
+      image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+      options: --ipc=host --init
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
 
@@ -297,13 +312,10 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
-      - name: Configure Ubuntu APT
-        uses: ./.github/actions/configure-ubuntu-apt
-
-      - name: Install browser
+      - name: Verify bundled Chromium
         working-directory: apps/desktop
-        timeout-minutes: 10
-        run: npx playwright install --with-deps chromium
+        run: |
+          node --input-type=module -e "import { chromium } from '@playwright/test'; import { accessSync } from 'node:fs'; accessSync(chromium.executablePath()); const browser = await chromium.launch(); await browser.close();"
 
       - name: Critical chat UI regressions
         working-directory: apps/desktop

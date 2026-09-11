@@ -1,10 +1,96 @@
 # Tool Reference
 
 Nexa ships with built-in tools that the AI agent can call during conversations,
-plus tools from enabled MCP connectors. Knowledge and file tools are scoped to
-configured local sources. Network, shell, desktop, connector, and live-terminal
+plus tools from enabled MCP connectors. Knowledge tools use source scope;
+file tools apply the configured file-access mode. Network, shell, desktop, connector, and live-terminal
 tools declare separate trust and approval boundaries; they are not described as
 knowledge-base reads.
+
+## Schema authority and discovery
+
+The runtime registry and each tool's executable schema are authoritative for
+parameters and availability. The focused descriptions below explain usage and
+boundaries; use `tool_search` to inspect the enabled tools for the current run.
+Feature flags, the desktop host, configuration, and permissions can restrict
+what is callable.
+
+The following index is generated from the core JSON definitions with root
+`npm run docs:generate`; `npm run docs:check` detects drift. It is a source-schema
+index, not a promise that every listed tool is enabled in every conversation.
+Some host tools and delegation schemas are assembled in Rust; see
+[core registration](../crates/core/src/tools/mod.rs),
+[terminal integration](../apps/desktop/src-tauri/src/terminal_agent_tool.rs),
+and [subscription execution](SUBSCRIPTION_AGENTS.md).
+
+<!-- BEGIN GENERATED TOOL SCHEMAS -->
+
+| Core schema | Purpose (abridged; follow the schema for full rules) |
+| --- | --- |
+| [`agent_harness_dry_run`](../crates/core/prompts/tools/agent_harness_dry_run.json) | Run a read-only readiness preview for the local agent harness |
+| [`archive_output`](../crates/core/prompts/tools/archive_output.json) | Archive an agent response or generated content as a new document in the knowledge base |
+| [`browser_evidence_capture`](../crates/core/prompts/tools/browser_evidence_capture.json) | Open and inspect a public or loopback local-development web page in a real browser |
+| [`code_intelligence`](../crates/core/prompts/tools/code_intelligence.json) | Find source-scoped code symbols or textual references in registered local source directories |
+| [`compare_documents`](../crates/core/prompts/tools/compare_documents.json) | Compare content between two documents or chunks, showing differences and similarities |
+| [`compile_document`](../crates/core/prompts/tools/compile_document.json) | Check the compilation status of knowledge base documents |
+| [`computer_control`](../crates/core/prompts/tools/computer_control.json) | Perform one approval-gated action against a fresh Windows observation |
+| [`computer_observe`](../crates/core/prompts/tools/computer_observe.json) | Observe the local Windows desktop without changing it |
+| [`create_file`](../crates/core/prompts/tools/create_file.json) | Create, overwrite, or incrementally append UTF-8 plain-text files at the specified path |
+| [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Open or reveal files inside registered source directories on the user's visible desktop |
+| [`download_asset`](../crates/core/prompts/tools/download_asset.json) | Download a supported public image asset (JPEG, PNG, WebP, or GIF) into the workspace with SSRF, redirect-hop, content-type, size, and output-path validation |
+| [`edit_file`](../crates/core/prompts/tools/edit_file.json) | Edit an existing plain-text file or create a new plain-text file |
+| [`extract_image_text`](../crates/core/prompts/tools/extract_image_text.json) | Extract visible text from a local image using the app's PaddleOCR runtime |
+| [`fetch_url`](../crates/core/prompts/tools/fetch_url.json) | Fetch and read the text content of a public web page with SSRF and redirect-hop validation |
+| [`generate_image`](../crates/core/prompts/tools/generate_image.json) | Generate an image using the provider configured in Settings and return an in-chat preview artifact |
+| [`get_chunk_context`](../crates/core/prompts/tools/get_chunk_context.json) | Retrieve a chunk and its surrounding parent/child context window from the same document, ordered by chunk_index |
+| [`get_document_info`](../crates/core/prompts/tools/get_document_info.json) | Get detailed metadata about a specific document in the knowledge base by its path or document ID |
+| [`get_goal`](../crates/core/prompts/tools/get_goal.json) | Read the durable execution goal for the current conversation, including its objective and lifecycle status. |
+| [`get_related_concepts`](../crates/core/prompts/tools/get_related_concepts.json) | Explore the knowledge base at a high level: browse the wiki index, generate a Map of Content for a topic, find hot concepts, get exploration suggestions, view query trends, or i... |
+| [`get_statistics`](../crates/core/prompts/tools/get_statistics.json) | Get knowledge base statistics including total sources, documents, chunks, storage size, and last indexed time |
+| [`glob_files`](../crates/core/prompts/tools/glob_files.json) | Find files and directories by glob pattern inside registered source directories using a safe ripgrep-style traversal that respects source scope, hidden-file settings, and gitign... |
+| [`grep_files`](../crates/core/prompts/tools/grep_files.json) | Alias of search_files using familiar grep/rg terminology |
+| [`judge_subagent_results`](../crates/core/prompts/tools/judge_subagent_results.json) | Adjudicate or rank multiple delegated worker results using a structured rubric |
+| [`list_dir`](../crates/core/prompts/tools/list_dir.json) | List contents of a directory |
+| [`list_documents`](../crates/core/prompts/tools/list_documents.json) | List documents in a specific knowledge-base source |
+| [`list_sources`](../crates/core/prompts/tools/list_sources.json) | List all registered knowledge-base sources |
+| [`manage_agent_memory`](../crates/core/prompts/tools/manage_agent_memory.json) | Record, search, list, or delete local agent procedural memories |
+| [`manage_persona`](../crates/core/prompts/tools/manage_persona.json) | List available personas, inspect the current conversation persona, or switch the active conversation persona for future turns |
+| [`manage_playbook`](../crates/core/prompts/tools/manage_playbook.json) | Create, update, list, get details of, add citations to, or delete a playbook |
+| [`manage_project_memory`](../crates/core/prompts/tools/manage_project_memory.json) | List, search, record, update, archive, or delete memories for the active Project |
+| [`manage_skill`](../crates/core/prompts/tools/manage_skill.json) | List, load, activate, inspect available skills and their bundled resources, execute a declared script resource helper through the skill resource helper sandbox, and create, insp... |
+| [`manage_source`](../crates/core/prompts/tools/manage_source.json) | Add, remove, or refresh knowledge source directories |
+| [`manage_user_memory`](../crates/core/prompts/tools/manage_user_memory.json) | List, search, record, update, or delete cross-session user memories |
+| [`multi_edit`](../crates/core/prompts/tools/multi_edit.json) | Apply multiple exact text replacements to one existing plain-text file in a single atomic operation |
+| [`office_artifact`](../crates/core/prompts/tools/office_artifact.json) | Inspect, assess, create, edit, verify, publish, discard, or restore DOCX, XLSX, and PPTX artifacts through Nexa's transactional OfficeArtifactEngine |
+| [`open_in_nexa`](../crates/core/prompts/tools/open_in_nexa.json) | Open an authorized local file inside Nexa |
+| [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |
+| [`project_tool`](../crates/core/prompts/tools/project_tool.json) | Discover, describe, and run source-scoped project-local tool manifests |
+| [`query_knowledge_graph`](../crates/core/prompts/tools/query_knowledge_graph.json) | Query the compiled entity relationship graph as a compact navigation index before retrieving full evidence |
+| [`read_file`](../crates/core/prompts/tools/read_file.json) | Read a file by path |
+| [`read_files`](../crates/core/prompts/tools/read_files.json) | Read multiple files in a single call |
+| [`record_verification`](../crates/core/prompts/tools/record_verification.json) | Record what was verified before finishing a multi-step task |
+| [`reindex_document`](../crates/core/prompts/tools/reindex_document.json) | Trigger re-indexing of a specific document by path or an entire source directory |
+| [`request_user_input`](../crates/core/prompts/tools/request_user_input.json) | Ask the user one to six concise, structured questions when their input is genuinely needed |
+| [`retrieve_evidence`](../crates/core/prompts/tools/retrieve_evidence.json) | Retrieve specific evidence chunks by their chunk IDs |
+| [`run_health_check`](../crates/core/prompts/tools/run_health_check.json) | Run knowledge base health diagnostics to find stale documents, orphaned content, duplicate entities, and coverage gaps |
+| [`search_by_date`](../crates/core/prompts/tools/search_by_date.json) | Browse documents by modification/creation date range |
+| [`search_files`](../crates/core/prompts/tools/search_files.json) | Search plain-text files by content inside registered source directories, similar to a safe rg/ripgrep query |
+| [`search_knowledge_base`](../crates/core/prompts/tools/search_knowledge_base.json) | Search the local knowledge base using graph-guided hybrid retrieval: entity/document graph planning, full-text search, vector search, graph expansion, and reranking |
+| [`search_playbooks`](../crates/core/prompts/tools/search_playbooks.json) | Search existing playbooks by topic or keyword |
+| [`search_sessions`](../crates/core/prompts/tools/search_sessions.json) | Search prior conversation messages across local sessions |
+| [`spawn_subagent_batch`](../crates/core/prompts/tools/spawn_subagent_batch.json) | Spawn a batch of short-lived subagents for parallel fan-out research, critique, comparison, or templated workflows |
+| [`spawn_subagent`](../crates/core/prompts/tools/spawn_subagent.json) | Start a short-lived subagent and immediately return its stable agent id |
+| [`submit_feedback`](../crates/core/prompts/tools/submit_feedback.json) | Submit feedback (upvote, downvote, or pin) on a search result chunk to improve future search relevance |
+| [`summarize_document`](../crates/core/prompts/tools/summarize_document.json) | Retrieve all indexed chunks of a document in order, suitable for full-document summarization |
+| [`synthesize_speech`](../crates/core/prompts/tools/synthesize_speech.json) | Turn text into a spoken-audio preview using the cloud TTS provider configured in Settings |
+| [`tool_search`](../crates/core/prompts/tools/tool_search.json) | Search the enabled built-in and MCP tool catalog by name and description |
+| [`update_goal`](../crates/core/prompts/tools/update_goal.json) | Update the durable execution goal for the current conversation |
+| [`update_plan`](../crates/core/prompts/tools/update_plan.json) | Create or update a short execution plan for the current task |
+| [`update_scratchpad`](../crates/core/prompts/tools/update_scratchpad.json) | Update the per-conversation agent scratchpad — a small self-maintained notebook visible at the start of every turn via the system prompt |
+| [`web_research_context`](../crates/core/prompts/tools/web_research_context.json) | Build a compact model-ready web research context pack |
+| [`web_search`](../crates/core/prompts/tools/web_search.json) | Search the public web through Nexa's built-in no-key providers |
+| [`write_note`](../crates/core/prompts/tools/write_note.json) | Create or update a note file in the knowledge base |
+
+<!-- END GENERATED TOOL SCHEMAS -->
 
 ---
 
@@ -39,7 +125,9 @@ Hybrid full-text (BM25) and vector search across all indexed content. Returns ev
 
 > **Example:** Find notes about OAuth implementation from the last month using multiple keyword variants in one call.
 
-`*` Provide either `query` or a non-empty `queries` array. Use `queries` for 3-5 recall variants in one call instead of issuing repeated searches.
+`*` Provide either `query` or a non-empty `queries` array. Use at most two
+meaningfully different variants. If one or two attempts remain weak, inspect
+files or directories instead of repeating small query variations.
 
 Artifact contract:
 
@@ -48,6 +136,13 @@ Artifact contract:
 - `search`: query, result count, timing, mode, and query count
 - `trustBoundary`: local-source evidence, read-only, cannot instruct
 - `contract`: source role and authority notes for the model
+
+Graph-guided planning, candidate expansion, reranking, and context packing also
+report `graphRetrieval`, `retrievalConfidence`, `ragStrategy`, and `contextPack`.
+Use these as retrieval diagnostics; supporting summaries and graph signals do
+not replace direct chunks for detailed factual claims. Indexed web evidence can
+also carry its explicit source URL. See
+[the full schema](../crates/core/prompts/tools/search_knowledge_base.json).
 
 Validation failures return `kind: "toolContractError"` artifacts with `code`, `message`, `expectedFormat`, `retryable`, and `trustBoundary`, so the model can correct the call instead of surfacing a raw schema error.
 
@@ -62,6 +157,20 @@ Retrieve original chunk text by ID for precise citation. Returns raw content tog
 | `chunk_ids` | string[] | yes | List of chunk UUIDs to retrieve |
 
 > **Example:** Fetch the exact text of a search result to quote it accurately with `[cite:CHUNK_ID]`.
+
+---
+
+### `query_knowledge_graph`
+
+Navigate the compiled graph before fetching supporting documents. `action` is
+`context`, `map` (context alias), `related`, `path`, or `search`. Entity/path
+actions use `entity_name` and, for a path, `target_name`. Source, path, entity,
+relationship, and strength filters remain constrained by the active source scope.
+
+Use graph output to select evidence worth retrieving. A relationship, inferred
+path, or co-occurrence is not a citation by itself. See the
+[complete schema](../crates/core/prompts/tools/query_knowledge_graph.json) and
+[knowledge guide](KNOWLEDGE_AND_RETRIEVAL.md).
 
 ---
 
@@ -134,6 +243,12 @@ Path guidance:
 Use source-root relative paths like `notes/today.md` when the file clearly belongs to one registered source.
 Use absolute paths when the user already supplied one or when a relative path could match multiple sources.
 
+For the general read/edit/create tools, restricted mode uses the active source
+scope, non-restricted registered-source modes can use all registered sources,
+and open mode can accept absolute local paths outside sources. The actual tool
+policy remains authoritative: `desktop_automation`, for example, still requires
+a registered source even when a general file tool has broader access.
+
 ### Tool Authoring Quality Bar
 
 When adding or changing tools, optimize for model-call correctness rather than developer convenience:
@@ -154,7 +269,11 @@ When adding or changing tools, optimize for model-call correctness rather than d
 
 ### `read_file`
 
-Read file content from the knowledge base with optional line range. The file must reside within a registered source directory. Paths may be absolute or relative to a source root. In addition to plain-text files, the tool can extract readable text from PDF, DOCX, XLSX, PPTX, and image files when supported.
+Read a file with an optional line range under the configured file-access mode.
+Paths may be absolute or relative to a source root; open mode also permits
+absolute local paths outside registered sources. In addition to plain text,
+the tool can extract readable text from PDF, DOCX, XLSX, PPTX, and images when
+the corresponding runtime is available.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -321,6 +440,21 @@ Get detailed metadata about a single document — file path, size, modification 
 
 ---
 
+### `open_in_nexa`
+
+Open an authorized local artifact in Nexa's preview panel or Browser Workspace.
+The required `path` may be absolute or relative to an authorized source root;
+optional `line` selects a one-based text line. For HTML, `assets` lists at most
+256 local dependencies under the HTML parent, each checked independently.
+
+The receipt confirms that the host opened the preview. It does not verify the
+document's contents or visual quality. Unsupported preview types return an
+error instead of launching an external application. See
+[Local HTML preview](local-html-preview.md) and the
+[schema](../crates/core/prompts/tools/open_in_nexa.json).
+
+---
+
 ### `compare_documents`
 
 Compare content between two documents or chunks, showing differences and similarities. Accepts file paths or chunk IDs.
@@ -390,11 +524,16 @@ Edit existing plain-text files via string replacement or create new plain-text f
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `path` | string | yes | File path (absolute or relative to a source root) |
-| `action` | string | yes | `str_replace` or `create` |
+| `action` | string | no | `str_replace`, `replace` (alias), or `create`; inferred from the supplied fields when omitted |
 | `old_str` | string | no | Exact text to find (for `str_replace`; must match once) |
 | `new_str` | string | no | Replacement text (for `str_replace`) or file content (for `create`) |
+| `start_line` | integer | no | One-based inclusive start of the replacement search range |
+| `end_line` | integer | no | One-based inclusive end of the replacement search range |
 
-Do not use `edit_file` for Office/PDF files. Prefer `run_shell` + `doc-script-editor` for Office/PDF creation, editing, validation, conversion, rendering, extraction, redaction, formula checks, and template preservation. Use `generate_docx`, `generate_xlsx`, or `ppt_generate` only as compatibility fallback for very simple new files when Python is unavailable or unnecessary.
+Use `office_artifact` for DOCX/XLSX/PPTX candidate-based creation and edits.
+Use `run_shell` + `doc-script-editor` for PDF, conversion/rendering, or OOXML
+compatibility work. `edit_file` handles ordinary text, not Office/PDF binaries.
+The full schema also documents `old_string`, `new_string`, and `content` aliases.
 
 `str_replace` operates on UTF-8 char boundaries, so replacements containing multi-byte characters (CJK text, emoji, etc.) are handled safely without byte-slice panics.
 
@@ -416,7 +555,8 @@ Apply multiple exact text replacements to one existing plain-text file in a sing
 | `edits[].start_line` | integer | no | Optional 1-based inclusive line range start |
 | `edits[].end_line` | integer | no | Optional 1-based inclusive line range end |
 
-Do not use `multi_edit` for Office/PDF files. Prefer `run_shell` + `doc-script-editor` for those workflows.
+Use `office_artifact` for Office candidates and `run_shell` + `doc-script-editor`
+for PDF or compatibility operations. `multi_edit` is for plain-text changes.
 
 > **Example:** Update three related headings in a Markdown note with one checkpointed operation.
 
@@ -424,13 +564,22 @@ Do not use `multi_edit` for Office/PDF files. Prefer `run_shell` + `doc-script-e
 
 ### `create_file`
 
-Create a new plain-text file within a registered source directory. Paths may be absolute or relative to a source root. Parent directories are created automatically.
+Create, overwrite, or append a UTF-8 text file under the configured file-access
+mode. Parent directories are created for create/overwrite operations.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `path` | string | yes | Output file path (absolute or relative to a source root) |
 | `content` | string | yes | Plain-text content to write |
-| `overwrite` | boolean | no | Overwrite an existing file if true |
+| `mode` | string | no | `create` (default), `overwrite`, or `append` |
+| `expected_bytes` | integer | for append | Exact current UTF-8 byte length from the previous successful result |
+| `overwrite` | boolean | no | Deprecated alias for overwrite mode; do not combine with another explicit mode |
+
+For long text, create the first chunk and append ordered chunks using the
+returned `writeProgress.nextExpectedBytes`. Set `wait_for_previous` for
+dependent calls within one assistant turn. If the byte precondition fails,
+inspect current state before retrying. See
+[Live file-tool streaming](LIVE_FILE_TOOL_STREAMING.md#resumable-plain-text-writes).
 
 Do not use `create_file` for DOCX/XLSX/PPTX/PDF. Use `office_artifact` for DOCX/XLSX/PPTX work and `run_shell` + `doc-script-editor` for PDF or compatibility escape hatches. The format-specific generators are fallbacks for very simple new files only.
 
@@ -442,9 +591,15 @@ Do not use `create_file` for DOCX/XLSX/PPTX/PDF. Use `office_artifact` for DOCX/
 
 The preferred DOCX/XLSX/PPTX lifecycle is `capabilities`/`assess` → `execute` → `decide` → optional `restore`. `execute` creates a validated candidate by default and does not touch the destination. `decide: publish` atomically publishes it and returns a receipt; `restore` refuses to overwrite a destination that changed after publication.
 
+Calls require `action` and `workspace_root`; action-specific request shapes and
+live-host operations are defined in the
+[closed schema](../crates/core/prompts/tools/office_artifact.json). The
+[Office add-in guide](../integrations/office-addin/README.md) covers its separate
+pairing and deployment path.
+
 Requests use `requestVersion: 2`, a format and intent, typed operations, optional `preconditions.sourceSha256`, and explicit guarantees (`quality`, `preservation`, `calculation`, `render`). Inline validation requires `contractVersion: 2`; all schema fields are closed and unknown fields fail. `quality: publish` requires candidate-SHA-bound rendered evidence. `quality: native` and XLSX `calculation: native` require Microsoft Office COM. LibreOffice recalculation is labeled `compatible`, never Excel-native.
 
-The adapter contract reports local Open XML, LibreOffice-compatible, Windows COM, and disconnected Office.js-live surfaces separately. A local `.nexa/office-adapters/*.json` declaration is schema-validated and discoverable but is not executable merely because it exists. Live Office.js requires a separately authorized host session and exposes only the typed operations declared by that host: Word text/comments/change tracking/content controls, Excel ranges/tables/charts/calculation, and PowerPoint slides/text boxes/geometric shapes. Production deployment pins one exact HTTPS add-in origin and requires a user- or IT-provisioned trusted loopback certificate; Nexa never mutates the certificate trust store. Native release evidence is produced by the protected, SHA-bound Word/Excel/PowerPoint acceptance workflow.
+The adapter contract reports local Open XML, LibreOffice-compatible, Windows COM, and disconnected Office.js-live surfaces separately. A local `.nexa/office-adapters/*.json` declaration is schema-validated and discoverable but is not executable merely because it exists. Live Office.js requires a separately authorized host session and exposes only the typed operations declared by that host: Word text/comments/change tracking/content controls, Excel ranges/tables/charts/calculation, and PowerPoint slides/text boxes/geometric shapes. Production deployment pins one exact HTTPS add-in origin and requires a user- or IT-provisioned trusted loopback certificate; Nexa never mutates the certificate trust store. Native Word/Excel/PowerPoint acceptance remains a separate environment-dependent check. The release workflow does not run or require a self-hosted Office acceptance job; hosted Office smoke tests do not establish native application acceptance.
 
 ### Office compatibility and PDF operations
 
@@ -529,13 +684,16 @@ Upvote, downvote, or pin a search result chunk to train the personalization syst
 
 ### `manage_source`
 
-Add or remove knowledge source directories. Adding begins indexing; removing stops tracking (indexed data is preserved).
+Add, remove, or update a registered source directory. Removing a source deletes
+its source record and cascades to its indexed documents and chunks; the original
+files on disk are not deleted. Use `update`/`refresh_path` after moving or
+renaming a source root rather than removing and recreating its identity.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | yes | `add` or `remove` |
-| `path` | string | no | Directory path (required for `add`) |
-| `source_id` | string | no | Source ID (required for `remove`) |
+| `action` | string | yes | `add`, `remove`, `update`, or `refresh_path` |
+| `path` | string | conditional | Required for add/update/refresh_path |
+| `source_id` | string | conditional | Required for remove/update/refresh_path |
 
 > **Example:** Register a new project folder so its documents become searchable.
 
@@ -610,7 +768,8 @@ Language routing:
 - English queries use Google first by default, then DuckDuckGo/Bing only when needed.
 - Avoid stacking unusual operators or several near-duplicate queries. Start with one focused query; use a second query only for a genuinely separate angle.
 
-Do not treat `desktop_automation` with `action: "web_search"` as evidence retrieval. That action only opens a browser search for the user and does not return readable search results to the agent.
+Use `web_search` for readable search results and `browser_session` for an
+interactive page. `desktop_automation` no longer accepts a web-search action.
 
 ---
 
@@ -695,27 +854,25 @@ durable artifacts retain hashes, counts, route, delivery, and effect receipts.
 
 ### `desktop_automation`
 
-Perform controlled local browser or desktop handoff actions. This tool is intentionally narrow: it can open a URL/search in the user's default browser, open or reveal source-scoped local paths, or wait briefly. It does not read page contents or perform raw mouse/keyboard control.
+Open or reveal a source-scoped path on the user's visible desktop. Prefer
+`open_in_nexa` for supported file previews. Opening a previewable file in an
+external application requires the user's explicit request and
+`external_requested: true`. HTTP(S) navigation belongs to `browser_session`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | yes | `open_url`, `web_search`, `open_path`, `reveal_path`, or `wait` |
-| `url` | string | no* | http/https URL for `open_url` |
-| `query` | string | no* | Search query for `web_search` |
-| `engine` | string | no | `google`, `bing`, `duckduckgo`, or `baidu` (default `bing`) |
-| `path` | string | no* | Absolute or source-root relative path for `open_path`/`reveal_path` |
-| `wait_ms` | integer | no | 100-10000 ms for `wait` |
+| `action` | string | yes | `open_path` or `reveal_path` |
+| `path` | string | for either action | Absolute or source-root relative path inside the active registered source scope |
+| `external_requested` | boolean | no | True only for an explicitly requested external application |
 | `reason` | string | no | Brief user-facing reason for the action |
 
-\* Required for the corresponding action.
-
 Safety posture:
-- URL/search/path launch actions require user confirmation.
+- Desktop file handoff retains the applicable approval policy.
 - Local path actions must resolve inside a registered source and the active source scope.
 - Use `web_search` for readable search results.
 - Use `fetch_url` when the agent needs page text; use `browser_session` when the page must be observed or manipulated.
 
-> **Example:** Open a confirmed dashboard URL in the user's default browser, or reveal a report file that was just generated under a registered source.
+> **Example:** Reveal a generated report in the file manager under its registered source.
 
 ---
 

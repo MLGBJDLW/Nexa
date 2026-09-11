@@ -1,66 +1,71 @@
-# Product Roadmap
+# Product roadmap
 
-## Active Direction
+Nexa's direction is a local-first desktop assistant for everyday knowledge,
+document, and desktop work. This roadmap separates existing foundations from
+ongoing product priorities; it is not a release schedule or a promise that every
+provider, operating system, or device supports every feature.
 
-Nexa is moving toward a local-first desktop assistant for everyday work.
+See [GitHub Releases](https://github.com/MLGBJDLW/Nexa/releases) and
+[CHANGELOG.md](../CHANGELOG.md) for shipped release history.
 
-The product should combine:
+## Shipped foundations
 
-- evidence-first recall
-- investigation over personal files
-- collections as reusable working sets
-- document and office assistance
-- consumer-grade usability for non-programmers
+- Local ingestion, hybrid retrieval, source filters, Recall Mode, collections,
+  and project context.
+- Knowledge graph navigation with evidence links, source/path/type filters, and
+  bounded graph queries.
+- Durable Agent Runs, ordered events, checkpoints, streamed output,
+  reconciliation, archive/restore, and per-turn history.
+- Shared model catalogs, endpoint-aware capability resolution, model/reasoning
+  selection, supported subscription runtimes, and configured API workers.
+- Scoped file tools, Office artifact validation/review, local file previews,
+  Browser Workspace, and a separately paired Office.js live adapter.
+- A conversation-linked terminal and structured browser/computer tools with
+  explicit observation, permission, and lifecycle boundaries.
+- Editable-composer dictation, Live observation/summary sessions, QR-paired
+  phone chat, encrypted LAN access, and optional managed/fixed public routes.
+- Workflow templates, durable scheduled occurrences, unattended tool policies,
+  and isolated patch execution under supported conditions.
+- Ten UI locales, theme resources, and user-owned skill/connector declarations.
 
-## Current Priorities
+These are implementation surfaces. Their operating limits are documented in
+the [focused guides](README.md), including platform requirements, account
+capabilities, runtime assets, and native acceptance boundaries.
 
-### P0
+## Current priorities
 
-- Keep source scope, evidence strength, route, model, and reasoning state clear in Chat
-- Preserve streaming, persisted replay, archive, restore, and delete consistency
-- Make live desktop surfaces such as the terminal useful to the agent without weakening user control or approval boundaries
-- Maintain full i18n coverage and critical browser regression coverage for all shipped UI changes
+### Reliability and trust
 
-### P1
+- Preserve one durable outcome across streaming, retry, pause, restart, and
+  remote reconnection.
+- Keep source scope, device authorization, provider identity, and user approvals
+  enforced by the owning runtime.
+- Improve provider/device coverage with real acceptance evidence while retaining
+  fast deterministic contract tests.
+- Keep resource use, background work, graph queries, and live queues bounded.
 
-- Better collection-as-workspace behavior and cross-surface handoff
-- Consumer-friendly language across helper, approval, trace, and status surfaces
-- Stronger office assistance flows with verifiable output
-- Reduce provider drift by keeping the shared catalog and adapter contracts synchronized
+### Everyday usability
 
-### P2
+- Strengthen Search, Collections, Projects, and Chat as a continuous working set.
+- Improve onboarding, document review, actionable failures, and task recovery.
+- Keep advanced agent controls understandable and maintain keyboard access,
+  reduced motion, phone layouts, and all shipped locales.
+- Make model setup and capability limitations clear without hard-coding
+  short-lived model-version claims into product docs.
 
-- More guided desktop-assistant workflows
-- Better document output templates and review patterns
-- Richer consumer onboarding and task suggestions
+### Extension maturity
 
-## Near-term Build Sequence
+- Preserve the supported MCP, skill, theme, and built-in workflow paths.
+- Evolve capability and workflow package formats only with parser, trust,
+  lifecycle, and executable host support.
+- Keep MCP export at candidate status and ACP/A2A at design status until an
+  actual server/executor is delivered and tested.
+- Open a native plugin runtime only after the safer extension surfaces and
+  isolation requirements are satisfied.
 
-1. Harden conversation lifecycle and replay across active and archived states
-2. Deepen Search, Collections, and Chat as one sustained working set
-3. Expand user-controlled desktop context bridges beyond the terminal where justified
-4. Consumerize advanced agent labels, approvals, and recovery flows
-5. Ship office/document workflows with validation and review built in
+## Change discipline
 
-## Shipped Foundations
-
-Landed foundations include:
-
-- investigation header in Chat with clearer scope / route / evidence visibility
-- Search to Chat source-scope handoff
-- collection-context handoff into Chat
-- Recall Mode entry in Search for vague-memory lookup
-- first-pass collection workspace actions for investigation, briefs, reports, and slide outlines
-- persisted turn traces, checkpoints, context accounting, and per-turn navigation
-- visible archived-conversation browsing with read-only replay and restore/delete lifecycle
-- a split model and reasoning selector backed by the shared provider catalog
-- a conversation-linked terminal with selection-to-prompt and approval-gated agent interaction
-- critical Playwright coverage for the custom window frame, conversation lifecycle, terminal bridge, Mermaid rendering, plan capsule, and turn timeline
-- stronger product, UX, roadmap, and i18n documentation in `docs/`
-
-## Guardrails
-
-- Do not sacrifice trust for agent spectacle.
-- Do not add technical UI just because it is possible.
-- Do not leave new user-facing strings outside i18n.
-- Do not ship workflows that look clever but feel confusing.
+Move a priority into shipped foundations only when its behavior, restrictions,
+and verification can be linked. Update the smallest owning guide as part of the
+same change. Keep implementation checklists and dated investigations in their
+Issue/PR or ignored local research area rather than adding competing roadmaps.

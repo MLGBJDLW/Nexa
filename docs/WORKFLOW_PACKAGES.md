@@ -7,6 +7,10 @@ workflows that non-technical users can understand.
 Workflows are not native plugins. They should not contain host code. They are
 product contracts that tell Nexa how to guide a task.
 
+Status: the built-in catalog and workflow execution are implemented. The
+portable `workflow.yaml` format below is a design direction, not an implemented
+general-purpose YAML importer or executor.
+
 ## Package Shape
 
 The long-term portable shape is:
@@ -19,7 +23,8 @@ The long-term portable shape is:
   tests/
 ```
 
-The core workflow manifest should describe:
+Proposed workflow-specific metadata (distinct from the implemented
+[generic capability manifest](CAPABILITY_PACKAGES.md)):
 
 ```yaml
 id: document_compare
@@ -58,6 +63,10 @@ package manifest with surface `workflow_package`. Each catalog template maps to:
 .nexa/capabilities/builtin-workflows/workflows/<workflow-id>/workflow.yaml
 ```
 
+This path is catalog metadata. Templates execute from
+[workflow_catalog.rs](../crates/core/src/workflow_catalog.rs) through Nexa's
+workflow runtime; the catalog path is not a directory the user must install.
+
 Current built-in workflows include:
 
 - Research + Verify
@@ -74,3 +83,9 @@ plugin.
 Project-local workflow package manifests can use the same
 `.nexa/capabilities/*/capability.yaml` discovery path as other capability
 packages.
+
+For actual execution, budgets, and checkpoints, see
+[Orchestration runtime](ORCHESTRATION_RUNTIME.md). Recurrence, occurrence
+identity, and unattended permissions belong to [Scheduled tasks](SCHEDULED_TASKS.md).
+Package metadata and its tests live in
+[skills/package.rs](../crates/core/src/skills/package.rs).

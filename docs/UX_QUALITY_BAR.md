@@ -131,5 +131,22 @@ Before shipping a UI change, check:
 - Do streaming and finished states feel like the same run?
 - Can a non-technical user understand the page without prior explanation?
 - Does the page help the user finish a real task faster?
+- Are keyboard focus, reduced motion, long translations, and narrow phone
+  layouts usable on the changed surface?
+- Do manual composer corrections survive later speech hypotheses and retries?
+- Do remote connection, permission, and expired-session states show an
+  actionable next step while preserving the user's draft?
+- Do closing a browser workspace and leaving Live release their owned
+  sessions/resources, including asynchronous startup races?
+- Does document preview distinguish successful opening from actual validation
+  and visual inspection?
 
 If the answer to multiple questions is “no”, the design is not ready.
+
+## Acceptance evidence
+
+Use focused [browser regressions](../apps/desktop/e2e) for layout and interaction
+contracts, then verify the real native surface where the change depends on
+WebView2, a microphone/camera, a phone, terminal input, or Office. Keep the tested
+platform and remaining device/provider gaps explicit. See
+[Contributing](../CONTRIBUTING.md#verification) for commands and evidence limits.

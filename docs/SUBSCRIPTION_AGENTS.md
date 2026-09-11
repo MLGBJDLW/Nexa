@@ -6,6 +6,11 @@ Choose the model and reasoning level in Chat. The saved provider and its current
 then appear in the Chat model picker. Reasoning levels come from that account's
 model catalog. Signing in does not automatically create a provider.
 
+For API/local connections and endpoint capability resolution, see
+[Models and providers](PROVIDERS_AND_MODELS.md). Subscription support follows
+the bundled driver contract; it is not a promise of parity with every upstream
+runtime feature or account plan.
+
 ## Execution ownership
 
 `DesktopAgentBackend` selects either Nexa's direct API executor or an official
@@ -111,3 +116,13 @@ into the user's official login and one read-only tool inference. They assert a
 fresh tool nonce reaches the streamed answer, executes once, persists once, and
 emits one terminal event through the real forwarder/outbox, and closes the turn
 with the exact final assistant ID before delivery. They are not run by ordinary CI.
+
+Implementation: [subscription drivers](../apps/desktop/src-tauri/src/subscription_runtime),
+[account enrollment](../apps/desktop/src-tauri/src/commands/subscription_accounts.rs),
+and [external tool session](../crates/core/src/agent/external_tools.rs).
+The latter owns callback idempotency and the subscription callback budget;
+it is distinct from the direct API executor's tool-batch accounting.
+
+Phone chat reuses these desktop drivers. Live capture uses the separate
+[Voice and Live](LIVE.md) connection rules; an official subscription login is
+not handed to a guessed realtime API endpoint.
