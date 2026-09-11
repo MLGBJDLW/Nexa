@@ -836,7 +836,7 @@ export function RemoteChat({
         </div>
       )}
       <form
-        className="sticky bottom-3 mt-auto rounded-2xl border border-border bg-surface-0 p-3 shadow-lg"
+        className="sticky bottom-3 z-20 mt-auto rounded-2xl border border-border bg-surface-0 p-3 shadow-lg"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
