@@ -6895,7 +6895,11 @@ data: [DONE]
 
     #[test]
     fn deepseek_v41_flash_uses_responses_with_local_search_tools_and_native_replay() {
-        let provider = OpenAiProvider::new(endpoint_config(ProviderType::DeepSeek, "https://api.deepseek.com")).unwrap();
+        let provider = OpenAiProvider::new(endpoint_config(
+            ProviderType::DeepSeek,
+            "https://api.deepseek.com",
+        ))
+        .unwrap();
         let mut request = endpoint_reasoning_request("deepseek-flash");
         request.reasoning_effort = Some(ReasoningEffort::Max);
         request.tools = Some(vec![ToolDefinition {
@@ -6903,14 +6907,27 @@ data: [DONE]
             description: "Search using Nexa's configured provider".into(),
             parameters: serde_json::json!({"type":"object"}),
         }]);
-        assert!(is_direct_deepseek_responses_request(&provider.config, &request));
-        let body = build_generic_responses_request(&request, super::super::native_search::NativeSearchDialect::DeepSeekResponses).unwrap();
+        assert!(is_direct_deepseek_responses_request(
+            &provider.config,
+            &request
+        ));
+        let body = build_generic_responses_request(
+            &request,
+            super::super::native_search::NativeSearchDialect::DeepSeekResponses,
+        )
+        .unwrap();
         assert_eq!(body["model"], "deepseek-flash");
         assert_eq!(body["reasoning"]["effort"], "max");
         assert_eq!(body["tools"][0]["type"], "function");
-        assert_eq!(body["tools"][0]["name"], super::super::native_search::LOCAL_WEB_SEARCH_TOOL);
+        assert_eq!(
+            body["tools"][0]["name"],
+            super::super::native_search::LOCAL_WEB_SEARCH_TOOL
+        );
         assert!(body.get("include").is_none());
-        assert_eq!(provider.replay_history_projection(&request), ReplayHistoryProjection::Caller(ReasoningReplayPolicy::OpaqueSignature));
+        assert_eq!(
+            provider.replay_history_projection(&request),
+            ReplayHistoryProjection::Caller(ReasoningReplayPolicy::OpaqueSignature)
+        );
         let private = endpoint_config(ProviderType::DeepSeek, "https://private.example/v1");
         assert!(!is_direct_deepseek_responses_request(&private, &request));
     }

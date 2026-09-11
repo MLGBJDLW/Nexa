@@ -1811,7 +1811,7 @@ mod tests {
 
         for (agent_id, expected_model) in [
             (first.id.as_str(), "gpt-4.1"),
-            (second.id.as_str(), "deepseek-v4-flash"),
+            (second.id.as_str(), "deepseek-flash"),
         ] {
             let scope = RegistryScope {
                 agent_id: Some(agent_id.to_string()),
@@ -1876,7 +1876,7 @@ mod tests {
             .resolve_runtime_capability(&scope, "text_generation")
             .unwrap()
             .expect("refresh should repair the activated registry route");
-        assert_eq!(resolution.model_id, "deepseek-v4-flash");
+        assert_eq!(resolution.model_id, "deepseek-flash");
     }
 
     #[test]

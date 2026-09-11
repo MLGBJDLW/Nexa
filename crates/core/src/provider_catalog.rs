@@ -953,9 +953,16 @@ mod tests {
             "Flash-only search must not leak through the provider preset"
         );
         for model in [pro, flash, vision] {
-            assert!(model.native_web_search.is_none(), "Responses built-in tools are no longer supported");
+            assert!(
+                model.native_web_search.is_none(),
+                "Responses built-in tools are no longer supported"
+            );
         }
-        let current = deepseek.models.iter().find(|model| model.id == "deepseek-flash").unwrap();
+        let current = deepseek
+            .models
+            .iter()
+            .find(|model| model.id == "deepseek-flash")
+            .unwrap();
         assert_eq!(current.capabilities.as_ref().unwrap().vision, Some(true));
         assert_eq!(current.status, Some(ModelLifecycleStatus::Active));
         let reasoning = pro

@@ -987,8 +987,8 @@ test("settings provider form shows updated preset models for add and edit flows"
   await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "deep_seek");
   modelSelect = modelField().locator("[data-nexa-select-trigger]");
   await expectModelOptions(modelSelect, [
+    "DeepSeek V4.1 Flash",
     "DeepSeek V4 Pro",
-    "DeepSeek V4 Flash",
   ]);
 
   await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "moonshot");
