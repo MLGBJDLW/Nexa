@@ -1581,6 +1581,11 @@ fn generic_responses_capability(
     }
 }
 
+fn is_deepseek_responses_model(model: &str) -> bool {
+    let model = model.trim().to_ascii_lowercase();
+    model == "deepseek-flash" || model.starts_with("deepseek-v4")
+}
+
 fn is_direct_deepseek_responses_request(
     config: &ProviderConfig,
     request: &CompletionRequest,
@@ -1590,11 +1595,7 @@ fn is_direct_deepseek_responses_request(
             config.provider_type,
             config.base_url.as_deref(),
         )
-        && request
-            .model
-            .trim()
-            .to_ascii_lowercase()
-            .starts_with("deepseek-v4")
+        && is_deepseek_responses_model(&request.model)
         && hosted_search_context(request).is_none()
 }
 
@@ -3040,7 +3041,7 @@ impl LlmProvider for OpenAiProvider {
                 self.config.provider_type,
                 self.config.base_url.as_deref(),
             )
-            && model.trim().to_ascii_lowercase().starts_with("deepseek-v4")
+            && is_deepseek_responses_model(model)
         {
             ReasoningApiStyle::OpenAiResponses
         } else {
@@ -6893,80 +6894,25 @@ data: [DONE]
     }
 
     #[test]
-    fn deepseek_flash_responses_mix_hosted_search_with_client_tools() {
-        let plan = super::super::native_search::NativeSearchPlan::resolve(
-            super::super::native_search::SearchExecutionMode::ProviderNative,
-            ProviderType::DeepSeek,
-            Some("https://api.deepseek.com"),
-            "deepseek-v4-flash",
-        );
-        let mut request = endpoint_reasoning_request("deepseek-v4-flash");
-        request.reasoning_effort = Some(ReasoningEffort::High);
-        request.tools = Some(vec![
-            ToolDefinition {
-                name: super::super::native_search::LOCAL_WEB_SEARCH_TOOL.to_string(),
-                description: "local".to_string(),
-                parameters: serde_json::json!({ "type": "object" }),
-            },
-            ToolDefinition {
-                name: "read_file".to_string(),
-                description: "read".to_string(),
-                parameters: serde_json::json!({ "type": "object" }),
-            },
-            plan.marker().expect("trusted DeepSeek Flash marker"),
-        ]);
-
-        let (dialect, mode, capability) = hosted_search_context(&request).expect("context");
-        assert_eq!(
-            dialect,
-            super::super::native_search::NativeSearchDialect::DeepSeekResponses
-        );
-        assert_eq!(
-            mode,
-            super::super::native_search::SearchExecutionMode::ProviderNative
-        );
-        assert!(capability.can_mix_client_tools);
-        assert!(hosted_search_requires_client_tools(&request, mode));
-
-        let body = build_responses_request(&request, dialect, mode, capability).unwrap();
-        let tools = body["tools"].as_array().expect("responses tools");
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0]["type"], "web_search");
-        assert_eq!(tools[1]["type"], "function");
-        assert_eq!(tools[1]["name"], "read_file");
+    fn deepseek_v41_flash_uses_responses_with_local_search_tools_and_native_replay() {
+        let provider = OpenAiProvider::new(endpoint_config(ProviderType::DeepSeek, "https://api.deepseek.com")).unwrap();
+        let mut request = endpoint_reasoning_request("deepseek-flash");
+        request.reasoning_effort = Some(ReasoningEffort::Max);
+        request.tools = Some(vec![ToolDefinition {
+            name: super::super::native_search::LOCAL_WEB_SEARCH_TOOL.into(),
+            description: "Search using Nexa's configured provider".into(),
+            parameters: serde_json::json!({"type":"object"}),
+        }]);
+        assert!(is_direct_deepseek_responses_request(&provider.config, &request));
+        let body = build_generic_responses_request(&request, super::super::native_search::NativeSearchDialect::DeepSeekResponses).unwrap();
+        assert_eq!(body["model"], "deepseek-flash");
+        assert_eq!(body["reasoning"]["effort"], "max");
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["name"], super::super::native_search::LOCAL_WEB_SEARCH_TOOL);
         assert!(body.get("include").is_none());
-        assert_eq!(body["reasoning"]["effort"], "high");
-        assert!(body.get("thinking").is_none());
-        assert!(body.get("reasoning_effort").is_none());
-    }
-
-    #[test]
-    fn deepseek_hosted_search_projects_history_with_the_responses_replay_policy() {
-        let provider = OpenAiProvider::new(endpoint_config(
-            ProviderType::DeepSeek,
-            "https://api.deepseek.com",
-        ))
-        .expect("provider");
-        let plan = super::super::native_search::NativeSearchPlan::resolve(
-            super::super::native_search::SearchExecutionMode::ProviderNative,
-            ProviderType::DeepSeek,
-            Some("https://api.deepseek.com"),
-            "deepseek-v4-flash",
-        );
-        let mut request = endpoint_reasoning_request("deepseek-v4-flash");
-        request.tools = Some(vec![
-            ToolDefinition {
-                name: super::super::native_search::LOCAL_WEB_SEARCH_TOOL.to_string(),
-                description: "search".to_string(),
-                parameters: serde_json::json!({ "type": "object" }),
-            },
-            plan.marker().expect("trusted marker"),
-        ]);
-
-        assert_eq!(
-            provider.replay_history_projection(&request),
-            ReplayHistoryProjection::Caller(ReasoningReplayPolicy::OpaqueSignature)
-        );
+        assert_eq!(provider.replay_history_projection(&request), ReplayHistoryProjection::Caller(ReasoningReplayPolicy::OpaqueSignature));
+        let private = endpoint_config(ProviderType::DeepSeek, "https://private.example/v1");
+        assert!(!is_direct_deepseek_responses_request(&private, &request));
     }
 
     #[test]

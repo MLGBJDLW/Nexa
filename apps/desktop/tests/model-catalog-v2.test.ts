@@ -434,8 +434,7 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   });
   for (const id of [
     'deepseek-v4-pro',
-    'deepseek-v4-flash',
-    'deepseek-v4-flash-vision-exp',
+    'deepseek-flash',
   ]) {
     const candidate = deepseekModels.find(model => model.id === id);
     assert(candidate, `${id} should be present in the official DeepSeek catalog`);
@@ -445,11 +444,11 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
     assertEqual(candidate.descriptor.capabilities.structuredOutput, true, `${id} JSON`);
     assertEqual(
       candidate.descriptor.capabilities.nativeWebSearch?.dialect,
-      'deepSeekResponses',
-      `${id} Responses search`,
+      undefined,
+      `${id} uses Nexa search tools because hosted web_search is ignored`,
     );
   }
-  const vision = deepseekModels.find(model => model.id === 'deepseek-v4-flash-vision-exp');
+  const vision = deepseekModels.find(model => model.id === 'deepseek-flash');
   assert(vision, 'DeepSeek vision model');
   assertEqual(vision.descriptor.capabilities.vision, true, 'DeepSeek vision capability');
   assert(vision.descriptor.inputModalities.includes('image'), 'DeepSeek vision input modality');

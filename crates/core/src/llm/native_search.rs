@@ -617,41 +617,11 @@ mod tests {
         );
         assert_eq!(plan.dialect, None);
 
-        let deepseek_pro = NativeSearchPlan::resolve(
-            SearchExecutionMode::Auto,
-            ProviderType::DeepSeek,
-            Some("https://api.deepseek.com"),
-            "deepseek-v4-pro",
-        );
-        assert_eq!(
-            deepseek_pro.dialect,
-            Some(NativeSearchDialect::DeepSeekResponses)
-        );
-        assert!(deepseek_pro.marker().is_some());
-
-        let deepseek_flash = NativeSearchPlan::resolve(
-            SearchExecutionMode::ProviderNative,
-            ProviderType::DeepSeek,
-            Some("https://api.deepseek.com"),
-            "deepseek-v4-flash",
-        );
-        assert_eq!(
-            deepseek_flash.dialect,
-            Some(NativeSearchDialect::DeepSeekResponses)
-        );
-        assert!(deepseek_flash.marker().is_some());
-
-        let deepseek_vision = NativeSearchPlan::resolve(
-            SearchExecutionMode::ProviderNative,
-            ProviderType::DeepSeek,
-            Some("https://api.deepseek.com"),
-            "deepseek-v4-flash-vision-exp",
-        );
-        assert_eq!(
-            deepseek_vision.dialect,
-            Some(NativeSearchDialect::DeepSeekResponses)
-        );
-        assert!(deepseek_vision.marker().is_some());
+        for model in ["deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"] {
+            let plan = NativeSearchPlan::resolve(SearchExecutionMode::Auto, ProviderType::DeepSeek, Some("https://api.deepseek.com"), model);
+            assert_eq!(plan.dialect, None, "DeepSeek now ignores built-in web_search: {model}");
+            assert!(plan.marker().is_none());
+        }
     }
 
     #[test]

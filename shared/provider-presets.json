@@ -2110,6 +2110,51 @@
         }
       },
       {
+        "id": "deepseek/deepseek-v4.1-flash",
+        "name": "DeepSeek: DeepSeek V4.1 Flash",
+        "version": "DeepSeek-V4.1-Flash",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "availableToCredential": true,
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-09-11",
+        "releaseDate": "2026-09-10",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 384000,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4.1-flash"
+      },
+      {
         "id": "deepseek/deepseek-v4-pro",
         "name": "DeepSeek: DeepSeek V4 Pro",
         "tagKey": "providers.tagLatest",
@@ -7873,7 +7918,7 @@
     "baseUrl": "https://api.deepseek.com",
     "requiresApiKey": true,
     "icon": "🔎",
-    "description": "DeepSeek V4 Pro, Flash, and Flash Vision Experimental",
+    "description": "DeepSeek V4.1 Flash with native vision; V4 Pro compatibility",
     "streaming": {
       "streamIdleTimeoutMs": 300000,
       "connectTimeoutMs": 30000,
@@ -7884,10 +7929,10 @@
     },
     "models": [
       {
-        "id": "deepseek-v4-pro",
-        "name": "DeepSeek V4 Pro",
+        "id": "deepseek-flash",
+        "name": "DeepSeek V4.1 Flash",
+        "version": "DeepSeek-V4.1-Flash",
         "tagKey": "providers.tagLatest",
-        "version": "DeepSeek-V4-Pro-0813",
         "source": "official",
         "status": "active",
         "access": "public",
@@ -7897,114 +7942,8 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-09-07",
-        "releaseDate": "2026-08-13",
-        "inputModalities": [
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 384000,
-        "nativeWebSearch": {
-          "dialect": "deepSeekResponses",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": false,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
-        "capabilities": {
-          "vision": false,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "low",
-              "high",
-              "max"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "deepseek-v4-flash",
-        "name": "DeepSeek V4 Flash",
-        "version": "DeepSeek-V4-Flash-0731",
-        "nativeWebSearch": {
-          "dialect": "deepSeekResponses",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": false,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
-        "tagKey": "providers.tagFast",
-        "source": "official",
-        "status": "preview",
-        "access": "public",
-        "productReadiness": "product_ready",
-        "availableToCredential": true,
-        "recommended": false,
-        "regions": [
-          "global"
-        ],
-        "lastVerifiedAt": "2026-09-07",
-        "releaseDate": "2026-07-31",
-        "inputModalities": [
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 384000,
-        "capabilities": {
-          "vision": false,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "low",
-              "high",
-              "max"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "deepseek-v4-flash-vision-exp",
-        "name": "DeepSeek V4 Flash Vision Experimental",
-        "version": "DeepSeek-V4-Flash-Vision-Exp",
-        "tagKey": "providers.tagVision",
-        "source": "official",
-        "status": "preview",
-        "access": "public",
-        "productReadiness": "product_ready",
-        "availableToCredential": true,
-        "recommended": false,
-        "regions": [
-          "global"
-        ],
-        "lastVerifiedAt": "2026-09-07",
-        "releaseDate": "2026-08-21",
+        "lastVerifiedAt": "2026-09-11",
+        "releaseDate": "2026-09-10",
         "inputModalities": [
           "text",
           "image"
@@ -8018,16 +7957,6 @@
         "maxOutputTokens": 384000,
         "maxImages": 600,
         "maxInputBytes": 50331648,
-        "nativeWebSearch": {
-          "dialect": "deepSeekResponses",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": false,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
         "capabilities": {
           "vision": true,
           "promptCache": true,
@@ -8043,7 +7972,145 @@
               "enabled": false
             }
           }
-        }
+        },
+        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/"
+      },
+      {
+        "id": "deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "version": "DeepSeek-V4-Pro-0813",
+        "source": "official",
+        "status": "deprecated",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "availableToCredential": true,
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-09-11",
+        "releaseDate": "2026-08-13",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 384000,
+        "capabilities": {
+          "vision": false,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "deprecationDate": "2026-09-14"
+      },
+      {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "version": "DeepSeek-V4-Flash-0731",
+        "tagKey": "providers.tagFast",
+        "source": "official",
+        "status": "removed",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "availableToCredential": true,
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-09-11",
+        "releaseDate": "2026-07-31",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 384000,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "replacementModelId": "deepseek-flash",
+        "deprecationDate": "2026-09-10"
+      },
+      {
+        "id": "deepseek-v4-flash-vision-exp",
+        "name": "DeepSeek V4 Flash Vision Experimental",
+        "version": "DeepSeek-V4-Flash-Vision-Exp",
+        "tagKey": "providers.tagVision",
+        "source": "official",
+        "status": "removed",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "availableToCredential": true,
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-09-11",
+        "releaseDate": "2026-08-21",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 384000,
+        "maxImages": 600,
+        "maxInputBytes": 50331648,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "replacementModelId": "deepseek-flash",
+        "deprecationDate": "2026-09-10"
       }
     ]
   },
