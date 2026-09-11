@@ -1,44 +1,140 @@
-# 手机连接与 Live
+# Phone access
 
-“手机连接”固定在桌面侧栏底部、设置上方。入口的小圆点区分准备中、服务已开启和设备在线。首次使用时点击“启用并显示二维码”，再用手机浏览器扫码；成功后，页面会收起二维码并显示设备状态。
+Phone access connects a browser to the Nexa desktop runtime. The computer owns
+conversations, model credentials, tools, and Live sessions. Keep Nexa running
+and the computer awake; this is not a separately hosted cloud agent.
 
-电脑需要保持唤醒，Nexa 需要持续运行。退出 Nexa 或点击“停止远程连接”会停止监听与托管的公网连接。准备过程可以取消。远程连接不会自行修改防火墙、安装系统服务或启用 SSH 服务。
+## Pair a phone
 
-## 连接方式
+1. Open **Phone access** near the bottom of the desktop sidebar.
+2. Select **Enable and show QR code**. The default options enable encrypted
+   local-network access and automatic public access.
+3. Scan the QR code in the phone's browser. Confirm that the link belongs to
+   this Nexa installation, then complete pairing.
+4. Open an existing conversation or send a message. The desktop page shows the
+   saved device and whether it is online.
+5. Use **Add another device** for another pairing, or **Revoke access** to remove
+   a device's authority.
 
-- 默认开启加密的局域网入口和便捷公网入口。手机会优先选择可达且受信任的局域网连接；离开局域网时改用已配置的公网地址，回到局域网后重新探测本地通道。
-- 便捷公网入口使用 Cloudflare Quick Tunnel。Nexa 从官方发布源获取组件并校验 SHA-256，然后启动独立进程。这个地址是临时的：重新启动通道后需要重新扫码。Quick Tunnel 属于测试用途，不保证长期可用性；网络需要允许访问 GitHub 和 Cloudflare。参见 [Cloudflare Tunnel 设置说明](https://developers.cloudflare.com/tunnel/setup/)。
-- 长期使用建议在“高级连接选项”中填写已有的固定 HTTPS 地址，将自己的 HTTPS 隧道或反向代理转发至本机 `http://127.0.0.1:8790`。填写的是网站根地址，不包含路径、查询参数或账户信息。
-- 已有 SSH 服务时，可使用手机 SSH 客户端建立本地端口转发：手机 `127.0.0.1:8790` → 电脑 `127.0.0.1:8790`，再用手机浏览器打开 `http://127.0.0.1:8790`。SSH 服务、账号和公网路由需事先配置。
+Pairing codes expire after three minutes, are single-use, and permit a bounded
+number of failed attempts. Create a new code from the desktop after expiry or
+lockout. Pair only your own devices: a paired device can read conversations and
+authorized file previews, start agent work, answer questions, and approve
+individual pending actions.
 
-局域网端口默认是 `8791`，仅通过 TLS 提供服务。Windows 首次提示网络访问时，需要允许 Nexa 在所需的私人网络中通信。不同网络或防火墙配置可能阻止局域网直连，此时可继续使用公网入口。
+**Stop remote access** stops listeners and managed public routes. Exiting Nexa
+does the same. Preparation can be cancelled. Nexa does not automatically edit
+the firewall, install an operating-system service, or enable an SSH server.
 
-## 手机麦克风与局域网证书
+## Select a route
 
-手机浏览器的麦克风和摄像头需要可信的 HTTPS 或 localhost 安全上下文。使用公网 HTTPS 地址时无需安装本机证书。
+Stop remote access before changing saved connection options, then start it again.
 
-需要局域网直连时，在手机页面右上角打开连接设置，下载“局域网证书”，将它安装为该手机的受信任证书；iOS 还需要在“设置 → 通用 → 关于本机 → 证书信任设置”开启完全信任。浏览器询问本地网络访问权限时，允许访问本机所在网络。参见 [Chrome 本地网络访问权限](https://developer.chrome.com/blog/local-network-access)。
+| Route | Requirements and behavior |
+| --- | --- |
+| Encrypted LAN | Default port 8791 over TLS. The phone must reach the computer and trust this installation's certificate. |
+| Automatic public access | Tries localhost.run and Pinggy, with Cloudflare as an additional route. Readiness is checked end to end; selection is based on reachability, not UI language or assumed geography. |
+| Explicit public provider | Advanced options can pin localhost.run, Pinggy, or Cloudflare instead of automatic selection. |
+| Fixed HTTPS origin | Configure your own tunnel/reverse proxy to `http://127.0.0.1:8790`, then enter its HTTPS origin without a path, query, or credentials. |
+| Existing SSH server | Use a phone SSH client to forward phone `127.0.0.1:8790` to computer `127.0.0.1:8790`, then open `http://127.0.0.1:8790` on the phone. Account, server, and network access must already exist. |
 
-每次 Nexa 安装都有自己的证书签发密钥。手机只下载公开证书，签发私钥始终保留在电脑上。未完成证书信任时，自动选择仍会保留可达的公网连接，不会退回明文局域网传输。
+A managed SSH tunnel is an outbound helper connection, distinct from exposing
+your own SSH server. localhost.run and Pinggy need an available OpenSSH client.
+Nexa uses isolated SSH configuration and managed known-host state rather than
+offering the user's personal keys or SSH agent.
 
-## 对话与操作
+The managed Cloudflare helper is downloaded from a pinned official release and
+verified against its bundled SHA-256 metadata. Automatic helper download is
+implemented for Windows x64 and Linux x64/ARM64; use another supported route or
+a fixed HTTPS origin where that helper is unavailable. A verified cached helper
+can start without re-querying the release API.
 
-配对设备可以读取已有对话、发送消息、停止执行、回答补充问题，以及允许或拒绝单次待审批操作。远程请求使用与桌面相同的 Agent 启动和审批流程；模型密钥不会发送到手机。
+Free public routes can expire, change addresses, or be unavailable. Nexa probes
+HTTPS identity, POST requests, RPC admission, and the WebSocket upgrade before
+advertising a managed route as ready, and retries failed managed connections.
+A helper printing a URL is insufficient. After a long offline period or a lost
+temporary address, scan a fresh pairing link from the desktop.
 
-网络重连使用相同的设备凭证。聊天请求保留原始请求 ID，避免网络切换时重复启动同一任务。流式输出按事件序号恢复；长历史分页加载，不把完整运行轨迹和图片原始数据一起传到手机。
+Cloudflare describes Quick Tunnels as a testing/development service with no
+uptime guarantee. Use your own fixed route when a stable address is required.
+See [Cloudflare's Quick Tunnel limits](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/).
 
-配对码有效期为三分钟，单次使用，连续错误达到限制后需要在电脑上生成新码。只配对自己的设备。桌面的“已配对设备”列表可撤销设备权限；撤销会断开该设备并停止它的 Live 输入。
+Public providers carry remote traffic. Pairing protects access to Nexa; it does
+not remove the tunnel provider from the transport path.
+
+## LAN certificate and phone permissions
+
+On the phone, open connection settings and choose **Download LAN certificate**.
+Install the public certificate as trusted on that phone. On iOS, also enable
+full trust in Certificate Trust Settings. Allow local-network access if the
+browser requests it. These are user-managed trust decisions; Nexa does not
+install the certificate for you.
+
+Each installation has its own certificate authority. The private signing key
+stays on the computer; the phone downloads only the public certificate.
+Without LAN trust, automatic selection can retain a reachable public HTTPS
+route rather than downgrading to plaintext LAN traffic.
+
+Windows may request firewall permission for the selected private network.
+Different Wi-Fi isolation, firewall, VPN, or proxy rules can prevent LAN access.
+The phone microphone/camera also needs a trusted secure context and browser/OS
+permission. See [Voice and Live](LIVE.md).
+
+## Chat, previews, and appearance
+
+The phone can browse and page through desktop conversations, send/stop work,
+answer supplemental questions, and allow or deny a single pending approval.
+Requests use the same desktop launch and approval paths; model keys are not
+sent to the phone.
+
+Model connections and model choices come from the desktop resolver. Refresh
+available models or enter a custom ID where supported. Dictation uses the
+desktop's configured streaming speech recognition. Recognized draft text is
+preserved if capture disconnects.
+
+Phone appearance can follow the desktop or use its own selection. Authorized
+theme assets and file previews are served through the authenticated remote
+surface. A preview's successful opening is not document validation.
+
+Chat submissions keep a request ID across retries to avoid launching the same
+task twice during a network change. Event sequence numbers support incremental
+recovery. Long history is paginated, and reconnect does not require sending the
+complete trace or original image data as one payload.
 
 ## Live
 
-手机页面包含“对话”和“Live”两个入口。Live 与桌面共享同一后端服务，支持手机麦克风、摄像头，以及浏览器提供的屏幕共享。
+The phone has separate Chat and Live entries. Live uses the same backend as the
+desktop, with browser-provided microphone, camera, and screen input where
+available. Network switching pauses capture; session leases bound recovery.
+Stopping preserves text observations and summaries instead of raw audio/video.
 
-原生协议包括 OpenAI Realtime、Gemini Live 和通义千问 Qwen Omni Realtime。千问需要百炼工作空间提供的实时 WebSocket 地址。能力依照实际连接识别，私有兼容地址不会仅凭模型名称套用公开端点的能力。
+See [Voice and Live](LIVE.md) for supported connection modes, input ordering,
+capture cleanup, and record limits.
 
-其他已配置的 API 视觉模型可以使用“视觉模型 + 流式语音识别”组合。麦克风需要在桌面设置中配置流式语音识别。观察模型和最终总结模型可以分别选择。订阅账户通过原有聊天运行时使用，可在 Live 结束后点击“继续对话”把记录交给订阅 Agent。
+## Troubleshooting
 
-模型确认会话就绪后才开始发送麦克风输入。音频队列有明确上限，画面采用最新帧覆盖待处理帧，避免旧画面积压。切换网络期间暂停输入，短暂断线后恢复同一会话；超过恢复时限则结束采集并提示重新开始。连接中断会记入观察记录，供总结区分遗漏区间。
+| Symptom | Next step |
+| --- | --- |
+| Pairing expired or failed too often | Generate a new code on the desktop |
+| Computer identity mismatch | Stop using that link and scan the QR shown by the intended desktop |
+| No public route is ready | Inspect provider diagnostics; check OpenSSH/helper download and network access, or configure a fixed origin |
+| LAN does not connect | Check certificate trust, browser local-network permission, private-network firewall access, and Wi-Fi isolation |
+| Microphone unavailable | Use trusted HTTPS/localhost and grant microphone access; configure desktop speech recognition for dictation |
+| Reconnection never completes | Confirm Nexa is still running; check the latest route on the desktop and rescan if the saved temporary addresses are gone |
+| Device was revoked | Pair again only if the desktop user intends to restore access |
 
-停止后保存文字记录和总结，不保存原始音视频。记录保留最近 160 条，每条长度有限，并标明更早记录被省略的数量。离开 Live 页面、设备撤销或采集失败都会释放麦克风和摄像头。不同模型和端点仍有各自的可用性、费用和延迟。
+## Implementation and verification
 
-协议参考：[OpenAI Realtime](https://developers.openai.com/api/docs/guides/realtime-websocket)、[Gemini Live](https://ai.google.dev/gemini-api/docs/live-api/get-started-websocket)、[百炼实时多模态](https://help.aliyun.com/zh/model-studio/realtime)。
+- [Remote crate](../crates/remote/src/lib.rs): authenticated transport and host interface.
+- [Public-route manager](../crates/remote/src/public_access.rs) and
+  [helper lifecycle](../crates/remote/src/tunnel.rs).
+- [Desktop bridge](../apps/desktop/src-tauri/src/remote.rs) and
+  [phone client](../apps/desktop/src/features/remote/remoteClient.ts).
+- [Protocol tests](../crates/remote/tests/remote_protocol.rs),
+  [setup regressions](../apps/desktop/e2e/remote-setup.spec.ts), and
+  [phone regressions](../apps/desktop/e2e/remote-phone.spec.ts).
+
+Run `cargo test -p nexa-remote` from the root and the relevant Playwright specs
+from `apps/desktop`. Public-tunnel smoke tests are explicitly ignored by default;
+physical phone permissions and real network/provider availability require
+separate acceptance.
