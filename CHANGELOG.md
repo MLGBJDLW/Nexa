@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.14.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.0...nexa-monorepo-v0.14.1) (2026-09-11)
+
+
+### Features
+
+* **models:** support DeepSeek V4.1 Flash across native and router endpoints ([2ebd94b](https://github.com/MLGBJDLW/Nexa/commit/2ebd94b37c75db65bae548d1c2aced6702003cb2))
+* **remote:** adapt public access and desktop parity; support DeepSeek V4.1 Flash ([e9d83df](https://github.com/MLGBJDLW/Nexa/commit/e9d83df9282046f5c11345d0c75e128ed824ac4c))
+* **remote:** add adaptive public routes and desktop service access ([a456c1e](https://github.com/MLGBJDLW/Nexa/commit/a456c1e2f88833e267f93b682ca480bc9deccc49))
+* **remote:** share desktop models, appearance, dictation, and previews ([9bf5bad](https://github.com/MLGBJDLW/Nexa/commit/9bf5badfdfca79814173774327acc28d69ce1faa))
+
+
+### Bug Fixes
+
+* **cache:** keep policy prefixes stable when loaded skills change ([249a89d](https://github.com/MLGBJDLW/Nexa/commit/249a89de4e8ba44beed55b94834cfe2021bb17a2))
+* **live:** pipeline remote audio acknowledgements ([3c66c58](https://github.com/MLGBJDLW/Nexa/commit/3c66c5885ccc381119c68ac5f7ba39a25f0cdb34))
+* **remote:** expire pending interactions on the database write lane ([2abc610](https://github.com/MLGBJDLW/Nexa/commit/2abc610c7b7f53b615c29503977749506ad9ffb5))
+* **remote:** keep markdown controls below the phone composer ([106f2a2](https://github.com/MLGBJDLW/Nexa/commit/106f2a2352d4a5edb1f012a9d29cb2f99449feb3))
+
 ## [0.14.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.13.13...nexa-monorepo-v0.14.0) (2026-09-10)
 
 
