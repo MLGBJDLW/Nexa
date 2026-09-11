@@ -883,6 +883,26 @@ async fn start_realtime_session(
     Ok(session_id)
 }
 
+/// Remote dictation reuses the desktop transcript assembler and provider lifecycle,
+/// but emits only to its authenticated device's event stream.
+pub(super) async fn start_remote_transcription(
+    config: nexa_core::app_settings::SpeechToTextConfig,
+    state: &RealtimeTranscriptionState,
+    callback: Arc<dyn Fn(Value) + Send + Sync>,
+) -> Result<(String, u32), String> {
+    let sample_rate = RealtimeDialect::from_config(&config)?.sample_rate();
+    let events = RealtimeEventSink {
+        frontend: Arc::new(move |event| {
+            if let Ok(value) = serde_json::to_value(event) {
+                callback(value);
+            }
+        }),
+        live: None,
+    };
+    let id = start_realtime_session(config, state, None, events).await?;
+    Ok((id, sample_rate))
+}
+
 async fn session_sender(
     state: &RealtimeTranscriptionState,
     session_id: &str,

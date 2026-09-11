@@ -1,3 +1,4 @@
+import type { ModelChoicesLoader, TurnModelSelection } from '../models/modelChoices';
 export type LiveProtocol = 'openAiRealtime' | 'geminiLive' | 'qwenRealtime';
 export type LivePhase = 'connecting' | 'listening' | 'analyzing' | 'stopping' | 'stopped' | 'error';
 export interface LiveEntry { id: string; role: string; text: string; atMs: number; complete: boolean }
@@ -10,6 +11,7 @@ export interface LiveSnapshot {
 export interface LiveRecord { snapshot: LiveSnapshot; summary: string | null }
 export interface LiveConnection { id: string; name: string; model: string; isDefault: boolean; nativeProtocols: LiveProtocol[]; vision: 'supported' | 'unsupported' | 'unknown' }
 export interface StartLiveRequest {
+  modelSelection?: TurnModelSelection | null;
   connectionId: string; protocol: LiveProtocol | null; nativeModel: string | null; nativeEndpoint: string | null;
   microphone: boolean; images: boolean; purpose: string; intervalSeconds: number;
 }
@@ -19,15 +21,19 @@ export type LiveEvent = { sessionId: string; sequence: number } & (
   { type: 'entry'; entry: LiveEntry } | { type: 'metrics'; metrics: LiveMetrics }
 );
 export interface LiveTransport {
+  /** Ordered sends that may await acknowledgements concurrently (desktop defaults to one). */
+  audioWindow?: number;
+  recoverAudio?: () => void;
   connection?(listener: (state: 'connected' | 'reconnecting' | 'closed') => void): () => void;
   isTransientError?(error: unknown): boolean;
   connections(): Promise<LiveConnection[]>;
+  models?: ModelChoicesLoader;
   start(request: StartLiveRequest): Promise<LiveSnapshot>;
   snapshot(sessionId: string): Promise<LiveSnapshot>;
   frame(sessionId: string, mimeType: string, data: string): Promise<void>;
   audio(sessionId: string, data: Uint8Array): Promise<void>;
   stop(sessionId: string): Promise<LiveSnapshot>;
-  summarize(sessionId: string, connectionId: string): Promise<LiveRecord>;
+  summarize(sessionId: string, connectionId: string, modelSelection?: TurnModelSelection | null): Promise<LiveRecord>;
   list(): Promise<LiveRecordRef[]>;
   load(sessionId: string): Promise<LiveRecord>;
   subscribe(listener: (event: LiveEvent) => void): Promise<() => void>;

@@ -36,7 +36,7 @@ function basename(path: string): string {
 }
 
 export function FileBadge({ path, className = '' }: FileBadgeProps) {
-  const { openFilePreview } = useFilePreview();
+  const { openFilePreview, remote } = useFilePreview();
   const safePath = path.trim();
   if (!isAbsoluteFileSystemPath(safePath)) return null;
 
@@ -48,7 +48,9 @@ export function FileBadge({ path, className = '' }: FileBadgeProps) {
   const handleClick = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.altKey) {
+    if (remote) {
+      openFilePreview(safePath);
+    } else if (e.altKey) {
       showInFileExplorer(safePath);
     } else if (!dir && canPreviewInApp(safePath) && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
       openFilePreview(safePath);
@@ -60,7 +62,7 @@ export function FileBadge({ path, className = '' }: FileBadgeProps) {
   const handleContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    showInFileExplorer(safePath);
+    if (remote) openFilePreview(safePath); else showInFileExplorer(safePath);
   };
 
   return (

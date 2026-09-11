@@ -1049,7 +1049,7 @@ export function AgentConfigForm({
                   : provider === "google"
                     ? "gemini-2.5-pro"
                     : provider === "deep_seek"
-                      ? "deepseek-v4-pro"
+                      ? "deepseek-flash"
                       : provider === "ollama"
                         ? "llama3.1"
                         : provider === "lm_studio"

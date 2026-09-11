@@ -3,7 +3,9 @@
 mod cache_observation;
 pub mod goal;
 pub mod memory;
+mod model_selection;
 mod remote_views;
+pub use model_selection::TurnModelSelection;
 pub mod summarizer;
 
 pub use goal::{ConversationGoal, ConversationGoalStatus};

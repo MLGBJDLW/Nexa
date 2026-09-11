@@ -30,6 +30,7 @@ interface ConnectionOptions {
   lan: boolean;
   quickTunnel: boolean;
   publicUrl: string;
+  publicProvider: 'auto' | 'localhostRun' | 'pinggy' | 'cloudflare';
 }
 let cachedPairing: Pairing | null = null;
 function savedOptions(): ConnectionOptions {
@@ -38,10 +39,11 @@ function savedOptions(): ConnectionOptions {
       lan: true,
       quickTunnel: true,
       publicUrl: '',
+      publicProvider: 'auto',
       ...JSON.parse(localStorage.getItem('nexa.remote.options') || '{}'),
     };
   } catch {
-    return { lan: true, quickTunnel: true, publicUrl: '' };
+    return { lan: true, quickTunnel: true, publicUrl: '', publicProvider: 'auto' };
   }
 }
 export function RemoteAccessPage() {
@@ -52,6 +54,7 @@ export function RemoteAccessPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [pairingEndpoint, setPairingEndpoint] = useState('auto');
   const [now, setNow] = useState(Date.now());
   const cancelled = useRef(false);
   const actionPending = useRef(false);
@@ -73,8 +76,8 @@ export function RemoteAccessPage() {
     ? Math.max(0, Math.ceil((Date.parse(pairing.pairing.expiresAt) - now) / 1000))
     : 0;
   const connectedView = pairingComplete || (!pairing && Boolean(status?.devices.length));
-  async function newCode() {
-    const next = await invoke<Pairing>('remote_pairing_cmd');
+  async function newCode(endpoint = pairingEndpoint) {
+    const next = await invoke<Pairing>('remote_pairing_cmd', { endpointUrl:endpoint === 'auto' ? null : endpoint });
     cachedPairing = next;
     await refreshRemoteStatus();
     if (mounted.current) setPairing(next);
@@ -199,7 +202,7 @@ export function RemoteAccessPage() {
           role="status"
           className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6"
         >
-          {status.warning}
+          {status.warning === 'remote_public_reconnecting' ? t('remote.publicReconnecting') : status.warning}
         </p>
       )}
       <div className="grid items-start gap-7 md:grid-cols-[minmax(0,1fr)_340px]">
@@ -314,6 +317,16 @@ export function RemoteAccessPage() {
                   </span>
                 </label>
                 <label className="block space-y-2 text-sm">
+                  <span>{t('remote.publicProvider')}</span>
+                  <select className={remoteField} value={options.publicProvider} onChange={event => setOptions(current => ({ ...current, publicProvider:event.target.value as ConnectionOptions['publicProvider'] }))}>
+                    <option value="auto">{t('remote.automaticProvider')}</option>
+                    <option value="localhostRun">localhost.run</option>
+                    <option value="pinggy">Pinggy</option>
+                    <option value="cloudflare">Cloudflare</option>
+                  </select>
+                  <p className="text-xs leading-6 text-text-secondary">{t('remote.autoNetworkHint')}</p>
+                </label>
+                <label className="block space-y-2 text-sm">
                   <span>{t('remote.fixedUrl')}</span>
                   <input
                     className={remoteField}
@@ -332,6 +345,14 @@ export function RemoteAccessPage() {
                 <p className="text-xs leading-6 text-text-secondary">{t('remote.fixedHint')}</p>
               </fieldset>
               {enabled && <p className="text-xs text-text-tertiary">{t('remote.stopToChange')}</p>}
+              {!!status?.publicRoutes?.length && <div className="space-y-2" data-testid="remote-network-diagnostics">
+                <h3 className="text-sm font-medium">{t('remote.networkDiagnostics')}</h3>
+                {status.publicRoutes.map(route => <div key={route.provider} className="rounded-lg border border-border p-3 text-xs">
+                  <div className="flex justify-between gap-2"><span>{route.provider === 'localhostRun' ? 'localhost.run' : route.provider === 'pinggy' ? 'Pinggy' : 'Cloudflare'}</span><span>{t(`remote.route_${route.phase}`)}</span></div>
+                  {route.latencyMs != null && <p className="mt-1 text-text-secondary">{t('remote.probeTime', { ms:route.latencyMs })}</p>}
+                  {route.error && <p className="mt-1 break-words text-text-tertiary">{route.error.startsWith('public_') ? t('remote.routeUnavailable') : route.error}</p>}
+                </div>)}
+              </div>}
               <p className="text-xs leading-6 text-text-secondary">{t('remote.sshHint')}</p>
               {status?.manifest?.endpoints.map((endpoint) => (
                 <div
@@ -357,6 +378,15 @@ export function RemoteAccessPage() {
             {connectedView ? t('remote.connectionComplete') : t('remote.scan')}
           </div>
           <div className="space-y-4 p-5">
+            {enabled && !connectedView && <label className="block space-y-2 text-left text-xs text-text-secondary">
+              <span>{t('remote.pairingRoute')}</span>
+              <select className={remoteField} value={pairingEndpoint} disabled={busy} onChange={event => {
+                const endpoint = event.target.value; setPairingEndpoint(endpoint); void act(() => newCode(endpoint));
+              }}>
+                <option value="auto">{t('remote.automaticProvider')}</option>
+                {status?.manifest?.endpoints.filter(endpoint => endpoint.kind !== 'ssh').map(endpoint => <option value={endpoint.url} key={endpoint.url}>{endpoint.kind === 'lan' ? t('remote.lan') : t('remote.away')} · {endpoint.url}</option>)}
+              </select>
+            </label>}
             {connectedView ? (
               <div className="space-y-4 py-5">
                 <div className="relative mx-auto grid h-24 w-24 place-items-center rounded-3xl bg-emerald-500/8 text-emerald-500">

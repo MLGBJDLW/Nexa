@@ -15,6 +15,37 @@ async function run() {
   unblock(); await Promise.resolve(); await Promise.resolve();
   check(sent.length === 1 && failures === 1, 'overflow discards backlog and reports once');
   check(!queue.append(new Uint8Array([0,0])), 'closed capture cannot resume after the sink recovers');
+  const pipelined: number[] = [];
+  const acknowledgements: Array<() => void> = [];
+  const network = new LiveAudioQueue(2, chunk => {
+    pipelined.push(chunk[0]);
+    return new Promise<void>(resolve => acknowledgements.push(resolve));
+  }, () => { throw new Error('healthy remote acknowledgements must not overflow'); }, 4);
+  for (let i = 0; i < 6; i++) network.append(new Uint8Array([i, i]));
+  check(pipelined.join(',') === '0,1,2,3', 'network window sends ordered PCM without waiting for one RTT per packet');
+  acknowledgements[2](); await new Promise(resolve => setTimeout(resolve, 0));
+  check(pipelined.join(',') === '0,1,2,3,4', 'an acknowledgement releases exactly one bounded slot');
+  network.pause(); acknowledgements[0](); await new Promise(resolve => setTimeout(resolve, 0));
+  network.resume(); network.append(new Uint8Array([7, 7]));
+  check(pipelined.join(',') === '0,1,2,3,4,7', 'route changes discard queued stale PCM without reordering new audio');
+  network.close(); acknowledgements.forEach(ack => ack());
+  let reconnects = 0;
+  const recoveryPackets: number[] = [];
+  let releaseStall!: () => void;
+  const stalledNetwork = new LiveAudioQueue(2, async bytes => { recoveryPackets.push(bytes[0]); await new Promise<void>(resolve => { releaseStall = resolve; }); },
+    () => { throw new Error('network congestion must reconnect instead of terminating Live'); }, 1, () => { reconnects++; });
+  for (let i = 0; i < 10; i++) check(stalledNetwork.append(new Uint8Array([i,i])), 'overloaded remote capture remains resumable');
+  check(reconnects === 1, 'a full remote queue enters the reconnect protocol exactly once');
+  releaseStall(); await new Promise(resolve => setTimeout(resolve, 0));
+  stalledNetwork.resume(); stalledNetwork.append(new Uint8Array([42,42]));
+  check(recoveryPackets.join(',') === '0,42', 'reconnection discards old audio and resumes with fresh PCM');
+  releaseStall(); stalledNetwork.close();
+  const tail: number[][] = [];
+  const finalPacket = new LiveAudioQueue(4, async bytes => { tail.push([...bytes]); }, () => { throw new Error('tail delivery failed'); });
+  finalPacket.append(new Uint8Array([1, 2]));
+  await finalPacket.finish();
+  check(tail.length === 1 && tail[0].join(',') === '1,2', 'dictation finalization delivers short terminal PCM before asking the provider to finish');
+  check(!finalPacket.append(new Uint8Array([3,4])), 'finished audio cannot accept later capture samples');
   const resumedPackets: number[] = [];
   const resumable = new LiveAudioQueue(2, async chunk => { resumedPackets.push(chunk[0]); }, () => { throw new Error('pause must not become a terminal capture failure'); });
   const recorder = new TerminalPcmDelivery(chunk => resumable.append(chunk));

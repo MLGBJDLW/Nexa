@@ -279,6 +279,9 @@ pub struct StartTurnRequest {
     pub attachments: Vec<ImageAttachment>,
     #[serde(default)]
     pub agent_config_id: Option<String>,
+    /// Per-turn model/reasoning choice. Credentials and endpoint stay host-owned.
+    #[serde(default)]
+    pub model_selection: Option<crate::conversation::TurnModelSelection>,
     #[serde(default)]
     pub persona_id: Option<String>,
     #[serde(default)]

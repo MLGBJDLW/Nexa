@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { RemoteManifest } from './remoteClient';
 export interface RemoteDesktopStatus {
+  publicRoutes?: { provider:'localhostRun' | 'pinggy' | 'cloudflare'; phase:'connecting' | 'checking' | 'standby' | 'ready' | 'retrying' | 'stopped'; urls:string[]; latencyMs:number | null; error:string | null }[];
   enabled: boolean;
   preparing: boolean;
   connectedDeviceIds: string[];

@@ -4,7 +4,9 @@ import { MobileApp } from './features/remote/MobileApp';
 import '@fontsource-variable/inter';
 import './index.css';
 import './features/remote/remote.css';
-document.documentElement.classList.add('theme-light');
+import { applyTheme, getInitialTheme } from './lib/theme';
+import 'katex/dist/katex.min.css';
+applyTheme(getInitialTheme());
 document.documentElement.dataset.remote = 'true';
 createRoot(document.getElementById('root')!).render(
   <I18nProvider>

@@ -927,7 +927,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"deepseek-v4-pro"));
+        assert_eq!(ids.first(), Some(&"deepseek-flash"));
         assert!(ids.contains(&"deepseek-v4-flash"));
         assert!(!ids.contains(&"deepseek-reasoner"));
         assert!(!ids.contains(&"deepseek-chat"));
@@ -954,12 +954,17 @@ mod tests {
         );
         for model in [pro, flash, vision] {
             assert!(
-                model
-                    .native_web_search
-                    .expect("current DeepSeek V4 models should expose Responses search")
-                    .can_mix_client_tools
+                model.native_web_search.is_none(),
+                "Responses built-in tools are no longer supported"
             );
         }
+        let current = deepseek
+            .models
+            .iter()
+            .find(|model| model.id == "deepseek-flash")
+            .unwrap();
+        assert_eq!(current.capabilities.as_ref().unwrap().vision, Some(true));
+        assert_eq!(current.status, Some(ModelLifecycleStatus::Active));
         let reasoning = pro
             .capabilities
             .as_ref()

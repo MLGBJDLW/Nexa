@@ -132,20 +132,34 @@ pub fn prepare_messages_with_options(
         .saturating_sub(context_safety_buffer(max_context));
     let system_prompt_budget = system_prompt_char_budget(effective_context, max_tokens_response);
     let skill_index_budget = skill_prompt_char_budget(max_context, system_prompt_budget);
+    // Reserve a route-sized skill lane before rendering any query-dependent
+    // skills. Their current length must not move the policy truncation point,
+    // otherwise loading a skill rewrites the cached prefix of every request.
+    let reserved_skill_budget = if options.include_skill_system_prompt {
+        skill_index_budget.max(system_prompt_budget / 4)
+    } else {
+        0
+    };
+    let stable_system_prompt = cap_text_to_chars(
+        system_prompt.to_string(),
+        stable_system_prompt_char_budget(system_prompt_budget, reserved_skill_budget),
+        "\n...[truncated]",
+    );
     // Loaded skills are executable workflow instructions, not catalog metadata.
     // Prefer their complete bodies and spend only the remaining prompt budget on
     // the available-skill index. This mirrors progressive disclosure: the index
     // stays compact, while an activated skill is normally loaded in full.
-    let stable_prompt_floor = MIN_SYSTEM_PROMPT_CHARS.min(system_prompt_budget / 2);
-    let loaded_skills_budget = system_prompt_budget.saturating_sub(stable_prompt_floor);
+    // A short policy lends unused capacity to loaded workflows; this flow is
+    // one-way so the current workflow can never shorten the stable policy.
+    let loaded_skills_budget =
+        system_prompt_budget.saturating_sub(stable_system_prompt.chars().count());
     let loaded_skills_section = if options.include_skill_system_prompt {
         crate::skills::build_loaded_skills_section_with_budget(loaded_skills, loaded_skills_budget)
     } else {
         String::new()
     };
-    let remaining_skill_budget = system_prompt_budget
-        .saturating_sub(stable_prompt_floor)
-        .saturating_sub(loaded_skills_section.len())
+    let remaining_skill_budget = loaded_skills_budget
+        .saturating_sub(loaded_skills_section.chars().count())
         .min(skill_index_budget);
     let available_skills_section = if options.include_skill_system_prompt {
         crate::skills::build_skills_section_for_query_with_budget(
@@ -156,14 +170,6 @@ pub fn prepare_messages_with_options(
     } else {
         String::new()
     };
-    let volatile_skill_budget = available_skills_section
-        .len()
-        .saturating_add(loaded_skills_section.len());
-    let stable_system_prompt = cap_text_to_chars(
-        system_prompt.to_string(),
-        stable_system_prompt_char_budget(system_prompt_budget, volatile_skill_budget),
-        "\n...[truncated]",
-    );
     let runtime_section = format!(
         "## Runtime Context\nCurrent date: {} (UTC)",
         Utc::now().format("%Y-%m-%d")
@@ -1011,6 +1017,46 @@ mod tests {
         assert!(!first[0].text_content().contains("Available Skills"));
         assert!(first[1].text_content().contains("Fiction Writing"));
         assert!(second[1].text_content().contains("Spreadsheet Analysis"));
+    }
+
+    #[test]
+    fn long_policy_prefix_is_stable_when_loaded_skill_size_changes() {
+        let policy = "Mandatory unchanged policy. ".repeat(12_000);
+        let mut selected = skill("selected", "Selected workflow", "A selected workflow");
+        selected.content = format!("{}END_OF_WORKFLOW", "step ".repeat(4_800));
+        let user = [ContentPart::Text {
+            text: "Keep this current request".into(),
+        }];
+        let prepare = |loaded: &[Skill]| {
+            prepare_messages_with_options(
+                &policy,
+                &[],
+                &user,
+                "deepseek-flash",
+                4096,
+                Some(128_000),
+                &[],
+                loaded,
+                &[],
+                PrepareMessagesOptions {
+                    append_volatile_system_prompt_to_tail: true,
+                    ..Default::default()
+                },
+            )
+        };
+        let before = prepare(&[]);
+        let after = prepare(&[selected]);
+        assert_eq!(
+            before[0].text_content().len(),
+            after[0].text_content().len(),
+            "loaded skills must not change the policy truncation point"
+        );
+        assert_eq!(before[0].text_content(), after[0].text_content());
+        assert!(after
+            .iter()
+            .any(|message| message.text_content().contains("END_OF_WORKFLOW")));
+        assert!(after.iter().any(|message| message.role == Role::User
+            && message.text_content() == "Keep this current request"));
     }
 
     #[test]

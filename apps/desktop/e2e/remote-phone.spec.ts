@@ -8,7 +8,7 @@ test.use({
     ],
   },
 });
-async function fixture(page: Page, publicProbeDelayMs = 0) {
+async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) {
   let lan = true;
   let away = true;
   let socket: WebSocketRoute | null = null;
@@ -17,9 +17,16 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
   let frames = 0;
   let starts = 0;
   let stopped = 0;
+  let sockets = 0;
   let uncertainStart = false;
   const launches: string[] = [];
   const actions: any[] = [];
+  let preferences: any = null;
+  const htmlPreviews = new Map<string, string>();
+  await page.route(url => url.pathname.startsWith('/preview/'), route => route.fulfill({ contentType:'text/html', headers:{ 'content-security-policy':"sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'" }, body:htmlPreviews.get(new URL(route.request().url()).pathname) || '' }));
+  let voiceId = '';
+  let voiceText = '';
+  let voiceSequence = 0;
   let historyEnabled = false;
   let holdLaunch = false;
   const historyReplies: Array<() => void> = [];
@@ -109,6 +116,33 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
       const { id, method, params } = request.postDataJSON();
       let value: unknown = null;
       switch (method) {
+        case 'files.preview':
+          actions.push({method, params});
+          value = { path:params.path, displayName:'result.html', extension:'.html', kind:'text', language:'html', content:'<button id="counter">Count 0</button><script>let count=0; document.getElementById("counter").onclick=()=>document.getElementById("counter").textContent="Count "+(++count); try { parent.localStorage.getItem("nexa"); document.body.dataset.isolated="false"; } catch { document.body.dataset.isolated="true"; }</script>' };
+          break;
+        case 'files.data':
+          actions.push({method, params});
+          value = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+          break;
+        case 'preview.html':
+          actions.push({method, params}); value = '/preview/example'; htmlPreviews.set('/preview/example', params.html); break;
+        case 'voice.start':
+          voiceId = params.requestId;
+          actions.push({method, params});
+          value = { sessionId:voiceId, sampleRate:16000 };
+          break;
+        case 'voice.finish':
+          actions.push({method, params});
+          value = { text:voiceText };
+          break;
+        case 'voice.cancel': actions.push({method, params}); break;
+        case 'connection.preferences': value = preferences; break;
+        case "models.list":
+          value = { connectionId: params.connectionId, discoverySucceeded: true, error: null, models: [
+            { id: 'qwen-vl', name: 'Qwen VL', vision: true, reasoning: null },
+            { id: 'qwen-plus', name: 'Qwen Plus', vision: true, reasoning: { mode:'optional', effortLevels:['low', 'high'] } },
+          ] };
+          break;
         case "connections.list":
           value = [
             { id: "qwen", name: "Qwen", model: "qwen-vl", isDefault: true },
@@ -177,6 +211,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
           };
           break;
         case "chat.start":
+          actions.push({ method, params });
           launches.push(params.idempotencyKey);
           if (holdLaunch)
             await new Promise<void>((resolve) => launchReplies.push(resolve));
@@ -224,6 +259,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
             : [];
           break;
         case "live.start":
+          actions.push({ method, params });
           starts++;
           value = live;
           break;
@@ -260,6 +296,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
           value = live;
           break;
         case "live.summarize":
+          actions.push({ method, params });
           value = {
             snapshot: live,
             summary:
@@ -275,6 +312,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
     await route.fulfill({ headers, body: JSON.stringify(result) });
   });
   await page.routeWebSocket("**/api/events", (ws) => {
+    sockets++;
     socket = ws;
     ws.onMessage((message) => {
       if (message === "ping") {
@@ -289,17 +327,18 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
             payload: { device: { id: "phone-1" }, manifest },
           }),
         );
-      else if (input.method === "live.audio") {
+      else if (input.method === "live.audio" || input.method === 'voice.audio') {
         audio++;
-        expect(Buffer.from(input.params.data, "base64").length).toBeGreaterThan(
-          1000,
-        );
-        ws.send(
+        const bytes = Buffer.from(input.params.data, "base64").length;
+        // Dictation flushes a final partial PCM packet before voice.finish.
+        expect(bytes).toBeGreaterThan(input.method === 'voice.audio' ? 0 : 1000);
+        expect(bytes % 2).toBe(0);
+        setTimeout(() => ws.send(
           JSON.stringify({
             event: "connection:ack",
             payload: { id: input.id },
           }),
-        );
+        ), audioAckDelayMs);
       }
     });
   });
@@ -323,12 +362,22 @@ async function fixture(page: Page, publicProbeDelayMs = 0) {
       );
   };
   return {
+    backupRoute: () => { manifest.endpoints.push({url:'https://nexa-backup.test',kind:'tunnel'}); },
+    audioDelay: (delay: number) => { audioAckDelayMs = delay; },
+    leaveLan: () => { lan = false; socket?.close({code:1001}); },
+    connectedUrl: () => socket?.url(),
+    dictation: (text: string) => {
+      voiceText = text;
+      socket?.send(JSON.stringify({event:'voice:event',payload:{sessionId:voiceId,sequence:++voiceSequence,kind:'interim',text}}));
+    },
+    preferences: (value: any) => { preferences = value; },
     counts: () => ({
       pairCount,
       audio,
       frames,
       starts,
       stopped,
+      sockets,
       launches,
       actions,
     }),
@@ -463,6 +512,148 @@ test("phone resumes the latest desktop run after missing its launch while offlin
     0,
   );
 });
+test('automatic route selection reaches a fast backup without waiting for a stalled public route', async ({ page }) => {
+  const app = await fixture(page, 6000);
+  app.backupRoute();
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await expect(page.getByRole('button',{name:'Local network',exact:true})).toBeVisible();
+  app.leaveLan();
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect.poll(() => app.connectedUrl(), {timeout:3000}).toBe('wss://nexa-backup.test/api/events');
+  await expect(page.getByRole('button',{name:'Public connection',exact:true})).toBeVisible();
+});
+
+test('phone dictation edits the composer live and retains manual corrections through finalization', async ({ page, context }) => {
+  await context.grantPermissions(['microphone']);
+  const app = await fixture(page, 0, 350);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  const draft = page.getByLabel('Message', {exact:true});
+  await draft.fill('写下：');
+  await page.getByRole('button', {name:'Voice input',exact:true}).click();
+  await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
+  app.dictation('今天天气很好');
+  await expect(draft).toHaveValue('写下： 今天天气很好');
+  await draft.fill('写下： 明天天气很好');
+  app.dictation('今天天气很好啊');
+  await expect(draft).toHaveValue('写下： 明天天气很好啊');
+  await page.getByRole('button', {name:'Finish dictation',exact:true}).click();
+  await expect.poll(() => app.counts().actions.some(item => item.method === 'voice.finish')).toBe(true);
+  await expect(page.getByRole('button', {name:'Voice input',exact:true})).toBeEnabled();
+  await expect(draft).toHaveValue('写下： 明天天气很好啊');
+  await expect.poll(() => page.evaluate(() => (window as any).__remoteTracks.every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('phone renders Markdown, code, formulas and diagrams from the desktop run', async ({ page }, testInfo) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation',{exact:true}).selectOption('chat-1');
+  const content = '# Remote result\n\n| Item | Count |\n|---|---|\n| Done | 3 |\n\n```typescript\nconst answer = 42;\n```\n\n$E = mc^2$\n\n```mermaid\ngraph LR\n A[Phone] --> B[Desktop]\n```';
+  app.emit('outputSnapshot', {blockId:'answer',channel:'answer',text:content});
+  await expect(page.getByRole('heading',{name:'Remote result'})).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(1);
+  await expect(page.locator('.katex').first()).toBeVisible();
+  // Streaming diagrams intentionally defer execution until the model finishes.
+  await expect(page.locator('[data-testid="mermaid-surface"]')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path:testInfo.outputPath('phone-chat.png'), fullPage:true });
+});
+
+test('phone sends attachments and execution choices with an idempotent retry', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Attach files', {exact:true}).setInputFiles({ name:'brief.txt', mimeType:'text/plain', buffer:Buffer.from('Review the product brief') });
+  await expect(page.getByText('brief.txt', {exact:true})).toBeVisible();
+  await page.getByLabel('Execution mode', {exact:true}).selectOption('plan');
+  await page.getByLabel('Nexus', {exact:true}).check();
+  app.uncertain();
+  await page.getByRole('button', {name:'Send',exact:true}).click();
+  await expect.poll(() => app.counts().actions.filter(item => item.method === 'chat.start').length).toBe(2);
+  const requests = app.counts().actions.filter(item => item.method === 'chat.start').map(item => item.params);
+  expect(requests[0]).toEqual(requests[1]);
+  expect(requests[0]).toMatchObject({ executionMode:'plan', powerMode:'nexus', attachments:[{originalName:'brief.txt',base64Data:Buffer.from('Review the product brief').toString('base64')}] });
+  await expect(page.getByText('brief.txt', {exact:true})).toHaveCount(0);
+});
+
+test('phone previews local images and interactive HTML without exposing the paired page', async ({ page }, testInfo) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation', {exact:true}).selectOption('chat-1');
+  app.emit('outputSnapshot', {blockId:'answer',channel:'answer',text:'![Local result](C:/reports/result.png)\n\n[Open report](C:/reports/result.html)'});
+  await expect.poll(() => app.counts().actions.some(item => item.method === 'files.data')).toBe(true);
+  await page.getByRole('button', {name:'Open report',exact:true}).click();
+  const frame = page.frameLocator('iframe[title="result.html"]');
+  await expect(frame.getByRole('button', {name:'Count 0',exact:true})).toBeVisible();
+  await frame.getByRole('button', {name:'Count 0',exact:true}).click();
+  await expect(frame.getByRole('button', {name:'Count 1',exact:true})).toBeVisible();
+  await expect(frame.locator('body')).toHaveAttribute('data-isolated','true');
+  expect(await page.locator('iframe').getAttribute('sandbox')).toBe('allow-scripts');
+  await expect(page.getByRole('dialog')).toHaveCSS('position','fixed');
+  await page.screenshot({ path:testInfo.outputPath('phone-html-preview.png') });
+  await page.getByRole('button', {name:'Close',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('phone follows desktop theme and language with persistent independent overrides', async ({ page }) => {
+  const app = await fixture(page);
+  app.preferences({ locale:'zh-CN', appearance:{ version:2, initialized:true, revision:1, activeThemeId:'dream', plugins:[] } });
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await expect(page.locator('html')).toHaveClass(/theme-dream/);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+  await page.getByRole('button', { name:'局域网', exact:true }).click();
+  await page.getByLabel('皮肤', {exact:true}).selectOption('light');
+  await page.getByLabel('语言', {exact:true}).selectOption('en');
+  await expect(page.locator('html')).toHaveClass(/theme-light/);
+  await page.reload();
+  await expect(page.locator('html')).toHaveClass(/theme-light/);
+  await expect(page.locator('html')).toHaveAttribute('lang','en');
+});
+
+test("remote Chat and Live choose provider models independently of saved desktop defaults", async ({ page, context }) => {
+  await context.grantPermissions(["microphone"]);
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Model connection', { exact:true }).selectOption('qwen-plus');
+  await page.getByLabel('Model connection · Reasoning Effort', { exact:true }).selectOption('high');
+  await page.getByLabel('Message', { exact:true }).fill('Use the newly selected model');
+  await page.getByRole('button', { name:'Send', exact:true }).click();
+  await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'qwen-plus', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null });
+  await page.getByRole('button', { name:'Live', exact:true }).click();
+  await page.getByLabel('Observation model', { exact:true }).selectOption('qwen-plus');
+  await page.getByLabel('Summary model', { exact:true }).selectOption('qwen-vl');
+  await page.getByRole('button', { name:'Start Live', exact:true }).click();
+  await expect.poll(() => app.counts().actions.find(item => item.method === 'live.start')?.params.request.modelSelection?.model).toBe('qwen-plus');
+  await page.getByRole('button', { name:'Stop capture', exact:true }).click();
+});
+
+test("remote Live sustains microphone capture with 350 ms acknowledgement latency", async ({ page, context }) => {
+  await context.grantPermissions(["microphone"]);
+  const app = await fixture(page, 0, 350);
+  await page.goto("/phone.html#pair=123456&server=desktop-1");
+  await page.getByRole("button", { name: "Live", exact: true }).click();
+  await page.getByRole("button", { name: "Start Live", exact: true }).click();
+  await expect.poll(() => app.counts().audio, { timeout: 7000 }).toBeGreaterThan(35);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stop capture", exact: true })).toBeVisible();
+  expect(app.counts().starts).toBe(1);
+  await page.getByRole("button", { name: "Stop capture", exact: true }).click();
+});
+
+test('remote Live reconnects a stalled audio route without a terminal backpressure error', async ({ page, context }) => {
+  await context.grantPermissions(['microphone']);
+  const app = await fixture(page, 0, 6000);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByRole('button', {name:'Live',exact:true}).click();
+  await page.getByRole('button', {name:'Start Live',exact:true}).click();
+  await expect.poll(() => app.counts().sockets, {timeout:8000}).toBeGreaterThan(1);
+  app.audioDelay(0);
+  const audio = app.counts().audio;
+  await expect.poll(() => app.counts().audio).toBeGreaterThan(audio + 5);
+  expect(app.counts().starts).toBe(1); expect(app.counts().stopped).toBe(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', {name:'Stop capture',exact:true}).click();
+});
+
 test("phone microphone and camera pause across a route change then resume the same Live session", async ({
   page,
   context,

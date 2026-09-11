@@ -1,6 +1,7 @@
 //! Authenticated browser access to an explicitly exposed host surface.
 mod auth;
 mod protocol;
+pub mod public_access;
 mod server;
 pub mod tls;
 pub mod tunnel;

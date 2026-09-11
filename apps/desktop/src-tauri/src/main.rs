@@ -707,6 +707,7 @@ fn main() {
             });
             app.manage(ApprovalState::default());
             app.manage(RealtimeTranscriptionState::default());
+            app.manage(commands::remote_voice::RemoteVoiceState::default());
             app.manage(commands::LiveState::default());
             app.manage(preview_tool::PreviewBridgeState::default());
             app.manage(commands::TerminalState::default());
@@ -1089,6 +1090,7 @@ fn main() {
             commands::cancel_voice_audio_spool_cmd,
             commands::start_realtime_transcription_cmd,
             commands::live_connections_cmd,
+            commands::model_choices::model_choices_cmd,
             commands::start_live_cmd,
             commands::live_snapshot_cmd,
             commands::live_frame_cmd,

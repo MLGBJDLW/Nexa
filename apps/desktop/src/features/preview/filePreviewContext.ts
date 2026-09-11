@@ -1,8 +1,13 @@
 import { createContext, useContext } from 'react';
+import type { getEvidenceCard } from '../../lib/api';
 
 interface FilePreviewContextValue {
   openFilePreview: (path: string) => void;
   openWebLink: (url: string, title?: string) => void;
+  resolveFileUrl?: (path: string) => Promise<string>;
+  loadEvidence?: typeof getEvidenceCard;
+  openCodePreview?: (code: string, language: string) => void;
+  remote?: boolean;
 }
 
 export const FilePreviewContext = createContext<FilePreviewContextValue>({

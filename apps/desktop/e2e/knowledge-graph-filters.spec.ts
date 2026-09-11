@@ -34,11 +34,17 @@ async function selectNexaOption(trigger: Locator, value: string) {
 }
 
 async function expectVerticallyCentered(container: Locator, icon: Locator) {
-  const [containerBox, iconBox] = await Promise.all([container.boundingBox(), icon.boundingBox()]);
-  if (!containerBox || !iconBox) throw new Error('Missing icon geometry');
-  const containerCenter = containerBox.y + containerBox.height / 2;
-  const iconCenter = iconBox.y + iconBox.height / 2;
-  expect(Math.abs(containerCenter - iconCenter)).toBeLessThanOrEqual(1);
+  const iconElement = await icon.elementHandle();
+  if (!iconElement) throw new Error('Missing icon geometry');
+  try {
+    // Sample both rectangles in one frame and let entry motion settle; separate
+    // browser calls can measure opposite sides of the one-pixel tolerance.
+    await expect.poll(() => container.evaluate((element, icon) => {
+      const outer = element.getBoundingClientRect();
+      const inner = icon.getBoundingClientRect();
+      return Math.abs(outer.y + outer.height / 2 - inner.y - inner.height / 2);
+    }, iconElement)).toBeLessThanOrEqual(1);
+  } finally { await iconElement.dispose(); }
 }
 
 test.beforeEach(async ({ page }) => {
