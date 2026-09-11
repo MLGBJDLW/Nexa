@@ -97,6 +97,12 @@ boundaries where appropriate; they do not prove native device or provider
 acceptance. The critical CI spec sets are listed in
 [ci.yml](.github/workflows/ci.yml).
 
+Browser CI uses the [official Playwright container](https://playwright.dev/docs/docker)
+with preinstalled browsers and system dependencies. Its version and digest are
+pinned; update the image together with the locked Playwright dependency.
+The release-workflow contract check rejects a version mismatch. Local browser
+installation commands above remain applicable outside that container.
+
 For Rust changes, from the repository root:
 
 ```bash
