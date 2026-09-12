@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.2...nexa-monorepo-v0.14.3) (2026-09-12)
+
+
+### Features
+
+* add context handoff and improve phone, theme, and model reliability ([6147c3f](https://github.com/MLGBJDLW/Nexa/commit/6147c3fc24c628ec49d1ce41572d1f080caee38b))
+* **context:** add verified local history handoff as an optional mode ([573ec05](https://github.com/MLGBJDLW/Nexa/commit/573ec050c15aa6fdbe7f3a0d272873f26970e34d))
+
+
+### Bug Fixes
+
+* **knowledge:** derive graph colors from custom theme palettes ([6d71530](https://github.com/MLGBJDLW/Nexa/commit/6d7153083bdb9970508e2887b1830ca7b98768b9))
+* **models:** enforce endpoint retirements and update Kimi availability ([955f300](https://github.com/MLGBJDLW/Nexa/commit/955f3000ca4d8ac7e3453a990c2ccd5b7196bec7))
+* **remote:** recover phone runs and dictation across interrupted routes ([c9c4a31](https://github.com/MLGBJDLW/Nexa/commit/c9c4a318c6407426fbd07f18fc9b85fe1e0f9df0))
+
 ## [0.14.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.1...nexa-monorepo-v0.14.2) (2026-09-11)
 
 
