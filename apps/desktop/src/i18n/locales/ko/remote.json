@@ -130,5 +130,14 @@
   "collaboration": "여러 에이전트",
   "download": "다운로드",
   "activity": "추론 및 도구",
-  "route_checking": "연결 검증 중…"
+  "route_checking": "연결 검증 중…",
+  "thinking": "생각 과정",
+  "runCompleted": "완료",
+  "runCancelled": "중지됨",
+  "runFailed": "작업 실패",
+  "runPaused": "일시 중지",
+  "runWaitingInput": "답변 대기 중",
+  "runWaitingApproval": "승인 대기 중",
+  "runRunning": "작업 중",
+  "voiceReconnecting": "마이크 재연결 중…입력한 텍스트는 유지됩니다."
 }

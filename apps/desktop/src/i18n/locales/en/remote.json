@@ -130,5 +130,14 @@
   "collaboration": "Multi-agent",
   "download": "Download",
   "activity": "Thinking and tools",
-  "route_checking": "Verifying route…"
+  "route_checking": "Verifying route…",
+  "thinking": "Thinking",
+  "runCompleted": "Completed",
+  "runCancelled": "Stopped",
+  "runFailed": "Run failed",
+  "runPaused": "Paused",
+  "runWaitingInput": "Waiting for your answer",
+  "runWaitingApproval": "Waiting for approval",
+  "runRunning": "Working",
+  "voiceReconnecting": "Reconnecting microphone… Your text is preserved."
 }

@@ -90,7 +90,10 @@ sent to the phone.
 Model connections and model choices come from the desktop resolver. Refresh
 available models or enter a custom ID where supported. Dictation uses the
 desktop's configured streaming speech recognition. Recognized draft text is
-preserved if capture disconnects.
+preserved if capture disconnects. A short route interruption pauses capture and
+recovers the same dictation session from an owner-scoped transcript snapshot;
+a terminal microphone or speech-provider failure is shown explicitly and lets
+the user restart dictation.
 
 Phone appearance can follow the desktop or use its own selection. Authorized
 theme assets and file previews are served through the authenticated remote
@@ -100,6 +103,15 @@ Chat submissions keep a request ID across retries to avoid launching the same
 task twice during a network change. Event sequence numbers support incremental
 recovery. Long history is paginated, and reconnect does not require sending the
 complete trace or original image data as one payload.
+
+While visible and connected, the phone reconciles the current run with the
+desktop every three seconds and on return to the foreground. Durable replay
+pages include a frozen sequence watermark, so omitted transient previews do
+not leave the phone waiting for a nonexistent event. Only the canonical final
+message for that run replaces its streamed answer. Replies, reasoning, and
+tool activity retain their sequence; completed activity can be expanded after
+the final answer. The composer has an opaque reading surface under custom
+themes.
 
 ## Live
 

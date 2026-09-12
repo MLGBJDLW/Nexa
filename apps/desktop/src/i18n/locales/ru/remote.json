@@ -130,5 +130,14 @@
   "collaboration": "Несколько агентов",
   "download": "Скачать",
   "activity": "Рассуждения и инструменты",
-  "route_checking": "Проверка маршрута…"
+  "route_checking": "Проверка маршрута…",
+  "thinking": "Размышления",
+  "runCompleted": "Завершено",
+  "runCancelled": "Остановлено",
+  "runFailed": "Ошибка задачи",
+  "runPaused": "Приостановлено",
+  "runWaitingInput": "Ожидание вашего ответа",
+  "runWaitingApproval": "Ожидание разрешения",
+  "runRunning": "В работе",
+  "voiceReconnecting": "Переподключение микрофона… Ваш текст сохранён."
 }

@@ -130,5 +130,14 @@
   "collaboration": "Mehrere Agenten",
   "download": "Herunterladen",
   "activity": "Denken und Werkzeuge",
-  "route_checking": "Verbindung wird verifiziert…"
+  "route_checking": "Verbindung wird verifiziert…",
+  "thinking": "Überlegungen",
+  "runCompleted": "Abgeschlossen",
+  "runCancelled": "Gestoppt",
+  "runFailed": "Aufgabe fehlgeschlagen",
+  "runPaused": "Pausiert",
+  "runWaitingInput": "Wartet auf Ihre Antwort",
+  "runWaitingApproval": "Wartet auf Genehmigung",
+  "runRunning": "In Arbeit",
+  "voiceReconnecting": "Mikrofon wird neu verbunden… Ihr Text bleibt erhalten."
 }

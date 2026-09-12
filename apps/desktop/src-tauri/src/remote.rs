@@ -381,6 +381,8 @@ fn project_run_event(mut event: Value) -> Value {
         "outputDelta" => &["blockId", "channel", "offset", "delta"][..],
         "outputSnapshot" => &["blockId", "channel", "text"][..],
         "streamReset" => &["reason", "discardSample"][..],
+        "done" => &["status", "assistantMessageId"][..],
+        "error" => &["message", "code"][..],
         _ => &[][..],
     };
     let mut payload = serde_json::Map::new();
@@ -448,6 +450,7 @@ impl RemoteHost for DesktopHost {
             Evidence { chunk_id } => value(commands::get_evidence_card(app.state(), chunk_id)?),
             VoiceStart { request_id } => commands::remote_voice::start(app, owner, request_id).await,
             VoiceAudio { session_id, data } => commands::remote_voice::audio(app, owner, &session_id, data).await,
+            VoiceSnapshot { session_id } => commands::remote_voice::snapshot(app, owner, &session_id),
             VoiceFinish { session_id } => commands::remote_voice::finish(app, owner, &session_id).await,
             VoiceCancel { session_id } => commands::remote_voice::cancel(app, owner, &session_id).await,
             Preferences => state.db_executor.write(|db| {
@@ -506,24 +509,12 @@ impl RemoteHost for DesktopHost {
                 commands::agent_stop_cmd(app.state(), app.state(), app.state(), app.clone(), conversation_id).await?;
                 Ok(Value::Null)
             }
-            Resume { conversation_id, run_id, after_sequence } => state.db_executor.read(move |db| {
-                let id = db.remote_latest_run(&conversation_id)?.or_else(|| run_id.clone());
-                let Some(id) = id else {
-                    return Ok(json!({"run":null,"events":[],"hasMore":false}));
-                };
-                let run = db.get_agent_task_run(&id)?;
-                if run.conversation_id != conversation_id {
-                    return Err(nexa_core::error::CoreError::NotFound("Run does not belong to this conversation".into()));
+            Resume { conversation_id, run_id, after_sequence, durable_high_water } => state.db_executor.read(move |db| {
+                let mut page = db.remote_run_page(&conversation_id, run_id.as_deref(), after_sequence.unwrap_or(0), durable_high_water)?;
+                if let Some(events) = page["events"].as_array_mut() {
+                    for event in events { *event = project_run_event(event.take()); }
                 }
-                let after = if run_id.as_deref() == Some(id.as_str()) { after_sequence.unwrap_or(0) } else { 0 };
-                let page = db.list_agent_run_event_page(&id, after, None, 128)?;
-                let events = page.events.into_iter()
-                    .map(|event| serde_json::to_value(event).map(project_run_event))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(json!({
-                    "run":{"id":run.id,"status":run.status,"turnId":run.turn_id},
-                    "events":events,"hasMore":page.has_more,"nextSequence":page.next_after_event_seq
-                }))
+                Ok(page)
             }).await.map(|result| result.value).map_err(|e| e.to_string()),
             Interactions { conversation_id } => state.db_executor
                 .remote_pending_interactions(conversation_id)

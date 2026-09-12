@@ -14,6 +14,33 @@ struct Binding {
     native_id: Option<String>,
     sample_rate: u32,
     final_text: Option<String>,
+    transcript: String,
+    sequence: u64,
+    error: Option<String>,
+}
+impl Binding {
+    fn record_event(&mut self, event: &Value) {
+        let sequence = event["sequence"].as_u64().unwrap_or(0);
+        if sequence <= self.sequence {
+            return;
+        }
+        self.sequence = sequence;
+        match event["kind"].as_str() {
+            Some("interim" | "final") => {
+                if let Some(text) = event["text"].as_str() {
+                    self.transcript = text.to_owned();
+                }
+            }
+            Some("error") => self.error = event["text"].as_str().map(str::to_owned),
+            _ => {}
+        }
+    }
+    fn snapshot(&self, id: &str) -> Value {
+        json!({"sessionId":id,"sampleRate":self.sample_rate,"sequence":self.sequence,
+            "text":self.final_text.as_ref().unwrap_or(&self.transcript),"error":self.error,
+            "phase":if self.error.is_some() { "failed" } else if self.final_text.is_some() { "finished" }
+                else if self.native_id.is_some() { "recording" } else { "starting" }})
+    }
 }
 #[derive(Default)]
 pub struct RemoteVoiceState {
@@ -74,6 +101,9 @@ pub async fn start(app: &AppHandle, owner: &str, id: String) -> Result<Value, St
                 native_id: None,
                 sample_rate: 0,
                 final_text: None,
+                transcript: String::new(),
+                sequence: 0,
+                error: None,
             },
         );
     }
@@ -100,6 +130,17 @@ pub async fn start(app: &AppHandle, owner: &str, id: String) -> Result<Value, St
         &app.state::<RealtimeTranscriptionState>(),
         Arc::new(move |mut event| {
             event["sessionId"] = Value::String(callback_id.clone());
+            {
+                let state = callback_app.state::<RemoteVoiceState>();
+                let mut sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                let Some(binding) = sessions
+                    .get_mut(&callback_id)
+                    .filter(|binding| binding.owner == callback_owner)
+                else {
+                    return;
+                };
+                binding.record_event(&event);
+            }
             callback_app
                 .state::<crate::remote::RemoteState>()
                 .publish_voice(&callback_owner, &event);
@@ -125,6 +166,10 @@ pub async fn start(app: &AppHandle, owner: &str, id: String) -> Result<Value, St
     }
     pending.committed = true;
     Ok(json!({"sessionId":id,"sampleRate":sample_rate}))
+}
+
+pub fn snapshot(app: &AppHandle, owner: &str, id: &str) -> Result<Value, String> {
+    Ok(binding(app, owner, id)?.snapshot(id))
 }
 
 pub async fn audio(app: &AppHandle, owner: &str, id: &str, data: String) -> Result<Value, String> {
@@ -193,5 +238,35 @@ pub async fn stop_owner(app: &AppHandle, owner: &str) {
         .collect::<Vec<_>>();
     for id in ids {
         let _ = cancel(app, owner, &id).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reconnect_snapshot_keeps_the_last_transcript_and_terminal_failure() {
+        let mut binding = Binding {
+            owner: "phone".into(),
+            native_id: Some("native".into()),
+            sample_rate: 24_000,
+            final_text: None,
+            transcript: String::new(),
+            sequence: 0,
+            error: None,
+        };
+        binding.record_event(&json!({"sequence":1,"kind":"interim","text":"保留文字"}));
+        binding.record_event(&json!({"sequence":3,"kind":"final","text":"保留文字和结尾"}));
+        binding.record_event(&json!({"sequence":2,"kind":"interim","text":"旧结果"}));
+        assert_eq!(binding.snapshot("remote")["text"], "保留文字和结尾");
+        binding.record_event(&json!({"sequence":4,"kind":"error","text":"Provider disconnected"}));
+        let snapshot = binding.snapshot("remote");
+        assert_eq!(snapshot["sequence"], 4);
+        assert_eq!(snapshot["text"], "保留文字和结尾");
+        assert_eq!(snapshot["phase"], "failed");
+        assert_eq!(snapshot["error"], "Provider disconnected");
+        assert!(snapshot.get("nativeId").is_none());
+        assert!(snapshot.get("owner").is_none());
     }
 }

@@ -130,5 +130,14 @@
   "collaboration": "マルチエージェント",
   "download": "ダウンロード",
   "activity": "思考とツール",
-  "route_checking": "接続を検証中…"
+  "route_checking": "接続を検証中…",
+  "thinking": "思考過程",
+  "runCompleted": "完了",
+  "runCancelled": "停止しました",
+  "runFailed": "タスク失敗",
+  "runPaused": "一時停止",
+  "runWaitingInput": "回答待ち",
+  "runWaitingApproval": "承認待ち",
+  "runRunning": "処理中",
+  "voiceReconnecting": "マイクを再接続中…入力したテキストは保持されています。"
 }

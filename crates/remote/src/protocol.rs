@@ -28,6 +28,8 @@ pub enum RemoteCommand {
     VoiceStart { request_id: String },
     #[serde(rename = "voice.audio")]
     VoiceAudio { session_id: String, data: String },
+    #[serde(rename = "voice.snapshot")]
+    VoiceSnapshot { session_id: String },
     #[serde(rename = "voice.finish")]
     VoiceFinish { session_id: String },
     #[serde(rename = "voice.cancel")]
@@ -75,6 +77,7 @@ pub enum RemoteCommand {
         conversation_id: String,
         run_id: Option<String>,
         after_sequence: Option<u64>,
+        durable_high_water: Option<u64>,
     },
     #[serde(rename = "interactions.list")]
     Interactions { conversation_id: Option<String> },
