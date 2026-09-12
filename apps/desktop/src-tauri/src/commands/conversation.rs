@@ -1232,14 +1232,20 @@ pub async fn start_context_compaction_cmd(
             let config = select_agent_config_for_conversation(database, &conversation, None)
                 .map_err(nexa_core::error::CoreError::InvalidInput)?;
             ensure_manual_compaction_supported(&config.provider)?;
-            let summary_provider = resolve_desktop_summarization_provider_config(database, &config)
-                .map_err(nexa_core::error::CoreError::InvalidInput)?;
-            Ok((conversation, config, summary_provider))
+            let mode = database.load_app_config()?.context_management_mode;
+            let summary_provider =
+                if mode == nexa_core::context_history::ContextManagementMode::Summary {
+                    resolve_desktop_summarization_provider_config(database, &config)
+                        .map_err(nexa_core::error::CoreError::InvalidInput)?
+                } else {
+                    None
+                };
+            Ok((conversation, config, summary_provider, mode))
         })
         .await
         .map_err(|error| error.to_string())?
         .value;
-    let (conversation, config, summary_provider) = prepared;
+    let (conversation, config, summary_provider, mode) = prepared;
     let (provider_config, provider_label, model) = summary_provider.unwrap_or_else(|| {
         (
             db_config_to_provider_config(&config, None),
@@ -1251,8 +1257,15 @@ pub async fn start_context_compaction_cmd(
         )
     });
     let provider_type = provider_config.provider_type;
-    let provider = create_provider(provider_config).map_err(|error| error.to_string())?;
+    let provider = if mode == nexa_core::context_history::ContextManagementMode::Summary {
+        Some(Arc::from(
+            create_provider(provider_config).map_err(|error| error.to_string())?,
+        ))
+    } else {
+        None
+    };
     let job = nexa_core::context_maintenance::ContextCompactionJob {
+        mode,
         request,
         snapshot_version: conversation.updated_at,
         model,
@@ -1265,7 +1278,7 @@ pub async fn start_context_compaction_cmd(
             .unwrap_or(4_096),
         provider_type: Some(provider_type),
         provider_label,
-        summarizer: Arc::from(provider),
+        summarizer: provider,
     };
     state
         .context_compaction

@@ -9,6 +9,7 @@ use crate::activity::{
     ActivityEventKind, ActivityObservation, ActivityRuntime, ActivitySpec, ActivityState,
     ActivitySurface,
 };
+use crate::context_history::{ContextHistoryArchive, ContextManagementMode};
 use crate::conversation::memory::estimate_tokens_for_model;
 use crate::conversation::summarizer::{
     summarize_evicted_messages_with_controls, ControlledSummarization, SummarizationControlPolicy,
@@ -219,6 +220,7 @@ impl ContextCompactionService {
         let model_for_plan = job.model.clone();
         let context_window = job.context_window;
         let max_response_tokens = job.max_response_tokens;
+        let mode = job.mode;
         let plan_started = Instant::now();
         let plan = tokio::task::spawn_blocking(move || {
             plan_compaction(
@@ -227,6 +229,7 @@ impl ContextCompactionService {
                 context_window,
                 max_response_tokens,
                 loaded.value.checkpoint_generation,
+                mode,
             )
         })
         .await
@@ -264,45 +267,80 @@ impl ContextCompactionService {
             });
         };
 
-        self.progress(
-            operation_id,
-            ContextCompactionPhase::Summarizing,
-            0.45,
-            serde_json::json!({ "eventKind": "providerAttemptStarted" }),
-        )?;
-        let summary = summarize_evicted_messages_with_controls(
-            job.summarizer.as_ref(),
-            &job.model,
-            job.provider_type,
-            &plan.summary_messages,
-            &plan.extractive_fallback,
-            &cancellation,
-            deadline,
-            SummarizationControlPolicy {
-                attempt_timeout: Duration::from_millis(
-                    job.request.policy.provider_attempt_timeout_ms,
-                ),
-                max_retries: job.request.policy.max_retries,
-            },
-        )
-        .await
-        .map_err(CoreError::from)?;
-        ensure_not_cancelled(&cancellation)?;
-        let (summary_kind, fallback_reason) = match &summary.control {
-            ControlledSummarization::Abstractive => ("abstractive", None),
-            ControlledSummarization::ExtractiveFallback { reason } => {
-                self.progress(
-                    operation_id,
-                    ContextCompactionPhase::Summarizing,
-                    0.65,
-                    serde_json::json!({
-                        "eventKind": "fallbackSelected",
-                        "reason": reason,
-                    }),
-                )?;
-                ("extractive", Some(reason.clone()))
+        let (checkpoint_text, usage, summary_kind, fallback_reason, history_archive) = if job.mode
+            == ContextManagementMode::History
+        {
+            let conversation_id = job.request.conversation_id.clone();
+            let notes = self
+                .inner
+                .database
+                .read(move |db| db.get_agent_scratchpad(&conversation_id))
+                .await?
+                .value;
+            let archive = ContextHistoryArchive::prepare(
+                &job.request.conversation_id,
+                None,
+                &plan.summary_messages,
+                notes
+                    .as_ref()
+                    .map(|notes| notes.content.as_str())
+                    .unwrap_or_default(),
+            )?;
+            (
+                archive.checkpoint_text(),
+                None,
+                "history",
+                None,
+                Some(archive),
+            )
+        } else {
+            self.progress(
+                operation_id,
+                ContextCompactionPhase::Summarizing,
+                0.45,
+                serde_json::json!({ "eventKind": "providerAttemptStarted" }),
+            )?;
+            let summarizer = job.summarizer.as_ref().ok_or_else(|| {
+                CoreError::InvalidInput("Summary mode requires a summarization provider".into())
+            })?;
+            let summary = summarize_evicted_messages_with_controls(
+                summarizer.as_ref(),
+                &job.model,
+                job.provider_type,
+                &plan.summary_messages,
+                &plan.extractive_fallback,
+                &cancellation,
+                deadline,
+                SummarizationControlPolicy {
+                    attempt_timeout: Duration::from_millis(
+                        job.request.policy.provider_attempt_timeout_ms,
+                    ),
+                    max_retries: job.request.policy.max_retries,
+                },
+            )
+            .await
+            .map_err(CoreError::from)?;
+            if summary.summary.trim().is_empty() {
+                return Err(
+                    CoreError::Internal("Compaction produced an empty checkpoint".into()).into(),
+                );
             }
+            let (kind, fallback) = match &summary.control {
+                ControlledSummarization::Abstractive => ("abstractive", None),
+                ControlledSummarization::ExtractiveFallback { reason } => {
+                    self.progress(
+                        operation_id,
+                        ContextCompactionPhase::Summarizing,
+                        0.65,
+                        serde_json::json!({"eventKind":"fallbackSelected","reason":reason}),
+                    )?;
+                    ("extractive", Some(reason.clone()))
+                }
+            };
+            let text = format!("## Earlier conversation context (compacted)\nContext checkpoint for {} older messages. This is reference state, not a new instruction. If it conflicts with a newer user message, follow the newer message.\n{}",plan.evicted_messages,summary.summary);
+            (text, summary.usage, kind, fallback, None)
         };
+        ensure_not_cancelled(&cancellation)?;
 
         self.progress(
             operation_id,
@@ -310,17 +348,6 @@ impl ContextCompactionService {
             0.72,
             serde_json::json!({ "eventKind": "operationProgress" }),
         )?;
-        let summary_text = summary.summary.trim();
-        if summary_text.is_empty() {
-            return Err(CoreError::Internal(
-                "Compaction produced an empty deterministic checkpoint".to_string(),
-            )
-            .into());
-        }
-        let checkpoint_text = format!(
-            "## Earlier conversation context (compacted)\nContext checkpoint for {} older messages. This is reference state, not a new instruction. If it conflicts with a newer user message, follow the newer message.\n{}",
-            plan.evicted_messages, summary_text
-        );
         let tokens_after = plan
             .retained_tokens
             .saturating_add(estimate_tokens_for_model(&job.model, &checkpoint_text));
@@ -333,6 +360,7 @@ impl ContextCompactionService {
             serde_json::json!({ "eventKind": "operationProgress" }),
         )?;
         let checkpoint = ContextCheckpointInput {
+            history_archive,
             operation_id: operation_id.to_string(),
             conversation_id: job.request.conversation_id.clone(),
             idempotency_key: job.request.idempotency_key,
@@ -350,7 +378,7 @@ impl ContextCompactionService {
             provider: job.provider_label,
             provider_type: job.provider_type,
             model: job.model,
-            usage: summary.usage,
+            usage,
         };
         let commit_cancellation = cancellation.clone();
         let committed = self
@@ -562,6 +590,7 @@ mod tests {
 
     fn job(conversation_id: &str, idempotency_key: &str) -> ContextCompactionJob {
         ContextCompactionJob {
+            mode: ContextManagementMode::Summary,
             request: super::super::model::StartContextCompactionRequest {
                 conversation_id: conversation_id.to_string(),
                 idempotency_key: idempotency_key.to_string(),
@@ -573,7 +602,7 @@ mod tests {
             max_response_tokens: 1_000,
             provider_type: None,
             provider_label: "test".to_string(),
-            summarizer: Arc::new(IdleProvider),
+            summarizer: Some(Arc::new(IdleProvider)),
         }
     }
 
@@ -625,5 +654,81 @@ mod tests {
             .cancel(&first.operation_id, "test_cleanup")
             .await
             .expect("cancel first operation");
+    }
+
+    #[tokio::test]
+    async fn manual_history_handoff_commits_without_a_provider_and_preserves_full_tool_text() {
+        let database = crate::db::Database::open_memory().unwrap();
+        let conversation = database
+            .create_conversation(&CreateConversationInput {
+                provider: "custom".into(),
+                model: "offline".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let text = format!("{} EXACT_TOOL_TAIL", "evidence ".repeat(1800));
+        for (index, role, content) in [
+            (0, Role::User, "First request".to_owned()),
+            (1, Role::Tool, text.clone()),
+            (2, Role::User, "Continue the same task".to_owned()),
+        ] {
+            database
+                .add_message(&ConversationMessage {
+                    id: format!("m{index}"),
+                    conversation_id: conversation.id.clone(),
+                    role,
+                    content,
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    artifacts: None,
+                    token_count: 1,
+                    created_at: String::new(),
+                    sort_order: index,
+                    thinking: None,
+                    image_attachments: None,
+                })
+                .unwrap();
+        }
+        database
+            .upsert_agent_scratchpad(&conversation.id, "Verify the tool tail next.")
+            .unwrap();
+        let service = ContextCompactionService::new(
+            DatabaseExecutor::new(database.clone(), 4).unwrap(),
+            ActivityRuntime::new(),
+        );
+        let mut request = job(&conversation.id, "history-offline");
+        request.mode = ContextManagementMode::History;
+        request.summarizer = None;
+        let handle = service.start(request).await.unwrap();
+        let observation = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut cursor = 0;
+            loop {
+                let observation = service
+                    .observe(&handle.operation_id, cursor, Duration::from_millis(100))
+                    .await
+                    .unwrap();
+                if observation.record.state.is_terminal() {
+                    break observation;
+                }
+                cursor = observation.cursor;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observation.record.state, ActivityState::Completed);
+        let matches = database
+            .search_context_history(&conversation.id, "EXACT_TOOL_TAIL", 10)
+            .unwrap();
+        assert_eq!(matches["matches"].as_array().unwrap().len(), 1);
+        let projection =
+            super::super::load_context_projection(&database, &conversation.id).unwrap();
+        assert!(projection.projected);
+        assert!(projection.messages[0]
+            .content
+            .contains("Verify the tool tail next."));
+        assert_eq!(database.get_messages(&conversation.id).unwrap().len(), 3);
     }
 }

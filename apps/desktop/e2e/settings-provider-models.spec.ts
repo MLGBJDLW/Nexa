@@ -901,6 +901,22 @@ test.beforeEach(async ({ page }) => {
   }, imageProviderPresets);
 });
 
+test('settings persists the selected context management mode and keeps summary as the default', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name:'Appearance', exact:true }).click();
+  await page.getByRole('button', { name:'Advanced', exact:true }).click();
+  const mode = page.getByLabel('Context management', { exact:true });
+  await expect(mode).toHaveValue('summary');
+  await mode.selectOption('history');
+  await expect(page.getByTestId('context-management-settings')).toContainText('Avoids a summary-model call');
+  const panel = page.getByRole('heading', { name:'Appearance', exact:true }).locator('xpath=ancestor::section[1]');
+  await panel.getByRole('button', { name:'Save', exact:true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('history');
+  await mode.selectOption('summary');
+  await panel.getByRole('button', { name:'Save', exact:true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('summary');
+});
+
 test("settings provider form shows updated preset models for add and edit flows", async ({
   page,
 }) => {

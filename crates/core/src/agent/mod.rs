@@ -57,6 +57,7 @@ use crate::trace::{AgentTrace, TraceOutcome, TraceStep};
 mod assistant_turn;
 pub mod context;
 mod context_compaction;
+mod context_handoff;
 pub mod context_pipeline;
 mod direct_dispatch;
 mod direct_dispatch_runner;
@@ -272,6 +273,8 @@ pub struct AgentConfig {
     pub max_actual_tokens_per_run: Option<u32>,
     /// Override context window size (auto-detected from model when `None`).
     pub context_window: Option<u32>,
+    #[serde(default)]
+    pub context_management_mode: crate::context_history::ContextManagementMode,
     /// Endpoint-scoped resolution supplied by the host. This prevents a
     /// custom endpoint from inheriting capacity merely because its model alias
     /// resembles a known provider model.
@@ -454,6 +457,7 @@ impl Default for AgentConfig {
             max_tokens: None,
             max_actual_tokens_per_run: None,
             context_window: None,
+            context_management_mode: crate::context_history::ContextManagementMode::default(),
             context_window_resolution: None,
             catalog_limits_authoritative: None,
             reasoning_enabled: None,

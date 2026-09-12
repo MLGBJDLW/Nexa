@@ -1005,5 +1005,11 @@
   "displayStreaming.balancedDesc": "応答性とリソース使用量を両立。",
   "displayStreaming.smooth": "なめらか",
   "displayStreaming.smoothDesc": "受信した文字を徐々に表示。",
-  "displayStreamingCost": "なめらかな表示は CPU/GPU と電力の使用量を増やす場合があります。長文では特に影響します。生成速度や保存内容は変わりません。視差効果の低減時は段階表示を無効にします。"
+  "displayStreamingCost": "なめらかな表示は CPU/GPU と電力の使用量を増やす場合があります。長文では特に影響します。生成速度や保存内容は変わりません。視差効果の低減時は段階表示を無効にします。",
+  "contextManagementMode": "コンテキスト管理",
+  "contextModeSummary": "要約による圧縮（標準）",
+  "contextModeHistory": "ノートと履歴の引き継ぎ（実験的）",
+  "contextSummaryHelp": "モデルが以前のやり取りを要約し、直近のターンはそのまま保持します。",
+  "contextHistoryHelp": "以前のテキストとツール結果をローカルに保存し、ノートと最近のやり取りで続行します。要約モデルの呼び出しは不要ですが、過去の詳細は履歴検索が必要な場合があります。",
+  "contextModeScope": "新しい Nexa API ターンと手動圧縮に適用します。サブスクリプションのランタイムは自身のコンテキストを管理します。"
 }

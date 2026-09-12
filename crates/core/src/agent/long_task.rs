@@ -86,7 +86,7 @@ impl AgentExecutor {
     pub(super) async fn compact_before_model_step_if_needed(
         &self,
         ctx: LongTaskCompactionContext<'_>,
-    ) -> bool {
+    ) -> Result<bool, CoreError> {
         let LongTaskCompactionContext {
             db,
             conversation_id,
@@ -105,7 +105,7 @@ impl AgentExecutor {
             context::estimate_context_usage_breakdown_for_model(model, messages, tool_defs, None);
         let budget_decision = context_pipeline.budget_decision(estimated.total_tokens);
         if !budget_decision.should_compact {
-            return false;
+            return Ok(false);
         }
 
         let before_message_count = messages.len();
@@ -155,6 +155,11 @@ impl AgentExecutor {
                 compacted
             }
             Err(err) => {
+                if self.history_handoff_enabled(conversation_id) {
+                    // Archiving is a prerequisite for eviction in this mode.
+                    // Do not continue into a lossy trim after a storage failure.
+                    return Err(err);
+                }
                 warn!("Pre-model context compaction failed: {err}");
                 append_persisted_trace_status(
                     persisted_trace_items,
@@ -164,7 +169,7 @@ impl AgentExecutor {
                 false
             }
         };
-        compacted
+        Ok(compacted)
     }
 }
 

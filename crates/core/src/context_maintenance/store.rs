@@ -95,6 +95,15 @@ pub(crate) fn commit_context_checkpoint(
         ));
     }
 
+    if let Some(archive) = &input.history_archive {
+        if archive.conversation_id != input.conversation_id {
+            return Err(CoreError::InvalidInput(
+                "Context archive belongs to another conversation".into(),
+            ));
+        }
+        archive.commit(&tx)?;
+    }
+
     let source_message_ids_json = serde_json::to_string(&input.source_message_ids)?;
     let retained_tail_json = serde_json::to_string(&input.retained_tail_message_ids)?;
     let usage_json = input
@@ -552,6 +561,7 @@ mod tests {
         retained_start_sort_order: i64,
     ) -> ContextCheckpointInput {
         ContextCheckpointInput {
+            history_archive: None,
             operation_id: operation_id.to_string(),
             conversation_id: conversation_id.to_string(),
             idempotency_key: format!("request-{operation_id}"),

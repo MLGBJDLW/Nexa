@@ -27,6 +27,7 @@ pub mod capability_registry;
 pub mod citations;
 pub mod companion;
 pub mod compile;
+pub mod context_history;
 pub mod context_maintenance;
 pub mod context_pack;
 pub mod conversation;

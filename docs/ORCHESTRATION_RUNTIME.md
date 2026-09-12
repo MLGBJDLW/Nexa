@@ -170,6 +170,52 @@ classification is independent of the replay barrier: rate limits retain their
 retry delay/category, context overflow requests compaction, permanent provider
 errors fail, and only typed transient/transport failures use reconnect.
 
+## Selectable context management
+
+**Settings → Appearance → Advanced → Context management** selects `summary`
+(default) or experimental `history` for new Nexa API turns and manual context
+maintenance. Existing subscription agent runtimes continue to own their
+in-turn context; this setting does not enable private Codex backend features.
+
+| Mode | Window transition | Cost and tradeoff |
+| --- | --- | --- |
+| Summary | Generate a recap of complete older turns, with the existing bounded fallback | Requires a summary call when available; earlier facts are condensed |
+| History window | Save and verify local history, keep recent complete exchanges and scratchpad notes, then retrieve older evidence when needed | No summary-model call at transition; subsequent searches/reads consume normal tool and input budget |
+
+The history mode takes inspiration from Codex's
+[experimental context management](https://learn.chatgpt.com/docs/models?surface=app#experimental-context-management),
+[activation PR](https://github.com/openai/codex/pull/42385), and
+[model eligibility PR](https://github.com/openai/codex/pull/43147). Its model can
+save notes and retrieve conversation history after switching windows. This is
+different from the Responses API's
+[opaque compaction endpoint](https://developers.openai.com/api/docs/guides/compaction).
+Nexa implements the notes/history pattern over its own conversation database;
+it does not claim Codex protocol compatibility or equivalent model quality.
+
+Before changing the live message list, Nexa writes a conversation-scoped
+archive and verifies its digest inside the transaction. Failure leaves the
+working context intact. Cancellation also retains the live history. A window
+boundary cannot split a tool-call batch from its results. Stable system policy,
+recent user requests, and the latest complete assistant exchanges stay live;
+`context_history` can list windows, search literal text, and page through exact
+text/tool records. `update_scratchpad` carries task notes. Prior instructions
+remain historical evidence subordinate to newer user instructions.
+
+Archives survive application restart. Editing or deleting canonical messages
+invalidates the affected conversation's history windows. Images remain in the
+original conversation; archives do not replay provider-native reasoning,
+signatures, or opaque provider envelopes. Without the scoped history tool, an
+executor retains the summary policy. A single oversized recent exchange may
+still exceed provider capacity; history mode does not promise unlimited input.
+
+The [handoff implementation](../crates/core/src/agent/context_handoff.rs),
+[archive store](../crates/core/src/context_history.rs), and
+[manual maintenance service](../crates/core/src/context_maintenance/service.rs)
+cover zero-summary-call handoff, tool-pair integrity, persistence failures,
+restart retrieval, and invalidation. Local deterministic checks establish
+storage and runtime behavior; comparative model recall and real long-task
+quality remain experimental.
+
 ## Turn budgets and provider terminals
 
 One user turn is an open semantic loop, not a `for sample in 0..max_iterations`

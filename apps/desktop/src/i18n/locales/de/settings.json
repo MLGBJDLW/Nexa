@@ -1005,5 +1005,11 @@
   "displayStreaming.balancedDesc": "Reaktionsschnell bei moderatem Verbrauch.",
   "displayStreaming.smooth": "Flüssig",
   "displayStreaming.smoothDesc": "Eingehenden Text schrittweise anzeigen.",
-  "displayStreamingCost": "Flüssigere Anzeige kann CPU/GPU und Akku stärker beanspruchen, besonders bei langen Antworten. Modellgeschwindigkeit und gespeicherter Text bleiben gleich. Reduzierte Bewegung deaktiviert die schrittweise Anzeige."
+  "displayStreamingCost": "Flüssigere Anzeige kann CPU/GPU und Akku stärker beanspruchen, besonders bei langen Antworten. Modellgeschwindigkeit und gespeicherter Text bleiben gleich. Reduzierte Bewegung deaktiviert die schrittweise Anzeige.",
+  "contextManagementMode": "Kontextverwaltung",
+  "contextModeSummary": "Zusammenfassung (Standard)",
+  "contextModeHistory": "Notizen und Verlauf (experimentell)",
+  "contextSummaryHelp": "Ein Modell fasst ältere Gespräche zusammen; die letzten Runden bleiben erhalten.",
+  "contextHistoryHelp": "Speichert ältere Texte und Werkzeugergebnisse lokal und setzt mit Notizen und jüngsten Gesprächen fort. Kein Zusammenfassungsaufruf; ältere Details können eine Verlaufssuche erfordern.",
+  "contextModeScope": "Gilt für neue Nexa-API-Runden und manuelle Komprimierung. Abonnement-Laufzeiten verwalten ihren aktiven Kontext selbst."
 }

@@ -363,6 +363,7 @@ const MEMORY_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaratio
         "manage_project_memory",
         "manage_agent_memory",
         "update_scratchpad",
+        "context_history",
         "manage_skill",
         "submit_feedback",
     ],

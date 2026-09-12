@@ -1005,5 +1005,11 @@
   "displayStreaming.balancedDesc": "Texto ágil com consumo moderado.",
   "displayStreaming.smooth": "Fluida",
   "displayStreaming.smoothDesc": "Revela gradualmente o texto recebido.",
-  "displayStreamingCost": "Uma exibição mais fluida pode aumentar o uso de CPU/GPU e bateria, sobretudo em respostas longas. Não altera a velocidade do modelo nem o texto salvo. Reduzir movimento desativa a revelação gradual."
+  "displayStreamingCost": "Uma exibição mais fluida pode aumentar o uso de CPU/GPU e bateria, sobretudo em respostas longas. Não altera a velocidade do modelo nem o texto salvo. Reduzir movimento desativa a revelação gradual.",
+  "contextManagementMode": "Gestão de contexto",
+  "contextModeSummary": "Compactação por resumo (padrão)",
+  "contextModeHistory": "Notas e histórico (experimental)",
+  "contextSummaryHelp": "Um modelo resume conversas antigas e mantém os turnos recentes.",
+  "contextHistoryHelp": "Salva textos e resultados de ferramentas localmente e continua com notas e conversas recentes. Evita uma chamada de resumo; detalhes antigos podem exigir uma busca no histórico.",
+  "contextModeScope": "Aplica-se a novos turnos de API do Nexa e à compactação manual. Os runtimes de assinatura gerenciam seu próprio contexto ativo."
 }
