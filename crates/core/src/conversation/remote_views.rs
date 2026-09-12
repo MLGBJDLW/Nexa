@@ -55,6 +55,51 @@ impl Database {
         let conn = self.conn();
         Ok(conn.query_row("SELECT id FROM agent_task_runs WHERE conversation_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 1",[conversation_id],|row|row.get(0)).optional()?)
     }
+
+    /// A bounded run projection with a frozen ledger head. Sequence holes are
+    /// intentional when live previews were not persisted; the phone must use
+    /// this authority rather than wait forever for every integer in the stream.
+    pub fn remote_run_page(
+        &self,
+        conversation_id: &str,
+        known_run_id: Option<&str>,
+        after_sequence: u64,
+        durable_high_water: Option<u64>,
+    ) -> Result<Value, CoreError> {
+        let id = self
+            .remote_latest_run(conversation_id)?
+            .or_else(|| known_run_id.map(str::to_owned));
+        let Some(id) = id else {
+            return Ok(
+                json!({"run":null,"events":[],"hasMore":false,"durableHighWater":0,"nextSequence":null}),
+            );
+        };
+        let run = self.get_agent_task_run(&id)?;
+        if run.conversation_id != conversation_id {
+            return Err(CoreError::NotFound(
+                "Run does not belong to this conversation".into(),
+            ));
+        }
+        let same_run = known_run_id == Some(id.as_str());
+        let page = self.list_agent_run_event_page(
+            &id,
+            if same_run { after_sequence } else { 0 },
+            if same_run { durable_high_water } else { None },
+            128,
+        )?;
+        // Avoid deserializing the potentially large private turn trace.
+        let final_message_id: Option<String> = self.conn().query_row(
+            "SELECT assistant_message_id FROM conversation_turns WHERE id=?1 AND conversation_id=?2",
+            params![run.turn_id, conversation_id],
+            |row| row.get(0),
+        ).optional()?.flatten();
+        Ok(json!({
+            "run":{"id":run.id,"status":run.status,"phase":run.phase,"turnId":run.turn_id,
+                "finalMessageId":final_message_id,"errorMessage":run.error_message},
+            "events":page.events,"hasMore":page.has_more,"nextSequence":page.next_after_event_seq,
+            "durableHighWater":page.durable_high_water,
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -124,5 +169,78 @@ mod tests {
             Some(latest.as_str())
         );
         assert!(db.remote_latest_run("other").unwrap().is_none());
+    }
+
+    #[test]
+    fn remote_run_recovery_preserves_sparse_sequences_and_frozen_pages() {
+        use crate::agent::StreamBlockChannel;
+        use crate::agent_run::AgentRunEvent;
+        let db = Database::open_memory().unwrap();
+        let chat = db
+            .create_conversation(&CreateConversationInput {
+                provider: "custom".into(),
+                model: "fixture".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        db.add_message(&ConversationMessage {
+            id: "user".into(),
+            conversation_id: chat.id.clone(),
+            role: Role::User,
+            content: "test".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        })
+        .unwrap();
+        let turn = db.create_conversation_turn(&chat.id, "user", None).unwrap();
+        let run = db
+            .create_agent_task_run(&chat.id, &turn.id, "user", "test", None, None)
+            .unwrap();
+        let events = (0..130)
+            .map(|index| {
+                AgentRunEvent::output_delta(
+                    &run.id,
+                    Some(&turn.id),
+                    index * 2 + 1,
+                    "answer",
+                    StreamBlockChannel::Answer,
+                    index as usize,
+                    "x",
+                )
+            })
+            .collect::<Vec<_>>();
+        db.save_agent_run_events(&events).unwrap();
+        let first = db.remote_run_page(&chat.id, None, 999, Some(999)).unwrap();
+        assert_eq!(first["events"].as_array().unwrap().len(), 128);
+        assert_eq!(first["durableHighWater"], 259);
+        assert_eq!(first["nextSequence"], 255);
+        assert_eq!(first["hasMore"], true);
+        db.save_agent_run_events(&[AgentRunEvent::output_delta(
+            &run.id,
+            Some(&turn.id),
+            261,
+            "answer",
+            StreamBlockChannel::Answer,
+            130,
+            "y",
+        )])
+        .unwrap();
+        let second = db
+            .remote_run_page(&chat.id, Some(&run.id), 255, Some(259))
+            .unwrap();
+        assert_eq!(second["events"].as_array().unwrap().len(), 2);
+        assert_eq!(second["nextSequence"], 259);
+        assert_eq!(second["hasMore"], false);
+        assert!(second["run"]["finalMessageId"].is_null());
+        assert!(db.remote_run_page("other", Some(&run.id), 0, None).is_err());
     }
 }

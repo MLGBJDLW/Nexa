@@ -1005,5 +1005,15 @@
   "displayStreaming.balancedDesc": "응답성과 리소스 사용량의 균형.",
   "displayStreaming.smooth": "부드럽게",
   "displayStreaming.smoothDesc": "수신한 텍스트를 점진적으로 표시합니다.",
-  "displayStreamingCost": "부드러운 표시는 특히 긴 답변에서 CPU/GPU 사용량과 배터리 소모를 늘릴 수 있습니다. 생성 속도나 저장 내용은 바뀌지 않습니다. 동작 줄이기를 켜면 점진적 표시가 꺼집니다."
+  "displayStreamingCost": "부드러운 표시는 특히 긴 답변에서 CPU/GPU 사용량과 배터리 소모를 늘릴 수 있습니다. 생성 속도나 저장 내용은 바뀌지 않습니다. 동작 줄이기를 켜면 점진적 표시가 꺼집니다.",
+  "contextManagementMode": "컨텍스트 관리",
+  "contextModeSummary": "요약 압축 (기본값)",
+  "contextModeHistory": "메모와 기록 전환 (실험적)",
+  "contextSummaryHelp": "모델이 이전 대화를 요약하고 최근 턴은 그대로 유지합니다.",
+  "contextHistoryHelp": "이전 텍스트와 도구 결과를 로컬에 저장한 뒤 메모와 최근 대화로 계속합니다. 요약 모델 호출을 생략하지만 이전 세부 정보는 기록 검색이 필요할 수 있습니다.",
+  "contextModeScope": "새 Nexa API 턴과 수동 압축에 적용됩니다. 구독 런타임은 자체 활성 컨텍스트를 관리합니다.",
+  "modelLifecycleRemoved": "지원 종료",
+  "retiredModelSelection": "이 제공업체에서 {model} 모델 지원이 종료되었습니다. 전송 전에 다른 모델을 선택하세요.",
+  "suggestedModelReplacement": "권장 대체 모델: {model}.",
+  "savedModelResolution": "저장된 모델 ID가 {model}로 확인되었습니다."
 }

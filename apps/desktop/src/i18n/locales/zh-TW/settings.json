@@ -1005,5 +1005,15 @@
   "displayStreaming.balancedDesc": "兼顧文字回應與資源消耗。",
   "displayStreaming.smooth": "流暢",
   "displayStreaming.smoothDesc": "逐步呈現收到的文字，閱讀更連貫。",
-  "displayStreamingCost": "更流暢的顯示可能增加 CPU/GPU 使用率與耗電，長回答尤其明顯。不會改變模型生成速度或儲存的內容；系統啟用減少動態效果時，將關閉逐步呈現。"
+  "displayStreamingCost": "更流暢的顯示可能增加 CPU/GPU 使用率與耗電，長回答尤其明顯。不會改變模型生成速度或儲存的內容；系統啟用減少動態效果時，將關閉逐步呈現。",
+  "contextManagementMode": "上下文管理方式",
+  "contextModeSummary": "摘要壓縮（預設）",
+  "contextModeHistory": "筆記與歷史切換（實驗）",
+  "contextSummaryHelp": "由模型概括較早的交流，保留最近的完整輪次。",
+  "contextHistoryHelp": "先將早期文字和工具結果儲存在本機，再攜帶筆記和近期交流繼續。省去摘要模型呼叫；回憶舊細節時可能需要檢索歷史。",
+  "contextModeScope": "套用至新開始的 Nexa API 輪次和手動壓縮。訂閱執行器自行管理其活動上下文。",
+  "modelLifecycleRemoved": "已下線",
+  "retiredModelSelection": "此服務商已下線模型 {model}，請在傳送前選擇其他模型。",
+  "suggestedModelReplacement": "建議替代模型：{model}。",
+  "savedModelResolution": "已儲存的模型 ID 已解析為 {model}。"
 }

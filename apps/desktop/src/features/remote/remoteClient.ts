@@ -100,12 +100,28 @@ export class RemoteClient {
         }
       }, 5_000);
       window.addEventListener("online", this.online);
+      window.addEventListener('offline', this.offline);
+      window.addEventListener('pageshow', this.foreground);
+      document.addEventListener('visibilitychange', this.foreground);
     }
     return this.connect();
   }
   private online = () => {
     this.failures = 0;
     void this.connect(true).catch(() => {});
+  };
+  private offline = () => {
+    this.socket?.close();
+    this.socket = null;
+    this.lost();
+  };
+  private foreground = () => {
+    if (document.visibilityState === 'hidden' || this.disposed || this.state.phase === 'revoked') return;
+    if (Date.now() - this.lastMessage > 15_000) this.offline();
+    this.failures = 0;
+    void this.connect().then(() => {
+      for (const listener of this.listeners) listener({ event:'connection:resync', payload:{} });
+    }).catch(() => {});
   };
   async preferEndpoint(url: string | null) {
     if (url && !this.paired.manifest.endpoints.some(endpoint => endpoint.url === url)) throw new Error('The selected connection is unavailable.');
@@ -331,12 +347,13 @@ export class RemoteClient {
   }
   async rpc<T>(method: string, params?: unknown): Promise<T> {
     const retryable =
-      /^(connections\.list|models\.list|chat\.(list|read|message|resume|start|stop)|live\.(connections|snapshot|list|load|stop)|interactions\.list|approvals\.list|connection\.certificate)$/.test(
+      /^(connections\.list|models\.list|chat\.(list|read|message|resume|start|stop)|live\.(connections|snapshot|list|load|stop)|voice\.snapshot|interactions\.list|approvals\.list|connection\.certificate)$/.test(
         method,
       );
     for (let attempt = 0; attempt < (retryable ? 2 : 1); attempt++) {
       await this.connect();
       const endpoint = this.state.endpoint!;
+      const requestSocket = this.socket;
       try {
         const response = await fetch(`${endpoint.url}/api/rpc`, {
           method: "POST",
@@ -369,9 +386,13 @@ export class RemoteClient {
           (error instanceof DOMException &&
             ["TimeoutError", "AbortError"].includes(error.name))
         ) {
-          this.socket?.close();
-          this.socket = null;
-          this.lost();
+          // A timed-out request from a retired route must not tear down the
+          // healthy replacement socket and interrupt its microphone again.
+          if (this.socket === requestSocket) {
+            this.socket?.close();
+            this.socket = null;
+            this.lost();
+          }
           if (retryable && attempt === 0) continue;
           throw new RemoteNetworkError(
             "The connection changed. Reconnect and retry this operation.",
@@ -420,6 +441,9 @@ export class RemoteClient {
     if (this.monitor) clearInterval(this.monitor);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     window.removeEventListener("online", this.online);
+    window.removeEventListener('offline', this.offline);
+    window.removeEventListener('pageshow', this.foreground);
+    document.removeEventListener('visibilitychange', this.foreground);
     this.socket?.close();
     this.socket = null;
     this.clearAudio();

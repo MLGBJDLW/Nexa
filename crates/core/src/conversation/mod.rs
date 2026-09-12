@@ -4687,8 +4687,14 @@ fn decrypt_agent_config_key(mut config: AgentConfig) -> Result<AgentConfig, Core
         .unwrap_or_else(|| config.model.trim());
     let resolution = resolve_agent_config_model(&config.provider, &endpoint_id, requested_model);
     config.provider_endpoint_id = Some(endpoint_id);
-    config.model = resolution.model_id.clone();
-    config.model_id = Some(resolution.model_id.clone());
+    let selected_model =
+        if resolution.kind == crate::model_catalog::SelectionResolutionKind::Replacement {
+            requested_model.to_owned()
+        } else {
+            resolution.model_id.clone()
+        };
+    config.model = selected_model.clone();
+    config.model_id = Some(selected_model);
     config.model_selection_resolution = resolution.requires_user_notice.then_some(resolution);
     Ok(config)
 }
@@ -4804,7 +4810,16 @@ impl Database {
             .to_string();
         let model_resolution =
             resolve_agent_config_model(&input.provider, &provider_endpoint_id, &requested_model_id);
-        let model_id = model_resolution.model_id;
+        // A suggested replacement may have different behavior or pricing. Keep
+        // the user's saved choice editable; execution rejects confirmed retired
+        // routes until the user actually selects its replacement.
+        let model_id = if model_resolution.kind
+            == crate::model_catalog::SelectionResolutionKind::Replacement
+        {
+            requested_model_id
+        } else {
+            model_resolution.model_id
+        };
         let encrypted_api_key = crate::crypto::encrypt_api_key(&input.api_key)?;
         let subagent_allowed_tools_json =
             serialize_optional_string_list(input.subagent_allowed_tools.as_deref())?;
@@ -7660,6 +7675,33 @@ mod tests {
             crate::model_catalog::SelectionResolutionKind::Alias
         );
         assert!(resolution.requires_user_notice);
+    }
+
+    #[test]
+    fn retired_agent_config_remains_editable_without_silently_selecting_replacement() {
+        let db = Database::open_memory().unwrap();
+        let mut input: SaveAgentConfigInput = serde_json::from_value(serde_json::json!({
+            "name":"Saved Kimi", "provider":"moonshot", "apiKey":"test-key",
+            "baseUrl":"https://api.moonshot.ai/v1", "model":"kimi-k2.5", "isDefault":false
+        }))
+        .unwrap();
+        let saved = db.save_agent_config(&input).unwrap();
+        let loaded = db.get_agent_config(&saved.id).unwrap();
+        assert_eq!(loaded.model, "kimi-k2.5");
+        assert_eq!(loaded.model_id.as_deref(), Some("kimi-k2.5"));
+        let notice = loaded.model_selection_resolution.unwrap();
+        assert_eq!(
+            notice.kind,
+            crate::model_catalog::SelectionResolutionKind::Replacement
+        );
+        assert_eq!(notice.model_id, "kimi-k3");
+        input.id = Some(saved.id);
+        input.name = "Renamed without migration".into();
+        assert_eq!(db.save_agent_config(&input).unwrap().model, "kimi-k2.5");
+        input.model = "kimi-k3".into();
+        let migrated = db.save_agent_config(&input).unwrap();
+        assert_eq!(migrated.model, "kimi-k3");
+        assert!(migrated.model_selection_resolution.is_none());
     }
 
     #[test]

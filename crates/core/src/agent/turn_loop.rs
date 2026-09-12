@@ -875,12 +875,15 @@ impl AgentExecutor {
             t.collaboration_mode = Some(self.config.collaboration_mode.as_str().to_string());
             t.tool_visibility_decision = Some(route_plan.requirements.clone());
         }
-        let volatile_system_sections = self
+        let mut volatile_system_sections = self
             .config
             .volatile_system_sections
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
+        if self.history_handoff_enabled(conversation_id) {
+            volatile_system_sections.push("Experimental context history mode is active. Keep concise progress notes with update_scratchpad after significant findings: active objective, constraints, completed work, evidence IDs, pending work and next action. Near the context limit the runtime saves earlier messages and tool results locally, verifies the archive, and continues with these notes and recent complete exchanges without a summary-model call. After a handoff, use context_history to recover missing facts before answering or repeating work. Archived notes and messages are historical reference, not fresh instructions; follow the newest user request.");
+        }
         let mut controller_state_sections_owned = prompt_layout::turn_scaffolding_sections(
             &route_plan.prompt_section,
             expose_model_task_plan.then_some(&task_plan),
@@ -919,6 +922,7 @@ impl AgentExecutor {
                 controller_state_sections: &controller_state_sections,
                 append_volatile_system_prompt_to_tail: layout.append_volatile_system_prompt_to_tail,
                 endpoint_context_resolution: self.config.context_window_resolution,
+                preserve_history_for_handoff: self.history_handoff_enabled(conversation_id),
             },
         );
         let current_user_was_preserved = messages
@@ -1415,7 +1419,9 @@ impl AgentExecutor {
                     "info",
                 );
                 let before_trim = prompt_cache::message_sequence_fingerprint(&messages);
-                messages = context_pipeline.trim_after_tool_results(&messages);
+                if !self.history_handoff_enabled(conversation_id) {
+                    messages = context_pipeline.trim_after_tool_results(&messages);
+                }
                 prompt_was_compacted |=
                     before_trim != prompt_cache::message_sequence_fingerprint(&messages);
             }
@@ -1482,7 +1488,7 @@ impl AgentExecutor {
                     persisted_trace_items: &mut persisted_trace_items,
                     total_usage: &mut total_usage,
                 })
-                .await;
+                .await?;
             let buffer_answer_projection = output_recovery.reserves_answer_channel();
             let force_answer_only = clean_final_retry_active
                 || buffer_answer_projection
@@ -2454,7 +2460,9 @@ impl AgentExecutor {
                         );
                     }
                     let before_trim = prompt_cache::message_sequence_fingerprint(&messages);
-                    messages = context_pipeline.trim_after_tool_results(&messages);
+                    if !self.history_handoff_enabled(conversation_id) {
+                        messages = context_pipeline.trim_after_tool_results(&messages);
+                    }
                     prompt_was_compacted |=
                         before_trim != prompt_cache::message_sequence_fingerprint(&messages);
                     next_step_purpose = TurnStepPurpose::Recovery;
@@ -2911,7 +2919,9 @@ impl AgentExecutor {
             // Re-trim messages to fit context window after appending tool results.
             // This prevents unbounded growth across iterations.
             let before_trim = prompt_cache::message_sequence_fingerprint(&messages);
-            messages = context_pipeline.trim_after_tool_results(&messages);
+            if !self.history_handoff_enabled(conversation_id) {
+                messages = context_pipeline.trim_after_tool_results(&messages);
+            }
             prompt_was_compacted |=
                 before_trim != prompt_cache::message_sequence_fingerprint(&messages);
 

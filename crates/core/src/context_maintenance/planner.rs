@@ -41,6 +41,7 @@ pub(crate) fn plan_compaction(
     configured_context_window: Option<u32>,
     max_response_tokens: u32,
     expected_checkpoint_generation: u64,
+    mode: crate::context_history::ContextManagementMode,
 ) -> PlanOutcome {
     let messages_before = messages.len();
     let tokens = messages
@@ -117,7 +118,20 @@ pub(crate) fn plan_compaction(
 
     let summary_messages = messages[prefix_end..evict_end]
         .iter()
-        .map(summary_message)
+        .map(|message| {
+            if mode == crate::context_history::ContextManagementMode::History {
+                let mut archived = Message::text(
+                    message.role.clone(),
+                    conversation_message_llm_context_content(message),
+                );
+                archived.name = message.tool_call_id.clone();
+                archived.tool_calls =
+                    (!message.tool_calls.is_empty()).then(|| message.tool_calls.clone());
+                archived
+            } else {
+                summary_message(message)
+            }
+        })
         .collect::<Vec<_>>();
     let extractive_fallback = build_evicted_recap_from_messages(&summary_messages);
     let retained_tail_message_ids = messages[evict_end..]
@@ -317,7 +331,14 @@ mod tests {
             ));
         }
         let started = std::time::Instant::now();
-        let outcome = plan_compaction(messages, "gpt-4o", Some(16_000), 4_096, 0);
+        let outcome = plan_compaction(
+            messages,
+            "gpt-4o",
+            Some(16_000),
+            4_096,
+            0,
+            crate::context_history::ContextManagementMode::Summary,
+        );
         assert!(matches!(outcome, PlanOutcome::Planned(_)));
         assert!(started.elapsed() < std::time::Duration::from_secs(4));
     }
@@ -330,8 +351,14 @@ mod tests {
             message(2, Role::Assistant, "done".to_string()),
             message(3, Role::User, "latest".to_string()),
         ];
-        let PlanOutcome::Planned(plan) = plan_compaction(messages, "gpt-4o", Some(8_000), 1_000, 0)
-        else {
+        let PlanOutcome::Planned(plan) = plan_compaction(
+            messages,
+            "gpt-4o",
+            Some(8_000),
+            1_000,
+            0,
+            crate::context_history::ContextManagementMode::Summary,
+        ) else {
             panic!("expected compaction plan");
         };
         let tool = plan

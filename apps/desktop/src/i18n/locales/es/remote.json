@@ -130,5 +130,14 @@
   "collaboration": "Varios agentes",
   "download": "Descargar",
   "activity": "Razonamiento y herramientas",
-  "route_checking": "Verificando conexión…"
+  "route_checking": "Verificando conexión…",
+  "thinking": "Razonamiento",
+  "runCompleted": "Completado",
+  "runCancelled": "Detenido",
+  "runFailed": "Error en la tarea",
+  "runPaused": "En pausa",
+  "runWaitingInput": "Esperando tu respuesta",
+  "runWaitingApproval": "Esperando aprobación",
+  "runRunning": "En curso",
+  "voiceReconnecting": "Reconectando el micrófono… Tu texto se conserva."
 }

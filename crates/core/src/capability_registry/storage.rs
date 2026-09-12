@@ -1803,7 +1803,7 @@ mod tests {
         let mut second_input = agent(
             "deep_seek",
             "https://api.deepseek.com",
-            "deepseek-v4-flash",
+            "deepseek-flash",
             "sk-second",
         );
         second_input.is_default = false;
@@ -1834,7 +1834,7 @@ mod tests {
             .save_agent_config(&agent(
                 "deep_seek",
                 "https://api.deepseek.com",
-                "deepseek-v4-flash",
+                "deepseek-flash",
                 "sk-repair",
             ))
             .unwrap();

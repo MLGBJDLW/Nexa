@@ -34,6 +34,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`compile_document`](../crates/core/prompts/tools/compile_document.json) | Check the compilation status of knowledge base documents |
 | [`computer_control`](../crates/core/prompts/tools/computer_control.json) | Perform one approval-gated action against a fresh Windows observation |
 | [`computer_observe`](../crates/core/prompts/tools/computer_observe.json) | Observe the local Windows desktop without changing it |
+| [`context_history`](../crates/core/prompts/tools/context_history.json) | Recover exact text and tool results from earlier context windows of the current conversation |
 | [`create_file`](../crates/core/prompts/tools/create_file.json) | Create, overwrite, or incrementally append UTF-8 plain-text files at the specified path |
 | [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Open or reveal files inside registered source directories on the user's visible desktop |
 | [`download_asset`](../crates/core/prompts/tools/download_asset.json) | Download a supported public image asset (JPEG, PNG, WebP, or GIF) into the workspace with SSRF, redirect-hop, content-type, size, and output-path validation |

@@ -130,5 +130,14 @@
   "collaboration": "多智能体",
   "download": "下载",
   "activity": "思考与工具",
-  "route_checking": "正在验证线路…"
+  "route_checking": "正在验证线路…",
+  "thinking": "思考过程",
+  "runCompleted": "已完成",
+  "runCancelled": "已停止",
+  "runFailed": "任务失败",
+  "runPaused": "已暂停",
+  "runWaitingInput": "等待你的回答",
+  "runWaitingApproval": "等待审批",
+  "runRunning": "正在处理",
+  "voiceReconnecting": "正在重新连接麦克风…已保留输入框文字。"
 }

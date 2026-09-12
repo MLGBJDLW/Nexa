@@ -5,7 +5,7 @@ import { useVoiceRecorder } from '../voice/useVoiceRecorder';
 import type { VoiceDictationEvent } from '../voice/voiceDraftProjection';
 import { LiveAudioQueue } from '../live/liveAudioQueue';
 import { encodeLiveAudio } from '../live/liveTransport';
-import type { RemoteClient } from './remoteClient';
+import { RemoteNetworkError, type RemoteClient } from './remoteClient';
 import { remoteButton } from './remoteUi';
 
 export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
@@ -15,7 +15,7 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
   onBusy: (busy: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'finishing'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'reconnecting' | 'finishing'>('idle');
   const [error, setError] = useState('');
   const recorder = useVoiceRecorder();
   const refs = useRef({ recorder, onEvent, onBusy, t }); refs.current = { recorder, onEvent, onBusy, t };
@@ -25,8 +25,15 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
   const generation = useRef(0);
   const eventSequence = useRef(0);
   const finishPending = useRef(false);
+  const ready = useRef(false);
+  const connected = useRef(client.state.phase === 'connected');
+  const transition = useRef(Promise.resolve());
+  const reconnectDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clear = useCallback((reason?: string) => {
     generation.current++;
+    ready.current = false;
+    if (reconnectDeadline.current) clearTimeout(reconnectDeadline.current);
+    reconnectDeadline.current = null;
     const id = session.current; session.current = null;
     queue.current?.close(); queue.current = null;
     refs.current.recorder.cancelRecording();
@@ -45,7 +52,38 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
       } else if (event.payload.kind === 'error') clear(String(event.payload.text || refs.current.t('remote.voiceFailed')));
     });
     const offConnection = client.subscribeConnection(state => {
-      if (session.current && state.phase !== 'connected') clear(refs.current.t('remote.voiceInterrupted'));
+      connected.current = state.phase === 'connected';
+      const id = session.current;
+      if (!id) return;
+      if (state.phase === 'closed' || state.phase === 'revoked') { clear(refs.current.t('remote.voiceInterrupted')); return; }
+      if (!connected.current) {
+        queue.current?.pause();
+        if (!finishPending.current) setPhase('reconnecting');
+        if (!reconnectDeadline.current) reconnectDeadline.current = setTimeout(() => {
+          if (session.current === id) clear(refs.current.t('remote.voiceInterrupted'));
+        }, Math.min(30, client.paired.manifest.reconnectGraceSeconds) * 1000);
+      }
+      if (!ready.current || finishPending.current) return;
+      const mine = generation.current;
+      transition.current = transition.current.then(async () => {
+        if (generation.current !== mine) return;
+        if (!connected.current) { await refs.current.recorder.pauseRecording(); return; }
+        const snapshot = await client.rpc<{ sessionId:string; sequence:number; text:string; phase:string; error?:string }>('voice.snapshot', { sessionId:id });
+        if (generation.current !== mine || !connected.current) return;
+        if (snapshot.error || snapshot.phase === 'failed') throw new Error(snapshot.error || refs.current.t('remote.voiceFailed'));
+        if (snapshot.sequence >= eventSequence.current) {
+          eventSequence.current = snapshot.sequence;
+          refs.current.onEvent({ kind:'interim', text:snapshot.text });
+        }
+        if (snapshot.phase === 'finished') { clear(); return; }
+        if (reconnectDeadline.current) clearTimeout(reconnectDeadline.current);
+        reconnectDeadline.current = null;
+        queue.current?.resume();
+        await refs.current.recorder.resumeRecording();
+        if (generation.current === mine) setPhase('recording');
+      }).catch(error => {
+        if (generation.current === mine && !(error instanceof RemoteNetworkError)) clear(error instanceof Error ? error.message : String(error));
+      });
     });
     const leave = () => clear();
     window.addEventListener('pagehide', leave);
@@ -60,16 +98,23 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
     const mine = ++generation.current;
     setPhase('starting'); onBusy(true); onEvent({ kind:'start' });
     try {
-      const ready = await client.rpc<{ sessionId:string; sampleRate:number }>('voice.start', { requestId:id });
+      const opened = await client.rpc<{ sessionId:string; sampleRate:number }>('voice.start', { requestId:id });
       if (generation.current !== mine) { void client.rpc('voice.cancel', { sessionId:id }).catch(() => {}); return; }
-      const delivery = new LiveAudioQueue(Math.round(ready.sampleRate / 10) * 2,
+      const delivery = new LiveAudioQueue(Math.round(opened.sampleRate / 10) * 2,
         bytes => client.audio(id, encodeLiveAudio(bytes), 'voice.audio'),
-        () => clear(refs.current.t('remote.voiceInterrupted')), 16);
+        error => clear(error instanceof Error ? error.message : refs.current.t('remote.voiceInterrupted')), 16, () => client.recoverAudio());
       queue.current = delivery;
-      await refs.current.recorder.startRecording({ targetSampleRate:ready.sampleRate, onPcmChunk:bytes => delivery.append(bytes),
+      if (!connected.current) delivery.pause();
+      await refs.current.recorder.startRecording({ targetSampleRate:opened.sampleRate, onPcmChunk:bytes => delivery.append(bytes),
         onCaptureIssue:() => clear(refs.current.t('remote.voiceInterrupted')) });
       if (generation.current !== mine) { refs.current.recorder.cancelRecording(); return; }
-      setPhase('recording');
+      ready.current = true;
+      if (!connected.current) { delivery.pause(); await refs.current.recorder.pauseRecording(); setPhase('reconnecting'); }
+      else {
+        if (reconnectDeadline.current) clearTimeout(reconnectDeadline.current);
+        reconnectDeadline.current = null;
+        setPhase('recording');
+      }
     } catch (error) {
       if (generation.current !== mine) return;
       const detail = error instanceof Error ? error.message : String(error);
@@ -97,11 +142,12 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
   const busy = phase !== 'idle';
   return <div className="flex max-w-full flex-wrap items-center gap-2">
     <button type="button" className={`${remoteButton} ${phase === 'recording' ? 'text-danger' : ''}`} aria-label={phase === 'recording' ? t('remote.finishDictation') : t('remote.voiceInput')}
-      disabled={(disabled && !busy) || phase === 'starting' || phase === 'finishing'} onClick={() => void (phase === 'recording' ? finish() : start())}>
-      {phase === 'starting' || phase === 'finishing' ? <Loader2 size={16} className="animate-spin" /> : phase === 'recording' ? <Square size={16} /> : <Mic size={16} />}
-      {phase === 'recording' ? `${Math.floor(recorder.recordingDuration / 60)}:${String(recorder.recordingDuration % 60).padStart(2, '0')}` : phase === 'finishing' ? t('remote.voiceFinishing') : t('remote.voiceInput')}
+      disabled={(disabled && !busy) || phase === 'starting' || phase === 'finishing' || phase === 'reconnecting'} onClick={() => void (phase === 'recording' ? finish() : start())}>
+      {phase === 'starting' || phase === 'finishing' || phase === 'reconnecting' ? <Loader2 size={16} className="animate-spin" /> : phase === 'recording' ? <Square size={16} /> : <Mic size={16} />}
+      {phase === 'reconnecting' ? t('remote.reconnecting') : phase === 'recording' ? `${Math.floor(recorder.recordingDuration / 60)}:${String(recorder.recordingDuration % 60).padStart(2, '0')}` : phase === 'finishing' ? t('remote.voiceFinishing') : t('remote.voiceInput')}
     </button>
     {busy && <button type="button" className="p-2 text-text-secondary" aria-label={t('common.cancel')} onClick={() => clear()}><X size={16} /></button>}
+    {phase === 'reconnecting' && <p role="status" className="w-full text-xs text-warning">{t('remote.voiceReconnecting')}</p>}
     {error && <p role="alert" className="w-full text-xs text-danger">{error}</p>}
   </div>;
 }

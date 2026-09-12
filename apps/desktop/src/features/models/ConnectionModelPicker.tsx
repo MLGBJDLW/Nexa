@@ -48,13 +48,17 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
           onChange={event => changeModel(event.target.value)} /> :
           <select className={field} aria-label={label} value={model} disabled={disabled || !connectionId} onChange={event => changeModel(event.target.value)}>
             {!selected && <option value={model}>{model || t('settings.defaultModel')}</option>}
-            {choices.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            {choices.map(item => <option key={item.id} value={item.id} disabled={item.available === false}>{item.name}{item.available === false ? ` · ${t('settings.modelLifecycleRemoved')}` : ''}</option>)}
           </select>}
       </label>
       <button type="button" className="rounded-xl border border-border p-3 text-text-secondary disabled:opacity-40" aria-label={t('remote.refreshModels')} disabled={loading || disabled || !connectionId} onClick={() => setRevision(current => current + 1)}>
         {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
       </button>
     </div>
+    {selected?.available === false && <p role="status" className="text-xs text-warning">
+      {t('settings.retiredModelSelection', { model })}
+      {selected.replacementModelId && ` ${t('settings.suggestedModelReplacement', { model: selected.replacementModelId })}`}
+    </p>}
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
       <span role="status">{loading ? t('remote.modelsLoading') : failed ? t('remote.modelsUnavailable') : ''}</span>
       <button type="button" disabled={disabled} className="text-accent" onClick={() => setCustom(current => !current)}>{custom ? t('remote.chooseModel') : t('remote.customModel')}</button>

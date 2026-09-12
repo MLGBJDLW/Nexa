@@ -33,6 +33,10 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
   const textReplies: Array<() => void> = [];
   const launchReplies: Array<() => void> = [];
   const runEvents: any[] = [];
+  let eventSequence = 0;
+  let runStatus = 'running';
+  let finalAnswer: string | null = null;
+  let resumeCalls = 0;
   let currentRunId = "run-1";
   let approvalItems: any[] = [];
   let interactionItems: any[] = [];
@@ -131,6 +135,9 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
           actions.push({method, params});
           value = { sessionId:voiceId, sampleRate:16000 };
           break;
+        case 'voice.snapshot':
+          value = { sessionId:voiceId, sampleRate:16000, sequence:voiceSequence, text:voiceText, phase:'recording' };
+          break;
         case 'voice.finish':
           actions.push({method, params});
           value = { text:voiceText };
@@ -185,7 +192,8 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
                   : 36,
                 sortOrder: 0,
               },
-            ],
+            ].concat(finalAnswer == null ? [] : [{ id: 'final-message', role: 'assistant', content: finalAnswer,
+              totalChars: finalAnswer.length, sortOrder: 1 }]),
             beforeOrder:
               historyEnabled && params.conversationId === "chat-1" ? 10 : null,
           };
@@ -198,9 +206,10 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
           value = conversations[0];
           break;
         case "chat.resume":
+          resumeCalls++;
           value = {
             run: runEvents.length
-              ? { id: currentRunId, status: "running" }
+              ? { id: currentRunId, status: runStatus, finalMessageId: finalAnswer == null ? null : 'final-message' }
               : null,
             events: runEvents.filter(
               (event) =>
@@ -208,6 +217,8 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
                 (params.runId === currentRunId ? params.afterSequence || 0 : 0),
             ),
             hasMore: false,
+            durableHighWater: eventSequence,
+            nextSequence: runEvents.at(-1)?.eventSeq ?? null,
           };
           break;
         case "chat.start":
@@ -346,7 +357,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
     const event = {
       version: 2,
       runId: currentRunId,
-      eventSeq: runEvents.length + 1,
+      eventSeq: ++eventSequence,
       kind,
       label: kind === "approvalRequested" ? "Review this action" : "Working",
       visibility: "user",
@@ -364,6 +375,10 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
   return {
     backupRoute: () => { manifest.endpoints.push({url:'https://nexa-backup.test',kind:'tunnel'}); },
     audioDelay: (delay: number) => { audioAckDelayMs = delay; },
+    skipEphemeral: () => { eventSequence++; },
+    finishRun: (text: string, deliver = false) => {
+      finalAnswer = text; runStatus = 'completed'; emit('done', { status: 'completed' }, deliver);
+    },
     leaveLan: () => { lan = false; socket?.close({code:1001}); },
     connectedUrl: () => socket?.url(),
     dictation: (text: string) => {
@@ -380,6 +395,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
       sockets,
       launches,
       actions,
+      resumeCalls,
     }),
     emit,
     history: () => {
@@ -400,6 +416,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
     nextRun: () => {
       currentRunId = "run-2";
       runEvents.length = 0;
+      eventSequence = 0; runStatus = 'running'; finalAnswer = null;
     },
     requests: (questionType = "single_choice") => {
       approvalItems = [
@@ -523,6 +540,50 @@ test('automatic route selection reaches a fast backup without waiting for a stal
   await expect(page.getByRole('button',{name:'Public connection',exact:true})).toBeVisible();
 });
 
+test('phone catches a missed completion without sending another message', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: 'Working on the report' });
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+  app.finishRun('The completed desktop report.');
+  await expect(page.getByText('The completed desktop report.', { exact: true })).toBeVisible({ timeout: 9000 });
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Working on the report', { exact: true })).not.toBeVisible();
+  expect(app.counts().launches).toHaveLength(0);
+});
+
+test('phone replays durable events across missing ephemeral sequence numbers', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: 'Hello' });
+  await expect(page.getByText('Hello', { exact: true })).toBeVisible();
+  app.skipEphemeral();
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 5, delta: ' recovered' });
+  await expect(page.getByText('Hello recovered', { exact: true })).toBeVisible();
+  expect(app.counts().resumeCalls).toBeLessThan(8);
+});
+
+test('phone dictation pauses and recovers the same session after a stalled audio route', async ({ page, context }) => {
+  await context.grantPermissions(['microphone']);
+  const app = await fixture(page, 0, 6000);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  const draft = page.getByLabel('Message', { exact: true });
+  await page.getByRole('button', { name: 'Voice input', exact: true }).click();
+  await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
+  app.dictation('保留的文字');
+  await expect(draft).toHaveValue('保留的文字');
+  await expect.poll(() => app.counts().sockets, { timeout: 8000 }).toBeGreaterThan(1);
+  app.audioDelay(0);
+  const audio = app.counts().audio;
+  await expect.poll(() => app.counts().audio).toBeGreaterThan(audio + 5);
+  expect(app.counts().actions.filter(item => item.method === 'voice.start')).toHaveLength(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(draft).toHaveValue('保留的文字');
+  await page.getByRole('button', { name: 'Finish dictation', exact: true }).click();
+});
+
 test('phone dictation edits the composer live and retains manual corrections through finalization', async ({ page, context }) => {
   await context.grantPermissions(['microphone']);
   const app = await fixture(page, 0, 350);
@@ -557,6 +618,39 @@ test('phone renders Markdown, code, formulas and diagrams from the desktop run',
   await expect(page.locator('[data-testid="mermaid-surface"]')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path:testInfo.outputPath('phone-chat.png'), fullPage:true });
+});
+
+test('phone keeps replies and tools in order and the composer opaque with a custom theme', async ({ page }, testInfo) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation', { exact:true }).selectOption('chat-1');
+  app.emit('outputSnapshot', { blockId:'before', channel:'answer', text:'I will inspect the report.' });
+  app.emit('toolStarted', { run: { callId:'read-1', toolName:'read_file', status:'running', arguments:'{"path":"report.md"}' } });
+  app.emit('toolCompleted', { run: { callId:'read-1', toolName:'read_file', status:'completed', content:'The report contains 3 sections.' } });
+  app.emit('outputSnapshot', { blockId:'after', channel:'answer', text:'## Review result\n\nThe three sections are consistent.\n\n'+ 'Details for the completed review.\n\n'.repeat(12) });
+  const timeline = page.getByTestId('remote-run-timeline');
+  await expect(timeline.locator('[data-timeline-kind]')).toHaveCount(3);
+  expect(await timeline.locator('[data-timeline-kind]').evaluateAll(items => items.map(item => item.getAttribute('data-timeline-kind')))).toEqual(['answer','tool','answer']);
+  await page.evaluate(async () => {
+    const { applyCustomTheme } = await import('/src/lib/themeProfile.ts');
+    applyCustomTheme({ version:2,id:'remote-paper',name:'Remote Paper',baseTheme:'dark',mode:'light',
+      colors:{ surface0:'rgba(250, 244, 235, 0.4)',surface1:'#fffaf2',surface2:'#ece0cf',textPrimary:'#2a2118',textSecondary:'#554a3c',textTertiary:'#736453',accent:'#895a36',border:'#c8bba6' },
+      effects:{surfaceOpacity:0.35},typography:{},motion:{},brand:{},content:{},components:{},
+      background:{kind:'gradient',value:'linear-gradient(30deg, #391c1c, #faf4eb)'},
+    });
+  });
+  const opaque = await page.getByTestId('remote-composer').evaluate(element => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d')!;
+    return [element, element.querySelector('textarea')!].map(item => {
+      ctx.clearRect(0,0,1,1); ctx.fillStyle = getComputedStyle(item).backgroundColor; ctx.fillRect(0,0,1,1);
+      return ctx.getImageData(0,0,1,1).data[3];
+    });
+  });
+  expect(opaque).toEqual([255,255]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByLabel('Message', {exact:true}).scrollIntoViewIfNeeded();
+  await testInfo.attach('remote-custom-theme-timeline', { body:await page.screenshot({path:testInfo.outputPath('remote-custom-theme-timeline.png')}),contentType:'image/png' });
 });
 
 test('phone sends attachments and execution choices with an idempotent retry', async ({ page }) => {

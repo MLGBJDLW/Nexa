@@ -43,9 +43,16 @@ export interface ProviderPreset {
 
 type RawProviderPreset = Omit<ProviderPreset, 'models'> & { models: LegacyCatalogModel[] };
 
-export function isRemovedProviderModel(presetId: string, modelId: string): boolean {
+export function removedProviderModel(presetId: string, modelId: string): LegacyCatalogModel | undefined {
   const preset = (providerPresets as RawProviderPreset[]).find(preset => preset.id === presetId);
-  return preset?.models.some(model => model.id.toLowerCase() === modelId.toLowerCase() && model.status === 'removed') ?? false;
+  const normalized = normalizeModelId(modelId);
+  const id = preset?.provider === 'google' ? normalized.replace(/^models\//, '') : normalized;
+  return preset?.models.find(model => model.status === 'removed'
+    && [model.id, ...(model.aliases ?? [])].some(alias => normalizeModelId(alias) === id));
+}
+
+export function isRemovedProviderModel(presetId: string, modelId: string): boolean {
+  return Boolean(removedProviderModel(presetId, modelId));
 }
 
 export const PROVIDER_PRESETS: ProviderPreset[] = ([...providerPresets, ...subscriptionPresets] as RawProviderPreset[]).map((preset) => ({
@@ -125,6 +132,12 @@ export function findProviderPreset(input: {
     );
     if (exactMatch) {
       return exactMatch;
+    }
+    if (lookupProvider === 'moonshot' && normalizedBaseUrl === 'https://api.moonshot.cn/v1') {
+      return PROVIDER_PRESETS.find(preset => preset.id === 'moonshot') ?? null;
+    }
+    if (lookupProvider === 'deep_seek' && normalizedBaseUrl === 'https://api.deepseek.com/v1') {
+      return PROVIDER_PRESETS.find(preset => preset.id === 'deepseek') ?? null;
     }
     // Alibaba recommends workspace-dedicated PAYG hosts in production. They
     // share the Beijing model contract while credentials and cache identities

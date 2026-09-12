@@ -1269,7 +1269,9 @@ impl AgentExecutor {
                 max_response_tokens,
             );
             let before_trim = prompt_cache::message_sequence_fingerprint(messages);
-            *messages = context_pipeline.trim_after_tool_results(messages);
+            if !self.history_handoff_enabled(conversation_id) {
+                *messages = context_pipeline.trim_after_tool_results(messages);
+            }
             return Ok(ModelStepOutcome::Restart {
                 prompt_was_compacted: before_trim
                     != prompt_cache::message_sequence_fingerprint(messages),

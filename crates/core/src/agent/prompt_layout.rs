@@ -12,6 +12,7 @@ const CACHE_STABLE_RESIDENT_TOOL_NAMES: &[&str] = &[
     "code_intelligence",
     "computer_control",
     "computer_observe",
+    "context_history",
     "create_file",
     "edit_file",
     "glob_files",
@@ -24,6 +25,7 @@ const CACHE_STABLE_RESIDENT_TOOL_NAMES: &[&str] = &[
     "request_user_input",
     "run_shell",
     "search_files",
+    "update_scratchpad",
     RESIDENT_DISCOVERY_TOOL_NAME,
 ];
 

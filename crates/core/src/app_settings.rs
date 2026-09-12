@@ -772,6 +772,10 @@ pub struct AppConfig {
     #[serde(default = "default_dynamic_tool_visibility")]
     pub dynamic_tool_visibility: bool,
 
+    /// Local context maintenance policy. Existing installations keep summaries.
+    #[serde(default)]
+    pub context_management_mode: crate::context_history::ContextManagementMode,
+
     /// Version marker for agent tool-visibility defaults. Older configs used
     /// dynamic visibility by default, which hurts prompt-cache stability.
     #[serde(default)]
@@ -992,6 +996,7 @@ impl Default for AppConfig {
             max_video_file_size: default_max_video_file_size(),
             max_audio_file_size: default_max_audio_file_size(),
             dynamic_tool_visibility: default_dynamic_tool_visibility(),
+            context_management_mode: crate::context_history::ContextManagementMode::default(),
             tool_visibility_defaults_version: CURRENT_TOOL_VISIBILITY_DEFAULTS_VERSION,
             trace_enabled: default_trace_enabled(),
             window_close_behavior: WindowCloseBehavior::default(),

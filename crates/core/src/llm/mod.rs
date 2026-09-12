@@ -1023,14 +1023,39 @@ pub trait LlmProvider: Send + Sync {
 
 struct MessageValidatingProvider {
     inner: Box<dyn LlmProvider>,
+    retirements: crate::provider_catalog::ModelRetirementPolicy,
 }
 
 impl MessageValidatingProvider {
-    fn new(inner: Box<dyn LlmProvider>) -> Self {
-        Self { inner }
+    fn new(
+        inner: Box<dyn LlmProvider>,
+        provider_type: ProviderType,
+        base_url: Option<String>,
+    ) -> Self {
+        let catalog_provider = crate::provider_registry::provider_registry_entries()
+            .iter()
+            .find(|entry| entry.provider_type == provider_type)
+            .map(|entry| entry.canonical_key)
+            .unwrap_or("custom");
+        let retirements = crate::provider_catalog::ModelRetirementPolicy::for_endpoint(
+            catalog_provider,
+            base_url.as_deref(),
+        );
+        Self { inner, retirements }
     }
 
     fn validate(&self, request: &CompletionRequest) -> Result<(), CoreError> {
+        if let Some(retired) = self.retirements.get(&request.model) {
+            let replacement = retired
+                .replacement_model_id
+                .as_ref()
+                .map(|id| format!(" Choose '{id}' or another available model."))
+                .unwrap_or_else(|| " Choose another available model.".into());
+            return Err(CoreError::InvalidInput(format!(
+                "Model '{}' has been retired by this provider.{replacement}",
+                retired.id
+            )));
+        }
         message_validation::validate_provider_request_with_context(
             &request.messages,
             self.inner.name(),
@@ -1075,7 +1100,9 @@ impl LlmProvider for MessageValidatingProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
-        self.inner.list_models().await
+        let mut models = self.inner.list_models().await?;
+        models.retain(|model| self.retirements.get(model).is_none());
+        Ok(models)
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
@@ -1129,6 +1156,8 @@ fn provider_adapter_for_config(config: &ProviderConfig) -> ProviderAdapterKind {
 /// Create a provider instance from configuration.
 pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider>, CoreError> {
     config.base_url = normalize_base_url(config.base_url);
+    let catalog_provider = config.provider_type;
+    let catalog_base_url = config.base_url.clone();
 
     let adapter = provider_adapter_for_config(&config);
     let provider: Box<dyn LlmProvider> = match adapter {
@@ -1137,7 +1166,11 @@ pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider
         ProviderAdapterKind::Google => Box::new(google::GeminiProvider::new(config)?),
         ProviderAdapterKind::Ollama => Box::new(ollama::OllamaProvider::new(config)?),
     };
-    Ok(Box::new(MessageValidatingProvider::new(provider)))
+    Ok(Box::new(MessageValidatingProvider::new(
+        provider,
+        catalog_provider,
+        catalog_base_url,
+    )))
 }
 
 /// Whether the adapter must obtain the complete response before it can expose
@@ -1234,6 +1267,156 @@ pub fn model_declares_vision_support(provider_type: &ProviderType, model: &str) 
 mod tests {
     use super::*;
     use futures::{stream, StreamExt};
+
+    struct NoRetiredRequests;
+    #[async_trait]
+    impl LlmProvider for NoRetiredRequests {
+        fn name(&self) -> &str {
+            "test"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![
+                "kimi-k2.5".into(),
+                "kimi-k3".into(),
+                "account-custom".into(),
+            ])
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            panic!("retired request reached transport")
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            panic!("retired stream reached transport")
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn retired_models_are_rejected_before_both_transport_paths_and_discovery() {
+        for (kind, url, model) in [
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.ai/v1",
+                " KIMI-K2.5 ",
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.cn/v1",
+                "moonshot-v1-auto",
+            ),
+            (
+                ProviderType::Anthropic,
+                "https://api.anthropic.com/v1",
+                "claude-opus-4-1",
+            ),
+            (
+                ProviderType::Google,
+                "https://generativelanguage.googleapis.com/v1beta",
+                "models/gemini-2.0-flash-001",
+            ),
+            (
+                ProviderType::OpenAi,
+                "https://api.openai.com/v1",
+                "gpt-5.1-codex",
+            ),
+            (ProviderType::OpenAi, "https://api.x.ai/v1", "grok-3"),
+            (
+                ProviderType::SiliconFlow,
+                "https://api.siliconflow.cn/v1",
+                "Qwen/Qwen3.5-397B-A17B",
+            ),
+        ] {
+            let provider =
+                MessageValidatingProvider::new(Box::new(NoRetiredRequests), kind, Some(url.into()));
+            let request = CompletionRequest {
+                model: model.into(),
+                messages: vec![Message::text(Role::User, "hello")],
+                ..Default::default()
+            };
+            assert!(
+                matches!(provider.complete(&request).await, Err(CoreError::InvalidInput(message)) if message.contains("retired")),
+                "{url}/{model}"
+            );
+            assert!(
+                matches!(provider.stream_events(&request).await, Err(CoreError::InvalidInput(message)) if message.contains("retired")),
+                "{url}/{model}"
+            );
+        }
+        let provider = MessageValidatingProvider::new(
+            Box::new(NoRetiredRequests),
+            ProviderType::Moonshot,
+            None,
+        );
+        assert_eq!(
+            provider.list_models().await.unwrap(),
+            vec!["kimi-k3", "account-custom"]
+        );
+    }
+
+    #[test]
+    fn retirement_policy_preserves_other_hosts_router_variants_and_available_legacy_models() {
+        for (kind, url, model) in [
+            (
+                ProviderType::Moonshot,
+                "https://private.example/v1",
+                "kimi-k2.5",
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.ai:8443/v1",
+                "kimi-k2.5",
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.ai/tenant/v1",
+                "kimi-k2.5",
+            ),
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "moonshotai/kimi-k2.5:free",
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.5",
+            ),
+            (
+                ProviderType::Google,
+                "https://generativelanguage.googleapis.com/v1beta",
+                "gemini-2.5-pro",
+            ),
+            (ProviderType::OpenAi, "https://api.openai.com/v1", "o4-mini"),
+            (
+                ProviderType::DeepSeek,
+                "https://api.deepseek.com/v1",
+                "deepseek-v4-pro",
+            ),
+            (
+                ProviderType::OpenAi,
+                "https://api.minimax.io/v1",
+                "MiniMax-M2.5",
+            ),
+            (
+                ProviderType::OpenAi,
+                "https://api.mistral.ai/v1",
+                "devstral-2512",
+            ),
+        ] {
+            let provider =
+                MessageValidatingProvider::new(Box::new(NoRetiredRequests), kind, Some(url.into()));
+            let request = CompletionRequest {
+                model: model.into(),
+                messages: vec![Message::text(Role::User, "hello")],
+                ..Default::default()
+            };
+            assert!(provider.validate(&request).is_ok(), "{url}/{model}");
+        }
+    }
 
     fn text_chunk(delta: &str) -> StreamChunk {
         StreamChunk {

@@ -13,6 +13,24 @@ html[data-remote='true'] .prose-chat table { display: block; max-width: 100%; ov
 html[data-remote='true'] .prose-chat pre { max-width: 100%; overflow-x: auto; }
 html[data-remote='true'] .prose-chat img { max-width: 100%; height: auto; }
 html[data-remote='true'] .group\/code button { opacity: 1; }
+html[data-remote='true'] .remote-transcript,
+html[data-remote='true'] .remote-run-timeline { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+html[data-remote='true'] .remote-message,
+html[data-remote='true'] .remote-answer { min-width: 0; border-radius: 1rem; padding: 1rem; border: 1px solid var(--color-border); background: var(--theme-reading-surface-1, var(--color-surface-1)); }
+html[data-remote='true'] .remote-message-user { margin-left: 2rem; background: color-mix(in srgb, var(--color-accent) 8%, var(--theme-opaque-surface-1, var(--color-surface-1))); }
+html[data-remote='true'] .remote-tool,
+html[data-remote='true'] .remote-thinking,
+html[data-remote='true'] .remote-activity { min-width: 0; padding: 0.85rem 1rem; border: 1px solid var(--color-border); border-radius: 0.75rem; background: var(--theme-reading-surface-1, var(--color-surface-1)); }
+html[data-remote='true'] .remote-tool { margin-left: 0.75rem; border-left: 2px solid var(--color-accent); }
+html[data-remote='true'] .remote-run-status { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.25rem; font-size: 0.75rem; line-height: 1.5; color: var(--color-text-secondary); }
+/* A sticky input overlaps scrolling replies. Keep both layers opaque even
+   when the desktop theme deliberately makes other surfaces translucent. */
+html[data-remote='true'] .remote-composer,
+html[data-remote='true'] .remote-composer-input {
+  background: var(--theme-opaque-surface-0, var(--color-surface-0));
+  background: rgb(from var(--color-surface-0) r g b / 1);
+}
+html[data-remote='true'] .remote-composer { margin-bottom: max(0px, env(safe-area-inset-bottom)); }
 html[data-remote='true'] button,
 html[data-remote='true'] input,
 html[data-remote='true'] select,

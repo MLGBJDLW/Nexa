@@ -54,6 +54,7 @@ pub struct StartContextCompactionRequest {
 }
 
 pub struct ContextCompactionJob {
+    pub mode: crate::context_history::ContextManagementMode,
     pub request: StartContextCompactionRequest,
     pub snapshot_version: String,
     pub model: String,
@@ -61,7 +62,7 @@ pub struct ContextCompactionJob {
     pub max_response_tokens: u32,
     pub provider_type: Option<ProviderType>,
     pub provider_label: String,
-    pub summarizer: Arc<dyn LlmProvider>,
+    pub summarizer: Option<Arc<dyn LlmProvider>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +99,7 @@ pub struct ContextProjection {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ContextCheckpointInput {
+    pub history_archive: Option<crate::context_history::ContextHistoryArchive>,
     pub operation_id: String,
     pub conversation_id: String,
     pub idempotency_key: String,

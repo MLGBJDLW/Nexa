@@ -9,7 +9,9 @@ import { RemoteVoiceInput } from './RemoteVoiceInput';
 import { applyVoiceDictationEvent, type VoiceDraftSession } from '../voice/voiceDraftProjection';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { RemoteComposerOptions, defaultComposerSettings, type RemoteComposerSettings } from './RemoteComposerOptions';
-import type { ImageAttachment } from '../../types/conversation';
+import type { AgentRunEvent, ImageAttachment } from '../../types/conversation';
+import { enqueueStreamRunEvent, takeNextStreamRunEvent, takeAuthoritativeRunEventSuffix, type StreamEventOrderingState } from '../../lib/streaming/ordering';
+import { RemoteRunTimeline, type RemoteTimelineItem } from './RemoteRunTimeline';
 
 interface Connection {
   id: string;
@@ -33,19 +35,13 @@ interface MessagePage {
   messages: ChatMessage[];
   beforeOrder: number | null;
 }
-interface RunEvent {
-  runId: string;
-  eventSeq: number;
-  kind: string;
-  label: string;
-  visibility: string;
-  payload: Record<string, any>;
-}
+type RunEvent = AgentRunEvent;
 interface RunPage {
-  run: { id: string; status: string } | null;
+  run: { id: string; status: string; phase?: string; finalMessageId?: string | null; errorMessage?: string | null } | null;
   events: RunEvent[];
   hasMore: boolean;
   nextSequence: number | null;
+  durableHighWater?: number;
 }
 interface Approval {
   runId: string;
@@ -109,9 +105,10 @@ export function RemoteChat({
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [stream, setStream] = useState("");
-  const [thinking, setThinking] = useState('');
-  const [tools, setTools] = useState<Record<string, Record<string, any>>>({});
+  const [timeline, setTimeline] = useState<RemoteTimelineItem[]>([]);
+  const [finalMessageId, setFinalMessageId] = useState<string | null>(null);
+  const [runStatus, setRunStatus] = useState('');
+  const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -186,230 +183,213 @@ export function RemoteChat({
     let stopped = false;
     let syncing = false;
     let syncAgain = false;
+    let readNeeded = true;
+    let historyLoaded = false;
     let runId: string | null = null;
-    let sequence = 0;
-    const waiting = new Map<number, RunEvent>();
+    let finalId: string | null = null;
+    let status = '';
+    let textReplayAttempts = 0;
+    const ordering: StreamEventOrderingState = {
+      _orderedRunId: null, _lastEventSeq: 0, _pendingRunEvents: new Map(),
+    };
     const blocks = new Map<string, { text: string; bytes: number }>();
-    const reasoning = new Map<string, { text: string; bytes: number }>();
+    const items = new Map<string, RemoteTimelineItem>();
     const encoder = new TextEncoder();
     let paint: ReturnType<typeof setTimeout> | null = null;
     const retired = new Set<string>();
-    setStream("");
-    setThinking(''); setTools({});
-    setProgress("");
-    setRunning(false);
-    setMessages([]);
-    setApprovals([]);
-    setInteractions([]);
-    setBeforeOrder(null);
+    const terminal = new Set<string>();
+    setTimeline([]); setFinalMessageId(null); setRunStatus('');
+    setProgress(''); setRunning(false); setMessages([]);
+    setApprovals([]); setInteractions([]); setBeforeOrder(null);
     if (!conversationId) return;
-    localStorage.setItem(
-      `nexa.remote.chat.${client.paired.manifest.serverId}`,
-      conversationId,
-    );
-    const valid = () =>
-      !stopped &&
-      scope.current === generation &&
-      selectedConversation.current === conversationId;
-    const publishStream = () => {
+    localStorage.setItem(`nexa.remote.chat.${client.paired.manifest.serverId}`, conversationId);
+    const valid = () => !stopped && scope.current === generation && selectedConversation.current === conversationId;
+    const publish = () => {
       if (paint) return;
       paint = setTimeout(() => {
         paint = null;
-        if (valid())
-          setStream(
-            [...blocks.values()]
-              .map((block) => block.text)
-              .join("\n\n")
-              .slice(-128_000),
-          );
+        if (valid()) setTimeline([...items.values()].sort((a, b) => a.sequence - b.sequence));
       }, 60);
     };
+    const changeRun = (id: string) => {
+      if (runId === id) return;
+      if (runId) retired.add(runId);
+      runId = id; finalId = null; status = ''; textReplayAttempts = 0;
+      ordering._orderedRunId = id; ordering._lastEventSeq = 0; ordering._pendingRunEvents.clear();
+      blocks.clear(); items.clear(); readNeeded = true;
+      setTimeline([]); setFinalMessageId(null); setProgress('');
+    };
+    const updateStatus = (next: string, phase?: string) => {
+      if (runId && terminal.has(runId) && !['completed', 'cancelled', 'failed', 'timed_out'].includes(next)) return;
+      const effective = phase === 'paused' || phase === 'awaiting_user_input' ? phase : next;
+      if (status !== effective) readNeeded = true;
+      status = effective; setRunStatus(effective);
+      setRunning(['queued', 'running', 'waiting_approval', 'cancelling'].includes(effective));
+      if (runId && ['completed', 'cancelled', 'failed', 'timed_out'].includes(effective)) terminal.add(runId);
+    };
     const read = async () => {
-      const result = await client.rpc<MessagePage>("chat.read", {
-        conversationId,
+      const expectedRun = runId;
+      const result = await client.rpc<MessagePage>('chat.read', { conversationId });
+      if (!valid() || runId !== expectedRun) return;
+      const firstLoad = !historyLoaded;
+      historyLoaded = true;
+      setMessages(current => {
+        const firstOrder = result.messages[0]?.sortOrder ?? Infinity;
+        const older = current.filter(message => message.sortOrder < firstOrder);
+        const latest = result.messages.map(message => {
+          const expanded = current.find(old => old.id === message.id);
+          return expanded && expanded.totalChars === message.totalChars && expanded.content.startsWith(message.content)
+            ? expanded : message;
+        });
+        return [...older, ...latest];
       });
-      if (valid()) {
-        setMessages(result.messages);
-        setBeforeOrder(result.beforeOrder);
-      }
+      if (firstLoad) setBeforeOrder(result.beforeOrder);
+      // Only the canonical message for THIS run retires its live answer. A
+      // previous assistant message or a temporarily missing final cannot do so.
+      if (finalId && result.messages.some(message => message.id === finalId)) setFinalMessageId(finalId);
+      else if (status === 'completed') readNeeded = true;
     };
     const questions = async () => {
+      const expectedRun = runId;
       const [nextApprovals, nextInteractions] = await Promise.all([
-        client.rpc<Approval[]>("approvals.list"),
-        client.rpc<Interaction[]>("interactions.list", { conversationId }),
+        client.rpc<Approval[]>('approvals.list'),
+        client.rpc<Interaction[]>('interactions.list', { conversationId }),
       ]);
-      if (valid()) {
-        setApprovals(nextApprovals.filter((item) => item.runId === runId));
+      if (valid() && runId === expectedRun) {
+        setApprovals(nextApprovals.filter(item => item.runId === runId));
         setInteractions(nextInteractions);
       }
     };
     const apply = (event: RunEvent) => {
-      sequence = event.eventSeq;
-      if (event.visibility === "user" && event.label) setProgress(event.label);
-      const payload = event.payload;
+      if (event.visibility === 'user' && event.label) setProgress(event.label);
+      const payload = (event.payload ?? {}) as Record<string, any>;
       if (event.visibility === 'user' && event.kind.startsWith('tool') && payload.run?.callId) {
-        setTools(current => { const next: Record<string, Record<string, any>> = { ...current, [payload.run.callId]:payload.run }; return Object.fromEntries(Object.entries(next).slice(-64)); });
+        const id = `tool:${payload.run.callId}`;
+        const previous = items.get(id);
+        items.set(id, { id, kind: 'tool', sequence: previous?.sequence ?? event.eventSeq,
+          tool: { ...(previous?.kind === 'tool' ? previous.tool : {}), ...payload.run } });
+        publish();
       }
-      if (payload.channel === 'thinking' && (event.kind === 'outputDelta' || event.kind === 'outputSnapshot')) {
-        const previous = reasoning.get(payload.blockId) || { text:'', bytes:0 };
+      if ((event.kind === 'outputDelta' || event.kind === 'outputSnapshot') &&
+          ['answer', 'thinking'].includes(payload.channel) && typeof payload.blockId === 'string') {
+        const id = `${payload.channel}:${payload.blockId}`;
+        const previous = blocks.get(id) ?? { text: '', bytes: 0 };
         if (event.kind === 'outputSnapshot' || previous.bytes === payload.offset) {
-          const text = (event.kind === 'outputSnapshot' ? String(payload.text ?? '') : previous.text + String(payload.delta ?? '')).slice(0, 128_000);
-          reasoning.set(payload.blockId, { text, bytes:encoder.encode(text).byteLength });
-          setThinking([...reasoning.values()].map(block => block.text).join('\n\n').slice(-128_000));
+          const text = String(event.kind === 'outputSnapshot' ? payload.text ?? payload.content ?? '' : payload.delta ?? '');
+          const next = event.kind === 'outputSnapshot'
+            ? { text: text.slice(0, 128_000), bytes: encoder.encode(text).byteLength }
+            : { text: (previous.text + text).slice(0, 128_000), bytes: previous.bytes + encoder.encode(text).byteLength };
+          blocks.set(id, next);
+          const priorItem = items.get(id);
+          items.set(id, { id, kind: payload.channel, sequence: priorItem?.sequence ?? event.eventSeq, text: next.text });
+          publish();
+        } else if (textReplayAttempts++ === 0) {
+          // A byte-offset mismatch needs a full replay; skipping it permanently
+          // would make the phone look current while silently dropping text.
+          ordering._lastEventSeq = 0;
+          ordering._pendingRunEvents.clear();
+          blocks.clear(); items.clear();
+          syncAgain = true;
         }
       }
-      if (event.kind === "outputDelta" && payload.channel === "answer") {
-        const previous = blocks.get(payload.blockId) || { text: "", bytes: 0 };
-        if (
-          previous.bytes === payload.offset &&
-          previous.text.length < 128_000
-        ) {
-          const delta = String(payload.delta || "");
-          blocks.set(payload.blockId, {
-            text: previous.text + delta,
-            bytes: previous.bytes + encoder.encode(delta).byteLength,
-          });
-          publishStream();
-        }
-      }
-      if (event.kind === "outputSnapshot" && payload.channel === "answer") {
-        const text = String(payload.text ?? payload.content ?? "");
-        blocks.set(payload.blockId, {
-          text,
-          bytes: encoder.encode(text).byteLength,
-        });
-        publishStream();
-      }
-      if (event.kind === "streamReset" && payload.discardSample) {
+      if (event.kind === 'streamReset' && payload.discardSample) {
         blocks.clear();
-        reasoning.clear(); setThinking('');
-        setStream("");
+        for (const [id, item] of items) if (item.kind !== 'tool') items.delete(id);
+        publish();
       }
-      if (event.kind === "done" || event.kind === "error") {
-        setRunning(false);
-        const completedRun = event.runId;
-        void read()
-          .then(() => {
-            if (valid() && runId === completedRun) {
-              setStream("");
-              blocks.clear();
-            }
-          })
-          .catch(errorText);
+      if (event.kind === 'done' || event.kind === 'error') {
+        if (typeof payload.assistantMessageId === 'string') finalId = payload.assistantMessageId;
+        updateStatus(String(payload.status || event.status || (event.kind === 'done' ? 'completed' : 'failed')));
+        readNeeded = true;
+        if (event.kind === 'error' && typeof payload.message === 'string') setError(payload.message);
+        if (!syncing) void sync();
         void list().catch(() => {});
-      }
-      if (
-        event.kind === "approvalRequested" ||
-        event.kind === "approvalResolved" ||
-        event.kind === "interactionRequested"
-      )
-        void questions().catch(errorText);
+      } else if (event.phase === 'paused' || event.phase === 'awaiting_user_input' || event.phase === 'approval') {
+        updateStatus(event.phase === 'approval' ? 'waiting_approval' : event.phase);
+      } else if (event.kind === 'status' && ['queued', 'running', 'recovering'].includes(event.status ?? '')) updateStatus('running');
+      if (['approvalRequested', 'approvalResolved', 'interactionRequested'].includes(event.kind)) void questions().catch(() => {});
+      // Bound presentation independently of the durable history cursor.
+      while (items.size > 128) items.delete(items.keys().next().value!);
     };
     const receive = (event: RunEvent) => {
-      if (!valid()) return;
-      if (retired.has(event.runId)) return;
-      if (runId !== event.runId) {
-        if (runId) retired.add(runId);
-        runId = event.runId;
-        sequence = 0;
-        waiting.clear();
-        blocks.clear();
-        reasoning.clear(); setThinking(''); setTools({});
-        setStream("");
-        setRunning(true);
-      }
-      if (event.eventSeq <= sequence) return;
-      waiting.set(event.eventSeq, event);
-      while (waiting.has(sequence + 1)) {
-        const next = waiting.get(sequence + 1)!;
-        waiting.delete(sequence + 1);
-        apply(next);
-      }
-      if (waiting.size > 256) waiting.clear();
-      if (event.eventSeq > sequence + 1 && !syncing) void sync();
+      if (!valid() || retired.has(event.runId)) return;
+      // A delayed event can belong to an older run we never observed. Let the
+      // desktop select the current run instead of reviving whichever arrives.
+      if (runId !== event.runId) { void sync(); return; }
+      const admission = enqueueStreamRunEvent(ordering, event);
+      if (!admission.accepted) return;
+      let next: AgentRunEvent | null;
+      while ((next = takeNextStreamRunEvent(ordering)) !== null) apply(next);
+      if (ordering._pendingRunEvents.size > 256) ordering._pendingRunEvents.clear();
+      if (admission.missingRange || syncAgain) void sync();
     };
     const sync = async () => {
       if (!valid()) return;
-      if (syncing) {
-        syncAgain = true;
-        return;
-      }
+      if (syncing) { syncAgain = true; return; }
       syncing = true;
+      setSyncingHistory(true);
       try {
-        let more = true;
-        while (more && valid()) {
-          const page = await client.rpc<RunPage>("chat.resume", {
-            conversationId,
-            runId,
-            afterSequence: sequence,
+        let cursor = ordering._lastEventSeq;
+        let highWater: number | undefined;
+        for (;;) {
+          const requestedRun = runId;
+          const page = await client.rpc<RunPage>('chat.resume', {
+            conversationId, runId: requestedRun, afterSequence: cursor, durableHighWater: highWater,
           });
           if (!valid()) return;
-          if (page.run) {
-            // A newer desktop run can arrive while an older replay request is in flight.
-            if (retired.has(page.run.id)) {
-              syncAgain = true;
-              return;
-            }
-            if (runId !== page.run.id) {
-              if (runId) retired.add(runId);
-              runId = page.run.id;
-              sequence = 0;
-              waiting.clear();
-              blocks.clear();
-              reasoning.clear(); setThinking(''); setTools({});
-              setStream("");
-            }
-            setRunning(
-              [
-                "queued",
-                "running",
-                "waiting_approval",
-                "waiting_input",
-              ].includes(page.run.status),
-            );
-          }
-          for (const event of page.events) receive(event);
-          more = page.hasMore;
-          if (
-            more &&
-            (!page.nextSequence ||
-              (page.nextSequence <= sequence && !page.events.length))
-          )
-            break;
+          if (!page.run) { updateStatus(''); break; }
+          if (retired.has(page.run.id)) { syncAgain = false; return; }
+          if (runId !== page.run.id) changeRun(page.run.id);
+          if (requestedRun !== page.run.id) { cursor = 0; highWater = undefined; }
+          highWater ??= page.durableHighWater;
+          if (page.run.finalMessageId) finalId = page.run.finalMessageId;
+          updateStatus(page.run.status, page.run.phase);
+          if (page.run.errorMessage) setError(page.run.errorMessage);
+          // The durable ledger omits ephemeral previews. Only a canonical
+          // replay page may advance over those holes; live events stay ordered.
+          const through = page.hasMore ? page.nextSequence ?? cursor
+            : highWater ?? page.nextSequence ?? Math.max(cursor, ...page.events.map(event => event.eventSeq));
+          for (const event of takeAuthoritativeRunEventSuffix(ordering, page.run.id, page.events, {
+            includeLivePending: true, authoritativeThroughEventSeq: through,
+          })) apply(event);
+          if (!page.hasMore) break;
+          const nextCursor = page.nextSequence;
+          if (nextCursor == null || nextCursor <= cursor) throw new Error('Remote history did not advance its cursor');
+          cursor = nextCursor;
         }
-        await Promise.all([read(), questions()]);
+        const shouldRead = readNeeded;
+        readNeeded = false;
+        await Promise.all([shouldRead ? read() : Promise.resolve(), questions()]);
       } catch (error) {
-        if (valid() && client.state.phase === "connected") errorText(error);
+        readNeeded = true;
+        if (valid() && client.state.phase === 'connected') errorText(error);
       } finally {
         syncing = false;
-        if (syncAgain) {
-          syncAgain = false;
-          void sync();
-        }
+        if (valid()) setSyncingHistory(false);
+        if (syncAgain && valid()) { syncAgain = false; void sync(); }
       }
     };
-    refreshRef.current = () => {
-      void sync();
-    };
-    void sync();
-    const off = client.subscribe((event) => {
-      if (
-        event.event === "agent://run-event" &&
-        event.payload.conversationId === conversationId
-      )
-        receive(event.payload.runEvent);
-      else if (event.event === "connection:resync") {
-        void list().catch(() => {});
-        void sync();
+    refreshRef.current = () => { readNeeded = true; void sync(); };
+    const off = client.subscribe(event => {
+      if (event.event === 'agent://run-event' && event.payload.conversationId === conversationId) receive(event.payload.runEvent);
+      else if (event.event === 'connection:resync') {
+        readNeeded = true;
+        void list().catch(() => {}); void sync();
       }
     });
+    const foreground = () => {
+      if (document.visibilityState !== 'hidden') { readNeeded = true; void sync(); }
+    };
+    document.addEventListener('visibilitychange', foreground);
+    window.addEventListener('pageshow', foreground);
+    void sync();
     const timer = setInterval(() => {
-      if (client.state.phase === "connected") void questions().catch(() => {});
+      if (client.state.phase === 'connected' && document.visibilityState !== 'hidden') void sync();
     }, 3000);
     return () => {
-      stopped = true;
-      off();
-      clearInterval(timer);
+      stopped = true; off(); clearInterval(timer);
+      document.removeEventListener('visibilitychange', foreground);
+      window.removeEventListener('pageshow', foreground);
       if (paint) clearTimeout(paint);
     };
   }, [client, conversationId, list]);
@@ -631,53 +611,30 @@ export function RemoteChat({
           {t("remote.older")}
         </button>
       )}
-      <div className="space-y-5" aria-live="polite">
-        {messages.map((message) => (
-          <article
-            key={message.id}
-            className={`rounded-2xl p-4 ${message.role === "user" ? "ml-8 border border-accent/15 bg-accent/5" : "border border-border bg-surface-1"}`}
-          >
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
-              {message.role === "user" ? t("remote.you") : "Nexa"}
-            </p>
-            {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
-              : <StreamingMarkdown content={message.content} isStreaming={false} reduceMotion />}
-            {[...message.content].length < message.totalChars && (
-              <button
-                className={`${remoteButton} mt-3`}
-                onClick={() => void more(message)}
-              >
-                <ArrowDown size={14} />
-                {t("remote.moreText")}
-              </button>
-            )}
-          </article>
+      <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
+        {messages.filter(message => message.id !== finalMessageId).map(message => (
+          <RemoteChatMessage key={message.id} message={message} onMore={() => void more(message)} />
         ))}
-        {stream && (
-          <article className="rounded-2xl border border-accent/20 bg-surface-1 p-4">
-            <p className="mb-2 text-xs font-medium text-accent">Nexa</p>
-            <StreamingMarkdown content={stream} isStreaming={running} reduceMotion />
-          </article>
-        )}
+        <RemoteRunTimeline items={timeline} running={running} settled={Boolean(finalMessageId)} />
+        {messages.filter(message => message.id === finalMessageId).map(message => (
+          <RemoteChatMessage key={message.id} message={message} onMore={() => void more(message)} />
+        ))}
       </div>
-      {progress && (
-        <p role="status" className="text-xs leading-5 text-text-secondary">
-          {running && (
-            <Loader2 size={13} className="mr-2 inline animate-spin" />
-          )}
-          {progress}
-        </p>
+      {runStatus && (
+        <div role="status" data-testid="remote-run-status" className="remote-run-status">
+          {running && <Loader2 size={14} className="shrink-0 animate-spin text-accent" />}
+          <span className="font-medium">{
+            runStatus === 'completed' ? t('remote.runCompleted')
+              : runStatus === 'cancelled' ? t('remote.runCancelled')
+                : ['failed', 'timed_out'].includes(runStatus) ? t('remote.runFailed')
+                  : runStatus === 'paused' ? t('remote.runPaused')
+                    : ['awaiting_user_input', 'waiting_input'].includes(runStatus) ? t('remote.runWaitingInput')
+                      : runStatus === 'waiting_approval' ? t('remote.runWaitingApproval')
+                        : t('remote.runRunning')
+          }</span>
+          {running && progress && <span className="min-w-0 flex-1 truncate text-text-tertiary">{progress}</span>}
+        </div>
       )}
-      {(thinking || Object.keys(tools).length > 0) && <details className="rounded-xl border border-border bg-surface-1 p-3 text-sm">
-        <summary className="cursor-pointer text-text-secondary">{t('remote.activity')}</summary>
-        {thinking && <div className="mt-3 max-h-80 overflow-auto"><StreamingMarkdown content={thinking} isStreaming={running} reduceMotion /></div>}
-        {Object.entries(tools).map(([id, tool]) => <details key={id} className="mt-2 rounded-lg border border-border p-2">
-          <summary className="cursor-pointer">{tool.toolName} · {tool.status}</summary>
-          {tool.progressNote && <p className="mt-2 text-xs">{tool.progressNote}</p>}
-          {tool.arguments && <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs">{tool.arguments}</pre>}
-          {tool.content && <div className="max-h-80 overflow-auto"><StreamingMarkdown content={tool.content} isStreaming={false} reduceMotion /></div>}
-        </details>)}
-      </details>}
       {approvals.map((item) => (
         <section
           key={item.request.id}
@@ -830,13 +787,14 @@ export function RemoteChat({
           </button>
         </form>
       ))}
-      {!messages.length && !stream && !loading && (
+      {!messages.length && !timeline.length && !loading && (
         <div className="py-8 text-center text-sm leading-7 text-text-secondary">
           {t("remote.chatEmpty")}
         </div>
       )}
       <form
-        className="sticky bottom-3 z-20 mt-auto rounded-2xl border border-border bg-surface-0 p-3 shadow-lg"
+        data-testid="remote-composer"
+        className="remote-composer sticky bottom-3 z-20 mt-auto rounded-2xl border border-border p-3 shadow-lg"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
@@ -844,7 +802,7 @@ export function RemoteChat({
       >
         <textarea
           aria-label={t("remote.message")}
-          className="max-h-52 min-h-24 w-full resize-y bg-transparent p-1 text-sm leading-6 outline-none"
+          className="remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"
           maxLength={64000}
           placeholder={t("remote.messageHint")}
           value={draft}
@@ -882,4 +840,16 @@ export function RemoteChat({
       </form>
     </main>
   );
+}
+
+function RemoteChatMessage({ message, onMore }: { message: ChatMessage; onMore: () => void }) {
+  const { t } = useTranslation();
+  return <article className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
+    <p className="mb-3 text-xs font-semibold text-text-tertiary">{message.role === 'user' ? t('remote.you') : 'Nexa'}</p>
+    {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
+      : <StreamingMarkdown content={message.content} isStreaming={false} reduceMotion />}
+    {[...message.content].length < message.totalChars && <button className={`${remoteButton} mt-3`} onClick={onMore}>
+      <ArrowDown size={14} />{t('remote.moreText')}
+    </button>}
+  </article>;
 }

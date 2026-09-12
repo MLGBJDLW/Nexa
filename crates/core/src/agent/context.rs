@@ -66,6 +66,8 @@ pub struct PrepareMessagesOptions<'a> {
     pub controller_state_sections: &'a [&'a str],
     pub append_volatile_system_prompt_to_tail: bool,
     pub endpoint_context_resolution: Option<crate::conversation::memory::ResolvedContextWindow>,
+    /// Defer history eviction to the transactional archive handoff in the loop.
+    pub preserve_history_for_handoff: bool,
 }
 
 impl Default for PrepareMessagesOptions<'static> {
@@ -77,6 +79,7 @@ impl Default for PrepareMessagesOptions<'static> {
             controller_state_sections: &[],
             append_volatile_system_prompt_to_tail: false,
             endpoint_context_resolution: None,
+            preserve_history_for_handoff: false,
         }
     }
 }
@@ -222,11 +225,12 @@ pub fn prepare_messages_with_options(
     });
 
     // Trim to fit context window, accounting for tool definition overhead.
-    let mut trimmed = if resolved_context.capacity_tokens.is_some() {
-        trim_to_context_window(&messages, effective_context, max_tokens_response)
-    } else {
-        messages.clone()
-    };
+    let mut trimmed =
+        if resolved_context.capacity_tokens.is_some() && !options.preserve_history_for_handoff {
+            trim_to_context_window(&messages, effective_context, max_tokens_response)
+        } else {
+            messages.clone()
+        };
 
     // If messages were evicted, inject an extractive recap into the system prompt
     // so the LLM retains awareness of earlier conversation topics.

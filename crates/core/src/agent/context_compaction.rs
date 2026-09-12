@@ -314,6 +314,11 @@ impl AgentExecutor {
 
         let prefix_end = system_prefix_end(&history);
         let target_tail_tokens = (budget as f32 * COMPACTION_TARGET_USAGE) as u32;
+        if self.history_handoff_enabled(conversation_id) {
+            let mut history = history;
+            self.handoff_context(&mut history, model, target_tail_tokens, run)?;
+            return Ok((history, Usage::default()));
+        }
         let Some(evict_end) =
             compaction_boundary(&history, model, target_tail_tokens, MIN_RECENT_TURNS)
         else {
@@ -437,7 +442,9 @@ impl AgentExecutor {
             self.config.context_window_resolution,
             self.config.resolved_max_response_tokens(model),
         );
-        *messages = pipeline.trim_after_overflow_recovery(messages);
+        if !self.history_handoff_enabled(run.conversation_id) {
+            *messages = pipeline.trim_after_overflow_recovery(messages);
+        }
 
         let after_tokens: u32 = messages
             .iter()
@@ -486,6 +493,17 @@ impl AgentExecutor {
                     .sum::<u32>()
                     .saturating_div(2)
             });
+        if self.history_handoff_enabled(conversation_id) {
+            let before = messages.len();
+            if self.handoff_context(messages, model, target, run)? {
+                let _ = tx
+                    .send(AgentEvent::AutoCompacted {
+                        evicted_count: before.saturating_sub(messages.len()),
+                    })
+                    .await;
+            }
+            return Ok(Usage::default());
+        }
         let Some(evict_end) = compaction_boundary(messages, model, target, MIN_RECENT_TURNS) else {
             return Ok(Usage::default());
         };
