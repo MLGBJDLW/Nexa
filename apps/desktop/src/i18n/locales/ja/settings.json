@@ -1011,5 +1011,9 @@
   "contextModeHistory": "ノートと履歴の引き継ぎ（実験的）",
   "contextSummaryHelp": "モデルが以前のやり取りを要約し、直近のターンはそのまま保持します。",
   "contextHistoryHelp": "以前のテキストとツール結果をローカルに保存し、ノートと最近のやり取りで続行します。要約モデルの呼び出しは不要ですが、過去の詳細は履歴検索が必要な場合があります。",
-  "contextModeScope": "新しい Nexa API ターンと手動圧縮に適用します。サブスクリプションのランタイムは自身のコンテキストを管理します。"
+  "contextModeScope": "新しい Nexa API ターンと手動圧縮に適用します。サブスクリプションのランタイムは自身のコンテキストを管理します。",
+  "modelLifecycleRemoved": "提供終了",
+  "retiredModelSelection": "このプロバイダーではモデル {model} の提供が終了しました。送信前に別のモデルを選択してください。",
+  "suggestedModelReplacement": "推奨代替モデル：{model}。",
+  "savedModelResolution": "保存済みのモデル ID は {model} に解決されました。"
 }

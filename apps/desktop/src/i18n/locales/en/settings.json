@@ -1011,5 +1011,9 @@
   "contextModeHistory": "Notes and history handoff (experimental)",
   "contextSummaryHelp": "A model summarizes older exchanges while recent turns remain intact.",
   "contextHistoryHelp": "Saves earlier text and tool results locally, then continues with notes and recent exchanges. Avoids a summary-model call; recalling old details may require history searches.",
-  "contextModeScope": "Applies to new Nexa API turns and manual compaction. Subscription runtimes manage their own active context."
+  "contextModeScope": "Applies to new Nexa API turns and manual compaction. Subscription runtimes manage their own active context.",
+  "modelLifecycleRemoved": "Retired",
+  "retiredModelSelection": "Model {model} has been retired on this provider. Choose another model before sending.",
+  "suggestedModelReplacement": "Suggested replacement: {model}.",
+  "savedModelResolution": "Saved model ID resolved to {model}."
 }

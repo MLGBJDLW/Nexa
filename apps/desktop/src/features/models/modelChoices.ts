@@ -7,6 +7,8 @@ export interface TurnModelSelection {
 export interface ModelChoice {
   id: string;
   name: string;
+  available?: boolean;
+  replacementModelId?: string | null;
   vision: boolean | null;
   reasoning: {
     mode?: string | null;

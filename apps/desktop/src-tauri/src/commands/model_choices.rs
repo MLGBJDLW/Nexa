@@ -2,7 +2,9 @@
 use super::{db_config_to_provider_config, list_subscription_models_cmd, AppState};
 use nexa_core::{
     llm::create_provider,
-    provider_catalog::{build_effective_model_catalog, ReasoningCapability},
+    provider_catalog::{
+        build_effective_model_catalog, retired_model_for_endpoint, ReasoningCapability,
+    },
 };
 use serde::Serialize;
 use std::time::Duration;
@@ -15,6 +17,8 @@ pub struct ModelChoice {
     name: String,
     reasoning: Option<ReasoningCapability>,
     vision: Option<bool>,
+    available: bool,
+    replacement_model_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +51,8 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
                         id: model.id,
                         name: model.name,
                         vision: None,
+                        available: true,
+                        replacement_model_id: None,
                         reasoning: (!model.reasoning_efforts.is_empty()).then_some(
                             ReasoningCapability {
                                 mode: Some("optional".into()),
@@ -90,12 +96,16 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
                         .as_ref()
                         .and_then(|cap| cap.reasoning.clone()),
                     vision: model.capabilities.as_ref().and_then(|cap| cap.vision),
+                    available: true,
+                    replacement_model_id: None,
                 })
                 .collect(),
             discovered,
         )
     };
     if !models.iter().any(|model| model.id == config.model) {
+        let retired =
+            retired_model_for_endpoint(&config.provider, config.base_url.as_deref(), &config.model);
         models.insert(
             0,
             ModelChoice {
@@ -103,6 +113,8 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
                 name: config.model,
                 reasoning: None,
                 vision: None,
+                available: retired.is_none(),
+                replacement_model_id: retired.and_then(|model| model.replacement_model_id),
             },
         );
     }

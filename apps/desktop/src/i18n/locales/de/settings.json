@@ -1011,5 +1011,9 @@
   "contextModeHistory": "Notizen und Verlauf (experimentell)",
   "contextSummaryHelp": "Ein Modell fasst ältere Gespräche zusammen; die letzten Runden bleiben erhalten.",
   "contextHistoryHelp": "Speichert ältere Texte und Werkzeugergebnisse lokal und setzt mit Notizen und jüngsten Gesprächen fort. Kein Zusammenfassungsaufruf; ältere Details können eine Verlaufssuche erfordern.",
-  "contextModeScope": "Gilt für neue Nexa-API-Runden und manuelle Komprimierung. Abonnement-Laufzeiten verwalten ihren aktiven Kontext selbst."
+  "contextModeScope": "Gilt für neue Nexa-API-Runden und manuelle Komprimierung. Abonnement-Laufzeiten verwalten ihren aktiven Kontext selbst.",
+  "modelLifecycleRemoved": "Eingestellt",
+  "retiredModelSelection": "Das Modell {model} wurde bei diesem Anbieter eingestellt. Wählen Sie vor dem Senden ein anderes Modell.",
+  "suggestedModelReplacement": "Empfohlener Ersatz: {model}.",
+  "savedModelResolution": "Die gespeicherte Modell-ID wurde als {model} aufgelöst."
 }

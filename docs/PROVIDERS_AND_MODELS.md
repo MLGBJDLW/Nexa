@@ -47,6 +47,30 @@ an independent model inventory.
 For output continuation, accepted-route replay, context management, and explicit
 worker budgets, see [Orchestration runtime](ORCHESTRATION_RUNTIME.md).
 
+## Model retirement
+
+Confirmed retirements are endpoint-scoped tombstones in the shared catalog.
+They override old discovery caches and are excluded from desktop and phone
+choices. The API provider boundary rejects both streaming and non-streaming
+requests to those IDs, including documented retired aliases. Saved connections
+remain editable with their original model ID and a suggested replacement;
+Nexa does not select a differently priced model without a user selection.
+
+`deprecated` and `legacy` do not mean unavailable. An announced future shutdown
+does not remove a model early, and a missing account discovery result alone
+does not establish retirement. A redirected retired ID also needs an explicit
+replacement choice: its old model no longer serves requests even if the host
+still accepts that spelling. Local and private deployments retain their own
+availability authority.
+
+For example, the [Moonshot model list](https://platform.kimi.ai/docs/models)
+retires K2.5 and Moonshot V1, while [Alibaba's retirement notice](https://help.aliyun.com/zh/marketplace/three-party-direct-supply-model-kimi-k2-5-offline-notification)
+applies to its third-party direct-supply route. Alibaba's separately hosted
+`kimi-k2.5` is not the same route as `kimi/kimi-k2.5`. Similarly,
+[DeepSeek's current service notice](https://api-docs.deepseek.com/quick_start/pricing/)
+keeps V4 Pro available after the previously announced deadline. Record current
+source links and verification dates when changing lifecycle facts.
+
 ## Select the right execution surface
 
 | Task | Boundary |

@@ -1011,5 +1011,9 @@
   "contextModeHistory": "Notas e histórico (experimental)",
   "contextSummaryHelp": "Um modelo resume conversas antigas e mantém os turnos recentes.",
   "contextHistoryHelp": "Salva textos e resultados de ferramentas localmente e continua com notas e conversas recentes. Evita uma chamada de resumo; detalhes antigos podem exigir uma busca no histórico.",
-  "contextModeScope": "Aplica-se a novos turnos de API do Nexa e à compactação manual. Os runtimes de assinatura gerenciam seu próprio contexto ativo."
+  "contextModeScope": "Aplica-se a novos turnos de API do Nexa e à compactação manual. Os runtimes de assinatura gerenciam seu próprio contexto ativo.",
+  "modelLifecycleRemoved": "Descontinuado",
+  "retiredModelSelection": "Este provedor descontinuou o modelo {model}. Escolha outro modelo antes de enviar.",
+  "suggestedModelReplacement": "Substituição sugerida: {model}.",
+  "savedModelResolution": "O ID do modelo salvo foi resolvido como {model}."
 }

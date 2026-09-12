@@ -1,5 +1,7 @@
 import { expect, type Locator, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { bindProviderModelCatalogCredential, providerModelCatalogCacheKey } from '../src/lib/providerModelCatalog';
+import { attachModelDescriptors } from '../src/lib/modelCatalog';
 
 const imageProviderPresets = JSON.parse(
   readFileSync(new URL("../../../shared/image-provider-presets.json", import.meta.url), "utf8"),
@@ -416,6 +418,11 @@ test.beforeEach(async ({ page }) => {
           return clone(appearanceRegistry);
         }
         case "list_agent_configs_cmd":
+          if (localStorage.getItem("nexa-e2e-retired-kimi")) return [{
+            ...clone(anthropicConfig), provider:"moonshot", name:"Saved Kimi", model:"kimi-k2.5",
+            baseUrl:"https://api.moonshot.cn/v1", modelId:"kimi-k2.5",
+            modelSelectionResolution:{ kind:"replacement",modelId:"kimi-k3",requiresUserNotice:true },
+          }];
           if (localStorage.getItem("nexa-e2e-stale-subscription-provider")) return [{
             ...clone(anthropicConfig), provider: localStorage.getItem("nexa-e2e-stale-subscription-provider"),
             name: "Existing plan", apiKey: "", baseUrl: null, model: "retired-native-model", reasoningEffort: "high",
@@ -915,6 +922,43 @@ test('settings persists the selected context management mode and keeps summary a
   await mode.selectOption('summary');
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('summary');
+});
+
+test('retired Kimi stays editable and a stale cache cannot restore it to model choices', async ({ page }, testInfo) => {
+  const models = ['kimi-k2.5','kimi-k3','kimi-k2.7-code-highspeed'].map(id => ({
+    id, name:id === 'kimi-k2.5' ? 'Kimi K2.5' : id === 'kimi-k3' ? 'Kimi K3' : 'Kimi K2.7 Code Highspeed',
+    recommended:id === 'kimi-k3', source:'official' as const,status:'active' as const,regions:['cn'],
+    access:'public' as const,productReadiness:'product_ready' as const,availableToCredential:true,
+    lastVerifiedAt:'2026-08-01',modalities:['text' as const],supportsTools:true,supportsStructuredOutput:true,reasoningEfforts:[],
+  }));
+  const snapshot = bindProviderModelCatalogCredential({
+    provider:'moonshot',baseUrl:'https://api.moonshot.cn/v1',refreshedAt:new Date().toISOString(),liveDiscoverySucceeded:true,models,
+    descriptors:attachModelDescriptors(models,{ surface:'text',providerId:'moonshot',endpointId:'text:moonshot',apiStyle:'openai_chat' }).map(model => model.descriptor),
+  },'sk-ant-demo');
+  const key = providerModelCatalogCacheKey(snapshot.provider,snapshot.baseUrl,'sk-ant-demo');
+  await page.addInitScript(({ key,snapshot }) => {
+    localStorage.setItem('nexa-e2e-retired-kimi','1');
+    localStorage.setItem(key,JSON.stringify({ version:3,snapshot }));
+  },{key,snapshot});
+  await page.goto('/settings');
+  await page.getByRole('button',{name:'AI Providers',exact:true}).click();
+  await page.getByTitle('Edit').first().click();
+  const form = page.locator('form');
+  await expect(form.locator('input[value="kimi-k2.5"]')).toBeVisible();
+  await expect(page.getByTestId('model-selection-resolution-notice')).toContainText('has been retired');
+  await form.locator('input[value="Saved Kimi"]').fill('Renamed Kimi');
+  await form.getByRole('button',{name:'Save',exact:true}).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({name:'Renamed Kimi',model:'kimi-k2.5'});
+  await page.getByTitle('Edit').first().click();
+  await form.getByRole('button',{name:'Choose from preset models',exact:true}).click();
+  const field = page.getByTestId('default-model-field');
+  await expect(field).not.toContainText('Kimi K2.5');
+  await expect(page.getByTestId('model-selection-resolution-notice')).toHaveCount(0);
+  await page.getByTestId('default-model-picker').click();
+  await expect(page.getByRole('option').filter({hasText:'Kimi K2.5'})).toHaveCount(0);
+  await page.getByRole('option').filter({hasText:'Kimi K2.7 Code Highspeed'}).click();
+  await expect(field).toContainText('Kimi K2.7 Code Highspeed');
+  await form.screenshot({path:testInfo.outputPath('kimi-model-settings.png')});
 });
 
 test("settings provider form shows updated preset models for add and edit flows", async ({

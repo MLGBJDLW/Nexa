@@ -95,6 +95,10 @@ pub struct ProviderModelPreset {
     pub id: String,
     pub name: String,
     #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub replacement_model_id: Option<String>,
+    #[serde(default)]
     pub tag_key: Option<String>,
     #[serde(default)]
     pub recommended: Option<bool>,
@@ -271,6 +275,12 @@ pub fn find_provider_preset(provider: &str, base_url: Option<&str>) -> Option<Pr
                 return Some(exact.clone());
             }
         }
+        if lookup_provider == "moonshot" && normalized_base_url == "https://api.moonshot.cn/v1" {
+            return presets
+                .iter()
+                .find(|preset| preset.id == "moonshot")
+                .cloned();
+        }
         if lookup_provider == "alibaba_model_studio"
             && is_alibaba_beijing_workspace_endpoint(&normalized_base_url)
         {
@@ -306,6 +316,56 @@ pub fn find_provider_preset(provider: &str, base_url: Option<&str>) -> Option<Pr
         provider_matches.pop()
     } else {
         None
+    }
+}
+
+/// Retirement is an exact endpoint/model fact. A familiar ID on a private
+/// endpoint or another inference host is not evidence that its model retired.
+pub fn retired_model_for_endpoint(
+    provider: &str,
+    base_url: Option<&str>,
+    model: &str,
+) -> Option<ProviderModelPreset> {
+    ModelRetirementPolicy::for_endpoint(provider, base_url)
+        .get(model)
+        .cloned()
+}
+
+/// Built once per concrete adapter. Discovery checks are O(1) per model and do
+/// not repeatedly parse the shared catalog on the request path.
+pub struct ModelRetirementPolicy {
+    removed: HashMap<String, ProviderModelPreset>,
+    google: bool,
+}
+
+impl ModelRetirementPolicy {
+    pub fn for_endpoint(provider: &str, base_url: Option<&str>) -> Self {
+        let mut removed = HashMap::new();
+        if let Some(preset) = find_provider_preset(provider, base_url) {
+            for model in preset
+                .models
+                .into_iter()
+                .filter(|model| model.status == Some(ModelLifecycleStatus::Removed))
+            {
+                for id in std::iter::once(&model.id).chain(model.aliases.iter()) {
+                    removed.insert(normalize_model_id(id), model.clone());
+                }
+            }
+        }
+        Self {
+            removed,
+            google: provider == "google",
+        }
+    }
+
+    pub fn get(&self, model: &str) -> Option<&ProviderModelPreset> {
+        let model = normalize_model_id(model);
+        let id = if self.google {
+            model.strip_prefix("models/").unwrap_or(&model)
+        } else {
+            &model
+        };
+        self.removed.get(id)
     }
 }
 
@@ -431,7 +491,11 @@ pub fn build_effective_model_catalog(
     let tombstones = curated_models
         .iter()
         .filter(|model| model.status == Some(ModelLifecycleStatus::Removed))
-        .map(|model| normalize_model_id(&model.id))
+        .flat_map(|model| {
+            std::iter::once(&model.id)
+                .chain(model.aliases.iter())
+                .map(|id| normalize_model_id(id))
+        })
         .collect::<HashSet<_>>();
     let mut emitted = HashSet::new();
     let mut models = Vec::new();
@@ -1320,6 +1384,7 @@ mod tests {
         let ids = google
             .models
             .iter()
+            .filter(|model| model.status != Some(ModelLifecycleStatus::Removed))
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 

@@ -25,6 +25,7 @@ import type { Skill } from "../../types/extensions";
 import {
   findProviderPreset,
   isRemovedProviderModel,
+  removedProviderModel,
   getReasoningCapability,
   type ReasoningEffortLevel,
   type ProviderPreset,
@@ -994,16 +995,6 @@ export function AgentConfigForm({
             dataTestId="default-model-picker"
           />
           <ModelDescriptorBadges descriptor={selectedPresetModel?.descriptor} surface="text" />
-          {config?.modelSelectionResolution?.requiresUserNotice && (
-            <p
-              className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
-              data-testid="model-selection-resolution-notice"
-              role="status"
-            >
-              Saved model selection resolved to {config.modelSelectionResolution.modelId}
-              {` (${config.modelSelectionResolution.kind})`}.
-            </p>
-          )}
           <button
             type="button"
             onClick={() => setUseCustomModel(true)}
@@ -1071,6 +1062,23 @@ export function AgentConfigForm({
             </button>
           )}
         </div>
+      )}
+
+      {activePreset && removedProviderModel(activePreset.id, model) && (
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+          data-testid="model-selection-resolution-notice" role="status">
+          {t('settings.retiredModelSelection', { model })}
+          {removedProviderModel(activePreset.id, model)?.replacementModelId && ` ${t('settings.suggestedModelReplacement', {
+            model: removedProviderModel(activePreset.id, model)!.replacementModelId!,
+          })}`}
+        </p>
+      )}
+      {config?.modelSelectionResolution?.requiresUserNotice && config.modelSelectionResolution.kind === 'alias'
+        && model === config.model && provider === config.provider && (
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+          data-testid="model-selection-resolution-notice" role="status">
+          {t('settings.savedModelResolution', { model: config.modelSelectionResolution.modelId })}
+        </p>
       )}
 
       <CollapsiblePanel
