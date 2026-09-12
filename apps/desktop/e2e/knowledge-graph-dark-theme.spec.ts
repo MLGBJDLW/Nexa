@@ -2,6 +2,53 @@ import { expect, test } from '@playwright/test';
 
 const THEMES = ['dark', 'light', 'midnight', 'aurora', 'bloom', 'dream'] as const;
 
+test('custom palettes update graph labels, nodes and edges without inheriting the base palette', async ({ page }) => {
+  await page.goto('/knowledge');
+  await page.getByRole('button', { name: 'Topics & Connections' }).click();
+  const graph = page.getByRole('img', { name: 'Relationship Graph', exact: true });
+  await expect(graph.locator('.kg-node-core')).toHaveCount(2);
+  const original = await graph.locator('.kg-node-core').first().evaluate(el => getComputedStyle(el).fill);
+
+  await page.evaluate(async () => {
+    const { applyCustomTheme } = await import('/src/lib/themeProfile.ts');
+    applyCustomTheme({
+      version: 2, id: 'paper-graph', name: 'Paper Graph', baseTheme: 'dark', mode: 'light',
+      colors: { surface0: '#eee4d4', surface1: '#faf4eb', textPrimary: '#292016',
+        textSecondary: '#554635', textTertiary: '#685641', accent: '#754222',
+        info: '#377050', warning: '#926510', danger: '#a43b42' },
+      effects: { surfaceOpacity: 0.35 }, typography: {}, motion: {}, brand: {}, content: {},
+      components: {}, background: { kind: 'none' },
+    });
+  });
+  const palette = await graph.evaluate(element => {
+    const rgba = (color: string) => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d')!; ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+      return [...ctx.getImageData(0, 0, 1, 1).data];
+    };
+    const label = element.querySelector('.kg-label-chip')!;
+    return {
+      background: rgba(getComputedStyle(label).fill),
+      core: getComputedStyle(element.querySelector('.kg-node-core')!).fill,
+    };
+  });
+  // The light custom surface must replace the almost-black dark-base label chip.
+  expect(palette.background[0]).toBeGreaterThan(200);
+  expect(palette.background[1]).toBeGreaterThan(200);
+  expect(palette.background[3]).toBe(255);
+  expect(palette.core).not.toBe(original);
+  await test.info().attach('knowledge-graph-custom-paper', {
+    body: await graph.screenshot({ animations: 'disabled', path:test.info().outputPath('knowledge-graph-custom-paper.png') }), contentType: 'image/png',
+  });
+
+  await page.evaluate(async () => {
+    const { clearCustomThemeVariables } = await import('/src/lib/themeProfile.ts');
+    const { applyTheme } = await import('/src/lib/theme.ts');
+    clearCustomThemeVariables(); applyTheme('dark');
+  });
+  await expect.poll(() => graph.locator('.kg-node-core').first().evaluate(el => getComputedStyle(el).fill)).toBe(original);
+});
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('nexa-locale', 'en');

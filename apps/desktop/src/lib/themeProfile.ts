@@ -128,6 +128,9 @@ const THEME_VARIABLES = [
   '--theme-component-browser-background', '--theme-component-browser-border', '--theme-component-browser-shadow',
   '--theme-component-rail-background-layer', '--theme-component-header-background-layer',
   '--theme-component-card-background-layer', '--theme-component-browser-background-layer',
+  '--graph-canvas-glow-center', '--graph-canvas-glow-mid', '--graph-canvas-glow-edge',
+  '--graph-node-frost', '--graph-label-background', '--graph-label-border',
+  '--graph-transfer-core', '--graph-suggestion-background', '--graph-shadow-color', '--graph-shadow-opacity',
 ] as const;
 
 const COMPONENT_SLOTS: ThemeComponentSlot[] = ['rail', 'header', 'card', 'browser'];
@@ -264,6 +267,19 @@ export function customThemeToCssVariables(
     variables[`--theme-content-surface-${surface}`] = `color-mix(in srgb, var(${opaqueSurface}) var(--theme-content-surface-alpha), transparent)`;
     variables[`--theme-reading-surface-${surface}`] = `color-mix(in srgb, var(${opaqueSurface}) var(--theme-reading-surface-alpha), transparent)`;
   }
+  // Graph paint lives in SVG attributes, so it must resolve the same custom
+  // semantic palette as the surrounding UI, including profiles whose mode
+  // differs from their built-in base. Reading labels stay opaque over wallpaper.
+  variables['--graph-canvas-glow-center'] = 'color-mix(in srgb, var(--color-accent) 16%, transparent)';
+  variables['--graph-canvas-glow-mid'] = 'color-mix(in srgb, var(--color-info) 8%, transparent)';
+  variables['--graph-canvas-glow-edge'] = 'transparent';
+  variables['--graph-node-frost'] = 'color-mix(in srgb, var(--color-text-primary) 18%, transparent)';
+  variables['--graph-label-background'] = 'var(--theme-opaque-surface-1)';
+  variables['--graph-label-border'] = 'color-mix(in srgb, var(--color-text-primary) 24%, transparent)';
+  variables['--graph-transfer-core'] = 'var(--color-text-primary)';
+  variables['--graph-suggestion-background'] = 'var(--theme-opaque-surface-1)';
+  variables['--graph-shadow-color'] = 'var(--color-surface-0)';
+  variables['--graph-shadow-opacity'] = normalized.mode === 'light' ? '0.14' : '0.38';
   if (normalized.effects.densityScale !== undefined) {
     const density = normalized.effects.densityScale;
     variables['--theme-density-scale'] = String(density);

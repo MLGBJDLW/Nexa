@@ -140,13 +140,13 @@ const ENTITY_CLUSTER_ANCHORS: Record<string, { x: number; y: number }> = {
 };
 
 const ENTITY_TONE: Record<string, { fill: string; stroke: string; text: string; solid: string; strokeColor: string }> = {
-  person: { fill: 'fill-danger/15', stroke: 'stroke-danger', text: 'text-danger', solid: '#e11d48', strokeColor: '#be123c' },
-  place: { fill: 'fill-info/15', stroke: 'stroke-info', text: 'text-info', solid: '#2563eb', strokeColor: '#1d4ed8' },
-  organization: { fill: 'fill-warning/15', stroke: 'stroke-warning', text: 'text-warning', solid: '#f97316', strokeColor: '#c2410c' },
-  event: { fill: 'fill-danger/15', stroke: 'stroke-danger', text: 'text-danger', solid: '#dc2626', strokeColor: '#991b1b' },
-  concept: { fill: 'fill-info/15', stroke: 'stroke-info', text: 'text-info', solid: '#0891b2', strokeColor: '#0e7490' },
-  technology: { fill: 'fill-info/15', stroke: 'stroke-info', text: 'text-info', solid: '#0284c7', strokeColor: '#075985' },
-  other: { fill: 'fill-surface-3', stroke: 'stroke-text-tertiary', text: 'text-text-secondary', solid: '#94a3b8', strokeColor: '#64748b' },
+  person: { fill: 'fill-danger/15', stroke: 'stroke-danger', text: 'text-danger', solid: 'var(--color-danger)', strokeColor: 'var(--color-danger)' },
+  place: { fill: 'fill-info/15', stroke: 'stroke-info', text: 'text-info', solid: 'var(--color-accent)', strokeColor: 'var(--color-accent)' },
+  organization: { fill: 'fill-warning/15', stroke: 'stroke-warning', text: 'text-warning', solid: 'var(--color-warning)', strokeColor: 'var(--color-warning)' },
+  event: { fill: 'fill-danger/15', stroke: 'stroke-danger', text: 'text-danger', solid: 'var(--color-danger)', strokeColor: 'var(--color-danger)' },
+  concept: { fill: 'fill-info/15', stroke: 'stroke-info', text: 'text-info', solid: 'var(--color-info)', strokeColor: 'var(--color-info)' },
+  technology: { fill: 'fill-info/15', stroke: 'stroke-info', text: 'text-info', solid: 'var(--color-info)', strokeColor: 'var(--color-info)' },
+  other: { fill: 'fill-surface-3', stroke: 'stroke-text-tertiary', text: 'text-text-secondary', solid: 'var(--color-text-secondary)', strokeColor: 'var(--color-text-tertiary)' },
 };
 const RELATION_CATEGORY_STYLE: Record<RelationCategory, {
   id: RelationCategory;
@@ -155,12 +155,12 @@ const RELATION_CATEGORY_STYLE: Record<RelationCategory, {
   badge: 'default' | 'success' | 'warning' | 'danger' | 'info';
   dash?: string;
 }> = {
-  conflict: { id: 'conflict', text: 'text-danger', color: '#e11d48', badge: 'danger', dash: '8 5' },
-  causal: { id: 'causal', text: 'text-warning', color: '#f97316', badge: 'warning' },
-  hierarchy: { id: 'hierarchy', text: 'text-info', color: '#2563eb', badge: 'info', dash: '4 3' },
-  event: { id: 'event', text: 'text-danger', color: '#dc2626', badge: 'danger', dash: '2 4' },
-  social: { id: 'social', text: 'text-info', color: '#0284c7', badge: 'info' },
-  general: { id: 'general', text: 'text-text-secondary', color: '#64748b', badge: 'default' },
+  conflict: { id: 'conflict', text: 'text-danger', color: 'var(--color-danger)', badge: 'danger', dash: '8 5' },
+  causal: { id: 'causal', text: 'text-warning', color: 'var(--color-warning)', badge: 'warning' },
+  hierarchy: { id: 'hierarchy', text: 'text-info', color: 'var(--color-accent)', badge: 'info', dash: '4 3' },
+  event: { id: 'event', text: 'text-danger', color: 'var(--color-danger)', badge: 'danger', dash: '2 4' },
+  social: { id: 'social', text: 'text-info', color: 'var(--color-info)', badge: 'info' },
+  general: { id: 'general', text: 'text-text-secondary', color: 'var(--color-text-tertiary)', badge: 'default' },
 };
 
 function entityIcon(entityType: string) {
@@ -1336,7 +1336,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                       if (!source || !target) return null;
                       const path = edgePath(source, target, artifact.kind === 'entity_merge_candidate' ? 18 : -18);
                       const midpoint = bundleMidpoint(source, target);
-                      const color = artifact.kind === 'entity_merge_candidate' ? '#7c3aed' : '#0891b2';
+                      const color = artifact.kind === 'entity_merge_candidate' ? 'var(--color-accent)' : 'var(--color-info)';
                       const label = artifact.kind === 'entity_merge_candidate'
                         ? t('knowledge.graphSuggestionMerge')
                         : relationLabel(artifact.relationType, t);
@@ -1430,7 +1430,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                                   d={expandedPath}
                                   fill="none"
                                   className="kg-edge-line"
-                                  stroke={agentUsedEdgeIds.has(edge.id) ? '#f59e0b' : edgeStyle.color}
+                                  stroke={agentUsedEdgeIds.has(edge.id) ? 'var(--color-warning)' : edgeStyle.color}
                                   strokeWidth={selected ? 1.25 : agentUsedEdgeIds.has(edge.id) ? 1.15 : 0.9}
                                   opacity={selected || agentUsedEdgeIds.has(edge.id) ? 0.82 : 0.58}
                                   strokeDasharray={dash}
@@ -1463,7 +1463,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                               d={path}
                               fill="none"
                               className="kg-edge-line"
-                              stroke={agentUsed ? '#f59e0b' : style.color}
+                              stroke={agentUsed ? 'var(--color-warning)' : style.color}
                               strokeWidth={selected ? 1.25 : agentUsed ? 1.15 : bundle.relationCount > 1 ? 1 : 0.85}
                               opacity={selected || agentUsed ? 0.84 : 0.56}
                               strokeDasharray={bundleDash}
@@ -1471,7 +1471,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                               markerEnd={bundle.direction !== 'undirected' ? `url(#knowledge-edge-arrow-${style.id})` : undefined}
                             />
                             {pulsing && (
-                              <g className="kg-edge-transfer" style={{ color: agentUsed ? '#f59e0b' : style.color }}>
+                              <g className="kg-edge-transfer" style={{ color: agentUsed ? 'var(--color-warning)' : style.color }}>
                                 <animateMotion
                                   dur={bundleWaveDuration}
                                   begin={bundleWaveBegin}
@@ -1561,8 +1561,8 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                           cx={node.x}
                           cy={node.y}
                           r={node.radius + (selected ? 5 : agentUsed ? 4 : 0)}
-                          fill={selected ? 'rgba(37, 99, 235, 0.10)' : agentUsed ? 'rgba(245, 158, 11, 0.10)' : 'transparent'}
-                          stroke={selected ? '#2563eb' : agentUsed ? '#f59e0b' : 'transparent'}
+                          fill={selected ? 'color-mix(in srgb, var(--color-accent) 10%, transparent)' : agentUsed ? 'color-mix(in srgb, var(--color-warning) 10%, transparent)' : 'transparent'}
+                          stroke={selected ? 'var(--color-accent)' : agentUsed ? 'var(--color-warning)' : 'transparent'}
                           className={selected || agentUsed ? 'kg-node-shell' : undefined}
                           strokeWidth="1.4"
                         >
@@ -1590,7 +1590,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                               height={graphMode === 'focus' ? 25 : 21}
                               rx={graphMode === 'focus' ? 8 : 6}
                               className="kg-label-chip"
-                              opacity={selected || agentUsed || graphMode === 'focus' ? 0.94 : 0.76}
+                              opacity={1}
                             />
                             <text
                               x={labelWidth / 2}
