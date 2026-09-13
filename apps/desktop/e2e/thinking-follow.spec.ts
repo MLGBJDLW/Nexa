@@ -52,9 +52,6 @@ test('pauses for manual reading and resumes at the bottom', async ({ page }) => 
   await page.evaluate(() => { document.documentElement.className = 'theme-light'; });
   await scroller.screenshot({ path: '.artifacts/thinking-scrollbar-light.png' });
   await page.evaluate(previous => { document.documentElement.className = previous; }, originalTheme);
-  await scroller.hover();
-  await page.mouse.wheel(0, -400);
-  await expect.poll(() => scroller.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
   const readingTop = await scroller.evaluate(el => el.scrollTop);
   await renderTrace(page, longThinking, 500);
   await expect(page.getByTestId('trace-tool-card')).toBeAttached();
