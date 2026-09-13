@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Check,
   ChevronLeft,
@@ -265,7 +266,7 @@ export function DecisionTray({
     }
   };
 
-  return (
+  const panel = (
     <>
     {highRisk && (
       <div
@@ -514,7 +515,7 @@ export function DecisionTray({
               >
                 {t('chat.questionSubmit')}
               </Button>
-            ) : currentQuestion && !['single_choice', 'confirm'].includes(currentQuestion.type) ? (
+            ) : currentQuestion && currentQuestion.type !== 'confirm' ? (
               <Button
                 size="sm"
                 variant="primary"
@@ -532,4 +533,5 @@ export function DecisionTray({
     </section>
     </>
   );
+  return highRisk ? createPortal(<div className="contents" data-theme-surface="transparent" data-theme-blur-owner="false">{panel}</div>, document.body) : panel;
 }
