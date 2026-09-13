@@ -400,7 +400,8 @@ test('auto-follows only while the user stays near the bottom', async ({ page }) 
   await page.getByTestId('chat-input-textarea').fill('Send one more update.');
   await page.getByTestId('chat-send').click();
 
-  await expect(page.getByText('Streamed answer #2')).toBeVisible();
+  // The completed answer may be virtualized while the user reads older turns.
+  await expect(page.getByTestId('chat-send')).toBeVisible();
   await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(80);
 
   const scrollToBottom = page.getByTitle('Scroll to bottom');
@@ -408,4 +409,23 @@ test('auto-follows only while the user stays near the bottom', async ({ page }) 
   await scrollToBottom.click();
 
   await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(32);
+  await expect(page.getByText('Streamed answer #2')).toBeVisible();
+});
+
+test('follows delayed layout growth without mistaking it for user scrolling', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  const root = page.locator('[data-chat-scroll-root="true"]');
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await root.evaluate(el => {
+    const content = el.querySelector<HTMLElement>('[data-chat-follow-content="true"]')!;
+    content.style.paddingBottom = '600px';
+    el.dispatchEvent(new Event('scroll'));
+  });
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await root.hover();
+  await page.mouse.wheel(0, -400);
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
+  const readingTop = await root.evaluate(el => el.scrollTop);
+  await root.locator('[data-chat-follow-content="true"]').evaluate(el => { (el as HTMLElement).style.paddingBottom = '900px'; });
+  await expect.poll(() => root.evaluate(el => el.scrollTop)).toBe(readingTop);
 });

@@ -248,6 +248,7 @@ test('navigates to every conversation turn from the right-side timeline', async 
 
   await navigator.getByRole('button', { name: /^#1 ·/ }).hover();
   await expect(navigator.getByRole('button', { name: /^#1 ·/ }).getByTestId('chat-turn-preview')).toBeVisible();
+  await page.screenshot({ path: '.artifacts/chat-turn-navigator-refined.png' });
 
   await navigator.getByRole('button', { name: /^#1 ·/ }).focus();
   await navigator.getByRole('button', { name: /^#1 ·/ }).press('End');

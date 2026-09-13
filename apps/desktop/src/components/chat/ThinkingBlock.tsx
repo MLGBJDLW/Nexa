@@ -3,6 +3,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import { ThinkingIcon } from './ThinkingIcon';
 import { useStreamingPresentation } from '../../lib/useStreamingPresentation';
+import { observeScrollFollow } from '../../lib/scrollFollow';
 import ReactMarkdown from 'react-markdown';
 import { useTranslation } from '../../i18n';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
@@ -134,8 +135,8 @@ export function ThinkingBlock({
   const prevStreamingRef = useRef(isStreaming);
   const autoOpenedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const scrollFrameRef = useRef<number | null>(null);
-  const userScrolledUpRef = useRef(false);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
+  const followingRef = useRef(true);
   const [moodOrder, setMoodOrder] = useState(() => shuffledThinkingMoods());
 
   const effectiveSections = sections && sections.length > 0 ? sections : null;
@@ -161,32 +162,20 @@ export function ThinkingBlock({
     prevStreamingRef.current = isStreaming;
   }, [collapseOnFinish, combinedContent, hasSectionCards, isStreaming]);
 
-  // Auto-follow: keep the inner trace panel scrolled to the latest token
-  // while streaming, unless the user has scrolled up away from the bottom.
+  // Observe the presented content, not the upstream token string: text reveal
+  // and tool progress can resize this panel without changing combinedContent.
   useEffect(() => {
     if (!isStreaming || !expanded) return;
     const el = scrollContainerRef.current;
-    if (!el) return;
-    if (userScrolledUpRef.current) return;
-    if (scrollFrameRef.current != null) {
-      cancelAnimationFrame(scrollFrameRef.current);
-    }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
-    });
-    return () => {
-      if (scrollFrameRef.current != null) {
-        cancelAnimationFrame(scrollFrameRef.current);
-        scrollFrameRef.current = null;
-      }
-    };
-  }, [combinedContent, isStreaming, expanded]);
+    const contentEl = scrollContentRef.current;
+    if (!el || !contentEl) return;
+    return observeScrollFollow(el, contentEl, followingRef, () => {});
+  }, [isStreaming, expanded, Boolean(combinedContent || effectiveSections || children)]);
 
   // Reset the "user scrolled up" guard whenever a new streaming phase starts.
   useEffect(() => {
     if (isStreaming) {
-      userScrolledUpRef.current = false;
+      followingRef.current = true;
     }
   }, [isStreaming]);
 
@@ -239,15 +228,10 @@ export function ThinkingBlock({
             <div className="thinking-trace-body mt-1 max-w-full min-w-0 pl-1">
               <div
                 ref={scrollContainerRef}
-                onScroll={(e) => {
-                  const el = e.currentTarget;
-                  const distanceFromBottom =
-                    el.scrollHeight - el.scrollTop - el.clientHeight;
-                  userScrolledUpRef.current = distanceFromBottom > 40;
-                }}
-                className="relative max-h-[300px] max-w-full min-w-0 overflow-x-hidden overflow-y-auto py-1 pr-6 text-xs leading-relaxed text-text-secondary"
+                data-testid="thinking-scroll-root"
+                className="thinking-scroll-root relative max-h-[300px] max-w-full min-w-0 overflow-x-hidden overflow-y-auto py-1 pr-4 text-xs leading-relaxed text-text-secondary [overflow-anchor:none] [scrollbar-width:thin]"
               >
-                <div className="min-w-0 max-w-full space-y-1">
+                <div ref={scrollContentRef} className="min-w-0 max-w-full space-y-1">
                   {effectiveSections ? (
                     effectiveSections.map((sec, secIdx) => (
                       <div className="thinking-trace-section min-w-0 max-w-full" key={secIdx}>
