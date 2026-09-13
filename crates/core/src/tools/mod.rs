@@ -20,6 +20,9 @@ use crate::tool_visibility_policy::{
 };
 
 pub mod capability;
+mod editable_text;
+#[cfg(test)]
+mod file_text_contract_tests;
 pub use capability::{
     capability_descriptor_for_tool, fallback_tool_access_profile, infer_tool_access_profile,
     ToolCapabilityDescriptor, ToolCategory, ToolResourceDescriptor, ToolUiDescriptor,
@@ -1568,15 +1571,13 @@ fn top_level_argument_issue(
 }
 
 fn normalize_tool_arguments(
-    tool_name: &str,
+    _tool_name: &str,
     arguments: &str,
     schema: &serde_json::Value,
 ) -> Result<String, (&'static str, String)> {
     let payload = strip_json_code_fence(arguments);
     let mut value = match serde_json::from_str::<serde_json::Value>(payload.as_ref()) {
         Ok(value) => value,
-        // run_shell has an additional Windows-path escape repair lane.
-        Err(_) if tool_name == "run_shell" => return Ok(payload.into_owned()),
         Err(error) => {
             return Err((
                 "invalid_arguments_json",

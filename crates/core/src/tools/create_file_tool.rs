@@ -300,6 +300,9 @@ impl Tool for CreateFileTool {
                         ),
                     ));
                 }
+                if let Err(message) = super::editable_text::validate_utf8_append(&canonical) {
+                    return Ok(error_result(&call_id, message));
+                }
             }
 
             let old_content = if existed_before && matches!(mode, FileWriteMode::Overwrite) {

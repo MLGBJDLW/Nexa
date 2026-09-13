@@ -209,6 +209,11 @@ impl Tool for WriteNoteTool {
             }
 
             let existed_before = file_path.exists();
+            if mode == "append" && existed_before {
+                if let Err(message) = super::editable_text::validate_utf8_append(&file_path) {
+                    return Ok(ToolResult { call_id, content: message, is_error: true, artifacts: None });
+                }
+            }
             let old_content = if existed_before {
                 std::fs::read_to_string(&file_path).unwrap_or_default()
             } else {

@@ -1,5 +1,24 @@
 # Live file-tool streaming and long-write contract
 
+## Text fidelity across platforms
+
+Tool arguments are decoded as JSON exactly once. `create_file` writes UTF-8
+bytes directly, preserving literal backslashes, LF/CRLF, and Unicode. Append
+requires the expected current byte length and a valid UTF-8 text target. It
+rejects incompatible encodings before mutation, and never interprets content as
+shell commands or expands escape sequences a second time.
+`write_note` uses the same UTF-8 validation before appending to an existing note.
+
+`edit_file` and `multi_edit` preserve UTF-8 BOMs and BOM-marked UTF-16 LE/BE.
+Malformed UTF-16 and ambiguous legacy encodings are rejected before writing;
+convert legacy text with an explicitly selected encoding first. Checkpoints
+and reported file sizes reflect the encoded bytes on disk.
+
+`run_shell` requires valid JSON without partial backslash repair. Use `program`
+plus `args` for exact arguments and `stdin` for scripts/generated content.
+In POSIX command strings, double quotes retain backslashes before ordinary
+characters such as `n`; explicit shell mode follows that shell's own rules.
+
 ## Scope
 
 This document defines the runtime contract for plain-text file tools that receive model-generated JSON arguments incrementally. It covers `create_file`, `edit_file`, `multi_edit`, and `write_note`, with `create_file` also providing the resumable long-write path.

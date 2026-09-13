@@ -1,6 +1,8 @@
 //! MultiEditTool - atomic multi-replacement edits for one text file.
 
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -13,7 +15,7 @@ use crate::error::CoreError;
 use crate::file_checkpoint::{checkpoint_artifact, CreateFileCheckpointInput};
 
 use super::diff_stats::text_diff_artifact;
-use super::document_utils::{edit_guidance_for_path, is_binary_file_error};
+use super::editable_text::EditableText;
 use super::path_utils::resolve_existing_file_for_file_access;
 use super::text_match::{find_text_matches, TextMatch};
 use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
@@ -21,7 +23,6 @@ use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/multi_edit.json");
 
-const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 const MAX_EDITS: usize = 20;
 const MAX_PREVIEW_CHARS: usize = 120;
 
@@ -152,7 +153,7 @@ impl Tool for MultiEditTool {
 
             let _mutation =
                 crate::file_mutation::lock_file_mutation(&canonical, Some(&mutation_cancel))?;
-            let original = match read_text_utf8(&canonical) {
+            let file_text = match EditableText::read(&canonical) {
                 Ok(content) => content,
                 Err(message) => {
                     return Ok(ToolResult {
@@ -163,7 +164,7 @@ impl Tool for MultiEditTool {
                     });
                 }
             };
-
+            let original = &file_text.text;
             let mut content = original.clone();
             let mut summaries = Vec::new();
             let mut total_replacements = 0usize;
@@ -196,7 +197,7 @@ impl Tool for MultiEditTool {
                 });
             }
 
-            if content == original {
+            if &content == original {
                 return Ok(error_result(
                     &call_id,
                     "multi_edit would not change the file.",
@@ -217,7 +218,8 @@ impl Tool for MultiEditTool {
                     "File mutation cancelled before writing".into(),
                 ));
             }
-            if let Err(e) = std::fs::write(&canonical, &content) {
+            let new_bytes = file_text.encode(&content);
+            if let Err(e) = std::fs::write(&canonical, &new_bytes) {
                 return Ok(ToolResult {
                     call_id,
                     content: format!("Failed to write '{}': {e}", args.path),
@@ -227,11 +229,11 @@ impl Tool for MultiEditTool {
             }
 
             if let Some(scope) = &file_changes {
-                scope.record_checkpoint(&checkpoint, content.as_bytes());
+                scope.record_checkpoint(&checkpoint, &new_bytes);
             }
-            let mut artifact = checkpoint_artifact(&checkpoint, Some(content.len() as u64));
+            let mut artifact = checkpoint_artifact(&checkpoint, Some(new_bytes.len() as u64));
             if let Some(object) = artifact.as_object_mut() {
-                let diff = text_diff_artifact(&args.path, "multi_edit", &original, &content);
+                let diff = text_diff_artifact(&args.path, "multi_edit", original, &content);
                 object.insert("operation".to_string(), json!("multi_edit"));
                 object.insert("editCount".to_string(), json!(summaries.len()));
                 object.insert("replacementCount".to_string(), json!(total_replacements));
@@ -359,24 +361,6 @@ fn line_range_bounds(
     };
 
     Ok((start_byte, end_byte))
-}
-
-fn read_text_utf8(path: &Path) -> Result<String, String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("Cannot read file: {e}"))?;
-    if meta.len() > MAX_FILE_SIZE {
-        return Err(format!(
-            "File too large ({:.1} MB, limit is {} MB): {}",
-            meta.len() as f64 / (1024.0 * 1024.0),
-            MAX_FILE_SIZE / (1024 * 1024),
-            path.display()
-        ));
-    }
-    match crate::parse::read_text_file(path) {
-        Ok(content) => Ok(content),
-        Err(err) if is_binary_file_error(&err) => Err(edit_guidance_for_path(path)
-            .unwrap_or_else(|| format!("File appears to be binary: {}", path.display()))),
-        Err(err) => Err(err.to_string()),
-    }
 }
 
 fn preview(text: &str) -> String {

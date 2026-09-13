@@ -300,15 +300,28 @@ fn test_command_string_enforces_restricted_whitelist() {
 }
 
 #[test]
-fn test_lenient_parser_repairs_unescaped_windows_paths() {
+fn test_parser_rejects_ambiguous_unescaped_windows_paths() {
     let parsed = parse_run_shell_args(
         r#"{"program":"python","args":["E:\Starting\convert_to_docx.py"],"cwd":"E:\Starting"}"#,
     )
-    .expect("unescaped Windows paths should be repaired");
+    .err()
+    .expect("malformed JSON must not be partially repaired into a different path");
+    let _ = parsed;
+}
 
-    assert_eq!(parsed.program.as_deref(), Some("python"));
-    assert_eq!(parsed.args, vec![r#"E:\Starting\convert_to_docx.py"#]);
-    assert_eq!(parsed.cwd.as_deref(), Some(r#"E:\Starting"#));
+#[test]
+fn command_and_stdin_preserve_literal_backslash_sequences() {
+    let parsed = parse_run_shell_args(
+        &json!({"command": r#"python -c "print('\n')""#, "stdin": "line\nC:\\new\\test\r\n中文🙂"})
+            .to_string(),
+    )
+    .unwrap();
+    let (_, args) = normalize_run_shell_invocation(&parsed, ShellAccessMode::Restricted).unwrap();
+    assert_eq!(args, vec!["-c", r"print('\n')"]);
+    assert_eq!(
+        parsed.stdin.as_deref(),
+        Some("line\nC:\\new\\test\r\n中文🙂")
+    );
 }
 
 #[test]
