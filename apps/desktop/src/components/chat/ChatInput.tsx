@@ -44,6 +44,7 @@ import {
 } from "../../lib/chatAttachments";
 import { CheckpointMenu } from "./CheckpointMenu";
 import { VoiceInputButton, type VoiceInputButtonHandle } from "./VoiceInputButton";
+import { ScreenShareButton } from './ScreenShareButton';
 import {
   applyVoiceDictationEvent,
   type VoiceDraftSession,
@@ -2030,6 +2031,7 @@ export function ChatInput({
               <span className="hidden sm:inline">Nexus</span>
             </button>
 
+            <ScreenShareButton conversationId={conversationId} />
             {conversationId && onCompact && (
               <button
                 type="button"

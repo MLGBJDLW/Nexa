@@ -257,6 +257,13 @@ fn desktop_allow_all_never_bypasses_computer_or_screen_disclosure_approval() {
     assert!(requires_explicit_desktop_approval(&control));
     assert!(requires_explicit_desktop_approval(&capture));
     assert!(requires_explicit_desktop_approval(&browser));
+    let mut reusable_window = capture.clone();
+    reusable_window.target_kind = "desktop_window_task".into();
+    assert!(requires_explicit_desktop_approval(&reusable_window));
+    assert_eq!(
+        desktop_approval_mode_decision(ToolApprovalMode::AllowAll, &reusable_window),
+        None
+    );
     assert_eq!(
         desktop_approval_mode_decision(ToolApprovalMode::AllowAll, &control),
         None
@@ -273,6 +280,79 @@ fn desktop_allow_all_never_bypasses_computer_or_screen_disclosure_approval() {
         desktop_approval_mode_decision(ToolApprovalMode::DenyAll, &control),
         Some(ApprovalDecision::Deny)
     );
+}
+
+#[tokio::test]
+async fn explicitly_granted_window_task_reuses_only_its_exact_permission() {
+    let pending = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let store = SessionApprovalStore::default();
+    let cancellation = CancellationToken::new();
+    let callback = build_desktop_approval_callback(DesktopApprovalCallbackInput {
+        db: Arc::new(Database::open_memory().unwrap()),
+        task_run_id: "window-task".into(),
+        approval_runtime: DesktopAgentApprovalRuntime {
+            pending: pending.clone(),
+            session_store: store.clone(),
+            approval_mode: ToolApprovalMode::AllowAll,
+        },
+        cancellation: cancellation.clone(),
+    });
+    let permission = ToolPermissionKey::new(
+        "computer_control",
+        "desktop_window_task",
+        "verified-window-task-a",
+    );
+    let mut request = ApprovalRequest::new(
+        "window-grant",
+        "computer_control",
+        &serde_json::json!({}),
+        ApprovalRisk::High,
+        "Verified window",
+    );
+    request.permission_key = permission.permission_key();
+    request.target_kind = permission.target_kind;
+    request.target_value = permission.target_value;
+    let waiting = tokio::spawn(callback(request.clone()));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !pending.lock().await.contains_key("window-grant") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    pending
+        .lock()
+        .await
+        .remove("window-grant")
+        .unwrap()
+        .sender
+        .send(ApprovalDecision::AllowSession)
+        .unwrap();
+    assert_eq!(waiting.await.unwrap(), ApprovalDecision::AllowSession);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(100), callback(request.clone()))
+            .await
+            .unwrap(),
+        ApprovalDecision::AllowOnce
+    );
+    request.id = "another-window".into();
+    request.permission_key = ToolPermissionKey::new(
+        "computer_control",
+        "desktop_window_task",
+        "verified-window-task-b",
+    )
+    .permission_key();
+    request.target_value = "verified-window-task-b".into();
+    let waiting = tokio::spawn(callback(request));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !pending.lock().await.contains_key("another-window") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    cancellation.cancel();
+    assert_eq!(waiting.await.unwrap(), ApprovalDecision::Deny);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -1496,7 +1496,10 @@ impl AgentExecutor {
             // Budget the exact canonical projection that the model step will
             // send. Superseded step-scoped controls are not part of a reserved
             // final-answer request and must not consume its output allowance.
-            let request_messages = prompt_ir::messages_for_model_step(&messages, force_answer_only);
+            let mut request_messages =
+                prompt_ir::messages_for_model_step(&messages, force_answer_only);
+            self.append_shared_desktop_context(conversation_id, model, &mut request_messages)
+                .await;
             let estimated_prompt = if self.config.max_actual_tokens_per_run.is_some()
                 || output_budget_plan.context_cap.is_some()
             {

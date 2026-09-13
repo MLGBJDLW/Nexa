@@ -391,6 +391,7 @@ pub(crate) fn elapsed_ms(started: Instant) -> u64 {
 pub(crate) fn requires_explicit_desktop_approval(req: &ApprovalRequest) -> bool {
     req.tool_name == "computer_control"
         || req.target_kind == "screen_disclosure"
+        || req.target_kind == "desktop_window_task"
         || req.target_kind == "browser_action"
 }
 
@@ -425,6 +426,11 @@ pub(crate) fn build_desktop_approval_callback(
         Box::pin(async move {
             let permission_key = ToolPermissionKey::from_request(&req);
             let hard_confirmation = requires_explicit_desktop_approval(&req);
+            let reusable_window_grant = req.target_kind == "desktop_window_task"
+                && matches!(
+                    req.tool_name.as_str(),
+                    "computer_control" | "computer_observe"
+                );
             if let Some(decision) = desktop_approval_mode_decision(approval_mode, &req) {
                 return decision;
             }
@@ -435,7 +441,7 @@ pub(crate) fn build_desktop_approval_callback(
                 }
             }
 
-            if !hard_confirmation
+            if (!hard_confirmation || reusable_window_grant)
                 && matches!(
                     store.resolve(&permission_key),
                     Some(ApprovalDecision::AllowSession)
@@ -462,7 +468,7 @@ pub(crate) fn build_desktop_approval_callback(
             pending.lock().await.remove(&req.id);
             match decision {
                 ApprovalDecision::AllowSession => {
-                    if hard_confirmation {
+                    if hard_confirmation && !reusable_window_grant {
                         return ApprovalDecision::AllowOnce;
                     }
                     store.set(&req.permission_key, ApprovalDecision::AllowSession);

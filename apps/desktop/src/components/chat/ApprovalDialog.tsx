@@ -39,10 +39,12 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
   );
 
   if (!request) return null;
-  const oneShotOnly = request.toolName === 'computer_control'
-    || request.targetKind === 'screen_disclosure';
+  const reusableWindowGrant = request.targetKind === 'desktop_window_task'
+    && ['computer_control', 'computer_observe'].includes(request.toolName);
+  const oneShotOnly = !reusableWindowGrant && (request.toolName === 'computer_control'
+    || request.targetKind === 'screen_disclosure');
   const targetIsInternalScope = request.targetKind === 'desktop_action'
-    || request.targetKind === 'screen_disclosure';
+    || request.targetKind === 'screen_disclosure' || reusableWindowGrant;
 
   return (
     <div
@@ -128,7 +130,7 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
           </button>
         </div>
 
-        {!oneShotOnly && (
+        {!oneShotOnly && !reusableWindowGrant && (
         <div className="border-t border-zinc-200 px-5 py-2 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
           <button
             type="button"

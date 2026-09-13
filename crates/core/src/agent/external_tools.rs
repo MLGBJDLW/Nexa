@@ -599,11 +599,20 @@ impl ExternalToolSession {
         if let Some(reason) = outcome.terminal_loop_guard_reason {
             return Err(CoreError::Agent(reason));
         }
-        let visual_parts = messages
+        let mut visual_parts: Vec<ContentPart> = messages
             .into_iter()
             .filter(|message| message.role == Role::User)
             .flat_map(|message| message.parts)
             .collect();
+        if let Some(context) = super::shared_desktop::current_shared_context(
+            &self.input.conversation_id,
+            self.input.native_vision,
+            self.input.visual_interpreter.as_ref(),
+        )
+        .await
+        {
+            visual_parts.extend(context.parts);
+        }
         Ok(ExternalToolOutput {
             result,
             visual_parts,

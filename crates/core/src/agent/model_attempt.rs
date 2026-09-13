@@ -857,6 +857,7 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
     /// the provider's typed projection-ownership contract.
     fn request_for_invocation(&mut self) -> CompletionRequest {
         let mut request = self.original_request.clone();
+        crate::shared_desktop::store().remove_revoked_context(&mut request.messages);
         let history_policy = match self.provider.replay_history_projection(&request) {
             ReplayHistoryProjection::ProviderSelectedRoute => {
                 self.candidate_projection_omitted_units = None;
@@ -867,7 +868,7 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         let mut route = self.provider.route_snapshot(&request);
         route.replay_policy = history_policy;
         let projection = crate::llm::reasoning_replay::prepare_provider_replay_history(
-            &self.original_request.messages,
+            &request.messages,
             &route,
         );
         self.candidate_projection_omitted_units = Some(projection.omitted_units);
@@ -1292,6 +1293,30 @@ mod tests {
 
     fn event_channel() -> (mpsc::Sender<AgentEvent>, mpsc::Receiver<AgentEvent>) {
         mpsc::channel(64)
+    }
+
+    #[test]
+    fn provider_replay_does_not_restore_revoked_screen_context() {
+        let provider = ScriptedProvider::boxed(
+            "primary",
+            "endpoint",
+            "model",
+            ReasoningReplayPolicy::NotRequired,
+            vec![],
+            Arc::new(Mutex::new(vec![])),
+            Arc::new(Mutex::new(0)),
+        );
+        let (events, _) = event_channel();
+        let mut input = request();
+        let mut screen = Message::text(Role::User, "private screen context");
+        screen.name = Some("nexa_screen_revoked".into());
+        input.messages.push(screen);
+        let mut attempt = ModelAttempt::new(provider.as_ref(), input, &events, false);
+        assert!(!attempt
+            .request_for_invocation()
+            .messages
+            .iter()
+            .any(|message| message.text_content().contains("private screen context")));
     }
 
     async fn expect_stream_opened(attempt: &mut ModelAttempt<'_, '_>) {

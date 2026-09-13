@@ -701,5 +701,12 @@
   "turnChangesShowMore": "Show more ({count} remaining)",
   "turnChangesNoStats": "No line counts",
   "turnChangesContentUnavailable": "This file is binary, too large, or its saved diff is unavailable.",
-  "turnChangesLoadError": "Could not load saved changes."
+  "turnChangesLoadError": "Could not load saved changes.",
+  "shareScreen": "Share screen",
+  "stopScreenShare": "Stop screen sharing",
+  "screenShareActive": "Screen shared",
+  "screenShareNeedsConversation": "Start a conversation before sharing a screen",
+  "screenShareUnavailable": "Screen sharing is unavailable in this environment",
+  "screenSharePreview": "Shared screen preview",
+  "screenShareHint": "The latest view is supplied when the agent continues. Stop sharing to revoke access."
 }

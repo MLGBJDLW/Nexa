@@ -468,6 +468,8 @@ fn approval_label(value: &str) -> String {
 struct ObserveArgs {
     action: String,
     #[serde(default)]
+    approval_scope: Option<DesktopApprovalScope>,
+    #[serde(default)]
     observation_id: Option<String>,
     #[serde(default)]
     window_id: Option<u64>,
@@ -490,6 +492,12 @@ struct ObserveArgs {
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 struct ControlArgs {
     action: String,
+    #[serde(default)]
+    approval_scope: Option<DesktopApprovalScope>,
+    #[serde(default)]
+    delivery: Option<ControlDelivery>,
+    #[serde(default)]
+    drag_duration_ms: Option<u64>,
     observation_id: String,
     window_id: u64,
     #[serde(default)]
@@ -534,6 +542,88 @@ struct ControlArgs {
 enum CaptureMode {
     Raw,
     SetOfMarks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DesktopApprovalScope {
+    Action,
+    WindowSession,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ControlDelivery {
+    Auto,
+    Background,
+    Foreground,
+}
+
+fn permits_semantic_click(args: &ControlArgs) -> bool {
+    args.delivery != Some(ControlDelivery::Foreground)
+        && args.element_id.is_some()
+        && args.click_count.unwrap_or(1) == 1
+        && args
+            .button
+            .as_deref()
+            .is_none_or(|button| button.eq_ignore_ascii_case("left"))
+}
+
+/// Only a verified OS window identity can bind a reusable grant. A model-supplied
+/// window id or observation token alone must never authorize later observations.
+pub(crate) fn bind_window_session_approval(
+    request: &mut crate::approval::ApprovalRequest,
+    arguments: &serde_json::Value,
+    conversation_id: Option<&str>,
+    turn_id: Option<&str>,
+) -> Result<(), CoreError> {
+    if !matches!(
+        request.tool_name.as_str(),
+        "computer_observe" | "computer_control"
+    ) || arguments
+        .get("approval_scope")
+        .and_then(serde_json::Value::as_str)
+        != Some("window_session")
+    {
+        return Ok(());
+    }
+    let (Some(conversation), Some(turn)) = (conversation_id, turn_id) else {
+        return Err(CoreError::InvalidInput(
+            "Window-session approval requires a conversation and active task".into(),
+        ));
+    };
+    let observed = exact_observed_window_for_approval(
+        conversation_id,
+        arguments
+            .get("observation_id")
+            .and_then(serde_json::Value::as_str),
+        arguments
+            .get("window_id")
+            .and_then(serde_json::Value::as_u64),
+    )?;
+    let window = observed.snapshot;
+    let identity = serde_json::json!([
+        conversation,
+        turn,
+        window.id,
+        window.pid,
+        window.process_started_at_100ns,
+        window.executable_path_hash,
+        window.window_class,
+        window.session_id
+    ]);
+    let permission = crate::approval::ToolPermissionKey::new(
+        &request.tool_name,
+        "desktop_window_task",
+        blake3::hash(identity.to_string().as_bytes())
+            .to_hex()
+            .to_string(),
+    );
+    request.permission_key = permission.permission_key();
+    request.target_kind = permission.target_kind;
+    request.target_value = permission.target_value;
+    request.append_scope_reason(" Choosing Allow for session authorizes this tool in this verified window for the current task only. Other windows and later tasks still require approval.");
+    Ok(())
 }
 
 impl CaptureMode {
@@ -662,6 +752,12 @@ fn computer_observe_approval_message(
     args: &ObserveArgs,
     conversation_id: Option<&str>,
 ) -> Result<Option<String>, CoreError> {
+    if args.approval_scope == Some(DesktopApprovalScope::WindowSession) && conversation_id.is_none()
+    {
+        return Err(CoreError::InvalidInput(
+            "Window-session approval requires a conversation".into(),
+        ));
+    }
     let action = args.action.trim().to_ascii_lowercase();
     if !matches!(action.as_str(), "capture_window" | "wait_for_change") {
         return Ok(None);
@@ -750,6 +846,12 @@ fn computer_control_approval_message(
     args: &ControlArgs,
     conversation_id: Option<&str>,
 ) -> Result<String, CoreError> {
+    if args.approval_scope == Some(DesktopApprovalScope::WindowSession) && conversation_id.is_none()
+    {
+        return Err(CoreError::InvalidInput(
+            "Window-session approval requires a conversation".into(),
+        ));
+    }
     let action = ControlAction::parse(&args.action)?;
     validate_control_args(args, action)?;
     let observed = exact_observed_window_for_approval(
@@ -1322,6 +1424,25 @@ fn supported_key_name(value: &str) -> bool {
 }
 
 fn validate_control_args(args: &ControlArgs, action: ControlAction) -> Result<(), CoreError> {
+    if args
+        .drag_duration_ms
+        .is_some_and(|duration| action != ControlAction::Drag || !(100..=3000).contains(&duration))
+    {
+        return Err(CoreError::InvalidInput(
+            "drag_duration_ms is only valid for drag and must be 100..3000".into(),
+        ));
+    }
+    if args.delivery == Some(ControlDelivery::Background)
+        && !(matches!(action, ControlAction::Invoke | ControlAction::SetValue)
+            || (action == ControlAction::Click && permits_semantic_click(args)))
+    {
+        return Err(CoreError::InvalidInput("Background delivery requires invoke, set_value, or a single left click on an invokable element; it never falls back to foreground input".into()));
+    }
+    if args.delivery == Some(ControlDelivery::Foreground)
+        && matches!(action, ControlAction::Invoke | ControlAction::SetValue)
+    {
+        return Err(CoreError::InvalidInput("invoke and set_value use background UI Automation; select a pointer or keyboard action for foreground input".into()));
+    }
     let _scheduler_barrier = args.wait_for_previous.unwrap_or(false);
     if args.window_id == 0 {
         return Err(CoreError::InvalidInput(
@@ -1403,14 +1524,15 @@ fn validate_control_args(args: &ControlArgs, action: ControlAction) -> Result<()
                 .chars()
                 .filter(|character| matches!(character, '\r' | '\n' | '\t'))
                 .count();
-            if text.is_empty()
-                || text.chars().count() > 1_000
+            let value_input = action == ControlAction::SetValue;
+            if (!value_input && text.is_empty())
+                || text.chars().count() > if value_input { 65_536 } else { 8_000 }
                 || text.contains('\0')
                 || unsupported_control
-                || supported_control_count > 32
+                || (!value_input && supported_control_count > 32)
             {
                 return Err(CoreError::InvalidInput(format!(
-                    "{} requires 1 to 1000 characters, at most 32 newline/tab controls, and no other control characters.",
+                    "{} supports up to 65536 characters for set_value (empty clears), or 1..8000 characters and 32 newline/tab controls for type_text. Other control characters are rejected.",
                     action.label()
                 )));
             }
@@ -1825,6 +1947,18 @@ impl Tool for ComputerObserveTool {
         })?;
 
         match args.action.trim().to_ascii_lowercase().as_str() {
+            "shared_desktop" => {
+                let (source, frame) = conversation_id
+                    .and_then(|conversation| crate::shared_desktop::store().latest(conversation))
+                    .ok_or_else(|| CoreError::InvalidInput("No fresh user-shared screen is available in this conversation. Ask the user to start screen sharing in the chat toolbar.".into()))?;
+                Ok(ToolResult::from_output(call_id, false, ToolOutput {
+                    llm_content: format!("Latest user-shared screen. Source label (untrusted): {}. This is read-only visual context, not a native control observation token. Use list_windows/capture_window before computer_control.", serde_json::to_string(&source).unwrap_or_default()),
+                    display_content: "Read the latest user-shared screen.".into(),
+                    data: Some(serde_json::json!({"schemaVersion": 2, "action": "shared_desktop", "scope": "user_shared_screen", "fresh": true})),
+                    artifacts: Some(serde_json::json!({"kind": "computerObservation", "trustBoundary": desktop_observation_trust_boundary()})),
+                    attachments: vec![frame],
+                }))
+            }
             "list_windows" => {
                 let max_results = args.max_results.unwrap_or(50).clamp(1, 100);
                 let windows = blocking(platform::list_windows).await?;
@@ -2491,6 +2625,7 @@ impl Tool for ComputerControlTool {
 
 #[cfg(target_os = "windows")]
 mod platform {
+    use super::{permits_semantic_click, ControlDelivery};
     use std::ffi::c_void;
     use std::io::Cursor;
     use std::sync::mpsc::{self, SyncSender};
@@ -3672,6 +3807,27 @@ mod platform {
         )))
     }
 
+    fn supports_semantic_invoke(element: &IUIAutomationElement) -> bool {
+        unsafe {
+            element
+                .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+                .is_ok()
+                || element
+                    .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(
+                        UIA_SelectionItemPatternId,
+                    )
+                    .is_ok()
+                || element
+                    .GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
+                    .is_ok()
+                || element
+                    .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
+                        UIA_ExpandCollapsePatternId,
+                    )
+                    .is_ok()
+        }
+    }
+
     fn set_element_value(
         element: &IUIAutomationElement,
         live: &UiElementSnapshot,
@@ -3715,7 +3871,14 @@ mod platform {
         commit_tracker.result(
             unsafe { pattern.SetValue(&BSTR::from(value)) }
                 .map_err(|error| platform_error("set UI Automation value", error)),
-        )
+        )?;
+        let actual = commit_tracker.result(
+            unsafe { pattern.CurrentValue() }
+                .map_err(|error| platform_error("verify UI Automation value", error)),
+        )?;
+        commit_tracker.result(if actual == value { Ok(()) } else {
+            Err(invalid("The application did not retain the requested value exactly. Input was delivered; inspect the window before retrying."))
+        })
     }
 
     fn ensure_focused_target_is_not_password(window: &WindowSnapshot) -> Result<(), CoreError> {
@@ -4438,6 +4601,7 @@ mod platform {
         window: &WindowSnapshot,
         from_live: Option<&LiveElement>,
         to_live: Option<&LiveElement>,
+        duration_ms: u64,
     ) -> Result<(), CoreError> {
         move_cursor(from, "move to drag start")?;
         thread::sleep(INPUT_SETTLE);
@@ -4451,7 +4615,8 @@ mod platform {
         send_mouse_button(MouseButton::Left, true)?;
         let mut movement_error = None;
         let mut previous = from;
-        for frame in 1..=12 {
+        let frames = duration_ms.div_ceil(16).clamp(7, 188);
+        for frame in 1..=frames {
             if unsafe { GetForegroundWindow() } != hwnd(window.id) {
                 movement_error = Some(CoreError::Internal(
                     "Foreground focus changed during drag; released the mouse button and stopped. Action effect is uncertain."
@@ -4465,7 +4630,7 @@ mod platform {
                 )));
                 break;
             }
-            let progress = frame as f64 / 12.0;
+            let progress = frame as f64 / frames as f64;
             let eased = 1.0 - (1.0 - progress).powi(3);
             let x = from.0 as f64 + (to.0 - from.0) as f64 * eased;
             let y = from.1 as f64 + (to.1 - from.1) as f64 * eased;
@@ -4489,7 +4654,7 @@ mod platform {
                 break;
             }
             previous = next;
-            thread::sleep(Duration::from_millis(16));
+            thread::sleep(Duration::from_millis((duration_ms / frames).max(1)));
         }
         if movement_error.is_none() {
             if let Some(live) = to_live {
@@ -4653,7 +4818,26 @@ mod platform {
         let mut route = "global_input";
         let mut delivery = "foreground";
 
-        let summary = match action {
+        // A semantic single click can run without activating the window. Probe
+        // the actual pattern first; only auto mode may fall back before input.
+        let mut effective_action = action;
+        if action == ControlAction::Click && permits_semantic_click(args) {
+            let element_id = args.element_id.as_deref().expect("semantic click target");
+            let expected =
+                before_control_commit(super::semantic_element(observed, element_id, "click"))?;
+            let live = before_control_commit(resolve_live_element(&current, observed, expected))?;
+            if supports_semantic_invoke(&live.element) {
+                effective_action = ControlAction::Invoke;
+            }
+        }
+        if args.delivery == Some(ControlDelivery::Background)
+            && effective_action == ControlAction::Click
+        {
+            return Err(ControlFailure::pre_commit_as(PreCommitFailureKind::Refused,
+                invalid("The target has no usable background invocation pattern. No foreground input was sent.")));
+        }
+
+        let summary = match effective_action {
             ControlAction::FocusWindow => {
                 route = "window_focus";
                 commit_tracker.result(focus_window(&current, commit_tracker))?;
@@ -4823,6 +5007,7 @@ mod platform {
                     &current,
                     from.live.as_ref(),
                     to.live.as_ref(),
+                    args.drag_duration_ms.unwrap_or(400),
                 ))?;
                 format!("Dragged inside window {}.", current.id)
             }
@@ -5531,6 +5716,9 @@ mod tests {
     fn control_validation_accepts_normalized_targets_and_rejects_missing_semantic_ids() {
         let click = ControlArgs {
             action: "click".to_string(),
+            approval_scope: None,
+            delivery: None,
+            drag_duration_ms: None,
             observation_id: "00000000-0000-4000-8000-000000000001".to_string(),
             window_id: 1,
             element_id: None,
@@ -5561,6 +5749,98 @@ mod tests {
         invoke.action = "key".to_string();
         invoke.key_sequence = Some("win+l".to_string());
         assert!(validate_control_args(&invoke, ControlAction::Key).is_err());
+    }
+
+    #[test]
+    fn semantic_value_input_can_clear_fields_and_replace_multiline_documents() {
+        for text in [String::new(), "中文🙂 line\r\n".repeat(120)] {
+            let args: ControlArgs = serde_json::from_value(serde_json::json!({
+                "action": "set_value", "observation_id": "00000000-0000-4000-8000-000000000001",
+                "window_id": 1, "element_id": "e1", "text": text
+            }))
+            .unwrap();
+            assert!(validate_control_args(&args, ControlAction::SetValue).is_ok());
+        }
+    }
+
+    #[test]
+    fn background_delivery_never_accepts_coordinate_or_double_click_fallbacks() {
+        let args = serde_json::json!({"action":"click", "observation_id":"00000000-0000-4000-8000-000000000001", "window_id":1, "delivery":"background", "element_id":"e1"});
+        let valid: ControlArgs = serde_json::from_value(args.clone()).unwrap();
+        assert!(validate_control_args(&valid, ControlAction::Click).is_ok());
+        for patch in [
+            serde_json::json!({"click_count":2}),
+            serde_json::json!({"button":"right"}),
+            serde_json::json!({"element_id":null,"x":10,"y":10}),
+        ] {
+            let mut invalid = args.clone();
+            invalid
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            let invalid: ControlArgs = serde_json::from_value(invalid).unwrap();
+            assert!(validate_control_args(&invalid, ControlAction::Click).is_err());
+        }
+    }
+
+    #[test]
+    fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens() {
+        let observe = |started| {
+            remember_observation(
+                Some("window-scope-test"),
+                vec![ObservedWindow {
+                    snapshot: WindowSnapshot {
+                        id: 400,
+                        pid: 7,
+                        process_started_at_100ns: started,
+                        executable_path_hash: "editor-binary".into(),
+                        window_class: "Editor".into(),
+                        session_id: 1,
+                        app_name: "Editor".into(),
+                        title: "Untitled".into(),
+                        x: 0,
+                        y: 0,
+                        width: 640,
+                        height: 480,
+                        minimized: false,
+                        maximized: false,
+                        focused: false,
+                    },
+                    image_width: None,
+                    image_height: None,
+                    native_image_width: None,
+                    native_image_height: None,
+                    screenshot_signature: None,
+                    screenshot_guard: None,
+                    elements: vec![],
+                }],
+            )
+            .unwrap()
+        };
+        let bind = |token: &str, task| {
+            let args = serde_json::json!({"action":"focus_window", "window_id":400,"observation_id":token,"approval_scope":"window_session"});
+            let mut request = crate::approval::ApprovalRequest::new(
+                "req",
+                "computer_control",
+                &args,
+                crate::approval::ApprovalRisk::High,
+                "Focus editor",
+            );
+            bind_window_session_approval(
+                &mut request,
+                &args,
+                Some("window-scope-test"),
+                Some(task),
+            )
+            .unwrap();
+            assert_eq!(request.target_kind, "desktop_window_task");
+            request.permission_key
+        };
+        let first = observe(123);
+        let next = observe(123);
+        assert_eq!(bind(&first, "task-a"), bind(&next, "task-a"));
+        assert_ne!(bind(&first, "task-a"), bind(&first, "task-b"));
+        assert_ne!(bind(&first, "task-a"), bind(&observe(456), "task-a"));
     }
 
     #[test]
@@ -5677,7 +5957,8 @@ mod tests {
         use windows::core::PCWSTR;
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DispatchMessageW, GetMessageW, SetForegroundWindow, ShowWindow,
-            TranslateMessage, CW_USEDEFAULT, MSG, SW_SHOW, WINDOW_EX_STYLE, WS_BORDER, WS_CHILD,
+            TranslateMessage, BS_AUTOCHECKBOX, CW_USEDEFAULT, ES_AUTOVSCROLL, ES_MULTILINE, MSG,
+            SW_SHOW, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE, WINDOW_STYLE, WS_BORDER, WS_CHILD,
             WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         };
 
@@ -5697,7 +5978,7 @@ mod tests {
                 WINDOW_EX_STYLE::default(),
                 PCWSTR(static_class.as_ptr()),
                 PCWSTR(title.as_ptr()),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 640,
@@ -5714,11 +5995,14 @@ mod tests {
                 WINDOW_EX_STYLE::default(),
                 PCWSTR(edit_class.as_ptr()),
                 PCWSTR(initial.as_ptr()),
-                WS_CHILD | WS_VISIBLE | WS_BORDER,
+                WS_CHILD
+                    | WS_VISIBLE
+                    | WS_BORDER
+                    | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL) as u32),
                 32,
                 64,
                 560,
-                40,
+                110,
                 Some(window),
                 None,
                 None,
@@ -5726,8 +6010,37 @@ mod tests {
             )
         }
         .expect("create isolated editable target");
-        let _ = unsafe { ShowWindow(window, SW_SHOW) };
-        let _ = unsafe { SetForegroundWindow(window) };
+        unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                windows::core::w!("BUTTON"),
+                windows::core::w!("Enable option"),
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+                32,
+                24,
+                180,
+                28,
+                Some(window),
+                None,
+                None,
+                None,
+            )
+        }
+        .expect("create isolated checkbox target");
+        let background = std::env::var_os("NEXA_COMPUTER_USE_HELPER_BACKGROUND").is_some();
+        let _ = unsafe {
+            ShowWindow(
+                window,
+                if background {
+                    SW_SHOWNOACTIVATE
+                } else {
+                    SW_SHOW
+                },
+            )
+        };
+        if !background {
+            let _ = unsafe { SetForegroundWindow(window) };
+        }
         let mut message = MSG::default();
         while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
             let _ = unsafe { TranslateMessage(&message) };
@@ -5739,15 +6052,38 @@ mod tests {
     #[test]
     #[ignore = "requires an interactive Windows desktop and sends input to an isolated helper"]
     fn windows_capture_control_recapture_smoke_test() {
+        windows_control_smoke(false);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "requires an interactive Windows desktop and uses UI Automation on an isolated helper"]
+    fn windows_background_controls_smoke_test() {
+        windows_control_smoke(true);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn windows_control_smoke(background_only: bool) {
         use std::process::{Command, Stdio};
         use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
         use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-            MOUSEINPUT,
+            GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_MOUSE, LASTINPUTINFO,
+            MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
         };
         use windows::Win32::UI::WindowsAndMessaging::{
-            GetCursorPos, PostMessageW, SetCursorPos, WM_CLOSE,
+            FindWindowExW, GetCursorPos, GetForegroundWindow, PostMessageW, SendMessageW,
+            SetCursorPos, SetForegroundWindow, WM_CLOSE,
         };
+        let original_foreground = unsafe { GetForegroundWindow() };
+        fn input_tick() -> Option<u32> {
+            let mut info = LASTINPUTINFO {
+                cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+                ..Default::default()
+            };
+            unsafe { GetLastInputInfo(&mut info) }
+                .as_bool()
+                .then_some(info.dwTime)
+        }
 
         fn activate_isolated_window(target: &WindowSnapshot) -> Result<POINT, String> {
             let mut original = POINT::default();
@@ -5806,7 +6142,11 @@ mod tests {
             .chain(std::env::split_paths(&original_path)),
         )
         .expect("build helper PATH");
-        let mut child = Command::new(&helper_path)
+        let mut command = Command::new(&helper_path);
+        if background_only {
+            command.env("NEXA_COMPUTER_USE_HELPER_BACKGROUND", "1");
+        }
+        let mut child = command
             .args([
                 "--ignored",
                 "--exact",
@@ -5838,7 +6178,9 @@ mod tests {
                 }
                 std::thread::sleep(Duration::from_millis(50));
             };
-            original_cursor = Some(activate_isolated_window(&target)?);
+            if !background_only {
+                original_cursor = Some(activate_isolated_window(&target)?);
+            }
             let capture = platform::capture_window(
                 &target,
                 CaptureOptions {
@@ -5880,8 +6222,16 @@ mod tests {
                 screenshot_guard: screenshot_guard(&capture.png),
                 elements: capture.elements.clone(),
             };
+            let initial_action = if background_only {
+                ControlAction::SetValue
+            } else {
+                ControlAction::TypeText
+            };
             let args = ControlArgs {
-                action: "type_text".to_string(),
+                action: initial_action.label().to_string(),
+                approval_scope: None,
+                delivery: None,
+                drag_duration_ms: None,
                 observation_id: uuid::Uuid::new_v4().to_string(),
                 window_id: target.id,
                 element_id: Some(element),
@@ -5895,7 +6245,7 @@ mod tests {
                 click_count: None,
                 scroll_x: None,
                 scroll_y: None,
-                text: Some(" - operated by Nexa".to_string()),
+                text: Some(" - Nexa 中文🙂\r\n第二行".to_string()),
                 key_sequence: None,
                 reason: Some("interactive smoke test".to_string()),
                 include_elements: Some(true),
@@ -5903,11 +6253,10 @@ mod tests {
                 capture_mode: Some("som".to_string()),
                 wait_for_previous: None,
             };
-            validate_control_args(&args, ControlAction::TypeText)
-                .map_err(|error| error.to_string())?;
+            validate_control_args(&args, initial_action).map_err(|error| error.to_string())?;
             let commit_tracker = ControlCommitTracker::default();
             let outcome = platform::control_window(
-                ControlAction::TypeText,
+                initial_action,
                 &args,
                 &observed,
                 CaptureOptions::from_control(&args).map_err(|error| error.to_string())?,
@@ -5917,7 +6266,149 @@ mod tests {
             if outcome.capture.is_none() || outcome.verification.after_hash.is_none() {
                 return Err("post-action capture was not returned".to_string());
             }
-            Ok((target.id, outcome))
+            if !background_only {
+                let _ = unsafe { SetForegroundWindow(original_foreground) };
+            }
+            let initial_input = input_tick();
+            let mut cursor = POINT::default();
+            unsafe { GetCursorPos(&mut cursor) }.map_err(|e| e.to_string())?;
+            let hwnd = windows::Win32::Foundation::HWND(target.id as usize as *mut _);
+            let edit = unsafe {
+                FindWindowExW(
+                    Some(hwnd),
+                    None,
+                    windows::core::w!("EDIT"),
+                    windows::core::PCWSTR::null(),
+                )
+            }
+            .map_err(|e| e.to_string())?;
+            let checkbox = unsafe {
+                FindWindowExW(
+                    Some(hwnd),
+                    None,
+                    windows::core::w!("BUTTON"),
+                    windows::core::PCWSTR::null(),
+                )
+            }
+            .map_err(|e| e.to_string())?;
+            let mut last = outcome;
+            let typed_length =
+                unsafe { SendMessageW(edit, 0x000e, Some(WPARAM(0)), Some(LPARAM(0))) }.0 as usize;
+            let mut typed = vec![0_u16; typed_length + 1];
+            let typed_count = unsafe {
+                SendMessageW(
+                    edit,
+                    0x000d,
+                    Some(WPARAM(typed.len())),
+                    Some(LPARAM(typed.as_mut_ptr() as isize)),
+                )
+            }
+            .0 as usize;
+            let typed = String::from_utf16_lossy(&typed[..typed_count]);
+            if !typed.contains("中文🙂") || !typed.contains("第二行") {
+                return Err("Unicode or multiline keyboard input was lost".into());
+            }
+            let captured = last.capture.as_ref().ok_or("missing capture")?;
+            last.capture = Some(
+                platform::capture_window(
+                    &captured.snapshot,
+                    CaptureOptions::from_control(&args).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?,
+            );
+            for text in ["中文🙂 line\r\n".repeat(120), String::new()] {
+                let fresh = last.capture.as_ref().ok_or("missing capture")?;
+                let observed = ObservedWindow {
+                    snapshot: fresh.snapshot.clone(),
+                    image_width: Some(fresh.image_width),
+                    image_height: Some(fresh.image_height),
+                    native_image_width: Some(fresh.native_image_width),
+                    native_image_height: Some(fresh.native_image_height),
+                    screenshot_signature: screenshot_signature(&fresh.png),
+                    screenshot_guard: screenshot_guard(&fresh.png),
+                    elements: fresh.elements.clone(),
+                };
+                let element = fresh
+                    .elements
+                    .iter()
+                    .find(|element| element.role == "edit")
+                    .ok_or("missing edit element")?;
+                let input: ControlArgs = serde_json::from_value(serde_json::json!({"action":"set_value", "delivery":"background", "observation_id":uuid::Uuid::new_v4().to_string(), "window_id":target.id,"element_id":element.id,"text":text})).map_err(|e| e.to_string())?;
+                validate_control_args(&input, ControlAction::SetValue)
+                    .map_err(|e| e.to_string())?;
+                let foreground = unsafe { GetForegroundWindow() };
+                last = platform::control_window(
+                    ControlAction::SetValue,
+                    &input,
+                    &observed,
+                    CaptureOptions::from_control(&input).map_err(|e| e.to_string())?,
+                    &ControlCommitTracker::default(),
+                )
+                .map_err(|e| format!("{e:?}"))?;
+                let length = unsafe { SendMessageW(edit, 0x000e, Some(WPARAM(0)), Some(LPARAM(0))) }
+                    .0 as usize;
+                let mut value = vec![0_u16; length + 1];
+                let len = unsafe {
+                    SendMessageW(
+                        edit,
+                        0x000d,
+                        Some(WPARAM(value.len())),
+                        Some(LPARAM(value.as_mut_ptr() as isize)),
+                    )
+                }
+                .0 as usize;
+                if String::from_utf16_lossy(&value[..len]) != text {
+                    return Err("background value input did not preserve the exact document".into());
+                }
+                if unsafe { GetForegroundWindow() } != foreground
+                    && unsafe { GetForegroundWindow() } == hwnd
+                {
+                    return Err(format!("background edit changed foreground focus: before={foreground:?}, after={:?}, target={}", unsafe { GetForegroundWindow() }, target.id));
+                }
+            }
+            let fresh = last.capture.as_ref().ok_or("missing capture")?;
+            let observed = ObservedWindow {
+                snapshot: fresh.snapshot.clone(),
+                image_width: Some(fresh.image_width),
+                image_height: Some(fresh.image_height),
+                native_image_width: Some(fresh.native_image_width),
+                native_image_height: Some(fresh.native_image_height),
+                screenshot_signature: screenshot_signature(&fresh.png),
+                screenshot_guard: screenshot_guard(&fresh.png),
+                elements: fresh.elements.clone(),
+            };
+            let element = fresh
+                .elements
+                .iter()
+                .find(|element| element.role == "checkbox")
+                .ok_or("missing checkbox")?;
+            let click: ControlArgs = serde_json::from_value(serde_json::json!({"action":"click", "delivery":"auto", "observation_id":uuid::Uuid::new_v4().to_string(), "window_id":target.id,"element_id":element.id})).map_err(|e| e.to_string())?;
+            let foreground = unsafe { GetForegroundWindow() };
+            last = platform::control_window(
+                ControlAction::Click,
+                &click,
+                &observed,
+                CaptureOptions::from_control(&click).map_err(|e| e.to_string())?,
+                &ControlCommitTracker::default(),
+            )
+            .map_err(|e| format!("{e:?}"))?;
+            // BM_GETCHECK: verify the native checkbox, not just the tool receipt.
+            if unsafe { SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0))) }.0 != 1 {
+                return Err("semantic auto click did not toggle the checkbox".into());
+            }
+            if unsafe { GetForegroundWindow() } != foreground
+                && unsafe { GetForegroundWindow() } == hwnd
+            {
+                return Err(format!("background click changed foreground focus: before={foreground:?}, after={:?}, target={}", unsafe { GetForegroundWindow() }, target.id));
+            }
+            let mut after = POINT::default();
+            unsafe { GetCursorPos(&mut after) }.map_err(|e| e.to_string())?;
+            if initial_input != input_tick() || initial_input.is_none() {
+                eprintln!("Native value/checkbox effects verified; pointer preservation was not assessed because user input occurred or input history was unavailable.");
+            } else if (after.x, after.y) != (cursor.x, cursor.y) {
+                return Err("background controls moved the pointer".into());
+            }
+            Ok((target.id, last))
         })();
 
         if let Ok((window_id, _)) = &result {
@@ -5945,6 +6436,9 @@ mod tests {
         }
         if let Some(original) = original_cursor {
             let _ = unsafe { SetCursorPos(original.x, original.y) };
+        }
+        if !background_only {
+            let _ = unsafe { SetForegroundWindow(original_foreground) };
         }
         let (_, outcome) = result.expect("capture-control-recapture must succeed");
         assert!(outcome.target_verified);

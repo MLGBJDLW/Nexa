@@ -701,5 +701,12 @@
   "turnChangesShowMore": "Afficher plus ({count} restants)",
   "turnChangesNoStats": "Lignes inconnues",
   "turnChangesContentUnavailable": "Fichier binaire, trop volumineux ou différence enregistrée indisponible.",
-  "turnChangesLoadError": "Impossible de charger les modifications enregistrées."
+  "turnChangesLoadError": "Impossible de charger les modifications enregistrées.",
+  "shareScreen": "Partager l’écran",
+  "stopScreenShare": "Arrêter le partage",
+  "screenShareActive": "Écran partagé",
+  "screenShareNeedsConversation": "Commencez une conversation avant de partager",
+  "screenShareUnavailable": "Le partage d’écran est indisponible ici",
+  "screenSharePreview": "Aperçu de l’écran partagé",
+  "screenShareHint": "L’agent reçoit la vue actuelle lorsqu’il continue. Arrêtez le partage pour révoquer l’accès."
 }

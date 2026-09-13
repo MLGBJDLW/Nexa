@@ -34,6 +34,17 @@ test.beforeEach(async ({ page }) => {
     const nowIso = new Date().toISOString();
     let seq = 0;
     let streamedReplyCount = 0;
+    const sharedScreen = { frames: 0, stopped: 0, streams: [] as MediaStream[] };
+    Object.assign(window, { __sharedScreen: sharedScreen });
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640; canvas.height = 360;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#157d8c'; context.fillRect(0, 0, 640, 360);
+      const stream = canvas.captureStream(2);
+      sharedScreen.streams.push(stream);
+      return stream;
+    } });
     const nextId = (prefix: string) => `${prefix}-${Date.now()}-${seq++}`;
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -177,6 +188,9 @@ test.beforeEach(async ({ page }) => {
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'begin_desktop_share_cmd': return 'fixture-share';
+        case 'update_desktop_share_cmd': sharedScreen.frames++; return null;
+        case 'end_desktop_share_cmd': sharedScreen.stopped++; return null;
         case 'plugin:event|listen': {
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
@@ -428,4 +442,51 @@ test('follows delayed layout growth without mistaking it for user scrolling', as
   const readingTop = await root.evaluate(el => el.scrollTop);
   await root.locator('[data-chat-follow-content="true"]').evaluate(el => { (el as HTMLElement).style.paddingBottom = '900px'; });
   await expect.poll(() => root.evaluate(el => el.scrollTop)).toBe(readingTop);
+});
+
+test('screen sharing sends fresh frames and stops on revocation or conversation change', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  const share = page.getByTestId('desktop-share-toggle');
+  const state = () => page.evaluate(() => {
+    const shared = (window as unknown as { __sharedScreen: { frames: number; stopped: number; streams: MediaStream[] } }).__sharedScreen;
+    return { frames: shared.frames, stopped: shared.stopped, tracks: shared.streams.flatMap(stream => stream.getTracks().map(track => track.readyState)) };
+  });
+  await share.click();
+  await expect(share).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await state()).frames).toBeGreaterThan(1);
+  await share.click();
+  await expect.poll(async () => (await state()).tracks.every(status => status === 'ended')).toBe(true);
+  await expect.poll(async () => (await state()).stopped).toBe(1);
+  const stoppedFrames = (await state()).frames;
+  await page.waitForTimeout(1100);
+  expect((await state()).frames).toBe(stoppedFrames);
+  await share.click();
+  await expect(share).toHaveAttribute('aria-pressed', 'true');
+  // A client-side navigation must release capture without relying on a page unload.
+  await page.getByText('Footnote Scroll', { exact: true }).click();
+  await expect.poll(async () => (await state()).tracks.every(status => status === 'ended')).toBe(true);
+  await expect(share).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('stopping a pending screen share releases media before its lease arrives', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  await page.evaluate(() => {
+    const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const invoke = runtime.invoke;
+    runtime.invoke = (command, args) => command === 'begin_desktop_share_cmd'
+      ? new Promise(resolve => { Object.assign(window, { __finishScreenLease: () => resolve('late-lease') }); })
+      : invoke(command, args);
+  });
+  const share = page.getByTestId('desktop-share-toggle');
+  await share.click();
+  await expect.poll(() => page.evaluate(() => '__finishScreenLease' in window)).toBe(true);
+  await share.click();
+  await expect.poll(() => page.evaluate(() => {
+    const shared = (window as unknown as { __sharedScreen: { streams: MediaStream[] } }).__sharedScreen;
+    return shared.streams.length > 0 && shared.streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'));
+  })).toBe(true);
+  await page.evaluate(() => (window as unknown as { __finishScreenLease: () => void }).__finishScreenLease());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBe(0);
+  await expect(share).toHaveAttribute('aria-pressed', 'false');
 });

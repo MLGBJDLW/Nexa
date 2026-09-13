@@ -263,7 +263,7 @@ fn tool_visual_observation_message(tool_name: &str, observation: ToolVisualObser
     )
 }
 
-async fn resolve_tool_visual_context_message(
+pub(super) async fn resolve_tool_visual_context_message(
     primary_supports_vision: bool,
     interpreter: Option<&ToolVisualInterpreter>,
     tool_name: &str,
@@ -934,7 +934,7 @@ impl ToolDispatchRuntime<'_> {
                                         })
                                         .await;
                                     let risk = policy_decision.risk_level;
-                                    let req = ApprovalRequest::new(
+                                    let mut req = ApprovalRequest::new(
                                         Uuid::new_v4().to_string(),
                                         &tc.name,
                                         parsed_args,
@@ -942,6 +942,10 @@ impl ToolDispatchRuntime<'_> {
                                         reason,
                                     )
                                     .with_durable_reason(durable_reason);
+                                    if let Err(error) = crate::tools::computer_use_tool::bind_window_session_approval(&mut req, parsed_args, conversation_id, turn_id) {
+                                        let failed = approval_context_failure(&tc.id, &tc.name, error);
+                                        return FinishedToolExecution { index, call: tc, timeout: tool_timeout, outcome: ToolExecutionOutcome::Result(failed, ToolRunStatus::Failed), elapsed: Duration::ZERO };
+                                    }
                                     let _ = approval_tx
                                         .send(AgentEvent::ApprovalRequested {
                                             request: req.clone(),

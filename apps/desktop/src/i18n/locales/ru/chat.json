@@ -701,5 +701,12 @@
   "turnChangesShowMore": "Показать ещё (осталось {count})",
   "turnChangesNoStats": "Строки неизвестны",
   "turnChangesContentUnavailable": "Двоичный или слишком большой файл либо сохранённая разница недоступна.",
-  "turnChangesLoadError": "Не удалось загрузить сохранённые изменения."
+  "turnChangesLoadError": "Не удалось загрузить сохранённые изменения.",
+  "shareScreen": "Поделиться экраном",
+  "stopScreenShare": "Остановить показ",
+  "screenShareActive": "Экран доступен",
+  "screenShareNeedsConversation": "Начните разговор, прежде чем делиться экраном",
+  "screenShareUnavailable": "Показ экрана недоступен в этой среде",
+  "screenSharePreview": "Предпросмотр экрана",
+  "screenShareHint": "Агент получает актуальное изображение при продолжении работы. Остановите показ, чтобы отозвать доступ."
 }

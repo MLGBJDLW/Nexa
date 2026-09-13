@@ -109,6 +109,13 @@ impl ApprovalRequest {
         self
     }
 
+    pub(crate) fn append_scope_reason(&mut self, suffix: &str) {
+        self.reason.push_str(suffix);
+        if let Some(reason) = self.durable_reason.as_mut() {
+            reason.push_str(suffix);
+        }
+    }
+
     pub fn audit_safe_for_persistence(&self) -> Self {
         let mut projected = self.clone();
         if let Some(reason) = self.durable_reason.as_ref() {
