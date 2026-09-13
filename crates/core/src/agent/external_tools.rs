@@ -144,6 +144,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subscription_reads_shared_desktop_through_default_registry_on_every_platform() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let (mut session, _, _rx) = session(4);
+        session.input.tools = crate::tools::default_tool_registry();
+        session.input.native_vision = true;
+        assert!(session
+            .definitions()
+            .iter()
+            .any(|tool| tool.name == "computer_observe"));
+        let store = crate::shared_desktop::store();
+        let lease = store
+            .begin(&session.input.conversation_id, "Shared screen")
+            .unwrap();
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            2,
+            2,
+            image::Rgb([20, 80, 160]),
+        ))
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+        let encoded = STANDARD.encode(jpeg.into_inner());
+        store
+            .update(&session.input.conversation_id, &lease, 1, encoded.clone())
+            .unwrap();
+        let read = |id: &str| ToolCallRequest {
+            id: id.into(),
+            name: "computer_observe".into(),
+            arguments: serde_json::json!({"action":"shared_desktop"}).to_string(),
+            thought_signature: None,
+        };
+        let output = session.execute(read("shared-read")).await.unwrap();
+        assert!(!output.result.is_error, "{}", output.result.content);
+        assert!(output
+            .visual_parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Image {data, ..} if data == &encoded)));
+        store.end(&session.input.conversation_id, &lease);
+        let stopped = session.execute(read("after-stop")).await.unwrap();
+        assert!(stopped.result.is_error);
+        assert!(!stopped
+            .visual_parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Image { .. })));
+    }
+
+    #[tokio::test]
     async fn callback_delivers_and_caches_guard_advice_without_persisting_controller_text() {
         let (session, count, _rx) = session(3);
         session.execute(call("first", 1)).await.unwrap();

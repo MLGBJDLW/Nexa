@@ -847,6 +847,9 @@ and receive refreshed views after Nexa tool operations. Stale frames are not
 offered, and stopping sharing or changing conversations releases capture.
 Sharing is separate from control permission and does not save a screen recording.
 Screen capture depends on the host browser/OS; native input remains Windows-only.
+On macOS and Linux, `computer_observe` exposes only `shared_desktop`; subscription
+agents can discover and read that shared view without being offered Windows
+window-capture or input actions.
 
 ### `computer_control`
 
