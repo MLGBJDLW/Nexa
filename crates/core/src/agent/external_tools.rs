@@ -148,6 +148,10 @@ mod tests {
         use base64::{engine::general_purpose::STANDARD, Engine};
         let (mut session, _, _rx) = session(4);
         session.input.tools = crate::tools::default_tool_registry();
+        session.input.tools.register(Box::new(CountTool(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+        )));
         session.input.native_vision = true;
         assert!(session
             .definitions()
@@ -181,6 +185,26 @@ mod tests {
             .visual_parts
             .iter()
             .any(|part| matches!(part, ContentPart::Image {data, ..} if data == &encoded)));
+        assert_eq!(
+            output
+                .visual_parts
+                .iter()
+                .filter(|part| matches!(part, ContentPart::Image { .. }))
+                .count(),
+            1,
+            "an explicit shared-screen read must return exactly its observed image"
+        );
+        let refreshed = session.execute(call("ordinary-tool", 1)).await.unwrap();
+        assert!(!refreshed.result.is_error);
+        assert_eq!(
+            refreshed
+                .visual_parts
+                .iter()
+                .filter(|part| matches!(part, ContentPart::Image {data, ..} if data == &encoded))
+                .count(),
+            1,
+            "other tool operations still receive the current shared view"
+        );
         store.end(&session.input.conversation_id, &lease);
         let stopped = session.execute(read("after-stop")).await.unwrap();
         assert!(stopped.result.is_error);
@@ -651,14 +675,25 @@ impl ExternalToolSession {
             .filter(|message| message.role == Role::User)
             .flat_map(|message| message.parts)
             .collect();
-        if let Some(context) = super::shared_desktop::current_shared_context(
-            &self.input.conversation_id,
-            self.input.native_vision,
-            self.input.visual_interpreter.as_ref(),
-        )
-        .await
-        {
-            visual_parts.extend(context.parts);
+        // Use the executed action receipt, including normalized tool arguments.
+        // Its own visual result already contains the explicitly observed frame.
+        let explicit_shared_read = call.name == "computer_observe"
+            && result
+                .artifacts
+                .as_ref()
+                .and_then(|artifacts| artifacts.pointer("/data/action"))
+                .and_then(serde_json::Value::as_str)
+                == Some("shared_desktop");
+        if !explicit_shared_read {
+            if let Some(context) = super::shared_desktop::current_shared_context(
+                &self.input.conversation_id,
+                self.input.native_vision,
+                self.input.visual_interpreter.as_ref(),
+            )
+            .await
+            {
+                visual_parts.extend(context.parts);
+            }
         }
         Ok(ExternalToolOutput {
             result,
