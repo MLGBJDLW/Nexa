@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
+// Native thumb dragging needs the scrollbar that Chromium headless hides by default.
+test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } });
+
 async function renderTrace(page: Page, text: string, cardHeight = 0) {
   await page.evaluate(async ({ text, cardHeight }) => {
     const fixturePath = '/e2e/fixtures/thinking-follow.tsx';
@@ -30,6 +33,25 @@ test('pauses for manual reading and resumes at the bottom', async ({ page }) => 
   const scroller = text.locator('xpath=ancestor::div[contains(@class,"overflow-y-auto")]');
   await expect(text).toHaveText(longThinking);
   await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  const thumb = await scroller.evaluate(el => {
+    const rect = el.getBoundingClientRect();
+    const height = Math.max(36, el.clientHeight * el.clientHeight / el.scrollHeight);
+    return { x: rect.right - (el.offsetWidth - el.clientWidth) / 2, y: rect.bottom - height / 2 };
+  });
+  await page.mouse.move(thumb.x, thumb.y);
+  await page.mouse.down();
+  await page.mouse.move(thumb.x, thumb.y - 100, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => scroller.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
+  const originalTheme = await page.evaluate(() => {
+    const previous = document.documentElement.className;
+    document.documentElement.className = 'theme-dark';
+    return previous;
+  });
+  await scroller.screenshot({ path: '.artifacts/thinking-scrollbar-dark.png' });
+  await page.evaluate(() => { document.documentElement.className = 'theme-light'; });
+  await scroller.screenshot({ path: '.artifacts/thinking-scrollbar-light.png' });
+  await page.evaluate(previous => { document.documentElement.className = previous; }, originalTheme);
   await scroller.hover();
   await page.mouse.wheel(0, -400);
   await expect.poll(() => scroller.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);

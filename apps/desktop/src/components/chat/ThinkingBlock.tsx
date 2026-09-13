@@ -229,7 +229,7 @@ export function ThinkingBlock({
               <div
                 ref={scrollContainerRef}
                 data-testid="thinking-scroll-root"
-                className="thinking-scroll-root relative max-h-[300px] max-w-full min-w-0 overflow-x-hidden overflow-y-auto py-1 pr-4 text-xs leading-relaxed text-text-secondary [overflow-anchor:none] [scrollbar-width:thin]"
+                className="thinking-scroll-root chat-scrollbar chat-scrollbar--compact relative max-h-[300px] max-w-full min-w-0 overflow-x-hidden overflow-y-auto py-1 pr-4 text-xs leading-relaxed text-text-secondary [overflow-anchor:none]"
               >
                 <div ref={scrollContentRef} className="min-w-0 max-w-full space-y-1">
                   {effectiveSections ? (

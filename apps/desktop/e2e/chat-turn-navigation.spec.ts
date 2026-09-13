@@ -239,7 +239,8 @@ test('navigates to every conversation turn from the right-side timeline', async 
   expect(logBox).not.toBeNull();
   expect(navigatorBox).not.toBeNull();
   expect(navigatorBox!.x).toBeGreaterThan(logBox!.x + logBox!.width * 0.9);
-  expect(Math.abs(logBox!.x + logBox!.width - (navigatorBox!.x + navigatorBox!.width))).toBeLessThan(16);
+  const contentRight = await log.evaluate(element => element.getBoundingClientRect().left + element.clientLeft + element.clientWidth);
+  expect(Math.abs(contentRight - (navigatorBox!.x + navigatorBox!.width))).toBeLessThan(16);
 
   await navigator.getByRole('button', { name: /^#1 ·/ }).click();
   await expect(navigator.getByRole('button', { name: /^#1 ·/ })).toHaveAttribute('aria-current', 'step');
