@@ -490,3 +490,47 @@ test('stopping a pending screen share releases media before its lease arrives', 
   expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBe(0);
   await expect(share).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('bounds a high-entropy screen frame and keeps its JPEG decodable', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  const result = await page.evaluate(async () => {
+    const modulePath = '/src/lib/sharedScreenFrame.ts';
+    const { encodeSharedScreenFrame, MAX_SHARED_SCREEN_BASE64 } = await import(/* @vite-ignore */ modulePath);
+    const source = document.createElement('canvas');
+    source.width = source.height = 1568;
+    const context = source.getContext('2d')!;
+    const pixels = context.createImageData(source.width, source.height);
+    let seed = 13579;
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+      pixels.data[i] = seed & 255;
+      pixels.data[i + 1] = (seed >>> 8) & 255;
+      pixels.data[i + 2] = (seed >>> 16) & 255;
+      pixels.data[i + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
+    const originalLength = source.toDataURL('image/jpeg', 0.65).split(',')[1].length;
+    const frame = encodeSharedScreenFrame(source, source.width, source.height, document.createElement('canvas'))!;
+    const image = new Image(); image.src = frame.url; await image.decode();
+    return { originalLength, length: frame.base64.length, limit: MAX_SHARED_SCREEN_BASE64, width: image.naturalWidth, height: image.naturalHeight };
+  });
+  expect(result.originalLength).toBeGreaterThan(result.limit);
+  expect(result.length).toBeLessThanOrEqual(result.limit);
+  expect(result.length).toBeGreaterThan(0);
+  expect(Math.max(result.width, result.height)).toBeLessThanOrEqual(1568);
+});
+
+test('a frame that cannot fit does not stop screen sharing', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  await page.evaluate(() => {
+    const encode = HTMLCanvasElement.prototype.toDataURL;
+    let attempts = 0;
+    HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
+      return attempts++ < 9 ? `data:image/jpeg;base64,${'A'.repeat(1_400_004)}` : encode.call(this, type, quality);
+    };
+  });
+  await page.getByTestId('desktop-share-toggle').click();
+  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBeGreaterThan(1);
+  expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(0);
+});

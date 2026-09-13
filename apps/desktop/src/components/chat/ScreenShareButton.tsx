@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { MonitorUp, Square, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
+import { encodeSharedScreenFrame } from '../../lib/sharedScreenFrame';
 
 interface Capture {
   conversationId: string; lease: string; stream: MediaStream;
@@ -71,12 +72,10 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
         }
         uploading = true;
         try {
-          const scale = Math.min(1, 1568 / Math.max(video.videoWidth, video.videoHeight));
-          canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-          canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-          canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const url = canvas.toDataURL('image/jpeg', 0.65);
-          await invoke('update_desktop_share_cmd', { conversationId, lease, sequence: ++sequence, base64: url.split(',')[1] });
+          const frame = encodeSharedScreenFrame(video, video.videoWidth, video.videoHeight, canvas);
+          if (!frame) return; // A bad frame must not terminate an otherwise valid share.
+          const { url, base64 } = frame;
+          await invoke('update_desktop_share_cmd', { conversationId, lease, sequence: ++sequence, base64 });
           if (mine === generation.current && mounted.current) { setPreview(url); setSharing(true); setPending(false); }
         } catch (error) {
           if (mine === generation.current) { stop(); toast.error(String(error)); }
