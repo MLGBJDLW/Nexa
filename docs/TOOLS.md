@@ -845,6 +845,8 @@ memory, refreshing about once per second. API agents receive a fresh view at
 model-step boundaries; subscription agents can read it with `shared_desktop`
 and receive refreshed views after Nexa tool operations. Stale frames are not
 offered, and stopping sharing or changing conversations releases capture.
+Provider retries discard a shared view when its pixels have been superseded;
+the next model step reads the latest frame again.
 Sharing is separate from control permission and does not save a screen recording.
 Screen capture depends on the host browser/OS; native input remains Windows-only.
 On macOS and Linux, `computer_observe` exposes only `shared_desktop`; subscription

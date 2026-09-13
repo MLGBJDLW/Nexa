@@ -5,8 +5,8 @@ pub(super) async fn current_shared_context(
     native_vision: bool,
     interpreter: Option<&ToolVisualInterpreter>,
 ) -> Option<Message> {
-    let (source, attachment) = crate::shared_desktop::store().latest(conversation)?;
-    let context_name = crate::shared_desktop::store().context_name(conversation)?;
+    let (source, attachment, context_name) =
+        crate::shared_desktop::store().latest_context(conversation)?;
     let image = attachment.data.clone();
     let context = super::tool_dispatch::resolve_tool_visual_context_message(
         native_vision,

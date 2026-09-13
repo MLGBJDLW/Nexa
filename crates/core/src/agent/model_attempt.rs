@@ -1319,6 +1319,55 @@ mod tests {
             .any(|message| message.text_content().contains("private screen context")));
     }
 
+    #[test]
+    fn provider_retry_discards_a_replaced_screen_while_sharing_stays_active() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let provider = ScriptedProvider::boxed(
+            "primary",
+            "endpoint",
+            "model",
+            ReasoningReplayPolicy::NotRequired,
+            vec![],
+            Arc::new(Mutex::new(vec![])),
+            Arc::new(Mutex::new(0)),
+        );
+        let conversation = uuid::Uuid::new_v4().to_string();
+        let store = crate::shared_desktop::store();
+        let lease = store.begin(&conversation, "Screen").unwrap();
+        let encode = |color| {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                2,
+                2,
+                image::Rgb([color, 0, 0]),
+            ))
+            .write_to(&mut bytes, image::ImageFormat::Jpeg)
+            .unwrap();
+            STANDARD.encode(bytes.into_inner())
+        };
+        store.update(&conversation, &lease, 1, encode(10)).unwrap();
+        let mut screen = Message::text(Role::User, "superseded screen context");
+        screen.name = store.context_name(&conversation);
+        let mut input = request();
+        input.messages.push(screen);
+        let (events, _) = event_channel();
+        let mut attempt = ModelAttempt::new(provider.as_ref(), input, &events, false);
+        let contains_screen = |request: CompletionRequest| {
+            request
+                .messages
+                .iter()
+                .any(|message| message.text_content().contains("superseded screen context"))
+        };
+        assert!(contains_screen(attempt.request_for_invocation()));
+        store.update(&conversation, &lease, 2, encode(220)).unwrap();
+        assert!(!contains_screen(attempt.request_for_invocation()));
+        assert!(
+            store.latest(&conversation).is_some(),
+            "sharing is still active"
+        );
+        store.end(&conversation, &lease);
+    }
+
     async fn expect_stream_opened(attempt: &mut ModelAttempt<'_, '_>) {
         assert!(matches!(
             attempt.next().await,

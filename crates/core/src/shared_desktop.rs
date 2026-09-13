@@ -17,7 +17,17 @@ struct Share {
     updated: Instant,
     sequence: u64,
     source: String,
+    frame_id: String,
     frame: Option<ToolOutputAttachment>,
+}
+impl Share {
+    fn context_name(&self) -> String {
+        format!(
+            "nexa_screen_{}_{}",
+            self.lease.replace('-', ""),
+            self.frame_id
+        )
+    }
 }
 #[derive(Default)]
 pub struct SharedDesktopStore {
@@ -48,6 +58,7 @@ impl SharedDesktopStore {
                 updated: Instant::now(),
                 sequence: 0,
                 source: source.chars().take(200).collect(),
+                frame_id: String::new(),
                 frame: None,
             },
         );
@@ -93,6 +104,7 @@ impl SharedDesktopStore {
         }
         share.sequence = sequence;
         share.updated = Instant::now();
+        share.frame_id = blake3::hash(&bytes).to_hex()[..16].to_string();
         share.frame = Some(ToolOutputAttachment {
             name: "shared-screen.jpg".into(),
             mime_type: "image/jpeg".into(),
@@ -111,18 +123,31 @@ impl SharedDesktopStore {
         }
     }
     pub fn latest(&self, conversation: &str) -> Option<(String, ToolOutputAttachment)> {
+        self.latest_context(conversation)
+            .map(|(source, frame, _)| (source, frame))
+    }
+    /// Return pixels and their identity under the same lock, including during uploads.
+    pub(crate) fn latest_context(
+        &self,
+        conversation: &str,
+    ) -> Option<(String, ToolOutputAttachment, String)> {
         let mut shares = self.shares.lock().ok()?;
         shares.retain(|_, share| share.updated.elapsed() < LEASE_TTL);
         let share = shares.get(conversation)?;
         if share.updated.elapsed() > FRAME_TTL {
             return None;
         }
-        Some((share.source.clone(), share.frame.clone()?))
+        Some((
+            share.source.clone(),
+            share.frame.clone()?,
+            share.context_name(),
+        ))
     }
     pub fn context_name(&self, conversation: &str) -> Option<String> {
         let shares = self.shares.lock().ok()?;
         let share = shares.get(conversation)?;
-        Some(format!("nexa_screen_{}", share.lease.replace('-', "")))
+        share.frame.as_ref()?;
+        Some(share.context_name())
     }
     /// Re-check revocation at each physical provider invocation, including retries.
     pub fn remove_revoked_context(&self, messages: &mut Vec<crate::llm::Message>) {
@@ -143,10 +168,9 @@ impl SharedDesktopStore {
             else {
                 return true;
             };
-            shares.values().any(|share| {
-                share.updated.elapsed() < FRAME_TTL
-                    && name == format!("nexa_screen_{}", share.lease.replace('-', ""))
-            })
+            shares
+                .values()
+                .any(|share| share.updated.elapsed() < FRAME_TTL && name == share.context_name())
         });
     }
 }
@@ -185,5 +209,34 @@ mod tests {
         store.end("a", &replacement);
         assert!(store.latest("a").is_none());
         assert!(store.update("a", &replacement, 2, frame(0)).is_err());
+    }
+
+    #[test]
+    fn retry_context_tracks_pixels_not_only_the_active_lease() {
+        let store = SharedDesktopStore::default();
+        let lease = store.begin("a", "Screen").unwrap();
+        store.update("a", &lease, 1, frame(10)).unwrap();
+        let mut old = crate::llm::Message::text(crate::llm::Role::User, "old screen");
+        old.name = store.context_name("a");
+        assert!(old.name.as_ref().unwrap().len() <= 64);
+        store.update("a", &lease, 2, frame(10)).unwrap();
+        let mut unchanged = vec![old.clone()];
+        store.remove_revoked_context(&mut unchanged);
+        assert_eq!(unchanged.len(), 1, "unchanged pixels remain valid");
+        store.update("a", &lease, 3, frame(220)).unwrap();
+        let mut outdated = vec![old];
+        store.remove_revoked_context(&mut outdated);
+        assert!(
+            outdated.is_empty(),
+            "a live lease must not retain superseded pixels"
+        );
+        let mut latest = crate::llm::Message::text(crate::llm::Role::User, "new screen");
+        latest.name = store.context_name("a");
+        let mut current = vec![latest];
+        store.remove_revoked_context(&mut current);
+        assert_eq!(current.len(), 1);
+        store.end("a", &lease);
+        store.remove_revoked_context(&mut current);
+        assert!(current.is_empty());
     }
 }
