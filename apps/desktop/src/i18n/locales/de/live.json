@@ -47,5 +47,13 @@
   "captureStatus": "Erfassungsstatus",
   "noConnections": "Richten Sie in den Desktop-Einstellungen eine API-Modellverbindung ein, um Live zu starten.",
   "observationModel": "Beobachtungsmodell",
-  "summaryModelChoice": "Zusammenfassungsmodell"
+  "summaryModelChoice": "Zusammenfassungsmodell",
+  "transcriptTitle": "Transkript",
+  "speakerUnavailable": "Diese Verbindung unterscheidet keine Sprecher.",
+  "speechEmpty": "Erkannte Sprache erscheint hier.",
+  "observationEmpty": "KI-Beobachtungen erscheinen hier.",
+  "summaryTitle": "Zusammenfassung",
+  "expandSummary": "Zusammenfassung vergrößern",
+  "summaryWorking": "Zusammenfassung wird erstellt…",
+  "summaryEmpty": "Beenden Sie die Aufnahme und erstellen Sie eine Zusammenfassung der Entscheidungen, offenen Fragen und nächsten Schritte."
 }

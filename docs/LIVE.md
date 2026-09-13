@@ -49,6 +49,42 @@ Live API credential.
 
 ## Runtime contract
 
+### Reading a session
+
+Live separates the microphone transcript, AI observations, and capture notices.
+Transcript and observation panels follow new content until the user scrolls up.
+The summary has its own panel and an expandable, keyboard-accessible reading
+window. Stop capture before generating a summary. Desktop and paired-phone
+clients share this layout.
+
+### Speaker attribution (verified 2026-09-13)
+
+The current Nexa speech adapters do **not** provide live speaker diarization.
+Utterance IDs identify transcript segments, not people. Nexa does not infer
+speaker numbers or identities from wording or AI observations.
+
+This audit covers all ten presets in
+[the speech catalog](../shared/stt-provider-presets.json), plus native Live.
+A text-model integration does not imply access to a company's separate speech
+products.
+
+| Existing route | Live speaker labels | Other capability / boundary |
+| --- | --- | --- |
+| OpenAI file / Live transcription / native Realtime | Not supported by the current live interfaces | The separate `gpt-4o-transcribe-diarize` file endpoint returns speaker segments; changing a Realtime model name does not enable it. [Official guide](https://developers.openai.com/api/docs/guides/speech-to-text#speaker-diarization) |
+| Alibaba Qwen3 ASR / realtime ASR / Qwen Omni realtime | No supported speaker-label contract in the current adapters | Alibaba documents diarization for file transcription and offline Fun-ASR; its streaming ASR matrix marks diarization unsupported. [Model matrix](https://help.aliyun.com/en/model-studio/asr-model/) |
+| Gemini Live | No speaker labels from Nexa's input transcription adapter | Google's live transcription guide directs diarization to its non-streaming endpoint. [Live transcription](https://ai.google.dev/gemini-api/docs/live-api/live-transcribe) |
+| Groq Whisper | No live adapter or documented speaker-label option in the current file API | Word/segment timestamps are not speaker IDs. [Speech API](https://console.groq.com/docs/speech-to-text) |
+| SiliconFlow SenseVoice / TeleSpeech | No live adapter or speaker metadata in the documented endpoint | Its response is a text string. [Transcription API](https://docs.siliconflow.cn/docs/api/audio-transcriptions-post) |
+| Local Candle Whisper | No speaker model in Nexa's implementation | Speech recognition alone does not perform diarization. |
+| Local sherpa SenseVoice / Zipformer | No speaker model in Nexa's adapters | Upstream offers a separate pipeline needing segmentation and embedding models. [Speaker diarization](https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/index.html) |
+| Custom OpenAI-compatible transcription | Provider capability unknown; Nexa accepts final text only | HTTP transcription compatibility does not establish live speaker-label support. |
+
+Reliable live attribution needs a dedicated streaming diarization adapter or a
+local segmentation/embedding pipeline. It must carry session-scoped speaker IDs
+and timestamps through events, reconnects, archives, summaries, and remote
+clients, and retain unknown/overlapping voices explicitly. Real multi-speaker
+audio must validate it before release; offline diarization is not a substitute.
+
 The [core Live manager](../crates/core/src/live_analysis/mod.rs) owns session
 state, input bounds, observations, and lifecycle. Desktop and phone frontends
 use transport adapters to reach the same desktop-hosted service.

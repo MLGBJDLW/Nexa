@@ -47,5 +47,13 @@
   "captureStatus": "Capture status",
   "noConnections": "Configure an API model connection in desktop Settings to start Live.",
   "observationModel": "Observation model",
-  "summaryModelChoice": "Summary model"
+  "summaryModelChoice": "Summary model",
+  "transcriptTitle": "Transcript",
+  "speakerUnavailable": "This connection does not distinguish speakers.",
+  "speechEmpty": "Speech will appear here.",
+  "observationEmpty": "AI observations will appear here.",
+  "summaryTitle": "Summary",
+  "expandSummary": "Expand summary",
+  "summaryWorking": "Preparing the summary…",
+  "summaryEmpty": "Stop capture and create a summary to review decisions, open questions, and next steps."
 }

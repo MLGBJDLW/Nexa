@@ -107,6 +107,16 @@ test('captures real browser PCM and frames only after ready, then stops and summ
   await page.getByLabel('Summary connection').selectOption('summary');
   await page.getByRole('button',{name:'Create summary'}).click();
   await expect(page.getByTestId('live-summary')).toContainText('Owner remains unconfirmed');
+  await expect(page.getByTestId('live-speech-panel')).not.toContainText('A diagram is visible');
+  await expect(page.getByTestId('live-observation-panel')).toContainText('A diagram is visible');
+  await page.getByRole('button', { name: 'Expand summary' }).click();
+  const summaryWindow = page.getByTestId('live-summary-dialog');
+  await expect(summaryWindow).toBeVisible();
+  await expect(summaryWindow).toContainText('Owner remains unconfirmed');
+  await page.screenshot({ path: '.artifacts/live-summary-window.png', fullPage: true });
+  await page.keyboard.press('Escape');
+  await expect(summaryWindow).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Expand summary' })).toBeFocused();
 });
 
 test('cancels a pending start and closes media when the late session arrives',async({page})=>{

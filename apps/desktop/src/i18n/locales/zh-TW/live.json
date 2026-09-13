@@ -47,5 +47,13 @@
   "captureStatus": "擷取狀態",
   "noConnections": "請先在電腦端設定 API 模型連線，再開始 Live。",
   "observationModel": "觀察模型",
-  "summaryModelChoice": "總結模型"
+  "summaryModelChoice": "總結模型",
+  "transcriptTitle": "語音轉寫",
+  "speakerUnavailable": "目前連線尚不支援區分說話人。",
+  "speechEmpty": "辨識到的語音將顯示在這裡。",
+  "observationEmpty": "AI 觀察結果將顯示在這裡。",
+  "summaryTitle": "總結",
+  "expandSummary": "展開總結視窗",
+  "summaryWorking": "正在產生總結…",
+  "summaryEmpty": "停止擷取後產生總結，集中查看結論、待確認問題和下一步。"
 }
