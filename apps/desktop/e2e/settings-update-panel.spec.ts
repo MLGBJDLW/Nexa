@@ -162,16 +162,19 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("settings appearance tab owns version and update controls", async ({ page }) => {
+test("sidebar owns version and update controls without navigating away", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Appearance" }).click();
 
-  await expect(page.getByRole("heading", { name: "App update" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { name: "App update" })).toHaveCount(0);
+  await page.getByTestId("sidebar-update-toggle").click();
+  await expect(page.getByTestId("sidebar-update-panel")).toBeVisible();
+  await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByText("Update source")).toBeVisible();
   await expect(page.getByRole("button", { name: /Official GitHub Releases/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Current version")).toBeVisible();
-  await expect(page.getByRole("main").getByText("v0.2.9")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Check for Updates" })).toBeVisible();
+  await expect(page.getByTestId("sidebar-update-panel").getByText("v0.2.9")).toBeVisible();
+  await expect(page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" })).toBeVisible();
 });
 
 test("close-to-tray is visible in appearance and saves immediately", async ({ page }) => {
@@ -209,12 +212,13 @@ test("unsupported stored update source falls back to GitHub", async ({ page }) =
   await page.goto("/settings");
   await page.getByRole("button", { name: "Appearance" }).click();
 
+  await page.getByTestId("sidebar-update-toggle").click();
   await expect(page.getByRole("button", { name: /Official GitHub Releases/ })).toHaveAttribute("aria-pressed", "true");
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("nexa-update-source")))
     .toBe("legacy-mirror");
 
-  await page.getByRole("button", { name: "Check for Updates" }).click();
+  await page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" }).click();
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __lastUpdateSource: string }).__lastUpdateSource))
     .toBe("github");
@@ -226,8 +230,8 @@ test("release notes include every GitHub release between current and latest", as
   });
 
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Appearance" }).click();
-  await page.getByRole("button", { name: "Check for Updates" }).click();
+  await page.getByTestId("sidebar-update-toggle").click();
+  await page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" }).click();
 
   await expect(page.locator("p").filter({ hasText: /^v0\.10\.2$/ })).toBeVisible();
   await page.getByText("Release notes").click();
@@ -238,6 +242,7 @@ test("release notes include every GitHub release between current and latest", as
 
 test("layout performs the silent startup update check", async ({ page }) => {
   await page.goto("/settings");
+  await expect(page.getByTestId("sidebar-update-toggle")).toBeVisible();
 
   await page.waitForFunction(
     () => (window as unknown as { __updateCheckCount?: number }).__updateCheckCount === 1,

@@ -326,6 +326,7 @@ jobs:
           e2e/chat-stream-markdown-throttle.spec.ts
           e2e/chat-stream-rounds.spec.ts
           e2e/chat-steering.spec.ts
+          e2e/settings-update-panel.spec.ts
           e2e/chat-done-preview-persistence.spec.ts
           e2e/chat-mermaid-rendering.spec.ts
           e2e/chat-model-switch-context.spec.ts
