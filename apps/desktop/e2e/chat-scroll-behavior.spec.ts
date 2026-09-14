@@ -468,6 +468,19 @@ test('explicit monitor selection shares the whole selected display and stops nat
   expect(await captures()).toHaveLength(count);
 });
 
+test('disables screen sharing when neither browser nor native display capture is available', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { value: undefined });
+    const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const invoke = runtime.invoke;
+    runtime.invoke = (command, args) => command === 'list_desktop_monitors_cmd' ? Promise.resolve([]) : invoke(command, args);
+    Object.assign(window, { isTauri: true });
+  });
+  await page.getByText('Footnote Scroll', { exact: true }).click();
+  await expect(page.getByTestId('desktop-share-toggle')).toBeDisabled();
+});
+
 test('screen sharing sends fresh frames and stops on revocation or conversation change', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
   const share = page.getByTestId('desktop-share-toggle');

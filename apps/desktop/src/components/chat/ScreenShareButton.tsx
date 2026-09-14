@@ -22,7 +22,8 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
   const [sharing, setSharing] = useState(false);
   const [preview, setPreview] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const monitors = useDesktopMonitors(pickerOpen);
+  const browserSupported = typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+  const monitors = useDesktopMonitors(pickerOpen || !browserSupported);
   const stop = useCallback(() => {
     generation.current++;
     const current = capture.current;
@@ -98,8 +99,7 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
       if (mine === generation.current) { stop(); if (!(error instanceof DOMException && error.name === 'NotAllowedError')) toast.error(String(error)); }
     }
   };
-  const browserSupported = typeof navigator.mediaDevices?.getDisplayMedia === 'function';
-  const supported = browserSupported || '__TAURI_INTERNALS__' in window;
+  const supported = browserSupported || monitors.length > 0;
   return <div className="group relative shrink-0" data-testid="desktop-share-control">
     <NexaPopover open={pickerOpen && !sharing && !pending} onOpenChange={setPickerOpen}>
     <NexaPopoverTrigger asChild>
