@@ -34,7 +34,7 @@ test.beforeEach(async ({ page }) => {
     const nowIso = new Date().toISOString();
     let seq = 0;
     let streamedReplyCount = 0;
-    const sharedScreen = { frames: 0, stopped: 0, streams: [] as MediaStream[] };
+    const sharedScreen = { frames: 0, stopped: 0, nativeCaptures: [] as string[], streams: [] as MediaStream[] };
     Object.assign(window, { __sharedScreen: sharedScreen });
     Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: async () => {
       const canvas = document.createElement('canvas');
@@ -188,6 +188,13 @@ test.beforeEach(async ({ page }) => {
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'list_desktop_monitors_cmd': return [{ id: 'monitor-left', width: 1920, height: 1080, primary: true }, { id: 'monitor-right', width: 2560, height: 1440, primary: false }];
+        case 'capture_desktop_monitor_cmd': {
+          sharedScreen.nativeCaptures.push(String(args.monitorId));
+          const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+          const context = canvas.getContext('2d')!; context.fillStyle = '#123456'; context.fillRect(0, 0, 640, 360);
+          return canvas.toDataURL('image/jpeg').split(',')[1];
+        }
         case 'begin_desktop_share_cmd': return 'fixture-share';
         case 'update_desktop_share_cmd': sharedScreen.frames++; return null;
         case 'end_desktop_share_cmd': sharedScreen.stopped++; return null;
@@ -444,6 +451,36 @@ test('follows delayed layout growth without mistaking it for user scrolling', as
   await expect.poll(() => root.evaluate(el => el.scrollTop)).toBe(readingTop);
 });
 
+test('explicit monitor selection shares the whole selected display and stops native capture', async ({ page }) => {
+  await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
+  await page.goto('/chat/conv-auto-follow');
+  const captures = () => page.evaluate(() => (window as unknown as { __sharedScreen: { nativeCaptures: string[] } }).__sharedScreen.nativeCaptures);
+  await page.getByTestId('desktop-share-toggle').click();
+  await expect(page.getByRole('button', { name: /Screen 2.*2560/ })).toBeVisible();
+  expect(await captures()).toEqual([]);
+  await page.getByRole('button', { name: /Screen 2.*2560/ }).click();
+  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await captures()).length).toBeGreaterThan(1);
+  expect((await captures()).every(id => id === 'monitor-right')).toBe(true);
+  await page.getByTestId('desktop-share-toggle').click();
+  const count = (await captures()).length;
+  await page.waitForTimeout(1200);
+  expect(await captures()).toHaveLength(count);
+});
+
+test('disables screen sharing when neither browser nor native display capture is available', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { value: undefined });
+    const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const invoke = runtime.invoke;
+    runtime.invoke = (command, args) => command === 'list_desktop_monitors_cmd' ? Promise.resolve([]) : invoke(command, args);
+    Object.assign(window, { isTauri: true });
+  });
+  await page.getByText('Footnote Scroll', { exact: true }).click();
+  await expect(page.getByTestId('desktop-share-toggle')).toBeDisabled();
+});
+
 test('screen sharing sends fresh frames and stops on revocation or conversation change', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
   const share = page.getByTestId('desktop-share-toggle');
@@ -452,6 +489,7 @@ test('screen sharing sends fresh frames and stops on revocation or conversation 
     return { frames: shared.frames, stopped: shared.stopped, tracks: shared.streams.flatMap(stream => stream.getTracks().map(track => track.readyState)) };
   });
   await share.click();
+  await page.getByRole('button', { name: 'Window / system picker…' }).click();
   await expect(share).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await state()).frames).toBeGreaterThan(1);
   await share.click();
@@ -461,6 +499,7 @@ test('screen sharing sends fresh frames and stops on revocation or conversation 
   await page.waitForTimeout(1100);
   expect((await state()).frames).toBe(stoppedFrames);
   await share.click();
+  await page.getByRole('button', { name: 'Window / system picker…' }).click();
   await expect(share).toHaveAttribute('aria-pressed', 'true');
   // A client-side navigation must release capture without relying on a page unload.
   await page.getByText('Footnote Scroll', { exact: true }).click();
@@ -479,6 +518,7 @@ test('stopping a pending screen share releases media before its lease arrives', 
   });
   const share = page.getByTestId('desktop-share-toggle');
   await share.click();
+  await page.getByRole('button', { name: 'Window / system picker…' }).click();
   await expect.poll(() => page.evaluate(() => '__finishScreenLease' in window)).toBe(true);
   await share.click();
   await expect.poll(() => page.evaluate(() => {
@@ -530,6 +570,7 @@ test('a frame that cannot fit does not stop screen sharing', async ({ page }) =>
     };
   });
   await page.getByTestId('desktop-share-toggle').click();
+  await page.getByRole('button', { name: 'Window / system picker…' }).click();
   await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBeGreaterThan(1);
   expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(0);

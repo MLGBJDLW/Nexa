@@ -111,7 +111,8 @@ export function projectChatStreamingVisibility(
 
 /**
  * Steering and structured continuations are control-plane events, not ordinary
- * chat turns. Steering stays out of history entirely. Question responses and
+ * chat turns. Live steering is placed by the ordered event timeline; completed
+ * steering remains at its durable message position. Question responses and
  * checkpoint continuation prompts remain in the projected collection as
  * system rows so durable replay can consume them while normal bubble rendering
  * omits them.
@@ -119,9 +120,14 @@ export function projectChatStreamingVisibility(
 export function projectChatMessageVisibility(
   input: ChatMessageVisibilityInput,
 ): ChatMessageVisibilityProjection {
+  let latestUserIndex = -1;
+  for (let index = input.messages.length - 1; index >= 0; index--) {
+    if (isNormalUserTurnMessage(input.messages[index])) { latestUserIndex = index; break; }
+  }
   return {
     historyMessages: input.messages
-      .filter(message => !isSteeringMessage(message))
+      .filter((message, index) => !isSteeringMessage(message)
+        || ((!input.isStreaming || index < latestUserIndex) && !isOptimisticSteeringMessage(message)))
       .map(message => (
         isQuestionResponseMessage(message) || isCheckpointContinuationMessage(message)
       )

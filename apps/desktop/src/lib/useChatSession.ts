@@ -1144,7 +1144,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         }
 
         const currentMessages = messageCache[steeringConversationId] ?? [];
-        const optimisticId = `temp-steer-${Date.now()}`;
+        const optimisticId = `temp-steer-${crypto.randomUUID()}`;
         const optimisticMsg: ConversationMessage = {
           id: optimisticId,
           conversationId: steeringConversationId,

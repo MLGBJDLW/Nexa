@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "Starten Sie zuerst ein Gespräch",
   "screenShareUnavailable": "Bildschirmfreigabe ist hier nicht verfügbar",
   "screenSharePreview": "Bildschirmvorschau",
-  "screenShareHint": "Der Agent erhält beim Fortsetzen die aktuelle Ansicht. Beenden Sie die Freigabe, um den Zugriff zu widerrufen."
+  "screenShareHint": "Der Agent erhält beim Fortsetzen die aktuelle Ansicht. Beenden Sie die Freigabe, um den Zugriff zu widerrufen.",
+  "shareWindow": "Fenster / Systemauswahl…"
 }

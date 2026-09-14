@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "開始對話後即可共用螢幕",
   "screenShareUnavailable": "目前環境不支援螢幕共用",
   "screenSharePreview": "共用螢幕預覽",
-  "screenShareHint": "Agent 繼續處理時會取得最新畫面；停止共用即可撤回存取。"
+  "screenShareHint": "Agent 繼續處理時會取得最新畫面；停止共用即可撤回存取。",
+  "shareWindow": "視窗 / 系統選擇器…"
 }

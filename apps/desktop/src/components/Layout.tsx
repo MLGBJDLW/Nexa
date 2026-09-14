@@ -31,6 +31,8 @@ import { useTheme } from '../lib/ThemeProvider';
 import { RemoteSidebarLink } from '../features/remote/RemoteSidebarLink';
 import { isLightTheme } from '../lib/theme';
 import type { TranslationKey } from '../i18n';
+import { UpdateSettingsPanel } from './settings/UpdateSettingsPanel';
+import { NexaPopover, NexaPopoverTrigger, NexaPopoverContent } from './ui/overlay/Popover';
 
 function useAppVersion() {
   const [version, setVersion] = useState('');
@@ -298,10 +300,11 @@ export function Layout() {
               <Settings className="h-4.5 w-4.5" />
             </NavLink>
           </Tooltip>
-          <Tooltip content={updateLabel} side="right" delay={180}>
+          <NexaPopover>
+          <NexaPopoverTrigger asChild>
             <button
               type="button"
-              onClick={() => navigate('/settings')}
+              data-testid="sidebar-update-toggle"
               aria-label={updateLabel}
               data-update-status={updater.status}
               className={`relative grid h-10 w-10 place-items-center rounded-md transition-colors hover:bg-surface-2 ${updater.status === 'error' ? 'text-danger' : updater.status === 'available' ? 'text-warning' : updater.status === 'ready' ? 'text-success' : 'text-text-tertiary hover:text-text-primary'}`}
@@ -311,7 +314,11 @@ export function Layout() {
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_7px_currentColor]" />
               )}
             </button>
-          </Tooltip>
+          </NexaPopoverTrigger>
+          <NexaPopoverContent side="right" align="end" aria-label={t('update.appUpdate')} className="max-h-[min(85dvh,760px)] w-[min(680px,calc(100vw-5rem))] overflow-y-auto rounded-xl border border-border bg-surface-1 p-5 text-text-primary shadow-xl" data-testid="sidebar-update-panel">
+            <UpdateSettingsPanel appVersion={appVersion} updater={updater} />
+          </NexaPopoverContent>
+          </NexaPopover>
           <Tooltip content={`${t('update.currentVersion')}: v${appVersion || '—'}`} side="right" delay={180}>
             <div className="flex h-5 w-10 select-none items-center justify-center overflow-hidden text-[9px] font-medium tracking-tight text-text-tertiary/65" data-testid="app-version">
               {appVersion ? `v${appVersion}` : 'v—'}

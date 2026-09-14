@@ -6,6 +6,7 @@ import { useLiveSession, type LiveVideoSource } from './useLiveSession';
 import { LiveRecordPanels } from './LiveRecordPanels';
 import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
+import { useDesktopMonitors } from '../../lib/screenCapture';
 
 const models: Record<LiveProtocol, string> = { openAiRealtime: 'gpt-realtime-2.1', geminiLive: 'gemini-3.1-flash-live-preview', qwenRealtime: 'qwen3.5-omni-flash-realtime' };
 const protocolNames: Record<LiveProtocol, string> = { openAiRealtime: 'OpenAI Realtime', geminiLive: 'Gemini Live', qwenRealtime: 'Qwen Omni Realtime' };
@@ -15,6 +16,7 @@ const button = 'inline-flex items-center justify-center gap-2 rounded-lg border 
 export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTransport; onSendToChat: (text: string) => void }) {
   const { t } = useTranslation();
   const live = useLiveSession(transport);
+  const monitors = useDesktopMonitors(Boolean(transport.nativeScreenCapture));
   const [connections, setConnections] = useState<LiveConnection[]>([]);
   const [connectionId, setConnectionId] = useState('');
   const [summaryId, setSummaryId] = useState('');
@@ -81,7 +83,7 @@ export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTran
           {protocol === 'qwenRealtime' && <label className="block space-y-1.5 text-xs font-medium text-text-secondary"><span>{t('live.endpoint')}</span><input aria-label={t('live.endpoint')} className={field} value={endpoint} placeholder="wss://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime" onChange={event => setEndpoint(event.target.value)} /><span className="block text-xs font-normal leading-relaxed text-text-tertiary">{t('live.endpointHint')}</span></label>}
           <div className="grid grid-cols-2 gap-3">
             <label className="flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-sm"><input type="checkbox" checked={microphone} onChange={event => setMicrophone(event.target.checked)} /><Mic size={15} />{t('live.microphone')}</label>
-            <label className="block text-xs text-text-secondary"><span className="sr-only">{t('live.visualInput')}</span><select aria-label={t('live.visualInput')} className={field} value={source} onChange={event => setSource(event.target.value as LiveVideoSource)}><option value="none">{t('live.none')}</option><option value="camera">{t('live.camera')}</option>{typeof navigator.mediaDevices?.getDisplayMedia === 'function' && <option value="screen">{t('live.screen')}</option>}</select></label>
+            <label className="block text-xs text-text-secondary"><span className="sr-only">{t('live.visualInput')}</span><select aria-label={t('live.visualInput')} className={field} value={source} onChange={event => setSource(event.target.value as LiveVideoSource)}><option value="none">{t('live.none')}</option><option value="camera">{t('live.camera')}</option>{monitors.map((monitor, index) => <option key={monitor.id} value={`monitor:${monitor.id}`}>{t('live.screen')} {index + 1} · {monitor.width} × {monitor.height}</option>)}{typeof navigator.mediaDevices?.getDisplayMedia === 'function' && <option value="screen">{t('chat.shareWindow')}</option>}</select></label>
           </div>
           <label className="block space-y-1.5 text-xs font-medium text-text-secondary"><span>{t('live.purpose')}</span><textarea className={`${field} resize-y`} rows={3} maxLength={4000} value={purpose} placeholder={t('live.purposeHint')} onChange={event => setPurpose(event.target.value)} /></label>
           <label className="flex items-center justify-between gap-3 text-xs font-medium text-text-secondary"><span>{t('live.interval')}</span><input aria-label={t('live.interval')} className={`${field} !w-20`} type="number" min={1} max={30} value={interval} onChange={event => setInterval(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} /></label>

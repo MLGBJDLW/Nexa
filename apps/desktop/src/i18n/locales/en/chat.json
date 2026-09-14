@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "Start a conversation before sharing a screen",
   "screenShareUnavailable": "Screen sharing is unavailable in this environment",
   "screenSharePreview": "Shared screen preview",
-  "screenShareHint": "The latest view is supplied when the agent continues. Stop sharing to revoke access."
+  "screenShareHint": "The latest view is supplied when the agent continues. Stop sharing to revoke access.",
+  "shareWindow": "Window / system picker…"
 }

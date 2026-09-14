@@ -11,7 +11,6 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  MessageCircle,
   ChevronDown,
   AlertCircle,
   RotateCcw,
@@ -609,15 +608,11 @@ function TraceSteeringRow({
   label: string;
 }) {
   return (
-    <div
-      className="inline-flex max-w-full items-start gap-2 rounded-lg border border-pink-400/25 bg-pink-400/8 px-2.5 py-2 text-xs leading-relaxed text-text-secondary"
-      title={text}
-    >
-      <MessageCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-pink-300" />
-      <span className="min-w-0">
-        <span className="mr-1 font-medium text-pink-200">{label}</span>
-        <span className="wrap-break-word">{text}</span>
-      </span>
+    <div className="mb-3 flex justify-end" data-testid="chat-steering-message">
+      <div className="max-w-[80%] rounded-lg bg-accent/20 px-3.5 py-2.5 text-sm leading-relaxed text-text-primary">
+        <span className="mb-1 block text-[10px] font-medium uppercase tracking-[0.12em] text-accent/80">{label}</span>
+        <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</span>
+      </div>
     </div>
   );
 }
@@ -816,7 +811,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     let turnToolResults: ConversationMessage[] = [];
     for (let i = 0; i < messages.length; i += 1) {
       const msg = messages[i];
-      if (msg.role === 'user') {
+      if (msg.role === 'user' && !isSteeringMessage(msg)) {
         turnToolResults = [];
         continue;
       }
@@ -978,6 +973,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       if (sections.length === 0) return <Fragment key={key} />;
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
+        | { kind: 'steering'; id: string; text: string }
         | {
             kind: 'answeredQuestion';
             id: string;
@@ -1003,6 +999,11 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
 
       for (const section of sections) {
+        if (section.kind === 'steering') {
+          flushTrace();
+          ordered.push(section);
+          continue;
+        }
         if (section.kind !== 'tool' || section.toolCall.toolName !== 'request_user_input') {
           traceSegment.push(section);
           continue;
@@ -1050,7 +1051,9 @@ export function ChatMessages(props: ChatMessagesProps) {
                 isStreaming && index === lastTraceIndex,
                 false,
               )
-            : item.kind === 'answeredQuestion' ? (
+            : item.kind === 'steering' ? (
+                <TraceSteeringRow key={item.id} text={item.text} label={t('chat.steeringLabel')} />
+              ) : item.kind === 'answeredQuestion' ? (
                 <div key={item.id} className="mb-1 flex justify-start">
                   <div className="w-full min-w-0">
                     <QuestionRequestTimelineRecord
@@ -1070,7 +1073,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </Fragment>
       );
     },
-    [questionResponses, renderThinkingTraceNode, renderTimelineSections],
+    [questionResponses, renderThinkingTraceNode, renderTimelineSections, t],
   );
 
   const messageThinkingText = useMemo(() => {
@@ -1181,6 +1184,12 @@ export function ChatMessages(props: ChatMessagesProps) {
         ? (messageIndexById.get(turn.assistantMessageId) ?? null)
         : null;
 
+      // A turn containing in-flight user input cannot be collapsed into the
+      // original user row: that moves its final answer ahead of the steering
+      // rows. Keep these messages in their durable order, including same-second
+      // messages for which timestamps cannot identify the insertion boundary.
+      if (assistantIdx != null && messages.slice(userIdx + 1, assistantIdx).some(isSteeringMessage)) continue;
+
       anchors.set(userIdx, { turn, assistantIdx });
       if (assistantIdx != null) {
         members.add(assistantIdx);
@@ -1188,7 +1197,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     }
 
     return { anchors, members };
-  }, [messageIndexById, turns]);
+  }, [messageIndexById, messages, turns]);
 
   const messageTraceGroups = useMemo(() => {
     const map = new Map<number, MessageTraceGroup>();
@@ -1732,7 +1741,7 @@ export function ChatMessages(props: ChatMessagesProps) {
 
   const latestUserIdx = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].role === "user") return i;
+      if (messages[i].role === "user" && !isSteeringMessage(messages[i])) return i;
     }
     return -1;
   }, [messages]);
@@ -1755,7 +1764,7 @@ export function ChatMessages(props: ChatMessagesProps) {
 
       let nextUserIdx = messages.length;
       for (let idx = userIdx + 1; idx < messages.length; idx += 1) {
-        if (messages[idx].role === "user") {
+        if (messages[idx].role === "user" && !isSteeringMessage(messages[idx])) {
           nextUserIdx = idx;
           break;
         }
@@ -2212,6 +2221,10 @@ export function ChatMessages(props: ChatMessagesProps) {
                   chunkIds={chunkIds}
                   queryText={queryText}
                   citationLookup={messageCitationLookups.get(idx)}
+                  turnDurationLabel={(() => {
+                    const completedTurn = turns.find(turn => turn.assistantMessageId === msg.id);
+                    return completedTurn ? formatTurnDuration(completedTurn) : undefined;
+                  })()}
                   isLastAssistant={idx === lastAssistantIdx && !isStreaming}
                   lastCached={idx === lastAssistantIdx ? lastCached : undefined}
                   onRetry={onRetry}

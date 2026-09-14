@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "开始对话后即可共享屏幕",
   "screenShareUnavailable": "当前环境不支持屏幕共享",
   "screenSharePreview": "共享屏幕预览",
-  "screenShareHint": "Agent 继续处理时会获取最新画面；停止共享即可撤回访问。"
+  "screenShareHint": "Agent 继续处理时会获取最新画面；停止共享即可撤回访问。",
+  "shareWindow": "窗口 / 系统选择器…"
 }

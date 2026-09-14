@@ -198,7 +198,7 @@ test('live optimistic steering is projected out of history while streaming', () 
   assertEqual(projected.liveSteeringMessages[0].id, 'temp-steer-1', 'live steering id');
 });
 
-test('persisted steering stays hidden after the assistant result completes', () => {
+test('persisted steering retains its durable insertion position after completion', () => {
   const firstUser = message({
     id: 'user-1',
     role: 'user',
@@ -218,19 +218,20 @@ test('persisted steering stays hidden after the assistant result completes', () 
     content: 'Final answer.',
     createdAt: '2026-01-01T00:00:10.000Z',
   });
-  const messages = [firstUser, assistant, steering];
+  const messages = [firstUser, steering, assistant];
   const projected = projectChatMessageVisibility({
     isStreaming: false,
     messages,
   });
 
-  assertEqual(projected.historyMessages.length, 2, 'history count');
+  assertEqual(projected.historyMessages.length, 3, 'history count');
   assertEqual(projected.historyMessages[0].id, 'user-1', 'first user remains');
-  assertEqual(projected.historyMessages[1].id, 'assistant-1', 'assistant remains');
+  assertEqual(projected.historyMessages[1].id, 'steer-persisted-1', 'steering precedes result');
+  assertEqual(projected.historyMessages[2].id, 'assistant-1', 'assistant remains');
   assertEqual(projected.liveSteeringMessages.length, 0, 'live steering count');
 });
 
-test('persisted steering stays hidden during the done-to-reload gap', () => {
+test('persisted steering remains visible during the done-to-reload gap', () => {
   const firstUser = message({
     id: 'user-1',
     role: 'user',
@@ -250,7 +251,7 @@ test('persisted steering stays hidden during the done-to-reload gap', () => {
     messages: [firstUser, steering],
   });
 
-  assertEqual(projected.historyMessages.length, 1, 'history count');
+  assertEqual(projected.historyMessages.length, 2, 'history count');
   assertEqual(projected.historyMessages[0].id, 'user-1', 'first user remains');
   assertEqual(projected.liveSteeringMessages.length, 0, 'live steering count');
 });
@@ -285,6 +286,16 @@ test('completed projection removes leftover optimistic steering from history', (
   assertEqual(projected.historyMessages[0].id, 'user-1', 'first user remains');
   assertEqual(projected.historyMessages[1].id, 'assistant-1', 'assistant remains');
   assertEqual(projected.liveSteeringMessages.length, 0, 'live steering count');
+});
+
+test('starting another turn keeps previous steering history visible', () => {
+  const createdAt = '2026-09-14 08:00:00';
+  const oldUser = message({ id: 'old-user', role: 'user', content: 'old request', createdAt });
+  const oldSteering = message({ id: 'old-steering', role: 'user', content: 'old correction', createdAt, artifacts: { kind: 'steering' } });
+  const newUser = message({ id: 'new-user', role: 'user', content: 'new request', createdAt });
+  const newSteering = message({ id: 'new-steering', role: 'user', content: 'new correction', createdAt, artifacts: { kind: 'steering' } });
+  const result = projectChatMessageVisibility({ isStreaming: true, messages: [oldUser, oldSteering, newUser, newSteering] });
+  assertEqual(result.historyMessages.map(item => item.id).join(','), 'old-user,old-steering,new-user', 'only current steering belongs to the live timeline');
 });
 
 test('persisted result detection ignores in-turn steering users', () => {

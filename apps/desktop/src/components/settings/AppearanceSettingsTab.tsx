@@ -2,7 +2,6 @@ import { ArrowRight, LogOut, Minimize2, RotateCcw, Save, Settings2, Star } from 
 import { useEffect, useState } from 'react';
 import { useTranslation, type Locale } from '../../i18n';
 import * as api from '../../lib/api';
-import { useUpdater } from '../../lib/useUpdater';
 import type { Source } from '../../types';
 import type { AppConfig } from '../../types/conversation';
 import type { Project } from '../../types/project';
@@ -12,18 +11,14 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { CollapsiblePanel, Section } from './SettingsSection';
 import { ToolApprovalControl, type ToolApprovalMode } from './ToolApprovalControl';
-import { UpdateSettingsPanel } from './UpdateSettingsPanel';
 import { CompanionSettingsCard } from '../../features/companion/CompanionSettingsCard';
 import { DisplaySettings } from './DisplaySettings';
 
-type UpdaterState = ReturnType<typeof useUpdater>;
 
 interface AppearanceSettingsTabProps {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   availableLocales: { code: Locale; name: string }[];
-  appVersion: string;
-  updater: UpdaterState;
   appConfig: AppConfig | null;
   appConfigLoading: boolean;
   developerMode: boolean;
@@ -46,8 +41,6 @@ export function AppearanceSettingsTab({
   locale,
   setLocale,
   availableLocales,
-  appVersion,
-  updater,
   appConfig,
   appConfigLoading,
   developerMode,
@@ -247,7 +240,6 @@ export function AppearanceSettingsTab({
         </div>
 
         {/* App update */}
-        <UpdateSettingsPanel appVersion={appVersion} updater={updater} />
 
         <div className="border-t border-border pt-4">
           <label className="flex cursor-pointer items-start gap-3">

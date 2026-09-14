@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBlocker, useNavigate } from 'react-router';
-import { getVersion } from '@tauri-apps/api/app';
 import {
   Database,
   Brain,
@@ -43,7 +42,6 @@ import { OcrSettingsSection } from '../../components/settings/OcrSettingsSection
 import { ProvidersSettingsTab, type ProviderView } from '../../components/settings/ProvidersSettingsTab';
 import { VideoSettingsSection } from '../../components/settings/VideoSettingsSection';
 import type { ProviderPreset } from '../../lib/providerPresets';
-import { useUpdater } from '../../lib/useUpdater';
 import { useDeveloperMode } from '../../lib/developerMode';
 import { useVoiceInputRuntime, withWhisperModel } from '../voice';
 
@@ -55,8 +53,6 @@ const TAB_STRIP_EDGE_EPSILON = 4;
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
   const navigate = useNavigate();
-  const updater = useUpdater(false);
-  const [appVersion, setAppVersion] = useState('');
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [developerMode, updateDeveloperMode] = useDeveloperMode();
@@ -79,10 +75,6 @@ export function SettingsPage() {
       setActiveTab('appearance');
     }
   }, [activeTab, updateDeveloperMode]);
-
-  useEffect(() => {
-    getVersion().then(setAppVersion).catch(() => setAppVersion(''));
-  }, []);
 
   const isTabDirty = useCallback((tabId: SettingsTab) => {
     if (tabId === 'media') return dirtyTabs.has('ocr') || dirtyTabs.has('video');
@@ -1713,8 +1705,6 @@ export function SettingsPage() {
           locale={locale}
           setLocale={handleLocaleChange}
           availableLocales={availableLocales}
-          appVersion={appVersion}
-          updater={updater}
           appConfig={appConfig}
           appConfigLoading={appConfigLoading}
           developerMode={developerMode}

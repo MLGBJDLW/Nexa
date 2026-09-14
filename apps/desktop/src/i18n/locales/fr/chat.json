@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "Commencez une conversation avant de partager",
   "screenShareUnavailable": "Le partage d’écran est indisponible ici",
   "screenSharePreview": "Aperçu de l’écran partagé",
-  "screenShareHint": "L’agent reçoit la vue actuelle lorsqu’il continue. Arrêtez le partage pour révoquer l’accès."
+  "screenShareHint": "L’agent reçoit la vue actuelle lorsqu’il continue. Arrêtez le partage pour révoquer l’accès.",
+  "shareWindow": "Fenêtre / sélecteur système…"
 }

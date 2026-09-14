@@ -1,5 +1,36 @@
 import { expect, test } from '@playwright/test';
 
+test('materializes edge labels and sequence geometry under production style CSP', async ({ page }) => {
+  await page.goto('/chat/conv-mermaid');
+  await expect(page.locator('svg[id^="mermaid-"]')).toHaveCount(8);
+  const result = await page.evaluate(async () => {
+    const modulePath = '/src/components/chat/markdownComponents.tsx';
+    const { sanitizeMermaidSvg } = await import(/* @vite-ignore */ modulePath);
+    const meta = document.createElement('meta');
+    meta.httpEquiv = 'Content-Security-Policy';
+    meta.content = "style-src 'self'";
+    document.head.appendChild(meta);
+    // These are the SVG-only label and sequence primitives emitted by Mermaid.
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" id="csp-labels">'
+      + '<style>#csp-labels .labelBkg {fill: #fff} #csp-labels .edgeLabel text {fill: #0f172a} #csp-labels .messageLine0 {stroke: #64748b; fill: none} #csp-labels .messageText {fill: #0f172a; text-anchor: middle}</style>'
+      + '<g class="edgeLabel"><rect class="labelBkg" width="60" height="24"/><text>符合条件</text></g>'
+      + '<line class="messageLine0" x1="0" x2="100" y1="40" y2="40"/><text class="messageText" x="50" y="40">返回结果</text></svg>';
+    const host = document.createElement('div');
+    host.innerHTML = sanitizeMermaidSvg(source);
+    document.body.appendChild(host);
+    return {
+      background: getComputedStyle(host.querySelector('rect')!).fill,
+      label: getComputedStyle(host.querySelector('text')!).fill,
+      line: getComputedStyle(host.querySelector('line')!).stroke,
+      anchor: getComputedStyle(host.querySelector('.messageText')!).textAnchor,
+    };
+  });
+  expect(result.background).toBe('rgb(255, 255, 255)');
+  expect(result.label).toBe('rgb(15, 23, 42)');
+  expect(result.line).toBe('rgb(100, 116, 139)');
+  expect(result.anchor).toBe('middle');
+});
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('nexa-locale', 'en');
@@ -105,6 +136,21 @@ test.beforeEach(async ({ page }) => {
         content: [
           'Here is the flow:',
           '',
+          ...(localStorage.getItem('nexa-e2e-mermaid-history') === 'medical' ? [
+            '```mermaid',
+            'flowchart LR',
+            '  A["受理第三类医疗器械<br/>经营许可证申请"] --> B["材料审查／现场检查<br/>5个工作日内完成"]',
+            '  B --> C{"受理之日起<br/>20个工作日内作出决定"}',
+            '  C -->|符合条件| D["颁发医疗器械经营许可证"]',
+            '  C -->|不符合条件| E["书面告知理由"]',
+            '  style A fill:#dbeafe',
+            '  style B fill:#dcfce7',
+            '  style C fill:#fef3c7',
+            '  style D fill:#f3e8ff',
+            '  style E fill:#ffe4e6',
+            '```',
+            '',
+          ] : []),
           ...(reproduceNativeHistory ? [
             '```mermaid',
             '[diagram]',
@@ -334,6 +380,22 @@ test.beforeEach(async ({ page }) => {
       },
     };
   });
+});
+
+test('keeps the reported Chinese decision labels readable and inside the diagram', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.setItem('nexa-e2e-mermaid-theme', 'xiangnai');
+    localStorage.setItem('nexa-e2e-mermaid-history', 'medical');
+  });
+  await page.goto('/chat/conv-mermaid');
+  const surface = page.getByTestId('mermaid-surface').filter({ hasText: '受理第三类医疗器械' });
+  await expect(surface.locator('svg')).toBeVisible();
+  const backgrounds = await surface.locator('.edgeLabel rect').evaluateAll(elements => elements.map(element => getComputedStyle(element).fill));
+  expect(backgrounds).toHaveLength(2);
+  expect(backgrounds.every(fill => fill !== 'rgb(0, 0, 0)')).toBe(true);
+  await expect(surface.locator('.edgeLabel').filter({ hasText: '不符合条件' })).toBeVisible();
+  await surface.screenshot({ path: '.artifacts/mermaid-chinese-decision.png' });
 });
 
 test('renders Mermaid code blocks as SVG diagrams', async ({ page }) => {
@@ -576,25 +638,17 @@ test('preserves Mermaid theme CSS connector metrics after CSP materialization', 
 
   const surface = page.getByTestId('mermaid-surface').filter({ hasText: 'CSS Theme' });
   await expect(surface).toHaveCount(1);
+  // The transcript virtualizer can remount a diagram while sibling renders
+  // change row height. Assert against a fresh locator after the queue drains,
+  // rather than reading empty computed styles from a detached SVG element.
+  await expect(page.getByTestId('mermaid-surface').filter({ hasText: 'Rendering diagram...' })).toHaveCount(0);
   const edge = surface.locator('.edgePaths path, path.flowchart-link').first();
-  const presentation = await edge.evaluate((element) => {
-    const computed = getComputedStyle(element);
-    return {
-      stroke: computed.stroke,
-      strokeWidth: Number.parseFloat(computed.strokeWidth),
-      strokeOpacity: Number.parseFloat(computed.strokeOpacity),
-      strokeAttribute: element.getAttribute('stroke'),
-      strokeWidthAttribute: element.getAttribute('stroke-width'),
-      strokeOpacityAttribute: element.getAttribute('stroke-opacity'),
-    };
-  });
-
-  expect(presentation.stroke).toBe('rgb(124, 58, 237)');
-  expect(presentation.strokeWidth).toBe(5);
-  expect(presentation.strokeOpacity).toBe(1);
-  expect(presentation.strokeAttribute).toBe('rgb(124, 58, 237)');
-  expect(presentation.strokeWidthAttribute).toBe('5px');
-  expect(presentation.strokeOpacityAttribute).toBe('1');
+  await expect(edge).toHaveCSS('stroke', 'rgb(124, 58, 237)');
+  await expect(edge).toHaveCSS('stroke-width', '5px');
+  await expect(edge).toHaveCSS('stroke-opacity', '1');
+  await expect(edge).toHaveAttribute('stroke', 'rgb(124, 58, 237)');
+  await expect(edge).toHaveAttribute('stroke-width', '5px');
+  await expect(edge).toHaveAttribute('stroke-opacity', '1');
 
   const serializedSvg = await surface.locator('svg').evaluate((svg) => svg.outerHTML);
   await page.evaluate((svg) => new Promise<void>((resolve) => {

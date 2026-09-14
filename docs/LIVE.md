@@ -22,8 +22,10 @@ text if the microphone transport is interrupted.
 1. Open Live on the desktop or a [paired phone](remote-access.md).
 2. Select an available connection and input mode. Enable only the inputs needed
    for the observation.
-3. Grant browser/OS microphone, camera, or screen permissions. Screen capture
-   is available only where the browser and device provide it.
+3. Grant browser/OS microphone or camera permissions. On Windows desktop,
+   select a numbered screen to share that entire monitor, including the desktop
+   and switching applications. The window/system picker remains available.
+   Other platforms and phones use their browser's supported capture sources.
 4. Start and wait for the model connection to become ready. Inspect connection
    state and observation text while capturing.
 5. Stop capture, review the text record, and request a summary or continue in Chat.
@@ -55,7 +57,17 @@ Live separates the microphone transcript, AI observations, and capture notices.
 Transcript and observation panels follow new content until the user scrolls up.
 The summary has its own panel and an expandable, keyboard-accessible reading
 window. Stop capture before generating a summary. Desktop and paired-phone
-clients share this layout.
+clients share this layout. Copy buttons export the summary as Markdown, an
+individual entry as text, or a whole transcript/observation panel with timestamps
+and in-progress markers. The expanded summary window has the same copy action.
+
+### Share the desktop in Chat
+
+The composer screen button opens a source picker. Windows offers each connected
+monitor as well as the window/system picker. Capture starts only after selecting
+a source, shows a sharing indicator and preview, and stops when explicitly
+stopped or when leaving the conversation. Losing the selected monitor ends the
+share instead of silently switching to another display. Frames remain in memory.
 
 ### Speaker attribution (verified 2026-09-13)
 
@@ -89,7 +101,7 @@ The [core Live manager](../crates/core/src/live_analysis/mod.rs) owns session
 state, input bounds, observations, and lifecycle. Desktop and phone frontends
 use transport adapters to reach the same desktop-hosted service.
 
-- Input starts only after the selected model reports ready.
+- Input is submitted to the model only after it reports ready.
 - Audio is queued within explicit bounds. Remote acknowledgements can be in
   flight concurrently while preserving ordered delivery; they are not a reason
   to retain unbounded audio.

@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "대화를 시작한 후 화면을 공유하세요",
   "screenShareUnavailable": "이 환경에서는 화면 공유를 사용할 수 없습니다",
   "screenSharePreview": "공유 화면 미리보기",
-  "screenShareHint": "에이전트가 계속 처리할 때 최신 화면을 받습니다. 공유를 중지하면 접근 권한이 해제됩니다."
+  "screenShareHint": "에이전트가 계속 처리할 때 최신 화면을 받습니다. 공유를 중지하면 접근 권한이 해제됩니다.",
+  "shareWindow": "창 / 시스템 선택기…"
 }

@@ -4,6 +4,7 @@ import { useTranslation } from '../../i18n';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { observeScrollFollow } from '../../lib/scrollFollow';
 import type { LiveEntry, LiveSnapshot } from './liveTransport';
+import { CopyTextButton } from '../../components/ui/CopyTextButton';
 
 function EntryPanel({ entries, speech }: { entries: LiveEntry[]; speech: boolean }) {
   const { t } = useTranslation();
@@ -19,6 +20,7 @@ function EntryPanel({ entries, speech }: { entries: LiveEntry[]; speech: boolean
       {speech ? <Mic size={15} className="text-accent" /> : <Activity size={15} className="text-accent" />}
       <h2>{t(speech ? 'live.transcriptTitle' : 'live.observation')}</h2>
       <span className="ml-auto text-xs tabular-nums text-text-tertiary">{entries.length}</span>
+      <CopyTextButton text={entries.map(entry => `[${Math.floor(entry.atMs / 60000)}:${String(Math.floor(entry.atMs / 1000) % 60).padStart(2, '0')}${entry.complete ? '' : ` · ${t('live.partial')}`}] ${entry.text}`).join('\n\n')} label={`${t('citation.copy')} · ${t(speech ? 'live.transcriptTitle' : 'live.observation')}`} />
     </header>
     {speech && <p className="px-4 pt-3 text-xs text-text-tertiary">{t('live.speakerUnavailable')}</p>}
     <div ref={scroller} className="max-h-80 min-h-28 overflow-y-auto p-4 [overflow-anchor:none] [scrollbar-width:thin]" aria-live="polite" aria-relevant="additions text">
@@ -27,6 +29,7 @@ function EntryPanel({ entries, speech }: { entries: LiveEntry[]; speech: boolean
         {entries.map(entry => <article key={entry.id} className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
           <time className="pt-0.5 text-xs tabular-nums text-text-tertiary">{Math.floor(entry.atMs / 60000)}:{String(Math.floor(entry.atMs / 1000) % 60).padStart(2, '0')}</time>
           <div className="min-w-0">
+            <div className="float-right"><CopyTextButton text={entry.text} label={`${t('citation.copy')} · ${Math.floor(entry.atMs / 1000)}s`} /></div>
             {!entry.complete && <span className="mb-1 block text-[11px] text-text-tertiary">{t('live.partial')}</span>}
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</p>
           </div>
@@ -54,11 +57,11 @@ export function LiveRecordPanels({ snapshot, summary, controls, summarizing }: {
       {Boolean(snapshot?.metrics.omittedEntries) && <p className="text-xs text-text-tertiary">{t('live.omitted')}: {snapshot?.metrics.omittedEntries}</p>}
     </div>
     <section className="min-w-0 rounded-xl border border-border bg-surface-1/60 xl:sticky xl:top-4" data-testid="live-summary-panel">
-      <header className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-medium"><FileText size={15} className="text-accent" /><h2>{t('live.summaryTitle')}</h2><button type="button" className="ml-auto rounded p-1.5 text-text-tertiary hover:bg-surface-2 hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent" aria-label={t('live.expandSummary')} onClick={() => dialog.current?.showModal()}><Maximize2 size={15} /></button></header>
+      <header className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-medium"><FileText size={15} className="text-accent" /><h2 className="mr-auto">{t('live.summaryTitle')}</h2><CopyTextButton text={summary} disabled={summarizing} label={`${t('citation.copy')} · ${t('live.summaryTitle')}`} /><button type="button" className="ml-auto rounded p-1.5 text-text-tertiary hover:bg-surface-2 hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent" aria-label={t('live.expandSummary')} onClick={() => dialog.current?.showModal()}><Maximize2 size={15} /></button></header>
       <div className="space-y-4 p-4">{controls}<div className="max-h-[55vh] overflow-y-auto break-words text-sm" data-testid="live-summary" aria-busy={summarizing}>{summaryContent}</div></div>
     </section>
     <dialog ref={dialog} aria-labelledby="live-summary-dialog-title" className="m-auto max-h-[85dvh] w-[min(900px,calc(100vw-2rem))] rounded-2xl border border-border bg-surface-1 p-0 text-text-primary shadow-xl backdrop:bg-black/45" data-testid="live-summary-dialog">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4"><h2 id="live-summary-dialog-title" className="text-lg font-semibold">{t('live.summaryTitle')}</h2><button type="button" className="rounded p-2 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent" aria-label={t('common.close')} onClick={() => dialog.current?.close()}><X size={18} /></button></header>
+      <header className="flex items-center justify-between border-b border-border px-6 py-4"><h2 id="live-summary-dialog-title" className="text-lg font-semibold">{t('live.summaryTitle')}</h2><CopyTextButton text={summary} disabled={summarizing} label={`${t('citation.copy')} · ${t('live.summaryTitle')}`} /><button type="button" className="rounded p-2 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent" aria-label={t('common.close')} onClick={() => dialog.current?.close()}><X size={18} /></button></header>
       <div className="max-h-[calc(85dvh-80px)] overflow-y-auto break-words p-6 leading-relaxed" aria-busy={summarizing}>{summaryContent}</div>
     </dialog>
   </div>;

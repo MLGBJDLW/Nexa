@@ -1093,6 +1093,8 @@ fn main() {
             commands::model_choices::model_choices_cmd,
             commands::start_live_cmd,
             commands::begin_desktop_share_cmd,
+            commands::list_desktop_monitors_cmd,
+            commands::capture_desktop_monitor_cmd,
             commands::update_desktop_share_cmd,
             commands::end_desktop_share_cmd,
             commands::live_snapshot_cmd,
