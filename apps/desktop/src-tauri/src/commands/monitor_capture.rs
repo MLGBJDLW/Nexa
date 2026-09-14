@@ -43,7 +43,7 @@ pub async fn capture_desktop_monitor_cmd(monitor_id: String) -> Result<String, S
 mod platform {
     use super::DesktopMonitor;
     use base64::Engine;
-    use windows::core::BOOL;
+    use windows::core::{BOOL, PCWSTR};
     use windows::Win32::Foundation::{LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::*;
     use windows::Win32::UI::HiDpi::{
@@ -86,9 +86,34 @@ mod platform {
                     .iter()
                     .position(|c| *c == 0)
                     .unwrap_or(info.szDevice.len());
+                let name = String::from_utf16_lossy(&info.szDevice[..length]);
+                let mut device = DISPLAY_DEVICEW {
+                    cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+                    ..Default::default()
+                };
+                // DISPLAY1/DISPLAY2 can be reassigned after hotplug. Bind the
+                // selected source to its monitor interface instead of its slot.
+                let has_interface = unsafe {
+                    EnumDisplayDevicesW(PCWSTR(info.szDevice.as_ptr()), 0, &mut device, 1)
+                }
+                .as_bool();
+                let interface_len = device
+                    .DeviceID
+                    .iter()
+                    .position(|c| *c == 0)
+                    .unwrap_or(device.DeviceID.len());
+                let id = if has_interface && interface_len > 0 {
+                    String::from_utf16_lossy(&device.DeviceID[..interface_len])
+                } else {
+                    // Virtual displays may not have a physical interface.
+                    format!(
+                        "{name}:{handle:?}:{}:{}:{}:{}",
+                        rect.left, rect.top, rect.right, rect.bottom
+                    )
+                };
                 let list = unsafe { &mut *(data.0 as *mut Vec<DesktopMonitor>) };
                 list.push(DesktopMonitor {
-                    id: String::from_utf16_lossy(&info.szDevice[..length]),
+                    id,
                     width: rect.right - rect.left,
                     height: rect.bottom - rect.top,
                     x: rect.left,
