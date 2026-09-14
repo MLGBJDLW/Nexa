@@ -91,7 +91,8 @@ for (const recovery of ['retry', 'terminal event'] as const) {
   });
 }
 
-test('captures real browser PCM and frames only after ready, then stops and summarizes',async({page})=>{
+test('captures real browser PCM and frames only after ready, then stops and summarizes',async({page,context})=>{
+  await context.grantPermissions(['microphone', 'camera', 'clipboard-read', 'clipboard-write']);
   await chooseQwen(page);
   expect((await state(page)).tracks).toEqual([]);
   await page.getByRole('button',{name:'Start Live',exact:true}).click();
@@ -107,12 +108,18 @@ test('captures real browser PCM and frames only after ready, then stops and summ
   await page.getByLabel('Summary connection').selectOption('summary');
   await page.getByRole('button',{name:'Create summary'}).click();
   await expect(page.getByTestId('live-summary')).toContainText('Owner remains unconfirmed');
+  await page.getByTestId('live-summary-panel').getByRole('button', {name:'Copy · Summary',exact:true}).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Decision: review the diagram by Friday. Owner remains unconfirmed.');
+  await page.getByTestId('live-observation-panel').getByRole('button', {name:'Copy · Observation',exact:true}).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('A diagram is visible.');
   await expect(page.getByTestId('live-speech-panel')).not.toContainText('A diagram is visible');
   await expect(page.getByTestId('live-observation-panel')).toContainText('A diagram is visible');
   await page.getByRole('button', { name: 'Expand summary' }).click();
   const summaryWindow = page.getByTestId('live-summary-dialog');
   await expect(summaryWindow).toBeVisible();
   await expect(summaryWindow).toContainText('Owner remains unconfirmed');
+  await summaryWindow.getByRole('button', {name:'Copy · Summary',exact:true}).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('Owner remains unconfirmed.');
   await page.screenshot({ path: '.artifacts/live-summary-window.png', fullPage: true });
   await page.keyboard.press('Escape');
   await expect(summaryWindow).not.toBeVisible();
