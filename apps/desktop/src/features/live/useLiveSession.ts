@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVoiceRecorder } from '../voice/useVoiceRecorder';
 import { LiveAudioQueue } from './liveAudioQueue';
+import { openScreenCapture, type ScreenCapture } from '../../lib/screenCapture';
 import { applyLiveEvent, liveEnded, type LiveSnapshot, type LiveTransport, type StartLiveRequest } from './liveTransport';
 
-export type LiveVideoSource = 'none' | 'camera' | 'screen';
+export type LiveVideoSource = 'none' | 'camera' | 'screen' | `monitor:${string}`;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function captureFrame(video: HTMLVideoElement): Promise<string | null> {
@@ -38,6 +39,7 @@ export function useLiveSession(transport: LiveTransport) {
   const starting = useRef(false);
   const generation = useRef(0);
   const media = useRef<MediaStream | null>(null);
+  const screenCapture = useRef<ScreenCapture | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const audioQueue = useRef<LiveAudioQueue | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -48,6 +50,7 @@ export function useLiveSession(transport: LiveTransport) {
     voiceRef.current.cancelRecording(); audioQueue.current?.close(); audioQueue.current = null;
     if (timer.current) clearInterval(timer.current); timer.current = null;
     media.current?.getTracks().forEach(track => { track.onended = null; track.stop(); }); media.current = null;
+    screenCapture.current?.stop(); screenCapture.current = null;
     if (video.current) { video.current.srcObject = null; video.current = null; }
     if (mounted.current) setPreview(null);
   }, []);
@@ -110,13 +113,18 @@ export function useLiveSession(transport: LiveTransport) {
     const mine = ++generation.current;
     setBusy(true); setError(''); setSnapshot(null);
     let pendingMedia: MediaStream | null = null;
+    let pendingScreen: ScreenCapture | null = null;
     try {
       if (!window.isSecureContext || !navigator.mediaDevices) throw new Error('Microphone and camera require a trusted HTTPS connection or localhost. Open the HTTPS pairing address to use Live.');
       // Display capture must be requested within the original click's activation.
-      if (source !== 'none') pendingMedia = source === 'screen'
-        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
-        : await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 960 }, facingMode: { ideal: 'environment' } }, audio: false });
-      if (generation.current !== mine) { pendingMedia?.getTracks().forEach(track => track.stop()); return; }
+      if (source === 'screen' || source.startsWith('monitor:')) {
+        pendingScreen = await openScreenCapture(source.startsWith('monitor:') ? source.slice(8) : undefined);
+        pendingMedia = pendingScreen.stream;
+      } else if (source === 'camera') {
+        pendingMedia = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 960 }, facingMode: { ideal: 'environment' } }, audio: false });
+      }
+      if (generation.current !== mine) { pendingScreen?.stop(); pendingMedia?.getTracks().forEach(track => track.stop()); return; }
+      screenCapture.current = pendingScreen;
       media.current = pendingMedia; setPreview(pendingMedia);
       const opened = await transport.start(request);
       if (generation.current !== mine) { await transport.stop(opened.id); return; }
@@ -154,7 +162,7 @@ export function useLiveSession(transport: LiveTransport) {
       if (generation.current !== mine) { clearCapture(); return; }
       starting.current = false;
       if (mounted.current) setBusy(false);
-    } catch (err) { if (generation.current === mine) fail(err); else pendingMedia?.getTracks().forEach(track => track.stop()); }
+    } catch (err) { pendingScreen?.stop(); if (generation.current === mine) fail(err); else pendingMedia?.getTracks().forEach(track => track.stop()); }
   }, [transport, clearCapture, fail, stop]);
   return { snapshot, setSnapshot, busy, error, setError, preview, start, stop, reconnecting, active: busy || Boolean(snapshot && !liveEnded(snapshot.phase)) };
 }

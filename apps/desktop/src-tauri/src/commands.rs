@@ -121,6 +121,8 @@ pub(crate) mod live;
 pub use live::*;
 mod shared_desktop;
 pub use shared_desktop::*;
+mod monitor_capture;
+pub use monitor_capture::*;
 mod media;
 mod media_generation;
 pub(crate) mod model_choices;

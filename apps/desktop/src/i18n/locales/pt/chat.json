@@ -708,5 +708,6 @@
   "screenShareNeedsConversation": "Inicie uma conversa antes de compartilhar",
   "screenShareUnavailable": "O compartilhamento de tela não está disponível aqui",
   "screenSharePreview": "Prévia da tela compartilhada",
-  "screenShareHint": "O agente recebe a imagem atual ao continuar. Pare de compartilhar para revogar o acesso."
+  "screenShareHint": "O agente recebe a imagem atual ao continuar. Pare de compartilhar para revogar o acesso.",
+  "shareWindow": "Janela / seletor do sistema…"
 }

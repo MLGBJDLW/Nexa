@@ -21,6 +21,7 @@ export type LiveEvent = { sessionId: string; sequence: number } & (
   { type: 'entry'; entry: LiveEntry } | { type: 'metrics'; metrics: LiveMetrics }
 );
 export interface LiveTransport {
+  nativeScreenCapture?: boolean;
   /** Ordered sends that may await acknowledgements concurrently (desktop defaults to one). */
   audioWindow?: number;
   recoverAudio?: () => void;

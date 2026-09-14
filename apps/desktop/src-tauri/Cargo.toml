@@ -40,7 +40,8 @@ portable-pty = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.38.2"
-windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 cairo-rs = { version = "0.18.5", features = ["png"] }
