@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.3...nexa-monorepo-v0.14.4) (2026-09-14)
+
+
+### Features
+
+* **computer:** share live screen context and improve native input delivery ([bfe9217](https://github.com/MLGBJDLW/Nexa/commit/bfe921713d4efa1f3436d3f01a21c133ef3a8325))
+* **live:** separate transcripts observations and expandable summaries ([c9cb814](https://github.com/MLGBJDLW/Nexa/commit/c9cb814eed3896e2318bea7f7093a6c0bcf355b7))
+
+
+### Bug Fixes
+
+* **chat:** allow custom question answers and center confirmation dialogs ([2a57b3d](https://github.com/MLGBJDLW/Nexa/commit/2a57b3d830c3483ef76790c66b0ff967ed2ac20c))
+* **chat:** preserve streaming scroll follow and simplify turn navigation ([2d53148](https://github.com/MLGBJDLW/Nexa/commit/2d53148be61984c6f086bbe9e0e8bab5d9649e04))
+* **chat:** refine draggable timeline and thinking scrollbars ([041e48d](https://github.com/MLGBJDLW/Nexa/commit/041e48dfaff6f2d60afe1a6df39b8f9e87bbab1b))
+* **computer:** avoid duplicate shared frames in subscription tool results ([90b23a0](https://github.com/MLGBJDLW/Nexa/commit/90b23a0c494b5563e07ed0dd0469ba0a53bf031d))
+* **computer:** bound shared screen frames without ending capture ([03a70b0](https://github.com/MLGBJDLW/Nexa/commit/03a70b030f74e11fd2b29c8ecdc79b2d22189d1f))
+* **computer:** discard superseded screen context on provider retries ([ce237b0](https://github.com/MLGBJDLW/Nexa/commit/ce237b044b36e64311d78b116f86ebba0359075c))
+* **computer:** expose shared screen reads on every host platform ([6903d94](https://github.com/MLGBJDLW/Nexa/commit/6903d945b81bf8dcbb250702dea0d9cedc4fcb24))
+* stabilize chat streaming, text tools, and desktop interaction ([b8b1649](https://github.com/MLGBJDLW/Nexa/commit/b8b1649c30707e3a68290c77be2b51894ca3b18a))
+* **tools:** preserve file encoding and literal shell input across platforms ([05cddd2](https://github.com/MLGBJDLW/Nexa/commit/05cddd21d2028a2e17f068a2cfa682fa656ecbcd))
+
 ## [0.14.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.2...nexa-monorepo-v0.14.3) (2026-09-12)
 
 
