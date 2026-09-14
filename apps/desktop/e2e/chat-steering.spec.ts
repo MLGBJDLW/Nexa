@@ -1,6 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { RUN_EVENT_FIXTURE_INIT_SCRIPT } from './run-event-fixture';
 
+test('completed turns keep multiple steering bubbles between the correct work segments', async ({ page }) => {
+  for (let reload = 0; reload < 2; reload++) {
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const path = '/e2e/fixtures/steering-order.tsx';
+      (await import(/* @vite-ignore */ path)).renderSteeringHistory();
+    });
+    await expect(page.getByText('Final summary after both corrections')).toBeVisible();
+    for (const label of ['First steering at its insertion point', 'Second steering at its insertion point']) {
+      await expect(page.getByText(label, { exact: true })).toHaveCount(1);
+    }
+    const first = await page.getByText('First steering at its insertion point', { exact: true }).boundingBox();
+    const second = await page.getByText('Second steering at its insertion point', { exact: true }).boundingBox();
+    const final = await page.getByText('Final summary after both corrections').boundingBox();
+    expect(first!.y).toBeLessThan(second!.y);
+    expect(second!.y).toBeLessThan(final!.y);
+    // Earlier assistant work stays in its own expandable segment before the
+    // next steering bubble, even when every persisted timestamp is identical.
+    expect((await page.getByText('Work before steering').boundingBox())!.y).toBeLessThan((await page.getByText('First steering at its insertion point').boundingBox())!.y);
+  }
+});
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript({ content: RUN_EVENT_FIXTURE_INIT_SCRIPT });
   await page.addInitScript(() => {
@@ -38,7 +60,7 @@ test.beforeEach(async ({ page }) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-    const messages: Message[] = [];
+    const messages: Message[] = JSON.parse(sessionStorage.getItem('steering-history') || '[]');
     const staleRunningMode = () => localStorage.getItem('e2e-steering-stale-running') === '1';
     const retryMode = () => localStorage.getItem('e2e-steering-retry') === '1';
     const retryFailureMode = () => localStorage.getItem('e2e-steering-retry-failure') === '1';
@@ -478,6 +500,7 @@ test.beforeEach(async ({ page }) => {
                 imageAttachments: null,
               };
               messages.push(assistantMessage);
+            sessionStorage.setItem('steering-history', JSON.stringify(messages));
               emitEvent('agent://run-event', {
                 conversationId,
                 type: 'done',
@@ -535,6 +558,7 @@ test.beforeEach(async ({ page }) => {
               imageAttachments: null,
             };
             messages.push(assistantMessage);
+            sessionStorage.setItem('steering-history', JSON.stringify(messages));
             emitEvent('agent://run-event', {
               conversationId,
               type: 'done',
@@ -790,10 +814,13 @@ test('sends steering while an agent stream is running without stopping it', asyn
   await expect(page.getByText('Steering', { exact: true })).toBeVisible();
   await expect(page.getByText('focus on edge cases instead')).toBeVisible();
   await expect(page.getByText('Adjusted answer after steering.')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('steering-history'))).toContain('Adjusted answer after steering.');
   await expect(page.getByText('Initial broad answer', { exact: true })).toBeVisible();
   await expect(page.getByTestId('task-board')).toHaveCount(0);
-  await expect(page.getByText('focus on edge cases instead')).toHaveCount(0);
-  await expect(page.getByText('Steering', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('focus on edge cases instead')).toHaveCount(1);
+  const steering = page.getByText('focus on edge cases instead');
+  const answer = page.getByText('Adjusted answer after steering.');
+  expect((await steering.boundingBox())!.y).toBeLessThan((await answer.boundingBox())!.y);
 
   const diagnostics = await page.evaluate(() => (window as unknown as {
     __STEERING_E2E__: {
@@ -810,4 +837,7 @@ test('sends steering while an agent stream is running without stopping it', asyn
     { conversationId: 'conv-steering', message: 'focus on edge cases instead' },
   ]);
   expect(diagnostics.titleCalls).toEqual([]);
+  await page.reload();
+  await expect(page.getByText('focus on edge cases instead')).toHaveCount(1);
+  expect((await page.getByText('focus on edge cases instead').boundingBox())!.y).toBeLessThan((await page.getByText('Adjusted answer after steering.').boundingBox())!.y);
 });
