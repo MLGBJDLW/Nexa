@@ -702,7 +702,12 @@ mod tests {
                 .iter()
                 .map(|definition| definition.name.as_str())
                 .collect::<Vec<_>>();
-            for required in ["run_shell", "browser_evidence_capture", "browser_session"] {
+            for required in [
+                "run_shell",
+                "browser_evidence_capture",
+                "browser_session",
+                "computer_observe",
+            ] {
                 assert!(
                     names.contains(&required),
                     "{provider:?}/{model} is missing first-request tool {required}"
@@ -710,7 +715,8 @@ mod tests {
             }
 
             #[cfg(target_os = "windows")]
-            for required in ["computer_observe", "computer_control"] {
+            {
+                let required = "computer_control";
                 assert!(
                     registry.contains(required),
                     "the Windows default registry is missing executable tool {required}"
@@ -722,7 +728,8 @@ mod tests {
             }
 
             #[cfg(not(target_os = "windows"))]
-            for unavailable in ["computer_observe", "computer_control"] {
+            {
+                let unavailable = "computer_control";
                 assert!(
                     !registry.contains(unavailable),
                     "the non-Windows default registry must not expose unavailable tool {unavailable}"

@@ -47,5 +47,13 @@
   "captureStatus": "État de la capture",
   "noConnections": "Configurez une connexion de modèle API dans les réglages du bureau pour démarrer Live.",
   "observationModel": "Modèle d’observation",
-  "summaryModelChoice": "Modèle de synthèse"
+  "summaryModelChoice": "Modèle de synthèse",
+  "transcriptTitle": "Transcription",
+  "speakerUnavailable": "Cette connexion ne distingue pas les locuteurs.",
+  "speechEmpty": "Les paroles reconnues apparaîtront ici.",
+  "observationEmpty": "Les observations de l’IA apparaîtront ici.",
+  "summaryTitle": "Résumé",
+  "expandSummary": "Agrandir le résumé",
+  "summaryWorking": "Préparation du résumé…",
+  "summaryEmpty": "Arrêtez la capture et créez un résumé des décisions, questions ouvertes et prochaines étapes."
 }

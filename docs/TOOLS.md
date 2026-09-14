@@ -836,6 +836,22 @@ Important fields:
 - Element IDs such as `e7` are valid only for that observation.
 - `timeout_ms` and `poll_interval_ms` bound `wait_for_change`.
 - Pixels and accessibility text are untrusted data and never instructions.
+- `shared_desktop` reads the latest screen explicitly shared from the chat
+  toolbar. It is read-only context, not an observation token for native input.
+
+In an existing desktop conversation, use **Share screen** and select a screen
+or window in the system picker. Nexa keeps only the newest bounded JPEG in
+memory, refreshing about once per second. API agents receive a fresh view at
+model-step boundaries; subscription agents can read it with `shared_desktop`
+and receive refreshed views after Nexa tool operations. Stale frames are not
+offered, and stopping sharing or changing conversations releases capture.
+Provider retries discard a shared view when its pixels have been superseded;
+the next model step reads the latest frame again.
+Sharing is separate from control permission and does not save a screen recording.
+Screen capture depends on the host browser/OS; native input remains Windows-only.
+On macOS and Linux, `computer_observe` exposes only `shared_desktop`; subscription
+agents can discover and read that shared view without being offered Windows
+window-capture or input actions.
 
 ### `computer_control`
 
@@ -844,6 +860,22 @@ Observations are single-use for control. Prefer semantic `invoke` or
 `set_value`, then element-targeted pointer actions, with raw coordinates as the
 last fallback. Coordinates may use `captured_image_pixels` or
 `normalized_0_1`.
+
+- `delivery: "auto"` prefers an actual UI Automation invocation pattern for
+  single left clicks on element IDs. `background` refuses unsupported targets
+  before any foreground input; `foreground` explicitly selects mouse/keyboard
+  delivery. `invoke` and `set_value` use background semantics; target applications
+  can still activate themselves when responding to UI Automation.
+- `set_value` supports exact replacement with up to 65,536 characters, including
+  multiline documents. An empty value clears a field. `type_text` supports up to
+  8,000 characters with bounded newline/tab key events. Password protections,
+  foreground checks, user takeover detection, and partial-input cleanup remain.
+- `drag_duration_ms` controls drag timing from 100 to 3,000 ms (default 400).
+- For a multi-step task, `approval_scope: "window_session"` lets the user choose
+  **Allow (Session)** for a verified process/window and the current task. The
+  grant survives fresh observation tokens but cannot cross windows, replaced
+  processes, conversations, or later tasks. General Allow All is not a desktop
+  grant. Default `action` scope retains one-action approval.
 
 The result distinguishes delivery from effect: `route`, `delivery`,
 `deliveryStatus`, `effect`, and perceptual `verification` do not by themselves
@@ -879,7 +911,12 @@ Safety posture:
 
 ### `run_shell`
 
-Execute a whitelisted program with explicit argv arguments inside a registered source directory. The program is spawned directly — **there is no shell interpreter**, so metacharacters like `;`, `&&`, `|`, backticks, and globs are passed literally and never interpreted.
+Execute a whitelisted program with exact `program`/`args`, or parse a short
+`command`. Direct argv does not invoke a shell. Explicit shell mode and
+recognizable shell syntax in Open/ConfirmAll modes follow the selected shell;
+Restricted mode rejects shell execution. Arguments must be valid JSON: there is
+no partial repair of ambiguous Windows backslashes. Prefer `stdin` for generated
+scripts and file content.
 
 File-change previews for native `cp` and `mv` cover their resolved mutation paths.
 Other commands do not scan or hash the workspace before/after execution, and

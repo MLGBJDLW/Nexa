@@ -1,6 +1,8 @@
 //! EditFileTool — edits or creates files within managed source directories.
 
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -13,17 +15,14 @@ use crate::file_checkpoint::{checkpoint_artifact, CreateFileCheckpointInput};
 
 use super::create_file_tool::resolve_and_validate;
 use super::diff_stats::diff_stats_from_diff;
-use super::document_utils::{
-    edit_guidance_for_path, generated_document_mime, is_binary_file_error,
-};
+use super::document_utils::{edit_guidance_for_path, generated_document_mime};
+use super::editable_text::EditableText;
 use super::text_match::{find_text_matches, TextMatch};
 use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/edit_file.json");
 
-/// Maximum file size we will read (10 MB). Prevents OOM on huge files.
-const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 const DIFF_CONTEXT_LINES: usize = 3;
 const MAX_CREATE_DIFF_LINES: usize = 400;
 
@@ -44,26 +43,6 @@ struct EditFileArgs {
 }
 
 pub struct EditFileTool;
-
-/// Try to read the file as UTF-8 text. Returns an error message if the file
-/// appears to be binary (contains null bytes in the first 8 KB).
-fn read_text_utf8(path: &Path) -> Result<String, String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("Cannot read file: {e}"))?;
-    if meta.len() > MAX_FILE_SIZE {
-        return Err(format!(
-            "File too large ({:.1} MB, limit is {} MB): {}",
-            meta.len() as f64 / (1024.0 * 1024.0),
-            MAX_FILE_SIZE / (1024 * 1024),
-            path.display()
-        ));
-    }
-    match crate::parse::read_text_file(path) {
-        Ok(content) => Ok(content),
-        Err(err) if is_binary_file_error(&err) => Err(edit_guidance_for_path(path)
-            .unwrap_or_else(|| format!("File appears to be binary: {}", path.display()))),
-        Err(err) => Err(err.to_string()),
-    }
-}
 
 /// Return a few lines of context around the replacement site.
 fn snippet_around(content: &str, byte_offset: usize, replacement_len: usize) -> String {
@@ -491,7 +470,7 @@ impl Tool for EditFileTool {
                     }
 
                     let _mutation = crate::file_mutation::lock_file_mutation(&canonical, Some(&mutation_cancel))?;
-                    let content = match read_text_utf8(&canonical) {
+                    let file_text = match EditableText::read(&canonical) {
                         Ok(c) => c,
                         Err(msg) => {
                             return Ok(ToolResult {
@@ -502,9 +481,10 @@ impl Tool for EditFileTool {
                             });
                         }
                     };
+                    let content = &file_text.text;
 
                     let (search_start, search_end) = match line_range_bounds(
-                        &content,
+                        content,
                         args.start_line,
                         args.end_line,
                     ) {
@@ -521,7 +501,7 @@ impl Tool for EditFileTool {
 
                     // Count occurrences of old_str within the requested line range.
                     let matches = find_replacement_matches(
-                        &content,
+                        content,
                         old_str,
                         search_start,
                         search_end,
@@ -586,7 +566,8 @@ impl Tool for EditFileTool {
                     })?;
 
                     if mutation_cancel.is_cancelled() { return Err(CoreError::InvalidInput("File mutation cancelled before writing".into())); }
-                    if let Err(e) = std::fs::write(&canonical, &new_content) {
+                    let new_bytes = file_text.encode(&new_content);
+                    if let Err(e) = std::fs::write(&canonical, &new_bytes) {
                         return Ok(ToolResult {
                             call_id,
                             content: format!("Failed to write '{}': {e}", args.path),
@@ -595,11 +576,11 @@ impl Tool for EditFileTool {
                         });
                     }
 
-                    if let Some(scope) = &file_changes { scope.record_checkpoint(&checkpoint, new_content.as_bytes()); }
+                    if let Some(scope) = &file_changes { scope.record_checkpoint(&checkpoint, &new_bytes); }
                     let snippet = snippet_around(&new_content, byte_offset, replacement.len());
                     let diff = replacement_diff_artifact(
                         &args.path,
-                        &content,
+                        content,
                         &new_content,
                         byte_offset,
                         matched_len,
@@ -614,7 +595,7 @@ impl Tool for EditFileTool {
                         is_error: false,
                         artifacts: Some(checkpoint_artifact_with_diff(
                             &checkpoint,
-                            Some(new_content.len() as u64),
+                            Some(new_bytes.len() as u64),
                             diff,
                             Some(1),
                         )),
@@ -1334,14 +1315,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_too_large() {
-        // Verify the MAX_FILE_SIZE constant and the size check in read_text_utf8.
-        assert_eq!(MAX_FILE_SIZE, 10 * 1024 * 1024);
-
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("small.txt");
         std::fs::write(&file, "small").unwrap();
         // A small file should pass the size check.
-        assert!(read_text_utf8(&file).is_ok());
+        assert!(EditableText::read(&file).is_ok());
     }
 
     #[tokio::test]

@@ -144,6 +144,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subscription_reads_shared_desktop_through_default_registry_on_every_platform() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let (mut session, _, _rx) = session(4);
+        session.input.tools = crate::tools::default_tool_registry();
+        session.input.tools.register(Box::new(CountTool(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+        )));
+        session.input.native_vision = true;
+        assert!(session
+            .definitions()
+            .iter()
+            .any(|tool| tool.name == "computer_observe"));
+        let store = crate::shared_desktop::store();
+        let lease = store
+            .begin(&session.input.conversation_id, "Shared screen")
+            .unwrap();
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            2,
+            2,
+            image::Rgb([20, 80, 160]),
+        ))
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+        let encoded = STANDARD.encode(jpeg.into_inner());
+        store
+            .update(&session.input.conversation_id, &lease, 1, encoded.clone())
+            .unwrap();
+        let read = |id: &str| ToolCallRequest {
+            id: id.into(),
+            name: "computer_observe".into(),
+            arguments: serde_json::json!({"action":"shared_desktop"}).to_string(),
+            thought_signature: None,
+        };
+        let output = session.execute(read("shared-read")).await.unwrap();
+        assert!(!output.result.is_error, "{}", output.result.content);
+        assert!(output
+            .visual_parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Image {data, ..} if data == &encoded)));
+        assert_eq!(
+            output
+                .visual_parts
+                .iter()
+                .filter(|part| matches!(part, ContentPart::Image { .. }))
+                .count(),
+            1,
+            "an explicit shared-screen read must return exactly its observed image"
+        );
+        let refreshed = session.execute(call("ordinary-tool", 1)).await.unwrap();
+        assert!(!refreshed.result.is_error);
+        assert_eq!(
+            refreshed
+                .visual_parts
+                .iter()
+                .filter(|part| matches!(part, ContentPart::Image {data, ..} if data == &encoded))
+                .count(),
+            1,
+            "other tool operations still receive the current shared view"
+        );
+        store.end(&session.input.conversation_id, &lease);
+        let stopped = session.execute(read("after-stop")).await.unwrap();
+        assert!(stopped.result.is_error);
+        assert!(!stopped
+            .visual_parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Image { .. })));
+    }
+
+    #[tokio::test]
     async fn callback_delivers_and_caches_guard_advice_without_persisting_controller_text() {
         let (session, count, _rx) = session(3);
         session.execute(call("first", 1)).await.unwrap();
@@ -599,11 +670,31 @@ impl ExternalToolSession {
         if let Some(reason) = outcome.terminal_loop_guard_reason {
             return Err(CoreError::Agent(reason));
         }
-        let visual_parts = messages
+        let mut visual_parts: Vec<ContentPart> = messages
             .into_iter()
             .filter(|message| message.role == Role::User)
             .flat_map(|message| message.parts)
             .collect();
+        // Use the executed action receipt, including normalized tool arguments.
+        // Its own visual result already contains the explicitly observed frame.
+        let explicit_shared_read = call.name == "computer_observe"
+            && result
+                .artifacts
+                .as_ref()
+                .and_then(|artifacts| artifacts.pointer("/data/action"))
+                .and_then(serde_json::Value::as_str)
+                == Some("shared_desktop");
+        if !explicit_shared_read {
+            if let Some(context) = super::shared_desktop::current_shared_context(
+                &self.input.conversation_id,
+                self.input.native_vision,
+                self.input.visual_interpreter.as_ref(),
+            )
+            .await
+            {
+                visual_parts.extend(context.parts);
+            }
+        }
         Ok(ExternalToolOutput {
             result,
             visual_parts,

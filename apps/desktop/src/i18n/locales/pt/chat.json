@@ -701,5 +701,12 @@
   "turnChangesShowMore": "Mostrar mais ({count} restantes)",
   "turnChangesNoStats": "Linhas desconhecidas",
   "turnChangesContentUnavailable": "Arquivo binário, muito grande ou diferença salva indisponível.",
-  "turnChangesLoadError": "Não foi possível carregar as alterações salvas."
+  "turnChangesLoadError": "Não foi possível carregar as alterações salvas.",
+  "shareScreen": "Compartilhar tela",
+  "stopScreenShare": "Parar compartilhamento",
+  "screenShareActive": "Tela compartilhada",
+  "screenShareNeedsConversation": "Inicie uma conversa antes de compartilhar",
+  "screenShareUnavailable": "O compartilhamento de tela não está disponível aqui",
+  "screenSharePreview": "Prévia da tela compartilhada",
+  "screenShareHint": "O agente recebe a imagem atual ao continuar. Pare de compartilhar para revogar o acesso."
 }

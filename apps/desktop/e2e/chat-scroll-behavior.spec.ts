@@ -34,6 +34,17 @@ test.beforeEach(async ({ page }) => {
     const nowIso = new Date().toISOString();
     let seq = 0;
     let streamedReplyCount = 0;
+    const sharedScreen = { frames: 0, stopped: 0, streams: [] as MediaStream[] };
+    Object.assign(window, { __sharedScreen: sharedScreen });
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640; canvas.height = 360;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#157d8c'; context.fillRect(0, 0, 640, 360);
+      const stream = canvas.captureStream(2);
+      sharedScreen.streams.push(stream);
+      return stream;
+    } });
     const nextId = (prefix: string) => `${prefix}-${Date.now()}-${seq++}`;
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -177,6 +188,9 @@ test.beforeEach(async ({ page }) => {
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'begin_desktop_share_cmd': return 'fixture-share';
+        case 'update_desktop_share_cmd': sharedScreen.frames++; return null;
+        case 'end_desktop_share_cmd': sharedScreen.stopped++; return null;
         case 'plugin:event|listen': {
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
@@ -400,7 +414,8 @@ test('auto-follows only while the user stays near the bottom', async ({ page }) 
   await page.getByTestId('chat-input-textarea').fill('Send one more update.');
   await page.getByTestId('chat-send').click();
 
-  await expect(page.getByText('Streamed answer #2')).toBeVisible();
+  // The completed answer may be virtualized while the user reads older turns.
+  await expect(page.getByTestId('chat-send')).toBeVisible();
   await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(80);
 
   const scrollToBottom = page.getByTitle('Scroll to bottom');
@@ -408,4 +423,114 @@ test('auto-follows only while the user stays near the bottom', async ({ page }) 
   await scrollToBottom.click();
 
   await expect.poll(async () => scrollRoot.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(32);
+  await expect(page.getByText('Streamed answer #2')).toBeVisible();
+});
+
+test('follows delayed layout growth without mistaking it for user scrolling', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  const root = page.locator('[data-chat-scroll-root="true"]');
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await root.evaluate(el => {
+    const content = el.querySelector<HTMLElement>('[data-chat-follow-content="true"]')!;
+    content.style.paddingBottom = '600px';
+    el.dispatchEvent(new Event('scroll'));
+  });
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await root.hover();
+  await page.mouse.wheel(0, -400);
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
+  const readingTop = await root.evaluate(el => el.scrollTop);
+  await root.locator('[data-chat-follow-content="true"]').evaluate(el => { (el as HTMLElement).style.paddingBottom = '900px'; });
+  await expect.poll(() => root.evaluate(el => el.scrollTop)).toBe(readingTop);
+});
+
+test('screen sharing sends fresh frames and stops on revocation or conversation change', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  const share = page.getByTestId('desktop-share-toggle');
+  const state = () => page.evaluate(() => {
+    const shared = (window as unknown as { __sharedScreen: { frames: number; stopped: number; streams: MediaStream[] } }).__sharedScreen;
+    return { frames: shared.frames, stopped: shared.stopped, tracks: shared.streams.flatMap(stream => stream.getTracks().map(track => track.readyState)) };
+  });
+  await share.click();
+  await expect(share).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await state()).frames).toBeGreaterThan(1);
+  await share.click();
+  await expect.poll(async () => (await state()).tracks.every(status => status === 'ended')).toBe(true);
+  await expect.poll(async () => (await state()).stopped).toBe(1);
+  const stoppedFrames = (await state()).frames;
+  await page.waitForTimeout(1100);
+  expect((await state()).frames).toBe(stoppedFrames);
+  await share.click();
+  await expect(share).toHaveAttribute('aria-pressed', 'true');
+  // A client-side navigation must release capture without relying on a page unload.
+  await page.getByText('Footnote Scroll', { exact: true }).click();
+  await expect.poll(async () => (await state()).tracks.every(status => status === 'ended')).toBe(true);
+  await expect(share).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('stopping a pending screen share releases media before its lease arrives', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  await page.evaluate(() => {
+    const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const invoke = runtime.invoke;
+    runtime.invoke = (command, args) => command === 'begin_desktop_share_cmd'
+      ? new Promise(resolve => { Object.assign(window, { __finishScreenLease: () => resolve('late-lease') }); })
+      : invoke(command, args);
+  });
+  const share = page.getByTestId('desktop-share-toggle');
+  await share.click();
+  await expect.poll(() => page.evaluate(() => '__finishScreenLease' in window)).toBe(true);
+  await share.click();
+  await expect.poll(() => page.evaluate(() => {
+    const shared = (window as unknown as { __sharedScreen: { streams: MediaStream[] } }).__sharedScreen;
+    return shared.streams.length > 0 && shared.streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'));
+  })).toBe(true);
+  await page.evaluate(() => (window as unknown as { __finishScreenLease: () => void }).__finishScreenLease());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBe(0);
+  await expect(share).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('bounds a high-entropy screen frame and keeps its JPEG decodable', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  const result = await page.evaluate(async () => {
+    const modulePath = '/src/lib/sharedScreenFrame.ts';
+    const { encodeSharedScreenFrame, MAX_SHARED_SCREEN_BASE64 } = await import(/* @vite-ignore */ modulePath);
+    const source = document.createElement('canvas');
+    source.width = source.height = 1568;
+    const context = source.getContext('2d')!;
+    const pixels = context.createImageData(source.width, source.height);
+    let seed = 13579;
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+      pixels.data[i] = seed & 255;
+      pixels.data[i + 1] = (seed >>> 8) & 255;
+      pixels.data[i + 2] = (seed >>> 16) & 255;
+      pixels.data[i + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
+    const originalLength = source.toDataURL('image/jpeg', 0.65).split(',')[1].length;
+    const frame = encodeSharedScreenFrame(source, source.width, source.height, document.createElement('canvas'))!;
+    const image = new Image(); image.src = frame.url; await image.decode();
+    return { originalLength, length: frame.base64.length, limit: MAX_SHARED_SCREEN_BASE64, width: image.naturalWidth, height: image.naturalHeight };
+  });
+  expect(result.originalLength).toBeGreaterThan(result.limit);
+  expect(result.length).toBeLessThanOrEqual(result.limit);
+  expect(result.length).toBeGreaterThan(0);
+  expect(Math.max(result.width, result.height)).toBeLessThanOrEqual(1568);
+});
+
+test('a frame that cannot fit does not stop screen sharing', async ({ page }) => {
+  await page.goto('/chat/conv-auto-follow');
+  await page.evaluate(() => {
+    const encode = HTMLCanvasElement.prototype.toDataURL;
+    let attempts = 0;
+    HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
+      return attempts++ < 9 ? `data:image/jpeg;base64,${'A'.repeat(1_400_004)}` : encode.call(this, type, quality);
+    };
+  });
+  await page.getByTestId('desktop-share-toggle').click();
+  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBeGreaterThan(1);
+  expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(0);
 });

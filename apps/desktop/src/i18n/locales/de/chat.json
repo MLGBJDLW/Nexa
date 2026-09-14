@@ -701,5 +701,12 @@
   "turnChangesShowMore": "Mehr anzeigen ({count} verbleibend)",
   "turnChangesNoStats": "Zeilen unbekannt",
   "turnChangesContentUnavailable": "Binärdatei, zu groß oder gespeicherter Vergleich nicht verfügbar.",
-  "turnChangesLoadError": "Gespeicherte Änderungen konnten nicht geladen werden."
+  "turnChangesLoadError": "Gespeicherte Änderungen konnten nicht geladen werden.",
+  "shareScreen": "Bildschirm teilen",
+  "stopScreenShare": "Freigabe beenden",
+  "screenShareActive": "Bildschirm geteilt",
+  "screenShareNeedsConversation": "Starten Sie zuerst ein Gespräch",
+  "screenShareUnavailable": "Bildschirmfreigabe ist hier nicht verfügbar",
+  "screenSharePreview": "Bildschirmvorschau",
+  "screenShareHint": "Der Agent erhält beim Fortsetzen die aktuelle Ansicht. Beenden Sie die Freigabe, um den Zugriff zu widerrufen."
 }

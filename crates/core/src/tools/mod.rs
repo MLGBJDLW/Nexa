@@ -20,6 +20,9 @@ use crate::tool_visibility_policy::{
 };
 
 pub mod capability;
+mod editable_text;
+#[cfg(test)]
+mod file_text_contract_tests;
 pub use capability::{
     capability_descriptor_for_tool, fallback_tool_access_profile, infer_tool_access_profile,
     ToolCapabilityDescriptor, ToolCategory, ToolResourceDescriptor, ToolUiDescriptor,
@@ -1568,15 +1571,13 @@ fn top_level_argument_issue(
 }
 
 fn normalize_tool_arguments(
-    tool_name: &str,
+    _tool_name: &str,
     arguments: &str,
     schema: &serde_json::Value,
 ) -> Result<String, (&'static str, String)> {
     let payload = strip_json_code_fence(arguments);
     let mut value = match serde_json::from_str::<serde_json::Value>(payload.as_ref()) {
         Ok(value) => value,
-        // run_shell has an additional Windows-path escape repair lane.
-        Err(_) if tool_name == "run_shell" => return Ok(payload.into_owned()),
         Err(error) => {
             return Err((
                 "invalid_arguments_json",
@@ -1866,11 +1867,10 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(manage_source_tool::ManageSourceTool));
     registry.register(Box::new(statistics_tool::GetStatisticsTool));
     registry.register(Box::new(date_search_tool::DateSearchTool));
+    // User-shared screen reads are portable; native window control is Windows-only.
+    registry.register(Box::new(computer_use_tool::ComputerObserveTool));
     #[cfg(target_os = "windows")]
-    {
-        registry.register(Box::new(computer_use_tool::ComputerObserveTool));
-        registry.register(Box::new(computer_use_tool::ComputerControlTool));
-    }
+    registry.register(Box::new(computer_use_tool::ComputerControlTool));
     registry.register(Box::new(desktop_automation_tool::DesktopAutomationTool));
     registry.register(Box::new(open_in_nexa_tool::OpenInNexaTool::default()));
     registry.register(Box::new(summarize_tool::SummarizeDocumentTool));
@@ -2123,16 +2123,21 @@ mod tests {
                 "{allowed} should remain available"
             );
         }
-        #[cfg(target_os = "windows")]
         assert!(names.iter().any(|name| name == "computer_observe"));
     }
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn native_computer_tools_are_hidden_on_unsupported_platforms() {
-        let names = default_tool_registry().tool_names();
-
-        assert!(!names.iter().any(|name| name == "computer_observe"));
+    fn non_windows_registry_exposes_shared_screen_reads_without_native_controls() {
+        let registry = default_tool_registry();
+        let names = registry.tool_names();
+        let observe = registry
+            .get("computer_observe")
+            .expect("shared screen reader");
+        assert_eq!(
+            observe.parameters_schema()["properties"]["action"]["enum"],
+            serde_json::json!(["shared_desktop"])
+        );
         assert!(!names.iter().any(|name| name == "computer_control"));
     }
 

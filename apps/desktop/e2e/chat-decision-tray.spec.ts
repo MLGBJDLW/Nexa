@@ -423,7 +423,7 @@ test('restores a per-question draft, distinguishes supplements, and collapses af
   const tray = page.getByTestId('decision-tray');
   await expect(tray).toBeVisible();
   await expect(tray).toHaveAttribute('data-theme-surface', 'panel');
-  await expect(tray.locator('..')).toHaveAttribute('data-theme-surface', 'content');
+  await expect(tray.locator('..')).toHaveAttribute('data-theme-surface', 'transparent');
   await expect(tray.locator('..')).toHaveAttribute('data-theme-blur-owner', 'false');
   await expect(tray).toContainText('Question 1 of 2');
   await tray.getByRole('radio', { name: /Architectural refactor/ }).click();
@@ -489,6 +489,21 @@ test('single-choice questions advance to review before submission', async ({ pag
 
   await expect(page.getByTestId('decision-tray-review')).toBeVisible();
   await expect(tray.getByRole('button', { name: 'Submit answers' })).toBeVisible();
+});
+
+test('custom single-choice answers can advance, survive reload, and submit', async ({ page }) => {
+  await page.goto('/chat/conv-decision-tray?single=1');
+  const tray = page.getByTestId('decision-tray');
+  const other = tray.getByRole('textbox');
+  await other.fill('逐步迁移，保留现有接口');
+  await page.reload();
+  await expect(other).toHaveValue('逐步迁移，保留现有接口');
+  await tray.getByRole('button', { name: 'Review answers' }).click();
+  await expect(page.getByTestId('decision-tray-review')).toContainText('逐步迁移，保留现有接口');
+  await tray.getByRole('button', { name: 'Submit answers' }).click();
+  await expect(tray).toBeHidden();
+  await page.getByTestId('question-request-summary').click();
+  await expect(page.getByTestId('question-request-summary')).toContainText('逐步迁移，保留现有接口');
 });
 
 test('four-question requests remain a progressive wizard', async ({ page }) => {
@@ -560,11 +575,11 @@ test('high-risk requests block the chat in an accessible modal', async ({ page }
     .toBeGreaterThanOrEqual(chatViewportBounds!.y + chatViewportBounds!.height - edgeTolerance);
   expect(Math.abs(
     modalBounds!.x + modalBounds!.width / 2
-      - (chatViewportBounds!.x + chatViewportBounds!.width / 2),
+      - viewport!.width / 2,
   )).toBeLessThan(2);
   expect(Math.abs(
     modalBounds!.y + modalBounds!.height / 2
-      - (chatViewportBounds!.y + chatViewportBounds!.height / 2),
+      - viewport!.height / 2,
   )).toBeLessThan(2);
   const modalBackgroundAlpha = await modal.evaluate((element) => {
     const color = getComputedStyle(element).backgroundColor;

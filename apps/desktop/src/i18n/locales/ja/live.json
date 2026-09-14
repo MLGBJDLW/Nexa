@@ -47,5 +47,13 @@
   "captureStatus": "取得状態",
   "noConnections": "Liveを開始するには、PCの設定でAPIモデル接続を追加してください。",
   "observationModel": "観察モデル",
-  "summaryModelChoice": "要約モデル"
+  "summaryModelChoice": "要約モデル",
+  "transcriptTitle": "文字起こし",
+  "speakerUnavailable": "この接続は話者の区別に対応していません。",
+  "speechEmpty": "認識された音声がここに表示されます。",
+  "observationEmpty": "AIの観察結果がここに表示されます。",
+  "summaryTitle": "まとめ",
+  "expandSummary": "まとめを拡大",
+  "summaryWorking": "まとめを作成中…",
+  "summaryEmpty": "収録を停止してまとめを作成すると、結論、未解決の問題、次の手順を確認できます。"
 }

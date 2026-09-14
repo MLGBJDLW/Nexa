@@ -701,5 +701,12 @@
   "turnChangesShowMore": "显示更多（剩余 {count} 个）",
   "turnChangesNoStats": "行数未知",
   "turnChangesContentUnavailable": "此文件为二进制、体积过大，或保存的差异不可用。",
-  "turnChangesLoadError": "无法加载已保存的变更。"
+  "turnChangesLoadError": "无法加载已保存的变更。",
+  "shareScreen": "共享屏幕",
+  "stopScreenShare": "停止屏幕共享",
+  "screenShareActive": "屏幕共享中",
+  "screenShareNeedsConversation": "开始对话后即可共享屏幕",
+  "screenShareUnavailable": "当前环境不支持屏幕共享",
+  "screenSharePreview": "共享屏幕预览",
+  "screenShareHint": "Agent 继续处理时会获取最新画面；停止共享即可撤回访问。"
 }

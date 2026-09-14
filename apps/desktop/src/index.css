@@ -1145,6 +1145,68 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
   background: var(--color-text-tertiary);
 }
 
+/* Chat scrollbars keep a quiet thumb and a wider native drag target. */
+.chat-scrollbar {
+  --chat-scrollbar-size: 10px;
+  --chat-scrollbar-inset: 3px;
+  --chat-scrollbar-thumb: color-mix(in srgb, var(--color-text-secondary) 28%, transparent);
+  --chat-scrollbar-hover: color-mix(in srgb, var(--color-text-secondary) 48%, transparent);
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
+}
+
+.chat-scrollbar:hover,
+.chat-scrollbar:focus-within {
+  scrollbar-color: var(--chat-scrollbar-hover) transparent;
+}
+
+.chat-scrollbar--compact {
+  --chat-scrollbar-size: 8px;
+  --chat-scrollbar-inset: 2.5px;
+}
+
+@supports selector(::-webkit-scrollbar) {
+  /* A non-auto standard scrollbar style overrides WebKit thumb geometry. */
+  .chat-scrollbar,
+  .chat-scrollbar:hover,
+  .chat-scrollbar:focus-within {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  .chat-scrollbar::-webkit-scrollbar {
+    width: var(--chat-scrollbar-size);
+    height: var(--chat-scrollbar-size);
+  }
+
+  .chat-scrollbar::-webkit-scrollbar-track,
+  .chat-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .chat-scrollbar::-webkit-scrollbar-thumb {
+    min-height: 36px;
+    border: var(--chat-scrollbar-inset) solid transparent;
+    border-radius: 999px;
+    background: var(--chat-scrollbar-thumb);
+    background-clip: padding-box;
+  }
+
+  .chat-scrollbar:hover::-webkit-scrollbar-thumb,
+  .chat-scrollbar:focus-within::-webkit-scrollbar-thumb {
+    background-color: var(--chat-scrollbar-hover);
+  }
+
+  .chat-scrollbar::-webkit-scrollbar-thumb:active {
+    background-color: color-mix(in srgb, var(--color-text-secondary) 72%, transparent);
+  }
+
+  .chat-scrollbar::-webkit-scrollbar-button {
+    display: none;
+  }
+}
+
 /* Focus styles for keyboard navigation */
 *:focus-visible {
   outline: 2px solid var(--color-accent);

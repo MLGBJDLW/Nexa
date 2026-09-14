@@ -47,5 +47,13 @@
   "captureStatus": "캡처 상태",
   "noConnections": "Live를 시작하려면 데스크톱 설정에서 API 모델 연결을 구성하세요.",
   "observationModel": "관찰 모델",
-  "summaryModelChoice": "요약 모델"
+  "summaryModelChoice": "요약 모델",
+  "transcriptTitle": "음성 기록",
+  "speakerUnavailable": "이 연결은 화자를 구분하지 않습니다.",
+  "speechEmpty": "인식된 음성이 여기에 표시됩니다.",
+  "observationEmpty": "AI 관찰 결과가 여기에 표시됩니다.",
+  "summaryTitle": "요약",
+  "expandSummary": "요약 확대",
+  "summaryWorking": "요약 작성 중…",
+  "summaryEmpty": "녹음을 중지하고 요약을 생성하여 결정 사항, 미해결 질문 및 다음 단계를 확인하세요."
 }

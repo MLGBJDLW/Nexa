@@ -156,7 +156,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
              - Cite fetched web evidence with real URL identifiers and distinguish web evidence from local knowledge-base evidence."
             .to_string(),
         AgentRouteKind::InteractionOperation => "## Route Pack: Native Interaction\n\
-             - Start with computer_observe and bind every control to the returned window and observation identity.\n\
+             - Start with computer_observe and bind every control to the returned window and observation identity. Prefer observation-scoped semantic targets: invoke/set_value and auto-delivered element clicks can operate without moving the user pointer. Use foreground only when native input is needed. For multi-step work in one window, offer approval_scope=window_session so the user can authorize that verified window for the current task.\n\
              - Never call computer_control before a successful observation. After every successful control, use computer_observe again and verify the visible effect.\n\
              - A claimed, pending, or skipped record_verification check cannot replace the fresh desktop observation.\n\
              - Report a precise typed availability or permission failure instead of saying that no browser or computer capability exists."

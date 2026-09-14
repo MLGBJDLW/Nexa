@@ -38,63 +38,10 @@ pub(super) struct RunShellArgs {
     pub(super) isolation_sandbox: Option<RunShellIsolationSandbox>,
 }
 
-fn repair_invalid_json_string_escapes(input: &str) -> String {
-    let mut repaired = String::with_capacity(input.len());
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for ch in input.chars() {
-        if !in_string {
-            if ch == '"' {
-                in_string = true;
-            }
-            repaired.push(ch);
-            continue;
-        }
-
-        if escaped {
-            if matches!(ch, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u') {
-                repaired.push(ch);
-            } else {
-                repaired.push('\\');
-                repaired.push(ch);
-            }
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' => {
-                repaired.push('\\');
-                escaped = true;
-            }
-            '"' => {
-                in_string = false;
-                repaired.push(ch);
-            }
-            _ => repaired.push(ch),
-        }
-    }
-
-    if escaped {
-        repaired.push('\\');
-    }
-
-    repaired
-}
-
 pub(super) fn parse_run_shell_args(arguments: &str) -> Result<RunShellArgs, serde_json::Error> {
-    match serde_json::from_str(arguments) {
-        Ok(parsed) => Ok(parsed),
-        Err(first_err) => {
-            let repaired = repair_invalid_json_string_escapes(arguments);
-            if repaired == arguments {
-                Err(first_err)
-            } else {
-                serde_json::from_str(&repaired)
-            }
-        }
-    }
+    // Partial repair can turn C:\new into a newline while repairing another
+    // path escape. JSON is decoded exactly once; invalid input must be retried.
+    serde_json::from_str(arguments)
 }
 
 pub(super) fn split_simple_command_string(command: &str) -> Result<Vec<String>, String> {
@@ -207,7 +154,14 @@ fn push_double_quoted_backslash(
         let next = chars
             .next()
             .ok_or_else(|| "command string ends with an unfinished escape".to_string())?;
-        current.push(next);
+        // POSIX double quotes only consume backslashes before shell-special
+        // characters. Preserve literal \n, regex escapes, and Windows paths.
+        if !matches!(next, '$' | '`' | '"' | '\\' | '\n') {
+            current.push('\\');
+        }
+        if next != '\n' {
+            current.push(next);
+        }
         Ok(())
     }
 }

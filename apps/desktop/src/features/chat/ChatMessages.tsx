@@ -23,6 +23,7 @@ import {
 import { useTranslation } from "../../i18n";
 import { useDeveloperMode } from "../../lib/developerMode";
 import { useConversationFileChanges } from '../../lib/useConversationFileChanges';
+import { observeScrollFollow } from '../../lib/scrollFollow';
 import { TurnFileChanges } from '../../components/chat/TurnFileChanges';
 import { hasTimeGap } from "../../lib/relativeTime";
 import {
@@ -233,15 +234,15 @@ function TurnNavigator({
       className="pointer-events-none sticky top-1/2 z-20 ml-auto -mr-11 hidden h-px w-7 -translate-y-1/2 lg:block"
       onKeyDown={handleKeyDown}
     >
-      <div className="group/rail pointer-events-auto absolute right-0 top-0 max-h-[min(68vh,34rem)] w-7 -translate-y-1/2 overflow-y-auto overflow-x-visible py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="relative flex w-full flex-col items-end py-1">
+      <div className="group/rail pointer-events-auto absolute right-0 top-0 w-7 -translate-y-1/2 py-3">
+        <div className="relative flex w-full flex-col items-end" style={{ height: `min(42vh, ${Math.min(280, renderedItems.length * 10)}px)` }}>
           <span
-            className="absolute bottom-[9px] right-[4px] top-[9px] w-px overflow-hidden bg-border/35 transition-colors duration-200 group-hover/rail:bg-border/55"
+            className="absolute bottom-1 right-0 top-1 w-px overflow-hidden rounded-full bg-border/25"
             aria-hidden="true"
           >
             <motion.span
               data-testid="chat-turn-minimap-progress"
-              className="block h-full w-full origin-top bg-linear-to-b from-accent/35 via-accent/70 to-accent"
+              className="block h-full w-full origin-top bg-accent/45"
               animate={{ scaleY: progress }}
               transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             />
@@ -250,7 +251,7 @@ function TurnNavigator({
             const active = item.id === activeId;
             const distance = Math.abs(index - activeIndex);
             const proximity = Math.max(0, 1 - distance / 5);
-            const markerOpacity = active ? 1 : 0.26 + proximity * 0.34;
+            const markerOpacity = active ? 1 : 0.3 + proximity * 0.2;
             const label = `#${index + 1} · ${item.preview}`;
             return (
               <button
@@ -263,34 +264,25 @@ function TurnNavigator({
                 title={label}
                 data-turn-navigation-id={item.id}
                 data-turn-navigation-index={index}
-                className="group relative z-10 flex h-[17px] w-7 shrink-0 items-center justify-end pr-0.5 outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1"
+                className="group relative z-10 flex min-h-px w-7 flex-1 items-center justify-end pr-1 outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-accent/40"
                 onClick={() => onSelect(item.id)}
               >
-                {active && (
-                  <motion.span
-                    layoutId="chat-turn-minimap-active-marker"
-                    className="absolute right-0 h-[15px] w-[9px] rounded-l-full border border-r-0 border-accent/20 bg-accent/8 shadow-[-4px_0_14px_rgba(99,102,241,0.12)]"
-                    transition={shouldReduceMotion ? INSTANT_TRANSITION : { type: 'spring', stiffness: 260, damping: 28, mass: 0.85 }}
-                    aria-hidden="true"
-                  />
-                )}
                 <motion.span
                   data-testid="chat-turn-minimap-marker"
                   data-active={active ? 'true' : 'false'}
-                  className={`relative z-10 rounded-full ring-1 ring-surface-1 transition-colors duration-150 group-hover:bg-accent group-focus-visible:bg-accent ${
+                  className={`relative z-10 rounded-full transition-colors duration-150 group-hover:bg-accent group-focus-visible:bg-accent ${
                     active
-                      ? 'h-2.5 w-1 bg-accent shadow-[0_0_9px_rgba(110,120,255,0.68)]'
-                      : 'h-1 w-1 bg-text-tertiary'
+                      ? 'h-0.5 w-3.5 bg-accent'
+                      : `h-px ${index % 5 === 0 ? 'w-2.5' : 'w-1.5'} bg-text-tertiary`
                   }`}
                   animate={{
                     opacity: markerOpacity,
-                    scale: active ? 1 : 0.82 + proximity * 0.12,
                   }}
                   transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   aria-hidden="true"
                 />
                 <span
-                  className="pointer-events-none invisible absolute right-full top-1/2 mr-2.5 w-52 -translate-y-1/2 translate-x-0.5 rounded-lg border border-border/55 bg-surface-1/96 px-2.5 py-2 text-left text-[10px] leading-4 text-text-secondary opacity-0 shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-[opacity,transform,visibility] duration-150 ease-out group-hover:visible group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:visible group-focus-visible:translate-x-0 group-focus-visible:opacity-100 motion-reduce:transition-none"
+                  className="pointer-events-none invisible absolute right-full top-1/2 mr-2 w-52 -translate-y-1/2 rounded-lg border border-border/60 bg-surface-1 px-3 py-2 text-left text-[11px] leading-4 text-text-secondary opacity-0 shadow-sm transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-visible:visible group-focus-visible:opacity-100 motion-reduce:transition-none"
                   data-testid="chat-turn-preview"
                 >
                   <span className="mb-0.5 block font-semibold tabular-nums text-accent/90">Turn {index + 1}</span>
@@ -307,7 +299,6 @@ function TurnNavigator({
 
 const INSTANT_TRANSITION = { duration: 0 };
 const NEAR_BOTTOM_THRESHOLD = 96;
-const FOLLOW_RELEASE_THRESHOLD = 160;
 const WAITING_MOODS = [
   "(｡•́‿•̀｡)",
   "(づ｡◕‿‿◕｡)づ",
@@ -713,6 +704,7 @@ export function ChatMessages(props: ChatMessagesProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const shouldAutoFollowRef = useRef(true);
   const [isNearBottom, setIsNearBottom] = useState(true);
@@ -1637,6 +1629,8 @@ export function ChatMessages(props: ChatMessagesProps) {
     }
 
     autoScrollFrameRef.current = requestAnimationFrame(() => {
+      autoScrollFrameRef.current = null;
+      if (!shouldAutoFollowRef.current) return;
       el.scrollTo({ top: el.scrollHeight, behavior });
       setHasOverflow(el.scrollHeight > el.clientHeight + 8);
       setIsNearBottom(true);
@@ -1659,7 +1653,7 @@ export function ChatMessages(props: ChatMessagesProps) {
 
   const handleScroll = useCallback(() => {
     scheduleTurnNavigationUpdate();
-    const { distanceFromBottom, nearBottom, overflow } = getScrollMetrics();
+    const { nearBottom, overflow } = getScrollMetrics();
     setHasOverflow(overflow);
     setIsNearBottom(!overflow || nearBottom);
 
@@ -1669,15 +1663,17 @@ export function ChatMessages(props: ChatMessagesProps) {
     }
 
     if (nearBottom) {
-      shouldAutoFollowRef.current = true;
       setUnreadCount(0);
       return;
     }
-
-    if (distanceFromBottom > FOLLOW_RELEASE_THRESHOLD) {
-      shouldAutoFollowRef.current = false;
-    }
   }, [getScrollMetrics, scheduleTurnNavigationUpdate]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = scrollContentRef.current;
+    if (!container || !content) return;
+    return observeScrollFollow(container, content, shouldAutoFollowRef, handleScroll, NEAR_BOTTOM_THRESHOLD);
+  }, [handleScroll, loadingMsgs, props.conversationId, messages.length > 0, isStreaming]);
 
   useEffect(() => {
     const newCount = messages.length - prevMsgCountRef.current;
@@ -1962,7 +1958,7 @@ export function ChatMessages(props: ChatMessagesProps) {
 
   if (loadingMsgs) {
     return (
-      <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-4 py-4">
+      <div className="chat-scrollbar min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-4 py-4">
         <div className="flex justify-end">
           <div className="max-w-[60%] rounded-lg bg-accent-subtle px-3.5 py-2.5">
             <Skeleton className="h-4 w-48" />
@@ -1988,13 +1984,13 @@ export function ChatMessages(props: ChatMessagesProps) {
     <>
     <div
       ref={scrollContainerRef}
-      onScroll={handleScroll}
       data-chat-scroll-root="true"
-      className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 lg:pr-14"
+      className="chat-scrollbar relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 lg:pr-14 [overflow-anchor:none]"
       role="log"
       aria-live="polite"
       aria-label={t("chat.messageArea")}
     >
+      <div ref={scrollContentRef} data-chat-follow-content="true" className="flow-root min-w-0">
       <TurnNavigator
         items={turnNavigationItems}
         activeId={activeTurnNavigationId}
@@ -2467,6 +2463,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </motion.div>
       )}
 
+      </div>
       <AnimatePresence>
         {hasOverflow && !isNearBottom && (
           <motion.button

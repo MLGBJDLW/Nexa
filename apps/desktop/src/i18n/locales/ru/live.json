@@ -47,5 +47,13 @@
   "captureStatus": "Состояние захвата",
   "noConnections": "Для запуска Live настройте API-подключение модели в настройках компьютера.",
   "observationModel": "Модель наблюдения",
-  "summaryModelChoice": "Модель сводки"
+  "summaryModelChoice": "Модель сводки",
+  "transcriptTitle": "Расшифровка",
+  "speakerUnavailable": "Это подключение не различает говорящих.",
+  "speechEmpty": "Распознанная речь появится здесь.",
+  "observationEmpty": "Наблюдения ИИ появятся здесь.",
+  "summaryTitle": "Итоги",
+  "expandSummary": "Развернуть итоги",
+  "summaryWorking": "Подготовка итогов…",
+  "summaryEmpty": "Остановите запись и создайте сводку решений, открытых вопросов и следующих шагов."
 }

@@ -701,5 +701,12 @@
   "turnChangesShowMore": "顯示更多（剩餘 {count} 個）",
   "turnChangesNoStats": "行數未知",
   "turnChangesContentUnavailable": "此檔案為二進位、過大，或儲存的差異無法使用。",
-  "turnChangesLoadError": "無法載入已儲存的變更。"
+  "turnChangesLoadError": "無法載入已儲存的變更。",
+  "shareScreen": "共用螢幕",
+  "stopScreenShare": "停止共用螢幕",
+  "screenShareActive": "螢幕共用中",
+  "screenShareNeedsConversation": "開始對話後即可共用螢幕",
+  "screenShareUnavailable": "目前環境不支援螢幕共用",
+  "screenSharePreview": "共用螢幕預覽",
+  "screenShareHint": "Agent 繼續處理時會取得最新畫面；停止共用即可撤回存取。"
 }

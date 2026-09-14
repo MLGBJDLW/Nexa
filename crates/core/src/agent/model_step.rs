@@ -1071,6 +1071,12 @@ impl AgentExecutor {
                             accepted_attempt = None;
                             current_request.messages =
                                 prompt_ir::messages_for_model_step(messages, force_answer_only);
+                            self.append_shared_desktop_context(
+                                conversation_id,
+                                model,
+                                &mut current_request.messages,
+                            )
+                            .await;
                             model_attempt = model_attempt::ModelAttempt::new(
                                 self.provider.as_ref(),
                                 current_request.clone(),

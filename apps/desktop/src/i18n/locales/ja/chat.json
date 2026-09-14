@@ -701,5 +701,12 @@
   "turnChangesShowMore": "さらに表示（残り {count}）",
   "turnChangesNoStats": "行数不明",
   "turnChangesContentUnavailable": "バイナリ、大きすぎるファイル、または保存済み差分が利用できません。",
-  "turnChangesLoadError": "保存済みの変更を読み込めません。"
+  "turnChangesLoadError": "保存済みの変更を読み込めません。",
+  "shareScreen": "画面を共有",
+  "stopScreenShare": "画面共有を停止",
+  "screenShareActive": "画面共有中",
+  "screenShareNeedsConversation": "会話を開始してから画面を共有してください",
+  "screenShareUnavailable": "この環境では画面を共有できません",
+  "screenSharePreview": "共有画面のプレビュー",
+  "screenShareHint": "エージェントが処理を続ける際に最新の画面を取得します。共有を停止するとアクセスを解除します。"
 }

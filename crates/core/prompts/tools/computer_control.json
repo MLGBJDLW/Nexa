@@ -1,12 +1,22 @@
 {
   "name": "computer_control",
-  "description": "Perform one approval-gated action against a fresh Windows observation. Visual actions can target captured-image coordinates or observation-scoped UI Automation element ids. invoke and set_value use semantic Windows UI Automation patterns without moving the user's pointer; pointer/keyboard actions use foreground input. Each observation is single-use for control, process/title and visual freshness are revalidated, and the result includes a new hybrid observation plus perceptual change verification.",
+  "description": "Perform one approval-gated action against a fresh Windows observation. Visual actions can target captured-image coordinates or observation-scoped UI Automation element ids. invoke and set_value use semantic Windows UI Automation patterns without moving the user's pointer; pointer/keyboard actions use foreground input. Each observation is single-use for control, process/title and visual freshness are revalidated, and the result includes a new hybrid observation plus perceptual change verification. Auto delivery prefers actual UI Automation invocation patterns for single element clicks. Use set_value for exact replacement, including clearing and long multiline text; type_text sends keyboard input. Background requests never silently fall back to foreground input.",
   "parameters": {
     "type": "object",
     "properties": {
       "action": {
         "type": "string",
-        "enum": ["focus_window", "move_mouse", "click", "drag", "scroll", "type_text", "key", "invoke", "set_value"],
+        "enum": [
+          "focus_window",
+          "move_mouse",
+          "click",
+          "drag",
+          "scroll",
+          "type_text",
+          "key",
+          "invoke",
+          "set_value"
+        ],
         "description": "Approved desktop input action to perform."
       },
       "observation_id": {
@@ -30,7 +40,10 @@
       },
       "coordinate_space": {
         "type": "string",
-        "enum": ["captured_image_pixels", "normalized_0_1"],
+        "enum": [
+          "captured_image_pixels",
+          "normalized_0_1"
+        ],
         "description": "How x/y/to_x/to_y are interpreted. Defaults to captured_image_pixels."
       },
       "x": {
@@ -55,7 +68,11 @@
       },
       "button": {
         "type": "string",
-        "enum": ["left", "right", "middle"],
+        "enum": [
+          "left",
+          "right",
+          "middle"
+        ],
         "description": "Mouse button for click. Defaults to left."
       },
       "click_count": {
@@ -78,9 +95,9 @@
       },
       "text": {
         "type": "string",
-        "minLength": 1,
-        "maxLength": 1000,
-        "description": "Text for type_text or set_value. Maximum 1000 characters and 32 newline/tab controls. Never place secrets in tool arguments."
+        "minLength": 0,
+        "maxLength": 65536,
+        "description": "set_value replaces the full value and accepts 0..65536 characters; empty clears the field. type_text enters 1..8000 characters with at most 32 newline/tab controls. Prefer set_value for forms and multiline documents when the element offers it. Other controls and password fields are rejected."
       },
       "key_sequence": {
         "type": "string",
@@ -105,11 +122,41 @@
       },
       "capture_mode": {
         "type": "string",
-        "enum": ["raw", "som"],
+        "enum": [
+          "raw",
+          "som"
+        ],
         "description": "raw returns the normal post-action screenshot; som overlays semantic element ids. Defaults to raw."
+      },
+      "approval_scope": {
+        "type": "string",
+        "enum": [
+          "action",
+          "window_session"
+        ],
+        "description": "Defaults to action. For a multi-step task in one window, window_session offers the user a reusable Allow for session grant bound to the verified process/window and current task; fresh observations remain required. It never grants access automatically."
+      },
+      "delivery": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "background",
+          "foreground"
+        ],
+        "description": "auto prefers native UI Automation for invokable single left clicks on element_id. background requires a usable semantic pattern and never sends foreground mouse/keyboard input; the target application may still activate itself. foreground forces pointer/keyboard delivery; invoke/set_value are always background."
+      },
+      "drag_duration_ms": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 3000,
+        "description": "Drag duration in milliseconds, defaults to 400. Increase for applications requiring a longer hold. Only valid for drag."
       }
     },
-    "required": ["action", "observation_id", "window_id"],
+    "required": [
+      "action",
+      "observation_id",
+      "window_id"
+    ],
     "additionalProperties": false
   }
 }

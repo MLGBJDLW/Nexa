@@ -701,5 +701,12 @@
   "turnChangesShowMore": "더 보기 ({count}개 남음)",
   "turnChangesNoStats": "행 수 알 수 없음",
   "turnChangesContentUnavailable": "바이너리이거나 너무 크거나 저장된 차이를 사용할 수 없습니다.",
-  "turnChangesLoadError": "저장된 변경을 불러올 수 없습니다."
+  "turnChangesLoadError": "저장된 변경을 불러올 수 없습니다.",
+  "shareScreen": "화면 공유",
+  "stopScreenShare": "화면 공유 중지",
+  "screenShareActive": "화면 공유 중",
+  "screenShareNeedsConversation": "대화를 시작한 후 화면을 공유하세요",
+  "screenShareUnavailable": "이 환경에서는 화면 공유를 사용할 수 없습니다",
+  "screenSharePreview": "공유 화면 미리보기",
+  "screenShareHint": "에이전트가 계속 처리할 때 최신 화면을 받습니다. 공유를 중지하면 접근 권한이 해제됩니다."
 }

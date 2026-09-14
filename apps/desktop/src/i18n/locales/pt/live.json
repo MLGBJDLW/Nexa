@@ -47,5 +47,13 @@
   "captureStatus": "Status da captura",
   "noConnections": "Configure uma conexão de modelo API nas configurações do computador para iniciar o Live.",
   "observationModel": "Modelo de observação",
-  "summaryModelChoice": "Modelo de resumo"
+  "summaryModelChoice": "Modelo de resumo",
+  "transcriptTitle": "Transcrição",
+  "speakerUnavailable": "Esta conexão não distingue os falantes.",
+  "speechEmpty": "A fala reconhecida aparecerá aqui.",
+  "observationEmpty": "As observações da IA aparecerão aqui.",
+  "summaryTitle": "Resumo",
+  "expandSummary": "Ampliar resumo",
+  "summaryWorking": "Preparando o resumo…",
+  "summaryEmpty": "Pare a captura e crie um resumo das decisões, perguntas pendentes e próximos passos."
 }

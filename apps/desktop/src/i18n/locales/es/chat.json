@@ -701,5 +701,12 @@
   "turnChangesShowMore": "Mostrar más ({count} restantes)",
   "turnChangesNoStats": "Líneas desconocidas",
   "turnChangesContentUnavailable": "Archivo binario, demasiado grande o diferencia guardada no disponible.",
-  "turnChangesLoadError": "No se pudieron cargar los cambios guardados."
+  "turnChangesLoadError": "No se pudieron cargar los cambios guardados.",
+  "shareScreen": "Compartir pantalla",
+  "stopScreenShare": "Dejar de compartir",
+  "screenShareActive": "Pantalla compartida",
+  "screenShareNeedsConversation": "Inicia una conversación antes de compartir",
+  "screenShareUnavailable": "No se puede compartir la pantalla en este entorno",
+  "screenSharePreview": "Vista de la pantalla compartida",
+  "screenShareHint": "El agente recibe la vista actual al continuar. Deja de compartir para revocar el acceso."
 }
