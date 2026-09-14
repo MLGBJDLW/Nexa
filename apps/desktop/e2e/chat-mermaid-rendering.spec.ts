@@ -638,25 +638,17 @@ test('preserves Mermaid theme CSS connector metrics after CSP materialization', 
 
   const surface = page.getByTestId('mermaid-surface').filter({ hasText: 'CSS Theme' });
   await expect(surface).toHaveCount(1);
+  // The transcript virtualizer can remount a diagram while sibling renders
+  // change row height. Assert against a fresh locator after the queue drains,
+  // rather than reading empty computed styles from a detached SVG element.
+  await expect(page.getByTestId('mermaid-surface').filter({ hasText: 'Rendering diagram...' })).toHaveCount(0);
   const edge = surface.locator('.edgePaths path, path.flowchart-link').first();
-  const presentation = await edge.evaluate((element) => {
-    const computed = getComputedStyle(element);
-    return {
-      stroke: computed.stroke,
-      strokeWidth: Number.parseFloat(computed.strokeWidth),
-      strokeOpacity: Number.parseFloat(computed.strokeOpacity),
-      strokeAttribute: element.getAttribute('stroke'),
-      strokeWidthAttribute: element.getAttribute('stroke-width'),
-      strokeOpacityAttribute: element.getAttribute('stroke-opacity'),
-    };
-  });
-
-  expect(presentation.stroke).toBe('rgb(124, 58, 237)');
-  expect(presentation.strokeWidth).toBe(5);
-  expect(presentation.strokeOpacity).toBe(1);
-  expect(presentation.strokeAttribute).toBe('rgb(124, 58, 237)');
-  expect(presentation.strokeWidthAttribute).toBe('5px');
-  expect(presentation.strokeOpacityAttribute).toBe('1');
+  await expect(edge).toHaveCSS('stroke', 'rgb(124, 58, 237)');
+  await expect(edge).toHaveCSS('stroke-width', '5px');
+  await expect(edge).toHaveCSS('stroke-opacity', '1');
+  await expect(edge).toHaveAttribute('stroke', 'rgb(124, 58, 237)');
+  await expect(edge).toHaveAttribute('stroke-width', '5px');
+  await expect(edge).toHaveAttribute('stroke-opacity', '1');
 
   const serializedSvg = await surface.locator('svg').evaluate((svg) => svg.outerHTML);
   await page.evaluate((svg) => new Promise<void>((resolve) => {
