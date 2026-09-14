@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.14.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.4...nexa-monorepo-v0.14.5) (2026-09-14)
+
+
+### Features
+
+* **desktop:** share complete monitors in chat and Live ([bb5e36b](https://github.com/MLGBJDLW/Nexa/commit/bb5e36b31d18929d33def7cf1e88bf6d4ab24185))
+* **live:** copy summaries and transcript entries directly ([a280676](https://github.com/MLGBJDLW/Nexa/commit/a28067645a85f566e768f2b91f35f31dd6209914))
+
+
+### Bug Fixes
+
+* **chat:** hide unsupported steering message edits ([898cac7](https://github.com/MLGBJDLW/Nexa/commit/898cac7488b29451125ed265dfd5d94e71db1c9e))
+* **chat:** retain steering messages at their insertion positions ([7fdf49a](https://github.com/MLGBJDLW/Nexa/commit/7fdf49acd2e3c4307452c267940c4919c9054858))
+* **desktop:** bind screen capture to monitor device identity ([2d0eb25](https://github.com/MLGBJDLW/Nexa/commit/2d0eb255b59605bacc2d2d7ea57b424c7afebeb2))
+* **desktop:** disable sharing when no capture source is available ([088f257](https://github.com/MLGBJDLW/Nexa/commit/088f257eeb58fa67bab1ccd4ab547bc7bedae610))
+* **desktop:** improve screen sharing, Live records, updates, and chat rendering ([ab95bdc](https://github.com/MLGBJDLW/Nexa/commit/ab95bdc45e5bc37e3bc25d398de5b99e31a9343a))
+* **mermaid:** preserve diagram styles under production CSP ([d6da1b4](https://github.com/MLGBJDLW/Nexa/commit/d6da1b4d9289c3bc2e177e6d33c462eb170e1743))
+
 ## [0.14.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.3...nexa-monorepo-v0.14.4) (2026-09-14)
 
 
