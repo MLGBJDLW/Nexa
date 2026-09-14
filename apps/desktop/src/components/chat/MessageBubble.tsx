@@ -515,7 +515,7 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
             isUser={isUser}
             messageId={msg.id}
             conversationId={msg.conversationId}
-            onEdit={isUser && !goalMessage && onEditAndResend ? handleStartEdit : undefined}
+            onEdit={isUser && !steering && !goalMessage && onEditAndResend ? handleStartEdit : undefined}
             onDelete={onDeleteMessage}
             align={isUser ? 'end' : 'start'}
             showSpeech={msg.role === 'assistant' && msg.toolCalls.length === 0 && actionText.trim().length > 0}

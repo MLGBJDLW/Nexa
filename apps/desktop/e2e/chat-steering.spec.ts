@@ -818,6 +818,10 @@ test('sends steering while an agent stream is running without stopping it', asyn
   await expect(page.getByText('Initial broad answer', { exact: true })).toBeVisible();
   await expect(page.getByTestId('task-board')).toHaveCount(0);
   await expect(page.getByText('focus on edge cases instead')).toHaveCount(1);
+  const steeringBubble = page.getByLabel('Steering message', { exact: true });
+  await expect(steeringBubble).toBeVisible();
+  await expect(steeringBubble.locator('..').getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(1);
   const steering = page.getByText('focus on edge cases instead');
   const answer = page.getByText('Adjusted answer after steering.');
   expect((await steering.boundingBox())!.y).toBeLessThan((await answer.boundingBox())!.y);
