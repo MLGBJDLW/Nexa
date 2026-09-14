@@ -481,11 +481,26 @@ function enforceReadableMermaidNodePalette(root: Element): void {
     'left: -100000px',
     'top: 0',
     'width: 1200px',
-    'visibility: hidden',
+    'opacity: 0',
     'pointer-events: none',
   ].join(';');
   document.body.appendChild(probeHost);
-  probeHost.appendChild(root);
+  // Build the sanitized diagram's stylesheet through CSSOM in an isolated
+  // shadow tree. Runtime <style> tags are blocked by production CSP; reading
+  // their computed styles in the page would freeze black browser defaults.
+  const shadow = probeHost.attachShadow({ mode: 'open' });
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(Array.from(root.querySelectorAll('style'), style => style.textContent ?? '').join('\n'));
+  shadow.adoptedStyleSheets = [sheet];
+  shadow.appendChild(root);
+  for (const element of [root, ...root.querySelectorAll('[style]')]) {
+    if (!(element instanceof SVGElement)) continue;
+    const declarations = Array.from(element.style, name => [name, element.style.getPropertyValue(name), element.style.getPropertyPriority(name)]);
+    // Imperative CSSOM declarations also preserve sanitized classDef/inline
+    // overrides while style attributes inserted through HTML are CSP-blocked.
+    element.removeAttribute('style');
+    declarations.forEach(([name, value, priority]) => element.style.setProperty(name, value, priority));
+  }
 
   const safeFills = [
     '#dbeafe',
@@ -530,6 +545,12 @@ const MERMAID_PRESENTATION_PROPERTIES = [
   'fill-rule',
   'opacity',
   'paint-order',
+  'marker-start',
+  'marker-mid',
+  'marker-end',
+  'visibility',
+  'display',
+  'vector-effect',
   'stroke',
   'stroke-dasharray',
   'stroke-dashoffset',
@@ -584,6 +605,8 @@ function mermaidStylesheetDeclares(root: Element, element: Element, property: st
     return false;
   });
 
+  const shadow = root.getRootNode();
+  if (shadow instanceof ShadowRoot && shadow.adoptedStyleSheets.some(sheet => rulesDeclareProperty(sheet.cssRules))) return true;
   return Array.from(root.querySelectorAll<SVGStyleElement>('style')).some((style) => {
     try {
       return style.sheet ? rulesDeclareProperty(style.sheet.cssRules) : false;
