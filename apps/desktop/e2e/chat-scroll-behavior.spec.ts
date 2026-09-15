@@ -502,6 +502,10 @@ test('a new chat can start screen sharing directly without sending a message', a
   expect(state.frames).toBeGreaterThan(0);
   await expect(page.getByPlaceholder('Type a message...')).toHaveValue('Please check this screen');
   await share.click();
+  await page.getByRole('button', { name: /^New chat$/i }).click();
+  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('');
+  await page.reload();
+  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('');
 });
 
 test('native window sharing uses the Nexa picker without a localhost browser prompt', async ({ page }) => {
