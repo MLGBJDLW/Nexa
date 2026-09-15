@@ -12,7 +12,7 @@ const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"
 if (!runtimeSource) throw new Error('Could not extract the native Browser Workspace interaction runtime');
 if (!takeoverSource) throw new Error('Could not extract the native Browser Workspace takeover guard');
 
-test('Agent browser interaction shows cursor motion and commits verified pointer actions', async ({ page }) => {
+test('Agent browser interaction shows cursor motion and commits verified pointer actions', async ({ page }, testInfo) => {
   await page.setContent(`
     <!doctype html>
     <button id="source">Open details</button>
@@ -36,6 +36,7 @@ test('Agent browser interaction shows cursor motion and commits verified pointer
 
   expect(preview.durationMs).toBeGreaterThanOrEqual(180);
   await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('browser-link.png') });
   await page.waitForTimeout(preview.durationMs + 20);
   await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCSS('pointer-events', 'none');
   await page.evaluate(value => (
@@ -64,6 +65,11 @@ test('Agent browser interaction shows cursor motion and commits verified pointer
   expect(await page.evaluate(() => (
     window as unknown as { actionEvents: Array<{ type: string }> }
   ).actionEvents.filter(event => event.type === 'dblclick').length)).toBe(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedSnapshot = await observe(page);
+  const reducedPreview = await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(value), actionInput(reducedSnapshot, 'hover', sourceRef!));
+  expect(reducedPreview.durationMs).toBe(0);
+  await expect(page.locator('[data-nexa-agent-thread]')).toHaveCount(0);
 });
 
 test('screenshot confirmation preserves the element references advertised to the agent', async ({ page }) => {

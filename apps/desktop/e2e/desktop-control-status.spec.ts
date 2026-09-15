@@ -30,6 +30,8 @@ test('desktop computer-use status identifies active control and stops its owning
   await expect(page.getByRole('status')).toContainText('Controlling the computer');
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('desktop-status.png') });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0);
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   expect(await page.evaluate(() => (window as unknown as { __desktopStops: string[] }).__desktopStops)).toEqual(['desktop-task']);
   await expect(page.getByTestId('computer-use-status')).toHaveCount(0);
