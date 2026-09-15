@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.14.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.5...nexa-monorepo-v0.14.6) (2026-09-15)
+
+
+### Features
+
+* **browser:** observe form state and set checked controls reliably ([5411d92](https://github.com/MLGBJDLW/Nexa/commit/5411d92ce14e5448b6ce8560c7dfa13300204659))
+* **browser:** support scoped dialogs and native file transfers ([cebe4fb](https://github.com/MLGBJDLW/Nexa/commit/cebe4fb6ffdc0c9ce4865e7fc99df542c4efcdcb))
+* **desktop:** add native sharing and bounded computer-use status lifecycle ([e501b5b](https://github.com/MLGBJDLW/Nexa/commit/e501b5b87272a27c60f1213ad115078e5a35790a))
+* **desktop:** wait for launched windows and verify toggle effects ([a90a657](https://github.com/MLGBJDLW/Nexa/commit/a90a65704d46a21827ddbe91167342eef722e14b))
+* **ui:** connect control feedback with Nexa bond effects ([f39ddf3](https://github.com/MLGBJDLW/Nexa/commit/f39ddf371b3861ddd69627a5030ea55fa0019c91))
+
+
+### Bug Fixes
+
+* **browser:** reject stale dialog recovery actions ([845f36c](https://github.com/MLGBJDLW/Nexa/commit/845f36c81cf344c8f9c2a36629821dea911be1fb))
+* **browser:** release workspace locks during file operations ([a1e314c](https://github.com/MLGBJDLW/Nexa/commit/a1e314c39df8547b24cfc0f1be12d7c24b2db293))
+* **browser:** report blocked downloads to users and agents ([eaa4af2](https://github.com/MLGBJDLW/Nexa/commit/eaa4af2f228d27d9e877bafa160705fcd2afb106))
+* **browser:** stabilize navigation observations and retain failure causes ([06b6315](https://github.com/MLGBJDLW/Nexa/commit/06b631590b104186399d52e7dbb1e842165a1d6f))
+* **browser:** validate selections and observe real page readiness ([9445b24](https://github.com/MLGBJDLW/Nexa/commit/9445b2413fda8b7935fa9e751b5d936475f6a73c))
+* **chat:** move drafts when screen sharing creates a conversation ([ef5725b](https://github.com/MLGBJDLW/Nexa/commit/ef5725beffa768b0f615dc830466a83faea2781a))
+* **chat:** preserve moved drafts during concurrent sends ([c69fdee](https://github.com/MLGBJDLW/Nexa/commit/c69fdeedafdc7dd7721131282a17a195fca8bc56))
+* **chat:** start native screen sharing before the first message ([cf5d560](https://github.com/MLGBJDLW/Nexa/commit/cf5d5603829ba5fcbc7a47ba4f9ee180c398ffbe))
+* **deps:** update rustls for handshake validation advisory ([5b1f8c8](https://github.com/MLGBJDLW/Nexa/commit/5b1f8c844443e9410a9bb2cdeb5e84f908b59353))
+* **desktop:** bind launch approval to literal arguments ([9c35463](https://github.com/MLGBJDLW/Nexa/commit/9c354638581e4dc07a51ebc8df053d4f850bba84))
+* **desktop:** distinguish stalled inventories from empty window lists ([7edaebb](https://github.com/MLGBJDLW/Nexa/commit/7edaebbc7207d044e58a5eb74fe8f4c89b826ec9))
+* **desktop:** preserve launched apps and avoid activating native controls ([4d5420d](https://github.com/MLGBJDLW/Nexa/commit/4d5420d8b2e6021eb604912d652d12c3a05a17fc))
+* **runtime:** preserve delegated process ownership and background monitoring ([f54b80d](https://github.com/MLGBJDLW/Nexa/commit/f54b80d35f1eb816ceb572f4a14cb572a1c4c4bf))
+* stabilize delegation, computer control and screen sharing ([0a16396](https://github.com/MLGBJDLW/Nexa/commit/0a163969e91ae4f9b6caaf46f37150ec3d3f692c))
+* **subagents:** inherit authorized tools and release completed runtime state ([b5c3656](https://github.com/MLGBJDLW/Nexa/commit/b5c36565e13d95ccf8aa33fc86c11d8cce5eb802))
+
 ## [0.14.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.4...nexa-monorepo-v0.14.5) (2026-09-14)
 
 
