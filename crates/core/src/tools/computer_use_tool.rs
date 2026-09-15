@@ -3755,6 +3755,18 @@ mod platform {
         element: &IUIAutomationElement,
         commit_tracker: &ControlCommitTracker,
     ) -> Result<&'static str, ControlFailure> {
+        // Checkboxes may advertise Invoke as well as Toggle. The semantic
+        // toggle avoids the native Invoke proxy's activating click path.
+        if let Ok(pattern) = unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
+        } {
+            commit_tracker.mark();
+            commit_tracker.result(
+                unsafe { pattern.Toggle() }
+                    .map_err(|error| platform_error("toggle UI Automation element", error)),
+            )?;
+            return Ok("toggle_pattern");
+        }
         if let Ok(pattern) = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
         } {
@@ -3776,16 +3788,6 @@ mod platform {
                     .map_err(|error| platform_error("select UI Automation element", error)),
             )?;
             return Ok("selection_item_pattern");
-        }
-        if let Ok(pattern) = unsafe {
-            element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
-        } {
-            commit_tracker.mark();
-            commit_tracker.result(
-                unsafe { pattern.Toggle() }
-                    .map_err(|error| platform_error("toggle UI Automation element", error)),
-            )?;
-            return Ok("toggle_pattern");
         }
         if let Ok(pattern) = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
@@ -3844,9 +3846,10 @@ mod platform {
     fn set_element_value(
         element: &IUIAutomationElement,
         live: &UiElementSnapshot,
+        window: &WindowSnapshot,
         value: &str,
         commit_tracker: &ControlCommitTracker,
-    ) -> Result<(), ControlFailure> {
+    ) -> Result<&'static str, ControlFailure> {
         let current_is_password =
             before_control_commit(unsafe { element.CurrentIsPassword() }.map_err(|error| {
                 platform_error(
@@ -3880,18 +3883,74 @@ mod platform {
                 invalid("Target UI Automation value is read-only."),
             ));
         }
+        // The Windows EDIT accessibility proxy may focus its HWND in SetValue.
+        // For an identity-checked native EDIT child, WM_SETTEXT performs the
+        // same value replacement without activating the desktop window.
+        let native_edit = unsafe { element.CurrentNativeWindowHandle() }
+            .ok()
+            .filter(|handle| !handle.0.is_null())
+            .filter(|handle| {
+                let mut pid = 0;
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+                        *handle,
+                        Some(&mut pid),
+                    )
+                };
+                pid == window.pid
+            })
+            .filter(|handle| {
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::IsChild(hwnd(window.id), *handle)
+                }
+                .as_bool()
+            })
+            .filter(|handle| {
+                let mut class = [0_u16; 128];
+                let length = unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetClassNameW(*handle, &mut class)
+                };
+                String::from_utf16_lossy(&class[..length.max(0) as usize])
+                    .eq_ignore_ascii_case("edit")
+            });
         commit_tracker.mark();
-        commit_tracker.result(
-            unsafe { pattern.SetValue(&BSTR::from(value)) }
-                .map_err(|error| platform_error("set UI Automation value", error)),
-        )?;
+        let route = if let Some(handle) = native_edit {
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SendMessageTimeoutW, SMTO_ABORTIFHUNG, SMTO_BLOCK, WM_SETTEXT,
+            };
+            let text: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut retained = 0_usize;
+            let delivered = unsafe {
+                SendMessageTimeoutW(
+                    handle,
+                    WM_SETTEXT,
+                    WPARAM(0),
+                    LPARAM(text.as_ptr() as isize),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                    1_000,
+                    Some(&mut retained),
+                )
+            };
+            commit_tracker.result(if delivered.0 != 0 && retained != 0 { Ok(()) } else {
+                Err(invalid("Native edit did not acknowledge the value replacement. Observe before retrying."))
+            })?;
+            "native_edit_value"
+        } else {
+            commit_tracker.result(
+                unsafe { pattern.SetValue(&BSTR::from(value)) }
+                    .map_err(|error| platform_error("set UI Automation value", error)),
+            )?;
+            "value_pattern"
+        };
         let actual = commit_tracker.result(
             unsafe { pattern.CurrentValue() }
                 .map_err(|error| platform_error("verify UI Automation value", error)),
         )?;
         commit_tracker.result(if actual == value { Ok(()) } else {
             Err(invalid("The application did not retain the requested value exactly. Input was delivered; inspect the window before retrying."))
-        })
+        })?;
+        Ok(route)
     }
 
     fn ensure_focused_target_is_not_password(window: &WindowSnapshot) -> Result<(), CoreError> {
@@ -4871,7 +4930,6 @@ mod platform {
                 )
             }
             ControlAction::SetValue => {
-                route = "value_pattern";
                 delivery = "background";
                 let element_id = args.element_id.as_deref().expect("validated element_id");
                 let expected = before_control_commit(super::semantic_element(
@@ -4882,7 +4940,13 @@ mod platform {
                 let live =
                     before_control_commit(resolve_live_element(&current, observed, expected))?;
                 let text = args.text.as_deref().expect("validated text");
-                set_element_value(&live.element, &live.snapshot, text, commit_tracker)?;
+                route = set_element_value(
+                    &live.element,
+                    &live.snapshot,
+                    &current,
+                    text,
+                    commit_tracker,
+                )?;
                 format!(
                     "Set {} character(s) on semantic element {element_id} in window {}.",
                     text.chars().count(),

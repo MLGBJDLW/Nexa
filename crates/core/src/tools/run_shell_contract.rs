@@ -77,7 +77,7 @@ static ROUTE_GUIDANCE: OnceLock<String> = OnceLock::new();
 pub(crate) fn tool_description() -> &'static str {
     TOOL_DESCRIPTION.get_or_init(|| {
         format!(
-            "Execute a command with platform-aware safety controls. {invocation_modes} {direct_command} {shell_mode} {restricted_programs} {native_fs} {plain_text_tools} {large_payloads} {html_pptx} {timeouts} {windows_paths}",
+            "Execute a command with platform-aware safety controls. {invocation_modes} {direct_command} {shell_mode} {restricted_programs} {native_fs} {plain_text_tools} {large_payloads} {html_pptx} {timeouts} {windows_paths} For desktop computer use, launch source-scoped executables with desktop_automation action=launch_app, path and args. Shell child processes (including cmd start and Start-Process) belong to the managed process tree and may be terminated when the command completes; launch_app keeps the desktop application alive independently.",
             invocation_modes = invocation_modes_sentence(),
             direct_command = direct_command_sentence(),
             shell_mode = shell_mode_sentence(),

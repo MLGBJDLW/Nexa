@@ -32,6 +32,8 @@ struct DesktopAutomationArgs {
     reason: Option<String>,
     #[serde(default)]
     external_requested: bool,
+    #[serde(default)]
+    args: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,6 +47,8 @@ struct DesktopAutomationArtifact {
     source_scoped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution_environment: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process_id: Option<u32>,
 }
 
 pub struct DesktopAutomationTool;
@@ -149,6 +153,7 @@ fn artifact(
     target: Option<String>,
     launched: bool,
     source_scoped: bool,
+    process_id: Option<u32>,
 ) -> serde_json::Value {
     serde_json::to_value(DesktopAutomationArtifact {
         kind: "desktopAutomation",
@@ -158,6 +163,7 @@ fn artifact(
         launched,
         source_scoped,
         execution_environment: launched.then_some("local_detached_process"),
+        process_id,
     })
     .unwrap_or_else(|_| serde_json::json!({ "kind": "desktopAutomation" }))
 }
@@ -215,8 +221,47 @@ impl Tool for DesktopAutomationTool {
         args.action = args.action.trim().to_ascii_lowercase();
         args.path = normalize_nonempty(args.path);
         args.reason = normalize_nonempty(args.reason);
+        if args.action != "launch_app" && !args.args.is_empty() {
+            return Err(CoreError::InvalidInput(
+                "args are only supported by launch_app".into(),
+            ));
+        }
 
         match args.action.as_str() {
+            "launch_app" => {
+                let path = args.path.as_deref().ok_or_else(|| {
+                    CoreError::InvalidInput("launch_app requires an executable path".into())
+                })?;
+                let executable = resolve_source_path(db, source_scope, path)?;
+                if !executable.is_file()
+                    || (cfg!(windows)
+                        && !executable
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe")))
+                {
+                    return Err(CoreError::InvalidInput(
+                        "launch_app requires an executable file inside the active source scope (.exe on Windows). Use open_path for documents.".into(),
+                    ));
+                }
+                let target = executable.to_string_lossy().into_owned();
+                let mut request = DesktopLaunchCommand::new(&target, args.args.clone())
+                    .into_execution_request(source_scope);
+                request.cwd = executable
+                    .parent()
+                    .map(|path| path.to_string_lossy().into_owned());
+                let launched = LocalDetachedProcessExecutionEnvironment
+                    .execute(request)
+                    .await?;
+                Ok(ToolResult {
+                    call_id: call_id.to_string(),
+                    content: format!(
+                        "Launched desktop application: {target}. Process id: {:?}. Its lifetime is independent of shell command cleanup. Use computer_observe list_windows, then capture_window to verify startup and obtain a fresh observation before input.",
+                        launched.process_id,
+                    ),
+                    is_error: false,
+                    artifacts: Some(artifact(&args, Some(target), true, true, launched.process_id)),
+                })
+            }
             "open_path" => {
                 let path = args.path.as_deref().ok_or_else(|| {
                     CoreError::InvalidInput("open_path requires a non-empty path".to_string())
@@ -235,7 +280,7 @@ impl Tool for DesktopAutomationTool {
                     call_id: call_id.to_string(),
                     content: format!("Opened local path: {}", canonical.display()),
                     is_error: false,
-                    artifacts: Some(artifact(&args, Some(target), true, true)),
+                    artifacts: Some(artifact(&args, Some(target), true, true, None)),
                 })
             }
             "reveal_path" => {
@@ -250,7 +295,7 @@ impl Tool for DesktopAutomationTool {
                     call_id: call_id.to_string(),
                     content: format!("Revealed local path: {}", canonical.display()),
                     is_error: false,
-                    artifacts: Some(artifact(&args, Some(target), true, true)),
+                    artifacts: Some(artifact(&args, Some(target), true, true, None)),
                 })
             }
             other => Err(CoreError::InvalidInput(format!(
@@ -384,5 +429,58 @@ mod tests {
 
         let err = resolve_source_path(&db, &["other-source".to_string()], "note.txt").unwrap_err();
         assert!(err.to_string().contains("No source directories"));
+    }
+
+    #[test]
+    #[ignore = "child fixture launched by launch_app_survives_tool_completion"]
+    fn desktop_launch_probe_child() {
+        let args: Vec<String> = std::env::args().collect();
+        let index = args.iter().position(|arg| arg == "--logfile").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        std::fs::write(format!("{}.alive", args[index + 1]), b"alive").unwrap();
+    }
+
+    #[tokio::test]
+    async fn launch_app_survives_tool_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let db = Database::open_memory().unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: executable.parent().unwrap().to_string_lossy().into_owned(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        let log = dir.path().join("launch.log");
+        let marker = dir.path().join("launch.log.alive");
+        let args = serde_json::json!({
+            "action": "launch_app", "path": executable,
+            "args": ["--exact", "tools::desktop_automation_tool::tests::desktop_launch_probe_child",
+                "--ignored", "--logfile", log],
+        })
+        .to_string();
+        let scope = vec![source.id];
+        let result = DesktopAutomationTool
+            .execute(super::super::ToolExecutionContext::new(
+                "launch-test",
+                &args,
+                &db,
+                &scope,
+            ))
+            .await
+            .expect("desktop apps need a launch path independent of shell cleanup");
+        assert!(!result.is_error);
+        assert!(result.artifacts.as_ref().unwrap()["processId"]
+            .as_u64()
+            .is_some());
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while !marker.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("application must survive after the launch tool returns");
     }
 }
