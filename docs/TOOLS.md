@@ -866,8 +866,12 @@ Important fields:
 - `shared_desktop` reads the latest screen explicitly shared from the chat
   toolbar. It is read-only context, not an observation token for native input.
 
-In an existing desktop conversation, use **Share screen** and select a screen
-or window in the system picker. Nexa keeps only the newest bounded JPEG in
+Use **Share screen** in a new or existing desktop conversation. A new chat
+creates its conversation scope without sending a message or invoking a model,
+and preserves the current draft. On Windows, Chat and Live use Nexa's native
+monitor/window picker; the browser permission prompt with a localhost origin
+is not used for these native sources. Other hosts retain their system picker.
+Nexa keeps only the newest bounded JPEG in
 memory, refreshing about once per second. API agents receive a fresh view at
 model-step boundaries; subscription agents can read it with `shared_desktop`
 and receive refreshed views after Nexa tool operations. Stale frames are not
@@ -883,6 +887,10 @@ window-capture or input actions.
 ### `computer_control`
 
 Perform exactly one approved action against a fresh Windows observation.
+While native observation or control is running, a non-activating Nexa desktop
+status window shows the activity and offers **Stop** for its owning task.
+The indicator follows committed tool/terminal events and is hidden when those
+activities finish. It does not grant control permission.
 Observations are single-use for control. Prefer semantic `invoke` or
 `set_value`, then element-targeted pointer actions, with raw coordinates as the
 last fallback. Coordinates may use `captured_image_pixels` or

@@ -24,7 +24,8 @@ text if the microphone transport is interrupted.
    for the observation.
 3. Grant browser/OS microphone or camera permissions. On Windows desktop,
    select a numbered screen to share that entire monitor, including the desktop
-   and switching applications. The window/system picker remains available.
+   and switching applications, or select an application window in Nexa's native
+   source picker. These Windows sources do not open a localhost browser prompt.
    Other platforms and phones use their browser's supported capture sources.
 4. Start and wait for the model connection to become ready. Inspect connection
    state and observation text while capturing.
@@ -63,8 +64,10 @@ and in-progress markers. The expanded summary window has the same copy action.
 
 ### Share the desktop in Chat
 
-The composer screen button opens a source picker. Windows offers each connected
-monitor as well as the window/system picker. Capture starts only after selecting
+The composer screen button opens a source picker, including before the first
+message. It prepares an empty conversation and preserves the draft without
+starting a model turn. Windows offers each connected monitor and application
+window through Nexa's own picker. Capture starts only after selecting
 a source, shows a sharing indicator and preview, and stops when explicitly
 stopped or when leaving the conversation. Losing the selected monitor ends the
 share instead of silently switching to another display. Frames remain in memory.

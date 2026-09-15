@@ -91,6 +91,19 @@ preempt successful executor finalization.
 
 ## Desktop and browser lifetime
 
+User-started sharing and model control use separate entry points. The native
+share picker can capture Nexa itself, but the model-control path continues to
+exclude Nexa and approval surfaces. Both revalidate process/window identity.
+Capture teardown uses a bounded worker pool; timed-out or failed cleanup keeps
+or quarantines its admission slot rather than creating unlimited detached
+threads. A frame timeout never calls the driver's joining stop operation on
+the tool's input lane.
+
+The desktop control indicator projects only committed tool start/completion
+and terminal Run Events. It keeps one non-activating WebView, ignores output
+deltas, and does not restore stale visibility or window state after restart.
+Its Stop action uses the existing task cancellation path.
+
 Desktop applications launched for computer use have a lifetime independent of
 `run_shell` process-tree cleanup. `desktop_automation.launch_app` returns a process
 receipt; observation still establishes readiness and the next input target.
