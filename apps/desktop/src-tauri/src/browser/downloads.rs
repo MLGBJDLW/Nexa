@@ -134,7 +134,10 @@ impl Drop for DownloadJob {
 }
 
 #[derive(Default)]
-pub(super) struct DownloadGate(Mutex<Option<Weak<DownloadJob>>>);
+pub(super) struct DownloadGate(
+    Mutex<Option<Weak<DownloadJob>>>,
+    std::sync::atomic::AtomicU64,
+);
 
 pub(super) struct DownloadAction(pub Arc<DownloadJob>);
 impl DownloadAction {
@@ -177,6 +180,13 @@ impl Drop for DownloadAction {
 }
 
 impl DownloadGate {
+    pub fn blocked_count(&self) -> u64 {
+        self.1.load(std::sync::atomic::Ordering::Acquire)
+    }
+    fn record_blocked(&self) {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
     pub fn arm(&self, destination: &Path) -> Result<DownloadAction, String> {
         let mut active = self
             .0
@@ -291,6 +301,7 @@ mod native {
         webview: &tauri::Webview,
         gate: Arc<DownloadGate>,
         restricted: Arc<AtomicBool>,
+        blocked: impl Fn(String) + Send + Sync + 'static,
     ) -> Result<(), String> {
         use tauri::Manager;
         let app = webview.app_handle().clone();
@@ -304,7 +315,13 @@ mod native {
                     if !restricted.load(Ordering::Acquire) { args.SetCancel(false)?; args.SetHandled(false)?; return Ok(()); }
                     args.SetCancel(true)?;
                     args.SetHandled(true)?;
-                    let Some(job) = gate.claim() else { return Ok(()); };
+                    let Some(job) = gate.claim() else {
+                        gate.record_blocked();
+                        let mut raw_url = windows_core_webview2::PWSTR::null();
+                        let _ = args.DownloadOperation().and_then(|operation| operation.Uri(&mut raw_url));
+                        blocked(CoTaskMemPWSTR::from(raw_url).to_string());
+                        return Ok(());
+                    };
                     let setup = (|| -> windows_core_webview2::Result<()> {
                         let operation = args.DownloadOperation()?;
                         let mut total = 0;

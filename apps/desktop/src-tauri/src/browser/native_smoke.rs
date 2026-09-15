@@ -44,7 +44,13 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
                 let dialogs = Arc::new(super::super::dialogs::DialogPolicy::default());
                 super::super::dialogs::install(&webview, dialogs.clone(), restricted.clone(), |_| {}).await?;
                 let downloads = Arc::new(super::super::downloads::DownloadGate::default());
-                super::super::downloads::install(&webview, downloads.clone(), restricted).await?;
+                let blocked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let blocked_event = blocked.clone();
+                super::super::downloads::install(&webview, downloads.clone(), restricted, move |_| { blocked_event.fetch_add(1, std::sync::atomic::Ordering::AcqRel); }).await?;
+                eval_json(&webview, "(() => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['blocked fixture'])); a.download = 'blocked.txt'; a.click(); return true; })()").await?;
+                for _ in 0..80 { if blocked.load(std::sync::atomic::Ordering::Acquire) > 0 { break; } tokio::time::sleep(std::time::Duration::from_millis(25)).await; }
+                if blocked.load(std::sync::atomic::Ordering::Acquire) != 1 || downloads.blocked_count() != 1 { return Err("Unarmed native download did not emit a blocked notification".into()); }
+
                 eval_json(&webview, r#"(() => {
                     document.body.innerHTML = '<button id="export">Export</button>';
                     window.events = [];

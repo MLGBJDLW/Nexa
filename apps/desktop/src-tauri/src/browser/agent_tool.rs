@@ -995,9 +995,14 @@ impl Tool for NativeBrowserSessionTool {
                     .state
                     .arm_dialogs(session_id, tab_id, &args.dialog_responses)
                     .map_err(Self::invalid)?;
+                let download_gate = self
+                    .state
+                    .download_gate(session_id, tab_id)
+                    .map_err(Self::invalid)?;
+                let blocked_before = download_gate.blocked_count();
                 let download = destination
                     .as_deref()
-                    .map(|path| self.state.arm_download(session_id, tab_id, path))
+                    .map(|path| download_gate.arm(path))
                     .transpose()
                     .map_err(Self::invalid)?;
                 let action_result = self
@@ -1027,6 +1032,8 @@ impl Tool for NativeBrowserSessionTool {
                 drop(dialog_action);
                 let action_result = if dialogs.iter().any(|dialog| dialog.dialog_limit_exceeded) {
                     Err("Page paused after repeated dialogs. Close or reload the tab if appropriate; the previous input may have occurred and must not be replayed blindly.".into())
+                } else if download_gate.blocked_count() != blocked_before {
+                    Err("The input was dispatched. A page download was blocked because no matching downloadTo ticket was authorized. Observe the current page before deciding whether to request a new download with a destination; do not replay input blindly.".into())
                 } else if dialogs.iter().any(|dialog| !dialog.matched) {
                     Err(format!("The input was dispatched, but an unexpected page dialog was dismissed: {}. Inspect the page; do not replay the input blindly.", serde_json::to_string(&dialogs)?))
                 } else {

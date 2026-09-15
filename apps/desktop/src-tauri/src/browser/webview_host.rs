@@ -771,11 +771,16 @@ pub async fn create_child_webview(
         }
     }
     #[cfg(windows)]
-    if let Err(error) =
-        super::downloads::install(&webview, downloads.clone(), agent_restricted).await
     {
-        let _ = webview.close();
-        return Err(error);
+        let state = state.clone();
+        let session_id = session_id.to_string();
+        let tab_id = tab_id.to_string();
+        if let Err(error) = super::downloads::install(&webview, downloads.clone(), agent_restricted, move |url| {
+            state.emit("downloadRequested", serde_json::json!({ "sessionId": session_id, "tabId": tab_id, "url": url, "blocked": true }));
+        }).await {
+            let _ = webview.close();
+            return Err(error);
+        }
     }
     // Native event handlers must be installed before any remote page can open
     // a dialog or initiate a download, including its initial navigation.

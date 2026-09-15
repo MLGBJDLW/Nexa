@@ -2625,26 +2625,23 @@ impl BrowserState {
         }
     }
 
-    pub(super) fn arm_download(
+    pub(super) fn download_gate(
         &self,
         session_id: &str,
         tab_id: &str,
-        destination: &Path,
-    ) -> Result<super::downloads::DownloadAction, String> {
-        let downloads = {
-            let runtime = self
-                .inner
-                .lock()
-                .map_err(|_| "Browser runtime is unavailable")?;
-            let session = runtime
-                .sessions
-                .get(session_id)
-                .ok_or("Unknown browser session")?;
-            Arc::clone(&require_agent_tab_surface(session, tab_id)?.downloads)
-        };
-        // Destination checks can touch a slow disk or network share. They must
-        // not keep every browser tab behind the workspace state mutex.
-        downloads.arm(destination)
+    ) -> Result<Arc<super::downloads::DownloadGate>, String> {
+        let runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser runtime is unavailable")?;
+        let session = runtime
+            .sessions
+            .get(session_id)
+            .ok_or("Unknown browser session")?;
+        // File checks and ticket preparation happen after releasing this lock.
+        Ok(Arc::clone(
+            &require_agent_tab_surface(session, tab_id)?.downloads,
+        ))
     }
 
     pub(super) fn arm_dialogs(
