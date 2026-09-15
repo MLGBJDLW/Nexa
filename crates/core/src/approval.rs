@@ -230,6 +230,27 @@ impl ToolPermissionKey {
             return Self::new(&invocation.tool_name, "command", target);
         }
 
+        if invocation.tool_name == "desktop_automation"
+            && args
+                .get("action")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|action| action.trim().eq_ignore_ascii_case("launch_app"))
+        {
+            let launch = serde_json::json!({
+                "path": args.get("path").and_then(serde_json::Value::as_str).map(str::trim),
+                "args": args.get("args").cloned().unwrap_or_else(|| serde_json::json!([])),
+            });
+            // Persist a stable identity without storing literal command operands
+            // in a permission key. File-open grants cannot authorize execution.
+            let digest =
+                blake3::hash(&serde_json::to_vec(&launch).expect("JSON launch is serializable"));
+            return Self::new(
+                &invocation.tool_name,
+                "desktop_launch",
+                digest.to_hex().to_string(),
+            );
+        }
+
         if invocation.tool_name == "project_tool" {
             let action = args
                 .get("action")

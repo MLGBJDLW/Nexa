@@ -199,6 +199,16 @@ impl Tool for DesktopAutomationTool {
             .get("path")
             .and_then(|value| value.as_str())
             .unwrap_or("<target not specified>");
+        if action.trim().eq_ignore_ascii_case("launch_app") {
+            let invocation = serde_json::json!({
+                "path": target,
+                "args": args.get("args").cloned().unwrap_or_else(|| serde_json::json!([])),
+            });
+            return Some(format!(
+                "Launch this desktop application with these literal arguments:\n{}",
+                serde_json::to_string_pretty(&invocation).expect("JSON invocation is serializable")
+            ));
+        }
         Some(format!(
             "Perform desktop automation action '{action}' for: {target}"
         ))
@@ -407,6 +417,30 @@ mod tests {
         assert!(tool.requires_confirmation(&serde_json::json!({
             "action": "open_path"
         })));
+    }
+
+    #[test]
+    fn launch_approval_discloses_and_binds_every_literal_argument() {
+        let args = serde_json::json!({"action":"launch_app", "path":"C:\\Fixture\\Editor.exe", "args":["--command", "remove \"draft file\"\nsecond line"]});
+        let tool = DesktopAutomationTool;
+        let message = tool.confirmation_message(&args).unwrap();
+        assert!(message.contains("--command"));
+        assert!(message.contains(&serde_json::to_string(&args["args"][1]).unwrap()));
+        let original = crate::approval::permission_key_for_tool("desktop_automation", &args);
+        let same = crate::approval::permission_key_for_tool("desktop_automation", &args);
+        assert_eq!(original, same);
+        assert_eq!(original.target_kind, "desktop_launch");
+        let mut changed = args.clone();
+        changed["args"] = serde_json::json!(["--command", "read draft file"]);
+        assert_ne!(
+            original,
+            crate::approval::permission_key_for_tool("desktop_automation", &changed)
+        );
+        changed["action"] = serde_json::json!("open_path");
+        assert_ne!(
+            original,
+            crate::approval::permission_key_for_tool("desktop_automation", &changed)
+        );
     }
 
     #[test]
