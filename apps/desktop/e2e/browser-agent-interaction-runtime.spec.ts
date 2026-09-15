@@ -527,6 +527,38 @@ test('large forms bound total option evidence and report omitted choices', async
   expect(snapshot.elements.some(el => (el.options?.length || 0) < el.optionCount!)).toBe(true);
 });
 
+test('select rejects missing and disabled choices without clearing the current value', async ({ page }) => {
+  await page.setContent('<select aria-label="Plan"><option value="free" selected>Free</option><optgroup disabled><option value="paid">Paid</option></optgroup></select>');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const value of ['missing', 'paid']) {
+    const snapshot = await observe(page);
+    await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+      { ...actionInput(snapshot, 'select', snapshot.elements[0].ref), value })).rejects.toThrow();
+    await expect(page.locator('select')).toHaveValue('free');
+  }
+});
+
+test('select supports exact multiple selections and skips unchanged values', async ({ page }) => {
+  await page.setContent('<select multiple aria-label="Tags" onchange="window.changes=(window.changes||0)+1"><option value="a">A</option><option value="b">B</option><option value="c">C</option></select>');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const values of [['a', 'c'], ['a', 'c'], []]) {
+    const snapshot = await observe(page);
+    await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+      { ...actionInput(snapshot, 'select', snapshot.elements[0].ref), values });
+    await expect(page.locator('select')).toHaveValues(values);
+  }
+  expect(await page.evaluate(() => (window as Window & { changes: number }).changes)).toBe(2);
+});
+
+test('observations distinguish loading documents from complete documents', async ({ page }) => {
+  await page.setContent('<button>Ready</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.evaluate(() => Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' }));
+  expect((await observe(page)).readyState).toBe('loading');
+  await page.evaluate(() => Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'complete' }));
+  expect((await observe(page)).readyState).toBe('complete');
+});
+
 async function observe(page: import('@playwright/test').Page): Promise<BrowserObservation> {
   return page.evaluate(() => (
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
@@ -577,6 +609,7 @@ interface BrowserElement {
 
 interface BrowserObservation {
   url: string;
+  readyState?: string;
   userEpoch: number;
   domFingerprint: string;
   interactionFingerprint: string;
@@ -592,6 +625,8 @@ interface BrowserVerificationBaseline {
 interface BrowserActionInput {
   action: string;
   checked?: boolean;
+  value?: string;
+  values?: string[];
   targetRef: string;
   endRef?: string;
   button: string;

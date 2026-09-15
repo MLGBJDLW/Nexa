@@ -320,6 +320,18 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     if (roleOf(el) === 'radio' && !input.checked) throw new Error('Select a different radio option instead of clearing a radio');
     return state === input.checked;
   };
+  const requestedSelectOptions = (el, input) => {
+    if (!el || el.tagName !== 'SELECT' || !enabledOf(el)) throw new Error('select requires an enabled select element');
+    if (input.values != null && input.value != null) throw new Error('Use value or values, not both');
+    const values = input.values != null ? input.values : typeof input.value === 'string' ? [input.value] : null;
+    if (!Array.isArray(values) || values.length > 100 || values.some(value => typeof value !== 'string' || value.length > 512) || new Set(values).size !== values.length) throw new Error('select requires up to 100 unique option values');
+    if (!el.multiple && values.length !== 1) throw new Error('A single-select requires exactly one value');
+    return values.map(value => {
+      const option = Array.from(el.options).find(option => option.value === value);
+      if (!option || option.matches(':disabled')) throw new Error('Requested select option is missing or disabled');
+      return option;
+    });
+  };
   const cssPath = (el) => {
     const parts = [];
     let current = el;
@@ -429,8 +441,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       inputType: el.type || null,
       enabled: enabledOf(el),
       checked: checkedOf(el),
-      options: el.tagName === 'SELECT' ? Array.from(el.options).slice(0, Math.min(100, optionBudget)).map(option => ({ value: option.value.slice(0, 512), label: option.label.slice(0, 240), selected: option.selected, enabled: !option.matches(':disabled') })) : null,
+      options: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.options, 0, Math.min(100, optionBudget)).map(option => ({ value: option.value.slice(0, 512), label: option.label.slice(0, 240), selected: option.selected, enabled: !option.matches(':disabled') })) : null,
       optionCount: el.tagName === 'SELECT' ? el.options.length : null,
+      selectedValues: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.selectedOptions, 0, 101).map(option => option.value.slice(0, 512)) : null,
       visible: rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden',
       bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       locatorFingerprint: {
@@ -533,6 +546,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         String(checkedOf(element)),
         enabledOf(element) ? 'enabled' : 'disabled',
         Number.isInteger(element.selectedIndex) ? String(element.selectedIndex) : '',
+        element.tagName === 'SELECT' ? hashText([element.options.length, element.selectedOptions.length, ...Array.prototype.slice.call(element.options, 0, 100).map(option => [option.value, option.selected, option.matches(':disabled')].join(':')), ...Array.prototype.slice.call(element.selectedOptions, 0, 101).map(option => option.value)].join('|')) : '',
         style.display,
         style.visibility,
         style.opacity,
@@ -574,6 +588,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     return {
       url: location.href,
       title: document.title,
+      readyState: document.readyState,
       text: document.body ? document.body.innerText.slice(0, 30000) : '',
       viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
       historyLength: history.length,
@@ -607,6 +622,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     };
     verify(el, input.targetRef, input.expected, 'target');
     verify(end, input.endRef, input.expectedEnd, 'drag destination');
+    if (input.action === 'select') requestedSelectOptions(el, input);
+    if (input.action === 'set_checked') checkedStateMatches(el, input);
     return { el, end };
   };
   const centerOf = (el) => {
@@ -858,9 +875,14 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: input.text || '' }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (input.action === 'select') {
-        el.value = input.value || '';
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
+        const desired = new Set(requestedSelectOptions(el, input));
+        const options = Array.from(el.options);
+        if (options.some(option => option.selected !== desired.has(option))) {
+          for (const option of options) option.selected = desired.has(option);
+          const realm = el.ownerDocument.defaultView || window;
+          el.dispatchEvent(new realm.Event('input', { bubbles: true }));
+          el.dispatchEvent(new realm.Event('change', { bubbles: true }));
+        }
       } else if (input.action === 'press') {
         const target = el || document.activeElement || document.body;
         const realm = target.ownerDocument?.defaultView || window;

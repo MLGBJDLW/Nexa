@@ -70,6 +70,8 @@ pub struct BrowserElement {
     pub options: Option<Vec<BrowserSelectOption>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub option_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_values: Option<Vec<String>>,
     pub bounds: BrowserElementBounds,
     pub locator_fingerprint: BrowserLocatorFingerprint,
 }
@@ -103,6 +105,8 @@ pub struct BrowserObservation {
     pub tab_id: String,
     pub url: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_state: Option<String>,
     pub text: String,
     pub viewport: serde_json::Value,
     pub content_hash: String,

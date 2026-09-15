@@ -204,6 +204,7 @@ struct BrowserArgs {
     end_ref: Option<String>,
     text: Option<String>,
     value: Option<String>,
+    values: Option<Vec<String>>,
     checked: Option<bool>,
     key: Option<String>,
     button: Option<String>,
@@ -228,7 +229,12 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
     match condition_type {
-        "page_loaded" => true,
+        "page_loaded" => {
+            observation
+                .get("readyState")
+                .and_then(serde_json::Value::as_str)
+                == Some("complete")
+        }
         "text_present" => condition
             .get("text")
             .and_then(serde_json::Value::as_str)
@@ -377,7 +383,8 @@ impl Tool for NativeBrowserSessionTool {
                 "targetRef": { "type": "string" },
                 "endRef": { "type": "string", "description": "Observation-scoped destination element ref for drag." },
                 "text": { "type": "string" },
-                "value": { "type": "string" },
+                "value": { "type": "string", "maxLength": 512, "description": "Exact value for select. Use either value or values." },
+                "values": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "maxLength": 512 }, "description": "Exact desired selection for select, including multiple-select lists. Empty clears a multiple-select. Missing/disabled options fail before input." },
                 "checked": { "type": "boolean", "description": "Required for set_checked. Ensures a checkbox, radio or switch has this state; an already matching target is not clicked. Radio controls can only be set true. Verify the returned observation; failed verification must not be blindly replayed." },
                 "key": { "type": "string" },
                 "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
@@ -830,6 +837,21 @@ impl Tool for NativeBrowserSessionTool {
             }
             "move" | "hover" | "click" | "double_click" | "drag" | "type" | "select" | "press"
             | "scroll" | "set_checked" => {
+                if action == "select"
+                    && (args.value.is_some() == args.values.is_some()
+                        || args
+                            .value
+                            .as_ref()
+                            .is_some_and(|value| value.chars().count() > 512)
+                        || args.values.as_ref().is_some_and(|values| {
+                            values.len() > 100
+                                || values.iter().any(|value| value.chars().count() > 512)
+                        }))
+                {
+                    return Err(Self::invalid(
+                        "select requires value or values (up to 100 choices, 512 characters each)",
+                    ));
+                }
                 if action == "set_checked"
                     && (args.checked.is_none()
                         || args
@@ -885,6 +907,7 @@ impl Tool for NativeBrowserSessionTool {
                         end_ref,
                         text: args.text.as_deref(),
                         value: args.value.as_deref(),
+                        values: args.values.as_deref(),
                         checked: args.checked,
                         key,
                         button: args.button.as_deref(),
@@ -1376,6 +1399,7 @@ mod tests {
             tab_id: "tab-1".to_string(),
             url: "https://example.com/".to_string(),
             title: "Example".to_string(),
+            ready_state: Some("complete".to_string()),
             text: "Example page".to_string(),
             viewport: serde_json::json!({ "width": 800, "height": 600 }),
             content_hash: "dom-hash".to_string(),
@@ -1490,6 +1514,15 @@ mod tests {
 
     #[test]
     fn state_waits_require_matching_targets_and_known_boolean_states() {
+        for ready_state in [None, Some("loading"), Some("interactive"), Some("complete")] {
+            assert_eq!(
+                condition_matches(
+                    &serde_json::json!({"readyState":ready_state}),
+                    &serde_json::json!({"type":"page_loaded"})
+                ),
+                ready_state == Some("complete")
+            );
+        }
         let observation = serde_json::json!({"elements":[
             {"ref":"save","enabled":false}, {"ref":"choice","checked":false}, {"ref":"partial","checked":"mixed"}
         ]});

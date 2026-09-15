@@ -802,6 +802,11 @@ requested state before success; failures retain the existing commit receipt.
 `wait_for` also accepts `element_checked` and `element_enabled` conditions with
 a boolean `value`, combined with an element ref, name or role. Unknown and mixed
 checked states never count as false.
+`select` accepts one exact `value` or a `values` array for a multiple-select;
+an empty array clears a multiple-select. All requested options must exist and
+be enabled before selection changes. Unchanged selections emit no input/change
+events, and the refreshed observation must confirm the requested values.
+`page_loaded` requires the observed document's `readyState` to be `complete`.
 
 Safety posture:
 - Observe before interaction and use refs only from the latest observation.

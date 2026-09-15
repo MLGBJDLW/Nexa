@@ -40,6 +40,8 @@ const MAX_BROWSER_TABS_PER_SESSION: usize = 16;
 struct BrowserPageSnapshot {
     url: String,
     title: String,
+    #[serde(default)]
+    ready_state: Option<String>,
     text: String,
     viewport: serde_json::Value,
     history_length: usize,
@@ -1862,6 +1864,7 @@ impl BrowserState {
             tab_id: tab_id.to_string(),
             url: snapshot.url,
             title: snapshot.title,
+            ready_state: snapshot.ready_state,
             text: snapshot.text,
             viewport: snapshot.viewport,
             content_hash,
@@ -1994,6 +1997,7 @@ impl BrowserState {
             "endRef": request.end_ref,
             "text": request.text,
             "value": request.value,
+            "values": request.values,
             "checked": request.checked,
             "key": request.key,
             "button": request.button.unwrap_or("left"),
@@ -2208,7 +2212,7 @@ impl BrowserState {
             let fresh_observation = self
                 .observe(request.session_id, request.tab_id, request.call_id)
                 .await?;
-            verify_requested_checked_state(&request, &fresh_observation)?;
+            verify_requested_form_state(&request, &fresh_observation)?;
             drop(navigation_permit_guard);
             self.emit(
                 "agentAction",
@@ -2270,7 +2274,7 @@ impl BrowserState {
         let fresh_observation = self
             .observe(request.session_id, request.tab_id, request.call_id)
             .await?;
-        verify_requested_checked_state(&request, &fresh_observation)?;
+        verify_requested_form_state(&request, &fresh_observation)?;
         drop(navigation_permit_guard);
         self.emit(
             "agentAction",
@@ -3643,6 +3647,7 @@ pub struct BrowserActRequest<'a> {
     pub end_ref: Option<&'a str>,
     pub text: Option<&'a str>,
     pub value: Option<&'a str>,
+    pub values: Option<&'a [String]>,
     pub checked: Option<bool>,
     pub key: Option<&'a str>,
     pub button: Option<&'a str>,
@@ -3652,10 +3657,31 @@ pub struct BrowserActRequest<'a> {
     pub commit_tracker: BrowserActCommitTracker,
 }
 
-fn verify_requested_checked_state(
+fn verify_requested_form_state(
     request: &BrowserActRequest<'_>,
     observation: &CoreBrowserObservation,
 ) -> Result<(), String> {
+    if request.action == "select" {
+        let mut desired = request.values.map(<[String]>::to_vec).unwrap_or_else(|| {
+            request
+                .value
+                .map(|value| vec![value.to_string()])
+                .unwrap_or_default()
+        });
+        let actual = observation
+            .elements
+            .iter()
+            .find(|element| Some(element.element_ref.as_str()) == request.target_ref)
+            .and_then(|element| element.selected_values.clone());
+        if let Some(mut actual) = actual {
+            desired.sort();
+            actual.sort();
+            if actual == desired {
+                return Ok(());
+            }
+        }
+        return Err("The requested select values were not observed after the action. Capture again before retrying; the page may have changed or rejected the selection.".into());
+    }
     if request.action != "set_checked" {
         return Ok(());
     }
