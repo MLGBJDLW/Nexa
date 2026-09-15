@@ -595,7 +595,7 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   }
 
   const chatLog = page.getByLabel('Chat messages');
-  await chatLog.getByRole('button', { name: /Spawn Subagent/i }).click();
+  await chatLog.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
   const subagentCard = chatLog.getByRole('button', {
     name: /Critic\s+Complete\s+1 tools?\s+Audit the last answer for risks/i,
   }).first();
@@ -634,9 +634,10 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await page.getByRole('button', { name: /^Research/ }).click();
   await page.getByRole('button', { name: /^Workflow Plans/ }).click();
   await page.getByRole('button', { name: /^Delegated skills/ }).click();
-  await expect(page.getByText('Knowledge Search', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Record Verification', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Web Search', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('search_knowledge_base', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('record_verification', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('web_search', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' })).toBeChecked();
   await expect(page.getByText('Critic Format')).toBeVisible();
 });
 
@@ -650,7 +651,7 @@ test('projects resolved context budgets and preflight into the subagent card', a
     await thinkingToggle.click();
   }
   const chatLog = page.getByLabel('Chat messages');
-  await chatLog.getByRole('button', { name: /Spawn Subagent/i }).click();
+  await chatLog.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
   const budgets = chatLog.getByTestId('subagent-model-budgets');
   await expect(budgets).toContainText('provider managed');
   await expect(budgets).toContainText('24,000');
@@ -676,7 +677,7 @@ test('shows unlimited delegation budgets without losing the preflight report', a
   const thinkingToggle = page.getByRole('button', { name: /Thinking completed/ });
   if (await thinkingToggle.getAttribute('aria-expanded') !== 'true') await thinkingToggle.click();
   const chatLog = page.getByLabel('Chat messages');
-  await chatLog.getByRole('button', { name: /Spawn Subagent/i }).click();
+  await chatLog.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
   await expect(chatLog.getByTestId('subagent-preflight')).toContainText('Preflight passed 5 stages');
   await expect(chatLog.getByTestId('subagent-preflight-budgets')).toContainText('Calls remaining at preflight: ∞');
   await expect(chatLog.getByTestId('subagent-preflight-budgets')).toContainText('Run deadline: ∞');
@@ -690,7 +691,7 @@ test('marks persisted lifecycle handles interrupted instead of presenting stale 
     await thinkingToggle.click();
   }
   const chatLog = page.getByLabel('Chat messages');
-  await chatLog.getByRole('button', { name: /Spawn Subagent/i }).click();
+  await chatLog.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
   await expect(chatLog.getByText('Interrupted by restart')).toBeVisible();
   await expect(chatLog.getByTestId('subagent-parent-controls')).toHaveCount(0);
 });

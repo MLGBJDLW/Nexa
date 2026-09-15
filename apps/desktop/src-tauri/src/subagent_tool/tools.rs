@@ -8,7 +8,8 @@ impl Tool for SubagentTool {
         &delegation_tool_def(&SPAWN_SUBAGENT_DEF, SPAWN_SUBAGENT_JSON).description
     }
     fn parameters_schema(&self) -> serde_json::Value {
-        spawn_subagent_parameters_schema()
+        self.runtime
+            .scope_spawn_schema(spawn_subagent_parameters_schema(), false)
     }
     fn categories(&self) -> &'static [ToolCategory] {
         &[ToolCategory::SubAgent]
@@ -32,7 +33,7 @@ impl Tool for SubagentTool {
         })?;
         let args = normalize_spawn_args(args)?;
         let agent_id = format!("subagent-{}", uuid::Uuid::new_v4());
-        let registration = self.runtime.lifecycle.register(RegisterSubagentRequest {
+        let registration = self.runtime.register_worker(RegisterSubagentRequest {
             agent_id: agent_id.clone(),
             parent_call_id: call_id.to_string(),
             task: args.task.clone(),
@@ -98,7 +99,8 @@ impl Tool for SubagentBatchTool {
         &delegation_tool_def(&SPAWN_SUBAGENT_BATCH_DEF, SPAWN_SUBAGENT_BATCH_JSON).description
     }
     fn parameters_schema(&self) -> serde_json::Value {
-        spawn_subagent_batch_parameters_schema()
+        self.runtime
+            .scope_spawn_schema(spawn_subagent_batch_parameters_schema(), true)
     }
     fn categories(&self) -> &'static [ToolCategory] {
         &[ToolCategory::SubAgent]
@@ -223,7 +225,7 @@ impl Tool for SubagentBatchTool {
             let detached_parallel_group = batch_parallel_group.clone();
             let batch_call_id = call_id.to_string();
             let lifecycle_agent_id = format!("subagent-{}", uuid::Uuid::new_v4());
-            let registration = runtime.lifecycle.register(RegisterSubagentRequest {
+            let registration = runtime.register_worker(RegisterSubagentRequest {
                 agent_id: lifecycle_agent_id.clone(),
                 parent_call_id: call_id.to_string(),
                 task: task_args.task.clone(),

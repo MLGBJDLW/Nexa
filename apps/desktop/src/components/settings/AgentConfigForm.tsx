@@ -46,7 +46,6 @@ import {
   getSubagentToolGroup,
   mergeSubagentToolCatalog,
   SUBAGENT_TOOL_GROUPS,
-  usesDefaultSubagentToolSelection,
 } from "../../lib/subagentTools";
 import { CollapsiblePanel } from "./SettingsSection";
 import {
@@ -214,6 +213,9 @@ export function AgentConfigForm({
       canonicalSubagentToolName,
     ),
   );
+  const [inheritSubagentTools, setInheritSubagentTools] = useState(
+    config?.subagentAllowedTools == null,
+  );
   const [subagentAllowedSkillIds, setSubagentAllowedSkillIds] = useState<
     string[]
   >(config?.subagentAllowedSkillIds ?? []);
@@ -319,11 +321,7 @@ export function AgentConfigForm({
     summarizationModel: config?.summarizationModel ?? null,
     summarizationProvider: config?.summarizationProvider ?? null,
     imageGenerationModel: null,
-    subagentAllowedTools: usesDefaultSubagentToolSelection(
-      config?.subagentAllowedTools,
-    )
-      ? null
-      : (config?.subagentAllowedTools?.map(canonicalSubagentToolName) ?? null),
+    subagentAllowedTools: config?.subagentAllowedTools?.map(canonicalSubagentToolName) ?? null,
     subagentAllowedSkillIds: config?.subagentAllowedSkillIds ?? null,
     subagentMaxParallel:
       config?.delegationLimitsV2?.maxParallel ?? config?.subagentMaxParallel ?? 3,
@@ -409,7 +407,7 @@ export function AgentConfigForm({
   const supportsThinkingBudget = thinkingBudgetCapability?.enabled === true;
   const supportsReasoningEffort = reasoningEffortOptions.length > 0;
   const subagentToolCatalog = useMemo(
-    () => mergeSubagentToolCatalog(mcpToolDescriptors),
+    () => mergeSubagentToolCatalog(mcpToolDescriptors).filter(tool => tool.delegable !== false),
     [mcpToolDescriptors],
   );
   const subagentToolsByGroup = useMemo(
@@ -473,19 +471,23 @@ export function AgentConfigForm({
   );
 
   const setRecommendedSubagentTools = useCallback(() => {
+    setInheritSubagentTools(false);
     setSubagentAllowedTools(orderToolSelection(DEFAULT_SUBAGENT_TOOL_NAMES));
   }, [orderToolSelection]);
 
   const setAllSubagentTools = useCallback(() => {
+    setInheritSubagentTools(false);
     setSubagentAllowedTools(orderToolSelection(subagentToolCatalog.map((tool) => tool.name)));
   }, [orderToolSelection, subagentToolCatalog]);
 
   const clearSubagentTools = useCallback(() => {
+    setInheritSubagentTools(false);
     setSubagentAllowedTools([]);
   }, []);
 
   const setSubagentToolGroupSelection = useCallback(
     (toolNames: string[], enabled: boolean) => {
+      setInheritSubagentTools(false);
       setSubagentAllowedTools((prev) => {
         const next = new Set(prev);
         for (const name of toolNames) {
@@ -725,9 +727,7 @@ export function AgentConfigForm({
         summarizationModel: summarizationModel?.trim() || null,
         summarizationProvider: summarizationProvider || null,
         imageGenerationModel: null,
-        subagentAllowedTools: usesDefaultSubagentToolSelection(
-          subagentAllowedTools,
-        )
+        subagentAllowedTools: inheritSubagentTools
           ? null
           : orderToolSelection(subagentAllowedTools),
         subagentAllowedSkillIds: usesAllEnabledSkills
@@ -782,6 +782,7 @@ export function AgentConfigForm({
       summarizationModel,
       summarizationProvider,
       subagentAllowedTools,
+      inheritSubagentTools,
       subagentAllowedSkillIds,
       subagentMaxParallel,
       subagentMaxCallsPerTurn,
@@ -1389,7 +1390,7 @@ export function AgentConfigForm({
               </p>
             </div>
             <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-              {t("settings.selectedToolsSummary", {
+              {inheritSubagentTools ? t("settings.inheritSubagentTools") : t("settings.selectedToolsSummary", {
                 selected: String(visibleSelectedToolCount),
                 total: String(subagentToolCatalog.length),
               })}
@@ -1550,6 +1551,11 @@ export function AgentConfigForm({
 
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-text-secondary">
+                <input type="checkbox" checked={inheritSubagentTools}
+                  onChange={(event) => setInheritSubagentTools(event.target.checked)} />
+                {t("settings.inheritSubagentTools")}
+              </label>
               <Button
                 type="button"
                 variant="secondary"
@@ -1628,7 +1634,9 @@ export function AgentConfigForm({
                             <input
                               type="checkbox"
                               checked={checked}
+                              disabled={inheritSubagentTools}
                               onChange={(event) => {
+                                setInheritSubagentTools(false);
                                 setSubagentAllowedTools((prev) => {
                                   const next = new Set(prev);
                                   if (event.target.checked) {

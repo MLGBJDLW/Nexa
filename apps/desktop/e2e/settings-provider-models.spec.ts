@@ -1137,6 +1137,28 @@ test("provider catalog prioritizes configured entries and reflows at 320px", asy
   expect(gridSize.scrollWidth).toBeLessThanOrEqual(gridSize.clientWidth);
 });
 
+test("subagent tool inheritance remains distinct from an explicit empty allowlist", async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByTitle('Edit').first().click();
+  const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
+  const inherit = form.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' });
+  if (!await inherit.isVisible()) await form.getByRole('button', { name: /Advanced/i }).click();
+  await inherit.check();
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig?.subagentAllowedTools)).toBeNull();
+
+  await page.getByTitle('Edit').first().click();
+  const edited = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
+  if (!await edited.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' }).isVisible()) {
+    await edited.getByRole('button', { name: /Advanced/i }).click();
+  }
+  await edited.getByRole('button', { name: 'Disable all', exact: true }).first().click();
+  await expect(edited.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' })).not.toBeChecked();
+  await edited.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig?.subagentAllowedTools)).toEqual([]);
+});
+
 test("legacy provider output caps are retired without manual cleanup", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "AI Providers" }).click();

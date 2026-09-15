@@ -3,6 +3,7 @@ export interface SubagentToolDescriptor {
   label: string;
   description: string;
   enabledByDefault: boolean;
+  delegable?: boolean;
   source?: 'built_in' | 'delegation' | 'mcp';
   serverName?: string;
 }
@@ -94,6 +95,7 @@ const TOOL_GROUP_BY_NAME: Record<string, SubagentToolGroupId> = {
   manage_source: 'write',
   archive_output: 'write',
   download_asset: 'write',
+  run_shell: 'write',
   desktop_automation: 'write',
 
   spawn_subagent: 'delegation',
@@ -112,6 +114,13 @@ export function getSubagentToolGroup(tool: Pick<SubagentToolDescriptor, 'name' |
 }
 
 export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
+  {
+    name: 'run_shell',
+    label: 'Run Shell',
+    description: 'Run commands within the parent execution permissions and source scope.',
+    enabledByDefault: false,
+    source: 'built_in',
+  },
   {
     name: 'tool_search',
     label: 'Tool Search',
@@ -233,6 +242,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'desktop_automation',
+    delegable: false,
     label: 'Desktop Automation',
     description: 'Open or reveal source-scoped paths on the local desktop.',
     enabledByDefault: false,
@@ -338,6 +348,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'spawn_subagent',
+    delegable: false,
     label: 'Spawn Subagent',
     description: 'Delegate a nested subtask to another short-lived worker.',
     enabledByDefault: false,
@@ -345,6 +356,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'spawn_subagent_batch',
+    delegable: false,
     label: 'Spawn Batch',
     description: 'Launch several delegated workers in parallel for fan-out work.',
     enabledByDefault: false,
@@ -352,6 +364,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'judge_subagent_results',
+    delegable: false,
     label: 'Judge Results',
     description: 'Adjudicate or rank delegated worker results with a rubric.',
     enabledByDefault: false,
@@ -359,6 +372,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'observe_subagent',
+    delegable: false,
     label: 'Observe Subagent',
     description: 'Read incremental lifecycle events from a spawned worker.',
     enabledByDefault: false,
@@ -366,6 +380,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'wait_subagent',
+    delegable: false,
     label: 'Wait for Subagent',
     description: 'Wait for a spawned worker and consume its authoritative result.',
     enabledByDefault: false,
@@ -373,6 +388,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'send_subagent_input',
+    delegable: false,
     label: 'Steer Subagent',
     description: 'Send additional input to an active spawned worker.',
     enabledByDefault: false,
@@ -380,6 +396,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'cancel_subagent',
+    delegable: false,
     label: 'Cancel Subagent',
     description: 'Request cooperative cancellation of a spawned worker.',
     enabledByDefault: false,
@@ -387,6 +404,7 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
   },
   {
     name: 'close_subagent',
+    delegable: false,
     label: 'Close Subagent',
     description: 'Release a terminal spawned-worker handle.',
     enabledByDefault: false,
