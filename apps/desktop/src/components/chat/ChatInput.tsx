@@ -613,6 +613,7 @@ export function ChatInput({
     const previousKey = previousDraftKeyRef.current;
     if (
       sendInFlightRef.current
+      && transfer?.to !== draftKey
       && previousKey === NEW_CONVERSATION_DRAFT_KEY
       && draftKey !== NEW_CONVERSATION_DRAFT_KEY
     ) {
