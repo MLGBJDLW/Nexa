@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-test('desktop computer-use status identifies active control and stops its owning task', async ({ page }) => {
+test('desktop computer-use status identifies active control and stops its owning task', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 350, height: 76 });
   await page.addInitScript(() => {
     localStorage.setItem('nexa-locale', 'en');
     const callbacks = new Map<number, (event: unknown) => void>();
@@ -27,6 +28,8 @@ test('desktop computer-use status identifies active control and stops its owning
   await page.goto('/desktop-control-status');
   await expect(page.getByRole('status')).toContainText('Nexa');
   await expect(page.getByRole('status')).toContainText('Controlling the computer');
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('desktop-status.png') });
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   expect(await page.evaluate(() => (window as unknown as { __desktopStops: string[] }).__desktopStops)).toEqual(['desktop-task']);
   await expect(page.getByTestId('computer-use-status')).toHaveCount(0);

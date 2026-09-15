@@ -348,6 +348,9 @@ jobs:
           e2e/chat-scroll-behavior.spec.ts
           e2e/chat-decision-tray.spec.ts
           e2e/desktop-approval-scope.spec.ts
+          e2e/desktop-control-status.spec.ts
+          e2e/subagent-ui.spec.ts
+          e2e/subagent-batch-judge-ui.spec.ts
 
       - name: Live, phone pairing, startup, and local preview regressions
         working-directory: apps/desktop
