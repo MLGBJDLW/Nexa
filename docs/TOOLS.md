@@ -808,6 +808,36 @@ be enabled before selection changes. Unchanged selections emit no input/change
 events, and the refreshed observation must confirm the requested values.
 `page_loaded` requires the observed document's `readyState` to be `complete`.
 
+Windows WebView2 also supports these native interactions:
+
+- `upload_files` takes `files` and a fresh file-input `targetRef`, including
+  hidden file inputs. Paths use the same file-access policy as the file tools.
+  Selection is limited to 20 files / 100 MiB; `[]` clears the input. Observations
+  expose bounded filename/size metadata. Selection success does not establish
+  that the server received or accepted an upload.
+- `dialogResponses` authorizes up to four ordered, single-use responses for the
+  current interaction and exact page URL. Each response requires `kind`
+  (`alert`, `confirm`, `prompt`, `beforeunload`), exact `message`, and `accept`;
+  prompts may include `promptText`. Unexpected dialogs are dismissed, recorded,
+  and shown in the workspace. A burst beyond eight dialogs pauses the page
+  at one pending modal so it cannot flood the host. The workspace shows a close
+  action, and the user can close or reload the affected tab. The original mouse/key release can finish without
+  a blocked native modal or automatically replaying input. Manual browsing
+  retains native dialogs. Dialog answers retain the consequential-action
+  approval policy, and remaining answers expire when the action ends.
+- `downloadTo` on `click` or `press` authorizes one download into a new file under
+  the file-access policy, using the page's existing cookies and native download
+  pipeline (including blob exports). The request must start within 10 seconds;
+  the total deadline is 120 seconds and the maximum size is 100 MiB. Cancellation,
+  takeover and tab closure terminate the owned download. Success includes the
+  actual path, byte count and BLAKE3 hash after native completion and disk
+  verification. Publication never overwrites an existing file; filesystems
+  without hard-link support return an explicit publication error. Windows manual
+  browsing uses the standard WebView2 download UI.
+
+These options do not widen delegated tool access; the shared interactive browser
+remains owned by the parent conversation.
+
 Safety posture:
 - Observe before interaction and use refs only from the latest observation.
   A successful Agent observation always carries a decoded, bounded screenshot

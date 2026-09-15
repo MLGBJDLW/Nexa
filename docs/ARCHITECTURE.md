@@ -123,6 +123,18 @@ Browser failures retain their underlying cause alongside commit/side-effect
 status so recovery can distinguish policy, navigation, capture and ownership
 failures.
 
+Native WebView2 file input carries only filename/size metadata through the page
+bridge; authorized canonical paths stay in the native transport. Dialog answers
+are scoped to one action and exact page URL, consumed in order, and revoked on
+mismatch or cancellation. Unexpected dialogs are dismissed without retaining a
+COM deferral during normal input. A dialog flood is held at one pending modal
+until the user closes or reloads that tab; the host UI remains responsive. The same-session CDP dialog
+event handles modals opened by native input: WebView2 can queue its native dialog
+callback behind that very input even when `hasBrowserHandler` is true. Download tickets admit one
+native operation per tab. Progress, cancellation and completion run outside the
+agent's temporary runtime; native COM handles stay on the UI thread. Completed
+files are verified off the UI thread and published without overwriting a name.
+
 ## Cross-cutting invariants
 
 1. **Local-first ownership.** Indexes, conversation history, settings, and
