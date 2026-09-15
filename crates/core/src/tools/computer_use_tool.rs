@@ -1865,10 +1865,10 @@ where
 {
     let app_name = args.app_name.as_deref().map(str::trim);
     if args.process_id == Some(0)
-        || app_name.is_some_and(|name| name.is_empty() || name.len() > 240)
+        || app_name.is_some_and(|name| name.is_empty() || name.chars().count() > 240)
     {
         return Err(CoreError::InvalidInput(
-            "Use a positive process_id or a non-empty app_name of at most 240 bytes.".into(),
+            "Use a positive process_id or a non-empty app_name of at most 240 characters.".into(),
         ));
     }
     if wait && args.process_id.is_none() && app_name.is_none() {
@@ -1888,6 +1888,11 @@ where
     loop {
         let inventory = tokio::time::timeout_at(deadline, enumerate()).await;
         let Ok(inventory) = inventory else {
+            if !wait {
+                return Err(CoreError::Internal(
+                    "Window inventory timed out; no fresh window list was obtained.".into(),
+                ));
+            }
             return Ok(Vec::new());
         };
         let windows = inventory?
@@ -2088,7 +2093,7 @@ impl Tool for ComputerObserveTool {
                     "expiresInSeconds": OBSERVATION_TTL.as_secs()
                 });
                 let content = format!(
-                    "Observed {} matching capturable Windows windows. An empty wait result means startup is still pending; repeat the bounded wait if needed. Use observationId {} with capture_window before input.\n{}",
+                    "Observed {} matching capturable Windows windows. An empty wait means no matching window appeared in this interval; inspect the process or repeat a bounded wait if needed. Use observationId {} with capture_window before input.\n{}",
                     windows.len(),
                     observation_id,
                     serde_json::to_string_pretty(&llm_data).unwrap_or_default()
