@@ -917,6 +917,8 @@ test('shared Browser Workspace dialog recovery rejects stale conversation action
   await page.goto('/chat/conv-browser-workspace');
   await page.getByTestId('browser-workspace-toggle').click();
   await expect(page.getByTestId('browser-native-surface')).toBeVisible();
+  const visibleCount = () => page.evaluate(() => (window as unknown as { __browserDiagnostics__: { bounds: Array<{ sessionId: string; visible: boolean }> } }).__browserDiagnostics__.bounds.filter(entry => entry.sessionId === 'browser-session-1' && entry.visible).length);
+  await expect.poll(visibleCount).toBeGreaterThan(0);
   await page.evaluate(() => {
     const fixture = window as unknown as {
       __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -939,10 +941,15 @@ test('shared Browser Workspace dialog recovery rejects stale conversation action
   await expect(close).toBeVisible();
   await page.getByText('Shared Browser Workspace B', { exact: true }).click();
   await expect(page).toHaveURL(/conv-browser-workspace-b/);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __browserDiagnostics__: { bounds: Array<{ sessionId: string; visible: boolean }> } }).__browserDiagnostics__.bounds.some(entry => entry.sessionId === 'browser-session-2' && entry.visible))).toBe(true);
   await close.click();
   expect(await page.evaluate(() => (window as unknown as { __dialogCloseCalls: unknown[] }).__dialogCloseCalls)).toEqual([]);
   await expect(close).toHaveCount(0);
+  const beforeReturn = await visibleCount();
   await page.getByText('Shared Browser Workspace', { exact: true }).click();
+  // A placeholder surface is visible during restoration. Native events only
+  // become possible after the current session's visibility handshake finishes.
+  await expect.poll(visibleCount).toBeGreaterThan(beforeReturn);
   await expect(page).toHaveURL(/conv-browser-workspace$/);
   await expect(page.getByTestId('browser-native-surface')).toBeVisible();
   await showDialog();
