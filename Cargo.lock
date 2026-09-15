@@ -4010,6 +4010,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tempfile",
  "tokio",
  "tokio-tungstenite 0.29.0",
  "url",
@@ -4017,6 +4018,7 @@ dependencies = [
  "webkit2gtk",
  "webview2-com",
  "windows 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

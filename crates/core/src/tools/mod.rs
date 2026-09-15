@@ -607,6 +607,35 @@ pub(crate) fn file_access_policy(
 }
 
 /// Preview actions use the same path policy as native agent file tools.
+pub fn resolve_agent_file_path(
+    db: &Database,
+    source_scope: &[String],
+    path: &std::path::Path,
+) -> Result<std::path::PathBuf, CoreError> {
+    let policy = file_access_policy(db, source_scope)?;
+    path_utils::resolve_existing_file_for_file_access(
+        path,
+        &policy.sources,
+        policy.allow_unregistered_absolute_paths,
+    )
+    .map_err(CoreError::InvalidInput)
+}
+
+/// Resolve a new download through the same policy as create_file.
+pub fn resolve_agent_writable_file_path(
+    db: &Database,
+    source_scope: &[String],
+    path: &std::path::Path,
+) -> Result<std::path::PathBuf, CoreError> {
+    let policy = file_access_policy(db, source_scope)?;
+    path_utils::resolve_writable_file_for_file_access(
+        path,
+        &policy.sources,
+        policy.allow_unregistered_absolute_paths,
+    )
+    .map_err(CoreError::InvalidInput)
+}
+
 pub fn agent_can_access_local_file(db: &Database, path: &std::path::Path) -> bool {
     let Ok(policy) = file_access_policy(db, &[]) else {
         return false;

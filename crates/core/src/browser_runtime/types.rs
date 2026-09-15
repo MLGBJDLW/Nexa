@@ -72,8 +72,18 @@ pub struct BrowserElement {
     pub option_count: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_values: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<BrowserFileMetadata>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<usize>,
     pub bounds: BrowserElementBounds,
     pub locator_fingerprint: BrowserLocatorFingerprint,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BrowserFileMetadata {
+    pub name: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

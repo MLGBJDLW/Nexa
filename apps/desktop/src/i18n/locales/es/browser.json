@@ -33,5 +33,8 @@
   "retryCleanup": "Reintentar limpieza",
   "cleanupCompleted": "Se completó la limpieza de la sesión del navegador",
   "pickElementHint": "Move over the page and click the element you want to point out. Escape cancels.",
-  "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels."
+  "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels.",
+  "dialogHandled": "Se respondió al diálogo de la página",
+  "dialogDismissed": "Diálogo inesperado descartado; revisa la página antes de reintentar",
+  "dialogPaused": "Página pausada por diálogos repetidos. Cierra o recarga esta pestaña."
 }

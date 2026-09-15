@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
@@ -559,6 +559,32 @@ test('observations distinguish loading documents from complete documents', async
   expect((await observe(page)).readyState).toBe('complete');
 });
 
+test('hidden file inputs support an exact guarded native file selection', async ({ page }, testInfo) => {
+  const path = testInfo.outputPath('proof.txt');
+  const content = 'Nexa upload fixture 中文';
+  mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content);
+  await page.setContent('<input id="upload" type="file" hidden aria-label="Upload evidence">');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.addScriptTag({ content: takeoverSource });
+  const snapshot = await observe(page);
+  const target = snapshot.elements.find(el => el.name === 'Upload evidence');
+  expect(target).toBeTruthy();
+  const files = [{ name: 'proof.txt', size: Buffer.byteLength(content) }];
+  const input = { ...actionInput(snapshot, 'upload_files', target!.ref), files };
+  const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareTrustedUpload(input), input);
+  expect(await page.evaluate(({ prepared, files }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm(
+    'playwright-takeover-token', 'upload', { pointerDown: 0, keyDown: 0, input: 1 }, { kind: 'files', files, targetRef: prepared.targetRef, targetContext: prepared.targetContext }), { prepared, files })).toBe(true);
+  const cdp = await page.context().newCDPSession(page);
+  const object = await cdp.send('Runtime.evaluate', { expression: 'document.getElementById("upload")', returnByValue: false });
+  await cdp.send('DOM.setFileInputFiles', { files: [path], objectId: object.result.objectId });
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'upload'))).toBe(true);
+  const after = await observe(page);
+  expect(after.userEpoch).toBe(snapshot.userEpoch);
+  expect(after.elements.find(el => el.ref === target!.ref)).toMatchObject({ fileCount: 1, files });
+  expect(await page.locator('input').evaluate(el => (el as HTMLInputElement).files![0].text())).toBe(content);
+  await cdp.detach();
+});
+
 async function observe(page: import('@playwright/test').Page): Promise<BrowserObservation> {
   return page.evaluate(() => (
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
@@ -627,6 +653,7 @@ interface BrowserActionInput {
   checked?: boolean;
   value?: string;
   values?: string[];
+  files?: Array<{ name: string; size: number }>;
   targetRef: string;
   endRef?: string;
   button: string;
@@ -639,6 +666,7 @@ interface BrowserActionInput {
 }
 
 interface BrowserBridge {
+  prepareTrustedUpload(input: BrowserActionInput): { targetRef: string; targetContext: string; verificationBaseline: BrowserVerificationBaseline };
   targetContextFingerprint(element: Element): string;
   resolveTargetRef(ref: string): Element | null;
   observe(): BrowserObservation;
@@ -670,6 +698,7 @@ function snapshotChanged(
 }
 
 interface TrustedInputGuard {
+  disarm(token: string, operationId: string): boolean;
   arm(
     token: string,
     operationId: string,
@@ -679,6 +708,6 @@ interface TrustedInputGuard {
       x: number;
       y: number;
       button: 'left' | 'middle' | 'right';
-    } | { kind: 'text'; data: string } | { kind: 'key'; key: string }) & { targetRef: string; targetContext: string },
+    } | { kind: 'text'; data: string } | { kind: 'key'; key: string } | { kind: 'files'; files: Array<{ name: string; size: number }> }) & { targetRef: string; targetContext: string },
   ): boolean;
 }

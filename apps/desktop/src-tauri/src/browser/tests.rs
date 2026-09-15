@@ -610,6 +610,8 @@ fn trusted_budget_target(tag: &str, role: &str, input_type: Option<&str>) -> Bro
         options: None,
         option_count: None,
         selected_values: None,
+        files: None,
+        file_count: None,
         bounds: BrowserElementBounds {
             x: 10.0,
             y: 20.0,

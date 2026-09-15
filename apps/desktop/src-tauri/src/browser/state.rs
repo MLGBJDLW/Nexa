@@ -227,6 +227,8 @@ struct BrowserTab {
     agent_restricted: Arc<AtomicBool>,
     network_proxy: Arc<BrowserNetworkProxy>,
     trusted_input_guard: BrowserTrustedInputGuard,
+    dialogs: Arc<super::dialogs::DialogPolicy>,
+    downloads: Arc<super::downloads::DownloadGate>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -477,6 +479,7 @@ impl BrowserState {
                 }
                 if let Some(tab) = session.tabs.get_mut(tab_id) {
                     if loading {
+                        tab.dialogs.navigation_started();
                         tab.network_proxy.retain_agent_loopback_permit_for_url(url);
                     }
                     tab.url = url.to_string();
@@ -531,7 +534,9 @@ impl BrowserState {
             session.observations.clear();
             for tab in session.tabs.values() {
                 tab.network_proxy.revoke_agent_network_access();
+                tab.downloads.cancel();
                 tab.network_proxy.set_agent_restricted(false);
+                super::dialogs::sync_mode(&tab.webview, tab.agent_restricted.clone());
                 if let Ok(mut approved) = tab.approved_agent_urls.lock() {
                     approved.clear();
                 }
@@ -853,6 +858,8 @@ impl BrowserState {
             webview,
             approved_agent_urls,
             trusted_input_guard,
+            dialogs,
+            downloads,
         } = create_child_webview(
             self,
             session_id,
@@ -863,7 +870,8 @@ impl BrowserState {
             Arc::clone(&agent_restricted),
             network_proxy_url,
             effective_bounds,
-        )?;
+        )
+        .await?;
         let initial_bounds = effective_bounds
             .unwrap_or(BrowserBounds {
                 x: 0.0,
@@ -971,6 +979,8 @@ impl BrowserState {
                     agent_restricted,
                     network_proxy,
                     trusted_input_guard,
+                    dialogs,
+                    downloads,
                 },
             );
             if let Ok(mut previews) = self.html_previews.lock() {
@@ -1060,8 +1070,10 @@ impl BrowserState {
                 .tabs
                 .get_mut(tab_id)
                 .ok_or_else(|| format!("Unknown browser tab '{tab_id}'"))?;
+            tab.downloads.cancel();
             tab.network_proxy
                 .set_agent_restricted(actor == NavigationActor::Agent);
+            super::dialogs::sync_mode(&tab.webview, tab.agent_restricted.clone());
             if actor != NavigationActor::Agent || !matches!(url.scheme(), "http" | "https") {
                 tab.network_proxy.revoke_agent_network_access();
             }
@@ -1454,7 +1466,11 @@ impl BrowserState {
             if !agent_owned {
                 tab.network_proxy.revoke_agent_network_access();
             }
+            if !agent_owned {
+                tab.downloads.cancel();
+            }
             tab.network_proxy.set_agent_restricted(agent_owned);
+            super::dialogs::sync_mode(&tab.webview, tab.agent_restricted.clone());
             if matches!(session.control_lease.owner(), BrowserControlOwner::User) {
                 if let Ok(mut approved) = tab.approved_agent_urls.lock() {
                     approved.clear();
@@ -1501,6 +1517,7 @@ impl BrowserState {
         session.observations.clear();
         for tab in session.tabs.values() {
             tab.network_proxy.set_agent_restricted(true);
+            super::dialogs::sync_mode(&tab.webview, tab.agent_restricted.clone());
         }
         let info = session_info(session);
         drop(runtime);
@@ -1524,7 +1541,9 @@ impl BrowserState {
         session.observations.clear();
         for tab in session.tabs.values() {
             tab.network_proxy.revoke_agent_network_access();
+            tab.downloads.cancel();
             tab.network_proxy.set_agent_restricted(false);
+            super::dialogs::sync_mode(&tab.webview, tab.agent_restricted.clone());
         }
         let info = session_info(session);
         drop(runtime);
@@ -1720,6 +1739,20 @@ impl BrowserState {
         tab_id: &str,
         call_id: &str,
     ) -> Result<BrowserObservationPayload, String> {
+        {
+            let runtime = self
+                .inner
+                .lock()
+                .map_err(|_| "Browser runtime is unavailable")?;
+            if runtime
+                .sessions
+                .get(session_id)
+                .and_then(|session| session.tabs.get(tab_id))
+                .is_some_and(|tab| tab.dialogs.is_paused())
+            {
+                return Err("Page paused after repeated dialogs. Close or reload the tab before observing again.".into());
+            }
+        }
         observe_across_navigation(
             || self.observe_once(session_id, tab_id, call_id),
             || self.agent_lease_generation(session_id, tab_id, call_id),
@@ -1999,6 +2032,7 @@ impl BrowserState {
             "value": request.value,
             "values": request.values,
             "checked": request.checked,
+            "files": request.upload.map(|upload| &upload.files),
             "key": request.key,
             "button": request.button.unwrap_or("left"),
             "modifiers": request.modifiers,
@@ -2176,7 +2210,7 @@ impl BrowserState {
         #[cfg(windows)]
         if matches!(
             request.action,
-            "click" | "double_click" | "type" | "press" | "set_checked"
+            "click" | "double_click" | "type" | "press" | "set_checked" | "upload_files"
         ) {
             let verification_baseline = match self
                 .commit_trusted_webview_action(
@@ -2311,6 +2345,7 @@ impl BrowserState {
             "click" | "double_click" => ("prepareNativePointer", "pointer"),
             "type" => ("prepareTrustedText", "text"),
             "press" => ("prepareTrustedKey", "key"),
+            "upload_files" => ("prepareTrustedUpload", "upload"),
             action => return Err(format!("Unsupported trusted browser action '{action}'")),
         };
         let budget = trusted_action_budget(input_action, expected, request.key)?;
@@ -2351,7 +2386,9 @@ impl BrowserState {
                 })?,
             )
         } else {
-            if prepared.get("focused").and_then(serde_json::Value::as_bool) != Some(true) {
+            if input_action != "upload_files"
+                && prepared.get("focused").and_then(serde_json::Value::as_bool) != Some(true)
+            {
                 return Err(format!(
                     "Trusted browser {preparation_label} preparation could not focus the target"
                 ));
@@ -2371,6 +2408,13 @@ impl BrowserState {
             }
             "type" => TrustedInputMatch::Text {
                 data: request.text.unwrap_or_default().to_string(),
+            },
+            "upload_files" => TrustedInputMatch::Files {
+                files: request
+                    .upload
+                    .ok_or("Missing prepared upload")?
+                    .files
+                    .clone(),
             },
             "press" => trusted_key_input_match(
                 request
@@ -2464,6 +2508,18 @@ impl BrowserState {
                 .await
             }
             "type" => insert_trusted_text(&armed_guard, request.text.unwrap_or_default()).await,
+            "upload_files" => {
+                super::webview_host::set_trusted_files(
+                    &armed_guard,
+                    request.target_ref.ok_or("Upload requires targetRef")?,
+                    prepared
+                        .get("targetContext")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or("Missing upload context")?,
+                    request.upload.ok_or("Missing prepared upload")?,
+                )
+                .await
+            }
             "press" => {
                 dispatch_trusted_key(
                     &armed_guard,
@@ -2569,7 +2625,53 @@ impl BrowserState {
         }
     }
 
+    pub(super) fn arm_download(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        destination: &Path,
+    ) -> Result<super::downloads::DownloadAction, String> {
+        let runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser runtime is unavailable")?;
+        let session = runtime
+            .sessions
+            .get(session_id)
+            .ok_or("Unknown browser session")?;
+        let tab = require_agent_tab_surface(session, tab_id)?;
+        tab.downloads.arm(destination)
+    }
+
+    pub(super) fn arm_dialogs(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        responses: &[super::dialogs::DialogResponse],
+    ) -> Result<super::dialogs::DialogAction, String> {
+        let runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser runtime is unavailable")?;
+        let session = runtime
+            .sessions
+            .get(session_id)
+            .ok_or("Unknown browser session")?;
+        let tab = require_agent_tab_surface(session, tab_id)?;
+        tab.dialogs.arm(&tab.url, responses)
+    }
+
     pub fn action_risk(&self, args: &serde_json::Value) -> BrowserActionRisk {
+        if args.get("downloadTo").is_some() {
+            return BrowserActionRisk::Consequential;
+        }
+        if args
+            .get("dialogResponses")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|values| !values.is_empty())
+        {
+            return BrowserActionRisk::Consequential;
+        }
         let action = args
             .get("action")
             .and_then(serde_json::Value::as_str)
@@ -2707,6 +2809,7 @@ impl BrowserState {
             .tabs
             .get(tab_id)
             .ok_or_else(|| format!("Unknown browser tab '{tab_id}'"))?;
+        tab.downloads.cancel();
         dispatch_terminal_browser_mutation(commit_tracker, || {
             tab.webview
                 .close()
@@ -3484,7 +3587,7 @@ pub(super) fn trusted_action_budget(
             ) * click_count;
             TrustedInputEventBudget::pointer_click(click_count, expected_input_events)
         }
-        "type" => Ok(TrustedInputEventBudget::text_insert()),
+        "type" | "upload_files" => Ok(TrustedInputEventBudget::text_insert()),
         "press" => {
             let key = key.ok_or_else(|| "Trusted browser press requires a key".to_string())?;
             if !matches!(
@@ -3649,6 +3752,7 @@ pub struct BrowserActRequest<'a> {
     pub value: Option<&'a str>,
     pub values: Option<&'a [String]>,
     pub checked: Option<bool>,
+    pub(super) upload: Option<&'a super::file_upload::PreparedUpload>,
     pub key: Option<&'a str>,
     pub button: Option<&'a str>,
     pub modifiers: &'a [String],
@@ -3661,6 +3765,20 @@ fn verify_requested_form_state(
     request: &BrowserActRequest<'_>,
     observation: &CoreBrowserObservation,
 ) -> Result<(), String> {
+    if request.action == "upload_files" {
+        let upload = request.upload.ok_or("Missing prepared upload")?;
+        let actual = observation
+            .elements
+            .iter()
+            .find(|element| Some(element.element_ref.as_str()) == request.target_ref);
+        if actual.is_some_and(|element| {
+            element.file_count == Some(upload.files.len())
+                && element.files.as_ref() == Some(&upload.files)
+        }) {
+            return Ok(());
+        }
+        return Err("The selected files were not confirmed in the refreshed input. Inspect the page before retrying; it may already have uploaded or cleared the selection.".into());
+    }
     if request.action == "select" {
         let mut desired = request.values.map(<[String]>::to_vec).unwrap_or_else(|| {
             request

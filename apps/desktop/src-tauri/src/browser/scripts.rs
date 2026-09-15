@@ -49,6 +49,11 @@ pub fn browser_takeover_script(token: &str) -> String {
       const data = String(expected.data ?? '');
       return data.length <= 262144 ? { kind: 'text', data, targetRef, targetContext } : null;
     }
+    if (expected.kind === 'files') {
+      const files = expected.files;
+      if (!Array.isArray(files) || files.length > 20 || files.some(file => typeof file.name !== 'string' || !file.name || file.name.length > 512 || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > 104857600)) return null;
+      return { kind: 'files', files: files.map(file => ({ name: file.name, size: file.size })), targetRef, targetContext };
+    }
     return null;
   };
 
@@ -75,7 +80,9 @@ pub fn browser_takeover_script(token: &str) -> String {
     const target = bridge?.resolveTargetRef(normalizedExpected.targetRef);
     if (!target || target === document.body || target === document.documentElement) return false;
     if (!target.isConnected || bridge.targetContextFingerprint(target) !== normalizedExpected.targetContext) return false;
-    let matches = hit === target || Boolean(target.contains?.(hit));
+    let matches = normalizedExpected.kind === 'files'
+      ? target.tagName === 'INPUT' && target.type === 'file'
+      : hit === target || Boolean(target.contains?.(hit));
     for (let ownerWindow = target.ownerDocument.defaultView; !matches && ownerWindow && ownerWindow !== window;) {
       try {
         const frame = ownerWindow.frameElement;
@@ -192,6 +199,11 @@ pub fn browser_takeover_script(token: &str) -> String {
     }
     if (expected.kind === 'text') {
       return event.data === expected.data && eventTargetsArmedElement(event);
+    }
+    if (expected.kind === 'files') {
+      const files = event.target?.files;
+      return eventTargetsArmedElement(event) && files?.length === expected.files.length
+        && expected.files.every((file, index) => files[index].name === file.name && files[index].size === file.size);
     }
     if (expected.kind === 'key') return eventTargetsArmedElement(event);
     if (expected.kind === 'pointer') {
@@ -373,7 +385,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     const elements = [];
     for (const root of roots()) {
       for (const element of root.querySelectorAll?.(selector) || []) {
-        if (!seen.has(element) && isObservable(element)) { seen.add(element); elements.push(element); }
+        if (!seen.has(element) && (isObservable(element) || (element.tagName === 'INPUT' && element.type === 'file'))) { seen.add(element); elements.push(element); }
         if (elements.length >= 300) return elements;
       }
     }
@@ -444,6 +456,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       options: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.options, 0, Math.min(100, optionBudget)).map(option => ({ value: option.value.slice(0, 512), label: option.label.slice(0, 240), selected: option.selected, enabled: !option.matches(':disabled') })) : null,
       optionCount: el.tagName === 'SELECT' ? el.options.length : null,
       selectedValues: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.selectedOptions, 0, 101).map(option => option.value.slice(0, 512)) : null,
+      files: el.type === 'file' ? Array.from(el.files || []).slice(0, 20).map(file => ({ name: file.name, size: file.size })) : null,
+      fileCount: el.type === 'file' ? el.files?.length || 0 : null,
       visible: rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden',
       bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       locatorFingerprint: {
@@ -544,6 +558,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         element.type || '',
         element.disabled ? 'disabled' : 'enabled',
         String(checkedOf(element)),
+        element.type === 'file' ? `${element.files?.length || 0}:${Array.from(element.files || []).slice(0, 20).map(file => `${file.name}:${file.size}`).join('|')}` : '',
         enabledOf(element) ? 'enabled' : 'disabled',
         Number.isInteger(element.selectedIndex) ? String(element.selectedIndex) : '',
         element.tagName === 'SELECT' ? hashText([element.options.length, element.selectedOptions.length, ...Array.prototype.slice.call(element.options, 0, 100).map(option => [option.value, option.selected, option.matches(':disabled')].join(':')), ...Array.prototype.slice.call(element.selectedOptions, 0, 101).map(option => option.value)].join('|')) : '',
@@ -611,6 +626,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       if (!element || !expected) return;
       const current = describe(element, ref);
       if (!current.enabled) throw new Error('Browser target is disabled');
+      if (!current.visible && input.action !== 'upload_files') throw new Error('Browser target is not visible');
       if (current.role !== expected.role || current.name !== expected.name) {
         throw new Error('stale observation: target identity changed');
       }
@@ -624,6 +640,10 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     verify(end, input.endRef, input.expectedEnd, 'drag destination');
     if (input.action === 'select') requestedSelectOptions(el, input);
     if (input.action === 'set_checked') checkedStateMatches(el, input);
+    if (input.action === 'upload_files') {
+      if (!el || el.tagName !== 'INPUT' || el.type !== 'file' || !enabledOf(el)) throw new Error('upload_files requires an enabled file input');
+      if (!Array.isArray(input.files) || input.files.length > 20 || (!el.multiple && input.files.length > 1)) throw new Error('The file input does not accept this file count');
+    }
     return { el, end };
   };
   const centerOf = (el) => {
@@ -847,6 +867,10 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       targetRef: input.targetRef || runtime.refIds.get(target),
       verificationBaseline: actionVerificationBaseline(),
     };
+  };
+  runtime.prepareTrustedUpload = (input) => {
+    const { el } = validateAction(input);
+    return { targetRef: input.targetRef, targetContext: targetContextFingerprint(el), verificationBaseline: actionVerificationBaseline() };
   };
   runtime.act = (input) => {
     const { el, end } = validateAction(input);
@@ -1091,6 +1115,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     prepareNativePointer: (input) => runtime.prepareNativePointer(input),
     prepareTrustedText: (input) => runtime.prepareTrustedText(input),
     prepareTrustedKey: (input) => runtime.prepareTrustedKey(input),
+    prepareTrustedUpload: (input) => runtime.prepareTrustedUpload(input),
     act: (input) => runtime.act(input),
     invalidateForUserTakeover: () => runtime.invalidateForUserTakeover(),
     beginPick: (mode) => runtime.beginPick(mode),

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Deserialize;
-use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{Manager, Webview, WebviewUrl};
 use tokio::sync::{oneshot, OwnedSemaphorePermit, Semaphore};
 use url::Url;
@@ -225,9 +225,20 @@ impl TrustedInputEventBudget {
 
 #[derive(Debug, Clone)]
 pub enum TrustedInputMatch {
-    Pointer { x: f64, y: f64, button: String },
-    Text { data: String },
-    Key { key: String },
+    Pointer {
+        x: f64,
+        y: f64,
+        button: String,
+    },
+    Text {
+        data: String,
+    },
+    Key {
+        key: String,
+    },
+    Files {
+        files: Vec<nexa_core::browser_runtime::BrowserFileMetadata>,
+    },
 }
 
 impl TrustedInputMatch {
@@ -247,6 +258,7 @@ impl TrustedInputMatch {
                 "kind": "key",
                 "key": key,
             }),
+            Self::Files { files } => serde_json::json!({ "kind": "files", "files": files }),
         }
     }
 }
@@ -622,13 +634,25 @@ struct NativeCaptureReply {
     flight: BrowserSurfaceFlight,
 }
 
+/// Chromium accepts Win32 drive/UNC paths, while Rust canonicalization emits
+/// extended-length prefixes. Keep canonical paths for policy/identity checks.
+pub(super) fn native_file_path(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy();
+    if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{unc}");
+    }
+    path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
+}
+
 pub struct BrowserChildWebview {
     pub webview: Webview,
     pub approved_agent_urls: Arc<Mutex<HashSet<String>>>,
     pub trusted_input_guard: BrowserTrustedInputGuard,
+    pub(super) dialogs: Arc<super::dialogs::DialogPolicy>,
+    pub(super) downloads: Arc<super::downloads::DownloadGate>,
 }
 
-pub fn create_child_webview(
+pub async fn create_child_webview(
     state: &BrowserState,
     session_id: &str,
     tab_id: &str,
@@ -665,64 +689,51 @@ pub fn create_child_webview(
     let state_for_popup = state.clone();
     let session_for_popup = session_id.to_string();
     let tab_for_popup = tab_id.to_string();
-    let state_for_download = state.clone();
-    let session_for_download = session_id.to_string();
-    let tab_for_download = tab_id.to_string();
 
-    let builder = WebviewBuilder::new(label, WebviewUrl::External(url))
-        .data_directory(profile_dir)
-        .data_store_identifier(profile_data_store_identifier(profile_id))
-        .disable_drag_drop_handler()
-        .proxy_url(network_proxy_url.clone())
-        .initialization_script_for_all_frames(browser_init_script(&pick_token))
-        .initialization_script_for_all_frames(browser_takeover_script(&takeover_token))
-        .on_navigation(move |target| {
-            if target == &takeover_for_navigation {
-                state_for_takeover.record_user_takeover(&session_for_takeover, &tab_for_takeover);
-                return false;
-            }
-            let agent_restricted =
-                navigation_restriction.load(std::sync::atomic::Ordering::Relaxed);
-            approved_for_navigation.lock().is_ok_and(|mut approved| {
-                navigation_preapproved(target, agent_restricted, &mut approved)
-            })
+    let builder = WebviewBuilder::new(
+        label,
+        WebviewUrl::External(Url::parse("about:blank").expect("static URL")),
+    )
+    .data_directory(profile_dir)
+    .data_store_identifier(profile_data_store_identifier(profile_id))
+    .disable_drag_drop_handler()
+    .proxy_url(network_proxy_url.clone())
+    .initialization_script_for_all_frames(browser_init_script(&pick_token))
+    .initialization_script_for_all_frames(browser_takeover_script(&takeover_token))
+    .on_navigation(move |target| {
+        if target == &takeover_for_navigation {
+            state_for_takeover.record_user_takeover(&session_for_takeover, &tab_for_takeover);
+            return false;
+        }
+        let agent_restricted = navigation_restriction.load(std::sync::atomic::Ordering::Relaxed);
+        approved_for_navigation.lock().is_ok_and(|mut approved| {
+            navigation_preapproved(target, agent_restricted, &mut approved)
         })
-        .on_page_load(move |_webview, payload| {
-            state_for_load.update_page_load(
-                &session_for_load,
-                &tab_for_load,
-                payload.url(),
-                payload.event() == PageLoadEvent::Started,
-            );
-        })
-        .on_document_title_changed(move |_webview, title| {
-            state_for_title.handle_document_title(&session_for_title, &tab_for_title, title);
-        })
-        .on_new_window(move |url, _features| {
-            state_for_popup.emit(
-                "newWindowRequested",
-                serde_json::json!({
-                    "sessionId": session_for_popup,
-                    "tabId": tab_for_popup,
-                    "url": url,
-                }),
-            );
-            NewWindowResponse::Deny
-        })
-        .on_download(move |_webview, event| {
-            if let DownloadEvent::Requested { url, .. } = event {
-                state_for_download.emit(
-                    "downloadRequested",
-                    serde_json::json!({
-                        "sessionId": session_for_download,
-                        "tabId": tab_for_download,
-                        "url": url,
-                        "blocked": true,
-                    }),
-                );
-            }
-            false
-        });
+    })
+    .on_page_load(move |_webview, payload| {
+        state_for_load.update_page_load(
+            &session_for_load,
+            &tab_for_load,
+            payload.url(),
+            payload.event() == PageLoadEvent::Started,
+        );
+    })
+    .on_document_title_changed(move |_webview, title| {
+        state_for_title.handle_document_title(&session_for_title, &tab_for_title, title);
+    })
+    .on_new_window(move |url, _features| {
+        state_for_popup.emit(
+            "newWindowRequested",
+            serde_json::json!({
+                "sessionId": session_for_popup,
+                "tabId": tab_for_popup,
+                "url": url,
+            }),
+        );
+        NewWindowResponse::Deny
+    });
+    #[cfg(not(windows))]
+    let builder = builder.on_download(|_, _| false);
     #[cfg(windows)]
     let builder = builder.additional_browser_args(&format!(
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-quic --proxy-server={} --proxy-bypass-list=<-loopback>",
@@ -745,6 +756,35 @@ pub fn create_child_webview(
     if !visible {
         let _ = webview.hide();
     }
+    let dialogs = Arc::new(super::dialogs::DialogPolicy::default());
+    let downloads = Arc::new(super::downloads::DownloadGate::default());
+    #[cfg(windows)]
+    {
+        let state = state.clone();
+        let session_id = session_id.to_string();
+        let tab_id = tab_id.to_string();
+        if let Err(error) = super::dialogs::install(&webview, dialogs.clone(), agent_restricted.clone(), move |dialog| {
+            state.emit("scriptDialog", serde_json::json!({ "sessionId": session_id, "tabId": tab_id, "dialog": dialog }));
+        }).await {
+            let _ = webview.close();
+            return Err(error);
+        }
+    }
+    #[cfg(windows)]
+    if let Err(error) =
+        super::downloads::install(&webview, downloads.clone(), agent_restricted).await
+    {
+        let _ = webview.close();
+        return Err(error);
+    }
+    // Native event handlers must be installed before any remote page can open
+    // a dialog or initiate a download, including its initial navigation.
+    if let Err(error) = webview.navigate(url) {
+        let _ = webview.close();
+        return Err(format!(
+            "Could not navigate the initialized browser tab: {error}"
+        ));
+    }
     let trusted_input_guard = BrowserTrustedInputGuard {
         webview: webview.clone(),
         token: Arc::from(takeover_token),
@@ -753,6 +793,8 @@ pub fn create_child_webview(
         webview,
         approved_agent_urls,
         trusted_input_guard,
+        dialogs,
+        downloads,
     })
 }
 
@@ -814,7 +856,7 @@ struct DevToolsMethodReply {
 }
 
 #[cfg(windows)]
-async fn call_devtools_protocol_method(
+pub(super) async fn call_devtools_protocol_method(
     webview: &Webview,
     method: &str,
     parameters: serde_json::Value,
@@ -1230,6 +1272,64 @@ async fn dispatch_cdp_sequence(
     })?
 }
 
+#[cfg(windows)]
+pub(super) async fn set_trusted_files(
+    guard: &ArmedTrustedInputGuard,
+    target_ref: &str,
+    target_context: &str,
+    upload: &super::file_upload::PreparedUpload,
+) -> Result<(), String> {
+    if guard.physical_input_changed()? {
+        return Err("User input changed before file selection".into());
+    }
+    for (path, expected) in upload.paths.iter().zip(&upload.files) {
+        let path = std::path::Path::new(path);
+        let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+        let metadata = canonical.metadata().map_err(|error| error.to_string())?;
+        if canonical != path || !metadata.is_file() || metadata.len() != expected.size {
+            return Err(
+                "Upload file changed since preparation; resolve it again before selecting it"
+                    .into(),
+            );
+        }
+    }
+    let target_ref = serde_json::to_string(target_ref).map_err(|error| error.to_string())?;
+    let target_context =
+        serde_json::to_string(target_context).map_err(|error| error.to_string())?;
+    let expression = format!("(() => {{ const bridge = window.__NEXA_BROWSER_RUNTIME__; const target = bridge?.resolveTargetRef({target_ref}); if (!target?.isConnected || target.tagName !== 'INPUT' || target.type !== 'file' || bridge.targetContextFingerprint(target) !== {target_context}) throw new Error('stale file input'); return target; }})()");
+    let (response, _) = call_devtools_protocol_method(
+        guard.webview(),
+        "Runtime.evaluate",
+        serde_json::json!({"expression":expression,"returnByValue":false}),
+        TRUSTED_INPUT_TIMEOUT,
+        None,
+    )
+    .await?;
+    let response: serde_json::Value =
+        serde_json::from_str(&response).map_err(|error| error.to_string())?;
+    let object_id = response
+        .get("result")
+        .and_then(|result| result.get("objectId"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or("Could not resolve the approved file input")?
+        .to_string();
+    let result = dispatch_cdp_sequence(
+        guard,
+        "DOM.setFileInputFiles",
+        vec![serde_json::json!({"objectId":object_id,"files":upload.paths.iter().map(|path| native_file_path(std::path::Path::new(path))).collect::<Vec<_>>()})],
+    )
+    .await;
+    let _ = call_devtools_protocol_method(
+        guard.webview(),
+        "Runtime.releaseObject",
+        serde_json::json!({"objectId":object_id}),
+        TRUSTED_INPUT_TIMEOUT,
+        None,
+    )
+    .await;
+    result
+}
+
 #[cfg(not(windows))]
 async fn dispatch_cdp_sequence(
     _guard: &ArmedTrustedInputGuard,
@@ -1546,3 +1646,7 @@ mod tests {
         assert!(!script.contains("trustedInputBypass = true"));
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "native_smoke.rs"]
+mod native_smoke;

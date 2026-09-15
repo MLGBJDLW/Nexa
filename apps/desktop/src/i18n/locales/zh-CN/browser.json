@@ -33,5 +33,8 @@
   "retryCleanup": "重试清理",
   "cleanupCompleted": "浏览器会话已清理",
   "pickElementHint": "移动到网页元素并点击以指出它，按 Escape 取消。",
-  "pickRegionHint": "拖动以附加页面坐标（当前不捕获像素），按 Escape 取消。"
+  "pickRegionHint": "拖动以附加页面坐标（当前不捕获像素），按 Escape 取消。",
+  "dialogHandled": "已答复网页提示",
+  "dialogDismissed": "已取消意外的网页提示，请检查页面后再决定是否重试",
+  "dialogPaused": "网页连续弹出提示，已暂停该页面。可关闭或重新加载此标签页。"
 }
