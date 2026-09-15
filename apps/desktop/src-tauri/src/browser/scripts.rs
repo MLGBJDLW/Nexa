@@ -297,11 +297,29 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   };
 
   const textOf = (el) => String(
-    el.getAttribute?.('aria-label') || el.innerText || el.getAttribute?.('placeholder') || el.getAttribute?.('name') || ''
+    el.getAttribute?.('aria-label') || Array.from(el.labels || []).map(label => label.innerText).join(' ') || el.innerText || el.getAttribute?.('placeholder') || el.getAttribute?.('name') || ''
   ).trim().slice(0, 240);
-  const roleOf = (el) => el.getAttribute?.('role') || ({
+  const roleOf = (el) => el.getAttribute?.('role') || (el.tagName === 'INPUT' && ({ checkbox: 'checkbox', radio: 'radio', range: 'slider', button: 'button', submit: 'button', reset: 'button' }[el.type])) || ({
     A: 'link', BUTTON: 'button', INPUT: 'textbox', TEXTAREA: 'textbox', SELECT: 'combobox'
   }[el.tagName] || '');
+  const enabledOf = (el) => !el.matches?.(':disabled') && el.getAttribute?.('aria-disabled') !== 'true' && !el.closest?.('[inert]');
+  const checkedOf = (el) => {
+    if (el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.type)) return el.indeterminate ? 'mixed' : Boolean(el.checked);
+    if (['checkbox', 'radio', 'switch'].includes(roleOf(el))) {
+      const checked = el.getAttribute('aria-checked');
+      if (checked === 'mixed') return 'mixed';
+      if (checked === 'true' || checked === 'false') return checked === 'true';
+    }
+    return null;
+  };
+  const checkedStateMatches = (el, input) => {
+    if (typeof input.checked !== 'boolean') throw new Error('set_checked requires a boolean checked state');
+    if (!el || !enabledOf(el)) throw new Error('set_checked requires an enabled target');
+    const state = checkedOf(el);
+    if (state === null) throw new Error('set_checked requires a checkbox, radio or switch with an observable checked state');
+    if (roleOf(el) === 'radio' && !input.checked) throw new Error('Select a different radio option instead of clearing a radio');
+    return state === input.checked;
+  };
   const cssPath = (el) => {
     const parts = [];
     let current = el;
@@ -338,7 +356,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
   const interactiveElements = () => {
-    const selector = 'a[href],button,input:not([type="hidden" i]),textarea,select,[contenteditable="true"],[role="button"],[role="link"],[role="textbox"],[tabindex]';
+    const selector = 'a[href],button,input:not([type="hidden" i]),textarea,select,[contenteditable="true"],[role="button"],[role="link"],[role="textbox"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[tabindex]';
     const seen = new Set();
     const elements = [];
     for (const root of roots()) {
@@ -398,7 +416,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     }
     return { x, y, width: rect.width, height: rect.height };
   };
-  const describe = (el, ref) => {
+  const describe = (el, ref, optionBudget = 0) => {
     const rect = viewportBoundsOf(el);
     const name = textOf(el);
     const navigationTarget = navigationTargetOf(el);
@@ -409,7 +427,10 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       name,
       href: navigationTarget,
       inputType: el.type || null,
-      enabled: !el.disabled,
+      enabled: enabledOf(el),
+      checked: checkedOf(el),
+      options: el.tagName === 'SELECT' ? Array.from(el.options).slice(0, Math.min(100, optionBudget)).map(option => ({ value: option.value.slice(0, 512), label: option.label.slice(0, 240), selected: option.selected, enabled: !option.matches(':disabled') })) : null,
+      optionCount: el.tagName === 'SELECT' ? el.options.length : null,
       visible: rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden',
       bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       locatorFingerprint: {
@@ -509,7 +530,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         navigationTargetOf(element) || '',
         element.type || '',
         element.disabled ? 'disabled' : 'enabled',
-        element.checked ? 'checked' : '',
+        String(checkedOf(element)),
+        enabledOf(element) ? 'enabled' : 'disabled',
         Number.isInteger(element.selectedIndex) ? String(element.selectedIndex) : '',
         style.display,
         style.visibility,
@@ -535,6 +557,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   });
   runtime.observe = () => {
     runtime.refs = new Map();
+    let optionBudget = 400;
     const elements = observableElements().map((el) => {
       // Screenshot confirmation and settling may take further snapshots. A
       // reference belongs to the actual element, not the snapshot counter.
@@ -544,7 +567,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         runtime.refIds.set(el, ref);
       }
       runtime.refs.set(ref, el);
-      return describe(el, ref);
+      const description = describe(el, ref, optionBudget);
+      optionBudget -= description.options?.length || 0;
+      return description;
     });
     return {
       url: location.href,
@@ -570,6 +595,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     const verify = (element, ref, expected, label) => {
       if (!element || !expected) return;
       const current = describe(element, ref);
+      if (!current.enabled) throw new Error('Browser target is disabled');
       if (current.role !== expected.role || current.name !== expected.name) {
         throw new Error('stale observation: target identity changed');
       }
@@ -736,6 +762,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   runtime.prepareNativePointer = (input) => {
     const { el } = validateAction(input);
     if (!el) throw new Error('Browser pointer action requires a target');
+    if (input.action === 'set_checked' && checkedStateMatches(el, input)) {
+      return { stateMatched: true, verificationBaseline: actionVerificationBaseline() };
+    }
     const targetContext = targetContextFingerprint(el);
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
@@ -808,6 +837,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     try {
       if (input.action === 'move' || input.action === 'hover') hoverAt(el, input, centerOf(el));
       else if (input.action === 'click') clickAt(el, input);
+      else if (input.action === 'set_checked') {
+        if (!checkedStateMatches(el, input)) clickAt(el, input);
+      }
       else if (input.action === 'double_click') {
         clickAt(el, input, 1);
         clickAt(el, input, 2);

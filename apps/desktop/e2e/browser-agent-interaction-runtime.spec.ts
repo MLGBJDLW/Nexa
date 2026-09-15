@@ -453,6 +453,80 @@ test('trusted text and key guards require the exact dispatched event signature',
   expect((await observe(page)).userEpoch).toBe(beforeKey.userEpoch + 1);
 });
 
+test('form observations expose labels, checkbox state and bounded select choices', async ({ page }) => {
+  await page.setContent(`<label for="choice">Remember choice</label><input id="choice" type="checkbox" checked>
+    <div role="switch" aria-label="Notifications" aria-checked="mixed" aria-disabled="true">Toggle</div>
+    <label>Country<select><option value="cn" selected>China</option><option value="de" disabled>Germany</option></select></label>`);
+  await page.addScriptTag({ content: runtimeSource });
+  const snapshot = await observe(page);
+  expect(snapshot.elements.find(el => el.name === 'Remember choice')).toMatchObject({ role: 'checkbox', checked: true });
+  expect(snapshot.elements.find(el => el.name === 'Notifications')).toMatchObject({ role: 'switch', checked: 'mixed', enabled: false });
+  expect(snapshot.elements.find(el => el.role === 'combobox')).toMatchObject({
+    options: [{ value: 'cn', label: 'China', selected: true, enabled: true }, { value: 'de', label: 'Germany', selected: false, enabled: false }],
+  });
+});
+
+test('set_checked changes once and repeated desired state does not click again', async ({ page }) => {
+  await page.setContent('<input type="checkbox" aria-label="Remember" onclick="window.clicks=(window.clicks||0)+1">');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const checked of [true, true, false, false]) {
+    const snapshot = await observe(page);
+    const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked };
+    await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input), input);
+    await expect(page.locator('input')).toBeChecked({ checked });
+    const fresh = await observe(page);
+    const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input),
+      { ...actionInput(fresh, 'set_checked', fresh.elements[0].ref), checked });
+    expect(prepared.stateMatched).toBe(true);
+  }
+  expect(await page.evaluate(() => (window as Window & { clicks: number }).clicks)).toBe(2);
+});
+
+test('set_checked rejects disabled controls, radio clearing and stale checked state', async ({ page }) => {
+  await page.setContent('<input type="checkbox" disabled aria-label="Locked"><input type="radio" checked aria-label="Plan"><input type="checkbox" aria-label="Changed">');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const [name, checked] of [['Locked', true], ['Plan', false]] as const) {
+    const snapshot = await observe(page);
+    const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements.find(el => el.name === name)!.ref), checked };
+    await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input), input)).rejects.toThrow();
+  }
+  const old = await observe(page);
+  await page.locator('[aria-label="Changed"]').evaluate(el => { (el as HTMLInputElement).checked = true; });
+  await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+    { ...actionInput(old, 'set_checked', old.elements.find(el => el.name === 'Changed')!.ref), checked: false })).rejects.toThrow('stale observation');
+});
+
+test('set_checked preparation uses guarded trusted clicks and skips matching state', async ({ page }) => {
+  await page.setContent('<input type="checkbox" aria-label="Remember" onchange="window.trusted=event.isTrusted">');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.addScriptTag({ content: takeoverSource });
+  const snapshot = await observe(page);
+  const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked: true };
+  const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
+  const binding = await targetBinding(page, 'input');
+  const x = prepared.bounds.x + prepared.bounds.width / 2;
+  const y = prepared.bounds.y + prepared.bounds.height / 2;
+  expect(await page.evaluate(({ binding, x, y }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm(
+    'playwright-takeover-token', 'checked-click', { pointerDown: 1, keyDown: 0, input: 1 }, { kind: 'pointer', x, y, button: 'left', ...binding }), { binding, x, y })).toBe(true);
+  await page.mouse.click(x, y);
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'checked-click'))).toBe(true);
+  await expect(page.locator('input')).toBeChecked();
+  expect(await page.evaluate(() => (window as Window & { trusted: boolean }).trusted)).toBe(true);
+  const fresh = await observe(page);
+  expect((await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input),
+    { ...actionInput(fresh, 'set_checked', fresh.elements[0].ref), checked: true })).stateMatched).toBe(true);
+});
+
+test('large forms bound total option evidence and report omitted choices', async ({ page }) => {
+  await page.setContent(Array.from({ length: 8 }, (_, index) => `<select aria-label="Select ${index}">${Array.from({ length: 150 }, (_, option) => `<option value="${option}">Choice ${option}</option>`).join('')}</select>`).join(''));
+  await page.addScriptTag({ content: runtimeSource });
+  const snapshot = await observe(page);
+  expect(snapshot.elements).toHaveLength(8);
+  expect(snapshot.elements.reduce((total, el) => total + (el.options?.length || 0), 0)).toBeLessThanOrEqual(400);
+  expect(snapshot.elements.every(el => el.optionCount === 150)).toBe(true);
+  expect(snapshot.elements.some(el => (el.options?.length || 0) < el.optionCount!)).toBe(true);
+});
+
 async function observe(page: import('@playwright/test').Page): Promise<BrowserObservation> {
   return page.evaluate(() => (
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
@@ -494,6 +568,10 @@ function actionInput(
 interface BrowserElement {
   ref: string;
   name: string;
+  role: string;
+  checked?: boolean | 'mixed';
+  options?: unknown[];
+  optionCount?: number;
   bounds: { x: number; y: number; width: number; height: number };
 }
 
@@ -513,6 +591,7 @@ interface BrowserVerificationBaseline {
 
 interface BrowserActionInput {
   action: string;
+  checked?: boolean;
   targetRef: string;
   endRef?: string;
   button: string;
@@ -530,6 +609,7 @@ interface BrowserBridge {
   observe(): BrowserObservation;
   previewAction(input: BrowserActionInput): { durationMs: number };
   prepareNativePointer(input: BrowserActionInput): {
+    stateMatched?: boolean;
     bounds: { x: number; y: number; width: number; height: number };
     verificationBaseline: BrowserVerificationBaseline;
   };

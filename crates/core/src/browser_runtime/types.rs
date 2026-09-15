@@ -64,8 +64,23 @@ pub struct BrowserElement {
     pub input_type: Option<String>,
     pub enabled: bool,
     pub visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<BrowserSelectOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub option_count: Option<usize>,
     pub bounds: BrowserElementBounds,
     pub locator_fingerprint: BrowserLocatorFingerprint,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSelectOption {
+    pub value: String,
+    pub label: String,
+    pub selected: bool,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

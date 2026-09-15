@@ -1994,6 +1994,7 @@ impl BrowserState {
             "endRef": request.end_ref,
             "text": request.text,
             "value": request.value,
+            "checked": request.checked,
             "key": request.key,
             "button": request.button.unwrap_or("left"),
             "modifiers": request.modifiers,
@@ -2169,7 +2170,10 @@ impl BrowserState {
             }),
         );
         #[cfg(windows)]
-        if matches!(request.action, "click" | "double_click" | "type" | "press") {
+        if matches!(
+            request.action,
+            "click" | "double_click" | "type" | "press" | "set_checked"
+        ) {
             let verification_baseline = match self
                 .commit_trusted_webview_action(
                     &request,
@@ -2204,6 +2208,7 @@ impl BrowserState {
             let fresh_observation = self
                 .observe(request.session_id, request.tab_id, request.call_id)
                 .await?;
+            verify_requested_checked_state(&request, &fresh_observation)?;
             drop(navigation_permit_guard);
             self.emit(
                 "agentAction",
@@ -2265,6 +2270,7 @@ impl BrowserState {
         let fresh_observation = self
             .observe(request.session_id, request.tab_id, request.call_id)
             .await?;
+        verify_requested_checked_state(&request, &fresh_observation)?;
         drop(navigation_permit_guard);
         self.emit(
             "agentAction",
@@ -2292,13 +2298,18 @@ impl BrowserState {
         action_input: &str,
         commit_tracker: &BrowserActCommitTracker,
     ) -> Result<ActionVerificationBaseline, String> {
-        let (preparation_method, preparation_label) = match request.action {
+        let input_action = if request.action == "set_checked" {
+            "click"
+        } else {
+            request.action
+        };
+        let (preparation_method, preparation_label) = match input_action {
             "click" | "double_click" => ("prepareNativePointer", "pointer"),
             "type" => ("prepareTrustedText", "text"),
             "press" => ("prepareTrustedKey", "key"),
             action => return Err(format!("Unsupported trusted browser action '{action}'")),
         };
-        let budget = trusted_action_budget(request.action, expected, request.key)?;
+        let budget = trusted_action_budget(input_action, expected, request.key)?;
         let prepare_expression = format!(
             "(() => {{ const bridge = window.__NEXA_BROWSER_RUNTIME__; if (!bridge) throw new Error('Browser interaction runtime is unavailable'); return bridge.{preparation_method}({action_input}); }})()"
         );
@@ -2316,7 +2327,15 @@ impl BrowserState {
         })?;
         let verification_baseline =
             action_verification_baseline_from_preparation(&prepared, preparation_label)?;
-        let pointer_bounds = if matches!(request.action, "click" | "double_click") {
+        if request.action == "set_checked"
+            && prepared
+                .get("stateMatched")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        {
+            return Ok(verification_baseline);
+        }
+        let pointer_bounds = if matches!(input_action, "click" | "double_click") {
             Some(
                 serde_json::from_value::<BrowserElementBounds>(
                     prepared.get("bounds").cloned().ok_or_else(|| {
@@ -2335,7 +2354,7 @@ impl BrowserState {
             }
             None
         };
-        let expected_input = match request.action {
+        let expected_input = match input_action {
             "click" | "double_click" => {
                 let bounds = pointer_bounds
                     .as_ref()
@@ -2421,7 +2440,7 @@ impl BrowserState {
             });
         }
 
-        let dispatch_result = match request.action {
+        let dispatch_result = match input_action {
             "click" | "double_click" => {
                 let bounds = pointer_bounds
                     .as_ref()
@@ -3624,12 +3643,32 @@ pub struct BrowserActRequest<'a> {
     pub end_ref: Option<&'a str>,
     pub text: Option<&'a str>,
     pub value: Option<&'a str>,
+    pub checked: Option<bool>,
     pub key: Option<&'a str>,
     pub button: Option<&'a str>,
     pub modifiers: &'a [String],
     pub scroll_x: i64,
     pub scroll_y: i64,
     pub commit_tracker: BrowserActCommitTracker,
+}
+
+fn verify_requested_checked_state(
+    request: &BrowserActRequest<'_>,
+    observation: &CoreBrowserObservation,
+) -> Result<(), String> {
+    if request.action != "set_checked" {
+        return Ok(());
+    }
+    let state = observation
+        .elements
+        .iter()
+        .find(|element| Some(element.element_ref.as_str()) == request.target_ref)
+        .and_then(|element| element.checked.as_ref())
+        .and_then(serde_json::Value::as_bool);
+    if state.is_some() && state == request.checked {
+        return Ok(());
+    }
+    Err("The requested checked state was not observed after the action. Capture again before deciding whether to retry; the page may have changed or rejected the action.".into())
 }
 
 pub(super) fn browser_host_window_allows_agent_action(

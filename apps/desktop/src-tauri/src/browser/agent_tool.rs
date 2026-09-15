@@ -204,6 +204,7 @@ struct BrowserArgs {
     end_ref: Option<String>,
     text: Option<String>,
     value: Option<String>,
+    checked: Option<bool>,
     key: Option<String>,
     button: Option<String>,
     #[serde(default)]
@@ -255,7 +256,7 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
                     .and_then(serde_json::Value::as_str)
                     .is_some_and(|url| url.contains(pattern))
             }),
-        "element_present" | "element_absent" => {
+        "element_present" | "element_absent" | "element_checked" | "element_enabled" => {
             let Some(elements) = observation
                 .get("elements")
                 .and_then(serde_json::Value::as_array)
@@ -288,9 +289,27 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
                             .and_then(serde_json::Value::as_str)
                             .is_some_and(|role| role.eq_ignore_ascii_case(expected))
                     });
-                ref_matches && name_matches && role_matches
+                let state_matches = match condition_type {
+                    "element_checked" | "element_enabled" => {
+                        let expected = condition.get("value").and_then(serde_json::Value::as_bool);
+                        let property = if condition_type == "element_checked" {
+                            "checked"
+                        } else {
+                            "enabled"
+                        };
+                        expected.is_some()
+                            && element.get(property).and_then(serde_json::Value::as_bool)
+                                == expected
+                    }
+                    _ => true,
+                };
+                ref_matches && name_matches && role_matches && state_matches
             });
-            matches == (condition_type == "element_present")
+            if condition_type == "element_absent" {
+                !matches
+            } else {
+                matches
+            }
         }
         _ => false,
     }
@@ -313,6 +332,7 @@ pub(super) fn browser_action_names() -> Vec<&'static str> {
         "drag",
         "type",
         "select",
+        "set_checked",
         "press",
         "scroll",
         "wait_for",
@@ -358,12 +378,13 @@ impl Tool for NativeBrowserSessionTool {
                 "endRef": { "type": "string", "description": "Observation-scoped destination element ref for drag." },
                 "text": { "type": "string" },
                 "value": { "type": "string" },
+                "checked": { "type": "boolean", "description": "Required for set_checked. Ensures a checkbox, radio or switch has this state; an already matching target is not clicked. Radio controls can only be set true. Verify the returned observation; failed verification must not be blindly replayed." },
                 "key": { "type": "string" },
                 "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
                 "modifiers": { "type": "array", "items": { "type": "string", "enum": ["Alt", "Control", "Meta", "Shift"] }, "uniqueItems": true },
                 "scrollX": { "type": "integer", "default": 0 },
                 "scrollY": { "type": "integer", "default": 0 },
-                "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, or element_absent. Element conditions accept ref/targetRef, name, and role." },
+                "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, element_absent, element_checked, or element_enabled. Element conditions accept ref/targetRef, name, and role. State conditions require a boolean value; mixed/unknown checked states do not match false." },
                 "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 2500, "default": 2500, "description": "One steering-friendly wait quantum. Repeat wait_for with a fresh observation if the condition is still pending." }
             },
             "required": ["action"],
@@ -808,7 +829,19 @@ impl Tool for NativeBrowserSessionTool {
                 observation_result(context.call_id, observation)
             }
             "move" | "hover" | "click" | "double_click" | "drag" | "type" | "select" | "press"
-            | "scroll" => {
+            | "scroll" | "set_checked" => {
+                if action == "set_checked"
+                    && (args.checked.is_none()
+                        || args
+                            .button
+                            .as_deref()
+                            .is_some_and(|button| button != "left")
+                        || !args.modifiers.is_empty())
+                {
+                    return Err(Self::invalid(
+                        "set_checked requires checked=true/false and an unmodified left click",
+                    ));
+                }
                 let observation_id = required(args.observation_id.as_deref(), "observationId")?;
                 let target_ref = if matches!(
                     action.as_str(),
@@ -819,6 +852,7 @@ impl Tool for NativeBrowserSessionTool {
                         | "drag"
                         | "type"
                         | "select"
+                        | "set_checked"
                         | "press"
                 ) {
                     Some(required(args.target_ref.as_deref(), "targetRef")?)
@@ -851,6 +885,7 @@ impl Tool for NativeBrowserSessionTool {
                         end_ref,
                         text: args.text.as_deref(),
                         value: args.value.as_deref(),
+                        checked: args.checked,
                         key,
                         button: args.button.as_deref(),
                         modifiers: &args.modifiers,
@@ -1451,5 +1486,32 @@ mod tests {
             &observation,
             &serde_json::json!({ "type": "element_absent", "ref": "e-2" })
         ));
+    }
+
+    #[test]
+    fn state_waits_require_matching_targets_and_known_boolean_states() {
+        let observation = serde_json::json!({"elements":[
+            {"ref":"save","enabled":false}, {"ref":"choice","checked":false}, {"ref":"partial","checked":"mixed"}
+        ]});
+        for (kind, target) in [("element_enabled", "save"), ("element_checked", "choice")] {
+            assert!(condition_matches(
+                &observation,
+                &serde_json::json!({"type":kind,"ref":target,"value":false})
+            ));
+            assert!(!condition_matches(
+                &observation,
+                &serde_json::json!({"type":kind,"ref":target,"value":true})
+            ));
+            assert!(!condition_matches(
+                &observation,
+                &serde_json::json!({"type":kind,"ref":target})
+            ));
+        }
+        for target in ["save", "partial", "missing"] {
+            assert!(!condition_matches(
+                &observation,
+                &serde_json::json!({"type":"element_checked","ref":target,"value":false})
+            ));
+        }
     }
 }

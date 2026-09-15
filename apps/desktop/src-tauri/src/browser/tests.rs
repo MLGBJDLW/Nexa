@@ -606,6 +606,9 @@ fn trusted_budget_target(tag: &str, role: &str, input_type: Option<&str>) -> Bro
         input_type: input_type.map(str::to_string),
         enabled: true,
         visible: true,
+        checked: None,
+        options: None,
+        option_count: None,
         bounds: BrowserElementBounds {
             x: 10.0,
             y: 20.0,
