@@ -365,6 +365,7 @@ export interface UseChatSessionReturn {
   renameConversation: (id: string, title: string) => Promise<void>;
   setActiveConversation: (id: string) => void;
   createNewConversation: () => void;
+  ensureConversation: (beforeActivate?: (id: string) => void) => Promise<string>;
   activeId: string | null;
   activeConversation: Conversation | null;
   customSystemPrompt: string;
@@ -450,6 +451,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     options?: ChatSendOptions;
   } | null>(null);
   const conversationCreationInFlightRef = useRef(false);
+  const shareConversationCreationRef = useRef<Promise<string> | null>(null);
   const knownStreamConversationsRef = useRef<Set<string>>(new Set());
   const conversationHydrationGenerationRef = useRef(0);
   const completionHydrationGenerationRef = useRef(0);
@@ -947,6 +949,44 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setChatError(null);
     lastUserMessageRef.current = null;
   }, [defaultContextAuthority, defaultContextWindow]);
+
+  // Screen sharing is an explicit reason to create an empty conversation. It
+  // must not launch an agent turn just to obtain the screen-sharing scope.
+  const ensureConversation = useCallback(async (beforeActivate?: (id: string) => void): Promise<string> => {
+    if (activeIdRef.current) return activeIdRef.current;
+    if (shareConversationCreationRef.current) return shareConversationCreationRef.current;
+    const config = activeAgentConfigRef.current;
+    if (!config) throw new Error(t('chat.noConfigError'));
+    if (conversationCreationInFlightRef.current) throw new Error(t('chat.screenSharePreparingConversation'));
+    const generation = navigationGenerationRef.current;
+    conversationCreationInFlightRef.current = true;
+    const preparation = (async () => {
+      let createdId: string | undefined;
+      try {
+        const conversation = initialCollectionContext
+          ? await api.createConversationWithContext(config.provider, config.model, customSystemPrompt || undefined, initialCollectionContext, initialProjectId ?? undefined, activePersonaId)
+          : await api.createConversation(config.provider, config.model, customSystemPrompt || undefined, initialProjectId ?? undefined, activePersonaId);
+        createdId = conversation.id;
+        const scope = getCurrentSourceScopeRef.current?.() ?? initialSourceIds;
+        if (scope.length) await api.setConversationSources(conversation.id, scope);
+        if (navigationGenerationRef.current !== generation || activeIdRef.current) throw new Error(t('chat.screenShareConversationChanged'));
+        beforeActivate?.(conversation.id);
+        setConversations(previous => [conversation, ...previous]);
+        activeIdRef.current = conversation.id;
+        setInternalConversationId(conversation.id);
+        onConversationCreated?.(conversation.id);
+        return conversation.id;
+      } catch (error) {
+        if (createdId) await api.deleteConversation(createdId).catch(() => undefined);
+        throw error;
+      } finally {
+        conversationCreationInFlightRef.current = false;
+        shareConversationCreationRef.current = null;
+      }
+    })();
+    shareConversationCreationRef.current = preparation;
+    return preparation;
+  }, [activePersonaId, customSystemPrompt, initialCollectionContext, initialProjectId, initialSourceIds, onConversationCreated, t]);
 
   const deleteConversation = useCallback(
     async (id: string) => {
@@ -1771,6 +1811,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     renameConversation,
     setActiveConversation,
     createNewConversation,
+    ensureConversation,
     activeId,
     activeConversation,
     customSystemPrompt,

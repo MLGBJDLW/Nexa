@@ -80,6 +80,7 @@ interface ChatInputProps {
   isStreaming: boolean;
   disabled: boolean;
   conversationId?: string;
+  onEnsureConversation?: (beforeActivate?: (id: string) => void) => Promise<string>;
   agentId?: string;
   inputHistory?: string[];
   sessionControls?: ReactNode;
@@ -352,6 +353,7 @@ export function ChatInput({
   isStreaming,
   disabled,
   conversationId,
+  onEnsureConversation,
   agentId,
   inputHistory = [],
   sessionControls,
@@ -2031,7 +2033,12 @@ export function ChatInput({
               <span className="hidden sm:inline">Nexus</span>
             </button>
 
-            <ScreenShareButton conversationId={conversationId} />
+            <ScreenShareButton conversationId={conversationId} onEnsureConversation={onEnsureConversation ? () => onEnsureConversation((id) => {
+              const draft = draftsRef.current[draftKey] ?? readChatInputDraft(draftKey);
+              draftsRef.current[id] = cloneDraftState(draft);
+              persistChatInputDraft(id, draft);
+              if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
+            }) : undefined} />
             {conversationId && onCompact && (
               <button
                 type="button"

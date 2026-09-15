@@ -709,5 +709,9 @@
   "screenShareUnavailable": "Le partage d’écran est indisponible ici",
   "screenSharePreview": "Aperçu de l’écran partagé",
   "screenShareHint": "L’agent reçoit la vue actuelle lorsqu’il continue. Arrêtez le partage pour révoquer l’accès.",
-  "shareWindow": "Fenêtre / sélecteur système…"
+  "shareWindow": "Fenêtre / sélecteur système…",
+  "screenSharePreparingConversation": "Préparation du partage d’écran…",
+  "screenShareConversationChanged": "La conversation a changé. Relancez le partage d’écran dans la conversation actuelle.",
+  "computerUseOperating": "Contrôle de l’ordinateur en cours",
+  "computerUseObserving": "Lecture de la fenêtre sélectionnée"
 }

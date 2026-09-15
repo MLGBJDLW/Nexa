@@ -2009,6 +2009,7 @@ export function ChatPage() {
               disabled={!chat.agentConfig || chat.loadingMsgs}
               conversationId={chat.activeId ?? undefined}
               agentId={selectedAgentConfig?.id ?? chat.agentConfig?.id}
+              onEnsureConversation={chat.ensureConversation}
               inputHistory={chatInputHistory}
               sessionControls={sessionControls}
               prefillText={prefillText}
