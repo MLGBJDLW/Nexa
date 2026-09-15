@@ -559,7 +559,10 @@ export function BrowserDock({
             duration: Infinity,
             action: tabId ? {
               label: translateRef.current('browser.closeTab'),
-              onClick: () => { void api.closeBrowserTab(eventSessionId, tabId).catch(() => toast.error(translateRef.current('browser.actionFailed'))); },
+              onClick: () => {
+                if (conversationIdRef.current !== currentConversationId || sessionIdRef.current !== eventSessionId) return;
+                void api.closeBrowserTab(eventSessionId, tabId).catch(() => toast.error(translateRef.current('browser.actionFailed')));
+              },
             } : undefined,
           });
           return;
