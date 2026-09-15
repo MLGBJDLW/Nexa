@@ -4,7 +4,7 @@ import { LiveAudioQueue } from './liveAudioQueue';
 import { openScreenCapture, type ScreenCapture } from '../../lib/screenCapture';
 import { applyLiveEvent, liveEnded, type LiveSnapshot, type LiveTransport, type StartLiveRequest } from './liveTransport';
 
-export type LiveVideoSource = 'none' | 'camera' | 'screen' | `monitor:${string}`;
+export type LiveVideoSource = 'none' | 'camera' | 'screen' | `monitor:${string}` | `window:${string}`;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function captureFrame(video: HTMLVideoElement): Promise<string | null> {
@@ -117,8 +117,8 @@ export function useLiveSession(transport: LiveTransport) {
     try {
       if (!window.isSecureContext || !navigator.mediaDevices) throw new Error('Microphone and camera require a trusted HTTPS connection or localhost. Open the HTTPS pairing address to use Live.');
       // Display capture must be requested within the original click's activation.
-      if (source === 'screen' || source.startsWith('monitor:')) {
-        pendingScreen = await openScreenCapture(source.startsWith('monitor:') ? source.slice(8) : undefined);
+      if (source === 'screen' || source.startsWith('monitor:') || source.startsWith('window:')) {
+        pendingScreen = await openScreenCapture(source.startsWith('monitor:') ? source.slice(8) : undefined, source.startsWith('window:') ? source.slice(7) : undefined);
         pendingMedia = pendingScreen.stream;
       } else if (source === 'camera') {
         pendingMedia = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 960 }, facingMode: { ideal: 'environment' } }, audio: false });

@@ -49,6 +49,11 @@ pub fn browser_takeover_script(token: &str) -> String {
       const data = String(expected.data ?? '');
       return data.length <= 262144 ? { kind: 'text', data, targetRef, targetContext } : null;
     }
+    if (expected.kind === 'files') {
+      const files = expected.files;
+      if (!Array.isArray(files) || files.length > 20 || files.some(file => typeof file.name !== 'string' || !file.name || file.name.length > 512 || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > 104857600)) return null;
+      return { kind: 'files', files: files.map(file => ({ name: file.name, size: file.size })), targetRef, targetContext };
+    }
     return null;
   };
 
@@ -75,7 +80,9 @@ pub fn browser_takeover_script(token: &str) -> String {
     const target = bridge?.resolveTargetRef(normalizedExpected.targetRef);
     if (!target || target === document.body || target === document.documentElement) return false;
     if (!target.isConnected || bridge.targetContextFingerprint(target) !== normalizedExpected.targetContext) return false;
-    let matches = hit === target || Boolean(target.contains?.(hit));
+    let matches = normalizedExpected.kind === 'files'
+      ? target.tagName === 'INPUT' && target.type === 'file'
+      : hit === target || Boolean(target.contains?.(hit));
     for (let ownerWindow = target.ownerDocument.defaultView; !matches && ownerWindow && ownerWindow !== window;) {
       try {
         const frame = ownerWindow.frameElement;
@@ -193,6 +200,11 @@ pub fn browser_takeover_script(token: &str) -> String {
     if (expected.kind === 'text') {
       return event.data === expected.data && eventTargetsArmedElement(event);
     }
+    if (expected.kind === 'files') {
+      const files = event.target?.files;
+      return eventTargetsArmedElement(event) && files?.length === expected.files.length
+        && expected.files.every((file, index) => files[index].name === file.name && files[index].size === file.size);
+    }
     if (expected.kind === 'key') return eventTargetsArmedElement(event);
     if (expected.kind === 'pointer') {
       const rect = event.target?.getBoundingClientRect?.();
@@ -294,14 +306,45 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     agentCursor: null,
     cursorDocument: null,
     cursorPoint: null,
+    agentThread: null,
   };
 
   const textOf = (el) => String(
-    el.getAttribute?.('aria-label') || el.innerText || el.getAttribute?.('placeholder') || el.getAttribute?.('name') || ''
+    el.getAttribute?.('aria-label') || Array.from(el.labels || []).map(label => label.innerText).join(' ') || el.innerText || el.getAttribute?.('placeholder') || el.getAttribute?.('name') || ''
   ).trim().slice(0, 240);
-  const roleOf = (el) => el.getAttribute?.('role') || ({
+  const roleOf = (el) => el.getAttribute?.('role') || (el.tagName === 'INPUT' && ({ checkbox: 'checkbox', radio: 'radio', range: 'slider', button: 'button', submit: 'button', reset: 'button' }[el.type])) || ({
     A: 'link', BUTTON: 'button', INPUT: 'textbox', TEXTAREA: 'textbox', SELECT: 'combobox'
   }[el.tagName] || '');
+  const enabledOf = (el) => !el.matches?.(':disabled') && el.getAttribute?.('aria-disabled') !== 'true' && !el.closest?.('[inert]');
+  const checkedOf = (el) => {
+    if (el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.type)) return el.indeterminate ? 'mixed' : Boolean(el.checked);
+    if (['checkbox', 'radio', 'switch'].includes(roleOf(el))) {
+      const checked = el.getAttribute('aria-checked');
+      if (checked === 'mixed') return 'mixed';
+      if (checked === 'true' || checked === 'false') return checked === 'true';
+    }
+    return null;
+  };
+  const checkedStateMatches = (el, input) => {
+    if (typeof input.checked !== 'boolean') throw new Error('set_checked requires a boolean checked state');
+    if (!el || !enabledOf(el)) throw new Error('set_checked requires an enabled target');
+    const state = checkedOf(el);
+    if (state === null) throw new Error('set_checked requires a checkbox, radio or switch with an observable checked state');
+    if (roleOf(el) === 'radio' && !input.checked) throw new Error('Select a different radio option instead of clearing a radio');
+    return state === input.checked;
+  };
+  const requestedSelectOptions = (el, input) => {
+    if (!el || el.tagName !== 'SELECT' || !enabledOf(el)) throw new Error('select requires an enabled select element');
+    if (input.values != null && input.value != null) throw new Error('Use value or values, not both');
+    const values = input.values != null ? input.values : typeof input.value === 'string' ? [input.value] : null;
+    if (!Array.isArray(values) || values.length > 100 || values.some(value => typeof value !== 'string' || value.length > 512) || new Set(values).size !== values.length) throw new Error('select requires up to 100 unique option values');
+    if (!el.multiple && values.length !== 1) throw new Error('A single-select requires exactly one value');
+    return values.map(value => {
+      const option = Array.from(el.options).find(option => option.value === value);
+      if (!option || option.matches(':disabled')) throw new Error('Requested select option is missing or disabled');
+      return option;
+    });
+  };
   const cssPath = (el) => {
     const parts = [];
     let current = el;
@@ -338,12 +381,12 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
   const interactiveElements = () => {
-    const selector = 'a[href],button,input:not([type="hidden" i]),textarea,select,[contenteditable="true"],[role="button"],[role="link"],[role="textbox"],[tabindex]';
+    const selector = 'a[href],button,input:not([type="hidden" i]),textarea,select,[contenteditable="true"],[role="button"],[role="link"],[role="textbox"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[tabindex]';
     const seen = new Set();
     const elements = [];
     for (const root of roots()) {
       for (const element of root.querySelectorAll?.(selector) || []) {
-        if (!seen.has(element) && isObservable(element)) { seen.add(element); elements.push(element); }
+        if (!seen.has(element) && (isObservable(element) || (element.tagName === 'INPUT' && element.type === 'file'))) { seen.add(element); elements.push(element); }
         if (elements.length >= 300) return elements;
       }
     }
@@ -398,7 +441,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     }
     return { x, y, width: rect.width, height: rect.height };
   };
-  const describe = (el, ref) => {
+  const describe = (el, ref, optionBudget = 0) => {
     const rect = viewportBoundsOf(el);
     const name = textOf(el);
     const navigationTarget = navigationTargetOf(el);
@@ -409,7 +452,13 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       name,
       href: navigationTarget,
       inputType: el.type || null,
-      enabled: !el.disabled,
+      enabled: enabledOf(el),
+      checked: checkedOf(el),
+      options: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.options, 0, Math.min(100, optionBudget)).map(option => ({ value: option.value.slice(0, 512), label: option.label.slice(0, 240), selected: option.selected, enabled: !option.matches(':disabled') })) : null,
+      optionCount: el.tagName === 'SELECT' ? el.options.length : null,
+      selectedValues: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.selectedOptions, 0, 101).map(option => option.value.slice(0, 512)) : null,
+      files: el.type === 'file' ? Array.from(el.files || []).slice(0, 20).map(file => ({ name: file.name, size: file.size })) : null,
+      fileCount: el.type === 'file' ? el.files?.length || 0 : null,
       visible: rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden',
       bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       locatorFingerprint: {
@@ -509,8 +558,11 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         navigationTargetOf(element) || '',
         element.type || '',
         element.disabled ? 'disabled' : 'enabled',
-        element.checked ? 'checked' : '',
+        String(checkedOf(element)),
+        element.type === 'file' ? `${element.files?.length || 0}:${Array.from(element.files || []).slice(0, 20).map(file => `${file.name}:${file.size}`).join('|')}` : '',
+        enabledOf(element) ? 'enabled' : 'disabled',
         Number.isInteger(element.selectedIndex) ? String(element.selectedIndex) : '',
+        element.tagName === 'SELECT' ? hashText([element.options.length, element.selectedOptions.length, ...Array.prototype.slice.call(element.options, 0, 100).map(option => [option.value, option.selected, option.matches(':disabled')].join(':')), ...Array.prototype.slice.call(element.selectedOptions, 0, 101).map(option => option.value)].join('|')) : '',
         style.display,
         style.visibility,
         style.opacity,
@@ -535,6 +587,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   });
   runtime.observe = () => {
     runtime.refs = new Map();
+    let optionBudget = 400;
     const elements = observableElements().map((el) => {
       // Screenshot confirmation and settling may take further snapshots. A
       // reference belongs to the actual element, not the snapshot counter.
@@ -544,11 +597,14 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         runtime.refIds.set(el, ref);
       }
       runtime.refs.set(ref, el);
-      return describe(el, ref);
+      const description = describe(el, ref, optionBudget);
+      optionBudget -= description.options?.length || 0;
+      return description;
     });
     return {
       url: location.href,
       title: document.title,
+      readyState: document.readyState,
       text: document.body ? document.body.innerText.slice(0, 30000) : '',
       viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
       historyLength: history.length,
@@ -570,6 +626,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     const verify = (element, ref, expected, label) => {
       if (!element || !expected) return;
       const current = describe(element, ref);
+      if (!current.enabled) throw new Error('Browser target is disabled');
+      if (!current.visible && input.action !== 'upload_files') throw new Error('Browser target is not visible');
       if (current.role !== expected.role || current.name !== expected.name) {
         throw new Error('stale observation: target identity changed');
       }
@@ -581,6 +639,12 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     };
     verify(el, input.targetRef, input.expected, 'target');
     verify(end, input.endRef, input.expectedEnd, 'drag destination');
+    if (input.action === 'select') requestedSelectOptions(el, input);
+    if (input.action === 'set_checked') checkedStateMatches(el, input);
+    if (input.action === 'upload_files') {
+      if (!el || el.tagName !== 'INPUT' || el.type !== 'file' || !enabledOf(el)) throw new Error('upload_files requires an enabled file input');
+      if (!Array.isArray(input.files) || input.files.length > 20 || (!el.multiple && input.files.length > 1)) throw new Error('The file input does not accept this file count');
+    }
     return { el, end };
   };
   const centerOf = (el) => {
@@ -593,13 +657,43 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     const cursor = ownerDocument.createElement('div');
     cursor.setAttribute('data-nexa-agent-cursor', 'true');
     cursor.setAttribute('aria-hidden', 'true');
-    cursor.style.cssText = 'position:fixed;left:0;top:0;width:22px;height:28px;z-index:2147483647;pointer-events:none;will-change:transform;filter:drop-shadow(0 2px 4px rgba(2,6,23,.45));contain:layout paint style;';
-    cursor.innerHTML = "<svg viewBox='0 0 22 28' width='22' height='28' xmlns='http://www.w3.org/2000/svg'><path d='M2 1.75v20.5l5.4-5.2 3.45 8.15 4.2-1.8-3.5-8.05h7.35L2 1.75Z' fill='#f8fafc' stroke='#0891b2' stroke-width='1.8' stroke-linejoin='round'/></svg>";
+    cursor.style.cssText = 'position:fixed;left:0;top:0;width:30px;height:34px;z-index:2147483647;pointer-events:none;will-change:transform;filter:drop-shadow(0 2px 4px rgba(2,6,23,.45));contain:layout paint style;';
+    cursor.innerHTML = "<svg viewBox='0 0 30 34' width='30' height='34' xmlns='http://www.w3.org/2000/svg'><path d='M2 1.75v20.5l5.4-5.2 3.45 8.15 4.2-1.8-3.5-8.05h7.35L2 1.75Z' fill='#f8fafc' stroke='#0d9488' stroke-width='1.8' stroke-linejoin='round'/><g transform='translate(20 24) rotate(-35)' fill='none' stroke='#14b8a6' stroke-width='1.8'><rect x='-7' y='-4' width='9' height='7' rx='3.5'/><rect x='-1' y='-1' width='9' height='7' rx='3.5'/></g></svg>";
     (ownerDocument.documentElement || ownerDocument.body).appendChild(cursor);
     runtime.agentCursor = cursor;
     runtime.cursorDocument = ownerDocument;
     runtime.cursorPoint = null;
     return cursor;
+  };
+  const connectAgentTargets = (ownerDocument, from, to, duration) => {
+    runtime.agentThread?.remove();
+    runtime.agentThread = null;
+    if (!duration) return;
+    const ns = 'http://www.w3.org/2000/svg';
+    const thread = ownerDocument.createElementNS(ns, 'svg');
+    thread.setAttribute('data-nexa-agent-thread', 'true');
+    thread.setAttribute('aria-hidden', 'true');
+    thread.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483645;pointer-events:none;overflow:hidden;contain:strict;';
+    const bend = Math.min(70, Math.max(18, Math.hypot(to.x - from.x, to.y - from.y) * .14));
+    const path = ownerDocument.createElementNS(ns, 'path');
+    path.setAttribute('d', `M${from.x} ${from.y} Q${from.x + (to.x - from.x) * .55} ${from.y + (to.y - from.y) * .45 - bend} ${to.x} ${to.y}`);
+    path.setAttribute('fill', 'none'); path.setAttribute('stroke', '#14b8a6');
+    path.setAttribute('stroke-width', '1.5'); path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('pathLength', '1'); path.setAttribute('stroke-dasharray', '1');
+    thread.appendChild(path);
+    for (const point of [from, to]) {
+      const node = ownerDocument.createElementNS(ns, 'circle');
+      node.setAttribute('cx', String(point.x)); node.setAttribute('cy', String(point.y));
+      node.setAttribute('r', '3'); node.setAttribute('fill', '#f0fdfa');
+      node.setAttribute('stroke', '#14b8a6'); node.setAttribute('stroke-width', '1.5');
+      thread.appendChild(node);
+    }
+    (ownerDocument.documentElement || ownerDocument.body).appendChild(thread);
+    runtime.agentThread = thread;
+    path.animate?.([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration, easing: 'cubic-bezier(.22,.8,.24,1)', fill: 'forwards' });
+    const animation = thread.animate?.([{ opacity: .15 }, { opacity: .65, offset: .55 }, { opacity: 0 }], { duration: duration + 260, fill: 'forwards' });
+    const remove = () => { thread.remove(); if (runtime.agentThread === thread) runtime.agentThread = null; };
+    if (animation) animation.onfinish = remove; else setTimeout(remove, duration + 260);
   };
   const moveAgentCursor = (el, via = null) => {
     if (!el) return 0;
@@ -617,6 +711,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       : Math.hypot(to.x - from.x, to.y - from.y);
     const reduced = ownerWindow.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.round(Math.min(520, Math.max(180, 150 + distance * 0.36)));
+    connectAgentTargets(ownerDocument, from, to, duration);
     const translate = (point) => `translate3d(${point.x}px,${point.y}px,0)`;
     cursor.getAnimations?.().forEach((animation) => animation.cancel());
     if (duration > 0 && cursor.animate) {
@@ -666,7 +761,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     pulse.setAttribute('data-nexa-agent-click', 'true');
     pulse.style.cssText = `position:fixed;z-index:2147483646;pointer-events:none;left:${point.x - 11}px;top:${point.y - 11}px;width:22px;height:22px;border:2px solid #22d3ee;border-radius:999px;box-sizing:border-box;`;
     (ownerDocument.documentElement || ownerDocument.body).appendChild(pulse);
-    const animation = pulse.animate?.([
+    const reduced = (ownerDocument.defaultView || window).matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const animation = !reduced && pulse.animate?.([
       { opacity: 1, transform: 'scale(.35)' },
       { opacity: 0, transform: 'scale(1.65)' },
     ], { duration: 360, easing: 'ease-out' });
@@ -724,6 +820,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     runtime.refs = new Map();
     runtime.agentCursor?.remove();
     runtime.agentCursor = null;
+    runtime.agentThread?.remove();
+    runtime.agentThread = null;
     runtime.cursorDocument = null;
     runtime.cursorPoint = null;
   };
@@ -736,6 +834,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   runtime.prepareNativePointer = (input) => {
     const { el } = validateAction(input);
     if (!el) throw new Error('Browser pointer action requires a target');
+    if (input.action === 'set_checked' && checkedStateMatches(el, input)) {
+      return { stateMatched: true, verificationBaseline: actionVerificationBaseline() };
+    }
     const targetContext = targetContextFingerprint(el);
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
@@ -802,12 +903,19 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       verificationBaseline: actionVerificationBaseline(),
     };
   };
+  runtime.prepareTrustedUpload = (input) => {
+    const { el } = validateAction(input);
+    return { targetRef: input.targetRef, targetContext: targetContextFingerprint(el), verificationBaseline: actionVerificationBaseline() };
+  };
   runtime.act = (input) => {
     const { el, end } = validateAction(input);
     runtime.synthetic = true;
     try {
       if (input.action === 'move' || input.action === 'hover') hoverAt(el, input, centerOf(el));
       else if (input.action === 'click') clickAt(el, input);
+      else if (input.action === 'set_checked') {
+        if (!checkedStateMatches(el, input)) clickAt(el, input);
+      }
       else if (input.action === 'double_click') {
         clickAt(el, input, 1);
         clickAt(el, input, 2);
@@ -826,9 +934,14 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: input.text || '' }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (input.action === 'select') {
-        el.value = input.value || '';
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
+        const desired = new Set(requestedSelectOptions(el, input));
+        const options = Array.from(el.options);
+        if (options.some(option => option.selected !== desired.has(option))) {
+          for (const option of options) option.selected = desired.has(option);
+          const realm = el.ownerDocument.defaultView || window;
+          el.dispatchEvent(new realm.Event('input', { bubbles: true }));
+          el.dispatchEvent(new realm.Event('change', { bubbles: true }));
+        }
       } else if (input.action === 'press') {
         const target = el || document.activeElement || document.body;
         const realm = target.ownerDocument?.defaultView || window;
@@ -1037,6 +1150,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     prepareNativePointer: (input) => runtime.prepareNativePointer(input),
     prepareTrustedText: (input) => runtime.prepareTrustedText(input),
     prepareTrustedKey: (input) => runtime.prepareTrustedKey(input),
+    prepareTrustedUpload: (input) => runtime.prepareTrustedUpload(input),
     act: (input) => runtime.act(input),
     invalidateForUserTakeover: () => runtime.invalidateForUserTakeover(),
     beginPick: (mode) => runtime.beginPick(mode),

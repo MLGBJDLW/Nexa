@@ -709,5 +709,9 @@
   "screenShareUnavailable": "No se puede compartir la pantalla en este entorno",
   "screenSharePreview": "Vista de la pantalla compartida",
   "screenShareHint": "El agente recibe la vista actual al continuar. Deja de compartir para revocar el acceso.",
-  "shareWindow": "Ventana / selector del sistema…"
+  "shareWindow": "Ventana / selector del sistema…",
+  "screenSharePreparingConversation": "Preparando pantalla compartida…",
+  "screenShareConversationChanged": "La conversación cambió. Inicia la pantalla compartida en el chat actual.",
+  "computerUseOperating": "Controlando el equipo",
+  "computerUseObserving": "Leyendo la ventana seleccionada"
 }

@@ -188,6 +188,19 @@ impl Default for SubagentLifecycleRuntime {
 }
 
 impl SubagentLifecycleRuntime {
+    /// The last parent/worker runtime owns retirement. Active workers retain
+    /// that owner until they settle, and durable results remain in the ledger.
+    pub(crate) fn release_owned_handles(&self, ids: &[String]) {
+        let retired: Vec<_> = match self.inner.workers.lock() {
+            Ok(mut workers) => ids.iter().filter_map(|id| workers.remove(id)).collect(),
+            Err(_) => return,
+        };
+        for worker in retired {
+            worker.cancel_token.cancel();
+        }
+        self.inner.notify.notify_waiters();
+    }
+
     pub fn register(
         &self,
         request: RegisterSubagentRequest,

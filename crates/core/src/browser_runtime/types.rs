@@ -64,8 +64,35 @@ pub struct BrowserElement {
     pub input_type: Option<String>,
     pub enabled: bool,
     pub visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<BrowserSelectOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub option_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_values: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<BrowserFileMetadata>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<usize>,
     pub bounds: BrowserElementBounds,
     pub locator_fingerprint: BrowserLocatorFingerprint,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BrowserFileMetadata {
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSelectOption {
+    pub value: String,
+    pub label: String,
+    pub selected: bool,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,6 +115,8 @@ pub struct BrowserObservation {
     pub tab_id: String,
     pub url: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_state: Option<String>,
     pub text: String,
     pub viewport: serde_json::Value,
     pub content_hash: String,

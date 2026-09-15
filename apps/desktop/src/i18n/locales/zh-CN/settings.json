@@ -711,6 +711,7 @@
   "advancedSettingsDesc": "生成限制、成本控制和委派 worker 权限。",
   "selectedToolsSummary": "{selected}/{total} 个工具",
   "subagents": "子 Agent",
+  "inheritSubagentTools": "继承父代理已授权的工具",
   "subagentsDesc": "选择子 Agent 可继承的委派工具和已启用技能，并设置委派 worker 与裁判的并发和预算限制。",
   "maxParallelWorkers": "最大并行 worker",
   "maxParallelWorkersDesc": "同时运行的委派 worker 数量硬上限。",

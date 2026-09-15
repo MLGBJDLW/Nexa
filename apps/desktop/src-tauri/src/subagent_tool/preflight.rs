@@ -569,8 +569,9 @@ pub(super) fn validate_subagent_preflight(
                 "tool_scope_widening",
                 false,
                 format!(
-                    "Requested tool(s) are not available to the parent: {}.",
-                    denied.join(", ")
+                    "Requested tool(s) are outside the effective delegated tool scope: {}. This scope is the parent registry narrowed by the saved subagent allowlist. Available delegated tools: {}. Choose from this scope or ask the user to change the saved subagent tool permissions.",
+                    denied.join(", "),
+                    baseline_allowed_tools.join(", ")
                 ),
             ));
         }

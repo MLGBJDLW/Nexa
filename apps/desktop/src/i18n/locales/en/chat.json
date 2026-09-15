@@ -709,5 +709,9 @@
   "screenShareUnavailable": "Screen sharing is unavailable in this environment",
   "screenSharePreview": "Shared screen preview",
   "screenShareHint": "The latest view is supplied when the agent continues. Stop sharing to revoke access.",
-  "shareWindow": "Window / system picker…"
+  "shareWindow": "Window / system picker…",
+  "screenSharePreparingConversation": "Preparing screen sharing…",
+  "screenShareConversationChanged": "The conversation changed. Start screen sharing in the current chat.",
+  "computerUseOperating": "Controlling the computer",
+  "computerUseObserving": "Reading the selected window"
 }

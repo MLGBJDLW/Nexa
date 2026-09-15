@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
@@ -12,7 +12,7 @@ const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"
 if (!runtimeSource) throw new Error('Could not extract the native Browser Workspace interaction runtime');
 if (!takeoverSource) throw new Error('Could not extract the native Browser Workspace takeover guard');
 
-test('Agent browser interaction shows cursor motion and commits verified pointer actions', async ({ page }) => {
+test('Agent browser interaction shows cursor motion and commits verified pointer actions', async ({ page }, testInfo) => {
   await page.setContent(`
     <!doctype html>
     <button id="source">Open details</button>
@@ -36,6 +36,7 @@ test('Agent browser interaction shows cursor motion and commits verified pointer
 
   expect(preview.durationMs).toBeGreaterThanOrEqual(180);
   await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('browser-link.png') });
   await page.waitForTimeout(preview.durationMs + 20);
   await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCSS('pointer-events', 'none');
   await page.evaluate(value => (
@@ -64,6 +65,11 @@ test('Agent browser interaction shows cursor motion and commits verified pointer
   expect(await page.evaluate(() => (
     window as unknown as { actionEvents: Array<{ type: string }> }
   ).actionEvents.filter(event => event.type === 'dblclick').length)).toBe(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedSnapshot = await observe(page);
+  const reducedPreview = await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(value), actionInput(reducedSnapshot, 'hover', sourceRef!));
+  expect(reducedPreview.durationMs).toBe(0);
+  await expect(page.locator('[data-nexa-agent-thread]')).toHaveCount(0);
 });
 
 test('screenshot confirmation preserves the element references advertised to the agent', async ({ page }) => {
@@ -453,6 +459,138 @@ test('trusted text and key guards require the exact dispatched event signature',
   expect((await observe(page)).userEpoch).toBe(beforeKey.userEpoch + 1);
 });
 
+test('form observations expose labels, checkbox state and bounded select choices', async ({ page }) => {
+  await page.setContent(`<label for="choice">Remember choice</label><input id="choice" type="checkbox" checked>
+    <div role="switch" aria-label="Notifications" aria-checked="mixed" aria-disabled="true">Toggle</div>
+    <label>Country<select><option value="cn" selected>China</option><option value="de" disabled>Germany</option></select></label>`);
+  await page.addScriptTag({ content: runtimeSource });
+  const snapshot = await observe(page);
+  expect(snapshot.elements.find(el => el.name === 'Remember choice')).toMatchObject({ role: 'checkbox', checked: true });
+  expect(snapshot.elements.find(el => el.name === 'Notifications')).toMatchObject({ role: 'switch', checked: 'mixed', enabled: false });
+  expect(snapshot.elements.find(el => el.role === 'combobox')).toMatchObject({
+    options: [{ value: 'cn', label: 'China', selected: true, enabled: true }, { value: 'de', label: 'Germany', selected: false, enabled: false }],
+  });
+});
+
+test('set_checked changes once and repeated desired state does not click again', async ({ page }) => {
+  await page.setContent('<input type="checkbox" aria-label="Remember" onclick="window.clicks=(window.clicks||0)+1">');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const checked of [true, true, false, false]) {
+    const snapshot = await observe(page);
+    const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked };
+    await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input), input);
+    await expect(page.locator('input')).toBeChecked({ checked });
+    const fresh = await observe(page);
+    const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input),
+      { ...actionInput(fresh, 'set_checked', fresh.elements[0].ref), checked });
+    expect(prepared.stateMatched).toBe(true);
+  }
+  expect(await page.evaluate(() => (window as Window & { clicks: number }).clicks)).toBe(2);
+});
+
+test('set_checked rejects disabled controls, radio clearing and stale checked state', async ({ page }) => {
+  await page.setContent('<input type="checkbox" disabled aria-label="Locked"><input type="radio" checked aria-label="Plan"><input type="checkbox" aria-label="Changed">');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const [name, checked] of [['Locked', true], ['Plan', false]] as const) {
+    const snapshot = await observe(page);
+    const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements.find(el => el.name === name)!.ref), checked };
+    await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input), input)).rejects.toThrow();
+  }
+  const old = await observe(page);
+  await page.locator('[aria-label="Changed"]').evaluate(el => { (el as HTMLInputElement).checked = true; });
+  await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+    { ...actionInput(old, 'set_checked', old.elements.find(el => el.name === 'Changed')!.ref), checked: false })).rejects.toThrow('stale observation');
+});
+
+test('set_checked preparation uses guarded trusted clicks and skips matching state', async ({ page }) => {
+  await page.setContent('<input type="checkbox" aria-label="Remember" onchange="window.trusted=event.isTrusted">');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.addScriptTag({ content: takeoverSource });
+  const snapshot = await observe(page);
+  const input = { ...actionInput(snapshot, 'set_checked', snapshot.elements[0].ref), checked: true };
+  const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
+  const binding = await targetBinding(page, 'input');
+  const x = prepared.bounds.x + prepared.bounds.width / 2;
+  const y = prepared.bounds.y + prepared.bounds.height / 2;
+  expect(await page.evaluate(({ binding, x, y }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm(
+    'playwright-takeover-token', 'checked-click', { pointerDown: 1, keyDown: 0, input: 1 }, { kind: 'pointer', x, y, button: 'left', ...binding }), { binding, x, y })).toBe(true);
+  await page.mouse.click(x, y);
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'checked-click'))).toBe(true);
+  await expect(page.locator('input')).toBeChecked();
+  expect(await page.evaluate(() => (window as Window & { trusted: boolean }).trusted)).toBe(true);
+  const fresh = await observe(page);
+  expect((await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input),
+    { ...actionInput(fresh, 'set_checked', fresh.elements[0].ref), checked: true })).stateMatched).toBe(true);
+});
+
+test('large forms bound total option evidence and report omitted choices', async ({ page }) => {
+  await page.setContent(Array.from({ length: 8 }, (_, index) => `<select aria-label="Select ${index}">${Array.from({ length: 150 }, (_, option) => `<option value="${option}">Choice ${option}</option>`).join('')}</select>`).join(''));
+  await page.addScriptTag({ content: runtimeSource });
+  const snapshot = await observe(page);
+  expect(snapshot.elements).toHaveLength(8);
+  expect(snapshot.elements.reduce((total, el) => total + (el.options?.length || 0), 0)).toBeLessThanOrEqual(400);
+  expect(snapshot.elements.every(el => el.optionCount === 150)).toBe(true);
+  expect(snapshot.elements.some(el => (el.options?.length || 0) < el.optionCount!)).toBe(true);
+});
+
+test('select rejects missing and disabled choices without clearing the current value', async ({ page }) => {
+  await page.setContent('<select aria-label="Plan"><option value="free" selected>Free</option><optgroup disabled><option value="paid">Paid</option></optgroup></select>');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const value of ['missing', 'paid']) {
+    const snapshot = await observe(page);
+    await expect(page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+      { ...actionInput(snapshot, 'select', snapshot.elements[0].ref), value })).rejects.toThrow();
+    await expect(page.locator('select')).toHaveValue('free');
+  }
+});
+
+test('select supports exact multiple selections and skips unchanged values', async ({ page }) => {
+  await page.setContent('<select multiple aria-label="Tags" onchange="window.changes=(window.changes||0)+1"><option value="a">A</option><option value="b">B</option><option value="c">C</option></select>');
+  await page.addScriptTag({ content: runtimeSource });
+  for (const values of [['a', 'c'], ['a', 'c'], []]) {
+    const snapshot = await observe(page);
+    await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.act(input),
+      { ...actionInput(snapshot, 'select', snapshot.elements[0].ref), values });
+    await expect(page.locator('select')).toHaveValues(values);
+  }
+  expect(await page.evaluate(() => (window as Window & { changes: number }).changes)).toBe(2);
+});
+
+test('observations distinguish loading documents from complete documents', async ({ page }) => {
+  await page.setContent('<button>Ready</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.evaluate(() => Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' }));
+  expect((await observe(page)).readyState).toBe('loading');
+  await page.evaluate(() => Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'complete' }));
+  expect((await observe(page)).readyState).toBe('complete');
+});
+
+test('hidden file inputs support an exact guarded native file selection', async ({ page }, testInfo) => {
+  const path = testInfo.outputPath('proof.txt');
+  const content = 'Nexa upload fixture 中文';
+  mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content);
+  await page.setContent('<input id="upload" type="file" hidden aria-label="Upload evidence">');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.addScriptTag({ content: takeoverSource });
+  const snapshot = await observe(page);
+  const target = snapshot.elements.find(el => el.name === 'Upload evidence');
+  expect(target).toBeTruthy();
+  const files = [{ name: 'proof.txt', size: Buffer.byteLength(content) }];
+  const input = { ...actionInput(snapshot, 'upload_files', target!.ref), files };
+  const prepared = await page.evaluate(input => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.prepareTrustedUpload(input), input);
+  expect(await page.evaluate(({ prepared, files }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm(
+    'playwright-takeover-token', 'upload', { pointerDown: 0, keyDown: 0, input: 1 }, { kind: 'files', files, targetRef: prepared.targetRef, targetContext: prepared.targetContext }), { prepared, files })).toBe(true);
+  const cdp = await page.context().newCDPSession(page);
+  const object = await cdp.send('Runtime.evaluate', { expression: 'document.getElementById("upload")', returnByValue: false });
+  await cdp.send('DOM.setFileInputFiles', { files: [path], objectId: object.result.objectId });
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'upload'))).toBe(true);
+  const after = await observe(page);
+  expect(after.userEpoch).toBe(snapshot.userEpoch);
+  expect(after.elements.find(el => el.ref === target!.ref)).toMatchObject({ fileCount: 1, files });
+  expect(await page.locator('input').evaluate(el => (el as HTMLInputElement).files![0].text())).toBe(content);
+  await cdp.detach();
+});
+
 async function observe(page: import('@playwright/test').Page): Promise<BrowserObservation> {
   return page.evaluate(() => (
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
@@ -494,11 +632,16 @@ function actionInput(
 interface BrowserElement {
   ref: string;
   name: string;
+  role: string;
+  checked?: boolean | 'mixed';
+  options?: unknown[];
+  optionCount?: number;
   bounds: { x: number; y: number; width: number; height: number };
 }
 
 interface BrowserObservation {
   url: string;
+  readyState?: string;
   userEpoch: number;
   domFingerprint: string;
   interactionFingerprint: string;
@@ -513,6 +656,10 @@ interface BrowserVerificationBaseline {
 
 interface BrowserActionInput {
   action: string;
+  checked?: boolean;
+  value?: string;
+  values?: string[];
+  files?: Array<{ name: string; size: number }>;
   targetRef: string;
   endRef?: string;
   button: string;
@@ -525,11 +672,13 @@ interface BrowserActionInput {
 }
 
 interface BrowserBridge {
+  prepareTrustedUpload(input: BrowserActionInput): { targetRef: string; targetContext: string; verificationBaseline: BrowserVerificationBaseline };
   targetContextFingerprint(element: Element): string;
   resolveTargetRef(ref: string): Element | null;
   observe(): BrowserObservation;
   previewAction(input: BrowserActionInput): { durationMs: number };
   prepareNativePointer(input: BrowserActionInput): {
+    stateMatched?: boolean;
     bounds: { x: number; y: number; width: number; height: number };
     verificationBaseline: BrowserVerificationBaseline;
   };
@@ -555,6 +704,7 @@ function snapshotChanged(
 }
 
 interface TrustedInputGuard {
+  disarm(token: string, operationId: string): boolean;
   arm(
     token: string,
     operationId: string,
@@ -564,6 +714,6 @@ interface TrustedInputGuard {
       x: number;
       y: number;
       button: 'left' | 'middle' | 'right';
-    } | { kind: 'text'; data: string } | { kind: 'key'; key: string }) & { targetRef: string; targetContext: string },
+    } | { kind: 'text'; data: string } | { kind: 'key'; key: string } | { kind: 'files'; files: Array<{ name: string; size: number }> }) & { targetRef: string; targetContext: string },
   ): boolean;
 }

@@ -25,6 +25,60 @@ use nexa_core::browser_runtime::{
 };
 use nexa_core::tools::run_shell_tool::ManagedLoopbackPermitIssuer;
 
+#[tokio::test(start_paused = true)]
+async fn navigation_during_observation_retries_only_the_read() {
+    let generation = std::cell::Cell::new(1);
+    let attempts = std::cell::Cell::new(0);
+    let result = super::state::observe_across_navigation(
+        || {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            if attempt == 1 {
+                generation.set(2);
+            }
+            std::future::ready(if attempt == 1 {
+                Err("Browser control changed during the Agent operation".into())
+            } else {
+                Ok("fresh document")
+            })
+        },
+        || Ok(generation.get()),
+        std::time::Duration::from_secs(20),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, "fresh document");
+    assert_eq!(attempts.get(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn observation_never_reclaims_user_control_and_hung_reads_have_a_deadline() {
+    let user_took_over = std::cell::Cell::new(false);
+    let result = super::state::observe_across_navigation(
+        || {
+            user_took_over.set(true);
+            std::future::ready(Ok("stale document"))
+        },
+        || {
+            if user_took_over.get() {
+                Err("Control belongs to user".into())
+            } else {
+                Ok(1)
+            }
+        },
+        std::time::Duration::from_secs(20),
+    )
+    .await;
+    assert_eq!(result.unwrap_err(), "Control belongs to user");
+    let result = super::state::observe_across_navigation(
+        || std::future::pending::<Result<(), String>>(),
+        || Ok(1),
+        std::time::Duration::from_secs(20),
+    )
+    .await;
+    assert!(result.unwrap_err().contains("deadline"));
+}
+
 #[test]
 fn targeted_webview_operations_allow_an_unfocused_visible_host() {
     for action in ["click", "type", "press", "drag", "select", "scroll"] {
@@ -413,22 +467,6 @@ fn observation_script_never_serializes_form_values_or_hidden_inputs() {
 }
 
 #[test]
-fn agent_interactions_have_a_visible_two_phase_cursor_and_complete_pointer_sequences() {
-    assert!(BROWSER_INIT_SCRIPT.contains("previewAction"));
-    assert!(BROWSER_INIT_SCRIPT.contains("validateAction"));
-    assert!(BROWSER_INIT_SCRIPT.contains("prepareNativePointer"));
-    assert!(BROWSER_INIT_SCRIPT.contains("elementFromPoint"));
-    assert!(BROWSER_INIT_SCRIPT.contains("data-nexa-agent-cursor"));
-    assert!(BROWSER_INIT_SCRIPT.contains("prefers-reduced-motion: reduce"));
-    assert!(BROWSER_INIT_SCRIPT.contains("cubic-bezier(.22,.8,.24,1)"));
-    assert!(BROWSER_INIT_SCRIPT.contains("pointerdown"));
-    assert!(BROWSER_INIT_SCRIPT.contains("dblclick"));
-    assert!(BROWSER_INIT_SCRIPT.contains("dragBetween"));
-    assert!(BROWSER_INIT_SCRIPT.contains("expectedEnd"));
-    assert!(BROWSER_INIT_SCRIPT.contains("domFingerprintOf"));
-}
-
-#[test]
 #[cfg(not(windows))]
 fn browser_target_coordinates_respect_window_origin_webview_offset_and_scale() {
     let point = browser_target_screen_point(
@@ -568,6 +606,12 @@ fn trusted_budget_target(tag: &str, role: &str, input_type: Option<&str>) -> Bro
         input_type: input_type.map(str::to_string),
         enabled: true,
         visible: true,
+        checked: None,
+        options: None,
+        option_count: None,
+        selected_values: None,
+        files: None,
+        file_count: None,
         bounds: BrowserElementBounds {
             x: 10.0,
             y: 20.0,

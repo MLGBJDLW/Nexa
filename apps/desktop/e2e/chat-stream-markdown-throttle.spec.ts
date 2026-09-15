@@ -224,17 +224,21 @@ test.beforeEach(async ({ page }) => {
           messagesByConversation[conversationId] = [userMessage];
           conversations[conversationId].updatedAt = new Date().toISOString();
 
-          answerTokens.forEach((token, index) => {
-            setTimeout(() => {
+          let emitted = 0;
+          const streamTimer = setInterval(() => {
+              const index = emitted++;
+              const token = answerTokens[index] ?? `token${String(index + 1).padStart(2, '0')}`;
+              if (index >= answerTokens.length) answerTokens.push(token);
               emitEvent('agent://run-event', {
                 conversationId,
                 type: 'textDelta',
                 delta: `${index === 0 ? '' : ' '}${token}`,
               });
-            }, 20 + index * 15);
-          });
+          }, 15);
 
-          setTimeout(() => {
+          (window as Window & { __finishMarkdownStream?: () => void }).__finishMarkdownStream = () => {
+            clearInterval(streamTimer);
+            assistantMessage.content = answerTokens.slice(0, emitted).join(' ');
             messagesByConversation[conversationId] = [userMessage, assistantMessage];
             conversations[conversationId].updatedAt = new Date().toISOString();
             emitEvent('agent://run-event', {
@@ -251,7 +255,7 @@ test.beforeEach(async ({ page }) => {
               finishReason: 'stop',
               cached: false,
             });
-          }, 1500);
+          };
 
           return null;
         }
@@ -289,6 +293,7 @@ test('keeps long streaming markdown advancing before the stream finishes', async
 
   await page.waitForTimeout(700);
   await expect(page.getByText(/token45/i)).toBeVisible();
+  await page.evaluate(() => (window as Window & { __finishMarkdownStream?: () => void }).__finishMarkdownStream?.());
 });
 
 test('keeps sidebar interaction urgent while transcript transitions are streaming', async ({ page }) => {
@@ -303,4 +308,5 @@ test('keeps sidebar interaction urgent while transcript transitions are streamin
   await expect(sidebar).toHaveAttribute('data-collapsed', 'true');
   await expect(page.getByText(/token45/i)).toBeVisible();
   await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
+  await page.evaluate(() => (window as Window & { __finishMarkdownStream?: () => void }).__finishMarkdownStream?.());
 });

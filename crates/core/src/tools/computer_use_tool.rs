@@ -50,7 +50,7 @@ struct ScreenshotGuard {
     rgb: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct WindowSnapshot {
     id: u64,
@@ -68,6 +68,37 @@ struct WindowSnapshot {
     minimized: bool,
     maximized: bool,
     focused: bool,
+}
+
+/// Native picker metadata for a user-started screen share, separate from
+/// model observations and computer-control grants.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserShareWindow {
+    pub id: String,
+    pub title: String,
+    pub app_name: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub fn list_user_share_windows() -> Result<Vec<UserShareWindow>, CoreError> {
+    #[cfg(windows)]
+    return platform::user_share_windows();
+    #[cfg(not(windows))]
+    Ok(Vec::new())
+}
+
+pub fn capture_user_share_window(source_id: &str) -> Result<String, CoreError> {
+    #[cfg(windows)]
+    return platform::capture_user_share_window(source_id);
+    #[cfg(not(windows))]
+    {
+        let _ = source_id;
+        Err(CoreError::InvalidInput(
+            "Native window sharing is unavailable on this platform".into(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -475,6 +506,10 @@ struct ObserveArgs {
     window_id: Option<u64>,
     #[serde(default)]
     max_results: Option<usize>,
+    #[serde(default)]
+    process_id: Option<u32>,
+    #[serde(default)]
+    app_name: Option<String>,
     #[serde(default)]
     include_elements: Option<bool>,
     #[serde(default)]
@@ -1850,6 +1885,65 @@ where
         .map_err(|error| CoreError::Internal(format!("Computer use worker failed: {error}")))?
 }
 
+async fn matching_window_inventory<F, Fut>(
+    args: &ObserveArgs,
+    wait: bool,
+    mut enumerate: F,
+) -> Result<Vec<WindowSnapshot>, CoreError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<WindowSnapshot>, CoreError>>,
+{
+    let app_name = args.app_name.as_deref().map(str::trim);
+    if args.process_id == Some(0)
+        || app_name.is_some_and(|name| name.is_empty() || name.chars().count() > 240)
+    {
+        return Err(CoreError::InvalidInput(
+            "Use a positive process_id or a non-empty app_name of at most 240 characters.".into(),
+        ));
+    }
+    if wait && args.process_id.is_none() && app_name.is_none() {
+        return Err(CoreError::InvalidInput(
+            "wait_for_window requires process_id from launch_app or app_name from list_windows."
+                .into(),
+        ));
+    }
+    let timeout_ms = args.timeout_ms.unwrap_or(2_500);
+    let poll_ms = args.poll_interval_ms.unwrap_or(100);
+    if !(100..=10_000).contains(&timeout_ms) || !(50..=1_000).contains(&poll_ms) {
+        return Err(CoreError::InvalidInput(
+            "timeout_ms must be 100..10000 and poll_interval_ms 50..1000.".into(),
+        ));
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        let inventory = tokio::time::timeout_at(deadline, enumerate()).await;
+        let Ok(inventory) = inventory else {
+            if !wait {
+                return Err(CoreError::Internal(
+                    "Window inventory timed out; no fresh window list was obtained.".into(),
+                ));
+            }
+            return Ok(Vec::new());
+        };
+        let windows = inventory?
+            .into_iter()
+            .filter(|window| {
+                args.process_id.is_none_or(|pid| window.pid == pid)
+                    && app_name.is_none_or(|name| window.app_name.eq_ignore_ascii_case(name))
+            })
+            .take(args.max_results.unwrap_or(50).clamp(1, 100))
+            .collect::<Vec<_>>();
+        if !wait || !windows.is_empty() || tokio::time::Instant::now() >= deadline {
+            return Ok(windows);
+        }
+        tokio::time::sleep_until(
+            deadline.min(tokio::time::Instant::now() + Duration::from_millis(poll_ms)),
+        )
+        .await;
+    }
+}
+
 async fn blocking_control<T, F>(
     tracker: ControlCommitTracker,
     operation: F,
@@ -1972,10 +2066,13 @@ impl Tool for ComputerObserveTool {
                     attachments: vec![frame],
                 }))
             }
-            "list_windows" => {
-                let max_results = args.max_results.unwrap_or(50).clamp(1, 100);
-                let windows = blocking(platform::list_windows).await?;
-                let windows: Vec<WindowSnapshot> = windows.into_iter().take(max_results).collect();
+            "list_windows" | "wait_for_window" => {
+                let wait = args.action.trim().eq_ignore_ascii_case("wait_for_window");
+                let started = Instant::now();
+                let windows =
+                    matching_window_inventory(&args, wait, || blocking(platform::list_windows))
+                        .await?;
+                let matched = !windows.is_empty();
                 let observation_id = remember_observation(
                     conversation_id,
                     windows
@@ -1997,6 +2094,9 @@ impl Tool for ComputerObserveTool {
                     "schemaVersion": 2,
                     "observationId": observation_id,
                     "windows": windows,
+                    "matched": matched,
+                    "timedOut": wait && !matched,
+                    "elapsedMs": started.elapsed().as_millis() as u64,
                     "expiresInSeconds": OBSERVATION_TTL.as_secs()
                 });
                 let llm_windows = windows
@@ -2004,6 +2104,7 @@ impl Tool for ComputerObserveTool {
                     .map(|window| {
                         serde_json::json!({
                             "id": window.id,
+                            "processId": window.pid,
                             "appName": window.app_name,
                             "width": window.width,
                             "height": window.height,
@@ -2017,11 +2118,13 @@ impl Tool for ComputerObserveTool {
                     "schemaVersion": 2,
                     "observationId": observation_id,
                     "windows": llm_windows,
+                    "matched": matched,
+                    "timedOut": wait && !matched,
                     "titlesWithheldUntilCaptureConsent": true,
                     "expiresInSeconds": OBSERVATION_TTL.as_secs()
                 });
                 let content = format!(
-                    "Observed {} capturable Windows windows. Use observationId {} with capture_window before coordinate-based input.\n{}",
+                    "Observed {} matching capturable Windows windows. An empty wait means no matching window appeared in this interval; inspect the process or repeat a bounded wait if needed. Use observationId {} with capture_window before input.\n{}",
                     windows.len(),
                     observation_id,
                     serde_json::to_string_pretty(&llm_data).unwrap_or_default()
@@ -2644,6 +2747,7 @@ mod platform {
     use std::sync::mpsc::{self, SyncSender};
     use std::sync::OnceLock;
     use std::thread;
+    use std::time::Instant;
 
     use image::{imageops::FilterType, DynamicImage, ImageFormat, RgbaImage};
     use windows::core::{Interface, BSTR, PWSTR};
@@ -2882,7 +2986,7 @@ mod platform {
         })
     }
 
-    fn enumerated_windows() -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
+    fn enumerated_windows(allow_host: bool) -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
         let host_executable_hash = host_executable_hash()?;
         let host_executable_name = host_executable_name()?;
         let windows =
@@ -2895,9 +2999,10 @@ mod platform {
             if snapshot.title.trim().is_empty() || snapshot.width == 0 || snapshot.height == 0 {
                 continue;
             }
-            if snapshot.pid == std::process::id()
-                || snapshot.executable_path_hash == host_executable_hash
-                || snapshot.app_name.eq_ignore_ascii_case(host_executable_name)
+            if !allow_host
+                && (snapshot.pid == std::process::id()
+                    || snapshot.executable_path_hash == host_executable_hash
+                    || snapshot.app_name.eq_ignore_ascii_case(host_executable_name))
             {
                 continue;
             }
@@ -2910,7 +3015,7 @@ mod platform {
     }
 
     pub(super) fn list_windows() -> Result<Vec<WindowSnapshot>, CoreError> {
-        let mut windows = enumerated_windows()?
+        let mut windows = enumerated_windows(false)?
             .into_iter()
             .map(|(_, snapshot)| snapshot)
             .collect::<Vec<_>>();
@@ -2930,6 +3035,13 @@ mod platform {
     }
 
     fn current_window(expected: &WindowSnapshot) -> Result<(Window, WindowSnapshot), CoreError> {
+        current_window_for_access(expected, false)
+    }
+
+    fn current_window_for_access(
+        expected: &WindowSnapshot,
+        allow_host: bool,
+    ) -> Result<(Window, WindowSnapshot), CoreError> {
         let handle = hwnd(expected.id);
         if !unsafe { IsWindow(Some(handle)).as_bool() } {
             return Err(invalid(format!(
@@ -2951,11 +3063,12 @@ mod platform {
                 expected.id
             )));
         }
-        if current.pid == std::process::id()
-            || current.executable_path_hash == host_executable_hash()?
-            || current
-                .app_name
-                .eq_ignore_ascii_case(host_executable_name()?)
+        if !allow_host
+            && (current.pid == std::process::id()
+                || current.executable_path_hash == host_executable_hash()?
+                || current
+                    .app_name
+                    .eq_ignore_ascii_case(host_executable_name()?))
         {
             return Err(invalid(
                 "Nexa windows and approval surfaces are protected from computer control.",
@@ -2967,6 +3080,65 @@ mod platform {
             ));
         }
         Ok((window, current))
+    }
+
+    pub(super) fn user_share_windows() -> Result<Vec<super::UserShareWindow>, CoreError> {
+        use base64::Engine;
+        let mut sources = enumerated_windows(true)?
+            .into_iter()
+            .filter(|(_, window)| !window.minimized)
+            .take(100)
+            .map(|(_, window)| {
+                let encoded = serde_json::to_vec(&window)
+                    .map_err(|error| platform_error("encode window source", error))?;
+                Ok(super::UserShareWindow {
+                    id: base64::engine::general_purpose::STANDARD.encode(encoded),
+                    title: window.title,
+                    app_name: window.app_name,
+                    width: window.width,
+                    height: window.height,
+                })
+            })
+            .collect::<Result<Vec<_>, CoreError>>()?;
+        sources.sort_by(|left, right| {
+            left.app_name
+                .cmp(&right.app_name)
+                .then_with(|| left.title.cmp(&right.title))
+        });
+        Ok(sources)
+    }
+
+    pub(super) fn capture_user_share_window(source_id: &str) -> Result<String, CoreError> {
+        use base64::Engine;
+        if source_id.len() > 16_384 {
+            return Err(invalid("Invalid window sharing source"));
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(source_id)
+            .map_err(|error| platform_error("decode window sharing source", error))?;
+        let expected: WindowSnapshot = serde_json::from_slice(&bytes)
+            .map_err(|error| platform_error("decode window sharing identity", error))?;
+        let (window, current) = current_window_for_access(&expected, true)?;
+        if current.minimized {
+            return Err(invalid(
+                "The shared window is minimized; restore it and start sharing again.",
+            ));
+        }
+        let image = capture_rgba(window)?;
+        current_window_for_access(&expected, true)?;
+        let image = DynamicImage::ImageRgba8(image)
+            .thumbnail(MAX_CAPTURE_EDGE, MAX_CAPTURE_EDGE)
+            .to_rgb8();
+        let mut encoded = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 70)
+            .encode(
+                image.as_raw(),
+                image.width(),
+                image.height(),
+                image::ExtendedColorType::Rgb8,
+            )
+            .map_err(|error| platform_error("encode shared window frame", error))?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(encoded))
     }
 
     fn resized_png(image: RgbaImage) -> Result<(Vec<u8>, u32, u32, u32, u32), CoreError> {
@@ -3060,6 +3232,13 @@ mod platform {
     }
 
     fn capture_rgba(window: Window) -> Result<RgbaImage, CoreError> {
+        use super::super::computer_capture_lifecycle::CaptureCleanupPool;
+        static CLEANUP: OnceLock<Result<CaptureCleanupPool, String>> = OnceLock::new();
+        let cleanup = CLEANUP
+            .get_or_init(|| CaptureCleanupPool::new(2))
+            .as_ref()
+            .map_err(|error| invalid(error.clone()))?;
+        let permit = cleanup.acquire().map_err(invalid)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         let settings = CaptureSettings::new(
             window,
@@ -3079,27 +3258,33 @@ mod platform {
                 // desktop-input permit forever after a frame was already
                 // delivered. Join on a detached cleanup thread with a bounded
                 // acknowledgement; the captured frame remains authoritative.
-                let (wait_sender, wait_receiver) = mpsc::sync_channel(1);
-                let _ = thread::Builder::new()
-                    .name("nexa-wgc-cleanup".to_string())
-                    .spawn(move || {
-                        let _ = wait_sender.send(control.wait().map_err(|error| {
+                if let Err(error) = cleanup.finish(
+                    permit,
+                    move || {
+                        control.wait().map_err(|error| {
                             format!("join Windows Graphics Capture worker: {error}")
-                        }));
-                    });
-                match wait_receiver.recv_timeout(Duration::from_millis(750)) {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => tracing::warn!("{error}"),
-                    Err(_) => tracing::warn!(
-                        "Windows Graphics Capture cleanup exceeded 750ms and was detached"
-                    ),
+                        })
+                    },
+                    Duration::from_millis(750),
+                ) {
+                    tracing::warn!("{error}");
                 }
                 frame.map_err(|error| platform_error("decode Windows capture frame", error))
             }
             Err(error) => {
-                control.stop().map_err(|stop_error| {
-                    platform_error("stop timed-out Windows Graphics Capture worker", stop_error)
-                })?;
+                // stop() joins the driver's thread; running it inline would
+                // turn a bounded frame timeout into an unbounded tool hang.
+                if let Err(error) = cleanup.finish(
+                    permit,
+                    move || {
+                        control.stop().map_err(|error| {
+                            format!("stop timed-out Windows Graphics Capture worker: {error}")
+                        })
+                    },
+                    Duration::from_millis(750),
+                ) {
+                    tracing::warn!("{error}");
+                }
                 Err(platform_error("receive Windows capture frame", error))
             }
         }
@@ -3755,6 +3940,38 @@ mod platform {
         element: &IUIAutomationElement,
         commit_tracker: &ControlCommitTracker,
     ) -> Result<&'static str, ControlFailure> {
+        // Checkboxes may advertise Invoke as well as Toggle. The semantic
+        // toggle avoids the native Invoke proxy's activating click path.
+        if let Ok(pattern) = unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
+        } {
+            let before = before_control_commit(
+                unsafe { pattern.CurrentToggleState() }
+                    .map_err(|error| platform_error("read UI Automation toggle state", error)),
+            )?;
+            commit_tracker.mark();
+            commit_tracker.result(
+                unsafe { pattern.Toggle() }
+                    .map_err(|error| platform_error("toggle UI Automation element", error)),
+            )?;
+            // Some providers enqueue Toggle and return before their UI thread
+            // applies it. Read back the semantic state; never repeat the input.
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                let state =
+                    commit_tracker.result(unsafe { pattern.CurrentToggleState() }.map_err(
+                        |error| platform_error("verify UI Automation toggle state", error),
+                    ))?;
+                if state != before {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    return Err(commit_tracker.failure(invalid("The checkbox did not report a changed state after Toggle. Capture again before retrying; the action may still be pending.")));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            return Ok("toggle_pattern");
+        }
         if let Ok(pattern) = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
         } {
@@ -3776,16 +3993,6 @@ mod platform {
                     .map_err(|error| platform_error("select UI Automation element", error)),
             )?;
             return Ok("selection_item_pattern");
-        }
-        if let Ok(pattern) = unsafe {
-            element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
-        } {
-            commit_tracker.mark();
-            commit_tracker.result(
-                unsafe { pattern.Toggle() }
-                    .map_err(|error| platform_error("toggle UI Automation element", error)),
-            )?;
-            return Ok("toggle_pattern");
         }
         if let Ok(pattern) = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
@@ -3844,9 +4051,10 @@ mod platform {
     fn set_element_value(
         element: &IUIAutomationElement,
         live: &UiElementSnapshot,
+        window: &WindowSnapshot,
         value: &str,
         commit_tracker: &ControlCommitTracker,
-    ) -> Result<(), ControlFailure> {
+    ) -> Result<&'static str, ControlFailure> {
         let current_is_password =
             before_control_commit(unsafe { element.CurrentIsPassword() }.map_err(|error| {
                 platform_error(
@@ -3880,18 +4088,74 @@ mod platform {
                 invalid("Target UI Automation value is read-only."),
             ));
         }
+        // The Windows EDIT accessibility proxy may focus its HWND in SetValue.
+        // For an identity-checked native EDIT child, WM_SETTEXT performs the
+        // same value replacement without activating the desktop window.
+        let native_edit = unsafe { element.CurrentNativeWindowHandle() }
+            .ok()
+            .filter(|handle| !handle.0.is_null())
+            .filter(|handle| {
+                let mut pid = 0;
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+                        *handle,
+                        Some(&mut pid),
+                    )
+                };
+                pid == window.pid
+            })
+            .filter(|handle| {
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::IsChild(hwnd(window.id), *handle)
+                }
+                .as_bool()
+            })
+            .filter(|handle| {
+                let mut class = [0_u16; 128];
+                let length = unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetClassNameW(*handle, &mut class)
+                };
+                String::from_utf16_lossy(&class[..length.max(0) as usize])
+                    .eq_ignore_ascii_case("edit")
+            });
         commit_tracker.mark();
-        commit_tracker.result(
-            unsafe { pattern.SetValue(&BSTR::from(value)) }
-                .map_err(|error| platform_error("set UI Automation value", error)),
-        )?;
+        let route = if let Some(handle) = native_edit {
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SendMessageTimeoutW, SMTO_ABORTIFHUNG, SMTO_BLOCK, WM_SETTEXT,
+            };
+            let text: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut retained = 0_usize;
+            let delivered = unsafe {
+                SendMessageTimeoutW(
+                    handle,
+                    WM_SETTEXT,
+                    WPARAM(0),
+                    LPARAM(text.as_ptr() as isize),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                    1_000,
+                    Some(&mut retained),
+                )
+            };
+            commit_tracker.result(if delivered.0 != 0 && retained != 0 { Ok(()) } else {
+                Err(invalid("Native edit did not acknowledge the value replacement. Observe before retrying."))
+            })?;
+            "native_edit_value"
+        } else {
+            commit_tracker.result(
+                unsafe { pattern.SetValue(&BSTR::from(value)) }
+                    .map_err(|error| platform_error("set UI Automation value", error)),
+            )?;
+            "value_pattern"
+        };
         let actual = commit_tracker.result(
             unsafe { pattern.CurrentValue() }
                 .map_err(|error| platform_error("verify UI Automation value", error)),
         )?;
         commit_tracker.result(if actual == value { Ok(()) } else {
             Err(invalid("The application did not retain the requested value exactly. Input was delivered; inspect the window before retrying."))
-        })
+        })?;
+        Ok(route)
     }
 
     fn ensure_focused_target_is_not_password(window: &WindowSnapshot) -> Result<(), CoreError> {
@@ -4871,7 +5135,6 @@ mod platform {
                 )
             }
             ControlAction::SetValue => {
-                route = "value_pattern";
                 delivery = "background";
                 let element_id = args.element_id.as_deref().expect("validated element_id");
                 let expected = before_control_commit(super::semantic_element(
@@ -4882,7 +5145,13 @@ mod platform {
                 let live =
                     before_control_commit(resolve_live_element(&current, observed, expected))?;
                 let text = args.text.as_deref().expect("validated text");
-                set_element_value(&live.element, &live.snapshot, text, commit_tracker)?;
+                route = set_element_value(
+                    &live.element,
+                    &live.snapshot,
+                    &current,
+                    text,
+                    commit_tracker,
+                )?;
                 format!(
                     "Set {} character(s) on semantic element {element_id} in window {}.",
                     text.chars().count(),
@@ -5398,6 +5667,68 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn window_wait_filters_before_limiting_and_waits_for_the_requested_process() {
+        let args: ObserveArgs = serde_json::from_value(serde_json::json!({
+            "action":"wait_for_window", "process_id":7, "app_name":"editor", "max_results":1, "timeout_ms":200
+        })).unwrap();
+        let target = WindowSnapshot {
+            id: 42,
+            pid: 7,
+            process_started_at_100ns: 123,
+            executable_path_hash: "hash".into(),
+            window_class: "EditorWindow".into(),
+            session_id: 1,
+            app_name: "Editor".into(),
+            title: "Document".into(),
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+            minimized: false,
+            maximized: false,
+            focused: false,
+        };
+        let mut other = target.clone();
+        other.pid = 8;
+        let mut calls = 0;
+        let found = matching_window_inventory(&args, true, || {
+            calls += 1;
+            std::future::ready(Ok(if calls == 1 {
+                vec![other.clone()]
+            } else {
+                vec![other.clone(), target.clone()]
+            }))
+        })
+        .await
+        .unwrap();
+        assert_eq!(found, vec![target]);
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn window_wait_times_out_even_when_inventory_stalls_and_rejects_unscoped_waits() {
+        let args: ObserveArgs = serde_json::from_value(serde_json::json!({
+            "action":"wait_for_window", "process_id":7, "timeout_ms":100
+        }))
+        .unwrap();
+        let found = tokio::time::timeout(
+            Duration::from_millis(500),
+            matching_window_inventory(&args, true, || std::future::pending()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(found.is_empty());
+        let args: ObserveArgs =
+            serde_json::from_value(serde_json::json!({"action":"wait_for_window"})).unwrap();
+        assert!(matching_window_inventory(&args, true, || async {
+            panic!("unscoped wait must not enumerate")
+        })
+        .await
+        .is_err());
+    }
 
     #[tokio::test]
     async fn computer_control_fails_closed_without_persistent_action_receipts() {
@@ -6193,6 +6524,33 @@ mod tests {
             };
             if !background_only {
                 original_cursor = Some(activate_isolated_window(&target)?);
+            }
+            {
+                use base64::Engine;
+                let sources = list_user_share_windows().map_err(|error| error.to_string())?;
+                let source = sources
+                    .iter()
+                    .find(|source| source.title == helper_title)
+                    .ok_or("helper missing from native share picker")?;
+                let jpeg =
+                    capture_user_share_window(&source.id).map_err(|error| error.to_string())?;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(jpeg)
+                    .map_err(|error| error.to_string())?;
+                let frame = image::load_from_memory(&bytes).map_err(|error| error.to_string())?;
+                if frame.width() == 0
+                    || frame.height() == 0
+                    || frame.width().max(frame.height()) > crate::media::MAX_LLM_IMAGE_DIMENSION
+                {
+                    return Err("native shared window frame exceeded its image envelope".into());
+                }
+                let mut stale = target.clone();
+                stale.pid += 1;
+                let stale = base64::engine::general_purpose::STANDARD
+                    .encode(serde_json::to_vec(&stale).map_err(|error| error.to_string())?);
+                if capture_user_share_window(&stale).is_ok() {
+                    return Err("native sharing accepted a changed window owner".into());
+                }
             }
             let capture = platform::capture_window(
                 &target,

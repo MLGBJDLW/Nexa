@@ -92,6 +92,19 @@ struct DelegationBatchState {
     cancel_tokens: Vec<CancellationToken>,
 }
 
+struct WorkerHandleOwner {
+    lifecycle: SubagentLifecycleRuntime,
+    ids: StdMutex<Vec<String>>,
+}
+
+impl Drop for WorkerHandleOwner {
+    fn drop(&mut self) {
+        if let Ok(ids) = self.ids.get_mut() {
+            self.lifecycle.release_owned_handles(ids);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct DelegationRuntime {
     provider_config: ProviderConfig,
@@ -107,6 +120,7 @@ pub struct DelegationRuntime {
     batches: Arc<StdMutex<HashMap<String, DelegationBatchState>>>,
     batch_notify: Arc<tokio::sync::Notify>,
     lifecycle: SubagentLifecycleRuntime,
+    worker_handles: Arc<WorkerHandleOwner>,
     budget: SubagentBudgetController,
     cancel_token: CancellationToken,
     delegation_depth: u8,
@@ -156,6 +170,40 @@ impl SubagentLifecycleTool {
 }
 
 impl DelegationRuntime {
+    fn register_worker(
+        &self,
+        request: RegisterSubagentRequest,
+    ) -> Result<crate::subagent_lifecycle::SubagentWorkerRegistration, CoreError> {
+        let mut ids = self
+            .worker_handles
+            .ids
+            .lock()
+            .map_err(|_| CoreError::Internal("worker handle owner is unavailable".into()))?;
+        let registration = self.lifecycle.register(request)?;
+        ids.push(registration.agent_id.clone());
+        Ok(registration)
+    }
+
+    fn scope_spawn_schema(&self, mut schema: serde_json::Value, batch: bool) -> serde_json::Value {
+        if let Ok(registry) = self.get_tool_registry() {
+            let mut allowed =
+                normalize_allowed_tools(self.allowed_tools.as_deref(), &registry.tool_names());
+            allowed
+                .retain(|name| !is_interactive_surface_tool(name) && !is_subagent_tool_name(name));
+            let properties = if batch {
+                &mut schema["properties"]["tasks"]["items"]["properties"]
+            } else {
+                &mut schema["properties"]
+            };
+            if allowed.is_empty() {
+                properties["allowed_tools"]["maxItems"] = serde_json::json!(0);
+            } else {
+                properties["allowed_tools"]["items"]["enum"] = serde_json::json!(allowed);
+            }
+        }
+        schema
+    }
+
     pub fn new(
         provider_config: ProviderConfig,
         base_config: AgentConfig,
@@ -167,6 +215,10 @@ impl DelegationRuntime {
         parent_conversation_id: Option<String>,
     ) -> Self {
         let budget = SubagentBudgetController::new(&base_config);
+        let worker_handles = Arc::new(WorkerHandleOwner {
+            lifecycle: lifecycle.clone(),
+            ids: StdMutex::new(Vec::new()),
+        });
         Self {
             provider_config,
             base_config,
@@ -181,6 +233,7 @@ impl DelegationRuntime {
             batches: Arc::new(StdMutex::new(HashMap::new())),
             batch_notify: Arc::new(tokio::sync::Notify::new()),
             lifecycle,
+            worker_handles,
             budget,
             cancel_token,
             delegation_depth: 0,
@@ -189,8 +242,16 @@ impl DelegationRuntime {
     }
 
     pub fn set_tool_registry(&self, registry: ToolRegistry) {
+        // Delegation tools own this runtime. Retaining them here creates
+        // runtime -> registry -> tool -> runtime cycles, leaking every turn's
+        // provider, context snapshots and completed worker histories.
+        let worker_tools: Vec<String> = registry
+            .tool_names()
+            .into_iter()
+            .filter(|name| !is_subagent_tool_name(name))
+            .collect();
         if let Ok(mut slot) = self.tool_registry.lock() {
-            *slot = Some(registry);
+            *slot = Some(registry.filtered(&worker_tools));
         }
     }
 
@@ -226,6 +287,7 @@ impl DelegationRuntime {
             batches: Arc::clone(&self.batches),
             batch_notify: Arc::clone(&self.batch_notify),
             lifecycle: self.lifecycle.clone(),
+            worker_handles: Arc::clone(&self.worker_handles),
             budget: self.budget.clone(),
             cancel_token,
             delegation_depth: self.delegation_depth.saturating_add(1),
@@ -248,6 +310,7 @@ impl DelegationRuntime {
             batches: Arc::clone(&self.batches),
             batch_notify: Arc::clone(&self.batch_notify),
             lifecycle: self.lifecycle.clone(),
+            worker_handles: Arc::clone(&self.worker_handles),
             budget: self.budget.clone(),
             cancel_token,
             delegation_depth: self.delegation_depth,

@@ -361,8 +361,37 @@ async fn inactive_service_result(
     })
 }
 
-fn spawn_service_monitor(service_id: String) {
-    tokio::spawn(async move {
+fn managed_service_runtime() -> Result<&'static tokio::runtime::Runtime, String> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("nexa-process-runtime")
+                .enable_all()
+                .build()
+                .map_err(|error| format!("Could not initialize managed process runtime: {error}"))
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn process_conversation_id<'a>(
+    context: &'a crate::tools::ToolExecutionContext<'_>,
+) -> Option<&'a str> {
+    // Workers have private chat histories but the host supplies their parent's
+    // mutation ownership. Keep process handles and preview leases in that same
+    // conversation instead of the shared history-less tenant.
+    context.conversation_id.or_else(|| {
+        context
+            .file_change_owner
+            .as_ref()
+            .map(|owner| owner.conversation_id.as_str())
+    })
+}
+
+fn spawn_service_monitor(runtime: &tokio::runtime::Runtime, service_id: String) {
+    runtime.spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let mut services = managed_services().lock().await;
@@ -461,6 +490,7 @@ fn append_bounded_log(target: &mut String, bytes: &[u8]) -> bool {
 }
 
 fn collect_service_output<R>(
+    runtime: &tokio::runtime::Runtime,
     mut reader: R,
     logs: Arc<tokio::sync::Mutex<ManagedServiceLogs>>,
     stdout: bool,
@@ -470,7 +500,7 @@ fn collect_service_output<R>(
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    tokio::spawn(async move {
+    runtime.spawn(async move {
         let mut buffer = [0_u8; 2_048];
         loop {
             match reader.read(&mut buffer).await {
@@ -942,7 +972,13 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
         }
     }
 
+    let process_runtime = match managed_service_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => return error_result(call_id, error),
+    };
     let activity_id = new_process_activity_id();
+    // Provider call IDs can repeat across workers, turns and conversations.
+    let service_id = activity_id.clone();
     let mut activity_spec = ActivitySpec::new(ActivitySurface::Process, TOOL_NAME)
         .with_activity_id(&activity_id)
         .with_cwd(cwd.display().to_string());
@@ -956,7 +992,13 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
         );
     }
 
-    let (mut child, process_tree) = match spawn_background_process(program, args, cwd) {
+    // Child pipes and exit notification must bind to the same durable reactor
+    // as their monitors, not a short-lived delegated worker's runtime.
+    let spawned = {
+        let _entered = process_runtime.enter();
+        spawn_background_process(program, args, cwd)
+    };
+    let (mut child, process_tree) = match spawned {
         Ok(spawned) => spawned,
         Err(error) => {
             let _ = activity_runtime.transition(
@@ -969,7 +1011,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
     };
     let logs = Arc::new(tokio::sync::Mutex::new(ManagedServiceLogs::default()));
     let process_id = child.id();
-    let loopback_permit_issuer = ManagedLoopbackPermitIssuer::new(call_id, process_id);
+    let loopback_permit_issuer = ManagedLoopbackPermitIssuer::new(&service_id, process_id);
     let _ = activity_runtime.append(
         &activity_id,
         ActivityEventKind::CommandStarted,
@@ -981,6 +1023,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
     );
     let stdout_task = child.stdout.take().map(|stdout| {
         collect_service_output(
+            process_runtime,
             stdout,
             Arc::clone(&logs),
             true,
@@ -990,6 +1033,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
     });
     let stderr_task = child.stderr.take().map(|stderr| {
         collect_service_output(
+            process_runtime,
             stderr,
             Arc::clone(&logs),
             false,
@@ -1024,8 +1068,14 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     stderr_task: None,
                     loopback_permit_issuer,
                 };
-                return exited_service_result(call_id, call_id, &service, status, &log_snapshot)
-                    .await;
+                return exited_service_result(
+                    call_id,
+                    &service_id,
+                    &service,
+                    status,
+                    &log_snapshot,
+                )
+                .await;
             }
             Ok(None) => {}
             Err(error) => {
@@ -1062,7 +1112,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     serde_json::json!({ "url": ready_url.as_str() }),
                 );
                 managed_services().lock().await.insert(
-                    call_id.to_string(),
+                    service_id.clone(),
                     ManagedService {
                         child,
                         process_tree,
@@ -1080,11 +1130,11 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                         loopback_permit_issuer,
                     },
                 );
-                spawn_service_monitor(call_id.to_string());
+                spawn_service_monitor(process_runtime, service_id.clone());
                 return ToolResult {
                 call_id: call_id.to_string(),
                 content: format!(
-                    "Background service is ready at {ready_url}. service_id: {call_id}; process_id: {}. Recheck with service_action=status, block on completion with service_action=wait, and stop it with service_action=stop when finished.",
+                    "Background service is ready at {ready_url}. service_id: {service_id}; process_id: {}. Recheck with service_action=status, block on completion with service_action=wait, and stop it with service_action=stop when finished.",
                     process_id.map_or_else(|| "unknown".to_string(), |id| id.to_string()),
                 ),
                 is_error: false,
@@ -1093,7 +1143,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     "fileChangeTracking": "untracked",
                     "activityId": activity_id,
                     "cursor": activity_runtime.get(&activity_id).map(|record| record.last_event_seq),
-                    "serviceId": call_id,
+                    "serviceId": service_id,
                     "processId": process_id,
                     "status": "ready",
                     "readyUrl": ready_url.as_str(),
@@ -1110,7 +1160,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
 
         if started_at.elapsed() >= Duration::from_millis(AUTO_SERVICE_SETTLE_MS) {
             managed_services().lock().await.insert(
-                call_id.to_string(),
+                service_id.clone(),
                 ManagedService {
                     child,
                     process_tree,
@@ -1128,11 +1178,11 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     loopback_permit_issuer,
                 },
             );
-            spawn_service_monitor(call_id.to_string());
+            spawn_service_monitor(process_runtime, service_id.clone());
             return ToolResult {
                 call_id: call_id.to_string(),
                 content: format!(
-                    "Long-running command is now a managed background service. service_id: {call_id}; process_id: {}. No verified loopback URL has been identified yet. The command call is complete; keep working and poll with service_action=wait to be handed the exit status and logs as soon as it finishes, service_action=status for a snapshot, and service_action=stop to end it. Continue with browser_evidence_capture when a URL is available.",
+                    "Long-running command is now a managed background service. service_id: {service_id}; process_id: {}. No verified loopback URL has been identified yet. The command call is complete; keep working and poll with service_action=wait to be handed the exit status and logs as soon as it finishes, service_action=status for a snapshot, and service_action=stop to end it. Continue with browser_evidence_capture when a URL is available.",
                     process_id.map_or_else(|| "unknown".to_string(), |id| id.to_string()),
                 ),
                 is_error: false,
@@ -1141,7 +1191,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     "fileChangeTracking": "untracked",
                     "activityId": activity_id,
                     "cursor": activity_runtime.get(&activity_id).map(|record| record.last_event_seq),
-                    "serviceId": call_id,
+                    "serviceId": service_id,
                     "processId": process_id,
                     "status": "running",
                     "readyUrl": null,
@@ -1607,6 +1657,120 @@ mod review_regression_tests {
     use super::*;
 
     #[test]
+    #[ignore = "subprocess fixture for the transient-runtime service test"]
+    fn delayed_service_output_fixture() {
+        std::thread::sleep(Duration::from_secs(3));
+        println!("output-after-worker-finished");
+    }
+
+    #[tokio::test]
+    async fn managed_process_and_logs_outlive_the_spawning_worker_runtime() {
+        let id = format!("worker-service-{}", uuid::Uuid::new_v4());
+        let worker_id = id.clone();
+        let launched = tokio::task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let executable = std::env::current_exe().unwrap();
+            let args: Vec<String> = vec!["--ignored".into(), "--exact".into(),
+                "tools::run_shell_tool::tool_impl::review_regression_tests::delayed_service_output_fixture".into(), "--nocapture".into()];
+            let db = crate::db::Database::open_memory().unwrap();
+            let mut context = crate::tools::ToolExecutionContext::new(&worker_id, "{}", &db, &[]);
+            context.file_change_owner = Some(crate::turn_file_changes::FileChangeOwner {
+                conversation_id: "worker-owner".into(), turn_id: "turn-owner".into(),
+                mutation_namespace: Some("worker-instance".into()),
+            });
+            let result = runtime.block_on(start_managed_service(ManagedServiceRequest {
+                call_id: &worker_id, program: executable.to_str().unwrap(), args: &args,
+                cwd: executable.parent().unwrap(), ready_url_candidate: None, auto_promoted: true,
+                activity_runtime: ActivityRuntime::new(), conversation_id: process_conversation_id(&context),
+            }));
+            drop(runtime);
+            result
+        }).await.unwrap();
+        assert!(!launched.is_error, "{}", launched.content);
+        assert_eq!(launched.artifacts.as_ref().unwrap()["status"], "running");
+        let id = launched.artifacts.as_ref().unwrap()["serviceId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let completed = tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                if let Some(result) =
+                    inactive_service_result("poll", &id, Some("worker-owner")).await
+                {
+                    if result
+                        .artifacts
+                        .as_ref()
+                        .is_some_and(|value| value["status"] == "exited")
+                    {
+                        break result;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await;
+        if completed.is_err() {
+            let _ = manage_service("cleanup", "stop", &id, Some("worker-owner")).await;
+        }
+        let completed =
+            completed.expect("service monitor must survive the worker runtime shutdown");
+        assert!(
+            completed.content.contains("output-after-worker-finished"),
+            "late service output must remain available: {}",
+            completed.content
+        );
+        assert!(
+            inactive_service_result("foreign-poll", &id, Some("other-owner"))
+                .await
+                .unwrap()
+                .is_error,
+            "a sibling conversation cannot read worker process logs"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeated_provider_call_ids_do_not_replace_another_live_service() {
+        let executable = std::env::current_exe().unwrap();
+        let call_id = format!("reused-call-{}", uuid::Uuid::new_v4());
+        let args = vec!["--ignored".into(), "--exact".into(),
+            "tools::run_shell_tool::tool_impl::review_regression_tests::delayed_service_output_fixture".into(), "--nocapture".into()];
+        let request = || ManagedServiceRequest {
+            call_id: &call_id,
+            program: executable.to_str().unwrap(),
+            args: &args,
+            cwd: executable.parent().unwrap(),
+            ready_url_candidate: None,
+            auto_promoted: true,
+            activity_runtime: ActivityRuntime::new(),
+            conversation_id: Some("collision-owner"),
+        };
+        let (first, second) = tokio::join!(
+            start_managed_service(request()),
+            start_managed_service(request())
+        );
+        let first_id = first.artifacts.as_ref().unwrap()["serviceId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let second_id = second.artifacts.as_ref().unwrap()["serviceId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let _ = manage_service("cleanup-first", "stop", &first_id, Some("collision-owner")).await;
+        let _ = manage_service(
+            "cleanup-second",
+            "stop",
+            &second_id,
+            Some("collision-owner"),
+        )
+        .await;
+        assert_ne!(
+            first_id, second_id,
+            "provider call IDs are not process identities"
+        );
+    }
+
+    #[test]
     fn semantically_dead_binding_stays_untrusted_until_a_successful_probe() {
         let inferred_url = infer_ready_url_from_invocation(
             "python",
@@ -1638,16 +1802,6 @@ mod review_regression_tests {
             &vec![b'x'; MAX_SERVICE_LOG_BYTES + 128]
         ));
         assert!(output.len() <= MAX_SERVICE_LOG_BYTES);
-    }
-
-    #[test]
-    fn process_activity_ids_are_independent_of_provider_call_ids() {
-        let first = new_process_activity_id();
-        let second = new_process_activity_id();
-
-        assert!(first.starts_with("process_"));
-        assert_ne!(first, second);
-        assert_ne!(first, "call_0");
     }
 
     #[tokio::test]
@@ -1785,16 +1939,18 @@ impl Tool for RunShellTool {
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
         let file_change_scope = crate::turn_file_changes::FileChangeScope::from_context(&context);
+        let process_owner = process_conversation_id(&context).map(str::to_owned);
         let native_cancel = context.cancel_token.cloned().unwrap_or_default();
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
             db,
             source_scope,
-            conversation_id,
+            conversation_id: _,
             activity_runtime,
             ..
         } = context;
+        let conversation_id = process_owner.as_deref();
         let parsed = match parse_run_shell_args(arguments) {
             Ok(parsed) => parsed,
             Err(err) => {

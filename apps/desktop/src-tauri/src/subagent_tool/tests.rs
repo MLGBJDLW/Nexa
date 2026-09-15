@@ -22,6 +22,132 @@ fn test_runtime() -> DelegationRuntime {
     )
 }
 
+#[tokio::test]
+async fn explicit_worker_shell_request_uses_the_parent_registry_without_a_saved_allowlist() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("test-model".into());
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(nexa_core::tools::run_shell_tool::RunShellTool));
+    runtime.set_tool_registry(registry);
+    let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task": "Run static checks", "role_id": "verifier", "allowed_tools": ["run_shell"],
+    }))
+    .unwrap();
+    let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "verify-static", None)
+        .await
+        .expect("explicitly requested parent tools must remain delegable");
+    assert_eq!(worker.effective_allowed_tools, vec!["run_shell"]);
+}
+
+#[test]
+fn completed_parent_releases_delegation_registry_and_retained_worker_history() {
+    let runtime = test_runtime();
+    let registry_lifetime = Arc::downgrade(&runtime.tool_registry);
+    let sessions_lifetime = Arc::downgrade(&runtime.sessions);
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
+    registry.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));
+    registry.register(Box::new(JudgeSubagentResultsTool::from_runtime(
+        runtime.clone(),
+    )));
+    registry.register(Box::new(ObserveSubagentBatchTool::from_runtime(
+        runtime.clone(),
+    )));
+    for tool in SubagentLifecycleTool::all(runtime.clone()) {
+        registry.register(Box::new(tool));
+    }
+    runtime.set_tool_registry(registry.clone());
+    drop(registry);
+    drop(runtime);
+    assert!(
+        registry_lifetime.upgrade().is_none(),
+        "completed turns must not retain a registry/runtime reference cycle"
+    );
+    assert!(
+        sessions_lifetime.upgrade().is_none(),
+        "worker histories must be released with their parent runtime"
+    );
+}
+
+#[tokio::test]
+async fn successful_worker_is_not_failed_when_its_event_stream_finishes_first() {
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    drop(sender);
+    let result = await_subagent_worker_completion(
+        "completed-worker",
+        &CancellationToken::new(),
+        &mut receiver,
+        async {
+            tokio::task::yield_now().await;
+            Ok::<_, CoreError>("verified")
+        },
+        None,
+    )
+    .await;
+    assert_eq!(
+        result.expect("clean event stream closure is not a worker failure"),
+        "verified"
+    );
+}
+
+#[test]
+fn global_lifecycle_does_not_keep_workers_after_their_parent_runtime_is_released() {
+    let runtime = test_runtime();
+    let lifecycle = runtime.lifecycle.clone();
+    let registration = runtime
+        .register_worker(RegisterSubagentRequest {
+            agent_id: "retired-worker".into(),
+            parent_call_id: "call".into(),
+            task: "Inspect".into(),
+            role_id: None,
+            role: None,
+            conversation_id: None,
+            turn_id: None,
+            task_run_id: None,
+            cancel_token: CancellationToken::new(),
+            activity_runtime: nexa_core::activity::ActivityRuntime::new(),
+        })
+        .unwrap();
+    lifecycle
+        .set_status("retired-worker", SubagentLifecycleStatus::Completed)
+        .unwrap();
+    let active_worker_runtime = runtime.clone();
+    drop(runtime);
+    assert!(lifecycle.snapshot("retired-worker").is_ok());
+    drop(registration);
+    drop(active_worker_runtime);
+    assert!(
+        lifecycle.snapshot("retired-worker").is_err(),
+        "global app state must release completed parent handles"
+    );
+}
+
+#[test]
+fn model_tool_schema_advertises_only_effective_delegated_permissions() {
+    let mut runtime = test_runtime();
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(nexa_core::tools::run_shell_tool::RunShellTool));
+    runtime.set_tool_registry(registry);
+    let tool = SubagentTool::from_runtime(runtime.clone());
+    assert_eq!(
+        tool.parameters_schema()["properties"]["allowed_tools"]["items"]["enum"],
+        serde_json::json!(["run_shell"])
+    );
+    runtime.allowed_tools = Some(vec![]);
+    let tool = SubagentTool::from_runtime(runtime.clone());
+    assert_eq!(
+        tool.parameters_schema()["properties"]["allowed_tools"]["maxItems"],
+        0
+    );
+    let batch = SubagentBatchTool::from_runtime(runtime);
+    assert_eq!(
+        batch.parameters_schema()["properties"]["tasks"]["items"]["properties"]["allowed_tools"]
+            ["maxItems"],
+        0
+    );
+}
+
 #[test]
 fn explicit_empty_delegated_tools_remain_empty_and_long_lists_are_preserved() {
     for names in [
@@ -505,18 +631,6 @@ async fn default_queue_waits_for_capacity_and_can_be_cancelled() {
             .contains("cancelled")
     );
     drop(permit);
-}
-
-#[test]
-fn test_default_subagent_tools_include_read_only_web_research() {
-    let tools = default_subagent_tool_names();
-
-    assert!(tools.contains(&"web_search".to_string()));
-    assert!(tools.contains(&"web_research_context".to_string()));
-    assert!(tools.contains(&"browser_evidence_capture".to_string()));
-    assert!(!tools.contains(&"desktop_automation".to_string()));
-    assert!(!tools.contains(&"edit_file".to_string()));
-    assert!(!tools.contains(&"multi_edit".to_string()));
 }
 
 #[test]

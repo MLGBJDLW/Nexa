@@ -33,5 +33,8 @@
   "retryCleanup": "重試清理",
   "cleanupCompleted": "瀏覽器工作階段已清理",
   "pickElementHint": "Move over the page and click the element you want to point out. Escape cancels.",
-  "pickRegionHint": "拖曳以附加頁面座標（目前不擷取像素），按 Escape 取消。"
+  "pickRegionHint": "拖曳以附加頁面座標（目前不擷取像素），按 Escape 取消。",
+  "dialogHandled": "已回覆網頁提示",
+  "dialogDismissed": "已取消意外的網頁提示，請檢查頁面後再決定是否重試",
+  "dialogPaused": "網頁連續彈出提示，已暫停該頁面。可關閉或重新載入此分頁。"
 }

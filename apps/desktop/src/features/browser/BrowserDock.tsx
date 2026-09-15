@@ -548,6 +548,31 @@ export function BrowserDock({
         || currentSession.id !== eventSessionId
       ) return;
 
+      if (event.payload.kind === 'scriptDialog') {
+        const dialog = payload.dialog;
+        if (!dialog || typeof dialog !== 'object') return;
+        const details = dialog as Record<string, unknown>;
+        if (details.dialogLimitExceeded === true) {
+          const tabId = typeof payload.tabId === 'string' ? payload.tabId : '';
+          toast.warning(translateRef.current('browser.dialogPaused'), {
+            id: `browser-dialog-${eventSessionId}`,
+            duration: Infinity,
+            action: tabId ? {
+              label: translateRef.current('browser.closeTab'),
+              onClick: () => {
+                if (conversationIdRef.current !== currentConversationId || sessionIdRef.current !== eventSessionId) return;
+                void api.closeBrowserTab(eventSessionId, tabId).catch(() => toast.error(translateRef.current('browser.actionFailed')));
+              },
+            } : undefined,
+          });
+          return;
+        }
+        const title = translateRef.current(details.matched === true ? 'browser.dialogHandled' : 'browser.dialogDismissed');
+        const options = { id: `browser-dialog-${eventSessionId}`, description: typeof details.message === 'string' ? details.message.slice(0, 512) : undefined };
+        if (details.matched === true) toast.info(title, options);
+        else toast.warning(title, options);
+        return;
+      }
       if (event.payload.kind === 'downloadRequested') {
         toast.warning(translateRef.current('browser.downloadBlocked'));
         return;

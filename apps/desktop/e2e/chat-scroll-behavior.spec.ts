@@ -34,7 +34,7 @@ test.beforeEach(async ({ page }) => {
     const nowIso = new Date().toISOString();
     let seq = 0;
     let streamedReplyCount = 0;
-    const sharedScreen = { frames: 0, stopped: 0, nativeCaptures: [] as string[], streams: [] as MediaStream[] };
+    const sharedScreen = { frames: 0, stopped: 0, nativeCaptures: [] as string[], streams: [] as MediaStream[], conversationsCreated: [] as string[], agentCalls: 0, shareConversations: [] as string[] };
     Object.assign(window, { __sharedScreen: sharedScreen });
     Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: async () => {
       const canvas = document.createElement('canvas');
@@ -188,14 +188,28 @@ test.beforeEach(async ({ page }) => {
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'create_conversation_cmd': {
+          const conversation = { id: nextId('conv-share'), title: 'New chat', provider: String(args.provider), model: String(args.model), systemPrompt: String(args.systemPrompt ?? ''), createdAt: nowIso, updatedAt: nowIso };
+          conversations[conversation.id] = conversation;
+          messagesByConversation[conversation.id] = [];
+          sharedScreen.conversationsCreated.push(conversation.id);
+          return clone(conversation);
+        }
         case 'list_desktop_monitors_cmd': return [{ id: 'monitor-left', width: 1920, height: 1080, primary: true }, { id: 'monitor-right', width: 2560, height: 1440, primary: false }];
+        case 'list_desktop_windows_cmd': return { supported: true, windows: [{ id: 'window-editor', title: 'Notes — Editor', appName: 'Editor', width: 900, height: 600 }] };
+        case 'capture_desktop_window_cmd': {
+          sharedScreen.nativeCaptures.push(String(args.windowId));
+          const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+          const context = canvas.getContext('2d')!; context.fillStyle = '#345612'; context.fillRect(0, 0, 640, 360);
+          return canvas.toDataURL('image/jpeg').split(',')[1];
+        }
         case 'capture_desktop_monitor_cmd': {
           sharedScreen.nativeCaptures.push(String(args.monitorId));
           const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
           const context = canvas.getContext('2d')!; context.fillStyle = '#123456'; context.fillRect(0, 0, 640, 360);
           return canvas.toDataURL('image/jpeg').split(',')[1];
         }
-        case 'begin_desktop_share_cmd': return 'fixture-share';
+        case 'begin_desktop_share_cmd': sharedScreen.shareConversations.push(String(args.conversationId)); return 'fixture-share';
         case 'update_desktop_share_cmd': sharedScreen.frames++; return null;
         case 'end_desktop_share_cmd': sharedScreen.stopped++; return null;
         case 'plugin:event|listen': {
@@ -268,6 +282,7 @@ test.beforeEach(async ({ page }) => {
           return [];
           return 0;
         case 'agent_chat_cmd': {
+          sharedScreen.agentCalls++;
           const conversationId = String(args.conversationId ?? '');
           if (conversationId !== 'conv-auto-follow') {
             return null;
@@ -468,13 +483,57 @@ test('explicit monitor selection shares the whole selected display and stops nat
   expect(await captures()).toHaveLength(count);
 });
 
+test('a new chat can start screen sharing directly without sending a message', async ({ page }) => {
+  await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
+  await page.goto('/chat');
+  await page.getByPlaceholder('Type a message...').fill('Please check this screen');
+  const share = page.getByTestId('desktop-share-toggle');
+  await expect(share).toBeEnabled();
+  await share.click();
+  await page.getByRole('button', { name: /Screen 1.*1920/ }).click();
+  await expect(share).toHaveAttribute('aria-pressed', 'true');
+  const state = await page.evaluate(() => {
+    const shared = (window as unknown as { __sharedScreen: { conversationsCreated: string[]; shareConversations: string[]; agentCalls: number; frames: number } }).__sharedScreen;
+    return { created: shared.conversationsCreated, shared: shared.shareConversations, agentCalls: shared.agentCalls, frames: shared.frames };
+  });
+  expect(state.created).toHaveLength(1);
+  expect(state.shared).toEqual(state.created);
+  expect(state.agentCalls).toBe(0);
+  expect(state.frames).toBeGreaterThan(0);
+  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('Please check this screen');
+  await share.click();
+  await page.getByRole('button', { name: /^New chat$/i }).click();
+  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('');
+  await page.reload();
+  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('');
+});
+
+test('native window sharing uses the Nexa picker without a localhost browser prompt', async ({ page }) => {
+  await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
+  await page.goto('/chat/conv-auto-follow');
+  await page.getByTestId('desktop-share-toggle').click();
+  await expect(page.getByText('Nexa · Share screen', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('desktop-share-window')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Window / system picker…' })).toHaveCount(0);
+  await page.getByTestId('desktop-share-window').click();
+  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
+  const state = await page.evaluate(() => {
+    const source = (window as unknown as { __sharedScreen: { nativeCaptures: string[]; streams: MediaStream[] } }).__sharedScreen;
+    return { captured: source.nativeCaptures, browserStreams: source.streams.length };
+  });
+  expect(state.captured.length).toBeGreaterThan(0);
+  expect(state.captured.every(id => id === 'window-editor')).toBe(true);
+  expect(state.browserStreams).toBe(0);
+  await page.getByTestId('desktop-share-toggle').click();
+});
+
 test('disables screen sharing when neither browser nor native display capture is available', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
   await page.evaluate(() => {
     Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { value: undefined });
     const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
     const invoke = runtime.invoke;
-    runtime.invoke = (command, args) => command === 'list_desktop_monitors_cmd' ? Promise.resolve([]) : invoke(command, args);
+    runtime.invoke = (command, args) => command === 'list_desktop_monitors_cmd' ? Promise.resolve([]) : command === 'list_desktop_windows_cmd' ? Promise.resolve({ supported: false, windows: [] }) : invoke(command, args);
     Object.assign(window, { isTauri: true });
   });
   await page.getByText('Footnote Scroll', { exact: true }).click();

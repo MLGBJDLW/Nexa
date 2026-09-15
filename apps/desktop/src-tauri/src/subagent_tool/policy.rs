@@ -1,11 +1,4 @@
 use super::*;
-pub(super) fn default_subagent_tool_names() -> Vec<String> {
-    SUBAGENT_TOOL_SPECS
-        .iter()
-        .filter(|spec| spec.enabled_by_default)
-        .map(|spec| spec.name.to_string())
-        .collect()
-}
 pub(super) fn canonical_tool_name(name: &str) -> &str {
     match name {
         "compare" => "compare_documents",
@@ -26,10 +19,10 @@ pub(super) fn normalize_allowed_tools(
                 available.contains(trimmed).then(|| trimmed.to_string())
             })
             .collect(),
-        None => default_subagent_tool_names()
-            .into_iter()
-            .filter(|name| available.contains(name.as_str()))
-            .collect(),
+        // Absence is inheritance, not a frozen list of role recommendations.
+        // The registry has already been filtered by the parent's execution mode,
+        // workspace isolation and workflow scope. Explicit lists still narrow it.
+        None => available_tool_names.to_vec(),
     }
 }
 pub(super) fn is_subagent_tool_name(name: &str) -> bool {

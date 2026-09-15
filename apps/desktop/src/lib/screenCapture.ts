@@ -2,6 +2,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 
 export interface DesktopMonitor { id: string; width: number; height: number; primary: boolean }
+export interface DesktopWindow { id: string; title: string; appName: string; width: number; height: number }
 export interface ScreenCapture { stream: MediaStream; stop(): void }
 
 export function useDesktopMonitors(enabled = true) {
@@ -18,9 +19,23 @@ export function useDesktopMonitors(enabled = true) {
   return monitors;
 }
 
+export function useDesktopWindows(enabled = true) {
+  const [state, setState] = useState<{ supported: boolean | null; windows: DesktopWindow[] }>({ supported: isTauri() ? null : false, windows: [] });
+  useEffect(() => {
+    let cancelled = false;
+    if (enabled && isTauri()) {
+      void invoke<{ supported: boolean; windows: DesktopWindow[] }>('list_desktop_windows_cmd')
+        .then(result => { if (!cancelled) setState({ supported: result?.supported === true, windows: Array.isArray(result?.windows) ? result.windows : [] }); })
+        .catch(() => { if (!cancelled) setState({ supported: false, windows: [] }); });
+    }
+    return () => { cancelled = true; };
+  }, [enabled]);
+  return state;
+}
+
 /** Use the system window picker, or an explicitly selected native monitor. */
-export async function openScreenCapture(monitorId?: string): Promise<ScreenCapture> {
-  if (!monitorId) {
+export async function openScreenCapture(monitorId?: string, windowId?: string): Promise<ScreenCapture> {
+  if (!monitorId && !windowId) {
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 2, displaySurface: 'monitor' }, audio: false });
     return { stream, stop: () => stream.getTracks().forEach(track => track.stop()) };
   }
@@ -33,7 +48,9 @@ export async function openScreenCapture(monitorId?: string): Promise<ScreenCaptu
   let stream: MediaStream | undefined;
   const stop = () => { stopped = true; clearInterval(timer); stream?.getTracks().forEach(track => track.stop()); };
   const draw = async () => {
-    const base64 = await invoke<string>('capture_desktop_monitor_cmd', { monitorId });
+    const base64 = windowId
+      ? await invoke<string>('capture_desktop_window_cmd', { windowId })
+      : await invoke<string>('capture_desktop_monitor_cmd', { monitorId });
     if (stopped) return;
     const frame = new Image();
     frame.src = `data:image/jpeg;base64,${base64}`;

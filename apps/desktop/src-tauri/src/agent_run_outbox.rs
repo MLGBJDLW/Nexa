@@ -21,6 +21,11 @@ impl DesktopAgentRunEventDelivery {
 impl AgentRunEventDelivery for DesktopAgentRunEventDelivery {
     fn deliver_run_event(&self, conversation_id: &str, event: &AgentRunEvent) {
         emit_agent_run_frontend_event(&self.app_handle, conversation_id, event);
+        crate::desktop_control_status::observe_committed_event(
+            &self.app_handle,
+            conversation_id,
+            event,
+        );
     }
 
     fn deliver_task_run_snapshot(&self, conversation_id: &str, snapshot: AgentTaskRun) {

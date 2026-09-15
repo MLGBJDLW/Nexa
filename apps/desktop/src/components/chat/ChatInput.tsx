@@ -80,6 +80,7 @@ interface ChatInputProps {
   isStreaming: boolean;
   disabled: boolean;
   conversationId?: string;
+  onEnsureConversation?: (beforeActivate?: (id: string) => void) => Promise<string>;
   agentId?: string;
   inputHistory?: string[];
   sessionControls?: ReactNode;
@@ -352,6 +353,7 @@ export function ChatInput({
   isStreaming,
   disabled,
   conversationId,
+  onEnsureConversation,
   agentId,
   inputHistory = [],
   sessionControls,
@@ -427,6 +429,7 @@ export function ChatInput({
   const historyDraftRef = useRef<{ value: string; cursor: number } | null>(null);
   const previousPowerModeKeyRef = useRef(draftKey);
   const previousDraftKeyRef = useRef(draftKey);
+  const sharedDraftTransferRef = useRef<{ from: string; to: string } | null>(null);
   const sendInFlightRef = useRef(false);
   const voiceDraftSessionRef = useRef<VoiceDraftSession | null>(null);
   const voiceDraftOwnerKeyRef = useRef<string | null>(null);
@@ -599,9 +602,18 @@ export function ChatInput({
   }, [draftKey]);
 
   useEffect(() => {
+    const transfer = sharedDraftTransferRef.current;
+    if (transfer?.to === draftKey) {
+      // Delete the source only after the new conversation has activated.
+      // Its durable draft already exists, so a failed creation keeps the original.
+      delete draftsRef.current[transfer.from];
+      clearChatInputDraft(transfer.from);
+      sharedDraftTransferRef.current = null;
+    }
     const previousKey = previousDraftKeyRef.current;
     if (
       sendInFlightRef.current
+      && transfer?.to !== draftKey
       && previousKey === NEW_CONVERSATION_DRAFT_KEY
       && draftKey !== NEW_CONVERSATION_DRAFT_KEY
     ) {
@@ -2031,7 +2043,13 @@ export function ChatInput({
               <span className="hidden sm:inline">Nexus</span>
             </button>
 
-            <ScreenShareButton conversationId={conversationId} />
+            <ScreenShareButton conversationId={conversationId} onEnsureConversation={onEnsureConversation ? () => onEnsureConversation((id) => {
+              const draft = draftsRef.current[draftKey] ?? readChatInputDraft(draftKey);
+              draftsRef.current[id] = cloneDraftState(draft);
+              persistChatInputDraft(id, draft);
+              sharedDraftTransferRef.current = { from: draftKey, to: id };
+              if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
+            }) : undefined} />
             {conversationId && onCompact && (
               <button
                 type="button"

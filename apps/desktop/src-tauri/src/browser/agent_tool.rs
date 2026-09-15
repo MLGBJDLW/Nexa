@@ -204,6 +204,12 @@ struct BrowserArgs {
     end_ref: Option<String>,
     text: Option<String>,
     value: Option<String>,
+    values: Option<Vec<String>>,
+    files: Option<Vec<String>>,
+    #[serde(default)]
+    dialog_responses: Vec<super::dialogs::DialogResponse>,
+    download_to: Option<String>,
+    checked: Option<bool>,
     key: Option<String>,
     button: Option<String>,
     #[serde(default)]
@@ -227,7 +233,12 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
     match condition_type {
-        "page_loaded" => true,
+        "page_loaded" => {
+            observation
+                .get("readyState")
+                .and_then(serde_json::Value::as_str)
+                == Some("complete")
+        }
         "text_present" => condition
             .get("text")
             .and_then(serde_json::Value::as_str)
@@ -255,7 +266,7 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
                     .and_then(serde_json::Value::as_str)
                     .is_some_and(|url| url.contains(pattern))
             }),
-        "element_present" | "element_absent" => {
+        "element_present" | "element_absent" | "element_checked" | "element_enabled" => {
             let Some(elements) = observation
                 .get("elements")
                 .and_then(serde_json::Value::as_array)
@@ -288,9 +299,27 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
                             .and_then(serde_json::Value::as_str)
                             .is_some_and(|role| role.eq_ignore_ascii_case(expected))
                     });
-                ref_matches && name_matches && role_matches
+                let state_matches = match condition_type {
+                    "element_checked" | "element_enabled" => {
+                        let expected = condition.get("value").and_then(serde_json::Value::as_bool);
+                        let property = if condition_type == "element_checked" {
+                            "checked"
+                        } else {
+                            "enabled"
+                        };
+                        expected.is_some()
+                            && element.get(property).and_then(serde_json::Value::as_bool)
+                                == expected
+                    }
+                    _ => true,
+                };
+                ref_matches && name_matches && role_matches && state_matches
             });
-            matches == (condition_type == "element_present")
+            if condition_type == "element_absent" {
+                !matches
+            } else {
+                matches
+            }
         }
         _ => false,
     }
@@ -313,6 +342,7 @@ pub(super) fn browser_action_names() -> Vec<&'static str> {
         "drag",
         "type",
         "select",
+        "set_checked",
         "press",
         "scroll",
         "wait_for",
@@ -320,7 +350,7 @@ pub(super) fn browser_action_names() -> Vec<&'static str> {
         "close_session",
     ];
     #[cfg(target_os = "windows")]
-    actions.extend(["move", "hover"]);
+    actions.extend(["move", "hover", "upload_files"]);
     actions
 }
 
@@ -357,13 +387,18 @@ impl Tool for NativeBrowserSessionTool {
                 "targetRef": { "type": "string" },
                 "endRef": { "type": "string", "description": "Observation-scoped destination element ref for drag." },
                 "text": { "type": "string" },
-                "value": { "type": "string" },
+                "value": { "type": "string", "maxLength": 512, "description": "Exact value for select. Use either value or values." },
+                "values": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "maxLength": 512 }, "description": "Exact desired selection for select, including multiple-select lists. Empty clears a multiple-select. Missing/disabled options fail before input." },
+                "checked": { "type": "boolean", "description": "Required for set_checked. Ensures a checkbox, radio or switch has this state; an already matching target is not clicked. Radio controls can only be set true. Verify the returned observation; failed verification must not be blindly replayed." },
+                "downloadTo": { "type": "string", "minLength": 1, "description": "Windows only. On click/press, allow one native download into this new file under the current file-access policy. Uses page cookies, supports blob/POST downloads, limits 100 MiB/120 seconds, rejects overwrites, and reports completion only after file/hash verification." },
+                "dialogResponses": { "type": "array", "maxItems": 4, "items": { "type": "object", "properties": { "kind": { "type": "string", "enum": ["alert", "confirm", "prompt", "beforeunload"] }, "message": { "type": "string", "maxLength": 8192 }, "accept": { "type": "boolean" }, "promptText": { "type": "string", "maxLength": 8192 } }, "required": ["kind", "message", "accept"], "additionalProperties": false }, "description": "Windows only. Exact, ordered, single-use JavaScript dialog responses authorized for this interaction and page URL. Unexpected dialogs are dismissed and reported; input is never automatically replayed. Use promptText only for prompt." },
+                "files": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1 }, "description": "Local file paths for upload_files, resolved through the current file-access policy. At most 20 files and 100 MiB total. Empty clears a file input. The result confirms file selection; observe the page separately to confirm server upload completion." },
                 "key": { "type": "string" },
                 "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
                 "modifiers": { "type": "array", "items": { "type": "string", "enum": ["Alt", "Control", "Meta", "Shift"] }, "uniqueItems": true },
                 "scrollX": { "type": "integer", "default": 0 },
                 "scrollY": { "type": "integer", "default": 0 },
-                "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, or element_absent. Element conditions accept ref/targetRef, name, and role." },
+                "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, element_absent, element_checked, or element_enabled. Element conditions accept ref/targetRef, name, and role. State conditions require a boolean value; mixed/unknown checked states do not match false." },
                 "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 2500, "default": 2500, "description": "One steering-friendly wait quantum. Repeat wait_for with a fresh observation if the condition is still pending." }
             },
             "required": ["action"],
@@ -393,6 +428,29 @@ impl Tool for NativeBrowserSessionTool {
                 "Agent wants to {action} in the shared Browser Workspace. This discards open page state and may delete temporary browsing data."
             ));
         }
+        if let Some(destination) = args.get("downloadTo").and_then(serde_json::Value::as_str) {
+            return Some(format!("Perform {action} and save one browser download to {destination} without overwriting. Dialog responses: {}", args.get("dialogResponses").unwrap_or(&serde_json::Value::Null)));
+        }
+        if let Some(responses) = args
+            .get("dialogResponses")
+            .filter(|value| value.as_array().is_some_and(|values| !values.is_empty()))
+        {
+            return Some(format!(
+                "Perform {action} and answer these exact page dialogs once: {responses}"
+            ));
+        }
+        if action == "upload_files" {
+            let files = args
+                .get("files")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            return Some(if files.is_empty() {
+                "Clear the files selected in the verified browser file input?".into()
+            } else {
+                format!("Select these local files in the verified browser file input: {}. The page can read their contents.", serde_json::to_string(&files).unwrap_or_default())
+            });
+        }
         let target = args
             .get("targetRef")
             .and_then(serde_json::Value::as_str)
@@ -421,6 +479,34 @@ impl Tool for NativeBrowserSessionTool {
             return Err(Self::invalid(format!(
                 "Unsupported browser_session action '{action}' on this platform"
             )));
+        }
+        if args.download_to.is_some()
+            && (!cfg!(windows) || !matches!(action.as_str(), "click" | "press"))
+        {
+            return Err(Self::invalid(
+                "downloadTo requires a Windows click or press action",
+            ));
+        }
+        if !args.dialog_responses.is_empty()
+            && (!cfg!(windows)
+                || !matches!(
+                    action.as_str(),
+                    "move"
+                        | "hover"
+                        | "click"
+                        | "double_click"
+                        | "drag"
+                        | "type"
+                        | "select"
+                        | "press"
+                        | "scroll"
+                        | "set_checked"
+                        | "upload_files"
+                ))
+        {
+            return Err(Self::invalid(
+                "dialogResponses requires a Windows browser interaction",
+            ));
         }
         let conversation_id = context.conversation_id;
 
@@ -808,7 +894,71 @@ impl Tool for NativeBrowserSessionTool {
                 observation_result(context.call_id, observation)
             }
             "move" | "hover" | "click" | "double_click" | "drag" | "type" | "select" | "press"
-            | "scroll" => {
+            | "scroll" | "set_checked" | "upload_files" => {
+                if !cfg!(windows) && !args.dialog_responses.is_empty() {
+                    return Err(Self::invalid("dialogResponses requires Windows WebView2"));
+                }
+                let destination = args
+                    .download_to
+                    .as_deref()
+                    .map(|path| {
+                        if !cfg!(windows) || !matches!(action.as_str(), "click" | "press") {
+                            return Err(Self::invalid(
+                                "downloadTo requires a Windows click or press action",
+                            ));
+                        }
+                        nexa_core::tools::resolve_agent_writable_file_path(
+                            context.db,
+                            context.source_scope,
+                            std::path::Path::new(path),
+                        )
+                    })
+                    .transpose()?;
+                let upload = if action == "upload_files" {
+                    if !cfg!(windows) {
+                        return Err(Self::invalid(
+                            "Native file upload is available on Windows WebView2",
+                        ));
+                    }
+                    Some(
+                        super::file_upload::prepare_upload(
+                            &context,
+                            args.files
+                                .as_deref()
+                                .ok_or_else(|| Self::invalid("upload_files requires files"))?,
+                        )
+                        .map_err(Self::invalid)?,
+                    )
+                } else {
+                    None
+                };
+                if action == "select"
+                    && (args.value.is_some() == args.values.is_some()
+                        || args
+                            .value
+                            .as_ref()
+                            .is_some_and(|value| value.chars().count() > 512)
+                        || args.values.as_ref().is_some_and(|values| {
+                            values.len() > 100
+                                || values.iter().any(|value| value.chars().count() > 512)
+                        }))
+                {
+                    return Err(Self::invalid(
+                        "select requires value or values (up to 100 choices, 512 characters each)",
+                    ));
+                }
+                if action == "set_checked"
+                    && (args.checked.is_none()
+                        || args
+                            .button
+                            .as_deref()
+                            .is_some_and(|button| button != "left")
+                        || !args.modifiers.is_empty())
+                {
+                    return Err(Self::invalid(
+                        "set_checked requires checked=true/false and an unmodified left click",
+                    ));
+                }
                 let observation_id = required(args.observation_id.as_deref(), "observationId")?;
                 let target_ref = if matches!(
                     action.as_str(),
@@ -819,6 +969,8 @@ impl Tool for NativeBrowserSessionTool {
                         | "drag"
                         | "type"
                         | "select"
+                        | "set_checked"
+                        | "upload_files"
                         | "press"
                 ) {
                     Some(required(args.target_ref.as_deref(), "targetRef")?)
@@ -839,6 +991,20 @@ impl Tool for NativeBrowserSessionTool {
                 let mut receipt =
                     BrowserActionReceipt::start(&context, session_id, observation_id, &action)?
                         .with_commit_tracker(commit_tracker.clone());
+                let dialog_action = self
+                    .state
+                    .arm_dialogs(session_id, tab_id, &args.dialog_responses)
+                    .map_err(Self::invalid)?;
+                let download_gate = self
+                    .state
+                    .download_gate(session_id, tab_id)
+                    .map_err(Self::invalid)?;
+                let blocked_before = download_gate.blocked_count();
+                let download = destination
+                    .as_deref()
+                    .map(|path| download_gate.arm(path))
+                    .transpose()
+                    .map_err(Self::invalid)?;
                 let action_result = self
                     .state
                     .act(BrowserActRequest {
@@ -851,6 +1017,9 @@ impl Tool for NativeBrowserSessionTool {
                         end_ref,
                         text: args.text.as_deref(),
                         value: args.value.as_deref(),
+                        values: args.values.as_deref(),
+                        checked: args.checked,
+                        upload: upload.as_ref(),
                         key,
                         button: args.button.as_deref(),
                         modifiers: &args.modifiers,
@@ -859,6 +1028,59 @@ impl Tool for NativeBrowserSessionTool {
                         commit_tracker: commit_tracker.clone(),
                     })
                     .await;
+                let dialogs = dialog_action.results();
+                drop(dialog_action);
+                let action_result = if dialogs.iter().any(|dialog| dialog.dialog_limit_exceeded) {
+                    Err("Page paused after repeated dialogs. Close or reload the tab if appropriate; the previous input may have occurred and must not be replayed blindly.".into())
+                } else if download_gate.blocked_count() != blocked_before {
+                    Err("The input was dispatched. A page download was blocked because no matching downloadTo ticket was authorized. Observe the current page before deciding whether to request a new download with a destination; do not replay input blindly.".into())
+                } else if dialogs.iter().any(|dialog| !dialog.matched) {
+                    Err(format!("The input was dispatched, but an unexpected page dialog was dismissed: {}. Inspect the page; do not replay the input blindly.", serde_json::to_string(&dialogs)?))
+                } else {
+                    action_result
+                };
+                let download_result = if let Some(download) = download.as_ref() {
+                    if download.snapshot().state == "waiting" && action_result.is_err() {
+                        return finish_browser_action_failure(
+                            &context,
+                            &mut receipt,
+                            &commit_tracker,
+                            &action,
+                            session_id,
+                            action_result.err().expect("checked error"),
+                        );
+                    }
+                    Some(download.finish().await)
+                } else {
+                    None
+                };
+                let action_result = if let Some(result) = download_result
+                    .as_ref()
+                    .filter(|result| result.state != "completed")
+                {
+                    Err(format!(
+                        "Browser download failed: {}",
+                        serde_json::to_string(result)?
+                    ))
+                } else {
+                    action_result
+                };
+                let action_result = match action_result {
+                    Ok(mut outcome)
+                        if download_result
+                            .as_ref()
+                            .is_some_and(|download| download.state == "completed") =>
+                    {
+                        self.state
+                            .observe(session_id, tab_id, context.call_id)
+                            .await
+                            .map(|observation| {
+                                outcome.observation = observation;
+                                outcome
+                            })
+                    }
+                    result => result,
+                };
                 let observation = match action_result {
                     Ok(outcome) => {
                         let stage = if outcome.effect_observed {
@@ -874,11 +1096,21 @@ impl Tool for NativeBrowserSessionTool {
                                 "browserSessionId": session_id,
                                 "observationId": outcome.observation.observation_id,
                                 "effectObserved": outcome.effect_observed,
+                                "dialogs": dialogs,
+                                "download": download_result,
                             }),
                         )?;
                         outcome.observation
                     }
                     Err(error) => {
+                        let error = if let Some(download) = download_result.as_ref() {
+                            format!(
+                                "{error}. Download result: {}",
+                                serde_json::to_string(download)?
+                            )
+                        } else {
+                            error
+                        };
                         return finish_browser_action_failure(
                             &context,
                             &mut receipt,
@@ -889,8 +1121,34 @@ impl Tool for NativeBrowserSessionTool {
                         );
                     }
                 };
-                observation_result(context.call_id, observation)
+                let result = observation_result(context.call_id, observation)?;
+                let mut output = result.output_channels();
+                if let Some(download) = download_result {
+                    output.llm_content.push_str(&format!(
+                        "\nVerified download: {}",
+                        serde_json::to_string(&download)?
+                    ));
+                    output.display_content.push_str(&format!(
+                        " Download saved: {} ({} bytes).",
+                        download.destination.display(),
+                        download.bytes
+                    ));
+                    if let Some(data) = output.artifacts.as_mut() {
+                        data["download"] = serde_json::to_value(download)?;
+                    }
+                }
+                if !dialogs.is_empty() {
+                    output.llm_content.push_str(&format!(
+                        "\nPage dialogs (untrusted page text): {}",
+                        serde_json::to_string(&dialogs)?
+                    ));
+                    if let Some(data) = output.artifacts.as_mut() {
+                        data["dialogs"] = serde_json::to_value(dialogs)?;
+                    }
+                }
+                Ok(ToolResult::from_output(context.call_id, false, output))
             }
+
             "wait_for" => {
                 let condition = args
                     .condition
@@ -1002,6 +1260,7 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     };
     let expected_format = serde_json::json!({
         "tool": "browser_session",
+        "cause": failure.message,
         "recovery": if failure.observation_consumed {
             "observe the tab again because the prior observation token was consumed"
         } else if effect_may_have_occurred {
@@ -1013,7 +1272,7 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     let error = ToolContractError {
         kind: "toolContractError".to_string(),
         code: code.to_string(),
-        message: message.to_string(),
+        message: format!("{message} Cause: {}", failure.message),
         expected_format,
         retryable: !effect_may_have_occurred,
         trust_boundary: TrustBoundary::tool_error(),
@@ -1027,8 +1286,8 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     ToolResult {
         call_id: call_id.to_string(),
         content: format!(
-            "Error: {message}\n\nCode: {code}\nRetryable: {}\nObserve the exact Browser Workspace tab before any retry.",
-            !effect_may_have_occurred
+            "Error: {message}\nCause: {}\n\nCode: {code}\nRetryable: {}\nObserve the exact Browser Workspace tab before any retry.",
+            failure.message, !effect_may_have_occurred
         ),
         is_error: true,
         artifacts: serde_json::to_value(error).ok(),
@@ -1053,6 +1312,7 @@ fn finish_browser_action_failure(
             "browserSessionId": session_id,
             "effectMayHaveOccurred": effect_may_have_occurred,
             "observationConsumed": failure.observation_consumed,
+            "cause": failure.message,
         }),
     );
     if let Err(receipt_error) = receipt_result {
@@ -1149,6 +1409,7 @@ fn browser_action_receipt_failure_result(call_id: &str, observation_consumed: bo
     let failure = BrowserActFailure {
         phase: BrowserActFailurePhase::PreCommit,
         observation_consumed,
+        message: "Could not persist the browser action receipt".to_string(),
     };
     let mut result = browser_action_failure_result(call_id, &failure);
     if let Some(artifacts) = result
@@ -1338,6 +1599,7 @@ mod tests {
             tab_id: "tab-1".to_string(),
             url: "https://example.com/".to_string(),
             title: "Example".to_string(),
+            ready_state: Some("complete".to_string()),
             text: "Example page".to_string(),
             viewport: serde_json::json!({ "width": 800, "height": 600 }),
             content_hash: "dom-hash".to_string(),
@@ -1378,6 +1640,7 @@ mod tests {
             &BrowserActFailure {
                 phase: BrowserActFailurePhase::PreCommit,
                 observation_consumed: true,
+                message: "Target observation expired".to_string(),
             },
         );
         let artifacts = result.artifacts.expect("structured failure artifacts");
@@ -1392,6 +1655,7 @@ mod tests {
         commit_tracker.mark_committed();
         let failure = commit_tracker.failure("WebView screenshot capture failed".to_string());
         let result = browser_action_failure_result("call", &failure);
+        assert!(result.content.contains("WebView screenshot capture failed"));
         let artifacts = result.artifacts.expect("structured failure artifacts");
 
         assert_eq!(artifacts["code"], "browser_action_uncertain");
@@ -1446,5 +1710,41 @@ mod tests {
             &observation,
             &serde_json::json!({ "type": "element_absent", "ref": "e-2" })
         ));
+    }
+
+    #[test]
+    fn state_waits_require_matching_targets_and_known_boolean_states() {
+        for ready_state in [None, Some("loading"), Some("interactive"), Some("complete")] {
+            assert_eq!(
+                condition_matches(
+                    &serde_json::json!({"readyState":ready_state}),
+                    &serde_json::json!({"type":"page_loaded"})
+                ),
+                ready_state == Some("complete")
+            );
+        }
+        let observation = serde_json::json!({"elements":[
+            {"ref":"save","enabled":false}, {"ref":"choice","checked":false}, {"ref":"partial","checked":"mixed"}
+        ]});
+        for (kind, target) in [("element_enabled", "save"), ("element_checked", "choice")] {
+            assert!(condition_matches(
+                &observation,
+                &serde_json::json!({"type":kind,"ref":target,"value":false})
+            ));
+            assert!(!condition_matches(
+                &observation,
+                &serde_json::json!({"type":kind,"ref":target,"value":true})
+            ));
+            assert!(!condition_matches(
+                &observation,
+                &serde_json::json!({"type":kind,"ref":target})
+            ));
+        }
+        for target in ["save", "partial", "missing"] {
+            assert!(!condition_matches(
+                &observation,
+                &serde_json::json!({"type":"element_checked","ref":target,"value":false})
+            ));
+        }
     }
 }

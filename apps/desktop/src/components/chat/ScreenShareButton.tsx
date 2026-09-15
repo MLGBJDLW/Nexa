@@ -4,7 +4,7 @@ import { MonitorUp, Square, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
 import { encodeSharedScreenFrame } from '../../lib/sharedScreenFrame';
-import { openScreenCapture, useDesktopMonitors, type ScreenCapture } from '../../lib/screenCapture';
+import { openScreenCapture, useDesktopMonitors, useDesktopWindows, type ScreenCapture } from '../../lib/screenCapture';
 import { NexaPopover, NexaPopoverTrigger, NexaPopoverContent } from '../ui/overlay/Popover';
 
 interface Capture {
@@ -12,7 +12,7 @@ interface Capture {
   video: HTMLVideoElement; timer?: ReturnType<typeof setInterval>; close(): void;
 }
 
-export function ScreenShareButton({ conversationId }: { conversationId?: string }) {
+export function ScreenShareButton({ conversationId, onEnsureConversation }: { conversationId?: string; onEnsureConversation?: () => Promise<string> }) {
   const { t } = useTranslation();
   const capture = useRef<Capture | null>(null);
   const pendingStream = useRef<MediaStream | null>(null);
@@ -22,8 +22,10 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
   const [sharing, setSharing] = useState(false);
   const [preview, setPreview] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [preparingConversation, setPreparingConversation] = useState(false);
   const browserSupported = typeof navigator.mediaDevices?.getDisplayMedia === 'function';
   const monitors = useDesktopMonitors(pickerOpen || !browserSupported);
+  const desktopWindows = useDesktopWindows(pickerOpen || !browserSupported);
   const stop = useCallback(() => {
     generation.current++;
     const current = capture.current;
@@ -42,7 +44,7 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stop(); }; }, [stop]);
   useEffect(() => { stop(); return stop; }, [conversationId, stop]);
 
-  const start = async (monitorId?: string, sourceName?: string) => {
+  const start = async (monitorId?: string, sourceName?: string, windowId?: string) => {
     if (!conversationId || pending || capture.current) return;
     const mine = ++generation.current;
     setPending(true);
@@ -50,7 +52,7 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
     let lease: string | undefined;
     let session: ScreenCapture | undefined;
     try {
-      session = await openScreenCapture(monitorId);
+      session = await openScreenCapture(monitorId, windowId);
       stream = session.stream;
       if (mine !== generation.current) { session.stop(); return; }
       pendingStream.current = stream;
@@ -99,25 +101,39 @@ export function ScreenShareButton({ conversationId }: { conversationId?: string 
       if (mine === generation.current) { stop(); if (!(error instanceof DOMException && error.name === 'NotAllowedError')) toast.error(String(error)); }
     }
   };
-  const supported = browserSupported || monitors.length > 0;
+  const supported = browserSupported || monitors.length > 0 || desktopWindows.windows.length > 0;
+  const openPicker = async (open: boolean) => {
+    if (!open) { setPickerOpen(false); return; }
+    if (!conversationId && onEnsureConversation) {
+      setPreparingConversation(true);
+      try { await onEnsureConversation(); }
+      catch (error) { if (mounted.current) toast.error(String(error)); return; }
+      finally { if (mounted.current) setPreparingConversation(false); }
+    }
+    if (mounted.current) setPickerOpen(true);
+  };
   return <div className="group relative shrink-0" data-testid="desktop-share-control">
-    <NexaPopover open={pickerOpen && !sharing && !pending} onOpenChange={setPickerOpen}>
+    <NexaPopover open={pickerOpen && !sharing && !pending} onOpenChange={openPicker}>
     <NexaPopoverTrigger asChild>
-    <button type="button" data-testid="desktop-share-toggle" aria-pressed={sharing} disabled={!conversationId || !supported}
+    <button type="button" data-testid="desktop-share-toggle" aria-pressed={sharing} disabled={(!conversationId && !onEnsureConversation) || !supported || preparingConversation}
       aria-label={t(sharing || pending ? 'chat.stopScreenShare' : 'chat.shareScreen')}
-      title={t(!conversationId ? 'chat.screenShareNeedsConversation' : !supported ? 'chat.screenShareUnavailable' : sharing ? 'chat.screenShareActive' : 'chat.shareScreen')}
+      title={t(preparingConversation ? 'chat.screenSharePreparingConversation' : !supported ? 'chat.screenShareUnavailable' : sharing ? 'chat.screenShareActive' : 'chat.shareScreen')}
       onClick={event => { if (sharing || pending) { event.preventDefault(); stop(); setPickerOpen(false); } }}
       className={`flex h-8 items-center gap-1.5 rounded-md px-2 text-xs transition-colors disabled:opacity-40 ${sharing ? 'bg-accent/10 text-accent' : 'text-text-tertiary hover:bg-surface-2'}`}>
-      {pending ? <Loader2 size={15} className="animate-spin" /> : sharing ? <Square size={13} /> : <MonitorUp size={15} />}
+      {pending || preparingConversation ? <Loader2 size={15} className="animate-spin" /> : sharing ? <Square size={13} /> : <MonitorUp size={15} />}
       {sharing && <span>{t('chat.screenShareActive')}</span>}
     </button>
     </NexaPopoverTrigger>
     <NexaPopoverContent side="top" align="start" aria-label={t('chat.shareScreen')} className="w-72 rounded-lg border border-border bg-surface-1 p-2 text-text-primary shadow-xl">
-      <p className="px-2 py-1 text-xs text-text-tertiary">{t('chat.shareScreen')}</p>
+      <p className="px-2 py-1 text-xs text-text-tertiary">Nexa · {t('chat.shareScreen')}</p>
       {monitors.map((monitor, index) => <button type="button" key={monitor.id} className="flex w-full items-center gap-2 rounded-md p-2 text-left text-sm hover:bg-surface-2" onClick={() => { setPickerOpen(false); void start(monitor.id, `${t('live.screen')} ${index + 1}`); }}>
         <MonitorUp size={16} /><span>{t('live.screen')} {index + 1}<span className="ml-2 text-xs text-text-tertiary">{monitor.width} × {monitor.height}</span></span>
       </button>)}
-      {browserSupported && <button type="button" className="w-full rounded-md p-2 text-left text-sm hover:bg-surface-2" onClick={() => { setPickerOpen(false); void start(); }}>{t('chat.shareWindow')}</button>}
+      <div className="max-h-60 overflow-y-auto">{desktopWindows.windows.map(window => <button key={window.id} type="button" data-testid="desktop-share-window" className="flex w-full flex-col rounded-md p-2 text-left text-sm hover:bg-surface-2" onClick={() => { setPickerOpen(false); void start(undefined, window.title, window.id); }}>
+        <span className="w-full truncate">{window.title}</span><span className="text-xs text-text-tertiary">{window.appName}</span>
+      </button>)}</div>
+      {desktopWindows.supported === null && <Loader2 aria-label={t('chat.screenSharePreparingConversation')} size={15} className="m-2 animate-spin" />}
+      {browserSupported && desktopWindows.supported === false && <button type="button" className="w-full rounded-md p-2 text-left text-sm hover:bg-surface-2" onClick={() => { setPickerOpen(false); void start(); }}>{t('chat.shareWindow')}</button>}
     </NexaPopoverContent>
     </NexaPopover>
     {sharing && preview && <div className="pointer-events-none absolute bottom-full left-0 z-40 mb-2 hidden w-60 overflow-hidden rounded-lg border border-border bg-surface-1 shadow-lg group-hover:block group-focus-within:block">

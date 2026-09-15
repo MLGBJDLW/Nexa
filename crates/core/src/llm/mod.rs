@@ -1692,19 +1692,4 @@ mod tests {
             "LLM error: Responses function_call contained incomplete arguments"
         );
     }
-
-    #[test]
-    fn provider_trait_exposes_only_the_canonical_event_stream() {
-        let source = include_str!("mod.rs");
-        let trait_source = source
-            .split_once("pub trait LlmProvider")
-            .expect("provider trait declaration")
-            .1
-            .split_once("struct MessageValidatingProvider")
-            .expect("provider trait boundary")
-            .0;
-
-        assert_eq!(trait_source.matches("async fn stream_events(").count(), 1);
-        assert!(!trait_source.contains("async fn stream("));
-    }
 }

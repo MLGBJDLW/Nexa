@@ -709,5 +709,9 @@
   "screenShareUnavailable": "Показ экрана недоступен в этой среде",
   "screenSharePreview": "Предпросмотр экрана",
   "screenShareHint": "Агент получает актуальное изображение при продолжении работы. Остановите показ, чтобы отозвать доступ.",
-  "shareWindow": "Окно / системный выбор…"
+  "shareWindow": "Окно / системный выбор…",
+  "screenSharePreparingConversation": "Подготовка демонстрации экрана…",
+  "screenShareConversationChanged": "Разговор изменился. Начните демонстрацию экрана в текущем чате.",
+  "computerUseOperating": "Управление компьютером",
+  "computerUseObserving": "Чтение выбранного окна"
 }

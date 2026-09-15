@@ -709,5 +709,9 @@
   "screenShareUnavailable": "目前環境不支援螢幕共用",
   "screenSharePreview": "共用螢幕預覽",
   "screenShareHint": "Agent 繼續處理時會取得最新畫面；停止共用即可撤回存取。",
-  "shareWindow": "視窗 / 系統選擇器…"
+  "shareWindow": "視窗 / 系統選擇器…",
+  "screenSharePreparingConversation": "正在準備螢幕共用…",
+  "screenShareConversationChanged": "對話已切換，請在目前對話重新開啟螢幕共用。",
+  "computerUseOperating": "正在操作電腦",
+  "computerUseObserving": "正在讀取選定視窗"
 }

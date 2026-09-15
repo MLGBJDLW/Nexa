@@ -709,5 +709,9 @@
   "screenShareUnavailable": "Bildschirmfreigabe ist hier nicht verfügbar",
   "screenSharePreview": "Bildschirmvorschau",
   "screenShareHint": "Der Agent erhält beim Fortsetzen die aktuelle Ansicht. Beenden Sie die Freigabe, um den Zugriff zu widerrufen.",
-  "shareWindow": "Fenster / Systemauswahl…"
+  "shareWindow": "Fenster / Systemauswahl…",
+  "screenSharePreparingConversation": "Bildschirmfreigabe wird vorbereitet…",
+  "screenShareConversationChanged": "Der Chat wurde gewechselt. Starte die Bildschirmfreigabe im aktuellen Chat.",
+  "computerUseOperating": "Computer wird gesteuert",
+  "computerUseObserving": "Ausgewähltes Fenster wird gelesen"
 }

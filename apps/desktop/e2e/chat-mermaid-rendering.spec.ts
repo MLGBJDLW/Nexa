@@ -470,6 +470,9 @@ test('keeps the reported linear flow readable in the Xiangnai light resource the
   ).toHaveCount(0);
   await expect(surface.locator('svg')).toBeVisible();
   await expect(surface.locator('g.node')).toHaveCount(5);
+  // Transcript remeasurement can replace an SVG after the render queue drains.
+  // Re-resolve and assert the complete rendered sample together on each attempt.
+  await expect(async () => {
   const nodes = await surface.locator('g.node').evaluateAll((elements) => elements.map((node) => {
     const shape = node.querySelector<SVGGraphicsElement>('rect, polygon, path, circle, ellipse');
     const label = node.querySelector<SVGGraphicsElement>('.label, .nodeLabel, text');
@@ -495,6 +498,7 @@ test('keeps the reported linear flow readable in the Xiangnai light resource the
     };
   }));
 
+  expect(nodes).toHaveLength(5);
   expect(nodes.map((node) => node.label)).toEqual([
     'Prompt 讲清楚任务',
     'Agent 自动执行',
@@ -503,11 +507,14 @@ test('keeps the reported linear flow readable in the Xiangnai light resource the
     '实战与安全',
   ]);
   for (const node of nodes) {
+    expect(node.shapeBox.width, JSON.stringify(node)).toBeGreaterThan(0);
+    expect(node.fill, JSON.stringify(node)).not.toBe('');
     expect(node.fill, JSON.stringify(node)).not.toBe('rgb(0, 0, 0)');
     expect(node.labelFill, JSON.stringify(node)).not.toBe('rgb(0, 0, 0)');
     expect(Number(node.labelOpacity), JSON.stringify(node)).toBeGreaterThan(0);
     expect(node.centered, JSON.stringify(node)).toBe(true);
   }
+  }).toPass();
 
   const serializedSvg = await surface.locator('svg').evaluate((svg) => svg.outerHTML);
   await page.evaluate((svg) => new Promise<void>((resolve) => {

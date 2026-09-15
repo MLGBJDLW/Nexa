@@ -709,5 +709,9 @@
   "screenShareUnavailable": "O compartilhamento de tela não está disponível aqui",
   "screenSharePreview": "Prévia da tela compartilhada",
   "screenShareHint": "O agente recebe a imagem atual ao continuar. Pare de compartilhar para revogar o acesso.",
-  "shareWindow": "Janela / seletor do sistema…"
+  "shareWindow": "Janela / seletor do sistema…",
+  "screenSharePreparingConversation": "Preparando compartilhamento de tela…",
+  "screenShareConversationChanged": "A conversa mudou. Inicie o compartilhamento de tela na conversa atual.",
+  "computerUseOperating": "Controlando o computador",
+  "computerUseObserving": "Lendo a janela selecionada"
 }

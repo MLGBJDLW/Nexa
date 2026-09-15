@@ -695,6 +695,7 @@
   "advancedSettingsDesc": "Generation limits, cost controls, and delegated worker access.",
   "selectedToolsSummary": "{selected}/{total} tools",
   "subagents": "Subagents",
+  "inheritSubagentTools": "親エージェントに許可されたツールを継承",
   "subagentsDesc": "Choose which delegated tools and enabled skills subagents may inherit, and set concurrency and budget limits for delegated workers and adjudicators.",
   "maxParallelWorkers": "Max parallel workers",
   "maxParallelWorkersDesc": "Hard cap on how many delegated workers may run at the same time.",

@@ -73,6 +73,68 @@ work instead of letting task rows invent a second outcome. The detailed
 batching, failure, recovery, and wire rules are normative in the
 [Agent Streaming Protocol](./AGENT_STREAMING_PROTOCOL.md).
 
+## Delegation ownership
+
+The parent registry is filtered for execution mode, workflow scope and workspace
+isolation before delegation. An absent saved subagent tool list inherits that
+registry; an explicit list narrows it. Role recommendations choose defaults and
+do not replace permissions. Spawn schemas and preflight checks use the same
+effective scope. Interactive surfaces and recursive delegation remain excluded.
+
+The delegation runtime stores worker tools without retaining the delegation
+wrappers that own it. This prevents a registry/runtime reference cycle from
+retaining provider state and worker history after every turn. A shared handle
+owner keeps lifecycle records available while the parent or any active worker
+still needs them, then releases the in-memory handles. Durable results are
+unaffected. A clean worker event-stream closure is not a fatal event and cannot
+preempt successful executor finalization.
+
+## Desktop and browser lifetime
+
+User-started sharing and model control use separate entry points. The native
+share picker can capture Nexa itself, but the model-control path continues to
+exclude Nexa and approval surfaces. Both revalidate process/window identity.
+Capture teardown uses a bounded worker pool; timed-out or failed cleanup keeps
+or quarantines its admission slot rather than creating unlimited detached
+threads. A frame timeout never calls the driver's joining stop operation on
+the tool's input lane.
+
+The desktop control indicator projects only committed tool start/completion
+and terminal Run Events. It keeps one non-activating WebView, ignores output
+deltas, and does not restore stale visibility or window state after restart.
+Its Stop action uses the existing task cancellation path.
+
+Desktop applications launched for computer use have a lifetime independent of
+`run_shell` process-tree cleanup. `desktop_automation.launch_app` returns a process
+receipt; observation still establishes readiness and the next input target.
+
+Managed shell processes bind their pipes, exit monitors and log readers to an
+application-lifetime process runtime. Finishing a delegated worker must not stop
+those monitors, lose late output or let its managed loopback permission expire
+while the owned service is still healthy.
+Process handles use host-generated identities rather than provider call IDs,
+which may repeat between workers. History-isolated workers use their trusted
+parent mutation owner for process/log and loopback-permission scope.
+
+Browser navigation invalidates observations without granting a new control owner.
+Read-only observation can restart after navigation within one bounded deadline,
+but it cannot reclaim user control, revive a closed tab, or repeat native input.
+Browser failures retain their underlying cause alongside commit/side-effect
+status so recovery can distinguish policy, navigation, capture and ownership
+failures.
+
+Native WebView2 file input carries only filename/size metadata through the page
+bridge; authorized canonical paths stay in the native transport. Dialog answers
+are scoped to one action and exact page URL, consumed in order, and revoked on
+mismatch or cancellation. Unexpected dialogs are dismissed without retaining a
+COM deferral during normal input. A dialog flood is held at one pending modal
+until the user closes or reloads that tab; the host UI remains responsive. The same-session CDP dialog
+event handles modals opened by native input: WebView2 can queue its native dialog
+callback behind that very input even when `hasBrowserHandler` is true. Download tickets admit one
+native operation per tab. Progress, cancellation and completion run outside the
+agent's temporary runtime; native COM handles stay on the UI thread. Completed
+files are verified off the UI thread and published without overwriting a name.
+
 ## Cross-cutting invariants
 
 1. **Local-first ownership.** Indexes, conversation history, settings, and

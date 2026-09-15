@@ -12,9 +12,10 @@ where
 {
     tokio::select! {
         biased;
-        error = fatal_error_rx.recv() => Err(CoreError::Agent(format!(
-            "Delegated execution '{call_label}' failed: {}",
-            error.unwrap_or_else(|| "worker emitted an unspecified fatal error".to_string())
+        // A clean event-pump shutdown may precede final persistence. Only an
+        // actual fatal event can preempt that successful worker completion.
+        Some(error) = fatal_error_rx.recv() => Err(CoreError::Agent(format!(
+            "Delegated execution '{call_label}' failed: {error}"
         ))),
         _ = cancel_token.cancelled() => Err(CoreError::Agent(format!(
             "Delegated execution '{call_label}' was cancelled by the parent turn."

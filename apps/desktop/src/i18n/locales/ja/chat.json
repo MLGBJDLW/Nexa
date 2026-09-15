@@ -709,5 +709,9 @@
   "screenShareUnavailable": "この環境では画面を共有できません",
   "screenSharePreview": "共有画面のプレビュー",
   "screenShareHint": "エージェントが処理を続ける際に最新の画面を取得します。共有を停止するとアクセスを解除します。",
-  "shareWindow": "ウィンドウ / システム選択…"
+  "shareWindow": "ウィンドウ / システム選択…",
+  "screenSharePreparingConversation": "画面共有を準備しています…",
+  "screenShareConversationChanged": "会話が切り替わりました。現在の会話で画面共有を開始してください。",
+  "computerUseOperating": "コンピューターを操作中",
+  "computerUseObserving": "選択したウィンドウを読み取り中"
 }
