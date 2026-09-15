@@ -95,11 +95,45 @@ pub enum BrowserActFailurePhase {
 pub struct BrowserActFailure {
     pub phase: BrowserActFailurePhase,
     pub observation_consumed: bool,
+    pub message: String,
 }
 
 impl BrowserActFailure {
     pub fn effect_may_have_occurred(&self) -> bool {
         self.phase == BrowserActFailurePhase::EffectMayHaveOccurred
+    }
+}
+
+/// Navigation invalidates observations without transferring control. A read-only
+/// observation may restart on that transition, but never reclaim user control or
+/// replay the input that initiated navigation.
+pub(super) async fn observe_across_navigation<T, F, Fut, L>(
+    mut observe: F,
+    lease: L,
+    timeout: Duration,
+) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+    L: Fn() -> Result<u64, String>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let generation = lease()?;
+        let result = tokio::time::timeout_at(deadline, observe())
+            .await
+            .map_err(|_| {
+                "Browser page did not become stably observable before the observation deadline"
+                    .to_string()
+            })?;
+        let current_generation = lease()?;
+        if current_generation == generation {
+            return result;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err("Browser page kept navigating during observation".into());
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }
 
@@ -129,7 +163,7 @@ impl BrowserActCommitTracker {
         self.0.observation_consumed.load(Ordering::Acquire)
     }
 
-    pub fn failure(&self, _message: String) -> BrowserActFailure {
+    pub fn failure(&self, message: String) -> BrowserActFailure {
         BrowserActFailure {
             phase: if self.effect_may_have_occurred() {
                 BrowserActFailurePhase::EffectMayHaveOccurred
@@ -137,6 +171,7 @@ impl BrowserActCommitTracker {
                 BrowserActFailurePhase::PreCommit
             },
             observation_consumed: self.observation_consumed(),
+            message,
         }
     }
 }
@@ -1678,6 +1713,20 @@ impl BrowserState {
     }
 
     pub async fn observe(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        call_id: &str,
+    ) -> Result<BrowserObservationPayload, String> {
+        observe_across_navigation(
+            || self.observe_once(session_id, tab_id, call_id),
+            || self.agent_lease_generation(session_id, tab_id, call_id),
+            Duration::from_secs(20),
+        )
+        .await
+    }
+
+    async fn observe_once(
         &self,
         session_id: &str,
         tab_id: &str,

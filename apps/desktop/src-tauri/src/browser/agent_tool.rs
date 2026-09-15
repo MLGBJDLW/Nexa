@@ -1002,6 +1002,7 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     };
     let expected_format = serde_json::json!({
         "tool": "browser_session",
+        "cause": failure.message,
         "recovery": if failure.observation_consumed {
             "observe the tab again because the prior observation token was consumed"
         } else if effect_may_have_occurred {
@@ -1013,7 +1014,7 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     let error = ToolContractError {
         kind: "toolContractError".to_string(),
         code: code.to_string(),
-        message: message.to_string(),
+        message: format!("{message} Cause: {}", failure.message),
         expected_format,
         retryable: !effect_may_have_occurred,
         trust_boundary: TrustBoundary::tool_error(),
@@ -1027,8 +1028,8 @@ fn browser_action_failure_result(call_id: &str, failure: &BrowserActFailure) -> 
     ToolResult {
         call_id: call_id.to_string(),
         content: format!(
-            "Error: {message}\n\nCode: {code}\nRetryable: {}\nObserve the exact Browser Workspace tab before any retry.",
-            !effect_may_have_occurred
+            "Error: {message}\nCause: {}\n\nCode: {code}\nRetryable: {}\nObserve the exact Browser Workspace tab before any retry.",
+            failure.message, !effect_may_have_occurred
         ),
         is_error: true,
         artifacts: serde_json::to_value(error).ok(),
@@ -1053,6 +1054,7 @@ fn finish_browser_action_failure(
             "browserSessionId": session_id,
             "effectMayHaveOccurred": effect_may_have_occurred,
             "observationConsumed": failure.observation_consumed,
+            "cause": failure.message,
         }),
     );
     if let Err(receipt_error) = receipt_result {
@@ -1149,6 +1151,7 @@ fn browser_action_receipt_failure_result(call_id: &str, observation_consumed: bo
     let failure = BrowserActFailure {
         phase: BrowserActFailurePhase::PreCommit,
         observation_consumed,
+        message: "Could not persist the browser action receipt".to_string(),
     };
     let mut result = browser_action_failure_result(call_id, &failure);
     if let Some(artifacts) = result
@@ -1378,6 +1381,7 @@ mod tests {
             &BrowserActFailure {
                 phase: BrowserActFailurePhase::PreCommit,
                 observation_consumed: true,
+                message: "Target observation expired".to_string(),
             },
         );
         let artifacts = result.artifacts.expect("structured failure artifacts");
@@ -1392,6 +1396,7 @@ mod tests {
         commit_tracker.mark_committed();
         let failure = commit_tracker.failure("WebView screenshot capture failed".to_string());
         let result = browser_action_failure_result("call", &failure);
+        assert!(result.content.contains("WebView screenshot capture failed"));
         let artifacts = result.artifacts.expect("structured failure artifacts");
 
         assert_eq!(artifacts["code"], "browser_action_uncertain");
