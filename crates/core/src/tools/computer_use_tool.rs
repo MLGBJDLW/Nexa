@@ -50,7 +50,7 @@ struct ScreenshotGuard {
     rgb: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct WindowSnapshot {
     id: u64,
@@ -68,6 +68,37 @@ struct WindowSnapshot {
     minimized: bool,
     maximized: bool,
     focused: bool,
+}
+
+/// Native picker metadata for a user-started screen share, separate from
+/// model observations and computer-control grants.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserShareWindow {
+    pub id: String,
+    pub title: String,
+    pub app_name: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub fn list_user_share_windows() -> Result<Vec<UserShareWindow>, CoreError> {
+    #[cfg(windows)]
+    return platform::user_share_windows();
+    #[cfg(not(windows))]
+    Ok(Vec::new())
+}
+
+pub fn capture_user_share_window(source_id: &str) -> Result<String, CoreError> {
+    #[cfg(windows)]
+    return platform::capture_user_share_window(source_id);
+    #[cfg(not(windows))]
+    {
+        let _ = source_id;
+        Err(CoreError::InvalidInput(
+            "Native window sharing is unavailable on this platform".into(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -2955,7 +2986,7 @@ mod platform {
         })
     }
 
-    fn enumerated_windows() -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
+    fn enumerated_windows(allow_host: bool) -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
         let host_executable_hash = host_executable_hash()?;
         let host_executable_name = host_executable_name()?;
         let windows =
@@ -2968,9 +2999,10 @@ mod platform {
             if snapshot.title.trim().is_empty() || snapshot.width == 0 || snapshot.height == 0 {
                 continue;
             }
-            if snapshot.pid == std::process::id()
-                || snapshot.executable_path_hash == host_executable_hash
-                || snapshot.app_name.eq_ignore_ascii_case(host_executable_name)
+            if !allow_host
+                && (snapshot.pid == std::process::id()
+                    || snapshot.executable_path_hash == host_executable_hash
+                    || snapshot.app_name.eq_ignore_ascii_case(host_executable_name))
             {
                 continue;
             }
@@ -2983,7 +3015,7 @@ mod platform {
     }
 
     pub(super) fn list_windows() -> Result<Vec<WindowSnapshot>, CoreError> {
-        let mut windows = enumerated_windows()?
+        let mut windows = enumerated_windows(false)?
             .into_iter()
             .map(|(_, snapshot)| snapshot)
             .collect::<Vec<_>>();
@@ -3003,6 +3035,13 @@ mod platform {
     }
 
     fn current_window(expected: &WindowSnapshot) -> Result<(Window, WindowSnapshot), CoreError> {
+        current_window_for_access(expected, false)
+    }
+
+    fn current_window_for_access(
+        expected: &WindowSnapshot,
+        allow_host: bool,
+    ) -> Result<(Window, WindowSnapshot), CoreError> {
         let handle = hwnd(expected.id);
         if !unsafe { IsWindow(Some(handle)).as_bool() } {
             return Err(invalid(format!(
@@ -3024,11 +3063,12 @@ mod platform {
                 expected.id
             )));
         }
-        if current.pid == std::process::id()
-            || current.executable_path_hash == host_executable_hash()?
-            || current
-                .app_name
-                .eq_ignore_ascii_case(host_executable_name()?)
+        if !allow_host
+            && (current.pid == std::process::id()
+                || current.executable_path_hash == host_executable_hash()?
+                || current
+                    .app_name
+                    .eq_ignore_ascii_case(host_executable_name()?))
         {
             return Err(invalid(
                 "Nexa windows and approval surfaces are protected from computer control.",
@@ -3040,6 +3080,65 @@ mod platform {
             ));
         }
         Ok((window, current))
+    }
+
+    pub(super) fn user_share_windows() -> Result<Vec<super::UserShareWindow>, CoreError> {
+        use base64::Engine;
+        let mut sources = enumerated_windows(true)?
+            .into_iter()
+            .filter(|(_, window)| !window.minimized)
+            .take(100)
+            .map(|(_, window)| {
+                let encoded = serde_json::to_vec(&window)
+                    .map_err(|error| platform_error("encode window source", error))?;
+                Ok(super::UserShareWindow {
+                    id: base64::engine::general_purpose::STANDARD.encode(encoded),
+                    title: window.title,
+                    app_name: window.app_name,
+                    width: window.width,
+                    height: window.height,
+                })
+            })
+            .collect::<Result<Vec<_>, CoreError>>()?;
+        sources.sort_by(|left, right| {
+            left.app_name
+                .cmp(&right.app_name)
+                .then_with(|| left.title.cmp(&right.title))
+        });
+        Ok(sources)
+    }
+
+    pub(super) fn capture_user_share_window(source_id: &str) -> Result<String, CoreError> {
+        use base64::Engine;
+        if source_id.len() > 16_384 {
+            return Err(invalid("Invalid window sharing source"));
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(source_id)
+            .map_err(|error| platform_error("decode window sharing source", error))?;
+        let expected: WindowSnapshot = serde_json::from_slice(&bytes)
+            .map_err(|error| platform_error("decode window sharing identity", error))?;
+        let (window, current) = current_window_for_access(&expected, true)?;
+        if current.minimized {
+            return Err(invalid(
+                "The shared window is minimized; restore it and start sharing again.",
+            ));
+        }
+        let image = capture_rgba(window)?;
+        current_window_for_access(&expected, true)?;
+        let image = DynamicImage::ImageRgba8(image)
+            .thumbnail(MAX_CAPTURE_EDGE, MAX_CAPTURE_EDGE)
+            .to_rgb8();
+        let mut encoded = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 70)
+            .encode(
+                image.as_raw(),
+                image.width(),
+                image.height(),
+                image::ExtendedColorType::Rgb8,
+            )
+            .map_err(|error| platform_error("encode shared window frame", error))?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(encoded))
     }
 
     fn resized_png(image: RgbaImage) -> Result<(Vec<u8>, u32, u32, u32, u32), CoreError> {
@@ -3133,6 +3232,13 @@ mod platform {
     }
 
     fn capture_rgba(window: Window) -> Result<RgbaImage, CoreError> {
+        use super::super::computer_capture_lifecycle::CaptureCleanupPool;
+        static CLEANUP: OnceLock<Result<CaptureCleanupPool, String>> = OnceLock::new();
+        let cleanup = CLEANUP
+            .get_or_init(|| CaptureCleanupPool::new(2))
+            .as_ref()
+            .map_err(|error| invalid(error.clone()))?;
+        let permit = cleanup.acquire().map_err(invalid)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         let settings = CaptureSettings::new(
             window,
@@ -3152,27 +3258,33 @@ mod platform {
                 // desktop-input permit forever after a frame was already
                 // delivered. Join on a detached cleanup thread with a bounded
                 // acknowledgement; the captured frame remains authoritative.
-                let (wait_sender, wait_receiver) = mpsc::sync_channel(1);
-                let _ = thread::Builder::new()
-                    .name("nexa-wgc-cleanup".to_string())
-                    .spawn(move || {
-                        let _ = wait_sender.send(control.wait().map_err(|error| {
+                if let Err(error) = cleanup.finish(
+                    permit,
+                    move || {
+                        control.wait().map_err(|error| {
                             format!("join Windows Graphics Capture worker: {error}")
-                        }));
-                    });
-                match wait_receiver.recv_timeout(Duration::from_millis(750)) {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => tracing::warn!("{error}"),
-                    Err(_) => tracing::warn!(
-                        "Windows Graphics Capture cleanup exceeded 750ms and was detached"
-                    ),
+                        })
+                    },
+                    Duration::from_millis(750),
+                ) {
+                    tracing::warn!("{error}");
                 }
                 frame.map_err(|error| platform_error("decode Windows capture frame", error))
             }
             Err(error) => {
-                control.stop().map_err(|stop_error| {
-                    platform_error("stop timed-out Windows Graphics Capture worker", stop_error)
-                })?;
+                // stop() joins the driver's thread; running it inline would
+                // turn a bounded frame timeout into an unbounded tool hang.
+                if let Err(error) = cleanup.finish(
+                    permit,
+                    move || {
+                        control.stop().map_err(|error| {
+                            format!("stop timed-out Windows Graphics Capture worker: {error}")
+                        })
+                    },
+                    Duration::from_millis(750),
+                ) {
+                    tracing::warn!("{error}");
+                }
                 Err(platform_error("receive Windows capture frame", error))
             }
         }
@@ -6412,6 +6524,33 @@ mod tests {
             };
             if !background_only {
                 original_cursor = Some(activate_isolated_window(&target)?);
+            }
+            {
+                use base64::Engine;
+                let sources = list_user_share_windows().map_err(|error| error.to_string())?;
+                let source = sources
+                    .iter()
+                    .find(|source| source.title == helper_title)
+                    .ok_or("helper missing from native share picker")?;
+                let jpeg =
+                    capture_user_share_window(&source.id).map_err(|error| error.to_string())?;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(jpeg)
+                    .map_err(|error| error.to_string())?;
+                let frame = image::load_from_memory(&bytes).map_err(|error| error.to_string())?;
+                if frame.width() == 0
+                    || frame.height() == 0
+                    || frame.width().max(frame.height()) > crate::media::MAX_LLM_IMAGE_DIMENSION
+                {
+                    return Err("native shared window frame exceeded its image envelope".into());
+                }
+                let mut stale = target.clone();
+                stale.pid += 1;
+                let stale = base64::engine::general_purpose::STANDARD
+                    .encode(serde_json::to_vec(&stale).map_err(|error| error.to_string())?);
+                if capture_user_share_window(&stale).is_ok() {
+                    return Err("native sharing accepted a changed window owner".into());
+                }
             }
             let capture = platform::capture_window(
                 &target,

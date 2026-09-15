@@ -213,6 +213,10 @@ export type AppShellOutletContext = {
 const router = createBrowserRouter(
   createRoutesFromElements(
     <>
+      <Route path="/desktop-control-status" ErrorBoundary={RouteErrorScreen} hydrateFallbackElement={null} lazy={async () => {
+        const { DesktopControlStatusPage } = await import('./pages/DesktopControlStatusPage');
+        return { Component: () => <I18nProvider><DesktopControlStatusPage /></I18nProvider> };
+      }} />
       <Route
         path="/companion"
         ErrorBoundary={RouteErrorScreen}

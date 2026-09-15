@@ -11,6 +11,7 @@ mod commands;
 mod companion_window;
 mod delegation_scheduler;
 mod desktop_agent_session;
+mod desktop_control_status;
 mod preview_tool;
 mod remote;
 mod subagent_lifecycle;
@@ -394,6 +395,7 @@ fn main() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(persisted_window_state_flags())
+                .with_denylist(&["desktop-control-status"])
                 .build(),
         )
         .setup(|app| {
@@ -718,6 +720,7 @@ fn main() {
             app.manage(DownloadCancelFlag(Arc::new(AtomicBool::new(false))));
             let app_config = db.load_app_config().unwrap_or_default();
             companion_window::create_companion_window(app, &app_config.companion);
+            desktop_control_status::initialize(app);
             install_tray(app, &app_config.ui_locale)?;
 
             // Initialise the file watcher for auto-indexing.
@@ -1095,6 +1098,10 @@ fn main() {
             commands::begin_desktop_share_cmd,
             commands::list_desktop_monitors_cmd,
             commands::capture_desktop_monitor_cmd,
+            commands::list_desktop_windows_cmd,
+            commands::capture_desktop_window_cmd,
+            desktop_control_status::desktop_control_status_cmd,
+            desktop_control_status::stop_desktop_control_cmd,
             commands::update_desktop_share_cmd,
             commands::end_desktop_share_cmd,
             commands::live_snapshot_cmd,

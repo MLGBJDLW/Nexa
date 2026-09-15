@@ -1,0 +1,6 @@
+{
+  "identifier": "desktop-control-status",
+  "description": "Local computer-use status and stop controls",
+  "webviews": ["desktop-control-status"],
+  "permissions": ["core:default"]
+}

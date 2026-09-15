@@ -99,6 +99,8 @@ pub mod chunk_context_tool;
 pub mod code_intelligence_tool;
 pub mod compare_tool;
 pub mod compile_tool;
+#[cfg(any(windows, test))]
+mod computer_capture_lifecycle;
 pub mod computer_use_tool;
 pub mod context_history_tool;
 pub mod conversation_goal_tool;

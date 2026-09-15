@@ -27,6 +27,26 @@ pub async fn list_desktop_monitors_cmd() -> Result<Vec<DesktopMonitor>, String> 
 }
 
 #[tauri::command]
+pub async fn list_desktop_windows_cmd() -> Result<serde_json::Value, String> {
+    let windows =
+        tokio::task::spawn_blocking(nexa_core::tools::computer_use_tool::list_user_share_windows)
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({"supported": cfg!(windows), "windows": windows}))
+}
+
+#[tauri::command]
+pub async fn capture_desktop_window_cmd(window_id: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        nexa_core::tools::computer_use_tool::capture_user_share_window(&window_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn capture_desktop_monitor_cmd(monitor_id: String) -> Result<String, String> {
     #[cfg(windows)]
     return tokio::task::spawn_blocking(move || platform::capture(&monitor_id))
