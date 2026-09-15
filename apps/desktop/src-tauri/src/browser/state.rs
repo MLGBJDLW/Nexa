@@ -2631,16 +2631,20 @@ impl BrowserState {
         tab_id: &str,
         destination: &Path,
     ) -> Result<super::downloads::DownloadAction, String> {
-        let runtime = self
-            .inner
-            .lock()
-            .map_err(|_| "Browser runtime is unavailable")?;
-        let session = runtime
-            .sessions
-            .get(session_id)
-            .ok_or("Unknown browser session")?;
-        let tab = require_agent_tab_surface(session, tab_id)?;
-        tab.downloads.arm(destination)
+        let downloads = {
+            let runtime = self
+                .inner
+                .lock()
+                .map_err(|_| "Browser runtime is unavailable")?;
+            let session = runtime
+                .sessions
+                .get(session_id)
+                .ok_or("Unknown browser session")?;
+            Arc::clone(&require_agent_tab_surface(session, tab_id)?.downloads)
+        };
+        // Destination checks can touch a slow disk or network share. They must
+        // not keep every browser tab behind the workspace state mutex.
+        downloads.arm(destination)
     }
 
     pub(super) fn arm_dialogs(
@@ -3056,6 +3060,9 @@ impl BrowserState {
                 .phase = BrowserSessionPhase::CleanupPending;
             let profile_dir =
                 validated_temporary_profile_dir(self.profile_root.as_path(), profile_id.as_str())?;
+            // CleanupPending rejects new tabs while filesystem cleanup runs.
+            // Other sessions and the workspace UI can continue using the runtime.
+            drop(runtime);
             dispatch_terminal_browser_mutation(commit_tracker, || {
                 match std::fs::remove_dir_all(&profile_dir) {
                     Ok(()) => Ok(()),
@@ -3066,6 +3073,21 @@ impl BrowserState {
                     )),
                 }
             })?;
+            runtime = self
+                .inner
+                .lock()
+                .map_err(|_| "Browser runtime is unavailable".to_string())?;
+            let Some(session) = runtime.sessions.get(session_id) else {
+                // A concurrent close already finalized the same empty session.
+                return Ok(());
+            };
+            if !session.tabs.is_empty()
+                || session.opening_tabs != 0
+                || session.profile_id != profile_id
+                || session.phase.accepts_new_tabs()
+            {
+                return Err("Browser session changed while profile cleanup was in progress".into());
+            }
         }
         if let Some(commit_tracker) = commit_tracker {
             commit_tracker.mark_committed();
