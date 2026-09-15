@@ -36,7 +36,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`computer_observe`](../crates/core/prompts/tools/computer_observe.json) | Observe the local Windows desktop without changing it |
 | [`context_history`](../crates/core/prompts/tools/context_history.json) | Recover exact text and tool results from earlier context windows of the current conversation |
 | [`create_file`](../crates/core/prompts/tools/create_file.json) | Create, overwrite, or incrementally append UTF-8 plain-text files at the specified path |
-| [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Open or reveal files inside registered source directories on the user's visible desktop |
+| [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Launch a desktop application, or open/reveal files inside registered source directories |
 | [`download_asset`](../crates/core/prompts/tools/download_asset.json) | Download a supported public image asset (JPEG, PNG, WebP, or GIF) into the workspace with SSRF, redirect-hop, content-type, size, and output-path validation |
 | [`edit_file`](../crates/core/prompts/tools/edit_file.json) | Edit an existing plain-text file or create a new plain-text file |
 | [`extract_image_text`](../crates/core/prompts/tools/extract_image_text.json) | Extract visible text from a local image using the app's PaddleOCR runtime |
@@ -887,15 +887,16 @@ durable artifacts retain hashes, counts, route, delivery, and effect receipts.
 
 ### `desktop_automation`
 
-Open or reveal a source-scoped path on the user's visible desktop. Prefer
+Launch an application or open/reveal a source-scoped path on the user's visible desktop. Prefer
 `open_in_nexa` for supported file previews. Opening a previewable file in an
 external application requires the user's explicit request and
 `external_requested: true`. HTTP(S) navigation belongs to `browser_session`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | yes | `open_path` or `reveal_path` |
-| `path` | string | for either action | Absolute or source-root relative path inside the active registered source scope |
+| `action` | string | yes | `launch_app`, `open_path` or `reveal_path` |
+| `path` | string | for all actions | Absolute or source-root relative path inside the active registered source scope; `launch_app` requires an executable file (`.exe` on Windows) |
+| `args` | string[] | no | Literal arguments for `launch_app`, without shell interpretation; working directory is the executable's directory |
 | `external_requested` | boolean | no | True only for an explicitly requested external application |
 | `reason` | string | no | Brief user-facing reason for the action |
 
@@ -904,6 +905,13 @@ Safety posture:
 - Local path actions must resolve inside a registered source and the active source scope.
 - Use `web_search` for readable search results.
 - Use `fetch_url` when the agent needs page text; use `browser_session` when the page must be observed or manipulated.
+
+For computer use, `launch_app` starts a process independently of managed shell
+cleanup and returns its process ID. Follow it with `computer_observe` using
+`list_windows` and `capture_window` to confirm startup and obtain current input
+targets. A successful launch receipt alone does not establish that the app is
+ready. `cmd start` and `Start-Process` inside `run_shell` remain children of the
+managed command and can be terminated when that command exits.
 
 > **Example:** Reveal a generated report in the file manager under its registered source.
 
@@ -1019,9 +1027,13 @@ Spawn one short-lived worker for an isolated subtask. Subagents inherit the supe
 | `max_iterations` | integer | no | Inherit parent tool-round budget when omitted; zero is answer-only |
 | `timeout_secs` | integer | no | Positive deadline bounded by the configured delegation run deadline |
 
-Role profiles set default return sections, timeout estimates and recommended tool
+Role profiles set default return sections and recommended tool
 subsets when `allowed_tools` is omitted. Explicit tool lists can select any
-parent-granted tool, and `[]` grants no tools. The six-round cap and 180-second
+parent-granted tool permitted by the saved subagent allowlist, and `[]` grants no
+tools. With automatic inheritance, the filtered parent registry is authoritative;
+recommendations are not a hidden permission ceiling. Spawn schemas advertise the
+effective tool choices. Settings preserve automatic inheritance separately from
+an explicit list, including an empty one. The six-round cap and 180-second
 explicit argument cap no longer override worker configuration. Shared call,
 token, concurrency and run-deadline budgets still apply. Workers run their own
 handoff policy without inheriting the parent's Nexus fan-out requirements.
@@ -1030,6 +1042,12 @@ Delegation remains one level deep: nested workers would need scheduler support
 to release a waiting parent's concurrency permit. Interactive browser/computer
 tools remain parent-owned until workers have scoped surface leases and approval
 proxies. These unavailable tools are excluded from worker discovery.
+
+Omitted token/call/run budgets remain automatic; explicit budgets remain enforced.
+Use `role_id: "verifier"` or `"critic"` for verification work to use its reserved
+scheduler lane. A task name or prose containing “verify” does not choose that lane.
+Worker handles and retained context are released when the parent runtime and its
+active workers finish; durable results remain in the Run Event ledger.
 
 ### `spawn_subagent_batch`
 
