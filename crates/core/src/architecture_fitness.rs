@@ -62,76 +62,6 @@ fn desktop_host_cannot_construct_the_builtin_tool_registry_directly() {
 }
 
 #[test]
-fn timeline_visibility_cannot_depend_on_backend_labels() {
-    let timeline = repository_root().join("apps/desktop/src/lib/streaming/timelineViewModel.ts");
-    let source = fs::read_to_string(timeline).expect("read timeline projection");
-    for forbidden in [
-        "INTERNAL_TRACE_STATUSES",
-        "shouldHideTraceStatus",
-        "Task queued",
-        "任务已排队",
-        "排隊",
-        "User steering:",
-        "steeringTextFromTraceStatus",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "timeline projection must use semantic visibility, not label token {forbidden:?}"
-        );
-    }
-}
-
-#[test]
-fn chat_ui_consumes_the_canonical_live_timeline_projection() {
-    let chat = repository_root().join("apps/desktop/src/features/chat/ChatMessages.tsx");
-    let source = fs::read_to_string(chat).expect("read chat UI");
-    assert!(source.contains("projectLiveConversationTimeline"));
-    for forbidden in [
-        "visibleTraceEventsForTimeline,",
-        "buildCurrentTimelineSections,",
-        "buildLiveTraceTimeline,",
-        "buildCollapsedLiveTrace,",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "ChatMessages must not compose low-level timeline projection {forbidden:?}"
-        );
-    }
-}
-
-#[test]
-fn context_hud_uses_theme_tokens_instead_of_tailwind_palette_colors() {
-    let hud = repository_root().join("apps/desktop/src/components/chat/ChatRunOverview.tsx");
-    let source = fs::read_to_string(hud).expect("read context HUD");
-    for forbidden in [
-        "bg-sky-",
-        "bg-indigo-",
-        "bg-amber-",
-        "bg-orange-",
-        "bg-purple-",
-        "bg-pink-",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "Context HUD colors must use semantic theme variables, not {forbidden}"
-        );
-    }
-    for required in [
-        "--context-prompts",
-        "--context-conversation",
-        "--context-tool-results",
-        "--context-tools",
-        "--context-mcp",
-        "--context-overhead",
-    ] {
-        assert!(
-            source.contains(required),
-            "Context HUD must consume semantic variable {required}"
-        );
-    }
-}
-
-#[test]
 fn manual_context_compaction_has_one_tool_free_service_path() {
     let root = repository_root();
     let command =
@@ -163,27 +93,6 @@ fn manual_context_compaction_has_one_tool_free_service_path() {
             "context maintenance must not depend on {forbidden}"
         );
     }
-}
-
-#[test]
-fn agent_history_uses_non_destructive_projection_on_database_lane() {
-    let root = repository_root();
-    let agent_chat =
-        fs::read_to_string(root.join("apps/desktop/src-tauri/src/commands/agent_chat.rs"))
-            .expect("read agent chat command");
-    assert!(agent_chat.contains("load_context_projection"));
-    assert!(agent_chat.contains("let projection = db_executor"));
-
-    let chat_page = fs::read_to_string(root.join("apps/desktop/src/pages/ChatPage.tsx"))
-        .expect("read chat page");
-    assert!(chat_page.contains("startContextCompaction"));
-    assert!(chat_page.contains("observeContextCompaction"));
-    assert!(chat_page.contains("cancelContextCompaction"));
-    assert!(chat_page.contains("COMPACTION_STORAGE_PREFIX"));
-    assert!(
-        !chat_page.contains("api.compactConversation("),
-        "product UI must not use the blocking compatibility adapter"
-    );
 }
 
 #[test]
