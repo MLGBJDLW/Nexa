@@ -8,6 +8,7 @@
         "type": "string",
         "enum": [
           "list_windows",
+          "wait_for_window",
           "capture_window",
           "wait_for_change",
           "cursor_position",
@@ -29,6 +30,17 @@
         "minimum": 1,
         "maximum": 100,
         "description": "Maximum windows returned by list_windows. Defaults to 50."
+      },
+      "process_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "For list_windows/wait_for_window, match the exact process ID returned by launch_app. Filtering happens before max_results."
+      },
+      "app_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240,
+        "description": "For list_windows/wait_for_window, exact case-insensitive appName from list_windows. When combined with process_id both must match. wait_for_window requires at least one filter and returns matched/timedOut; capture the returned window before input."
       },
       "include_elements": {
         "type": "boolean",
@@ -52,13 +64,13 @@
         "type": "integer",
         "minimum": 100,
         "maximum": 10000,
-        "description": "For wait_for_change, maximum wait in milliseconds. Defaults to 3000."
+        "description": "For wait_for_change/wait_for_window, maximum wait in milliseconds. Defaults to 3000/2500 respectively. Repeat a bounded wait when pending."
       },
       "poll_interval_ms": {
         "type": "integer",
         "minimum": 50,
         "maximum": 1000,
-        "description": "For wait_for_change, polling interval in milliseconds. Defaults to 100."
+        "description": "For wait_for_change/wait_for_window, polling interval in milliseconds. Defaults to 100."
       },
       "approval_scope": {
         "type": "string",

@@ -476,6 +476,10 @@ struct ObserveArgs {
     #[serde(default)]
     max_results: Option<usize>,
     #[serde(default)]
+    process_id: Option<u32>,
+    #[serde(default)]
+    app_name: Option<String>,
+    #[serde(default)]
     include_elements: Option<bool>,
     #[serde(default)]
     max_elements: Option<usize>,
@@ -1850,6 +1854,60 @@ where
         .map_err(|error| CoreError::Internal(format!("Computer use worker failed: {error}")))?
 }
 
+async fn matching_window_inventory<F, Fut>(
+    args: &ObserveArgs,
+    wait: bool,
+    mut enumerate: F,
+) -> Result<Vec<WindowSnapshot>, CoreError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<WindowSnapshot>, CoreError>>,
+{
+    let app_name = args.app_name.as_deref().map(str::trim);
+    if args.process_id == Some(0)
+        || app_name.is_some_and(|name| name.is_empty() || name.len() > 240)
+    {
+        return Err(CoreError::InvalidInput(
+            "Use a positive process_id or a non-empty app_name of at most 240 bytes.".into(),
+        ));
+    }
+    if wait && args.process_id.is_none() && app_name.is_none() {
+        return Err(CoreError::InvalidInput(
+            "wait_for_window requires process_id from launch_app or app_name from list_windows."
+                .into(),
+        ));
+    }
+    let timeout_ms = args.timeout_ms.unwrap_or(2_500);
+    let poll_ms = args.poll_interval_ms.unwrap_or(100);
+    if !(100..=10_000).contains(&timeout_ms) || !(50..=1_000).contains(&poll_ms) {
+        return Err(CoreError::InvalidInput(
+            "timeout_ms must be 100..10000 and poll_interval_ms 50..1000.".into(),
+        ));
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        let inventory = tokio::time::timeout_at(deadline, enumerate()).await;
+        let Ok(inventory) = inventory else {
+            return Ok(Vec::new());
+        };
+        let windows = inventory?
+            .into_iter()
+            .filter(|window| {
+                args.process_id.is_none_or(|pid| window.pid == pid)
+                    && app_name.is_none_or(|name| window.app_name.eq_ignore_ascii_case(name))
+            })
+            .take(args.max_results.unwrap_or(50).clamp(1, 100))
+            .collect::<Vec<_>>();
+        if !wait || !windows.is_empty() || tokio::time::Instant::now() >= deadline {
+            return Ok(windows);
+        }
+        tokio::time::sleep_until(
+            deadline.min(tokio::time::Instant::now() + Duration::from_millis(poll_ms)),
+        )
+        .await;
+    }
+}
+
 async fn blocking_control<T, F>(
     tracker: ControlCommitTracker,
     operation: F,
@@ -1972,10 +2030,13 @@ impl Tool for ComputerObserveTool {
                     attachments: vec![frame],
                 }))
             }
-            "list_windows" => {
-                let max_results = args.max_results.unwrap_or(50).clamp(1, 100);
-                let windows = blocking(platform::list_windows).await?;
-                let windows: Vec<WindowSnapshot> = windows.into_iter().take(max_results).collect();
+            "list_windows" | "wait_for_window" => {
+                let wait = args.action.trim().eq_ignore_ascii_case("wait_for_window");
+                let started = Instant::now();
+                let windows =
+                    matching_window_inventory(&args, wait, || blocking(platform::list_windows))
+                        .await?;
+                let matched = !windows.is_empty();
                 let observation_id = remember_observation(
                     conversation_id,
                     windows
@@ -1997,6 +2058,9 @@ impl Tool for ComputerObserveTool {
                     "schemaVersion": 2,
                     "observationId": observation_id,
                     "windows": windows,
+                    "matched": matched,
+                    "timedOut": wait && !matched,
+                    "elapsedMs": started.elapsed().as_millis() as u64,
                     "expiresInSeconds": OBSERVATION_TTL.as_secs()
                 });
                 let llm_windows = windows
@@ -2004,6 +2068,7 @@ impl Tool for ComputerObserveTool {
                     .map(|window| {
                         serde_json::json!({
                             "id": window.id,
+                            "processId": window.pid,
                             "appName": window.app_name,
                             "width": window.width,
                             "height": window.height,
@@ -2017,11 +2082,13 @@ impl Tool for ComputerObserveTool {
                     "schemaVersion": 2,
                     "observationId": observation_id,
                     "windows": llm_windows,
+                    "matched": matched,
+                    "timedOut": wait && !matched,
                     "titlesWithheldUntilCaptureConsent": true,
                     "expiresInSeconds": OBSERVATION_TTL.as_secs()
                 });
                 let content = format!(
-                    "Observed {} capturable Windows windows. Use observationId {} with capture_window before coordinate-based input.\n{}",
+                    "Observed {} matching capturable Windows windows. An empty wait result means startup is still pending; repeat the bounded wait if needed. Use observationId {} with capture_window before input.\n{}",
                     windows.len(),
                     observation_id,
                     serde_json::to_string_pretty(&llm_data).unwrap_or_default()
@@ -2644,6 +2711,7 @@ mod platform {
     use std::sync::mpsc::{self, SyncSender};
     use std::sync::OnceLock;
     use std::thread;
+    use std::time::Instant;
 
     use image::{imageops::FilterType, DynamicImage, ImageFormat, RgbaImage};
     use windows::core::{Interface, BSTR, PWSTR};
@@ -3760,11 +3828,31 @@ mod platform {
         if let Ok(pattern) = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
         } {
+            let before = before_control_commit(
+                unsafe { pattern.CurrentToggleState() }
+                    .map_err(|error| platform_error("read UI Automation toggle state", error)),
+            )?;
             commit_tracker.mark();
             commit_tracker.result(
                 unsafe { pattern.Toggle() }
                     .map_err(|error| platform_error("toggle UI Automation element", error)),
             )?;
+            // Some providers enqueue Toggle and return before their UI thread
+            // applies it. Read back the semantic state; never repeat the input.
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                let state =
+                    commit_tracker.result(unsafe { pattern.CurrentToggleState() }.map_err(
+                        |error| platform_error("verify UI Automation toggle state", error),
+                    ))?;
+                if state != before {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    return Err(commit_tracker.failure(invalid("The checkbox did not report a changed state after Toggle. Capture again before retrying; the action may still be pending.")));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
             return Ok("toggle_pattern");
         }
         if let Ok(pattern) = unsafe {
@@ -5462,6 +5550,68 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn window_wait_filters_before_limiting_and_waits_for_the_requested_process() {
+        let args: ObserveArgs = serde_json::from_value(serde_json::json!({
+            "action":"wait_for_window", "process_id":7, "app_name":"editor", "max_results":1, "timeout_ms":200
+        })).unwrap();
+        let target = WindowSnapshot {
+            id: 42,
+            pid: 7,
+            process_started_at_100ns: 123,
+            executable_path_hash: "hash".into(),
+            window_class: "EditorWindow".into(),
+            session_id: 1,
+            app_name: "Editor".into(),
+            title: "Document".into(),
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+            minimized: false,
+            maximized: false,
+            focused: false,
+        };
+        let mut other = target.clone();
+        other.pid = 8;
+        let mut calls = 0;
+        let found = matching_window_inventory(&args, true, || {
+            calls += 1;
+            std::future::ready(Ok(if calls == 1 {
+                vec![other.clone()]
+            } else {
+                vec![other.clone(), target.clone()]
+            }))
+        })
+        .await
+        .unwrap();
+        assert_eq!(found, vec![target]);
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn window_wait_times_out_even_when_inventory_stalls_and_rejects_unscoped_waits() {
+        let args: ObserveArgs = serde_json::from_value(serde_json::json!({
+            "action":"wait_for_window", "process_id":7, "timeout_ms":100
+        }))
+        .unwrap();
+        let found = tokio::time::timeout(
+            Duration::from_millis(500),
+            matching_window_inventory(&args, true, || std::future::pending()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(found.is_empty());
+        let args: ObserveArgs =
+            serde_json::from_value(serde_json::json!({"action":"wait_for_window"})).unwrap();
+        assert!(matching_window_inventory(&args, true, || async {
+            panic!("unscoped wait must not enumerate")
+        })
+        .await
+        .is_err());
+    }
 
     #[tokio::test]
     async fn computer_control_fails_closed_without_persistent_action_receipts() {
