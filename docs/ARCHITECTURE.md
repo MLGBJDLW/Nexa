@@ -48,6 +48,22 @@ readiness verifies the actual HTTPS, RPC, and WebSocket path before advertising
 an endpoint. A browser session or Live observation is also a separate lifecycle
 from an Agent Run; it must not manufacture run completion.
 
+## Prompt source and cache layout
+
+The maintained core prompt is `crates/core/prompts/system.md`, compiled into
+`agent/mod.rs` with `include_str!`. Edit that file for enduring execution and
+trust rules. `agent/route.rs` owns task-specific route guidance; tool schemas
+and validators own their arguments and recovery contracts; the desktop
+subagent preflight appends worker-specific guidance.
+
+Source-file placement does not determine cache reuse. `agent/prompt_ir.rs` and
+`agent/prompt_layout.rs` separate stable policy/tool prefixes from replayable
+history and volatile per-step context; provider adapters serialize the final
+request. Preserve those boundaries and tool ordering when changing prompt
+assembly. Moving unchanged text between a Rust literal and `include_str!`
+does not change the effective prompt. Updating its text intentionally changes
+the affected prefix.
+
 ## Desktop responsiveness and tool ownership
 
 Application IPC enters a bounded blocking dispatcher before calling generated
