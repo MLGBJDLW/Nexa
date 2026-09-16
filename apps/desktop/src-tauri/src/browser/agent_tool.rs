@@ -1442,6 +1442,29 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, String>>,
 {
+    let kind = condition
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let valid = match kind {
+        "page_loaded" | "element_present" | "element_absent" => true,
+        "text_present" | "text_absent" => condition
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.is_empty()),
+        "url_matches" => condition
+            .get("pattern")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.is_empty()),
+        "element_checked" | "element_enabled" => condition
+            .get("value")
+            .and_then(serde_json::Value::as_bool)
+            .is_some(),
+        _ => false,
+    };
+    if !valid {
+        return Err("Invalid browser wait condition: use a documented type and its required text, pattern, or boolean value".into());
+    }
     let started = std::time::Instant::now();
     let mut latest = None;
     loop {
@@ -1565,6 +1588,15 @@ mod tests {
         .await
         .unwrap();
         assert!(matched);
+        let malformed = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(30),
+            &serde_json::json!({"type":"text_present"}),
+            || async { Err::<serde_json::Value, _>("unexpected observation".to_string()) },
+        )
+        .await;
+        assert!(malformed
+            .unwrap_err()
+            .contains("Invalid browser wait condition"));
     }
     use super::{
         browser_action_activity_id, browser_action_failure_result, browser_mutation_token,
