@@ -14,6 +14,7 @@ mod policy;
 mod shell_adapter;
 mod tool_impl;
 
+pub(crate) use tool_impl::observe_managed_service;
 pub use tool_impl::{
     managed_loopback_permits, ManagedLoopbackPermit, ManagedLoopbackPermitIssuer, RunShellTool,
 };

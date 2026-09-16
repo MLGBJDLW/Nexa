@@ -228,7 +228,7 @@ pub(crate) fn expected_format() -> Value {
             "args must be an array of argv strings.",
             "For generated HTML/PPTX specs or large scripts, pass the payload in stdin and use --spec - or a stdin-reading program.",
             "Do not put raw HTML, JSON specs, or multiline scripts inside args or python -c.",
-            "Every external command without stdin is observed briefly and automatically detached if it is still running. Never predict duration and never wait by sleeping. For builds/tests continue with the exact returned activityId/cursor via activity_observe(waitFor=completion, waitUpToMs=30000); progress remains visible during the wait. Do not restart a running command. service_action=status/wait/stop remains available for compatibility."
+            "Every external command without stdin is observed briefly and automatically detached if it is still running. Never predict duration and never wait by sleeping. For builds/tests continue with the exact returned activityId/cursor via activity_observe(waitFor=completion, waitUpToMs=30000); progress remains visible during the wait. For persistent servers use waitFor=output and begin browser work at the verified readyUrl without waiting for process exit. Do not restart a running command. service_action=status/wait/stop remains available for compatibility."
         ]
     })
 }

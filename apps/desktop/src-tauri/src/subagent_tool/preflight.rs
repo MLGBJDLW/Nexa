@@ -316,7 +316,7 @@ pub(super) fn build_subagent_system_prompt(
 ) -> String {
     let mut prompt = base_prompt.trim().to_string();
     prompt.push_str("\n\n## Subagent Instructions\n\n");
-    prompt.push_str("Keep long-running commands attached through activity_observe completion waits using their returned activityId and cursor. If the parent must take over a running process, return its exact activityId, serviceId, cursor, verified readyUrl (if any), and the remaining verification; do not describe a launched or still-running build as completed. Close a worker only after its authoritative result has been consumed.\n\n");
+    prompt.push_str("Keep finite builds/tests attached through activity_observe completion waits using their returned activityId and cursor. For persistent development servers, use output/readiness observation and begin browser work at the verified readyUrl without waiting for process exit. If the parent must take over a running process, return its exact activityId, serviceId, cursor, verified readyUrl (if any), and the remaining verification; do not describe a launched or still-running build as completed. Close a worker only after its authoritative result has been consumed.\n\n");
     prompt.push_str(
         "You are a short-lived worker spawned by another agent. Focus only on the delegated subtask. Keep your work scoped, use tools only when they materially help, and return a compact result for the supervisor agent rather than addressing the end user directly.",
     );

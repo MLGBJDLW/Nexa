@@ -203,6 +203,7 @@ struct ManagedService {
     process_id: Option<u32>,
     program: String,
     ready_url: Option<reqwest::Url>,
+    ready_url_candidate: Option<reqwest::Url>,
     logs: Arc<tokio::sync::Mutex<ManagedServiceLogs>>,
     auto_promoted: bool,
     started_at: Instant,
@@ -954,6 +955,9 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
         activity_runtime,
         conversation_id,
     } = request;
+    let persistent_service = !auto_promoted
+        || ready_url_candidate.is_some()
+        || looks_like_persistent_service(program, args);
     if let Some(candidate) = ready_url_candidate.as_ref() {
         if readiness_probe(&candidate.url).await {
             if candidate.rejects_preexisting_endpoint() {
@@ -1059,6 +1063,9 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     process_id,
                     program: program.to_string(),
                     ready_url: None,
+                    ready_url_candidate: ready_url_candidate
+                        .as_ref()
+                        .map(|value| value.url.clone()),
                     logs,
                     auto_promoted,
                     started_at,
@@ -1120,6 +1127,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                         process_id,
                         program: program.to_string(),
                         ready_url: Some(ready_url.clone()),
+                        ready_url_candidate: None,
                         logs,
                         auto_promoted,
                         started_at,
@@ -1134,7 +1142,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                 return ToolResult {
                 call_id: call_id.to_string(),
                 content: format!(
-                    "Background service is ready at {ready_url}. service_id: {service_id}; process_id: {}. Recheck with service_action=status, block on completion with service_action=wait, and stop it with service_action=stop when finished.",
+                    "Background service is ready at {ready_url}. service_id: {service_id}; process_id: {}. Open the verified URL for browser work now; do not wait for this persistent service to exit. Recheck with service_action=status and stop it with service_action=stop when finished.",
                     process_id.map_or_else(|| "unknown".to_string(), |id| id.to_string()),
                 ),
                 is_error: false,
@@ -1168,6 +1176,9 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     process_id,
                     program: program.to_string(),
                     ready_url: None,
+                    ready_url_candidate: ready_url_candidate
+                        .as_ref()
+                        .map(|value| value.url.clone()),
                     logs,
                     auto_promoted,
                     started_at,
@@ -1179,10 +1190,21 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                 },
             );
             spawn_service_monitor(process_runtime, service_id.clone());
+            let wait_for = if persistent_service {
+                "output"
+            } else {
+                "completion"
+            };
+            let wait_ms = if persistent_service { 2500 } else { 30000 };
+            let guidance = if persistent_service {
+                "Observe startup with activity_observe using the returned cursor, waitFor=output and waitUpToMs=2500. It refreshes service readiness; use the verified readyUrl for browser work as soon as ready. Do not wait for the service to exit."
+            } else {
+                "Keep this build/test attached using activity_observe with the returned cursor, waitFor=completion and waitUpToMs=30000. Progress continues while waiting; read its final exit status before reporting success."
+            };
             return ToolResult {
                 call_id: call_id.to_string(),
                 content: format!(
-                    "Command is still running. activityId: {activity_id}; service_id: {service_id}; process_id: {}. Keep this build/test attached using activity_observe with the returned cursor, waitFor=completion and waitUpToMs=30000. Progress continues while waiting; read its final exit status before reporting success. Do not restart it or guess a browser port. Use service_action=stop with this service_id to terminate the process.",
+                    "Command is still running. activityId: {activity_id}; service_id: {service_id}; process_id: {}. {guidance} Do not restart it or guess a browser port. Use service_action=stop with this service_id to terminate the process.",
                     process_id.map_or_else(|| "unknown".to_string(), |id| id.to_string()),
                 ),
                 is_error: false,
@@ -1199,7 +1221,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     "autoPromoted": auto_promoted,
                     "nextAction": {"tool":"activity_observe", "arguments": {
                         "activityId":activity_id, "afterSeq":activity_runtime.get(&activity_id).map(|record| record.last_event_seq).unwrap_or(0),
-                        "waitFor":"completion", "waitUpToMs":30000
+                        "waitFor":wait_for, "waitUpToMs":wait_ms
                     }},
                     "stdoutTail": log_snapshot.stdout,
                     "stderrTail": log_snapshot.stderr,
@@ -1249,6 +1271,22 @@ async fn promote_discovered_ready_url(
     true
 }
 
+pub(crate) async fn observe_managed_service(
+    call_id: &str,
+    activity_id: &str,
+    conversation_id: Option<&str>,
+) -> Option<ToolResult> {
+    let owned = managed_services()
+        .lock()
+        .await
+        .get(activity_id)
+        .is_some_and(|service| belongs_to_conversation(&service.conversation_id, conversation_id));
+    if !owned {
+        return None;
+    }
+    Some(status_service(call_id, activity_id, conversation_id).await)
+}
+
 async fn status_service(
     call_id: &str,
     service_id: &str,
@@ -1296,6 +1334,7 @@ async fn status_service(
             let ready_url_candidate = service
                 .ready_url
                 .clone()
+                .or_else(|| service.ready_url_candidate.clone())
                 .or_else(|| discover_ready_url(&log_snapshot.stdout, &log_snapshot.stderr));
             let process_id = service.process_id;
             let program = service.program.clone();
@@ -1345,7 +1384,7 @@ async fn status_service(
                         log_snapshot.stderr,
                     ),
                     _ => format!(
-                        "Managed service {service_id} is running, but no loopback URL has appeared in its logs yet. Restart it with ready_url when the endpoint is chosen dynamically.\nstdout tail:\n{}\nstderr tail:\n{}",
+                        "Managed process {service_id} is still running; no verified loopback URL is available yet. Continue observing the existing activity without restarting it. A server becomes usable when readiness is verified; finite builds/tests require an exit status.\nstdout tail:\n{}\nstderr tail:\n{}",
                         log_snapshot.stdout,
                         log_snapshot.stderr,
                     ),
@@ -1659,6 +1698,91 @@ fn error_result(call_id: &str, msg: impl Into<String>) -> ToolResult {
 #[cfg(test)]
 mod review_regression_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "subprocess fixture for delayed persistent service readiness"]
+    fn delayed_persistent_service_fixture() {
+        use std::io::{Read, Write};
+        let port = std::fs::read_to_string("fixture-port").unwrap();
+        std::thread::sleep(Duration::from_millis(2200));
+        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", port.trim())).unwrap();
+        println!("server started"); // No URL log: the declared candidate must survive detachment.
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = [0; 2048];
+            let _ = stream.read(&mut request);
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_persistent_service_receipt_reaches_readiness_without_waiting_for_exit() {
+        use crate::tools::activity_tool::ActivityObserveTool;
+        use crate::tools::ToolExecutionContext;
+        let executable = std::env::current_exe().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        std::fs::write(tmp.path().join("fixture-port"), port.to_string()).unwrap();
+        let url = reqwest::Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap();
+        let args = vec!["--ignored".into(), "--exact".into(),
+            "tools::run_shell_tool::tool_impl::review_regression_tests::delayed_persistent_service_fixture".into(), "--nocapture".into()];
+        let runtime = ActivityRuntime::new();
+        let db = crate::db::Database::open_memory().unwrap();
+        let launched = start_managed_service(ManagedServiceRequest {
+            call_id: "delayed-service",
+            program: executable.to_str().unwrap(),
+            args: &args,
+            cwd: tmp.path(),
+            ready_url_candidate: Some(ReadyUrlCandidate::explicit(url.clone())),
+            auto_promoted: false,
+            activity_runtime: runtime.clone(),
+            conversation_id: Some("delayed-owner"),
+        })
+        .await;
+        let receipt = launched.artifacts.as_ref().unwrap();
+        let service_id = receipt["serviceId"].as_str().unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(6), async {
+            let mut arguments = receipt["nextAction"]["arguments"].clone();
+            loop {
+                let result = ActivityObserveTool
+                    .execute(
+                        ToolExecutionContext::new(
+                            "observe-delayed",
+                            &arguments.to_string(),
+                            &db,
+                            &[],
+                        )
+                        .with_activity_runtime(&runtime)
+                        .with_conversation_id(Some("delayed-owner")),
+                    )
+                    .await
+                    .unwrap();
+                let artifacts = result.artifacts.unwrap();
+                if artifacts["service"]["status"] == "ready" {
+                    break artifacts;
+                }
+                arguments = artifacts["nextAction"]["arguments"].clone();
+            }
+        })
+        .await;
+        let alive_at_ready = runtime.get(service_id).unwrap().state;
+        let _ = manage_service("cleanup-delayed", "stop", service_id, Some("delayed-owner")).await;
+        assert_eq!(receipt["status"], "running");
+        assert_eq!(receipt["nextAction"]["arguments"]["waitFor"], "output");
+        let observed =
+            result.expect("ready server must become usable while its process is still running");
+        assert_eq!(alive_at_ready, ActivityState::Ready);
+        assert_eq!(observed["service"]["readyUrl"], url.as_str());
+        assert!(observed["nextAction"].is_null());
+    }
 
     #[test]
     #[ignore = "subprocess fixture for the transient-runtime service test"]

@@ -991,6 +991,11 @@ Completion waits are bounded to 60 seconds and continue publishing progress to
 the UI. Output mode remains a short incremental observation. Use the returned
 cursor for the next wait and inspect the final exit status; do not restart the
 build, invent an activity ID, or probe a browser port to infer completion.
+Persistent development servers use `waitFor: "output"` instead. Output observation
+refreshes managed-service readiness and returns the verified `readyUrl` even when
+startup took longer than the initial launch window. Once ready, proceed to browser
+work without waiting for the server to exit. Follow-up output receipts retain
+output mode; they never silently switch to completion waits.
 `service_action: "stop"` with the returned service ID explicitly ends the
 process. Cancelling an observation only ends that wait.
 
