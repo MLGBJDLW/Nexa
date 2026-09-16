@@ -1,5 +1,6 @@
 import type {
   AgentTaskRunEvent,
+  ActivityEvent,
   ConversationMessage,
 } from '../types/conversation';
 import type { ToolCallEvent } from './streaming/protocol';
@@ -69,6 +70,17 @@ export interface SubtaskRunArtifact {
   result?: string | null;
   errorMessage?: string | null;
   tokenBudget?: number | null;
+  identityAliases?: string[];
+  lifecycleId?: string | null;
+  rowId?: string | null;
+}
+
+export function compactTaskLabel(value: string, maxCharacters = 72): string {
+  const firstLine = value.trim().split(/\r?\n/).find(line => line.trim()) ?? '';
+  const normalized = firstLine.replace(/^\s*(?:#{1,6}|[-*])\s+/, '').replace(/\s+/g, ' ').trim();
+  const sentence = normalized.match(/^(.{12,}?[。！？.!?])(?:\s|$)/u)?.[1] ?? normalized;
+  const points = Array.from(sentence);
+  return points.length <= maxCharacters ? sentence : `${points.slice(0, maxCharacters - 1).join('')}…`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -198,6 +210,13 @@ function normalizeRuntimeGate(value: unknown): RuntimeVerificationGateArtifact |
   };
 }
 
+function subtaskStatus(status: string): string {
+  if (status === 'done') return 'completed';
+  if (status === 'error' || status === 'timed_out' || status === 'timedOut') return 'failed';
+  if (['connecting', 'first_token', 'thinking', 'tool_running', 'cancelling'].includes(status)) return 'running';
+  return status;
+}
+
 function normalizeSubtaskRun(
   value: unknown,
   trustedSubtaskContainer = false,
@@ -223,14 +242,18 @@ function normalizeSubtaskRun(
   const directRun = trustedSubtaskContainer || kind?.startsWith('subagent_') ? record : null;
   const run = outputRun ?? outputJudgement ?? directRun;
 
-  const id =
+  const lifecycleId = asText(record.agentId) ?? asText(input?.agentId);
+  const id = lifecycleId ??
+    asText(input?.callLabel) ??
     asText(record.id) ??
     asText(input?.callLabel) ??
     asText(run?.id) ??
     asText(run?.task) ??
     asText(record.label);
+  const task = asText(input?.task) ?? asText(run?.task);
+  const storedLabel = asText(record.label);
   const label =
-    asText(record.label) ??
+    (storedLabel !== id && storedLabel !== asText(input?.callLabel) ? storedLabel : null) ??
     asText(input?.task) ??
     asText(run?.task) ??
     asText(run?.summary) ??
@@ -242,7 +265,7 @@ function normalizeSubtaskRun(
     asText(run?.status) ??
     (record.isError === true || run?.isError === true ? 'failed' : null) ??
     'completed';
-  const status = rawStatus === 'done' ? 'completed' : rawStatus === 'error' ? 'failed' : rawStatus;
+  const status = subtaskStatus(rawStatus);
   const role =
     asText(record.role) ??
     asText(input?.roleName) ??
@@ -252,14 +275,17 @@ function normalizeSubtaskRun(
 
   return {
     id,
-    label,
+    label: compactTaskLabel(label),
     role,
     status,
     phase: asText(record.phase),
-    task: asText(input?.task) ?? asText(run?.task),
+    task,
     result: asText(run?.result) ?? asText(run?.summary),
     errorMessage: asText(record.errorMessage) ?? asText(run?.errorMessage) ?? asText(output?.error),
     tokenBudget: asNumber(record.tokenBudget) ?? asNumber(input?.reservedTokens),
+    lifecycleId,
+    rowId: asText(record.parentRunId) ? asText(record.id) : null,
+    identityAliases: [...new Set([id, asText(record.id), asText(input?.callLabel), asText(run?.id), asText(record.workerId)].filter((value): value is string => Boolean(value)))],
   };
 }
 
@@ -276,6 +302,31 @@ function normalizeSubtaskArtifacts(
 
   const record = asRecord(value);
   if (!record) return null;
+
+  const kind = asText(record.kind)?.toLowerCase();
+  // observe/wait/close return an authoritative worker snapshot, not another
+  // spawn artifact. A close only succeeds for a terminal worker.
+  if (kind?.startsWith('subagent_') && asRecord(record.worker)) {
+    const worker = asRecord(record.worker)!;
+    const result = asRecord(worker.result);
+    const subtask = normalizeSubtaskRun({
+      ...worker, id: worker.agentId, workerId: result?.id,
+      result: result?.result, errorMessage: worker.errorMessage,
+    }, true);
+    return subtask ? [subtask] : null;
+  }
+  if (kind === 'subagent_cancellation') {
+    const subtask = normalizeSubtaskRun({ ...record, id: record.agentId, label: record.agentId }, true);
+    return subtask ? [subtask] : null;
+  }
+  if (kind === 'subagent_batch_result' && Array.isArray(record.runs)) {
+    const workers = Array.isArray(record.lifecycleWorkers) ? record.lifecycleWorkers.map(asRecord) : [];
+    return record.runs.map(run => {
+      const item = asRecord(run);
+      const worker = workers.find(worker => worker && (worker.workerId === item?.id || worker.agentId === item?.id));
+      return normalizeSubtaskRun({ ...item, agentId: worker?.agentId }, true);
+    }).filter((run): run is SubtaskRunArtifact => Boolean(run));
+  }
 
   if (Array.isArray(record.subtasks)) {
     // `subtasks` is the canonical backend projection. An explicit empty array
@@ -299,17 +350,32 @@ function mergeSubtaskArtifacts(
 ) {
   for (const subtask of subtasks) {
     const key = subtask.id || subtask.label;
-    const previous = target.get(key);
+    const aliases = new Set(subtask.identityAliases ?? [key]);
+    const matches = [...target.entries()].filter(([, previous]) => {
+      if (previous.lifecycleId && subtask.lifecycleId && previous.lifecycleId !== subtask.lifecycleId) return false;
+      if (previous.rowId && subtask.rowId && previous.rowId !== subtask.rowId) return false;
+      return (previous.identityAliases ?? [previous.id]).some(alias => aliases.has(alias));
+    });
+    const previousEntry = target.has(key) ? [key, target.get(key)!] as const : matches.length === 1 ? matches[0] : undefined;
+    const previous = previousEntry?.[1];
+    if (previousEntry && previousEntry[0] !== key) target.delete(previousEntry[0]);
+    const terminal = (status: string) => ['completed', 'failed', 'cancelled'].includes(status);
+    const keepTerminal = previous && terminal(previous.status) && !terminal(subtask.status);
     target.set(key, previous
       ? {
           ...previous,
           ...subtask,
           role: subtask.role ?? previous.role,
-          phase: subtask.phase ?? previous.phase,
           task: subtask.task ?? previous.task,
           result: subtask.result ?? previous.result,
           errorMessage: subtask.errorMessage ?? previous.errorMessage,
           tokenBudget: subtask.tokenBudget ?? previous.tokenBudget,
+          status: keepTerminal ? previous.status : subtask.status,
+          phase: keepTerminal ? previous.phase : subtask.phase ?? previous.phase,
+          label: subtask.label === key ? previous.label : subtask.label,
+          identityAliases: [...new Set([...(previous.identityAliases ?? [previous.id]), ...aliases])],
+          lifecycleId: subtask.lifecycleId ?? previous.lifecycleId,
+          rowId: subtask.rowId ?? previous.rowId,
         }
       : subtask);
   }
@@ -327,11 +393,13 @@ function subtaskArtifactFromTimelineEvent(
   const id = callLabel ?? asText(payload?.subtaskRunId) ?? event.id;
   const task = asText(payload?.task) ?? asText(nestedRun?.task);
   const rawStatus = asText(timeline.status) ?? asText(event.status) ?? 'queued';
-  const status = rawStatus === 'done' ? 'completed' : rawStatus === 'error' ? 'failed' : rawStatus;
+  // Usage and judgement telemetry describes an existing worker, not its state.
+  if (['telemetry', 'judging', 'judged'].includes(rawStatus)) return null;
+  const status = subtaskStatus(rawStatus);
 
   return {
     id,
-    label: task ?? callLabel ?? timeline.label ?? event.label,
+    label: compactTaskLabel(task ?? callLabel ?? timeline.label ?? event.label),
     role: asText(payload?.role) ?? asText(nestedRun?.roleName) ?? asText(nestedRun?.role),
     status,
     phase: asText(payload?.phase),
@@ -339,6 +407,7 @@ function subtaskArtifactFromTimelineEvent(
     result: asText(payload?.result) ?? asText(nestedRun?.result) ?? asText(nestedRun?.summary),
     errorMessage: asText(payload?.error) ?? asText(nestedRun?.errorMessage),
     tokenBudget: asNumber(payload?.reservedTokens) ?? asNumber(payload?.tokenBudget),
+    identityAliases: [id, asText(payload?.subtaskRunId)].filter((value): value is string => Boolean(value)),
   };
 }
 
@@ -459,7 +528,38 @@ export function findLatestSubtaskArtifacts(
     if (subtask) mergeSubtaskArtifacts(merged, [subtask]);
   }
 
+  // Lifecycle activity keeps arriving after the spawn command itself is done.
+  // It is the current worker state and must outrank its historical snapshot.
+  for (const call of toolCalls) {
+    if (isSubagentTool(call.toolName)) mergeSubtaskArtifacts(merged, lifecycleSubtasks(call.activityEvents));
+  }
+
   return [...merged.values()];
+}
+
+function lifecycleSubtasks(events: ActivityEvent[] | undefined): SubtaskRunArtifact[] {
+  const workers = new Map<string, SubtaskRunArtifact>();
+  for (const event of events ?? []) {
+    const payload = asRecord(event.payload);
+    const envelope = typeof payload?.subagentEvent === 'string' ? payload : asRecord(payload?.detail);
+    const agentId = asText(envelope?.agentId);
+    const kind = asText(envelope?.subagentEvent);
+    if (!agentId || !kind) continue;
+    const detail = asRecord(envelope?.detail);
+    const result = asRecord(detail?.result);
+    const status = kind === 'completed' ? 'completed' : kind === 'failed' ? 'failed' : kind === 'cancelled' ? 'cancelled'
+      : ['spawned', 'queued', 'connected'].includes(kind) ? 'running' : null;
+    if (!status) continue;
+    const worker = normalizeSubtaskRun({
+      ...result, id: agentId, agentId, workerId: result?.id, status,
+      task: detail?.task ?? result?.task ?? workers.get(agentId)?.task,
+      label: detail?.task ?? result?.task ?? workers.get(agentId)?.label ?? agentId,
+      role: detail?.role ?? result?.roleName ?? result?.role,
+      errorMessage: detail?.errorMessage,
+    }, true);
+    if (worker) mergeSubtaskArtifacts(workers, [worker]);
+  }
+  return [...workers.values()];
 }
 
 function matchesSubagentToolName(name: string | null | undefined): boolean {

@@ -45,7 +45,7 @@ pub(super) async fn run_subagent_once(
     lifecycle_events: Option<SubagentEventBridge>,
 ) -> Result<SubagentRunArtifact, CoreError> {
     let launch_started = Instant::now();
-    let prepared = prepare_subagent_worker(
+    let mut prepared = prepare_subagent_worker(
         &runtime,
         &db,
         inherited_source_scope,
@@ -54,6 +54,9 @@ pub(super) async fn run_subagent_once(
         worker_id.as_deref(),
     )
     .await?;
+    if let Some(events) = lifecycle_events.as_ref() {
+        prepared.subtask_input["agentId"] = serde_json::json!(events.agent_id());
+    }
     let admitted = admit_subagent_worker(
         &runtime,
         &db,

@@ -15,6 +15,7 @@ import type {
   VerificationCheckArtifact,
 } from '../../lib/taskArtifacts';
 import type { ActiveGoalContext } from '../../lib/goalContext';
+import { compactTaskLabel } from '../../lib/taskArtifacts';
 
 function derivePlanCounts(plan: PlanArtifact) {
   const total = plan.steps.length;
@@ -193,12 +194,12 @@ function SubtaskRow({ subtask }: { subtask: SubtaskRunArtifact }) {
   }
 
   return (
-    <li className="flex items-start gap-1.5">
+    <li className="flex items-start gap-1.5" data-testid="task-board-subtask" data-status={subtask.status}>
       <span className="mt-0.5 shrink-0">{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className={`text-xs ${tone}`}>{subtask.task || subtask.label}</div>
+        <div className={`line-clamp-2 break-words text-xs ${tone}`}>{compactTaskLabel(subtask.label)}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-text-tertiary">
-          {subtask.role && <span>{subtask.role}</span>}
+          {subtask.role && <span>{compactTaskLabel(subtask.role, 32)}</span>}
           <span>{subtaskStatusLabel(subtask.status, t)}</span>
           {subtask.tokenBudget != null && (
             <span>{t('chat.subtasksTokenBudget', { count: subtask.tokenBudget.toLocaleString() })}</span>
@@ -206,7 +207,7 @@ function SubtaskRow({ subtask }: { subtask: SubtaskRunArtifact }) {
         </div>
         {(subtask.errorMessage || subtask.result) && (
           <div className="mt-0.5 line-clamp-2 text-[11px] text-text-tertiary">
-            {subtask.errorMessage || subtask.result}
+            {compactTaskLabel(subtask.errorMessage || subtask.result || '', 120)}
           </div>
         )}
       </div>
@@ -271,10 +272,10 @@ export function PlanProgressPanel({
     : plan
       ? t('chat.planLabel')
       : t('chat.subtasksLabel');
-  const panelTitle = goal?.objective
+  const panelTitle = compactTaskLabel(goal?.objective
     ?? current?.title
     ?? plan?.title
-    ?? t('chat.subtasksDefaultSummary');
+    ?? t('chat.subtasksDefaultSummary'));
   let currentIcon = goal
     ? <Target className="h-3 w-3 text-accent" />
     : plan
@@ -551,7 +552,7 @@ export function PlanProgressPanel({
                 )}
               </div>
               <span className="text-[10px] tabular-nums text-text-tertiary">
-                {subtaskCounts.completed}/{subtaskCounts.total}
+                {subtaskCounts.completed + subtaskCounts.failed + subtaskCounts.cancelled}/{subtaskCounts.total}
               </span>
             </div>
             <ul className="mt-1.5 max-h-32 space-y-1.5 overflow-y-auto pr-1">

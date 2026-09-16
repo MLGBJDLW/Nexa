@@ -499,6 +499,14 @@ pub struct SubagentEventBridge {
 }
 
 impl SubagentEventBridge {
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub fn activity_runtime(&self) -> ActivityRuntime {
+        self.activity_runtime.clone()
+    }
+
     pub async fn start(&self) -> Result<(), CoreError> {
         let mut spec = ActivitySpec::new(ActivitySurface::Process, "spawn_subagent")
             .with_activity_id(self.agent_id.clone())
