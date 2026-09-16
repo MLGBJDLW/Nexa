@@ -68,7 +68,9 @@ the affected prefix.
 
 Application IPC enters a bounded blocking dispatcher before calling generated
 Tauri handlers. Synchronous database, filesystem and terminal operations must
-not run inside the WebView host callback. Stop/approval/close commands have
+not run inside the WebView host callback. Calls for the same command and resource
+retain arrival order, while different resources proceed independently. Async
+commands retain their own transaction and revision fences. Stop/approval/close commands have
 reserved admission capacity. Stop lookups and run-ledger commits also have
 reserved database lanes, so ordinary database admission cannot reject Stop or
 its checkpoint. Both write lanes use the same serialized SQLite connection.
