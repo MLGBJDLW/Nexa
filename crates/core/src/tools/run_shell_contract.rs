@@ -228,7 +228,7 @@ pub(crate) fn expected_format() -> Value {
             "args must be an array of argv strings.",
             "For generated HTML/PPTX specs or large scripts, pass the payload in stdin and use --spec - or a stdin-reading program.",
             "Do not put raw HTML, JSON specs, or multiline scripts inside args or python -c.",
-            "Every external command without stdin is observed briefly and automatically detached if it is still running. Never predict duration and never wait by sleeping. Continue with the returned activityId/cursor via activity_observe; service_action=status/wait/stop remains available for compatibility."
+            "Every external command without stdin is observed briefly and automatically detached if it is still running. Never predict duration and never wait by sleeping. For builds/tests continue with the exact returned activityId/cursor via activity_observe(waitFor=completion, waitUpToMs=30000); progress remains visible during the wait. Do not restart a running command. service_action=status/wait/stop remains available for compatibility."
         ]
     })
 }
@@ -339,7 +339,7 @@ fn html_pptx_sentence() -> &'static str {
 
 fn timeout_sentence() -> String {
     format!(
-        "Output is capped at 64 KB per stream. External commands without stdin are observed briefly, then automatically detached if still running; callers do not predict duration. Follow the returned activityId/cursor with activity_observe, whose wait is capped at 2.5 seconds. Native filesystem operations and stdin-driven commands remain finite foreground runs with default timeout {DEFAULT_TIMEOUT_SECS}s."
+        "Output is capped at 64 KB per stream. External commands without stdin are observed briefly, then automatically detached if still running; callers do not predict duration. Follow the returned activityId/cursor with activity_observe: waitFor=completion keeps builds/tests attached for up to 60 seconds per call; output mode waits up to 2.5 seconds. Native filesystem operations and stdin-driven commands remain finite foreground runs with default timeout {DEFAULT_TIMEOUT_SECS}s."
     )
 }
 

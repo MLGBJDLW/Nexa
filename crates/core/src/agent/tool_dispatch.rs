@@ -532,6 +532,7 @@ pub(super) struct ToolDispatchRuntime<'a> {
     pub(super) approval_callback: &'a Option<ApprovalCallback>,
     pub(super) tool_visual_interpreter: &'a Option<ToolVisualInterpreter>,
     pub(super) activity_runtime: &'a crate::activity::ActivityRuntime,
+    pub(super) tool_scope: Option<&'a (String, Option<String>)>,
 }
 
 impl AgentExecutor {
@@ -551,6 +552,7 @@ impl AgentExecutor {
             approval_callback: &self.approval_callback,
             tool_visual_interpreter: &self.tool_visual_interpreter,
             activity_runtime: &self.activity_runtime,
+            tool_scope: self.tool_scope.as_ref(),
         }
         .dispatch_tool_calls(
             ctx,
@@ -1157,8 +1159,8 @@ impl ToolDispatchRuntime<'_> {
                                     arguments: &tc.arguments,
                                     db,
                                     source_scope,
-                                    conversation_id,
-                                    turn_id,
+                                    conversation_id: conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str())),
+                                    turn_id: turn_id.or_else(|| self.tool_scope.and_then(|scope| scope.1.as_deref())),
                                     tool_registry: Some(discovery_tools),
                                     cancel_token: Some(self.cancel_token),
                                     activity_runtime: Some(self.activity_runtime),

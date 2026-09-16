@@ -17,6 +17,16 @@ struct ObserveArgs {
     after_seq: u64,
     #[serde(default = "default_wait_up_to_ms")]
     wait_up_to_ms: u64,
+    #[serde(default)]
+    wait_for: WaitFor,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum WaitFor {
+    #[default]
+    Output,
+    Completion,
 }
 
 fn default_wait_up_to_ms() -> u64 {
@@ -32,7 +42,7 @@ impl Tool for ActivityObserveTool {
     }
 
     fn description(&self) -> &str {
-        "Incrementally observe a running process, terminal command, browser wait, or desktop activity. Pass the last cursor as afterSeq to receive only newer events. The call returns immediately on new output or a state change and never waits longer than 2.5 seconds."
+        "Observe a process using the exact activityId and last cursor returned by run_shell or another runtime tool. For compilation, use waitFor=completion and waitUpToMs=30000 to remain attached through intermediate output; progress continues to reach the UI. Output mode returns on new output within 2.5 seconds. Do not relaunch a still-running build or invent process identifiers."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -52,9 +62,13 @@ impl Tool for ActivityObserveTool {
                 "waitUpToMs": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 2500,
+                    "maximum": 60000,
                     "default": DEFAULT_WAIT_UP_TO_MS,
-                    "description": "Bounded long-poll budget. Runtime clamps larger values to 2500ms."
+                    "description": "Completion mode waits up to 60 seconds; output mode caps at 2500ms. Cancellation remains immediate."
+                },
+                "waitFor": {
+                    "type": "string", "enum": ["output", "completion"], "default": "output",
+                    "description": "Use completion for builds and tests; output for interactive services."
                 }
             },
             "required": ["activityId"],
@@ -100,13 +114,16 @@ impl Tool for ActivityObserveTool {
                 "Activity belongs to a different conversation".to_string(),
             ));
         }
-        let observation = runtime
-            .observe(
-                activity_id,
-                args.after_seq,
-                Duration::from_millis(args.wait_up_to_ms),
-            )
-            .await?;
+        let started = std::time::Instant::now();
+        let budget = Duration::from_millis(args.wait_up_to_ms);
+        let observation = match args.wait_for {
+            WaitFor::Output => runtime.observe(activity_id, args.after_seq, budget).await?,
+            WaitFor::Completion => {
+                runtime
+                    .wait_for_completion(activity_id, args.after_seq, budget)
+                    .await?
+            }
+        };
         let content = serde_json::to_string_pretty(&observation)?;
         Ok(ToolResult {
             call_id: call_id.to_string(),
@@ -115,6 +132,13 @@ impl Tool for ActivityObserveTool {
             artifacts: Some(serde_json::json!({
                 "kind": "activityObservation",
                 "activity": observation,
+                "waitedMs": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                "nextAction": if observation.record.state.is_terminal() { serde_json::Value::Null } else {
+                    serde_json::json!({"tool":"activity_observe", "arguments": {
+                        "activityId":activity_id, "afterSeq":observation.cursor,
+                        "waitFor":"completion", "waitUpToMs":30000
+                    }})
+                },
             })),
         })
     }
@@ -125,6 +149,79 @@ mod tests {
     use super::*;
     use crate::activity::{ActivityEventKind, ActivityRuntime, ActivitySpec, ActivitySurface};
     use crate::db::Database;
+
+    #[tokio::test]
+    async fn completion_wait_stays_attached_through_output_and_returns_exit_receipt() {
+        use crate::activity::ActivityState;
+        let db = Database::open_memory().unwrap();
+        let runtime = ActivityRuntime::new();
+        let record = runtime
+            .start(ActivitySpec::new(ActivitySurface::Process, "run_shell"))
+            .unwrap();
+        let worker = runtime.clone();
+        let id = record.activity_id.clone();
+        let finish = tokio::spawn(async move {
+            worker
+                .append(
+                    &id,
+                    ActivityEventKind::StdoutChunk,
+                    serde_json::json!({"data":"Compiling 1/2"}),
+                )
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            worker
+                .transition(
+                    &id,
+                    ActivityState::Completed,
+                    serde_json::json!({"exitCode":0}),
+                )
+                .unwrap();
+        });
+        let arguments = serde_json::json!({"activityId":record.activity_id, "afterSeq":1, "waitFor":"completion", "waitUpToMs":1000}).to_string();
+        let result = ActivityObserveTool
+            .execute(
+                ToolExecutionContext::new("build-wait", &arguments, &db, &[])
+                    .with_activity_runtime(&runtime),
+            )
+            .await
+            .unwrap();
+        finish.await.unwrap();
+        let artifacts = result.artifacts.unwrap();
+        assert_eq!(artifacts["activity"]["record"]["state"], "completed");
+        assert_eq!(artifacts["activity"]["timedOut"], false);
+        assert!(artifacts["nextAction"].is_null());
+        assert!(artifacts["activity"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["payload"]["data"] == "Compiling 1/2"));
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_completion_wait_does_not_kill_the_owned_process() {
+        let db = Database::open_memory().unwrap();
+        let runtime = ActivityRuntime::new();
+        let record = runtime
+            .start(ActivitySpec::new(ActivitySurface::Process, "run_shell"))
+            .unwrap();
+        let args = serde_json::json!({"activityId":record.activity_id,"waitFor":"completion","waitUpToMs":60000}).to_string();
+        let waiting = ActivityObserveTool.execute(
+            ToolExecutionContext::new("wait", &args, &db, &[]).with_activity_runtime(&runtime),
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(30), waiting)
+            .await
+            .is_err());
+        assert!(!runtime
+            .get(&record.activity_id)
+            .unwrap()
+            .state
+            .is_terminal());
+        let snapshot = runtime
+            .observe(&record.activity_id, 0, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(snapshot.record.activity_id, record.activity_id);
+    }
 
     #[tokio::test]
     async fn observe_tool_returns_only_events_after_cursor() {

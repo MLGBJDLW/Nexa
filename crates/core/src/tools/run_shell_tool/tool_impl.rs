@@ -1182,7 +1182,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
             return ToolResult {
                 call_id: call_id.to_string(),
                 content: format!(
-                    "Long-running command is now a managed background service. service_id: {service_id}; process_id: {}. No verified loopback URL has been identified yet. The command call is complete; keep working and poll with service_action=wait to be handed the exit status and logs as soon as it finishes, service_action=status for a snapshot, and service_action=stop to end it. Continue with browser_evidence_capture when a URL is available.",
+                    "Command is still running. activityId: {activity_id}; service_id: {service_id}; process_id: {}. Keep this build/test attached using activity_observe with the returned cursor, waitFor=completion and waitUpToMs=30000. Progress continues while waiting; read its final exit status before reporting success. Do not restart it or guess a browser port. Use service_action=stop with this service_id to terminate the process.",
                     process_id.map_or_else(|| "unknown".to_string(), |id| id.to_string()),
                 ),
                 is_error: false,
@@ -1197,6 +1197,10 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     "readyUrl": null,
                     "program": program,
                     "autoPromoted": auto_promoted,
+                    "nextAction": {"tool":"activity_observe", "arguments": {
+                        "activityId":activity_id, "afterSeq":activity_runtime.get(&activity_id).map(|record| record.last_event_seq).unwrap_or(0),
+                        "waitFor":"completion", "waitUpToMs":30000
+                    }},
                     "stdoutTail": log_snapshot.stdout,
                     "stderrTail": log_snapshot.stderr,
                     "stdoutTruncated": log_snapshot.stdout_truncated,

@@ -2204,6 +2204,108 @@ impl LlmProvider for SteeringInterruptProvider {
 
 struct MockTool;
 
+struct ScopedActivityTool;
+
+#[async_trait]
+impl Tool for ScopedActivityTool {
+    fn name(&self) -> &str {
+        "mock_tool"
+    }
+    fn description(&self) -> &str {
+        "Start a delegated build activity"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type":"object"})
+    }
+    async fn execute(
+        &self,
+        context: crate::tools::ToolExecutionContext<'_>,
+    ) -> Result<ToolResult, CoreError> {
+        use crate::activity::{ActivitySpec, ActivitySurface};
+        let mut spec = ActivitySpec::new(ActivitySurface::Process, "run_shell")
+            .with_activity_id("delegated-build");
+        if let Some(id) = context.conversation_id {
+            spec = spec.with_conversation_id(id);
+        }
+        if let Some(id) = context.turn_id {
+            spec = spec.with_turn_id(id);
+        }
+        context.activity_runtime.unwrap().start(spec)?;
+        Ok(ToolResult {
+            call_id: context.call_id.into(),
+            content: "build started".into(),
+            is_error: false,
+            artifacts: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn delegated_process_is_observable_by_parent_without_child_transcript_persistence() {
+    let db = Database::open_memory().unwrap();
+    let runtime = crate::activity::ActivityRuntime::new();
+    let mut tools = ToolRegistry::new();
+    tools.register(Box::new(ScopedActivityTool));
+    let executor = AgentExecutor::new(
+        Box::new(MockProvider {
+            stream_calls: Arc::new(AtomicUsize::new(0)),
+        }),
+        tools,
+        AgentConfig {
+            model: Some("mock-model".into()),
+            max_iterations: 1,
+            ..Default::default()
+        },
+    )
+    .with_activity_runtime(runtime.clone())
+    .with_tool_scope("parent-conversation".into(), Some("parent-turn".into()));
+    let (tx, mut rx) = mpsc::channel(128);
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "build".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    drain.await.unwrap();
+    let activity = runtime.get("delegated-build").unwrap();
+    assert_eq!(
+        activity.conversation_id.as_deref(),
+        Some("parent-conversation")
+    );
+    assert_eq!(activity.turn_id.as_deref(), Some("parent-turn"));
+    let result = crate::tools::activity_tool::ActivityObserveTool
+        .execute(
+            crate::tools::ToolExecutionContext::new(
+                "parent-observe",
+                r#"{"activityId":"delegated-build","waitUpToMs":0}"#,
+                &db,
+                &[],
+            )
+            .with_activity_runtime(&runtime)
+            .with_conversation_id(Some("parent-conversation")),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    let messages: i64 = db
+        .conn()
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        messages, 0,
+        "private child messages must not enter the parent's history"
+    );
+}
+
 struct RecordingTool {
     executions: Arc<AtomicUsize>,
 }

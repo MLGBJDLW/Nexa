@@ -229,6 +229,17 @@ impl AgentLoopGuard {
         content: &str,
         artifacts: Option<&Value>,
     ) -> Option<LoopGuardIntervention> {
+        // A timed, authoritative wait for a live process/worker is productive
+        // waiting, even when a compiler is quiet. Zero-duration polls, errors,
+        // terminal receipts and mixed action batches retain normal guards.
+        if !is_error
+            && is_live_wait_receipt(call, artifacts)
+            && self.last_tool_signature.as_deref()
+                == Some(tool_call_batch_signature(std::slice::from_ref(call)).as_str())
+        {
+            self.repeated_tool_signature_count = 0;
+            self.repeated_tool_intervention_used = false;
+        }
         if !is_error && tool_call_is_discovery(&call.name) {
             // Compare actual results across alternating discovery tools and
             // changing queries. A new page remains progress; new call IDs do not.
@@ -320,6 +331,42 @@ impl AgentLoopGuard {
         }
 
         None
+    }
+}
+
+fn is_live_wait_receipt(call: &ToolCallRequest, artifacts: Option<&Value>) -> bool {
+    let Some(receipt) = artifacts else {
+        return false;
+    };
+    if receipt.get("waitedMs").and_then(Value::as_u64).unwrap_or(0) < 1_000 {
+        return false;
+    }
+    let Ok(args) = serde_json::from_str::<Value>(&call.arguments) else {
+        return false;
+    };
+    match (
+        call.name.as_str(),
+        receipt.get("kind").and_then(Value::as_str),
+    ) {
+        ("wait_subagent", Some("subagent_wait_result")) => {
+            args.get("agentId").is_some()
+                && args.get("agentId") == receipt.pointer("/worker/agentId")
+                && matches!(
+                    receipt.pointer("/worker/status").and_then(Value::as_str),
+                    Some("queued" | "running" | "cancelling")
+                )
+        }
+        ("activity_observe", Some("activityObservation")) => {
+            args.get("activityId").is_some()
+                && args.get("activityId") == receipt.pointer("/activity/record/activityId")
+                && matches!(
+                    receipt
+                        .pointer("/activity/record/state")
+                        .and_then(Value::as_str),
+                    Some("queued" | "starting" | "running" | "quiet" | "cancelling")
+                )
+        }
+        _ => false,
     }
 }
 
@@ -457,6 +504,34 @@ fn character_ngrams(value: &str, width: usize) -> HashMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_waits_for_live_workers_are_not_unproductive_retries() {
+        let mut guard = AgentLoopGuard::new();
+        let mut wait = call(r#"{"agentId":"build-worker","waitUpToMs":30000}"#);
+        wait.name = "wait_subagent".into();
+        let active = serde_json::json!({"kind":"subagent_wait_result", "worker": {
+            "agentId":"build-worker", "status":"running"
+        }, "timedOut":true, "waitedMs":30000});
+        for _ in 0..8 {
+            assert!(guard.observe_model_step("", &[wait.clone()]).is_none());
+            assert!(guard
+                .observe_tool_result(&wait, false, "", Some(&active))
+                .is_none());
+        }
+        let terminal = serde_json::json!({"kind":"subagent_wait_result", "worker": {
+            "agentId":"build-worker", "status":"completed"
+        }, "timedOut":false, "waitedMs":0});
+        let mut blocked = false;
+        for _ in 0..4 {
+            blocked |= guard.observe_model_step("", &[wait.clone()]).is_some();
+            guard.observe_tool_result(&wait, false, "", Some(&terminal));
+        }
+        assert!(
+            blocked,
+            "re-reading a finished worker must still be bounded"
+        );
+    }
 
     fn call(arguments: &str) -> ToolCallRequest {
         ToolCallRequest {

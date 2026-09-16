@@ -757,6 +757,7 @@ pub struct AgentExecutor {
     usage_run_id: Option<String>,
     usage_subtask_run_id: Option<String>,
     activity_runtime: crate::activity::ActivityRuntime,
+    tool_scope: Option<(String, Option<String>)>,
 }
 
 impl AgentExecutor {
@@ -779,6 +780,7 @@ impl AgentExecutor {
             usage_run_id: None,
             usage_subtask_run_id: None,
             activity_runtime: crate::activity::ActivityRuntime::new(),
+            tool_scope: None,
         }
     }
 
@@ -796,6 +798,13 @@ impl AgentExecutor {
         activity_runtime: crate::activity::ActivityRuntime,
     ) -> Self {
         self.activity_runtime = activity_runtime;
+        self
+    }
+
+    /// Give delegated tools their parent's ownership scope without persisting
+    /// the child's private transcript into the parent conversation.
+    pub fn with_tool_scope(mut self, conversation_id: String, turn_id: Option<String>) -> Self {
+        self.tool_scope = Some((conversation_id, turn_id));
         self
     }
 
