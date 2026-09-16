@@ -867,9 +867,10 @@ export function ChatPage() {
   const handleInteractionSubmit = useCallback(async (
     response: FormattedQuestionResponse,
   ) => {
-    await handleChatSend(response.message, undefined, { userArtifacts: response.artifact });
+    const accepted = await handleChatSend(response.message, undefined, { userArtifacts: response.artifact });
     await Promise.all([refreshInteractions(), chat.reloadMessages()]);
-  }, [chat.reloadMessages, handleChatSend, refreshInteractions]);
+    if (!accepted) throw new Error(t('common.retry'));
+  }, [chat.reloadMessages, handleChatSend, refreshInteractions, t]);
 
   const handleInteractionCancel = useCallback(async () => {
     if (!chat.activeId) return;

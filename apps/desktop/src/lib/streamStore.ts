@@ -264,7 +264,8 @@ class StreamStoreImpl {
   }
 
   /** Bind the authoritative runtime identity returned by the launch handshake. */
-  bindTurnHandle(conversationId: string, handle: AgentTurnHandle): void {
+  bindTurnHandle(conversationId: string, handle: AgentTurnHandle | null | undefined): void {
+    if (!handle) return;
     let state = this._streams[conversationId];
     if (!state) return;
     const runWasClaimedByAnotherLaunch = state._orderedRunId !== null
@@ -286,6 +287,10 @@ class StreamStoreImpl {
       state = replacement;
     }
     state.turnHandle = handle;
+    if (state.taskRun && state.taskRun.id !== handle.runId) state.taskRun = null;
+    if (handle.state && typeof handle.state === 'object' && handle.state.terminal !== 'paused') {
+      this.settleTerminalIdentity(conversationId, state, handle.runId, handle.state.terminal);
+    }
     if (state.isStreaming) {
       this.resetTimeout(conversationId);
       if (runWasClaimedByAnotherLaunch || state._pendingRunEvents.size > 0) {
@@ -299,9 +304,29 @@ class StreamStoreImpl {
   applyTaskSnapshot(event: AgentTaskSnapshotEvent): void {
     const state = this._streams[event.conversationId];
     if (!state) return;
+    const expectedRun = state.turnHandle?.runId ?? state._orderedRunId;
+    if (expectedRun && expectedRun !== event.taskRun.id) return;
+    if (state._terminalRunId === event.taskRun.id
+      && ['queued', 'running', 'waiting_approval', 'cancelling'].includes(event.taskRun.status)) return;
     state.taskRun = event.taskRun;
+    if (expectedRun && ['completed', 'failed', 'cancelled', 'timed_out'].includes(event.taskRun.status)) {
+      this.settleTerminalIdentity(event.conversationId, state, expectedRun, event.taskRun.status);
+    }
     this.touch(event.conversationId);
     this.scheduleNotify(event.conversationId);
+  }
+
+  private settleTerminalIdentity(conversationId: string, state: InternalStreamState, runId: string, status: string): void {
+    state._terminalRunId = runId;
+    clearStreamWatchdog(state);
+    clearToolPreparingTimers(state);
+    applyTerminalProjection(state, {
+      toolStatus: status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : status === 'timed_out' ? 'timedOut' : 'error',
+      message: '', traceTone: status === 'completed' ? 'success' : 'error',
+      errorMessage: state.taskRun?.errorMessage ?? null,
+    });
+    this.finishTurnTiming(state);
+    this.notifyImmediately(conversationId);
   }
 
   recordHeartbeat(conversationId: string, runId: string, durableHighWater?: number | null): void {
@@ -571,6 +596,7 @@ class StreamStoreImpl {
       { kind: 'suspended' | 'completed' | 'terminal' }
     >,
   ): void {
+    if (outcome.kind !== 'suspended') state._terminalRunId = outcome.snapshot.taskRun.id;
     if (outcome.kind === 'suspended') {
       suspendAgentRunProjection(state);
     } else if (outcome.kind === 'completed') {
@@ -881,6 +907,7 @@ class StreamStoreImpl {
     const isTerminalEvent = lifecycle === 'terminal';
     const isResumableSuspension = lifecycle === 'suspension';
     const reopensSuspendedStream = lifecycle === 'resume';
+    if (state._terminalRunId === runEvent.runId && !isTerminalEvent) return false;
     if (!state.isStreaming && !isTerminalEvent && !reopensSuspendedStream) return false;
 
     this.markFirstEventTiming(state);
@@ -904,6 +931,7 @@ class StreamStoreImpl {
       suspendAgentRunProjection(state);
     }
     if (isTerminalEvent || isResumableSuspension) this.finishTurnTiming(state);
+    if (isTerminalEvent) state._terminalRunId = runEvent.runId;
     this.touch(conversationId);
     capStreamCollections(state);
     if (isTerminalEvent) this.evictCompletedStreams(conversationId);

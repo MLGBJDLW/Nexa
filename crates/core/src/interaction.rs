@@ -1319,7 +1319,11 @@ impl Database {
         let status_filter = if include_terminal {
             String::new()
         } else {
-            " AND (
+            " AND EXISTS (
+                SELECT 1 FROM agent_task_runs owner_run
+                WHERE owner_run.id = interaction_requests.run_id
+                  AND owner_run.status NOT IN ('completed', 'failed', 'cancelled', 'timed_out')
+              ) AND (
                 status IN ('pending', 'presented', 'partially_answered')
                 OR (
                   status = 'submitted'
@@ -1332,7 +1336,12 @@ impl Database {
                     OR EXISTS (
                       SELECT 1 FROM agent_task_runs run
                       WHERE run.id = interaction_requests.run_id
-                        AND run.status IN ('cancelled', 'failed')
+                        AND run.status = 'awaiting_user_input'
+                        AND NOT EXISTS (
+                          SELECT 1 FROM interaction_requests sibling
+                          WHERE sibling.run_id = run.id AND sibling.id != interaction_requests.id
+                            AND sibling.status IN ('pending', 'presented', 'partially_answered')
+                        )
                     )
                   )
                 )
@@ -1341,7 +1350,12 @@ impl Database {
                   AND EXISTS (
                     SELECT 1 FROM agent_task_runs run
                     WHERE run.id = interaction_requests.run_id
-                      AND run.status IN ('cancelled', 'failed')
+                      AND run.status = 'awaiting_user_input'
+                      AND NOT EXISTS (
+                        SELECT 1 FROM interaction_requests sibling
+                        WHERE sibling.run_id = run.id AND sibling.id != interaction_requests.id
+                          AND sibling.status IN ('pending', 'presented', 'partially_answered')
+                      )
                   )
                 )
               )"
@@ -2743,6 +2757,14 @@ mod tests {
         assert_eq!(terminal_replay.run_id, first_launch.run_id);
         assert_eq!(terminal_replay.status, "failed");
         assert!(terminal_replay.reused);
+        assert!(
+            fixture
+                .db
+                .list_interaction_requests(Some(&fixture.conversation_id), false)
+                .unwrap()
+                .is_empty(),
+            "a consumed answer must not become a retry tray when later tools fail"
+        );
         assert_eq!(
             fixture
                 .db

@@ -9,6 +9,7 @@ import type { StreamState } from './streamStore';
 import type { StreamRoundEvent, ToolCallEvent, TraceEvent } from './streaming/protocol';
 import type { AgentChatRequestInput } from './agentChatRequest';
 import { agentTurnStateSuspendsStream } from './streaming/runEventLifecycle';
+import { toast } from 'sonner';
 
 type AutoCompactedInfo = { summary: string } | null;
 
@@ -139,12 +140,27 @@ export function useAgentStream(watchConversationId?: string | null): UseAgentStr
   }, []);
 
   const stop = useCallback(async (conversationId: string) => {
+    const before = streamStore.getStream(conversationId);
+    const stillCurrent = () => {
+      const current = streamStore.getStream(conversationId);
+      return current?.turnHandle?.runId === before?.turnHandle?.runId
+        && current?.turnTiming?.startedAtEpochMs === before?.turnTiming?.startedAtEpochMs;
+    };
     try {
       await api.agentStop(conversationId);
-      streamStore.markResumableSuspension(conversationId);
-    } catch {
-      // Keep the live projection active when the backend did not accept the
-      // pause; a later durable event or retry can still settle it safely.
+      if (stillCurrent()) streamStore.markResumableSuspension(conversationId);
+    } catch (error) {
+      // Persistence failure can already have terminalized the backend run.
+      // Reconcile that exact run instead of leaving the spinner until timeout.
+      try {
+        const runs = await api.getAgentTaskRuns(conversationId);
+        const runId = before?.turnHandle?.runId ?? before?.taskRun?.id;
+        const run = runs.find(candidate => candidate.id === runId);
+        if (run && stillCurrent()) {
+          streamStore.applyTaskSnapshot({ conversationId, type: 'taskRunUpdated', taskRun: run });
+        }
+      } catch { /* Retain live state if the backend cannot be reached. */ }
+      if (stillCurrent()) toast.error(String(error));
     }
   }, []);
 

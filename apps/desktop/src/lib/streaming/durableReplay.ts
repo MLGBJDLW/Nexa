@@ -94,6 +94,7 @@ function drainReplayEvents(state: DurableReplayProjectionState): boolean {
         scheduleToolPreparing: payload => applyToolPreparingReplay(state, payload),
       });
       if (classifyAgentRunEventLifecycle(ready) === 'terminal') {
+        state._terminalRunId = ready.runId;
         state._pendingRunEvents.clear();
         return true;
       }
@@ -121,6 +122,17 @@ export function projectRunEventsToStreamState(
   applyDurableRunEventsToState(state, runEvents);
 
   finishReplayProjection(state, taskRun, options.interruptActive === true);
+  if (!taskRunIsActive(state.taskRun!) && !taskRunIsSuspended(state.taskRun!)) {
+    state._terminalRunId = taskRun.id;
+    if (state.isStreaming || state.isThinking || state.pendingApprovals.length > 0) {
+      applyTerminalProjection(state, {
+        toolStatus: taskRun.status === 'completed' ? 'done' : taskRun.status === 'cancelled' ? 'cancelled' : 'error',
+        message: '',
+        traceTone: taskRun.status === 'failed' ? 'error' : 'success',
+        errorMessage: taskRun.errorMessage ?? null,
+      });
+    }
+  }
 
   return state;
 }

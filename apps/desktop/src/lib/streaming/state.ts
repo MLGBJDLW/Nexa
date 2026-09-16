@@ -4,6 +4,7 @@ import type { StreamTimeoutHandle } from './watchdog';
 import { isPendingToolCallStatus } from './toolStatus';
 
 export interface InternalStreamState extends StreamState {
+  _terminalRunId: string | null;
   _toolCallSeq: number;
   _roundSeq: number;
   _traceSeq: number;
@@ -30,6 +31,7 @@ export interface InternalStreamState extends StreamState {
 
 export function createDefaultState(): InternalStreamState {
   return {
+    _terminalRunId: null,
     turnHandle: null,
     isStreaming: false,
     streamText: '',

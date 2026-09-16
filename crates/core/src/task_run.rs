@@ -230,6 +230,7 @@ impl<'a> AgentTaskRuntime<'a> {
         run_id: &str,
         turn_id: &str,
         event_seq: u64,
+        expected_durable_head: u64,
         reason: &str,
     ) -> Result<(TaskResumeCheckpoint, AgentRunEvent, AgentTaskRun), CoreError> {
         let checkpoint = self
@@ -285,7 +286,10 @@ impl<'a> AgentTaskRuntime<'a> {
         }
         let (durable_head, already_closed) =
             Database::agent_run_event_head_on_connection(&transaction, run_id)?;
-        if already_closed || event_seq != durable_head.saturating_add(1) {
+        // Live previews consume sequence numbers without entering SQLite.
+        // Fence against the actor's last durable commit, not an assumed
+        // contiguous ledger, while still rejecting a competing writer.
+        if already_closed || durable_head != expected_durable_head || event_seq <= durable_head {
             return Err(CoreError::Conflict(format!(
                 "Agent Run {run_id} changed at sequence {durable_head} while its pause was being committed"
             )));

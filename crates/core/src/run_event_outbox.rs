@@ -1003,6 +1003,7 @@ fn spawn_outbox_actor(
         // reachable for the whole open lifecycle, then releases it when a true
         // terminal or fail-closed outcome ends the actor.
         let mut sequence = initial_sequence;
+        let mut durable_sequence = initial_sequence;
         let mut last_turn_id = String::new();
         let mut pending = Vec::with_capacity(LIVE_JOURNAL_MAX_BATCH);
         let mut flush_tick = tokio::time::interval(LIVE_JOURNAL_FLUSH_INTERVAL);
@@ -1050,6 +1051,7 @@ fn spawn_outbox_actor(
                                         &actor.conversation_id,
                                         &actor.run_id,
                                         &mut pending,
+                                        &mut durable_sequence,
                                     ).await {
                                         drain_failure = Some(error);
                                         break;
@@ -1077,6 +1079,7 @@ fn spawn_outbox_actor(
                             &actor.conversation_id,
                             &actor.run_id,
                             &mut pending,
+                            &mut durable_sequence,
                         ).await {
                             drain_failure = Some(error);
                         } else {
@@ -1109,6 +1112,7 @@ fn spawn_outbox_actor(
                             &actor.conversation_id,
                             &actor.run_id,
                             &mut pending,
+                            &mut durable_sequence,
                         ).await;
                         break;
                     };
@@ -1132,6 +1136,7 @@ fn spawn_outbox_actor(
                                         &actor.conversation_id,
                                         &actor.run_id,
                                         &mut pending,
+                                        &mut durable_sequence,
                                     ).await {
                                         actor.fail_closed(
                                             &last_turn_id,
@@ -1173,6 +1178,7 @@ fn spawn_outbox_actor(
                                     &actor.conversation_id,
                                     &actor.run_id,
                                     &mut pending,
+                                    &mut durable_sequence,
                                 ).await {
                                     actor.fail_closed(
                                         &last_turn_id,
@@ -1209,6 +1215,7 @@ fn spawn_outbox_actor(
                                     &actor.conversation_id,
                                     &actor.run_id,
                                     &mut pending,
+                                    &mut durable_sequence,
                                 ).await {
                                     let failure = AgentRunEventOutboxFailure::Persistence {
                                         message: error.to_string(),
@@ -1233,9 +1240,11 @@ fn spawn_outbox_actor(
                                 &actor.run_id,
                                 &turn_id,
                                 sequence,
+                                durable_sequence,
                                 &reason,
                             ).await {
                                 Ok(checkpoint) => {
+                                    durable_sequence = sequence;
                                     actor.durability.send_replace(
                                         AgentRunEventOutboxDurability::Committed(sequence),
                                     );
@@ -1264,6 +1273,7 @@ fn spawn_outbox_actor(
                         &actor.conversation_id,
                         &actor.run_id,
                         &mut pending,
+                        &mut durable_sequence,
                     ).await {
                         actor.fail_closed(
                             &last_turn_id,
@@ -1364,11 +1374,13 @@ async fn commit_and_deliver(
     conversation_id: &str,
     run_id: &str,
     pending: &mut Vec<AgentRunEvent>,
+    durable_sequence: &mut u64,
 ) -> Result<(), CoreError> {
     if pending.is_empty() {
         return Ok(());
     }
     let events = std::mem::take(pending);
+    let durable_high_water = events.last().expect("nonempty batch").event_seq;
     let durable_events = events
         .iter()
         .cloned()
@@ -1382,6 +1394,8 @@ async fn commit_and_deliver(
         })
         .await?
         .value;
+
+    *durable_sequence = durable_high_water;
 
     for event in events.into_iter().map(approval_event_for_delivery) {
         delivery.deliver_run_event(conversation_id, &event);
@@ -1414,6 +1428,7 @@ fn approval_event_for_delivery(mut event: AgentRunEvent) -> AgentRunEvent {
     event
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn commit_pause_checkpoint_and_deliver(
     database: &DatabaseExecutor,
     delivery: &dyn AgentRunEventDelivery,
@@ -1421,6 +1436,7 @@ async fn commit_pause_checkpoint_and_deliver(
     run_id: &str,
     turn_id: &str,
     event_seq: u64,
+    expected_durable_head: u64,
     reason: &str,
 ) -> Result<TaskResumeCheckpoint, CoreError> {
     let durable_run_id = run_id.to_string();
@@ -1432,6 +1448,7 @@ async fn commit_pause_checkpoint_and_deliver(
                 &durable_run_id,
                 &durable_turn_id,
                 event_seq,
+                expected_durable_head,
                 &durable_reason,
             )
         })
@@ -2080,6 +2097,40 @@ mod tests {
         assert_eq!(
             failed_run.error_message.as_deref(),
             Some("run_event_persistence_failed")
+        );
+    }
+
+    #[tokio::test]
+    async fn pause_after_ephemeral_tool_progress_keeps_a_resumable_run() {
+        let database = Database::open_memory().unwrap();
+        let (conversation_id, turn_id, run_id) = create_started_run(&database);
+        let executor = DatabaseExecutor::new(database.clone(), 8).unwrap();
+        let delivery = Arc::new(CaptureDelivery::default());
+        let outboxes = AgentRunEventOutboxes::new(executor, delivery.clone());
+        let outbox = outboxes.open(&conversation_id, &run_id).await.unwrap();
+        outbox.publish_ephemeral(AgentRunEvent {
+            version: AGENT_RUN_EVENT_VERSION, run_id: run_id.clone(), turn_id: turn_id.clone(), event_seq: 0,
+            kind: AgentRunEventKind::ToolProgress, phase: AgentRunPhase::Tooling,
+            visibility: AgentRunEventVisibility::User, persistence: AgentRunEventPersistence::Ephemeral,
+            display_kind: AgentRunDisplayKind::Tool, importance: AgentRunEventImportance::Normal,
+            label: "run_shell".into(), status: Some("preparing".into()),
+            payload: serde_json::json!({"run": {"callId":"tool-1", "toolName":"run_shell", "status":"preparing"}}),
+            created_at: None,
+        }).unwrap();
+        assert_eq!(outbox.flush().await.unwrap(), 1);
+        assert!(database.list_agent_run_events(&run_id).unwrap().is_empty());
+        let paused = outbox.pause_with_checkpoint(&turn_id, "user_stop").await;
+        assert!(
+            paused.is_ok(),
+            "ephemeral preview gaps must not turn Stop into a persistence failure: {paused:?}"
+        );
+        assert_eq!(
+            database.get_agent_task_run(&run_id).unwrap().status,
+            "paused"
+        );
+        assert_eq!(
+            database.list_agent_run_events(&run_id).unwrap()[0].event_seq,
+            2
         );
     }
 
