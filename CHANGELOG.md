@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.14.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.6...nexa-monorepo-v0.14.7) (2026-09-16)
+
+
+### Bug Fixes
+
+* **agent:** align development guidance with persistent tool lifecycles ([0bae19e](https://github.com/MLGBJDLW/Nexa/commit/0bae19ef05935f9aa0543262353ed5704251e938))
+* **browser:** return pending evidence when condition waits expire ([28eb046](https://github.com/MLGBJDLW/Nexa/commit/28eb04616c66036577ba1d71bde46842696bcbe8))
+* **chat:** keep reconciled cancellation out of the failure banner ([6e51a7b](https://github.com/MLGBJDLW/Nexa/commit/6e51a7b1b01f03e39841f72e678b16a0e369f12e))
+* **chat:** reconcile interrupted runs and retire consumed interactions ([9178465](https://github.com/MLGBJDLW/Nexa/commit/917846590f82368f35988da5a131034a87d647f1))
+* **chat:** recover only the latest eligible interaction response ([adff3fc](https://github.com/MLGBJDLW/Nexa/commit/adff3fc3a735f0c48d186fc4dd1382589e10f551))
+* **desktop:** keep blocking IPC and terminal work off the window thread ([fb24a17](https://github.com/MLGBJDLW/Nexa/commit/fb24a179fa9a68a5477c193e2b6e8cde5336688d))
+* **desktop:** preserve synchronous command order per resource ([f8c8ee3](https://github.com/MLGBJDLW/Nexa/commit/f8c8ee3a568ed3546e82e725c3b29b67e4fd1e2b))
+* keep desktop responsive through tools, cancellation, and long builds ([e6c5f25](https://github.com/MLGBJDLW/Nexa/commit/e6c5f25ee6b54058f2bcc10ac9800a8950a4d369))
+* **providers:** isolate pooled connections from retired worker runtimes ([8eff59b](https://github.com/MLGBJDLW/Nexa/commit/8eff59b0ad60782861177339343ae42302016b0f))
+* **runtime:** reserve database admission for stop and run checkpoints ([2c24051](https://github.com/MLGBJDLW/Nexa/commit/2c2405141d44da10321f56c390f64b406ea46e28))
+* **subagents:** distinguish steering receipts from worker status ([c0d2eca](https://github.com/MLGBJDLW/Nexa/commit/c0d2eca629f516bf7dc75942a09acc5bd466e23e))
+* **subagents:** synchronize capsule lifecycle and compact task labels ([00207fe](https://github.com/MLGBJDLW/Nexa/commit/00207fe4898d3ba64d57c8ab1864b49949a13efb))
+* **tools:** preserve delegated build ownership and support sustained waits ([ad01786](https://github.com/MLGBJDLW/Nexa/commit/ad01786699ee8b4e2377831e2999a213a85efde4))
+* **tools:** stream owned process output during completion waits ([cd9728c](https://github.com/MLGBJDLW/Nexa/commit/cd9728c893d9eb7ba61912162783972b36183415))
+* **tools:** wait for persistent service readiness instead of exit ([69192bd](https://github.com/MLGBJDLW/Nexa/commit/69192bdbebb242d4462c4306c589534b5954d17a))
+
+
+### Performance Improvements
+
+* **companion:** bound task projection reads and coalesce refreshes ([2d75de4](https://github.com/MLGBJDLW/Nexa/commit/2d75de4a07d05a79425ea3d35109fd7a154fa880))
+
 ## [0.14.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.5...nexa-monorepo-v0.14.6) (2026-09-15)
 
 
