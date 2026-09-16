@@ -3,18 +3,28 @@ use super::*;
 // ── OCR ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_ocr_config_cmd(
+pub async fn get_ocr_config_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::ocr::OcrConfig, String> {
-    state.db.load_ocr_config().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.load_ocr_config())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn save_ocr_config_cmd(
+pub async fn save_ocr_config_cmd(
     state: tauri::State<'_, AppState>,
     config: nexa_core::ocr::OcrConfig,
 ) -> Result<(), String> {
-    state.db.save_ocr_config(&config).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .write(move |db| db.save_ocr_config(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -100,22 +110,29 @@ pub fn get_managed_model_paths_cmd(
 
 #[cfg(feature = "video")]
 #[tauri::command]
-pub fn get_video_config_cmd(
+pub async fn get_video_config_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::video::VideoConfig, String> {
-    state.db.load_video_config().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.load_video_config())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "video")]
 #[tauri::command]
-pub fn save_video_config_cmd(
+pub async fn save_video_config_cmd(
     state: tauri::State<'_, AppState>,
     config: nexa_core::video::VideoConfig,
 ) -> Result<(), String> {
     state
-        .db
-        .save_video_config(&config)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.save_video_config(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "video")]

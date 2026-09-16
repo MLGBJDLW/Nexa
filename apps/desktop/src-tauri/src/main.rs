@@ -7,6 +7,7 @@ mod agent_task_events;
 mod app_events;
 mod background_work_governor;
 mod browser;
+mod command_dispatch;
 mod commands;
 mod companion_window;
 mod delegation_scheduler;
@@ -315,39 +316,46 @@ fn install_tray(app: &mut tauri::App, locale: &str) -> tauri::Result<()> {
         .tooltip("Nexa")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            TRAY_SHOW_ID => show_main_window(app),
-            TRAY_SHOW_COMPANION_ID => {
-                if let Err(error) = companion_window::show_companion(app) {
-                    log::warn!("Failed to show Desktop Pet from tray: {error}");
+        .on_menu_event(|app, event| {
+            let app = app.clone();
+            let id = event.id().as_ref().to_string();
+            tauri::async_runtime::spawn_blocking(move || {
+                let app = &app;
+                match id.as_str() {
+                    TRAY_SHOW_ID => show_main_window(app),
+                    TRAY_SHOW_COMPANION_ID => {
+                        if let Err(error) = companion_window::show_companion(app) {
+                            log::warn!("Failed to show Desktop Pet from tray: {error}");
+                        }
+                    }
+                    TRAY_HIDE_COMPANION_ID => {
+                        if let Err(error) = companion_window::hide_companion(app) {
+                            log::warn!("Failed to hide Desktop Pet from tray: {error}");
+                        }
+                    }
+                    TRAY_LOCK_COMPANION_ID => {
+                        if let Err(error) = companion_window::lock_companion(app) {
+                            log::warn!("Failed to lock Desktop Pet from tray: {error}");
+                        }
+                    }
+                    TRAY_UNLOCK_COMPANION_ID => {
+                        if let Err(error) = companion_window::unlock_companion(app) {
+                            log::warn!("Failed to unlock Desktop Pet from tray: {error}");
+                        }
+                    }
+                    TRAY_RESET_COMPANION_ID => {
+                        if let Err(error) = companion_window::reset_companion_position(app) {
+                            log::warn!("Failed to reset Desktop Pet position from tray: {error}");
+                        }
+                    }
+                    TRAY_COMPANION_SETTINGS_ID => {
+                        show_main_window(app);
+                        let _ = app.emit("companion://open-settings", ());
+                    }
+                    TRAY_QUIT_ID => request_application_exit(app),
+                    _ => {}
                 }
-            }
-            TRAY_HIDE_COMPANION_ID => {
-                if let Err(error) = companion_window::hide_companion(app) {
-                    log::warn!("Failed to hide Desktop Pet from tray: {error}");
-                }
-            }
-            TRAY_LOCK_COMPANION_ID => {
-                if let Err(error) = companion_window::lock_companion(app) {
-                    log::warn!("Failed to lock Desktop Pet from tray: {error}");
-                }
-            }
-            TRAY_UNLOCK_COMPANION_ID => {
-                if let Err(error) = companion_window::unlock_companion(app) {
-                    log::warn!("Failed to unlock Desktop Pet from tray: {error}");
-                }
-            }
-            TRAY_RESET_COMPANION_ID => {
-                if let Err(error) = companion_window::reset_companion_position(app) {
-                    log::warn!("Failed to reset Desktop Pet position from tray: {error}");
-                }
-            }
-            TRAY_COMPANION_SETTINGS_ID => {
-                show_main_window(app);
-                let _ = app.emit("companion://open-settings", ());
-            }
-            TRAY_QUIT_ID => request_application_exit(app),
-            _ => {}
+            });
         })
         .on_tray_icon_event(|tray, event| {
             if matches!(
@@ -731,7 +739,7 @@ fn main() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(command_dispatch::off_main_thread(tauri::generate_handler![
             // Sources
             commands::add_source,
             commands::list_sources,
@@ -1197,7 +1205,7 @@ fn main() {
             commands::list_tool_permission_policies_cmd,
             commands::delete_tool_permission_policy_cmd,
             commands::clear_tool_permission_policies_cmd,
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
@@ -1207,38 +1215,43 @@ fn main() {
             event: tauri::WindowEvent::CloseRequested { api, .. },
             ..
         } if label == "main" => {
-            let config = app_handle
-                .try_state::<AppState>()
-                .and_then(|state| state.db.load_app_config().ok());
-            let close_action = main_window_close_action(
-                config.as_ref().map_or(WindowCloseBehavior::Exit, |config| {
-                    config.window_close_behavior
-                }),
-            );
-            match close_action {
-                MainWindowCloseAction::MinimizeToTray => {
-                    api.prevent_close();
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
-                    let _ = app_handle.emit("companion://main-visibility", false);
-                    if config
-                        .as_ref()
-                        .is_some_and(|config| !config.companion.continue_when_main_hidden)
-                    {
-                        if let Err(error) = companion_window::hide_companion(app_handle) {
-                            log::warn!("Failed to hide Desktop Pet with the main window: {error}");
+            api.prevent_close();
+            let app_handle = app_handle.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let app_handle = &app_handle;
+                let config = app_handle
+                    .try_state::<AppState>()
+                    .and_then(|state| state.db.load_app_config().ok());
+                let close_action = main_window_close_action(
+                    config.as_ref().map_or(WindowCloseBehavior::Exit, |config| {
+                        config.window_close_behavior
+                    }),
+                );
+                match close_action {
+                    MainWindowCloseAction::MinimizeToTray => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                        let _ = app_handle.emit("companion://main-visibility", false);
+                        if config
+                            .as_ref()
+                            .is_some_and(|config| !config.companion.continue_when_main_hidden)
+                        {
+                            if let Err(error) = companion_window::hide_companion(app_handle) {
+                                log::warn!(
+                                    "Failed to hide Desktop Pet with the main window: {error}"
+                                );
+                            }
                         }
                     }
+                    MainWindowCloseAction::ExitApplication => {
+                        // Closing only the main webview leaves the independent
+                        // Companion window and tray alive. Direct-exit mode owns
+                        // the process lifecycle, so terminate the whole Tauri app.
+                        request_application_exit(app_handle);
+                    }
                 }
-                MainWindowCloseAction::ExitApplication => {
-                    // Closing only the main webview leaves the independent
-                    // Companion window and tray alive. Direct-exit mode owns
-                    // the process lifecycle, so terminate the whole Tauri app.
-                    api.prevent_close();
-                    request_application_exit(app_handle);
-                }
-            }
+            });
         }
         tauri::RunEvent::Exit => {
             if let Some(remote) = app_handle.try_state::<remote::RemoteState>() {

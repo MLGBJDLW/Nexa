@@ -162,4 +162,38 @@ mod tests {
         assert_eq!(writer.value, "nexa-db-writer");
         assert_eq!(reader.value, "nexa-db-reader");
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tool_writer_contention_does_not_stall_reads_or_async_cancellation() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::new(directory.path().join("contention.db")).unwrap();
+        let executor = DatabaseExecutor::new(database.clone(), 4).unwrap();
+        let (locked_tx, locked_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let tool = std::thread::spawn(move || {
+            let _connection = database.conn();
+            let _ = locked_tx.send(());
+            let _ = release_rx.recv_timeout(Duration::from_secs(3));
+        });
+        locked_rx.await.unwrap();
+        let writer = executor.clone();
+        let pending = tokio::spawn(async move { writer.write(Database::load_app_config).await });
+        let read = tokio::time::timeout(
+            Duration::from_millis(500),
+            executor.read(Database::list_conversations),
+        )
+        .await;
+        let cancelled = tokio::time::timeout(Duration::from_millis(500), async {
+            tokio::task::yield_now().await;
+            pending.abort();
+            pending.await.unwrap_err().is_cancelled()
+        })
+        .await;
+        let _ = release_tx.send(());
+        tool.join().unwrap();
+        assert!(read
+            .expect("tool-side writer lock stalled a UI read")
+            .is_ok());
+        assert!(cancelled.expect("database work blocked the async cancellation executor"));
+    }
 }

@@ -10,7 +10,7 @@ use serde::Serialize;
 /// serialized shape (camelCase JSON) can be persisted alongside a user
 /// message and round-tripped back to the frontend.
 #[tauri::command]
-pub async fn prepare_image_attachment(path: String) -> Result<ImageAttachment, String> {
+pub fn prepare_image_attachment(path: String) -> Result<ImageAttachment, String> {
     let file_path = std::path::Path::new(&path);
     if !file_path.exists() {
         return Err(format!("File not found: {path}"));

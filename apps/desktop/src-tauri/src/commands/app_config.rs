@@ -175,9 +175,7 @@ pub struct ClearSpeechCacheResult {
 }
 
 #[tauri::command]
-pub async fn clear_speech_cache_cmd(
-    app_handle: AppHandle,
-) -> Result<ClearSpeechCacheResult, String> {
+pub fn clear_speech_cache_cmd(app_handle: AppHandle) -> Result<ClearSpeechCacheResult, String> {
     let cache_root = app_handle
         .path()
         .app_cache_dir()
@@ -490,7 +488,7 @@ fn parse_model_json_object(content: &str) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn import_theme_background_cmd(
+pub fn import_theme_background_cmd(
     app_handle: AppHandle,
     source_path: String,
 ) -> Result<ThemeBackgroundAsset, String> {
@@ -515,7 +513,7 @@ pub async fn import_theme_background_cmd(
 }
 
 #[tauri::command]
-pub async fn resolve_theme_background_cmd(
+pub fn resolve_theme_background_cmd(
     app_handle: AppHandle,
     asset_id: String,
 ) -> Result<ThemeBackgroundAsset, String> {
@@ -540,7 +538,7 @@ pub async fn resolve_theme_background_cmd(
 }
 
 #[tauri::command]
-pub async fn garbage_collect_theme_assets_cmd(
+pub fn garbage_collect_theme_assets_cmd(
     app_handle: AppHandle,
     retained_asset_ids: Vec<String>,
 ) -> Result<ClearSpeechCacheResult, String> {

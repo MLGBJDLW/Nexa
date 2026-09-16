@@ -3,21 +3,28 @@ use super::*;
 // ── Agent Trace Analytics ──────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_trace_summary(
+pub async fn get_trace_summary(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::trace::TraceSummary, String> {
-    state.db.get_trace_summary().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.get_trace_summary())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn get_recent_traces(
+pub async fn get_recent_traces(
     state: tauri::State<'_, AppState>,
     limit: Option<usize>,
 ) -> Result<Vec<nexa_core::trace::AgentTrace>, String> {
     state
-        .db
-        .get_recent_traces(limit.unwrap_or(20))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_recent_traces(limit.unwrap_or(20)))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -36,36 +43,42 @@ pub fn export_agent_task_trajectory_cmd(
 }
 
 #[tauri::command]
-pub fn save_agent_trajectory_cmd(
+pub async fn save_agent_trajectory_cmd(
     state: tauri::State<'_, AppState>,
     trajectory: nexa_core::trajectory::Trajectory,
 ) -> Result<nexa_core::trajectory::TrajectoryStoreSummary, String> {
     state
-        .db
-        .save_agent_trajectory(&trajectory)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.save_agent_trajectory(&trajectory))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn load_agent_trajectory_cmd(
+pub async fn load_agent_trajectory_cmd(
     state: tauri::State<'_, AppState>,
     trajectory_id: String,
 ) -> Result<nexa_core::trajectory::Trajectory, String> {
     state
-        .db
-        .load_agent_trajectory(&trajectory_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.load_agent_trajectory(&trajectory_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_agent_trajectories_cmd(
+pub async fn list_agent_trajectories_cmd(
     state: tauri::State<'_, AppState>,
     limit: Option<usize>,
 ) -> Result<Vec<nexa_core::trajectory::TrajectoryStoreSummary>, String> {
     state
-        .db
-        .list_agent_trajectory_summaries(limit.unwrap_or(50))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_agent_trajectory_summaries(limit.unwrap_or(50)))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -331,37 +344,43 @@ pub async fn compile_after_scan_cmd(
 // ── Scan Error Commands ─────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_scan_errors_cmd(
+pub async fn get_scan_errors_cmd(
     state: tauri::State<'_, AppState>,
     source_id: String,
 ) -> Result<Vec<nexa_core::models::ScanError>, String> {
     state
-        .db
-        .get_scan_errors(&source_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_scan_errors(&source_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn clear_scan_errors_cmd(
+pub async fn clear_scan_errors_cmd(
     state: tauri::State<'_, AppState>,
     source_id: String,
 ) -> Result<usize, String> {
     state
-        .db
-        .clear_scan_errors(&source_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.clear_scan_errors(&source_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn clear_scan_error_cmd(
+pub async fn clear_scan_error_cmd(
     state: tauri::State<'_, AppState>,
     source_id: String,
     path: String,
 ) -> Result<bool, String> {
     state
-        .db
-        .clear_scan_error(&source_id, &path)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.clear_scan_error(&source_id, &path))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Knowledge Loop ──────────────────────────────────────────────────
@@ -631,81 +650,97 @@ pub fn start_dream_cmd(
 }
 
 #[tauri::command]
-pub fn list_dream_runs_cmd(
+pub async fn list_dream_runs_cmd(
     state: tauri::State<'_, AppState>,
     limit: Option<usize>,
 ) -> Result<Vec<nexa_core::dreaming::DreamRun>, String> {
     state
-        .db
-        .list_dream_runs(limit.unwrap_or(20))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_dream_runs(limit.unwrap_or(20)))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_dream_run_events_cmd(
+pub async fn list_dream_run_events_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,
 ) -> Result<Vec<nexa_core::dreaming::DreamRunEvent>, String> {
     state
-        .db
-        .list_dream_run_events(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_dream_run_events(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_dream_artifacts_cmd(
+pub async fn list_dream_artifacts_cmd(
     state: tauri::State<'_, AppState>,
     status: Option<String>,
     kind: Option<String>,
     limit: Option<usize>,
 ) -> Result<Vec<nexa_core::dreaming::DreamArtifact>, String> {
     state
-        .db
-        .list_dream_artifacts(status.as_deref(), kind.as_deref(), limit.unwrap_or(50))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| {
+            db.list_dream_artifacts(status.as_deref(), kind.as_deref(), limit.unwrap_or(50))
+        })
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn apply_dream_artifact_cmd(
+pub async fn apply_dream_artifact_cmd(
     state: tauri::State<'_, AppState>,
     artifact_id: String,
 ) -> Result<nexa_core::dreaming::DreamArtifact, String> {
     state
-        .db
-        .apply_dream_artifact(&artifact_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.apply_dream_artifact(&artifact_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn update_dream_artifact_cmd(
+pub async fn update_dream_artifact_cmd(
     state: tauri::State<'_, AppState>,
     artifact_id: String,
     input: nexa_core::dreaming::UpdateDreamArtifactInput,
 ) -> Result<nexa_core::dreaming::DreamArtifact, String> {
     state
-        .db
-        .update_dream_artifact(&artifact_id, input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_dream_artifact(&artifact_id, input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn reject_dream_artifact_cmd(
+pub async fn reject_dream_artifact_cmd(
     state: tauri::State<'_, AppState>,
     artifact_id: String,
 ) -> Result<nexa_core::dreaming::DreamArtifact, String> {
     state
-        .db
-        .reject_dream_artifact(&artifact_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.reject_dream_artifact(&artifact_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn undo_dream_artifact_cmd(
+pub async fn undo_dream_artifact_cmd(
     state: tauri::State<'_, AppState>,
     artifact_id: String,
 ) -> Result<nexa_core::dreaming::DreamArtifact, String> {
     state
-        .db
-        .undo_dream_artifact(&artifact_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.undo_dream_artifact(&artifact_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }

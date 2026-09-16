@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { createTerminalInputWriter } from './terminalInput';
 export interface FontAsset {
   id: string;
   name: string;
@@ -450,8 +451,8 @@ export interface TerminalEvent {
 export const startTerminalSession = (input: TerminalStartInput) =>
   invoke<TerminalSessionInfo>('terminal_start_session_cmd', { input });
 
-export const writeTerminalSession = (sessionId: string, data: string) =>
-  invoke<void>('terminal_write_session_cmd', { sessionId, data });
+export const writeTerminalSession = createTerminalInputWriter((sessionId, data) =>
+  invoke<void>('terminal_write_session_cmd', { sessionId, data }));
 
 export const resizeTerminalSession = (sessionId: string, rows: number, cols: number) =>
   invoke<void>('terminal_resize_session_cmd', { sessionId, rows, cols });
