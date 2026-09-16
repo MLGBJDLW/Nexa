@@ -30,6 +30,8 @@ pub struct DatabaseExecution<T> {
 pub struct DatabaseExecutor {
     reader: SyncSender<DatabaseJob>,
     writer: SyncSender<DatabaseJob>,
+    control_reader: SyncSender<DatabaseJob>,
+    control_writer: SyncSender<DatabaseJob>,
 }
 
 impl DatabaseExecutor {
@@ -41,9 +43,19 @@ impl DatabaseExecutor {
         }
 
         let reader_database = database.read_only_lane()?;
+        let control_reader = spawn_lane("nexa-db-control-reader", database.read_only_lane()?, 16)?;
+        // The same Database connection still serializes all writes. Separate
+        // admission prevents UI settings/history traffic from rejecting run
+        // ledger commits or checkpoints before they reach that connection.
+        let control_writer = spawn_lane("nexa-db-control-writer", database.clone(), 16)?;
         let reader = spawn_lane("nexa-db-reader", reader_database, capacity)?;
         let writer = spawn_lane("nexa-db-writer", database, capacity)?;
-        Ok(Self { reader, writer })
+        Ok(Self {
+            reader,
+            writer,
+            control_reader,
+            control_writer,
+        })
     }
 
     pub async fn read<T, F>(&self, operation: F) -> Result<DatabaseExecution<T>, CoreError>
@@ -60,6 +72,22 @@ impl DatabaseExecutor {
         F: FnOnce(&Database) -> Result<T, CoreError> + Send + 'static,
     {
         execute(&self.writer, "writer", operation).await
+    }
+
+    pub async fn read_control<T, F>(&self, operation: F) -> Result<DatabaseExecution<T>, CoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Database) -> Result<T, CoreError> + Send + 'static,
+    {
+        execute(&self.control_reader, "control reader", operation).await
+    }
+
+    pub async fn write_control<T, F>(&self, operation: F) -> Result<DatabaseExecution<T>, CoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Database) -> Result<T, CoreError> + Send + 'static,
+    {
+        execute(&self.control_writer, "control writer", operation).await
     }
 }
 
@@ -130,6 +158,53 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bounded_control_admission_survives_full_application_lanes() {
+        let directory = tempfile::tempdir().unwrap();
+        let executor = DatabaseExecutor::new(
+            Database::new(directory.path().join("control.db")).unwrap(),
+            1,
+        )
+        .unwrap();
+        let mut releases = Vec::new();
+        for lane in [&executor.reader, &executor.writer] {
+            let (entered_tx, entered_rx) = oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            lane.try_send(Box::new(move |_| {
+                let _ = entered_tx.send(());
+                let _ = release_rx.recv_timeout(Duration::from_secs(3));
+            }))
+            .unwrap();
+            entered_rx.await.unwrap();
+            lane.try_send(Box::new(|_| {})).unwrap();
+            releases.push(release_tx);
+        }
+        let read = tokio::time::timeout(
+            Duration::from_millis(500),
+            executor.read_control(|db| db.stoppable_interaction_run_for_conversation("empty")),
+        )
+        .await;
+        let write = tokio::time::timeout(
+            Duration::from_millis(500),
+            executor.write_control(|db| db.load_app_config()),
+        )
+        .await;
+        for release in releases {
+            let _ = release.send(());
+        }
+        assert!(
+            read.expect("stop lookup must not wait behind application requests")
+                .is_ok(),
+            "stop lookup was rejected by a full application queue"
+        );
+        assert!(
+            write
+                .expect("checkpoint admission must have reserved capacity")
+                .is_ok(),
+            "checkpoint was rejected by a full application queue"
+        );
+    }
 
     #[tokio::test]
     async fn executes_reads_and_writes_on_dedicated_threads() {

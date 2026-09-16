@@ -1112,8 +1112,10 @@ impl Database {
         &self,
         conversation_id: &str,
     ) -> Result<Option<String>, CoreError> {
-        let mut connection = self.conn();
-        expire_due_requests(&mut connection)?;
+        // Stop lookup must be read-only so it can use the reserved reader even
+        // while application writes are backlogged. Stop cancels these requests;
+        // normal list/get operations retain expiry maintenance.
+        let connection = self.conn();
         connection
             .query_row(
                 "SELECT id FROM agent_task_runs

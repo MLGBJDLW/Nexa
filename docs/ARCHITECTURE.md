@@ -53,7 +53,10 @@ from an Agent Run; it must not manufacture run completion.
 Application IPC enters a bounded blocking dispatcher before calling generated
 Tauri handlers. Synchronous database, filesystem and terminal operations must
 not run inside the WebView host callback. Stop/approval/close commands have
-reserved admission capacity. Database-only commands use `DatabaseExecutor`:
+reserved admission capacity. Stop lookups and run-ledger commits also have
+reserved database lanes, so ordinary database admission cannot reject Stop or
+its checkpoint. Both write lanes use the same serialized SQLite connection.
+Database-only commands use `DatabaseExecutor`:
 independent readers for queries, the writer lane for mutations (including
 interaction reads that expire requests). Native window work still crosses
 Tauri's UI dispatch boundary. Terminal pipe disposal never holds the global

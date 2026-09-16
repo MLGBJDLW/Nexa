@@ -181,7 +181,7 @@ impl AgentRunEventOutboxes {
         let (initial_sequence, already_closed) = self
             .inner
             .database
-            .write(move |database| database.agent_run_event_head(&durable_run_id))
+            .read_control(move |database| database.agent_run_event_head(&durable_run_id))
             .await?
             .value;
         let (sender, receiver) = tokio::sync::mpsc::channel(RUN_EVENT_OUTBOX_CAPACITY);
@@ -248,7 +248,7 @@ impl AgentRunEventOutboxes {
         let plan = self
             .inner
             .database
-            .write(build_startup_recovery_plan)
+            .write_control(build_startup_recovery_plan)
             .await?
             .value;
         let mut recovery = plan.recovery;
@@ -286,7 +286,7 @@ impl AgentRunEventOutboxes {
             let run_id = interrupted.run_id.clone();
             self.inner
                 .database
-                .write(move |database| converge_terminal_projection(database, &run_id))
+                .write_control(move |database| converge_terminal_projection(database, &run_id))
                 .await?;
             if submitted {
                 recovery.cancelled_runs += 1;
@@ -1308,7 +1308,7 @@ impl AgentRunEventOutboxActorContext {
         let task_run_id = self.run_id.clone();
         let failure_claim = self
             .database
-            .write(move |database| {
+            .write_control(move |database| {
                 AgentTaskRuntime::new(database)
                     .fail_run_event_outbox_if_open(&task_run_id, failure_reason)
             })
@@ -1388,7 +1388,7 @@ async fn commit_and_deliver(
         .collect::<Vec<_>>();
     let durable_run_id = run_id.to_string();
     let snapshots = database
-        .write(move |database| {
+        .write_control(move |database| {
             let runtime = AgentTaskRuntime::new(database);
             runtime.commit_run_event_batch(&durable_run_id, &durable_events)
         })
@@ -1443,7 +1443,7 @@ async fn commit_pause_checkpoint_and_deliver(
     let durable_turn_id = turn_id.to_string();
     let durable_reason = reason.to_string();
     let (checkpoint, event, snapshot) = database
-        .write(move |database| {
+        .write_control(move |database| {
             AgentTaskRuntime::new(database).commit_pause_checkpoint(
                 &durable_run_id,
                 &durable_turn_id,

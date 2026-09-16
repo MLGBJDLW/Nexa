@@ -2378,7 +2378,7 @@ pub async fn agent_stop_cmd(
     let lookup_conversation = conversation_id.clone();
     if let Some(run_id) = state
         .db_executor
-        .write(move |db| db.stoppable_interaction_run_for_conversation(&lookup_conversation))
+        .read_control(move |db| db.stoppable_interaction_run_for_conversation(&lookup_conversation))
         .await
         .map_err(|error| error.to_string())?
         .value
@@ -2387,7 +2387,7 @@ pub async fn agent_stop_cmd(
         let lookup_run = run_id.clone();
         let run = state
             .db_executor
-            .read(move |db| db.get_agent_task_run(&lookup_run))
+            .read_control(move |db| db.get_agent_task_run(&lookup_run))
             .await
             .map_err(|error| error.to_string())?
             .value;
