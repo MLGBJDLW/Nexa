@@ -1329,34 +1329,36 @@ impl Database {
                 status IN ('pending', 'presented', 'partially_answered')
                 OR (
                   status = 'submitted'
-                  AND (
-                    EXISTS (
-                      SELECT 1 FROM interaction_responses response
-                      WHERE response.interaction_id = interaction_requests.id
-                        AND response.response_message_id IS NULL
-                    )
-                    OR EXISTS (
-                      SELECT 1 FROM agent_task_runs run
-                      WHERE run.id = interaction_requests.run_id
-                        AND run.status = 'awaiting_user_input'
-                        AND NOT EXISTS (
-                          SELECT 1 FROM interaction_requests sibling
-                          WHERE sibling.run_id = run.id AND sibling.id != interaction_requests.id
-                            AND sibling.status IN ('pending', 'presented', 'partially_answered')
-                        )
-                    )
+                  AND EXISTS (
+                    SELECT 1 FROM interaction_responses response
+                    WHERE response.interaction_id = interaction_requests.id
+                      AND response.response_message_id IS NULL
                   )
                 )
                 OR (
-                  status = 'acknowledged'
+                  status IN ('submitted', 'acknowledged')
                   AND EXISTS (
                     SELECT 1 FROM agent_task_runs run
                     WHERE run.id = interaction_requests.run_id
                       AND run.status = 'awaiting_user_input'
+                      AND interaction_requests.id = (
+                        SELECT sibling.id FROM interaction_requests sibling
+                        JOIN interaction_responses response ON response.interaction_id = sibling.id
+                        JOIN messages message ON message.id = response.response_message_id
+                        WHERE sibling.run_id = run.id
+                        ORDER BY message.sort_order DESC, response.rowid DESC LIMIT 1
+                      )
                       AND NOT EXISTS (
                         SELECT 1 FROM interaction_requests sibling
                         WHERE sibling.run_id = run.id AND sibling.id != interaction_requests.id
-                          AND sibling.status IN ('pending', 'presented', 'partially_answered')
+                          AND (
+                            sibling.status IN ('pending', 'presented', 'partially_answered')
+                            OR (sibling.status = 'submitted' AND EXISTS (
+                              SELECT 1 FROM interaction_responses response
+                              WHERE response.interaction_id = sibling.id
+                                AND response.response_message_id IS NULL
+                            ))
+                          )
                       )
                   )
                 )
@@ -2454,6 +2456,26 @@ mod tests {
                 .status,
             InteractionStatus::Acknowledged
         );
+        fixture
+            .db
+            .conn()
+            .execute(
+                "UPDATE agent_task_runs SET status = 'awaiting_user_input' WHERE id = ?1",
+                [&final_launch.run_id],
+            )
+            .unwrap();
+        let recoverable = fixture
+            .db
+            .list_interaction_requests(Some(&fixture.conversation_id), false)
+            .unwrap();
+        assert_eq!(
+            recoverable
+                .iter()
+                .map(|item| item.interaction_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![second.interaction_id.as_str()],
+            "only the latest launched answer can recover an interrupted continuation"
+        );
     }
 
     #[test]
@@ -2540,6 +2562,18 @@ mod tests {
             .unwrap();
         assert_eq!(second_launch.status, "awaiting_user_input");
         assert!(second_launch.reused);
+        let visible = fixture
+            .db
+            .list_interaction_requests(Some(&fixture.conversation_id), false)
+            .unwrap();
+        assert_eq!(
+            visible
+                .iter()
+                .map(|item| item.interaction_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![first.interaction_id.as_str()],
+            "a launched sibling cannot obscure the answer still awaiting launch"
+        );
 
         let (first_message, _) = response_for(&first, "call-outbox-first");
         let final_launch = fixture
