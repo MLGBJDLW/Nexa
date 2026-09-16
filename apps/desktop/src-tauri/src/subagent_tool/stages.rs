@@ -686,6 +686,20 @@ pub(super) async fn execute_subagent_worker(
         )
         .with_cancel_token(worker_cancel_token.clone())
         .with_skills_override(enabled_skills);
+    // Processes started by a delegated worker must remain observable by the
+    // parent after that worker finishes. Transcript persistence stays isolated.
+    let activity_runtime = match lifecycle_events.as_ref() {
+        Some(events) => events.activity_runtime(),
+        None => nexa_core::activity::ActivityRuntime::with_database(db.clone())?,
+    };
+    executor = executor.with_activity_runtime(activity_runtime);
+    if let Some(conversation_id) = runtime.parent_conversation_id.clone() {
+        let turn_id = parent_task_run_id
+            .as_deref()
+            .map(|run_id| db.get_agent_task_run(run_id).map(|run| run.turn_id))
+            .transpose()?;
+        executor = executor.with_tool_scope(conversation_id, turn_id);
+    }
     if let Some(steering_rx) = steering_rx {
         executor = executor.with_steering_receiver(steering_rx);
     }

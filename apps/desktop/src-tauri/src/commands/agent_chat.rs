@@ -2375,16 +2375,22 @@ pub async fn agent_stop_cmd(
     app_handle: AppHandle,
     conversation_id: String,
 ) -> Result<(), String> {
+    let lookup_conversation = conversation_id.clone();
     if let Some(run_id) = state
-        .db
-        .stoppable_interaction_run_for_conversation(&conversation_id)
+        .db_executor
+        .read_control(move |db| db.stoppable_interaction_run_for_conversation(&lookup_conversation))
+        .await
         .map_err(|error| error.to_string())?
+        .value
     {
         let _run_lifecycle_guard = agent_state.sessions.acquire_run_lifecycle(&run_id).await;
+        let lookup_run = run_id.clone();
         let run = state
-            .db
-            .get_agent_task_run(&run_id)
-            .map_err(|error| error.to_string())?;
+            .db_executor
+            .read_control(move |db| db.get_agent_task_run(&lookup_run))
+            .await
+            .map_err(|error| error.to_string())?
+            .value;
         match interaction_run_stop_path(&run.status) {
             InteractionRunStopPath::AlreadyPaused => return Ok(()),
             InteractionRunStopPath::PauseRunning => {

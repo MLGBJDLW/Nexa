@@ -595,6 +595,7 @@ impl ExternalToolSession {
             approval_callback: &approval,
             tool_visual_interpreter: &self.input.visual_interpreter,
             activity_runtime: &self.activity,
+            tool_scope: None,
         }
         .dispatch_tool_calls(
             ToolDispatchContext {

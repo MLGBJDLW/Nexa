@@ -6,26 +6,41 @@ pub fn list_personas_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Person
 }
 
 #[tauri::command]
-pub fn save_persona_cmd(
+pub async fn save_persona_cmd(
     state: tauri::State<'_, AppState>,
     input: SavePersonaInput,
 ) -> Result<PersonaProfile, String> {
-    state.db.save_persona(&input).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .write(move |db| db.save_persona(&input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn delete_persona_cmd(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
-    state.db.delete_persona(&id).map_err(|e| e.to_string())
+pub async fn delete_persona_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.delete_persona(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn toggle_persona_cmd(
+pub async fn toggle_persona_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     enabled: bool,
 ) -> Result<(), String> {
     state
-        .db
-        .toggle_persona(&id, enabled)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.toggle_persona(&id, enabled))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }

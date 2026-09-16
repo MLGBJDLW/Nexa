@@ -67,12 +67,12 @@ fn remove_user_skill_resource(state: &AppState, skill: &Skill) -> Result<(), Str
 }
 
 #[tauri::command]
-pub async fn list_skills_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Skill>, String> {
+pub fn list_skills_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Skill>, String> {
     state.db.list_skills().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn save_skill_cmd(
+pub fn save_skill_cmd(
     state: tauri::State<'_, AppState>,
     mut input: SaveSkillInput,
 ) -> Result<Skill, String> {
@@ -93,14 +93,14 @@ pub async fn save_skill_cmd(
 }
 
 #[tauri::command]
-pub async fn delete_skill_cmd(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+pub fn delete_skill_cmd(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     let previous = find_user_skill(&state, &id)?.ok_or_else(|| format!("Skill not found: {id}"))?;
     state.db.delete_skill(&id).map_err(|e| e.to_string())?;
     remove_user_skill_resource(&state, &previous)
 }
 
 #[tauri::command]
-pub async fn toggle_skill_cmd(
+pub fn toggle_skill_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     enabled: bool,
@@ -135,9 +135,7 @@ pub(crate) fn filter_desktop_builtin_skills_by_package_host(
 }
 
 #[tauri::command]
-pub async fn list_builtin_skills_cmd(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<Skill>, String> {
+pub fn list_builtin_skills_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Skill>, String> {
     filter_desktop_builtin_skills_by_package_host(
         state.db.as_ref(),
         nexa_core::skills::load_builtin_skills(),
@@ -145,7 +143,7 @@ pub async fn list_builtin_skills_cmd(
 }
 
 #[tauri::command]
-pub async fn import_skill_from_md_cmd(
+pub fn import_skill_from_md_cmd(
     state: tauri::State<'_, AppState>,
     content: String,
 ) -> Result<Skill, String> {
@@ -169,7 +167,7 @@ pub async fn import_skill_from_md_cmd(
 /// the explicit Save action as one database write instead of creating a hidden
 /// duplicate skill first.
 #[tauri::command]
-pub async fn parse_skill_markdown_cmd(content: String) -> Result<SaveSkillInput, String> {
+pub fn parse_skill_markdown_cmd(content: String) -> Result<SaveSkillInput, String> {
     let (fm, body) = nexa_core::skills::parse_skill_file(&content).map_err(|e| e.to_string())?;
     Ok(SaveSkillInput {
         id: None,
@@ -182,14 +180,14 @@ pub async fn parse_skill_markdown_cmd(content: String) -> Result<SaveSkillInput,
 }
 
 #[tauri::command]
-pub async fn inspect_skill_install_source_cmd(
+pub fn inspect_skill_install_source_cmd(
     source: String,
 ) -> Result<Vec<DiscoveredSkillBundle>, String> {
     nexa_core::skills::inspect_skill_install_source(Path::new(&source)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn install_skills_from_source_cmd(
+pub fn install_skills_from_source_cmd(
     state: tauri::State<'_, AppState>,
     source: String,
     replace_existing: bool,
@@ -216,7 +214,7 @@ pub async fn install_skills_from_source_cmd(
 }
 
 #[tauri::command]
-pub async fn discover_skills_in_directory_cmd(
+pub fn discover_skills_in_directory_cmd(
     directory: String,
 ) -> Result<Vec<DiscoveredSkillBundle>, String> {
     nexa_core::skills::discover_skills_in_directory(Path::new(&directory))
@@ -224,7 +222,7 @@ pub async fn discover_skills_in_directory_cmd(
 }
 
 #[tauri::command]
-pub async fn import_skills_from_directory_cmd(
+pub fn import_skills_from_directory_cmd(
     state: tauri::State<'_, AppState>,
     directory: String,
 ) -> Result<Vec<Skill>, String> {
@@ -235,7 +233,7 @@ pub async fn import_skills_from_directory_cmd(
 }
 
 #[tauri::command]
-pub async fn export_skill_to_md_cmd(
+pub fn export_skill_to_md_cmd(
     state: tauri::State<'_, AppState>,
     skill_id: String,
 ) -> Result<String, String> {
@@ -255,14 +253,14 @@ pub async fn export_skill_to_md_cmd(
 }
 
 #[tauri::command]
-pub async fn scan_skill_content_cmd(
+pub fn scan_skill_content_cmd(
     content: String,
 ) -> Result<Vec<nexa_core::skills::SkillWarning>, String> {
     Ok(nexa_core::skills::scan_skill_content(&content))
 }
 
 #[tauri::command]
-pub async fn list_skill_change_proposals_cmd(
+pub fn list_skill_change_proposals_cmd(
     state: tauri::State<'_, AppState>,
     status: Option<String>,
     limit: Option<u32>,
@@ -281,7 +279,7 @@ pub async fn list_skill_change_proposals_cmd(
 }
 
 #[tauri::command]
-pub async fn apply_skill_change_proposal_cmd(
+pub fn apply_skill_change_proposal_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<AppliedSkillChange, String> {
@@ -302,7 +300,7 @@ pub async fn apply_skill_change_proposal_cmd(
 }
 
 #[tauri::command]
-pub async fn reject_skill_change_proposal_cmd(
+pub fn reject_skill_change_proposal_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<SkillChangeProposal, String> {
@@ -330,7 +328,7 @@ pub fn get_user_extension_layout_cmd(
 }
 
 #[tauri::command]
-pub async fn reload_user_skill_files_cmd(
+pub fn reload_user_skill_files_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::skills::RegisteredSkillFileSyncReport, String> {
     let report = nexa_core::skills::sync_registered_user_skills_from_directory(
@@ -344,9 +342,7 @@ pub async fn reload_user_skill_files_cmd(
 }
 
 #[tauri::command]
-pub async fn prepare_mcp_config_file_cmd(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub fn prepare_mcp_config_file_cmd(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let path = state.user_extensions.mcp_config_path();
     nexa_core::mcp::config_file::ensure_user_mcp_config(&path)
         .map_err(|error| error.to_string())?;
@@ -374,9 +370,7 @@ pub async fn reload_mcp_config_file_cmd(
 }
 
 #[tauri::command]
-pub async fn list_mcp_servers_cmd(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<McpServer>, String> {
+pub fn list_mcp_servers_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<McpServer>, String> {
     state.db.list_mcp_servers().map_err(|e| e.to_string())
 }
 

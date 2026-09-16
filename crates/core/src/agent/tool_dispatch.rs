@@ -532,6 +532,7 @@ pub(super) struct ToolDispatchRuntime<'a> {
     pub(super) approval_callback: &'a Option<ApprovalCallback>,
     pub(super) tool_visual_interpreter: &'a Option<ToolVisualInterpreter>,
     pub(super) activity_runtime: &'a crate::activity::ActivityRuntime,
+    pub(super) tool_scope: Option<&'a (String, Option<String>)>,
 }
 
 impl AgentExecutor {
@@ -551,6 +552,7 @@ impl AgentExecutor {
             approval_callback: &self.approval_callback,
             tool_visual_interpreter: &self.tool_visual_interpreter,
             activity_runtime: &self.activity_runtime,
+            tool_scope: self.tool_scope.as_ref(),
         }
         .dispatch_tool_calls(
             ctx,
@@ -1157,8 +1159,8 @@ impl ToolDispatchRuntime<'_> {
                                     arguments: &tc.arguments,
                                     db,
                                     source_scope,
-                                    conversation_id,
-                                    turn_id,
+                                    conversation_id: conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str())),
+                                    turn_id: turn_id.or_else(|| self.tool_scope.and_then(|scope| scope.1.as_deref())),
                                     tool_registry: Some(discovery_tools),
                                     cancel_token: Some(self.cancel_token),
                                     activity_runtime: Some(self.activity_runtime),
@@ -1167,7 +1169,17 @@ impl ToolDispatchRuntime<'_> {
                             );
                             tokio::pin!(exec_fut);
                             let mut activity_events = self.activity_runtime.subscribe();
-                            let mut scoped_activity_id: Option<String> = None;
+                            let mut scoped_activity_id = match tc.name.as_str() {
+                                "activity_observe" | "wait_subagent" | "observe_subagent" => {
+                                    let key = if tc.name == "activity_observe" { "activityId" } else { "agentId" };
+                                    serde_json::from_str::<serde_json::Value>(&tc.arguments).ok()
+                                        .and_then(|args| args.get(key).and_then(serde_json::Value::as_str).map(str::to_string))
+                                        .filter(|id| self.activity_runtime.get(id).is_some_and(|record| {
+                                            record.conversation_id.as_deref() == conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str()))
+                                        }))
+                                }
+                                _ => None,
+                            };
                             let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
                             heartbeat
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

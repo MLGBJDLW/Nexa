@@ -35,12 +35,14 @@ export function TaskBoard({
   );
   const subtasks = useMemo(
     () => findLatestSubtaskArtifacts(
-      messages,
+      taskRun?.userMessageId && messages.some(message => message.id === taskRun.userMessageId)
+        ? messages.slice(messages.findIndex(message => message.id === taskRun.userMessageId))
+        : messages,
       toolCalls,
       taskRun?.artifacts,
       taskEvents,
     ),
-    [messages, taskEvents, taskRun?.artifacts, toolCalls],
+    [messages, taskEvents, taskRun?.artifacts, taskRun?.userMessageId, toolCalls],
   );
 
   if (!plan && !goal && subtasks.length === 0) {

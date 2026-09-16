@@ -250,7 +250,7 @@ fn companion_state_priority(state: CompanionState) -> u8 {
 }
 
 fn terminal_hold_is_active(
-    run: &nexa_core::conversation::AgentTaskRun,
+    run: &nexa_core::companion::CompanionRunCandidate,
     settings: &CompanionSettings,
 ) -> bool {
     let Some(finished_at) = run.finished_at.as_deref() else {
@@ -269,38 +269,43 @@ fn terminal_hold_is_active(
 }
 
 #[tauri::command]
-pub fn get_global_companion_projection_cmd(
+pub async fn get_global_companion_projection_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<CompanionProjection>, String> {
-    let config = state
-        .db
-        .load_app_config()
-        .map_err(|error| error.to_string())?;
-    if config.companion.active_run_policy == CompanionActiveRunPolicy::PinnedRun {
-        if let Some(run_id) = config.companion.pinned_run_id.as_deref() {
-            return state
-                .db
-                .get_companion_projection(run_id)
-                .map(Some)
-                .map_err(|error| error.to_string());
+    // Config loading can migrate defaults. Keep it on the writer, then use
+    // the independent reader for the projection, without holding either lock.
+    let settings = state
+        .db_executor
+        .write(Database::load_app_config)
+        .await
+        .map_err(|error| error.to_string())?
+        .value
+        .companion;
+    state
+        .db_executor
+        .read(move |db| global_companion_projection(db, &settings))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+fn global_companion_projection(
+    db: &Database,
+    settings: &CompanionSettings,
+) -> Result<Option<CompanionProjection>, CoreError> {
+    if settings.active_run_policy == CompanionActiveRunPolicy::PinnedRun {
+        if let Some(run_id) = settings.pinned_run_id.as_deref() {
+            return db.get_companion_projection(run_id).map(Some);
         }
     }
-    let runs = state
-        .db
-        .list_recent_agent_task_runs(50)
-        .map_err(|error| error.to_string())?;
-    if config.companion.active_run_policy == CompanionActiveRunPolicy::HighestPriority {
+    let runs = db.list_companion_run_candidates()?;
+    if settings.active_run_policy == CompanionActiveRunPolicy::HighestPriority {
         let mut selected: Option<(u8, CompanionProjection)> = None;
         for item in &runs {
-            if !is_active_status(&item.run.status)
-                && !terminal_hold_is_active(&item.run, &config.companion)
-            {
+            if !is_active_status(&item.status) && !terminal_hold_is_active(item, settings) {
                 continue;
             }
-            let projection = state
-                .db
-                .get_companion_projection(&item.run.id)
-                .map_err(|error| error.to_string())?;
+            let projection = db.get_companion_projection(&item.id)?;
             let priority = companion_state_priority(projection.state);
             if selected
                 .as_ref()
@@ -311,30 +316,28 @@ pub fn get_global_companion_projection_cmd(
         }
         return Ok(selected.map(|(_, projection)| projection));
     }
-    let selected = match config.companion.active_run_policy {
-        CompanionActiveRunPolicy::PinnedRun => config
-            .companion
-            .pinned_run_id
-            .as_deref()
-            .and_then(|run_id| runs.iter().find(|item| item.run.id == run_id)),
-        CompanionActiveRunPolicy::PinnedProject => config
-            .companion
-            .pinned_project_id
-            .as_deref()
-            .and_then(|project_id| {
-                runs.iter().find(|item| {
-                    item.project_id.as_deref() == Some(project_id)
-                        && (is_active_status(&item.run.status)
-                            || terminal_hold_is_active(&item.run, &config.companion))
-                })
-            }),
-        CompanionActiveRunPolicy::HighestPriority => unreachable!("handled above"),
-    };
+    let selected =
+        match settings.active_run_policy {
+            CompanionActiveRunPolicy::PinnedRun => settings
+                .pinned_run_id
+                .as_deref()
+                .and_then(|run_id| runs.iter().find(|item| item.id == run_id)),
+            CompanionActiveRunPolicy::PinnedProject => settings
+                .pinned_project_id
+                .as_deref()
+                .and_then(|project_id| {
+                    runs.iter().find(|item| {
+                        item.project_id.as_deref() == Some(project_id)
+                            && (is_active_status(&item.status)
+                                || terminal_hold_is_active(item, settings))
+                    })
+                }),
+            CompanionActiveRunPolicy::HighestPriority => unreachable!("handled above"),
+        };
 
     selected
-        .map(|item| state.db.get_companion_projection(&item.run.id))
+        .map(|item| db.get_companion_projection(&item.id))
         .transpose()
-        .map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]

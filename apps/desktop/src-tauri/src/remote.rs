@@ -459,7 +459,10 @@ impl RemoteHost for DesktopHost {
                 Ok(json!({"locale":locale,"appearance":appearance}))
             }).await.map(|result| result.value).map_err(|e| e.to_string()),
             ThemeBackground { asset_id } => {
-                let asset = commands::resolve_theme_background_cmd(app.clone(), asset_id).await?;
+                let asset_app = app.clone();
+                let asset = tauri::async_runtime::spawn_blocking(move || {
+                    commands::resolve_theme_background_cmd(asset_app, asset_id)
+                }).await.map_err(|error| error.to_string())??;
                 if asset.bytes > 8 * 1024 * 1024 { return Err("Theme background is too large for remote delivery".into()); }
                 let bytes = tokio::fs::read(asset.path).await.map_err(|e| e.to_string())?;
                 value(format!("data:{};base64,{}", asset.media_type, B64.encode(bytes)))

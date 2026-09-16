@@ -13,12 +13,22 @@ pub async fn create_project_cmd(
     state: tauri::State<'_, AppState>,
     input: CreateProjectInput,
 ) -> Result<Project, String> {
-    state.db.create_project(&input).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .write(move |db| db.create_project(&input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_projects_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Project>, String> {
-    state.db.list_projects().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.list_projects())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -26,7 +36,12 @@ pub async fn get_project_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<Project, String> {
-    state.db.get_project(&id).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.get_project(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -36,9 +51,11 @@ pub async fn update_project_cmd(
     input: UpdateProjectInput,
 ) -> Result<Project, String> {
     state
-        .db
-        .update_project(&id, &input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_project(&id, &input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -46,7 +63,12 @@ pub async fn delete_project_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    state.db.delete_project(&id).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .write(move |db| db.delete_project(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -55,13 +77,15 @@ pub async fn list_project_memories_cmd(
     project_id: String,
 ) -> Result<Vec<ProjectMemory>, String> {
     state
-        .db
-        .list_project_memories(&project_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_project_memories(&project_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn get_project_workspace_cmd(
+pub fn get_project_workspace_cmd(
     state: tauri::State<'_, AppState>,
     project_id: String,
     query: Option<String>,
@@ -88,9 +112,11 @@ pub async fn get_project_narrative_cmd(
     query: String,
 ) -> Result<NarrativeEvidencePlan, String> {
     state
-        .db
-        .build_project_narrative_plan(&project_id, &query, 30)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.build_project_narrative_plan(&project_id, &query, 30))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -99,9 +125,11 @@ pub async fn get_companion_projection_cmd(
     run_id: String,
 ) -> Result<CompanionProjection, String> {
     state
-        .db
-        .get_companion_projection(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_companion_projection(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -111,13 +139,15 @@ pub async fn create_project_knowledge_claim_cmd(
     input: CreateKnowledgeClaimInput,
 ) -> Result<KnowledgeClaim, String> {
     state
-        .db
-        .create_knowledge_claim(Some(&project_id), &input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.create_knowledge_claim(Some(&project_id), &input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn review_project_knowledge_claim_cmd(
+pub fn review_project_knowledge_claim_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     review_state: String,
@@ -135,9 +165,11 @@ pub async fn create_project_memory_cmd(
     input: CreateProjectMemoryInput,
 ) -> Result<ProjectMemory, String> {
     state
-        .db
-        .create_project_memory(&project_id, &input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.create_project_memory(&project_id, &input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -147,9 +179,11 @@ pub async fn update_project_memory_cmd(
     input: UpdateProjectMemoryInput,
 ) -> Result<ProjectMemory, String> {
     state
-        .db
-        .update_project_memory(&id, &input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_project_memory(&id, &input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -158,13 +192,15 @@ pub async fn delete_project_memory_cmd(
     id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .delete_project_memory(&id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.delete_project_memory(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn move_conversation_to_project_cmd(
+pub fn move_conversation_to_project_cmd(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
     project_id: String,
@@ -191,15 +227,17 @@ pub async fn remove_conversation_from_project_cmd(
     conversation_id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .remove_conversation_from_project(&conversation_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.remove_conversation_from_project(&conversation_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Conversation Commands ───────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn create_conversation_cmd(
+pub fn create_conversation_cmd(
     state: tauri::State<'_, AppState>,
     provider: String,
     model: String,
@@ -240,7 +278,12 @@ pub async fn create_conversation_cmd(
 pub async fn list_conversations_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Conversation>, String> {
-    state.db.list_conversations().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.list_conversations())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -248,9 +291,11 @@ pub async fn list_archived_conversations_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Conversation>, String> {
     state
-        .db
-        .list_archived_conversations()
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_archived_conversations())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -307,11 +352,15 @@ pub async fn list_interaction_requests_cmd(
     include_terminal: Option<bool>,
 ) -> Result<Vec<InteractionRequest>, String> {
     state
-        .db
-        .list_interaction_requests(
-            conversation_id.as_deref(),
-            include_terminal.unwrap_or(false),
-        )
+        .db_executor
+        .write(move |db| {
+            db.list_interaction_requests(
+                conversation_id.as_deref(),
+                include_terminal.unwrap_or(false),
+            )
+        })
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -321,8 +370,10 @@ pub async fn get_interaction_request_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .get_interaction_request(&interaction_id)
+        .db_executor
+        .write(move |db| db.get_interaction_request(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -332,8 +383,10 @@ pub async fn mark_interaction_presented_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .mark_interaction_presented(&interaction_id)
+        .db_executor
+        .write(move |db| db.mark_interaction_presented(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -343,8 +396,10 @@ pub async fn mark_interaction_partially_answered_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .mark_interaction_partially_answered(&interaction_id)
+        .db_executor
+        .write(move |db| db.mark_interaction_partially_answered(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -355,8 +410,10 @@ pub async fn append_interaction_supplement_cmd(
     content: String,
 ) -> Result<ConversationMessage, String> {
     state
-        .db
-        .append_interaction_supplement(&interaction_id, &content)
+        .db_executor
+        .write(move |db| db.append_interaction_supplement(&interaction_id, &content))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -366,8 +423,10 @@ pub async fn submit_interaction_response_cmd(
     input: SubmitInteractionResponse,
 ) -> Result<InteractionResponse, String> {
     state
-        .db
-        .submit_interaction_response(&input)
+        .db_executor
+        .write(move |db| db.submit_interaction_response(&input))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -377,8 +436,10 @@ pub async fn get_interaction_response_cmd(
     interaction_id: String,
 ) -> Result<InteractionResponse, String> {
     state
-        .db
-        .get_interaction_response(&interaction_id)
+        .db_executor
+        .read(move |db| db.get_interaction_response(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -388,8 +449,10 @@ pub async fn acknowledge_interaction_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .acknowledge_interaction(&interaction_id)
+        .db_executor
+        .write(move |db| db.acknowledge_interaction(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -399,8 +462,10 @@ pub async fn cancel_interaction_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .cancel_interaction(&interaction_id)
+        .db_executor
+        .write(move |db| db.cancel_interaction(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -410,8 +475,10 @@ pub async fn supersede_interaction_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .supersede_interaction(&interaction_id)
+        .db_executor
+        .write(move |db| db.supersede_interaction(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -421,8 +488,10 @@ pub async fn fail_interaction_cmd(
     interaction_id: String,
 ) -> Result<InteractionRequest, String> {
     state
-        .db
-        .fail_interaction(&interaction_id)
+        .db_executor
+        .write(move |db| db.fail_interaction(&interaction_id))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -445,9 +514,11 @@ pub async fn list_recent_agent_task_runs_cmd(
     limit: Option<u32>,
 ) -> Result<Vec<AgentTaskRunListItem>, String> {
     state
-        .db
-        .list_recent_agent_task_runs(limit.unwrap_or(50))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_recent_agent_task_runs(limit.unwrap_or(50)))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -459,14 +530,18 @@ pub async fn list_agent_task_run_summaries_cmd(
     project_id: Option<String>,
 ) -> Result<AgentTaskRunSummaryPage, String> {
     state
-        .db
-        .list_agent_task_run_summaries(
-            limit.unwrap_or(25),
-            cursor.as_ref(),
-            status.as_deref(),
-            project_id.as_deref(),
-        )
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| {
+            db.list_agent_task_run_summaries(
+                limit.unwrap_or(25),
+                cursor.as_ref(),
+                status.as_deref(),
+                project_id.as_deref(),
+            )
+        })
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -524,9 +599,11 @@ pub async fn get_run_usage_snapshot_cmd(
     run_id: String,
 ) -> Result<Option<nexa_core::usage_snapshot::UsageSnapshot>, String> {
     state
-        .db
-        .get_run_usage_snapshot(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_run_usage_snapshot(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -535,9 +612,11 @@ pub async fn get_conversation_usage_snapshot_cmd(
     conversation_id: String,
 ) -> Result<Option<nexa_core::usage_snapshot::UsageSnapshot>, String> {
     state
-        .db
-        .get_conversation_usage_snapshot(&conversation_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_conversation_usage_snapshot(&conversation_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -546,8 +625,10 @@ pub async fn get_ai_usage_analytics_cmd(
     filter: nexa_core::usage_analytics::UsageAnalyticsFilter,
 ) -> Result<nexa_core::usage_analytics::UsageAnalytics, String> {
     state
-        .db
-        .get_usage_analytics(&filter)
+        .db_executor
+        .read(move |db| db.get_usage_analytics(&filter))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -557,13 +638,15 @@ pub async fn delete_ai_usage_records_cmd(
     filter: nexa_core::usage_analytics::UsageAnalyticsFilter,
 ) -> Result<u64, String> {
     state
-        .db
-        .delete_usage_records(&filter)
+        .db_executor
+        .write(move |db| db.delete_usage_records(&filter))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn export_ai_usage_cmd(
+pub fn export_ai_usage_cmd(
     state: tauri::State<'_, AppState>,
     filter: nexa_core::usage_analytics::UsageAnalyticsFilter,
     format: String,
@@ -625,9 +708,11 @@ pub async fn get_agent_subtask_runs_cmd(
     run_id: String,
 ) -> Result<Vec<AgentSubtaskRun>, String> {
     state
-        .db
-        .list_agent_subtask_runs(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_agent_subtask_runs(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -636,9 +721,11 @@ pub async fn get_agent_execution_graph_cmd(
     run_id: String,
 ) -> Result<AgentExecutionGraph, String> {
     state
-        .db
-        .get_agent_execution_graph(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_agent_execution_graph(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -647,9 +734,11 @@ pub async fn get_agent_task_artifacts_cmd(
     run_id: String,
 ) -> Result<Vec<AgentTaskArtifactSummary>, String> {
     state
-        .db
-        .list_agent_task_artifacts(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_agent_task_artifacts(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -658,9 +747,11 @@ pub async fn list_persisted_agent_task_artifacts_cmd(
     run_id: String,
 ) -> Result<Vec<AgentTaskArtifact>, String> {
     state
-        .db
-        .list_persisted_agent_task_artifacts(&run_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_persisted_agent_task_artifacts(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -670,9 +761,11 @@ pub async fn create_agent_task_artifact_cmd(
     input: CreateAgentTaskArtifactInput,
 ) -> Result<AgentTaskArtifact, String> {
     state
-        .db
-        .create_agent_task_artifact(&run_id, &input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.create_agent_task_artifact(&run_id, &input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -682,9 +775,11 @@ pub async fn update_agent_task_artifact_cmd(
     input: UpdateAgentTaskArtifactInput,
 ) -> Result<AgentTaskArtifact, String> {
     state
-        .db
-        .update_agent_task_artifact(&artifact_id, &input)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_agent_task_artifact(&artifact_id, &input))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -693,9 +788,11 @@ pub async fn list_agent_task_artifact_versions_cmd(
     artifact_id: String,
 ) -> Result<Vec<AgentTaskArtifactVersion>, String> {
     state
-        .db
-        .list_agent_task_artifact_versions(&artifact_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_agent_task_artifact_versions(&artifact_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -879,13 +976,17 @@ pub async fn update_conversation_collection_context_cmd(
     collection_context: Option<CollectionContext>,
 ) -> Result<(), String> {
     state
-        .db
-        .update_conversation_collection_context(&id, collection_context.as_ref())
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| {
+            db.update_conversation_collection_context(&id, collection_context.as_ref())
+        })
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn update_conversation_persona_cmd(
+pub fn update_conversation_persona_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     persona_id: Option<String>,
@@ -899,7 +1000,7 @@ pub async fn update_conversation_persona_cmd(
 }
 
 #[tauri::command]
-pub async fn update_conversation_model_cmd(
+pub fn update_conversation_model_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     provider: String,
@@ -946,9 +1047,11 @@ pub async fn unarchive_conversation_cmd(
     id: String,
 ) -> Result<Conversation, String> {
     state
-        .db
-        .unarchive_conversation(&id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.unarchive_conversation(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -983,9 +1086,11 @@ pub async fn rename_conversation_cmd(
     title: String,
 ) -> Result<(), String> {
     state
-        .db
-        .rename_conversation_by_user(&id, &title)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.rename_conversation_by_user(&id, &title))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1183,9 +1288,11 @@ pub async fn update_conversation_system_prompt_cmd(
     system_prompt: String,
 ) -> Result<(), String> {
     state
-        .db
-        .update_conversation_system_prompt(&id, &system_prompt)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_conversation_system_prompt(&id, &system_prompt))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Conversation Maintenance Commands ────────────────────────────────────
@@ -1205,7 +1312,12 @@ pub struct CompactConversationResult {
 pub async fn get_conversation_stats_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<ConversationStats, String> {
-    state.db.get_conversation_stats().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.get_conversation_stats())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1214,9 +1326,11 @@ pub async fn cleanup_empty_conversations_cmd(
     days_old: u32,
 ) -> Result<usize, String> {
     state
-        .db
-        .cleanup_empty_conversations(days_old)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.cleanup_empty_conversations(days_old))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1393,68 +1507,80 @@ pub async fn search_conversations_cmd(
     limit: Option<usize>,
 ) -> Result<Vec<nexa_core::conversation::ConversationSearchResult>, String> {
     state
-        .db
-        .search_conversations(&query, limit.unwrap_or(20))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.search_conversations(&query, limit.unwrap_or(20)))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Checkpoint Commands ─────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn list_checkpoints_cmd(
+pub async fn list_checkpoints_cmd(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
 ) -> Result<Vec<nexa_core::conversation::Checkpoint>, String> {
     state
-        .db
-        .list_checkpoints(&conversation_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_checkpoints(&conversation_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn restore_checkpoint_cmd(
+pub async fn restore_checkpoint_cmd(
     state: tauri::State<'_, AppState>,
     checkpoint_id: String,
 ) -> Result<Vec<ConversationMessage>, String> {
     state
-        .db
-        .restore_checkpoint_into_conversation(&checkpoint_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.restore_checkpoint_into_conversation(&checkpoint_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn branch_checkpoint_cmd(
+pub async fn branch_checkpoint_cmd(
     state: tauri::State<'_, AppState>,
     checkpoint_id: String,
 ) -> Result<CheckpointBranch, String> {
     state
-        .db
-        .branch_checkpoint(&checkpoint_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.branch_checkpoint(&checkpoint_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn delete_checkpoint_cmd(
+pub async fn delete_checkpoint_cmd(
     state: tauri::State<'_, AppState>,
     checkpoint_id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .delete_checkpoint(&checkpoint_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.delete_checkpoint(&checkpoint_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── File Checkpoint Commands ───────────────────────────────────────────────
 
 #[tauri::command]
-pub fn list_file_checkpoints_cmd(
+pub async fn list_file_checkpoints_cmd(
     state: tauri::State<'_, AppState>,
     conversation_id: Option<String>,
 ) -> Result<Vec<nexa_core::file_checkpoint::FileCheckpoint>, String> {
     state
-        .db
-        .list_file_checkpoints(conversation_id.as_deref())
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_file_checkpoints(conversation_id.as_deref()))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1470,14 +1596,16 @@ pub async fn restore_file_checkpoint_cmd(
 }
 
 #[tauri::command]
-pub fn delete_file_checkpoint_cmd(
+pub async fn delete_file_checkpoint_cmd(
     state: tauri::State<'_, AppState>,
     checkpoint_id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .delete_file_checkpoint(&checkpoint_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.delete_file_checkpoint(&checkpoint_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Agent Config Commands ───────────────────────────────────────────────
@@ -1489,9 +1617,11 @@ pub async fn set_conversation_sources_cmd(
     source_ids: Vec<String>,
 ) -> Result<(), String> {
     state
-        .db
-        .set_conversation_sources(&conversation_id, &source_ids)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.set_conversation_sources(&conversation_id, &source_ids))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1500,9 +1630,11 @@ pub async fn get_conversation_sources_cmd(
     conversation_id: String,
 ) -> Result<Vec<String>, String> {
     state
-        .db
-        .get_linked_sources(&conversation_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_linked_sources(&conversation_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── User Memory Commands ────────────────────────────────────────────────
@@ -1511,7 +1643,12 @@ pub async fn get_conversation_sources_cmd(
 pub async fn list_user_memories_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<nexa_core::personalization::UserMemory>, String> {
-    state.db.list_user_memories().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.list_user_memories())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 /// Debug / inspection endpoint for the per-conversation agent scratchpad.
@@ -1521,9 +1658,11 @@ pub async fn get_agent_scratchpad_cmd(
     conversation_id: String,
 ) -> Result<Option<nexa_core::agent::scratchpad::AgentScratchpad>, String> {
     state
-        .db
-        .get_agent_scratchpad(&conversation_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_agent_scratchpad(&conversation_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1532,9 +1671,11 @@ pub async fn create_user_memory_cmd(
     content: String,
 ) -> Result<nexa_core::personalization::UserMemory, String> {
     state
-        .db
-        .create_user_memory(&content)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.create_user_memory(&content))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1544,9 +1685,11 @@ pub async fn update_user_memory_cmd(
     content: String,
 ) -> Result<nexa_core::personalization::UserMemory, String> {
     state
-        .db
-        .update_user_memory(&id, &content)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_user_memory(&id, &content))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1554,7 +1697,12 @@ pub async fn delete_user_memory_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    state.db.delete_user_memory(&id).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .write(move |db| db.delete_user_memory(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1563,9 +1711,11 @@ pub async fn list_agent_procedural_memories_cmd(
     limit: Option<u32>,
 ) -> Result<Vec<AgentProceduralMemory>, String> {
     state
-        .db
-        .list_agent_procedural_memories(limit.unwrap_or(20).min(100) as usize)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_agent_procedural_memories(limit.unwrap_or(20).min(100) as usize))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1574,9 +1724,11 @@ pub async fn delete_agent_procedural_memory_cmd(
     id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .delete_agent_procedural_memory(&id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.delete_agent_procedural_memory(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Agent Config Commands (LLM providers) ───────────────────────────────
@@ -1585,7 +1737,12 @@ pub async fn delete_agent_procedural_memory_cmd(
 pub async fn list_agent_configs_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<DbAgentConfig>, String> {
-    state.db.list_agent_configs().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.list_agent_configs())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1594,9 +1751,11 @@ pub async fn save_agent_config_cmd(
     config: SaveAgentConfigInput,
 ) -> Result<DbAgentConfig, String> {
     state
-        .db
-        .save_agent_config(&config)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.save_agent_config(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1604,7 +1763,12 @@ pub async fn delete_agent_config_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    state.db.delete_agent_config(&id).map_err(|e| e.to_string())
+    state
+        .db_executor
+        .write(move |db| db.delete_agent_config(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1613,9 +1777,11 @@ pub async fn set_default_agent_config_cmd(
     id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .set_default_agent_config(&id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.set_default_agent_config(&id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // Settings Schema V2 remains compatible with AgentConfig during PR 8. These
@@ -1623,7 +1789,7 @@ pub async fn set_default_agent_config_cmd(
 // future Settings UI to the legacy provider form.
 
 #[tauri::command]
-pub async fn get_settings_schema_state_v2_cmd(
+pub fn get_settings_schema_state_v2_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<SettingsSchemaStateV2, String> {
     state
@@ -1637,8 +1803,10 @@ pub async fn list_settings_profiles_v2_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<SettingsProfileV2>, String> {
     state
-        .db
-        .list_settings_profiles_v2()
+        .db_executor
+        .write(move |db| db.list_settings_profiles_v2())
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1649,8 +1817,10 @@ pub async fn save_settings_profile_v2_cmd(
     expected_revision: Option<u64>,
 ) -> Result<SettingsProfileV2, String> {
     state
-        .db
-        .save_settings_profile_v2(&profile, expected_revision)
+        .db_executor
+        .write(move |db| db.save_settings_profile_v2(&profile, expected_revision))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1663,8 +1833,17 @@ pub async fn save_capability_binding_v2_cmd(
     expected_profile_revision: u64,
 ) -> Result<SettingsProfileV2, String> {
     state
-        .db
-        .save_capability_binding_v2(&scope, &capability_id, &binding, expected_profile_revision)
+        .db_executor
+        .write(move |db| {
+            db.save_capability_binding_v2(
+                &scope,
+                &capability_id,
+                &binding,
+                expected_profile_revision,
+            )
+        })
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1675,8 +1854,12 @@ pub async fn delete_vision_observation_cache_cmd(
     profile_hash: Option<String>,
 ) -> Result<usize, String> {
     state
-        .db
-        .delete_vision_observation_cache(&attachment_hash, profile_hash.as_deref())
+        .db_executor
+        .write(move |db| {
+            db.delete_vision_observation_cache(&attachment_hash, profile_hash.as_deref())
+        })
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1685,8 +1868,10 @@ pub async fn clear_vision_observation_cache_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<usize, String> {
     state
-        .db
-        .clear_vision_observation_cache()
+        .db_executor
+        .write(move |db| db.clear_vision_observation_cache())
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1695,8 +1880,10 @@ pub async fn migrate_settings_schema_v2_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<SettingsMigrationReportV2, String> {
     state
-        .db
-        .migrate_settings_schema_v2()
+        .db_executor
+        .write(move |db| db.migrate_settings_schema_v2())
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1705,8 +1892,10 @@ pub async fn rollback_settings_schema_v2_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<bool, String> {
     state
-        .db
-        .rollback_settings_schema_v2()
+        .db_executor
+        .write(move |db| db.rollback_settings_schema_v2())
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1716,8 +1905,10 @@ pub async fn get_capability_registry_projection_cmd(
     scope: RegistryScope,
 ) -> Result<CapabilityRegistryProjection, String> {
     state
-        .db
-        .capability_registry_projection(&scope)
+        .db_executor
+        .write(move |db| db.capability_registry_projection(&scope))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1730,8 +1921,10 @@ pub async fn set_capability_registry_read_mode_cmd(
     expected_revision: u64,
 ) -> Result<RegistryActivationRecord, String> {
     state
-        .db
-        .set_registry_read_mode(&capability_id, &scope, mode, expected_revision)
+        .db_executor
+        .write(move |db| db.set_registry_read_mode(&capability_id, &scope, mode, expected_revision))
+        .await
+        .map(|execution| execution.value)
         .map_err(|error| error.to_string())
 }
 
@@ -1827,6 +2020,6 @@ pub async fn refresh_provider_model_catalog_cmd(
 }
 
 #[tauri::command]
-pub async fn list_provider_presets_cmd() -> Result<Vec<ProviderPreset>, String> {
+pub fn list_provider_presets_cmd() -> Result<Vec<ProviderPreset>, String> {
     load_provider_presets().map_err(|e| e.to_string())
 }

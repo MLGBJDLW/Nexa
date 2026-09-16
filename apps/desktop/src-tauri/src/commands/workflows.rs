@@ -511,7 +511,7 @@ async fn launch_authoritative_scheduled_workflow(
     }
 }
 #[tauri::command]
-pub async fn save_workflow_automation_cmd(
+pub fn save_workflow_automation_cmd(
     state: tauri::State<'_, AppState>,
     input: SaveWorkflowAutomationInput,
     schedule_config: Option<WorkflowAutomationScheduleConfig>,
@@ -525,7 +525,7 @@ pub async fn save_workflow_automation_cmd(
 }
 
 #[tauri::command]
-pub async fn list_workflow_automations_cmd(
+pub fn list_workflow_automations_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<WorkflowAutomation>, String> {
     state
@@ -535,7 +535,7 @@ pub async fn list_workflow_automations_cmd(
 }
 
 #[tauri::command]
-pub async fn delete_workflow_automation_cmd(
+pub fn delete_workflow_automation_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
@@ -546,7 +546,7 @@ pub async fn delete_workflow_automation_cmd(
 }
 
 #[tauri::command]
-pub async fn set_workflow_automation_enabled_cmd(
+pub fn set_workflow_automation_enabled_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     enabled: bool,
@@ -558,7 +558,7 @@ pub async fn set_workflow_automation_enabled_cmd(
 }
 
 #[tauri::command]
-pub async fn preview_workflow_automation_schedule_cmd(
+pub fn preview_workflow_automation_schedule_cmd(
     cron: String,
     timezone: String,
     after: Option<String>,
@@ -576,7 +576,7 @@ pub async fn preview_workflow_automation_schedule_cmd(
 }
 
 #[tauri::command]
-pub async fn list_due_workflow_automations_cmd(
+pub fn list_due_workflow_automations_cmd(
     state: tauri::State<'_, AppState>,
     now: Option<String>,
 ) -> Result<Vec<WorkflowAutomationDueRun>, String> {
@@ -589,7 +589,7 @@ pub async fn list_due_workflow_automations_cmd(
 }
 
 #[tauri::command]
-pub async fn list_due_task_orchestrator_queue_cmd(
+pub fn list_due_task_orchestrator_queue_cmd(
     state: tauri::State<'_, AppState>,
     now: Option<String>,
 ) -> Result<Vec<TaskOrchestratorQueueItem>, String> {
@@ -603,7 +603,7 @@ pub async fn list_due_task_orchestrator_queue_cmd(
 }
 
 #[tauri::command]
-pub async fn preview_workflow_automation_prompt_cmd(
+pub fn preview_workflow_automation_prompt_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<String, String> {
@@ -614,7 +614,7 @@ pub async fn preview_workflow_automation_prompt_cmd(
 }
 
 #[tauri::command]
-pub async fn prepare_workflow_automation_delivery_cmd(
+pub fn prepare_workflow_automation_delivery_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<TaskOrchestratorDeliveryEnvelope, String> {
@@ -635,7 +635,7 @@ pub async fn prepare_workflow_automation_delivery_cmd(
 }
 
 #[tauri::command]
-pub async fn prepare_due_workflow_automation_delivery_cmd(
+pub fn prepare_due_workflow_automation_delivery_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     now: Option<String>,
@@ -654,7 +654,7 @@ pub async fn prepare_due_workflow_automation_delivery_cmd(
 }
 
 #[tauri::command]
-pub async fn queue_workflow_automation_delivery_cmd(
+pub fn queue_workflow_automation_delivery_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     summary: Option<String>,
@@ -767,7 +767,7 @@ pub async fn start_workflow_automation_run_cmd(
 }
 
 #[tauri::command]
-pub async fn queue_due_workflow_automation_delivery_cmd(
+pub fn queue_due_workflow_automation_delivery_cmd(
     state: tauri::State<'_, AppState>,
     id: String,
     now: Option<String>,
@@ -816,7 +816,7 @@ pub async fn start_due_workflow_automation_run_cmd(
 }
 
 #[tauri::command]
-pub async fn list_workflow_automation_approvals_cmd(
+pub fn list_workflow_automation_approvals_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<WorkflowAutomationRun>, String> {
     state
@@ -881,7 +881,7 @@ pub async fn approve_workflow_automation_run_cmd(
 }
 
 #[tauri::command]
-pub async fn deny_workflow_automation_run_cmd(
+pub fn deny_workflow_automation_run_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,
 ) -> Result<WorkflowAutomationRun, String> {
@@ -1003,7 +1003,7 @@ pub async fn run_task_orchestrator_scheduler_tick(
 }
 
 #[tauri::command]
-pub async fn record_workflow_automation_run_cmd(
+pub fn record_workflow_automation_run_cmd(
     state: tauri::State<'_, AppState>,
     automation_id: String,
     task_run_id: Option<String>,
@@ -1022,7 +1022,7 @@ pub async fn record_workflow_automation_run_cmd(
 }
 
 #[tauri::command]
-pub async fn list_workflow_automation_scheduler_events_cmd(
+pub fn list_workflow_automation_scheduler_events_cmd(
     state: tauri::State<'_, AppState>,
     automation_id: Option<String>,
     limit: Option<usize>,
@@ -1034,7 +1034,7 @@ pub async fn list_workflow_automation_scheduler_events_cmd(
 }
 
 #[tauri::command]
-pub async fn list_workflow_automation_scheduler_events_for_task_run_cmd(
+pub fn list_workflow_automation_scheduler_events_for_task_run_cmd(
     state: tauri::State<'_, AppState>,
     task_run_id: String,
     limit: Option<usize>,
@@ -1046,7 +1046,7 @@ pub async fn list_workflow_automation_scheduler_events_for_task_run_cmd(
 }
 
 #[tauri::command]
-pub async fn export_workflow_automation_trajectory_cmd(
+pub fn export_workflow_automation_trajectory_cmd(
     state: tauri::State<'_, AppState>,
     workflow_run_id: String,
     redaction_profile: Option<nexa_core::trajectory::TrajectoryRedactionProfile>,
@@ -1061,7 +1061,7 @@ pub async fn export_workflow_automation_trajectory_cmd(
 }
 
 #[tauri::command]
-pub async fn list_task_resume_checkpoints_cmd(
+pub fn list_task_resume_checkpoints_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,
 ) -> Result<Vec<TaskResumeCheckpoint>, String> {
@@ -1072,7 +1072,7 @@ pub async fn list_task_resume_checkpoints_cmd(
 }
 
 #[tauri::command]
-pub async fn get_task_resume_prompt_cmd(
+pub fn get_task_resume_prompt_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,
 ) -> Result<TaskResumePrompt, String> {
@@ -1425,7 +1425,7 @@ mod pause_tests {
 }
 
 #[tauri::command]
-pub async fn get_investigation_graph_cmd(
+pub fn get_investigation_graph_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,
 ) -> Result<InvestigationGraph, String> {
@@ -1436,7 +1436,7 @@ pub async fn get_investigation_graph_cmd(
 }
 
 #[tauri::command]
-pub async fn get_learning_governance_snapshot_cmd(
+pub fn get_learning_governance_snapshot_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<LearningGovernanceSnapshot, String> {
     state

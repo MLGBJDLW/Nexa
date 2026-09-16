@@ -197,6 +197,66 @@ test('pausing invalidates an already-loaded empty checkpoint cache so the paused
   assertEqual(autoLoadedRuns.has('run-1'), false, 'paused-run autoload may run again');
 });
 
+test('idempotent terminal launch replies never leave the chat thinking', () => {
+  for (const terminal of ['completed', 'failed', 'cancelled', 'timed_out'] as const) {
+    const conversationId = `terminal-launch-${terminal}`;
+    streamStore.startStream(conversationId);
+    streamStore.bindTurnHandle(conversationId, {
+      sessionId: conversationId, runId: 'already-ended', turnId: 'old-turn', state: { terminal },
+    });
+    const state = streamStore.getStream(conversationId)!;
+    assertEqual(state.isStreaming, false, 'an already-ended launch has no executor to wait for');
+    assertEqual(state.isThinking, false, 'terminal launch must clear thinking immediately');
+    streamStore.dispatch(conversationId, { conversationId, runEvent: {
+      ...runEvent({ eventSeq: 1, kind: 'status', status: 'running' }),
+      runId: 'already-ended', turnId: 'old-turn',
+    } });
+    assertEqual(streamStore.getStream(conversationId)?.isStreaming, false, 'late running events cannot reopen a terminal launch');
+    streamStore.clearStream(conversationId);
+  }
+});
+
+test('legacy empty launch replies retain event-driven streaming without crashing', () => {
+  streamStore.startStream('legacy-empty-handle');
+  streamStore.bindTurnHandle('legacy-empty-handle', null);
+  assertEqual(streamStore.getStream('legacy-empty-handle')?.isStreaming, true, 'a legacy launch has no terminal receipt');
+  streamStore.clearStream('legacy-empty-handle');
+});
+
+test('terminal run events clear unresolved approval overlays', () => {
+  const conversationId = 'terminal-approval';
+  streamStore.startStream(conversationId);
+  streamStore.dispatch(conversationId, { conversationId, runEvent: runEvent({ eventSeq: 1, kind: 'approvalRequested', payload: {
+    request: { id: 'approval-abandoned', toolName: 'run_shell', status: 'pending' },
+  } }) });
+  assertEqual(streamStore.getStream(conversationId)?.pendingApprovals.length, 1, 'approval fixture must be active');
+  streamStore.dispatch(conversationId, { conversationId, runEvent: runEvent({ eventSeq: 2, kind: 'error', payload: { message: 'Run stopped' } }) });
+  assertEqual(streamStore.getStream(conversationId)?.pendingApprovals.length, 0, 'ended runs cannot leave actionable approval overlays');
+  streamStore.clearStream(conversationId);
+});
+
+test('authoritative failure snapshots settle the matching run even if terminal delivery was lost', () => {
+  const conversationId = 'snapshot-terminal';
+  streamStore.startStream(conversationId);
+  streamStore.bindTurnHandle(conversationId, { sessionId: conversationId, runId: 'run-1', turnId: 'turn-1', state: 'running' });
+  streamStore.applyTaskSnapshot({ type: 'taskRunUpdated', conversationId, taskRun: { ...taskRun('failed'), id: 'retired-run', conversationId } });
+  assertEqual(streamStore.getStream(conversationId)?.isStreaming, true, 'unrelated snapshots must not stop this run');
+  streamStore.applyTaskSnapshot({ type: 'taskRunUpdated', conversationId, taskRun: { ...taskRun('failed'), conversationId } });
+  assertEqual(streamStore.getStream(conversationId)?.isStreaming, false, 'durable failure is authoritative even without a final event');
+  assertEqual(streamStore.getStream(conversationId)?.isThinking, false, 'failed snapshot clears thinking');
+  streamStore.clearStream(conversationId);
+});
+
+test('cancelled snapshots clear cancellation labels from the error UI', () => {
+  const conversationId = 'snapshot-cancelled';
+  streamStore.startStream(conversationId);
+  streamStore.bindTurnHandle(conversationId, { sessionId: conversationId, runId: 'run-1', turnId: 'turn-1', state: 'running' });
+  streamStore.applyTaskSnapshot({ type: 'taskRunUpdated', conversationId, taskRun: { ...taskRun('cancelled'), conversationId, errorMessage: 'Request cancelled by user' } });
+  assertEqual(streamStore.getStream(conversationId)?.isStreaming, false, 'cancelled snapshot must settle');
+  assertEqual(streamStore.getStream(conversationId)?.error, null, 'normal cancellation must not become a failure banner');
+  streamStore.clearStream(conversationId);
+});
+
 test('paused launch handles are resumable stream suspensions', () => {
   assertEqual(agentTurnStateSuspendsStream('paused'), true, 'paused handle suspends transport');
   assertEqual(

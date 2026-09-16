@@ -2204,6 +2204,108 @@ impl LlmProvider for SteeringInterruptProvider {
 
 struct MockTool;
 
+struct ScopedActivityTool;
+
+#[async_trait]
+impl Tool for ScopedActivityTool {
+    fn name(&self) -> &str {
+        "mock_tool"
+    }
+    fn description(&self) -> &str {
+        "Start a delegated build activity"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type":"object"})
+    }
+    async fn execute(
+        &self,
+        context: crate::tools::ToolExecutionContext<'_>,
+    ) -> Result<ToolResult, CoreError> {
+        use crate::activity::{ActivitySpec, ActivitySurface};
+        let mut spec = ActivitySpec::new(ActivitySurface::Process, "run_shell")
+            .with_activity_id("delegated-build");
+        if let Some(id) = context.conversation_id {
+            spec = spec.with_conversation_id(id);
+        }
+        if let Some(id) = context.turn_id {
+            spec = spec.with_turn_id(id);
+        }
+        context.activity_runtime.unwrap().start(spec)?;
+        Ok(ToolResult {
+            call_id: context.call_id.into(),
+            content: "build started".into(),
+            is_error: false,
+            artifacts: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn delegated_process_is_observable_by_parent_without_child_transcript_persistence() {
+    let db = Database::open_memory().unwrap();
+    let runtime = crate::activity::ActivityRuntime::new();
+    let mut tools = ToolRegistry::new();
+    tools.register(Box::new(ScopedActivityTool));
+    let executor = AgentExecutor::new(
+        Box::new(MockProvider {
+            stream_calls: Arc::new(AtomicUsize::new(0)),
+        }),
+        tools,
+        AgentConfig {
+            model: Some("mock-model".into()),
+            max_iterations: 1,
+            ..Default::default()
+        },
+    )
+    .with_activity_runtime(runtime.clone())
+    .with_tool_scope("parent-conversation".into(), Some("parent-turn".into()));
+    let (tx, mut rx) = mpsc::channel(128);
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "build".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    drain.await.unwrap();
+    let activity = runtime.get("delegated-build").unwrap();
+    assert_eq!(
+        activity.conversation_id.as_deref(),
+        Some("parent-conversation")
+    );
+    assert_eq!(activity.turn_id.as_deref(), Some("parent-turn"));
+    let result = crate::tools::activity_tool::ActivityObserveTool
+        .execute(
+            crate::tools::ToolExecutionContext::new(
+                "parent-observe",
+                r#"{"activityId":"delegated-build","waitUpToMs":0}"#,
+                &db,
+                &[],
+            )
+            .with_activity_runtime(&runtime)
+            .with_conversation_id(Some("parent-conversation")),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    let messages: i64 = db
+        .conn()
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        messages, 0,
+        "private child messages must not enter the parent's history"
+    );
+}
+
 struct RecordingTool {
     executions: Arc<AtomicUsize>,
 }
@@ -2510,6 +2612,116 @@ struct ScriptedProvider {
     stream_calls: Arc<AtomicUsize>,
     first_chunks: Vec<StreamChunk>,
     final_answer: &'static str,
+}
+
+#[tokio::test]
+async fn completion_wait_streams_existing_process_output_before_it_finishes() {
+    use crate::activity::{
+        ActivityEventKind, ActivityRuntime, ActivitySpec, ActivityState, ActivitySurface,
+    };
+    let db = Database::open_memory().unwrap();
+    let runtime = ActivityRuntime::new();
+    let activity = runtime
+        .start(
+            ActivitySpec::new(ActivitySurface::Process, "run_shell")
+                .with_conversation_id("build-owner"),
+        )
+        .unwrap();
+    let foreign = runtime
+        .start(
+            ActivitySpec::new(ActivitySurface::Process, "run_shell")
+                .with_conversation_id("other-owner"),
+        )
+        .unwrap();
+    let mut tools = ToolRegistry::new();
+    tools.register(Box::new(crate::tools::activity_tool::ActivityObserveTool));
+    let provider = ScriptedProvider {
+        stream_calls: Arc::new(AtomicUsize::new(0)), final_answer: "build complete",
+        first_chunks: vec![StreamChunk { delta: String::new(), tool_call_delta: Some(ToolCallDelta {
+            id:"wait-build".into(), name:Some("activity_observe".into()), index:Some(0), thought_signature:None,
+            arguments_delta: serde_json::json!({"activityId":activity.activity_id,"waitFor":"completion","waitUpToMs":5000}).to_string().into(),
+        }), finish_reason:Some(FinishReason::Stop), usage:None, thinking_delta:None }],
+    };
+    let executor = AgentExecutor::new(
+        Box::new(provider),
+        tools,
+        AgentConfig {
+            max_iterations: 1,
+            ..Default::default()
+        },
+    )
+    .with_activity_runtime(runtime.clone())
+    .with_tool_scope("build-owner".into(), None);
+    let (tx, mut rx) = mpsc::channel(128);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let collect = tokio::spawn(async move {
+        let mut ready = Some(ready_tx);
+        let mut chunks = Vec::new();
+        while let Some(event) = rx.recv().await {
+            if let AgentEvent::ToolRunUpdated { run } = event {
+                if run.status == ToolRunStatus::Running {
+                    if let Some(sender) = ready.take() {
+                        let _ = sender.send(());
+                    }
+                }
+                if let Some(data) = run
+                    .artifacts
+                    .as_ref()
+                    .and_then(|value| value.pointer("/activity/payload/data"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    chunks.push(data.to_string());
+                }
+            }
+        }
+        chunks
+    });
+    let writer = tokio::spawn(async move {
+        ready_rx.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        runtime
+            .append(
+                &activity.activity_id,
+                ActivityEventKind::StdoutChunk,
+                serde_json::json!({"data":"Compiling 2/3"}),
+            )
+            .unwrap();
+        runtime
+            .append(
+                &foreign.activity_id,
+                ActivityEventKind::StdoutChunk,
+                serde_json::json!({"data":"foreign secret"}),
+            )
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        runtime
+            .transition(
+                &activity.activity_id,
+                ActivityState::Completed,
+                serde_json::json!({"exitCode":0}),
+            )
+            .unwrap();
+    });
+    executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "wait for build".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    writer.await.unwrap();
+    assert_eq!(
+        collect.await.unwrap(),
+        vec!["Compiling 2/3"],
+        "output must reach the UI during the same wait, without leaking another conversation"
+    );
 }
 
 struct ThoughtOnlyProvider {

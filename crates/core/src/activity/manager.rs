@@ -308,6 +308,8 @@ impl ActivityRuntime {
         let deadline = tokio::time::Instant::now() + wait_up_to;
         loop {
             let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             let observation = self.snapshot(activity_id, after_seq, false)?;
             if !observation.events.is_empty()
                 || observation.record.state.is_terminal()
@@ -316,7 +318,37 @@ impl ActivityRuntime {
                 return Ok(observation);
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() || tokio::time::timeout(remaining, notified).await.is_err() {
+            if remaining.is_zero()
+                || tokio::time::timeout(remaining, &mut notified)
+                    .await
+                    .is_err()
+            {
+                return self.snapshot(activity_id, after_seq, true);
+            }
+        }
+    }
+
+    /// Keep one cancellable tool call attached to a build through intermediate
+    /// output. Broadcast progress still reaches the UI while this future waits.
+    pub async fn wait_for_completion(
+        &self,
+        activity_id: &str,
+        after_seq: u64,
+        wait_up_to: Duration,
+    ) -> Result<ActivityObservation, CoreError> {
+        let deadline = tokio::time::Instant::now() + wait_up_to.min(Duration::from_secs(60));
+        loop {
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let observation = self.snapshot(activity_id, after_seq, false)?;
+            if observation.record.state.is_terminal() {
+                return Ok(observation);
+            }
+            if tokio::time::timeout_at(deadline, &mut notified)
+                .await
+                .is_err()
+            {
                 return self.snapshot(activity_id, after_seq, true);
             }
         }

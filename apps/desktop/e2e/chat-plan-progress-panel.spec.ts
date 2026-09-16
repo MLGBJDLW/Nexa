@@ -851,7 +851,7 @@ test('floating plan capsule renders only the update_plan checklist', async ({ pa
   await expect(subagentStatus).toContainText('Researcher');
   await expect(subagentStatus).toContainText('Running');
   await expect(subagentStatus).toContainText('Verify Mermaid fallback');
-  await expect(subagentStatus).toContainText('1/3');
+  await expect(subagentStatus).toContainText('2/3');
   await expect(subagentStatus).toContainText('Cancelled evidence branch');
   await expect(expanded).not.toContainText('Verification summary that should not render');
 
@@ -874,7 +874,7 @@ test('subtask overview remains visible without a plan or goal and preserves canc
   const expanded = board.getByTestId('task-board-expanded');
   await expect(expanded).toContainText('Cancelled evidence branch');
   await expect(expanded).toContainText('Stopped');
-  await expect(expanded).toContainText('1/3');
+  await expect(expanded).toContainText('2/3');
 });
 
 

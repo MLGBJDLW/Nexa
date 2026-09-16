@@ -558,7 +558,7 @@ impl Tool for SubagentLifecycleTool {
                 "Read a spawned subagent's current state and incremental lifecycle events without blocking the parent turn."
             }
             SubagentLifecycleAction::Wait => {
-                "Wait for a spawned subagent to settle, up to a bounded timeout, and return its authoritative result snapshot."
+                "Wait for a spawned subagent to settle and return its authoritative result. Defaults to 30 seconds, up to 60 seconds; UI progress and cancellation remain live. Continue waiting when timedOut is true and the worker remains active; do not restart its build."
             }
             SubagentLifecycleAction::SendInput => {
                 "Steer an active spawned subagent with additional user-authored input."
@@ -601,9 +601,9 @@ impl Tool for SubagentLifecycleTool {
                 properties["waitMs"] = serde_json::json!({
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 2500,
-                    "default": 2500,
-                    "description": "One steering-friendly wait quantum for terminal state"
+                    "maximum": 60000,
+                    "default": 30000,
+                    "description": "Cancellable wait for terminal state; progress remains visible"
                 });
             }
             vec!["agentId"]
@@ -662,12 +662,13 @@ impl Tool for SubagentLifecycleTool {
                 )
             }
             SubagentLifecycleAction::Wait => {
+                let started = std::time::Instant::now();
                 let wait_result = self
                     .runtime
                     .lifecycle
                     .wait(
                         agent_id,
-                        Duration::from_millis(args.wait_ms.unwrap_or(2_500).min(2_500)),
+                        Duration::from_millis(args.wait_ms.unwrap_or(30_000).min(60_000)),
                     )
                     .await?;
                 let result_text = wait_result
@@ -696,6 +697,7 @@ impl Tool for SubagentLifecycleTool {
                         "kind": "subagent_wait_result",
                         "worker": wait_result.worker,
                         "timedOut": wait_result.timed_out,
+                        "waitedMs": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     }),
                 )
             }

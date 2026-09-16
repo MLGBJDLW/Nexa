@@ -202,6 +202,8 @@ export function CompanionWindowPage() {
   const [lookDirection, setLookDirection] = useState<number | null>(null);
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
   const refreshTimer = useRef<number | null>(null);
+  const projectionRefreshPending = useRef(false);
+  const projectionRefreshRequested = useRef(false);
   const runtimeRequest = useRef(0);
   const runtimeRef = useRef<DecodedCompanionRuntime | null>(null);
   const rendererReadySent = useRef(false);
@@ -217,8 +219,20 @@ export function CompanionWindowPage() {
   const nextIdleAction = useRef<'gesture' | 'walk'>('walk');
 
   const refreshProjection = useCallback(async () => {
-    const next = await api.getGlobalCompanionProjection().catch(() => null);
-    setProjection(next);
+    projectionRefreshRequested.current = true;
+    if (projectionRefreshPending.current) return;
+    projectionRefreshPending.current = true;
+    try {
+      do {
+        projectionRefreshRequested.current = false;
+        const next = await api.getGlobalCompanionProjection().catch(() => null);
+        // If an event arrived during this read, immediately fetch the latest
+        // state once. Never accumulate simultaneous history queries.
+        setProjection(next);
+      } while (projectionRefreshRequested.current);
+    } finally {
+      projectionRefreshPending.current = false;
+    }
   }, []);
 
   const scheduleProjectionRefresh = useCallback(() => {

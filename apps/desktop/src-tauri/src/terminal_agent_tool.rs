@@ -190,7 +190,7 @@ impl TerminalAgentTool {
                     payload.push('\r');
                 }
                 self.state
-                    .write_session(&snapshot.session.id, &payload)
+                    .write_session_async(&snapshot.session.id, &payload).await
                     .map_err(CoreError::InvalidInput)?;
                 Ok(ToolResult {
                     call_id: call_id.to_string(),
@@ -216,7 +216,7 @@ impl TerminalAgentTool {
             }
             "interrupt" => {
                 self.state
-                    .write_session(&snapshot.session.id, "\u{3}")
+                    .write_session_async(&snapshot.session.id, "\u{3}").await
                     .map_err(CoreError::InvalidInput)?;
                 if let Some(runtime) = activity_runtime {
                     let activity_id = self
@@ -285,7 +285,7 @@ impl TerminalAgentTool {
             }
             "close" => {
                 self.state
-                    .close_session(&snapshot.session.id)
+                    .close_session_async(&snapshot.session.id).await
                     .map_err(CoreError::InvalidInput)?;
                 Ok(ToolResult {
                     call_id: call_id.to_string(),
@@ -363,7 +363,11 @@ impl TerminalAgentTool {
         }
 
         let baseline_cursor = snapshot.output_end;
-        if let Err(error) = self.state.write_session(&snapshot.session.id, &payload) {
+        if let Err(error) = self
+            .state
+            .write_session_async(&snapshot.session.id, &payload)
+            .await
+        {
             let _ = runtime.transition(
                 call_id,
                 ActivityState::Failed,

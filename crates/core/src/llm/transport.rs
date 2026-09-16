@@ -23,6 +23,7 @@ pub(crate) enum HttpTransportMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TransportPoolKey {
+    runtime_id: Option<tokio::runtime::Id>,
     endpoint: String,
     transport_profile: HttpTransportMode,
     connect_timeout_ms: u64,
@@ -32,6 +33,9 @@ impl TransportPoolKey {
     fn from_config(config: &ProviderConfig) -> Self {
         let endpoint = normalized_endpoint(config);
         Self {
+            runtime_id: tokio::runtime::Handle::try_current()
+                .ok()
+                .map(|handle| handle.id()),
             transport_profile: initial_transport_mode(config.provider_type, &endpoint),
             endpoint,
             connect_timeout_ms: config
@@ -88,7 +92,13 @@ pub(crate) struct HttpTransport {
     initial_mode: HttpTransportMode,
     connect_timeout: Duration,
     direct: bool,
-    current: Mutex<Option<(u64, Arc<HttpRequestTransport>)>>,
+    current: Mutex<Option<HttpClientGeneration>>,
+}
+
+struct HttpClientGeneration {
+    proxy_fingerprint: u64,
+    runtime_id: Option<tokio::runtime::Id>,
+    clients: Arc<HttpRequestTransport>,
 }
 
 impl HttpTransport {
@@ -118,17 +128,27 @@ impl HttpTransport {
         fingerprint: u64,
         build: impl FnOnce() -> Result<HttpRequestTransport, CoreError>,
     ) -> Result<Arc<HttpRequestTransport>, CoreError> {
+        // Hyper dispatch tasks belong to the runtime that issued the request.
+        // A provider can move from a short-lived worker to the parent runtime;
+        // retaining its old pool produces "runtime dropped the dispatch task".
+        let runtime_id = tokio::runtime::Handle::try_current()
+            .ok()
+            .map(|handle| handle.id());
         let mut current = self
             .current
             .lock()
             .map_err(|_| CoreError::Internal("HTTP client generation lock poisoned".into()))?;
-        if let Some((existing, transport)) = &*current {
-            if *existing == fingerprint {
-                return Ok(Arc::clone(transport));
+        if let Some(generation) = &*current {
+            if generation.proxy_fingerprint == fingerprint && generation.runtime_id == runtime_id {
+                return Ok(Arc::clone(&generation.clients));
             }
         }
         let transport = Arc::new(build()?);
-        *current = Some((fingerprint, Arc::clone(&transport)));
+        *current = Some(HttpClientGeneration {
+            proxy_fingerprint: fingerprint,
+            runtime_id,
+            clients: Arc::clone(&transport),
+        });
         Ok(transport)
     }
 }
@@ -454,6 +474,24 @@ mod tests {
 
     use super::{shared_http_transport, HttpTransportMode, H2_RESET_DOWNGRADE_THRESHOLD};
     use crate::llm::{ProviderConfig, ProviderType};
+
+    #[test]
+    fn requests_after_worker_shutdown_do_not_reuse_its_runtime_connections() {
+        let config = config(ProviderType::Custom, Some("http://127.0.0.1:41987"), "test");
+        let owner = shared_http_transport(&config).unwrap();
+        let worker = tokio::runtime::Runtime::new().unwrap();
+        let worker_clients = worker.block_on(async { owner.for_request().unwrap() });
+        drop(worker);
+        let parent = tokio::runtime::Runtime::new().unwrap();
+        let parent_clients = parent.block_on(async { owner.for_request().unwrap() });
+        assert!(
+            !Arc::ptr_eq(&worker_clients, &parent_clients),
+            "a terminated worker's connection dispatch tasks cannot serve the parent"
+        );
+        parent.block_on(async {
+            assert!(Arc::ptr_eq(&parent_clients, &owner.for_request().unwrap()));
+        });
+    }
 
     fn config(
         provider_type: ProviderType,

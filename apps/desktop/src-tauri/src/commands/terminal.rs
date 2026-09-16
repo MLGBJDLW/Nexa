@@ -23,6 +23,10 @@ pub fn terminal_appearance_cmd(shell: Option<String>, light: Option<bool>) -> Te
 const TERMINAL_EVENT: &str = "terminal:event";
 const MAX_TERMINAL_OUTPUT_CHARS: usize = 180_000;
 
+#[cfg(all(test, windows))]
+#[path = "terminal_native_smoke.rs"]
+mod native_smoke;
+
 #[derive(Clone, Default)]
 pub struct TerminalState {
     sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
@@ -30,7 +34,7 @@ pub struct TerminalState {
 }
 
 struct TerminalSession {
-    master: Box<dyn MasterPty + Send>,
+    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
     shell: String,
@@ -166,7 +170,7 @@ pub fn terminal_start_session_cmd(
         let session_id = Uuid::new_v4().to_string();
         let output = Arc::new(Mutex::new(TerminalOutputBuffer::default()));
         let session = TerminalSession {
-            master: pair.master,
+            master: Arc::new(Mutex::new(pair.master)),
             writer: Arc::new(Mutex::new(writer)),
             killer: Arc::new(Mutex::new(child.clone_killer())),
             shell: shell_label,
@@ -234,15 +238,21 @@ pub fn terminal_resize_session_cmd(
     rows: u16,
     cols: u16,
 ) -> Result<(), String> {
-    let sessions = state
-        .sessions
+    let master = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "terminal session state is unavailable".to_string())?;
+        sessions
+            .get(&session_id)
+            .ok_or_else(|| "terminal session is no longer running".to_string())?
+            .master
+            .clone()
+    };
+    let master = master
         .lock()
-        .map_err(|_| "terminal session state is unavailable".to_string())?;
-    let session = sessions
-        .get(&session_id)
-        .ok_or_else(|| "terminal session is no longer running".to_string())?;
-    session
-        .master
+        .map_err(|_| "terminal pty is unavailable".to_string())?;
+    master
         .resize(PtySize {
             rows: rows.clamp(5, 200),
             cols: cols.clamp(20, 400),
@@ -358,6 +368,23 @@ fn spawn_terminal_reader(
 }
 
 impl TerminalState {
+    pub async fn write_session_async(&self, session_id: &str, data: &str) -> Result<(), String> {
+        let state = self.clone();
+        let session_id = session_id.to_string();
+        let data = data.to_string();
+        tauri::async_runtime::spawn_blocking(move || state.write_session(&session_id, &data))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+
+    pub async fn close_session_async(&self, session_id: &str) -> Result<(), String> {
+        let state = self.clone();
+        let session_id = session_id.to_string();
+        tauri::async_runtime::spawn_blocking(move || state.close_session(&session_id))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+
     pub fn active_session(
         &self,
         conversation_id: &str,
@@ -481,21 +508,23 @@ impl TerminalState {
         session_id: &str,
         max_chars: usize,
     ) -> Result<TerminalSessionSnapshot, String> {
-        let sessions = self
-            .sessions
-            .lock()
-            .map_err(|_| "terminal session state is unavailable".to_string())?;
-        let session = sessions
-            .get(session_id)
-            .ok_or_else(|| "terminal session is no longer running".to_string())?;
-        let output = session
-            .output
+        let (info, output) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| "terminal session state is unavailable".to_string())?;
+            let session = sessions
+                .get(session_id)
+                .ok_or_else(|| "terminal session is no longer running".to_string())?;
+            (session_info(session_id, session), session.output.clone())
+        };
+        let output = output
             .lock()
             .map_err(|_| "terminal output buffer is unavailable".to_string())?;
         let max_chars = max_chars.clamp(1, MAX_TERMINAL_OUTPUT_CHARS);
         let tail_start = terminal_output_tail_start(&output.text, max_chars);
         Ok(TerminalSessionSnapshot {
-            session: session_info(session_id, session),
+            session: info,
             output: output.text[tail_start..].to_string(),
             output_start: output.start_cursor.saturating_add(tail_start as u64),
             output_end: output.start_cursor.saturating_add(output.text.len() as u64),
@@ -609,18 +638,22 @@ fn spawn_terminal_waiter(
 ) {
     thread::spawn(move || {
         let result = child.wait();
-        if let Ok(mut sessions) = sessions.lock() {
-            let conversation_id = sessions
-                .remove(&session_id)
-                .and_then(|session| session.conversation_id);
-            if let (Some(conversation_id), Ok(mut active)) =
-                (conversation_id, active_by_conversation.lock())
-            {
+        // Dropping the last ConPTY master can wait for its output pipe to
+        // drain. The reader must remain able to inspect the session registry.
+        let retired = sessions
+            .lock()
+            .ok()
+            .and_then(|mut sessions| sessions.remove(&session_id));
+        if let Some(session) = retired {
+            if let (Some(conversation_id), Ok(mut active)) = (
+                session.conversation_id.as_ref(),
+                active_by_conversation.lock(),
+            ) {
                 if active
-                    .get(&conversation_id)
+                    .get(conversation_id)
                     .is_some_and(|active_id| active_id == &session_id)
                 {
-                    active.remove(&conversation_id);
+                    active.remove(conversation_id);
                 }
             }
         }

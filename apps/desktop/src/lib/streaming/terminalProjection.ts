@@ -11,6 +11,7 @@ import {
 } from './toolStatus';
 
 export interface StreamTerminalProjectionState {
+  pendingApprovals?: unknown[];
   isStreaming: boolean;
   streamText: string;
   streamRounds: StreamRoundEvent[];
@@ -175,6 +176,7 @@ export function applyTerminalProjection(
   },
 ): void {
   state.isStreaming = false;
+  state.pendingApprovals = [];
   state.isThinking = false;
   state.thinkingText = '';
   const toolFallbackMessage = input.toolFallbackMessage ?? input.message;

@@ -23,13 +23,26 @@ pub fn add_source(
 }
 
 #[tauri::command]
-pub fn list_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, String> {
-    state.db.list_sources().map_err(|e| e.to_string())
+pub async fn list_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, String> {
+    state
+        .db_executor
+        .read(move |db| db.list_sources())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn get_source(state: tauri::State<'_, AppState>, source_id: String) -> Result<Source, String> {
-    state.db.get_source(&source_id).map_err(|e| e.to_string())
+pub async fn get_source(
+    state: tauri::State<'_, AppState>,
+    source_id: String,
+) -> Result<Source, String> {
+    state
+        .db_executor
+        .read(move |db| db.get_source(&source_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -266,8 +279,13 @@ pub fn get_evidence_cards(
 // ── Index Commands ──────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_index_stats(state: tauri::State<'_, AppState>) -> Result<IndexStats, String> {
-    state.db.get_index_stats().map_err(|e| e.to_string())
+pub async fn get_index_stats(state: tauri::State<'_, AppState>) -> Result<IndexStats, String> {
+    state
+        .db_executor
+        .read(move |db| db.get_index_stats())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -303,62 +321,75 @@ pub async fn rebuild_index(
 // ── Playbook Commands ───────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn create_playbook(
+pub async fn create_playbook(
     state: tauri::State<'_, AppState>,
     title: String,
     description: String,
     query_text: String,
 ) -> Result<Playbook, String> {
     state
-        .db
-        .create_playbook(&title, &description, &query_text)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.create_playbook(&title, &description, &query_text))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_playbooks(state: tauri::State<'_, AppState>) -> Result<Vec<Playbook>, String> {
-    state.db.list_playbooks().map_err(|e| e.to_string())
+pub async fn list_playbooks(state: tauri::State<'_, AppState>) -> Result<Vec<Playbook>, String> {
+    state
+        .db_executor
+        .read(move |db| db.list_playbooks())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn get_playbook(
+pub async fn get_playbook(
     state: tauri::State<'_, AppState>,
     playbook_id: String,
 ) -> Result<Playbook, String> {
     state
-        .db
-        .get_playbook(&playbook_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_playbook(&playbook_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn update_playbook(
+pub async fn update_playbook(
     state: tauri::State<'_, AppState>,
     playbook_id: String,
     title: String,
     description: String,
 ) -> Result<Playbook, String> {
     state
-        .db
-        .update_playbook(&playbook_id, &title, &description)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_playbook(&playbook_id, &title, &description))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn delete_playbook(
+pub async fn delete_playbook(
     state: tauri::State<'_, AppState>,
     playbook_id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .delete_playbook(&playbook_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.delete_playbook(&playbook_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Citation Commands ───────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn add_citation(
+pub async fn add_citation(
     state: tauri::State<'_, AppState>,
     playbook_id: String,
     chunk_id: String,
@@ -366,49 +397,62 @@ pub fn add_citation(
     sort_order: u32,
 ) -> Result<PlaybookCitation, String> {
     state
-        .db
-        .add_citation(&playbook_id, &chunk_id, &note, sort_order)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.add_citation(&playbook_id, &chunk_id, &note, sort_order))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_citations(
+pub async fn list_citations(
     state: tauri::State<'_, AppState>,
     playbook_id: String,
 ) -> Result<Vec<PlaybookCitation>, String> {
     state
-        .db
-        .list_citations(&playbook_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.list_citations(&playbook_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn remove_citation(
+pub async fn remove_citation(
     state: tauri::State<'_, AppState>,
     citation_id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .remove_citation(&citation_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.remove_citation(&citation_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Query Log Commands ──────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_recent_queries(
+pub async fn get_recent_queries(
     state: tauri::State<'_, AppState>,
     limit: Option<u32>,
 ) -> Result<Vec<QueryLog>, String> {
     state
-        .db
-        .get_recent_queries(limit.unwrap_or(20))
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_recent_queries(limit.unwrap_or(20)))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn clear_recent_queries(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.db.clear_query_logs().map_err(|e| e.to_string())
+pub async fn clear_recent_queries(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.clear_query_logs())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Hybrid Search Commands ──────────────────────────────────────────────
@@ -509,25 +553,29 @@ pub fn add_feedback(
 }
 
 #[tauri::command]
-pub fn get_feedback_for_query(
+pub async fn get_feedback_for_query(
     state: tauri::State<'_, AppState>,
     query_text: String,
 ) -> Result<Vec<Feedback>, String> {
     state
-        .db
-        .get_feedback_for_query(&query_text)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_feedback_for_query(&query_text))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn delete_feedback(
+pub async fn delete_feedback(
     state: tauri::State<'_, AppState>,
     feedback_id: String,
 ) -> Result<(), String> {
     state
-        .db
-        .delete_feedback(&feedback_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.delete_feedback(&feedback_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Message-Level Feedback (learning loop) ─────────────────────────────
@@ -538,7 +586,7 @@ pub fn delete_feedback(
 ///
 /// `rating` semantics: `+1` = upvote, `-1` = downvote, `0` = clear.
 #[tauri::command]
-pub async fn set_message_feedback_cmd(
+pub fn set_message_feedback_cmd(
     state: tauri::State<'_, AppState>,
     message_id: String,
     conversation_id: String,
@@ -692,32 +740,43 @@ fn spawn_learned_success_capture(
 }
 
 #[tauri::command]
-pub fn get_message_feedback_cmd(
+pub async fn get_message_feedback_cmd(
     state: tauri::State<'_, AppState>,
     message_id: String,
 ) -> Result<Option<nexa_core::learning::MessageFeedback>, String> {
     state
-        .db
-        .get_message_feedback(&message_id)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .read(move |db| db.get_message_feedback(&message_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Privacy Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_privacy_config(state: tauri::State<'_, AppState>) -> Result<PrivacyConfig, String> {
-    state.db.load_privacy_config().map_err(|e| e.to_string())
+pub async fn get_privacy_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<PrivacyConfig, String> {
+    state
+        .db_executor
+        .read(move |db| db.load_privacy_config())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn save_privacy_config(
+pub async fn save_privacy_config(
     state: tauri::State<'_, AppState>,
     config: PrivacyConfig,
 ) -> Result<(), String> {
     state
-        .db
-        .save_privacy_config(&config)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.save_privacy_config(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Index Commands (extra) ──────────────────────────────────────────────
@@ -755,47 +814,58 @@ pub async fn optimize_fts_index(
 // ── Citation Commands (extra) ───────────────────────────────────────────
 
 #[tauri::command]
-pub fn update_citation_note(
+pub async fn update_citation_note(
     state: tauri::State<'_, AppState>,
     citation_id: String,
     note: String,
 ) -> Result<(), String> {
     state
-        .db
-        .update_citation_note(&citation_id, &note)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.update_citation_note(&citation_id, &note))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn reorder_citations(
+pub async fn reorder_citations(
     state: tauri::State<'_, AppState>,
     playbook_id: String,
     citation_ids: Vec<String>,
 ) -> Result<(), String> {
     state
-        .db
-        .reorder_citations(&playbook_id, &citation_ids)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.reorder_citations(&playbook_id, &citation_ids))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 // ── Embedder Config Commands ───────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_embedder_config_cmd(
+pub async fn get_embedder_config_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<EmbedderConfig, String> {
-    state.db.get_embedder_config().map_err(|e| e.to_string())
+    state
+        .db_executor
+        .read(move |db| db.get_embedder_config())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn save_embedder_config_cmd(
+pub async fn save_embedder_config_cmd(
     state: tauri::State<'_, AppState>,
     config: EmbedderConfig,
 ) -> Result<(), String> {
     state
-        .db
-        .save_embedder_config(&config)
-        .map_err(|e| e.to_string())
+        .db_executor
+        .write(move |db| db.save_embedder_config(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

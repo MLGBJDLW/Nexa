@@ -399,7 +399,7 @@ impl Tool for NativeBrowserSessionTool {
                 "scrollX": { "type": "integer", "default": 0 },
                 "scrollY": { "type": "integer", "default": 0 },
                 "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, element_absent, element_checked, or element_enabled. Element conditions accept ref/targetRef, name, and role. State conditions require a boolean value; mixed/unknown checked states do not match false." },
-                "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 2500, "default": 2500, "description": "One steering-friendly wait quantum. Repeat wait_for with a fresh observation if the condition is still pending." }
+                "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "description": "Cancellable condition wait. A still-pending condition returns timedOut=true with the latest observation, not an execution error." }
             },
             "required": ["action"],
             "oneOf": action_variants,
@@ -1155,28 +1155,22 @@ impl Tool for NativeBrowserSessionTool {
                     .as_ref()
                     .ok_or_else(|| Self::invalid("browser_session wait_for requires condition"))?;
                 let timeout = std::time::Duration::from_millis(
-                    args.timeout_ms.unwrap_or(2_500).clamp(1, 2_500),
+                    args.timeout_ms.unwrap_or(30_000).clamp(1, 60_000),
                 );
-                let started = std::time::Instant::now();
-                loop {
-                    let remaining = timeout
-                        .checked_sub(started.elapsed())
-                        .ok_or_else(|| Self::invalid("Browser condition timed out"))?;
-                    let observation_future =
-                        self.state.observe(session_id, tab_id, context.call_id);
-                    let observation = tokio::time::timeout(remaining, observation_future)
-                        .await
-                        .map_err(|_| Self::invalid("Browser condition timed out"))?
-                        .map_err(Self::invalid)?;
-                    let value = serde_json::to_value(&observation)?;
-                    if condition_matches(&value, condition) {
-                        break observation_result(context.call_id, observation);
-                    }
-                    let remaining = timeout
-                        .checked_sub(started.elapsed())
-                        .ok_or_else(|| Self::invalid("Browser condition timed out"))?;
-                    tokio::time::sleep(remaining.min(std::time::Duration::from_millis(100))).await;
+                let (observation, matched) = wait_for_browser_condition(timeout, condition, || {
+                    self.state.observe(session_id, tab_id, context.call_id)
+                })
+                .await
+                .map_err(Self::invalid)?;
+                let mut result = observation_result(context.call_id, observation)?;
+                if let Some(artifacts) = result.artifacts.as_mut() {
+                    artifacts["conditionMatched"] = serde_json::json!(matched);
+                    artifacts["timedOut"] = serde_json::json!(!matched);
                 }
+                result.content.push_str(if matched { "\nWait condition matched." } else {
+                    "\nWait budget elapsed; the condition is still pending. This is a successful observation, not a failed browser action. Inspect this tab's latest evidence before choosing another wait or action."
+                });
+                Ok(result)
             }
             "close_tab" => {
                 let token = browser_mutation_token(context.arguments);
@@ -1438,6 +1432,70 @@ fn success(
     })
 }
 
+async fn wait_for_browser_condition<T, F, Fut>(
+    timeout: std::time::Duration,
+    condition: &serde_json::Value,
+    mut observe: F,
+) -> Result<(T, bool), String>
+where
+    T: serde::Serialize,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let kind = condition
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let valid = match kind {
+        "page_loaded" | "element_present" | "element_absent" => true,
+        "text_present" | "text_absent" => condition
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.is_empty()),
+        "url_matches" => condition
+            .get("pattern")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.is_empty()),
+        "element_checked" | "element_enabled" => condition
+            .get("value")
+            .and_then(serde_json::Value::as_bool)
+            .is_some(),
+        _ => false,
+    };
+    if !valid {
+        return Err("Invalid browser wait condition: use a documented type and its required text, pattern, or boolean value".into());
+    }
+    let started = std::time::Instant::now();
+    let mut latest = None;
+    loop {
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return latest
+                .map(|observation| (observation, false))
+                .ok_or_else(|| {
+                    "Browser did not produce an observation within the wait budget".into()
+                });
+        }
+        let observation = match tokio::time::timeout(remaining, observe()).await {
+            Ok(result) => result?,
+            Err(_) => {
+                return latest
+                    .map(|observation| (observation, false))
+                    .ok_or_else(|| {
+                        "Browser did not produce an observation within the wait budget".into()
+                    })
+            }
+        };
+        let value = serde_json::to_value(&observation).map_err(|error| error.to_string())?;
+        if condition_matches(&value, condition) {
+            return Ok((observation, true));
+        }
+        latest = Some(observation);
+        let remaining = timeout.saturating_sub(started.elapsed());
+        tokio::time::sleep(remaining.min(std::time::Duration::from_millis(250))).await;
+    }
+}
+
 fn observation_result(
     call_id: &str,
     observation: super::state::BrowserObservationPayload,
@@ -1492,6 +1550,54 @@ fn browser_screenshot_attachment(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn pending_browser_condition_returns_evidence_without_a_tool_error() {
+        let condition = serde_json::json!({"type":"text_present", "text":"Finished"});
+        let (observation, matched) = super::wait_for_browser_condition(std::time::Duration::from_millis(20), &condition,
+            || async { Ok(serde_json::json!({"text":"Compiling", "url":"http://localhost/", "contentHash":"building"})) })
+            .await.expect("a healthy page still loading is not an execution failure");
+        assert!(!matched);
+        assert_eq!(observation["text"], "Compiling");
+    }
+
+    #[tokio::test]
+    async fn browser_wait_preserves_capture_failures_and_can_be_cancelled() {
+        let condition = serde_json::json!({"type":"page_loaded"});
+        let failed = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(1),
+            &condition,
+            || async { Err::<serde_json::Value, _>("capture unavailable".to_string()) },
+        )
+        .await;
+        assert_eq!(failed.unwrap_err(), "capture unavailable");
+        let waiting = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(60),
+            &condition,
+            || async { Ok(serde_json::json!({"readyState":"loading"})) },
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), waiting)
+                .await
+                .is_err()
+        );
+        let (_, matched) = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(1),
+            &condition,
+            || async { Ok(serde_json::json!({"readyState":"complete"})) },
+        )
+        .await
+        .unwrap();
+        assert!(matched);
+        let malformed = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(30),
+            &serde_json::json!({"type":"text_present"}),
+            || async { Err::<serde_json::Value, _>("unexpected observation".to_string()) },
+        )
+        .await;
+        assert!(malformed
+            .unwrap_err()
+            .contains("Invalid browser wait condition"));
+    }
     use super::{
         browser_action_activity_id, browser_action_failure_result, browser_mutation_token,
         browser_screenshot_attachment, condition_matches, finish_browser_cleanup_pending,

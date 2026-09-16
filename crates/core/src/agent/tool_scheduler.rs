@@ -130,6 +130,35 @@ pub(crate) fn tool_timeout_for_call(
         _ => 1,
     };
     let mut timeout_secs = base_timeout.saturating_mul(multiplier);
+    if tool_name == "browser_session"
+        && parsed_args
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            == Some("wait_for")
+    {
+        let wait_ms = parsed_args
+            .get("timeoutMs")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(30_000)
+            .min(60_000);
+        timeout_secs = timeout_secs.max(wait_ms.div_ceil(1_000).saturating_add(5));
+    }
+    if tool_name == "activity_observe" {
+        let wait_ms = parsed_args
+            .get("waitUpToMs")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(2_500);
+        let cap = if parsed_args
+            .get("waitFor")
+            .and_then(serde_json::Value::as_str)
+            == Some("completion")
+        {
+            60_000
+        } else {
+            2_500
+        };
+        timeout_secs = timeout_secs.max(wait_ms.min(cap).div_ceil(1_000).saturating_add(5));
+    }
 
     let minimum = match tool_name {
         "web_search" | "fetch_url" => 60,
@@ -365,6 +394,20 @@ mod tests {
         assert_eq!(
             tool_timeout_for_call(Some(0), "read_file", &serde_json::json!({})),
             None
+        );
+    }
+
+    #[test]
+    fn build_wait_budget_fits_inside_tool_deadline() {
+        let completion = serde_json::json!({"waitFor":"completion", "waitUpToMs":60000});
+        assert_eq!(
+            tool_timeout_for_call(Some(30), "activity_observe", &completion),
+            Some(Duration::from_secs(65))
+        );
+        let oversized = serde_json::json!({"waitFor":"completion", "waitUpToMs":u64::MAX});
+        assert_eq!(
+            tool_timeout_for_call(Some(30), "activity_observe", &oversized),
+            Some(Duration::from_secs(65))
         );
     }
 

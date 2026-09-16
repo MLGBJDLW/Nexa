@@ -194,6 +194,7 @@ export function applyDoneEvent(
   state.lastCached = input.cached === true;
   state.finishReason = typeof input.finishReason === 'string' ? input.finishReason : null;
   state.isStreaming = false;
+  state.pendingApprovals = [];
   if (
     state.connectionState?.state === 'reconnecting'
     || state.connectionState?.state === 'degraded'
