@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -200,11 +201,105 @@ struct NexaV2CompanionManifest {
     animations: HashMap<String, NormalizedAnimation>,
 }
 
+/// Metadata used to select the pet's active run. Excludes plans, artifacts,
+/// message bodies, and history counts, which can grow throughout a tool run.
+pub struct CompanionRunCandidate {
+    pub id: String,
+    pub status: String,
+    pub finished_at: Option<String>,
+    pub project_id: Option<String>,
+}
+
+struct CompanionEventHead<'a> {
+    sequence: u64,
+    kind: AgentRunEventKind,
+    phase: AgentRunPhase,
+    label: &'a str,
+    status: Option<&'a str>,
+}
+
 impl Database {
+    pub fn list_companion_run_candidates(&self) -> Result<Vec<CompanionRunCandidate>, CoreError> {
+        let conn = self.conn();
+        let mut statement = conn.prepare(
+            "SELECT r.id, r.status, r.finished_at, t.launch_project_id
+             FROM agent_task_runs r
+             JOIN conversations c ON c.id = r.conversation_id
+             JOIN conversation_turns t ON t.id = r.turn_id
+             ORDER BY datetime(r.updated_at) DESC, datetime(r.created_at) DESC, r.id DESC
+             LIMIT 50",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(CompanionRunCandidate {
+                id: row.get(0)?,
+                status: row.get(1)?,
+                finished_at: row.get(2)?,
+                project_id: row.get(3)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(CoreError::Database)
+    }
+
     pub fn get_companion_projection(&self, run_id: &str) -> Result<CompanionProjection, CoreError> {
-        let run = self.get_agent_task_run(run_id)?;
-        let events = self.list_agent_run_events(run_id)?;
-        Ok(project_companion_state(&run, &events))
+        // One indexed event header is sufficient. Never deserialize tool
+        // payloads or replay the ledger to update an animation/status label.
+        let conn = self.conn();
+        let row = conn
+            .query_row(
+                "SELECT r.status, r.phase, r.title, r.error_message,
+                    e.event_seq, e.kind, e.phase, e.label, e.status
+             FROM agent_task_runs r
+             LEFT JOIN agent_run_events e ON e.run_id = r.id AND e.event_seq =
+                 (SELECT MAX(event_seq) FROM agent_run_events WHERE run_id = r.id)
+             WHERE r.id = ?1",
+                [run_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<u64>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| CoreError::NotFound(format!("Agent task run {run_id}")))?;
+        let (status, phase, title, error, sequence, kind, event_phase, label, event_status) = row;
+        let latest = sequence
+            .map(|sequence| {
+                Ok::<_, CoreError>(CompanionEventHead {
+                    sequence,
+                    kind: kind
+                        .as_deref()
+                        .and_then(AgentRunEventKind::from_wire)
+                        .ok_or_else(|| {
+                            CoreError::Internal("Invalid stored Run Event kind".into())
+                        })?,
+                    phase: event_phase
+                        .as_deref()
+                        .and_then(AgentRunPhase::from_wire)
+                        .ok_or_else(|| {
+                            CoreError::Internal("Invalid stored Run Event phase".into())
+                        })?,
+                    label: label.as_deref().unwrap_or_default(),
+                    status: event_status.as_deref(),
+                })
+            })
+            .transpose()?;
+        Ok(project_companion_head(
+            run_id,
+            &status,
+            &phase,
+            &title,
+            error.as_deref(),
+            latest,
+        ))
     }
 }
 
@@ -212,29 +307,52 @@ pub fn project_companion_state(
     run: &AgentTaskRun,
     events: &[AgentRunEvent],
 ) -> CompanionProjection {
-    if let Some(state) = terminal_state(&run.status) {
+    project_companion_head(
+        &run.id,
+        &run.status,
+        &run.phase,
+        &run.title,
+        run.error_message.as_deref(),
+        events.last().map(|event| CompanionEventHead {
+            sequence: event.event_seq,
+            kind: event.kind,
+            phase: event.phase,
+            label: &event.label,
+            status: event.status.as_deref(),
+        }),
+    )
+}
+
+fn project_companion_head(
+    run_id: &str,
+    status: &str,
+    phase: &str,
+    title: &str,
+    error_message: Option<&str>,
+    latest: Option<CompanionEventHead<'_>>,
+) -> CompanionProjection {
+    if let Some(state) = terminal_state(status) {
         return CompanionProjection {
-            run_id: run.id.clone(),
+            run_id: run_id.to_string(),
             state,
-            label: run
-                .error_message
-                .clone()
+            label: error_message
                 .filter(|message| !message.trim().is_empty())
-                .unwrap_or_else(|| terminal_label(state).to_string()),
-            source_event_seq: events.last().map(|event| event.event_seq),
+                .unwrap_or_else(|| terminal_label(state))
+                .to_string(),
+            source_event_seq: latest.as_ref().map(|event| event.sequence),
             terminal: true,
         };
     }
 
-    let latest = events.last();
     let (state, label) = latest
+        .as_ref()
         .map(state_from_event)
-        .unwrap_or_else(|| state_from_run_phase(run));
+        .unwrap_or_else(|| state_from_run_phase(phase, title));
     CompanionProjection {
-        run_id: run.id.clone(),
+        run_id: run_id.to_string(),
         state,
         label,
-        source_event_seq: latest.map(|event| event.event_seq),
+        source_event_seq: latest.map(|event| event.sequence),
         terminal: false,
     }
 }
@@ -257,17 +375,17 @@ fn terminal_label(state: CompanionState) -> &'static str {
     }
 }
 
-fn state_from_event(event: &AgentRunEvent) -> (CompanionState, String) {
+fn state_from_event(event: &CompanionEventHead<'_>) -> (CompanionState, String) {
     let label = if event.label.trim().is_empty() {
         event.phase.as_str().replace('_', " ")
     } else {
-        event.label.clone()
+        event.label.to_string()
     };
     let state = match event.kind {
         AgentRunEventKind::ApprovalRequested => CompanionState::WaitingForApproval,
         AgentRunEventKind::ApprovalResolved => CompanionState::Thinking,
         AgentRunEventKind::Error => CompanionState::Failed,
-        AgentRunEventKind::Done => match event.status.as_deref() {
+        AgentRunEventKind::Done => match event.status {
             Some("cancelled") => CompanionState::Cancelled,
             Some("failed" | "timed_out") => CompanionState::Failed,
             Some("completed") => CompanionState::Succeeded,
@@ -276,7 +394,7 @@ fn state_from_event(event: &AgentRunEvent) -> (CompanionState, String) {
         AgentRunEventKind::ToolPreparing
         | AgentRunEventKind::ToolStarted
         | AgentRunEventKind::ToolProgress
-        | AgentRunEventKind::ToolCompleted => tool_state(&event.label),
+        | AgentRunEventKind::ToolCompleted => tool_state(event.label),
         AgentRunEventKind::Thinking
         | AgentRunEventKind::PlanUpdated
         | AgentRunEventKind::OutputDelta
@@ -287,7 +405,7 @@ fn state_from_event(event: &AgentRunEvent) -> (CompanionState, String) {
         AgentRunEventKind::Status => match event.phase {
             AgentRunPhase::AwaitingUserInput => CompanionState::WaitingForUser,
             AgentRunPhase::Approval => CompanionState::WaitingForApproval,
-            AgentRunPhase::Tooling => tool_state(&event.label),
+            AgentRunPhase::Tooling => tool_state(event.label),
             AgentRunPhase::Done => CompanionState::Reviewing,
             _ => CompanionState::Thinking,
         },
@@ -296,8 +414,8 @@ fn state_from_event(event: &AgentRunEvent) -> (CompanionState, String) {
     (state, label)
 }
 
-fn state_from_run_phase(run: &AgentTaskRun) -> (CompanionState, String) {
-    let state = match run.phase.trim().to_ascii_lowercase().as_str() {
+fn state_from_run_phase(phase: &str, title: &str) -> (CompanionState, String) {
+    let state = match phase.trim().to_ascii_lowercase().as_str() {
         "approval" | "waiting_approval" => CompanionState::WaitingForApproval,
         "awaiting_user_input" | "waiting_user" => CompanionState::WaitingForUser,
         "tooling" => CompanionState::RunningTool,
@@ -305,7 +423,7 @@ fn state_from_run_phase(run: &AgentTaskRun) -> (CompanionState, String) {
         "done" => CompanionState::Succeeded,
         _ => CompanionState::Thinking,
     };
-    (state, run.title.clone())
+    (state, title.to_string())
 }
 
 fn tool_state(tool_name: &str) -> CompanionState {
@@ -1116,6 +1234,41 @@ mod tests {
         );
         assert_eq!(projection.state, CompanionState::Succeeded);
         assert!(projection.terminal);
+    }
+
+    #[test]
+    fn durable_projection_does_not_read_history_or_tool_payloads() {
+        let db = Database::open_memory().unwrap();
+        // Payload bodies are irrelevant to the pet. Deliberately unreadable
+        // bodies make a full-history/full-run read fail deterministically.
+        db.conn().execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             INSERT INTO agent_task_runs
+                (id, conversation_id, turn_id, user_message_id, title, status, phase, plan_json, artifacts_json)
+             VALUES ('run-1', 'conversation-1', 'turn-1', 'message-1', 'Task', 'running', 'tooling', 'unreadable', 'unreadable');
+             INSERT INTO agent_run_events
+                (run_id, turn_id, event_seq, version, kind, phase, label, status, payload_json)
+             VALUES ('run-1', 'turn-1', 1, 2, 'toolStarted', 'tooling', 'read_file', 'running', 'unreadable'),
+                    ('run-1', 'turn-1', 2, 2, 'approvalRequested', 'approval', 'run_shell', 'running', 'unreadable');"
+        ).unwrap();
+        let projection = db.get_companion_projection("run-1").unwrap();
+        assert_eq!(projection.state, CompanionState::WaitingForApproval);
+        assert_eq!(projection.source_event_seq, Some(2));
+        assert_eq!(projection.label, "run_shell");
+        db.conn()
+            .execute(
+                "UPDATE agent_task_runs SET status = 'cancelled' WHERE id = 'run-1'",
+                [],
+            )
+            .unwrap();
+        let projection = db.get_companion_projection("run-1").unwrap();
+        assert_eq!(projection.state, CompanionState::Cancelled);
+        assert!(projection.terminal);
+        assert_eq!(projection.source_event_seq, Some(2));
+        assert!(matches!(
+            db.get_companion_projection("missing"),
+            Err(CoreError::NotFound(_))
+        ));
     }
 
     #[test]

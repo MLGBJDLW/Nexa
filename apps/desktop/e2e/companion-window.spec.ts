@@ -12,6 +12,10 @@ test.beforeEach(async ({ page }) => {
     const lifecycleMarks: Array<{ kind: string; at: number }> = [];
     let packVersion = 1;
     let assetReads = 0;
+    const projectionReads = { started: 0, active: 0, peak: 0 };
+    let releaseProjection: (() => void) | undefined;
+    (window as any).__projectionReads = projectionReads;
+    (window as any).__releaseProjection = () => releaseProjection?.();
     let cursor = { x: 544, y: 468 };
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd.startsWith('plugin:window|')) companionInvocations.push(cmd);
@@ -98,11 +102,19 @@ test.beforeEach(async ({ page }) => {
             contentHash: String(args.contentHash ?? ''),
           };
         }
-        case 'get_global_companion_projection_cmd':
+        case 'get_global_companion_projection_cmd': {
+          projectionReads.started += 1;
+          projectionReads.active += 1;
+          projectionReads.peak = Math.max(projectionReads.peak, projectionReads.active);
+          if (projectionReads.started === 1 && localStorage.getItem('nexa-test-slow-projection') === 'true') {
+            await new Promise<void>(resolve => { releaseProjection = resolve; });
+          }
+          projectionReads.active -= 1;
           if (localStorage.getItem('nexa-test-companion-idle') === 'true') {
             return { runId: 'idle-run', state: 'idle', label: 'Ready', terminal: false };
           }
           return { runId: 'run-1', state: 'runningTool', label: 'private task title', terminal: false };
+        }
         case 'plugin:window|outer_position':
           return { x: 400, y: 500 };
         case 'plugin:window|outer_size':
@@ -191,6 +203,22 @@ test.beforeEach(async ({ page }) => {
       callbacks.get(callbackId)?.({ event, payload });
     };
   });
+});
+
+test('tool events coalesce behind a slow projection read and refresh once it completes', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-test-slow-projection', 'true'));
+  await page.goto('/companion');
+  await expect.poll(() => page.evaluate(() => (window as any).__projectionReads.started)).toBe(1);
+  await expect(page.locator('.companion-window-root')).toBeVisible();
+  for (let index = 0; index < 3; index += 1) {
+    await page.evaluate(() => (window as any).__emitTauri('companion://projection-changed', {}));
+    await page.waitForTimeout(300);
+  }
+  expect(await page.evaluate(() => (window as any).__projectionReads)).toEqual({ started: 1, active: 1, peak: 1 });
+  await page.evaluate(() => (window as any).__releaseProjection());
+  await expect.poll(() => page.evaluate(() => (window as any).__projectionReads.started)).toBe(2);
+  await expect(page.locator('.companion-window-root')).toHaveAttribute('data-state', 'runningTool');
+  expect(await page.evaluate(() => (window as any).__projectionReads.peak)).toBe(1);
 });
 
 test('companion route is independent, task-aware, and privacy-safe', async ({ page }) => {
