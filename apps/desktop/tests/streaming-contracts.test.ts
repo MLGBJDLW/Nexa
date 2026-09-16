@@ -247,6 +247,16 @@ test('authoritative failure snapshots settle the matching run even if terminal d
   streamStore.clearStream(conversationId);
 });
 
+test('cancelled snapshots clear cancellation labels from the error UI', () => {
+  const conversationId = 'snapshot-cancelled';
+  streamStore.startStream(conversationId);
+  streamStore.bindTurnHandle(conversationId, { sessionId: conversationId, runId: 'run-1', turnId: 'turn-1', state: 'running' });
+  streamStore.applyTaskSnapshot({ type: 'taskRunUpdated', conversationId, taskRun: { ...taskRun('cancelled'), conversationId, errorMessage: 'Request cancelled by user' } });
+  assertEqual(streamStore.getStream(conversationId)?.isStreaming, false, 'cancelled snapshot must settle');
+  assertEqual(streamStore.getStream(conversationId)?.error, null, 'normal cancellation must not become a failure banner');
+  streamStore.clearStream(conversationId);
+});
+
 test('paused launch handles are resumable stream suspensions', () => {
   assertEqual(agentTurnStateSuspendsStream('paused'), true, 'paused handle suspends transport');
   assertEqual(

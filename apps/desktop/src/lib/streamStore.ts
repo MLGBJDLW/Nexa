@@ -323,7 +323,7 @@ class StreamStoreImpl {
     applyTerminalProjection(state, {
       toolStatus: status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : status === 'timed_out' ? 'timedOut' : 'error',
       message: '', traceTone: status === 'completed' ? 'success' : 'error',
-      errorMessage: state.taskRun?.errorMessage ?? null,
+      errorMessage: status === 'cancelled' ? null : state.taskRun?.errorMessage ?? null,
     });
     this.finishTurnTiming(state);
     this.notifyImmediately(conversationId);

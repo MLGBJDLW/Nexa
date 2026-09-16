@@ -129,7 +129,7 @@ export function projectRunEventsToStreamState(
         toolStatus: taskRun.status === 'completed' ? 'done' : taskRun.status === 'cancelled' ? 'cancelled' : 'error',
         message: '',
         traceTone: taskRun.status === 'failed' ? 'error' : 'success',
-        errorMessage: taskRun.errorMessage ?? null,
+        errorMessage: taskRun.status === 'cancelled' ? null : taskRun.errorMessage ?? null,
       });
     }
   }
