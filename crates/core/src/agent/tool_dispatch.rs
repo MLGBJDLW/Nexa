@@ -1169,7 +1169,17 @@ impl ToolDispatchRuntime<'_> {
                             );
                             tokio::pin!(exec_fut);
                             let mut activity_events = self.activity_runtime.subscribe();
-                            let mut scoped_activity_id: Option<String> = None;
+                            let mut scoped_activity_id = match tc.name.as_str() {
+                                "activity_observe" | "wait_subagent" | "observe_subagent" => {
+                                    let key = if tc.name == "activity_observe" { "activityId" } else { "agentId" };
+                                    serde_json::from_str::<serde_json::Value>(&tc.arguments).ok()
+                                        .and_then(|args| args.get(key).and_then(serde_json::Value::as_str).map(str::to_string))
+                                        .filter(|id| self.activity_runtime.get(id).is_some_and(|record| {
+                                            record.conversation_id.as_deref() == conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str()))
+                                        }))
+                                }
+                                _ => None,
+                            };
                             let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
                             heartbeat
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

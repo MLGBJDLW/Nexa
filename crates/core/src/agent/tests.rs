@@ -2614,6 +2614,116 @@ struct ScriptedProvider {
     final_answer: &'static str,
 }
 
+#[tokio::test]
+async fn completion_wait_streams_existing_process_output_before_it_finishes() {
+    use crate::activity::{
+        ActivityEventKind, ActivityRuntime, ActivitySpec, ActivityState, ActivitySurface,
+    };
+    let db = Database::open_memory().unwrap();
+    let runtime = ActivityRuntime::new();
+    let activity = runtime
+        .start(
+            ActivitySpec::new(ActivitySurface::Process, "run_shell")
+                .with_conversation_id("build-owner"),
+        )
+        .unwrap();
+    let foreign = runtime
+        .start(
+            ActivitySpec::new(ActivitySurface::Process, "run_shell")
+                .with_conversation_id("other-owner"),
+        )
+        .unwrap();
+    let mut tools = ToolRegistry::new();
+    tools.register(Box::new(crate::tools::activity_tool::ActivityObserveTool));
+    let provider = ScriptedProvider {
+        stream_calls: Arc::new(AtomicUsize::new(0)), final_answer: "build complete",
+        first_chunks: vec![StreamChunk { delta: String::new(), tool_call_delta: Some(ToolCallDelta {
+            id:"wait-build".into(), name:Some("activity_observe".into()), index:Some(0), thought_signature:None,
+            arguments_delta: serde_json::json!({"activityId":activity.activity_id,"waitFor":"completion","waitUpToMs":5000}).to_string().into(),
+        }), finish_reason:Some(FinishReason::Stop), usage:None, thinking_delta:None }],
+    };
+    let executor = AgentExecutor::new(
+        Box::new(provider),
+        tools,
+        AgentConfig {
+            max_iterations: 1,
+            ..Default::default()
+        },
+    )
+    .with_activity_runtime(runtime.clone())
+    .with_tool_scope("build-owner".into(), None);
+    let (tx, mut rx) = mpsc::channel(128);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let collect = tokio::spawn(async move {
+        let mut ready = Some(ready_tx);
+        let mut chunks = Vec::new();
+        while let Some(event) = rx.recv().await {
+            if let AgentEvent::ToolRunUpdated { run } = event {
+                if run.status == ToolRunStatus::Running {
+                    if let Some(sender) = ready.take() {
+                        let _ = sender.send(());
+                    }
+                }
+                if let Some(data) = run
+                    .artifacts
+                    .as_ref()
+                    .and_then(|value| value.pointer("/activity/payload/data"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    chunks.push(data.to_string());
+                }
+            }
+        }
+        chunks
+    });
+    let writer = tokio::spawn(async move {
+        ready_rx.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        runtime
+            .append(
+                &activity.activity_id,
+                ActivityEventKind::StdoutChunk,
+                serde_json::json!({"data":"Compiling 2/3"}),
+            )
+            .unwrap();
+        runtime
+            .append(
+                &foreign.activity_id,
+                ActivityEventKind::StdoutChunk,
+                serde_json::json!({"data":"foreign secret"}),
+            )
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        runtime
+            .transition(
+                &activity.activity_id,
+                ActivityState::Completed,
+                serde_json::json!({"exitCode":0}),
+            )
+            .unwrap();
+    });
+    executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "wait for build".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    writer.await.unwrap();
+    assert_eq!(
+        collect.await.unwrap(),
+        vec!["Compiling 2/3"],
+        "output must reach the UI during the same wait, without leaking another conversation"
+    );
+}
+
 struct ThoughtOnlyProvider {
     stream_calls: Arc<AtomicUsize>,
     finish_reason: FinishReason,
