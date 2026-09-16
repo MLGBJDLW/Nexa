@@ -62,6 +62,16 @@ const closedRuns = findLatestSubtaskArtifacts([], [spawn, closed]);
 assert(closedRuns.length === 1 && closedRuns[0].status === 'completed', 'closed worker snapshots must replace stale spawn status in the capsule');
 assert(closedRuns[0].label.length <= 80 && !closedRuns[0].label.includes('Detailed private'), 'capsule title must be a short first-line task label, not the full prompt');
 
+const queuedInput: ToolCallEvent = { ...spawn, callId: 'steer-call', toolName: 'send_subagent_input',
+  artifacts: { kind: 'subagent_input_queued', agentId: 'agent-one', state: 'queued' } };
+const steered = findLatestSubtaskArtifacts([], [spawn, queuedInput]);
+assert(steered.length === 1 && steered[0].status === 'running', 'an input enqueue receipt is not worker completion');
+const observed: ToolCallEvent = { ...spawn, callId: 'observe-call', toolName: 'observe_subagent', artifacts: {
+  kind: 'subagent_observation', observation: { worker: { agentId: 'agent-one', task: longTask, status: 'cancelled' }, cursor: 7, events: [], timedOut: false },
+} };
+const observedRuns = findLatestSubtaskArtifacts([], [spawn, queuedInput, observed]);
+assert(observedRuns.length === 1 && observedRuns[0].status === 'cancelled', 'wrapped observation snapshots must update the existing worker');
+
 const durable = { subtasks: [{ id: 'durable-row', parentRunId: 'parent', label: 'agent-one',
   input: { kind: 'subagent_input', callLabel: 'agent-one', task: longTask }, status: 'completed', role: 'researcher' }] };
 const reconciled = findLatestSubtaskArtifacts([], [spawn], durable);

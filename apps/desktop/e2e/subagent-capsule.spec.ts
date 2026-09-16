@@ -16,6 +16,13 @@ test('closed subagents settle the capsule and remain settled when restored from 
   await expect(board).not.toContainText('PRIVATE');
   await expect(rows.nth(0)).toContainText('Audit renderer');
   expect((await rows.nth(0).innerText()).length).toBeLessThan(100);
+  await page.getByRole('button', { name: 'Queue worker input', exact: true }).click();
+  await expect(rows.nth(0)).toHaveAttribute('data-status', 'running');
+  await expect(board.getByTestId('plan-subagent-status')).toContainText('0/2');
+  await page.getByRole('button', { name: 'Observe completed worker', exact: true }).click();
+  await expect(rows.nth(0)).toHaveAttribute('data-status', 'completed');
+  await expect(rows.nth(1)).toHaveAttribute('data-status', 'running');
+  await expect(board.getByTestId('plan-subagent-status')).toContainText('1/2');
   await page.getByRole('button', { name: 'Close all workers', exact: true }).click();
   await expect(rows.nth(0)).toHaveAttribute('data-status', 'completed');
   await expect(rows.nth(1)).toHaveAttribute('data-status', 'cancelled');

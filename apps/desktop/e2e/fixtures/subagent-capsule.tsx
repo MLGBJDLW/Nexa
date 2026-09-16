@@ -21,7 +21,15 @@ const closed = tasks.map((task, index): ToolCallEvent => ({
 
 function Fixture() {
   const [stage, setStage] = useState(0);
-  const calls = stage === 0 ? spawn : [...spawn, ...closed];
+  const [steered, setSteered] = useState(false);
+  const [observed, setObserved] = useState(false);
+  const calls: ToolCallEvent[] = [...spawn,
+    ...(steered ? [{ ...spawn[0], callId: 'steer', toolName: 'send_subagent_input',
+      artifacts: { kind: 'subagent_input_queued', agentId: 'agent-0', state: 'queued' } }] : []),
+    ...(observed ? [{ ...spawn[0], callId: 'observe', toolName: 'observe_subagent',
+      artifacts: { kind: 'subagent_observation', observation: { worker: { agentId: 'agent-0', task: tasks[0], status: 'completed' } } } }] : []),
+    ...(stage > 0 ? closed : []),
+  ];
   const messages: ConversationMessage[] = stage < 2 ? [] : calls.flatMap((call, index) => {
     const base = { conversationId: 'capsule', content: '', toolCallId: null, artifacts: null,
       tokenCount: 0, createdAt: '2026-09-16T00:00:00Z', sortOrder: index * 2, thinking: null, imageAttachments: null };
@@ -32,6 +40,8 @@ function Fixture() {
   });
   return <div className="relative h-screen bg-surface-0 text-text-primary">
     <div className="absolute bottom-8 left-8 flex gap-4">
+      <button onClick={() => setSteered(true)}>Queue worker input</button>
+      <button onClick={() => setObserved(true)}>Observe completed worker</button>
       <button onClick={() => setStage(1)}>Close all workers</button>
       <button onClick={() => setStage(2)}>Reopen saved turn</button>
     </div>

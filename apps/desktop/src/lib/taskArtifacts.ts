@@ -306,8 +306,10 @@ function normalizeSubtaskArtifacts(
   const kind = asText(record.kind)?.toLowerCase();
   // observe/wait/close return an authoritative worker snapshot, not another
   // spawn artifact. A close only succeeds for a terminal worker.
-  if (kind?.startsWith('subagent_') && asRecord(record.worker)) {
-    const worker = asRecord(record.worker)!;
+  if (kind === 'subagent_input_queued') return [];
+  const worker = asRecord(record.worker)
+    ?? (kind === 'subagent_observation' ? asRecord(asRecord(record.observation)?.worker) : null);
+  if (kind?.startsWith('subagent_') && worker) {
     const result = asRecord(worker.result);
     const subtask = normalizeSubtaskRun({
       ...worker, id: worker.agentId, workerId: result?.id,
