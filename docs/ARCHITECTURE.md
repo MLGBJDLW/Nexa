@@ -48,6 +48,28 @@ readiness verifies the actual HTTPS, RPC, and WebSocket path before advertising
 an endpoint. A browser session or Live observation is also a separate lifecycle
 from an Agent Run; it must not manufacture run completion.
 
+## Desktop responsiveness and tool ownership
+
+Application IPC enters a bounded blocking dispatcher before calling generated
+Tauri handlers. Synchronous database, filesystem and terminal operations must
+not run inside the WebView host callback. Stop/approval/close commands have
+reserved admission capacity. Database-only commands use `DatabaseExecutor`:
+independent readers for queries, the writer lane for mutations (including
+interaction reads that expire requests). Native window work still crosses
+Tauri's UI dispatch boundary. Terminal pipe disposal never holds the global
+session registry; frontend terminal input is ordered per session.
+
+Delegated executors share the parent's Activity Runtime and tool ownership
+scope while keeping their transcript private. A managed process and its output
+remain observable after its launching worker finishes. Provider HTTP pools are
+scoped to the executing Tokio runtime, so closing a worker cannot invalidate
+the parent's pooled connection dispatch tasks.
+
+Companion projections read bounded run metadata and the latest event header,
+without loading tool payload history. UI refreshes coalesce while one request
+is pending. Worker capsules merge durable and live identities, keep terminal
+states monotonic, and show compact task labels.
+
 ## Run Event publication boundary
 
 The core runtime owns one Run Event outbox per Agent Run. It is the sole
@@ -62,6 +84,13 @@ Replaceable tool-input previews use a separate ephemeral publication method on
 that same outbox. They retain live sequence order but never enter SQLite, and
 queue pressure may drop them without failing the authoritative run. Durable
 lifecycle boundaries still flush and commit before delivery.
+
+The outbox tracks live and durable sequence heads separately. A pause fences
+against the durable head but can commit after ephemeral sequence gaps. Frontend
+reconciliation accepts an authoritative terminal snapshot even when terminal
+event delivery was lost, and cannot resurrect that run from a stale active
+snapshot. Already-consumed interaction answers never become retryable simply
+because a later tool failed.
 
 Resumable phases such as paused and awaiting user input keep the same outbox
 open. True terminal outcomes close it permanently, and finalization crosses the

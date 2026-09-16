@@ -984,6 +984,21 @@ managed command and can be terminated when that command exits.
 
 ### `run_shell`
 
+Long-running builds return a stable `activityId`, `cursor`, and `serviceId`.
+Continue the same process with
+`activity_observe({ activityId, afterSeq: cursor, waitFor: "completion", waitUpToMs: 30000 })`.
+Completion waits are bounded to 60 seconds and continue publishing progress to
+the UI. Output mode remains a short incremental observation. Use the returned
+cursor for the next wait and inspect the final exit status; do not restart the
+build, invent an activity ID, or probe a browser port to infer completion.
+`service_action: "stop"` with the returned service ID explicitly ends the
+process. Cancelling an observation only ends that wait.
+
+`wait_subagent` similarly defaults to a cancellable 30-second wait (maximum 60
+seconds). An authoritative timed wait for a live worker is not a repeated-action
+loop; immediate polls, errors, finished workers, and repeated browser actions
+still retain the loop guard.
+
 Execute a whitelisted program with exact `program`/`args`, or parse a short
 `command`. Direct argv does not invoke a shell. Explicit shell mode and
 recognizable shell syntax in Open/ConfirmAll modes follow the selected shell;
