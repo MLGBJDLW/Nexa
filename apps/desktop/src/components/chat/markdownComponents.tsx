@@ -772,6 +772,19 @@ export function sanitizeMermaidSvg(svg: string): string {
   template.innerHTML = sanitized;
   const root = template.content.firstElementChild;
   if (!root || root.tagName.toLowerCase() !== 'svg') return '';
+  // Mermaid's strict SVG renderer can leave one encoded entity layer in text
+  // nodes. Decode text only, after sanitization: assigning nodeValue cannot
+  // create elements, event handlers, links or executable markup.
+  const decoder = document.createElement('textarea');
+  const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (textNodes.nextNode()) {
+    const node = textNodes.currentNode;
+    if (!node.parentElement?.closest('text, title, desc')) continue;
+    node.nodeValue = (node.nodeValue ?? '').replace(/&(?:#\d+|#x[\da-f]+|[a-z][a-z\d]+);/gi, entity => {
+      decoder.innerHTML = entity;
+      return decoder.value;
+    });
+  }
   const existingStyle = root.getAttribute('style')?.trim();
   root.setAttribute(
     'style',
@@ -821,7 +834,17 @@ export function normalizeMermaidChart(chart: string): string {
     normalized = fenced[1].trim();
   }
 
-  return normalized.replace(/^\s*mermaid\s*\n/i, '').trim();
+  // Pure SVG labels do not interpret HTML entities as browser HTML. Convert
+  // them to Mermaid's entity syntax before parsing. Never decode into markup
+  // or grammar delimiters; the SVG boundary handles the remaining text layer.
+  return normalized.replace(/^\s*mermaid\s*\n/i, '').trim().replace(
+    /&(?:(quot|apos|amp|lt|gt|nbsp)|#(\d+)|#x([\da-f]+));/gi,
+    (entity, name: string | undefined, decimal: string | undefined, hex: string | undefined) => {
+      const point = decimal ? Number(decimal) : hex ? parseInt(hex, 16) : undefined;
+      if (point !== undefined) return point > 0 && point <= 0x10ffff ? `#${point};` : entity;
+      return name?.toLowerCase() === 'apos' ? '#39;' : `#${name?.toLowerCase()};`;
+    },
+  );
 }
 
 export function repairMermaidFlowchartLabels(chart: string): string {
@@ -839,7 +862,7 @@ export function repairMermaidFlowchartLabels(chart: string): string {
     (match, nodeId: string, rawLabel: string) => {
       const label = rawLabel.trim();
       if (!label || (label.startsWith('"') && label.endsWith('"'))) return match;
-      return `${nodeId}["${label.replace(/"/g, '&quot;')}"]`;
+      return `${nodeId}["${label.replace(/"/g, '#quot;')}"]`;
     },
   );
 }
