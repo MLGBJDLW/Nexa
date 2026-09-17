@@ -1,4 +1,4 @@
-import { ArrowRight, LogOut, Minimize2, RotateCcw, Save, Settings2, Star } from 'lucide-react';
+import { ArrowRight, RotateCcw, Save, Settings2, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation, type Locale } from '../../i18n';
 import * as api from '../../lib/api';
@@ -13,6 +13,8 @@ import { CollapsiblePanel, Section } from './SettingsSection';
 import { ToolApprovalControl, type ToolApprovalMode } from './ToolApprovalControl';
 import { CompanionSettingsCard } from '../../features/companion/CompanionSettingsCard';
 import { DisplaySettings } from './DisplaySettings';
+import { SettingsRow, settingsSelectClass } from './SettingsRow';
+import { ShellSettingsPanel } from './ShellSettingsPanel';
 
 
 interface AppearanceSettingsTabProps {
@@ -112,7 +114,7 @@ export function AppearanceSettingsTab({
 
   return (
     <Section icon={<Star size={20} />} title={t('settings.appearance')} delay={0.03}>
-      <div className="space-y-6">
+      <div className="space-y-3">
         {/* Theme section */}
         <div data-testid="theme-summary-card">
           <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.appearance.theme')}</p>
@@ -145,103 +147,40 @@ export function AppearanceSettingsTab({
           </div>
         </div>
 
-        <DisplaySettings />
+        {appConfig && <ShellSettingsPanel config={appConfig} saving={appConfigLoading} onChange={onAppConfigChange} onSave={() => onAppConfigSave()} />}
+
+        <CollapsiblePanel title={t('settings.displayFonts')} description={t('settings.displayStreaming')} testId="display-preferences">
+          <DisplaySettings />
+        </CollapsiblePanel>
 
         {/* Separator */}
         <div className="border-t border-border" />
 
-        <CompanionSettingsCard
-          appConfig={appConfig}
-          loading={appConfigLoading}
-          onChange={onAppConfigChange}
-          onSave={(next) => onAppConfigSave(next)}
-        />
+        <CollapsiblePanel title={t('companion.title')} testId="companion-preferences">
+          <CompanionSettingsCard appConfig={appConfig} loading={appConfigLoading} onChange={onAppConfigChange} onSave={(next) => onAppConfigSave(next)} />
+        </CollapsiblePanel>
 
-        <div className="border-t border-border" />
-
-        {/* Language section */}
-        <div>
-          <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.appearance.language')}</p>
-          <p className="mb-3 text-xs text-text-tertiary">{t('settings.appearance.language.description')}</p>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(6.75rem,1fr))] gap-2">
-            {availableLocales.map((l) => (
-              <button
-                key={l.code}
-                onClick={() => setLocale(l.code)}
-                className={`min-h-10 rounded-lg border px-3 py-2 text-sm font-medium leading-snug transition-all duration-fast cursor-pointer ${
-                  locale === l.code
-                    ? 'border-accent bg-accent-subtle text-accent ring-1 ring-accent/20'
-                    : 'border-border bg-surface-2 text-text-secondary hover:border-border-hover hover:bg-surface-3'
-                }`}
-              >
-                {l.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="border-t border-border pt-5">
-          <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.windowCloseBehavior')}</p>
-          <p className="mb-3 text-xs leading-relaxed text-text-tertiary">
-            {t('settings.windowCloseBehaviorDesc')}
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {([
-              {
-                value: 'exit' as const,
-                icon: LogOut,
-                label: t('settings.windowCloseExit'),
-                description: t('settings.windowCloseExitDesc'),
-              },
-              {
-                value: 'minimize_to_tray' as const,
-                icon: Minimize2,
-                label: t('settings.windowCloseTray'),
-                description: t('settings.windowCloseTrayDesc'),
-              },
-            ]).map((option) => {
-              const selected = (appConfig?.windowCloseBehavior ?? 'exit') === option.value;
-              const Icon = option.icon;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  disabled={!appConfig || appConfigLoading}
-                  aria-pressed={selected}
-                  onClick={() => {
-                    if (!appConfig) return;
-                    const nextConfig = { ...appConfig, windowCloseBehavior: option.value };
-                    onAppConfigChange(nextConfig);
-                    onAppConfigSave(nextConfig);
-                  }}
-                  className={`group flex min-h-20 items-start gap-3 rounded-lg border px-3 py-3 text-left transition-all duration-fast disabled:cursor-not-allowed disabled:opacity-55 ${
-                    selected
-                      ? 'border-accent/60 bg-accent-subtle text-text-primary ring-1 ring-accent/15'
-                      : 'border-border bg-surface-1/70 text-text-secondary hover:border-border-hover hover:bg-surface-2'
-                  }`}
-                >
-                  <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${
-                    selected
-                      ? 'border-accent/35 bg-accent/10 text-accent'
-                      : 'border-border bg-surface-2 text-text-tertiary group-hover:text-text-secondary'
-                  }`}>
-                    <Icon size={15} />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">{option.label}</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-text-tertiary">
-                      {option.description}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <SettingsRow label={t('settings.appearance.language')} description={t('settings.appearance.language.description')} htmlFor="settings-language">
+          <select id="settings-language" value={locale} onChange={event => setLocale(event.target.value as Locale)} className={settingsSelectClass}>
+            {availableLocales.map(language => <option key={language.code} value={language.code}>{language.name}</option>)}
+          </select>
+        </SettingsRow>
+        <SettingsRow label={t('settings.windowCloseBehavior')} description={t('settings.windowCloseBehaviorDesc')} htmlFor="settings-close-behavior">
+          <select id="settings-close-behavior" disabled={!appConfig || appConfigLoading} value={appConfig?.windowCloseBehavior ?? 'exit'} className={settingsSelectClass}
+            onChange={event => {
+              if (!appConfig) return;
+              const next = { ...appConfig, windowCloseBehavior: event.target.value as 'exit' | 'minimize_to_tray' };
+              onAppConfigChange(next);
+              onAppConfigSave(next);
+            }}>
+            <option value="exit">{t('settings.windowCloseExit')}</option>
+            <option value="minimize_to_tray">{t('settings.windowCloseTray')}</option>
+          </select>
+        </SettingsRow>
 
         {/* App update */}
 
-        <div className="border-t border-border pt-4">
+        <div className="border-t border-border pt-3">
           <label className="flex cursor-pointer items-start gap-3">
             <input
               type="checkbox"
@@ -261,7 +200,7 @@ export function AppearanceSettingsTab({
         </div>
 
         {/* Re-run setup wizard */}
-        <div className="border-t border-border pt-4 mt-4">
+        <div className="border-t border-border pt-3">
           <p className="mb-2 text-sm font-medium text-text-primary">{t('wizard.rerunLabel')}</p>
           <p className="mb-3 text-xs text-text-tertiary">{t('wizard.rerunDescription')}</p>
           <Button
@@ -283,7 +222,7 @@ export function AppearanceSettingsTab({
           {appConfig && (
             <div className="space-y-4">
               {/* Search */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-primary">{t('settings.searchLimit')}</label>
                   <Input
@@ -311,7 +250,7 @@ export function AppearanceSettingsTab({
 
               {/* File Size Limits */}
               <h4 className="text-xs font-medium text-text-secondary mt-2">{t('settings.fileSizeLimits')}</h4>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-primary">{t('settings.maxTextFileSize')}</label>
                   <Input

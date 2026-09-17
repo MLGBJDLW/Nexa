@@ -220,7 +220,7 @@ export function ProvidersSettingsTab({
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-lg font-medium text-text-primary">{t('settings.selectProvider')}</h3>
+              <h3 className="text-sm font-semibold text-text-primary">{t('settings.selectProvider')}</h3>
               <p className="mt-1 text-xs leading-5 text-text-tertiary">
                 {t('settings.providerCatalogDesc')}
               </p>
@@ -257,7 +257,7 @@ export function ProvidersSettingsTab({
               })}
             </Badge>
           </div>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
             {providerPresetResults.map((preset) => {
               const isConfigured = configuredPresetIds.has(preset.id);
               return (
@@ -265,9 +265,9 @@ export function ProvidersSettingsTab({
                   key={preset.id}
                   data-provider-preset-id={preset.id}
                   onClick={() => { onSelectedPresetChange(preset); onProviderViewChange('form'); }}
-                  className="flex min-w-0 flex-col items-start gap-3 overflow-hidden rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50 sm:flex-row sm:p-4"
+                  className="flex min-w-0 items-start gap-2.5 overflow-hidden rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50"
                 >
-                  <ProviderIcon provider={preset.provider} providerId={preset.id} baseUrl={preset.baseUrl} size="lg" />
+                  <ProviderIcon provider={preset.provider} providerId={preset.id} baseUrl={preset.baseUrl} size="md" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium text-text-primary">{preset.name}</span>
@@ -275,7 +275,7 @@ export function ProvidersSettingsTab({
                         <Badge variant="success">{t('settings.providerConfiguredStatus')}</Badge>
                       )}
                     </div>
-                    <div className="mt-1 break-words text-sm leading-5 text-text-tertiary [overflow-wrap:anywhere]">{preset.description}</div>
+                    <div className="mt-0.5 break-words text-xs leading-5 text-text-tertiary [overflow-wrap:anywhere]">{preset.description}</div>
                   </div>
                 </button>
               );
@@ -284,12 +284,12 @@ export function ProvidersSettingsTab({
               <button
                 data-provider-preset-id="custom"
                 onClick={() => { onSelectedPresetChange(null); onProviderViewChange('form'); }}
-                className="flex min-w-0 flex-col items-start gap-3 overflow-hidden rounded-lg border border-dashed border-border bg-surface-2 p-3 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50 sm:flex-row sm:p-4"
+                className="flex min-w-0 items-start gap-2.5 overflow-hidden rounded-lg border border-dashed border-border bg-surface-2 p-3 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50"
               >
                 <Settings2 className="mt-0.5 shrink-0 text-text-tertiary" size={24} />
                 <div className="min-w-0">
                   <div className="font-medium text-text-primary">{t('settings.customProvider')}</div>
-                  <div className="mt-1 break-words text-sm leading-5 text-text-tertiary [overflow-wrap:anywhere]">{t('settings.customProviderDesc')}</div>
+                  <div className="mt-0.5 break-words text-xs leading-5 text-text-tertiary [overflow-wrap:anywhere]">{t('settings.customProviderDesc')}</div>
                 </div>
               </button>
             )}
