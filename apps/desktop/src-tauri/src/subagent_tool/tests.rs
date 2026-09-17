@@ -250,6 +250,46 @@ async fn private_endpoint_model_alias_keeps_its_own_reasoning_contract() {
 }
 
 #[tokio::test]
+async fn explicit_same_model_worker_recomputes_parent_fallback_image_policy() {
+    let db = Database::open_memory().unwrap();
+    let saved = db
+        .save_agent_config(
+            &serde_json::from_value(serde_json::json!({
+                "name":"Direct vision", "provider":"deep_seek", "apiKey":"test-key",
+                "baseUrl":"https://api.deepseek.com", "model":"deepseek-flash", "isDefault":false
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let mut runtime = test_runtime();
+    runtime.provider_config = crate::desktop_agent_session::desktop_provider_config(&saved);
+    runtime.base_config.provider_type = Some(ProviderType::DeepSeek);
+    runtime.base_config.model = Some("deepseek-flash".into());
+    runtime.base_config.native_vision = Some(false); // Parent has a text-only automatic fallback.
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args = serde_json::from_value(serde_json::json!({ "task":"Inspect supplied evidence", "agent_config_id":saved.id, "allowed_tools":[] })).unwrap();
+    let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "direct-vision", None)
+        .await
+        .unwrap();
+    assert_eq!(worker.config.native_vision, Some(true));
+    let inherited = serde_json::from_value(
+        serde_json::json!({ "task":"Inspect supplied evidence", "allowed_tools":[] }),
+    )
+    .unwrap();
+    let worker = prepare_subagent_worker(
+        &runtime,
+        &db,
+        vec![],
+        &inherited,
+        "inherited-direct-vision",
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(worker.config.native_vision, Some(true));
+}
+
+#[tokio::test]
 async fn route_catalog_is_secret_free_and_conflicting_or_missing_routes_fail() {
     let db = Database::open_memory().unwrap();
     let saved = db

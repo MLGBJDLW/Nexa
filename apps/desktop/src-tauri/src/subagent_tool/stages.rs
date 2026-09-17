@@ -85,19 +85,46 @@ pub(super) async fn prepare_subagent_worker(
     config.catalog_limits_authoritative = Some(catalog_authoritative);
     // A worker may select a different model from the parent's image-capable
     // route. Keep exact inherited eligibility only while its identity matches.
-    if config.model != runtime.base_config.model
+    if args.route.agent_config_id.is_some()
+        || args.route.provider.is_some()
+        || args.route.model.is_some()
+        || catalog_authoritative
+        || config.model != runtime.base_config.model
         || provider_config.provider_type != runtime.provider_config.provider_type
         || provider_config.base_url != runtime.provider_config.base_url
     {
-        config.native_vision = Some(
+        let selected_image_support = args
+            .route
+            .agent_config_id
+            .as_ref()
+            .and_then(|id| {
+                db.resolve_runtime_capability(
+                    &nexa_core::capability_registry::RegistryScope {
+                        agent_id: Some(id.clone()),
+                        ..Default::default()
+                    },
+                    "text_generation",
+                )
+                .ok()
+                .flatten()
+            })
+            .filter(|route| {
+                Some(route.model_id.as_str()) == config.model.as_deref()
+                    && route.provider_config.provider_type == provider_config.provider_type
+                    && route.provider_config.base_url == provider_config.base_url
+            })
+            .map(|route| route.snapshot.native_image_input);
+        // Workers instantiate a direct provider, so the selected descriptor
+        // applies independently of any fallback plan on the parent or preset.
+        config.native_vision = Some(selected_image_support.unwrap_or_else(|| {
             catalog_authoritative
                 && config.model.as_deref().is_some_and(|model| {
                     nexa_core::llm::model_declares_vision_support(
                         &provider_config.provider_type,
                         model,
                     )
-                }),
-        );
+                })
+        }));
     }
     apply_explicit_worker_reasoning(&mut config, &provider_config, &args.route)?;
     // Workers execute a handoff; the parent's fan-out and final-synthesis
