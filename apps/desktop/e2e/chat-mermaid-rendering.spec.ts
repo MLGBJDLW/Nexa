@@ -832,7 +832,10 @@ test('decodes quote entities in repaired and explicit labels', async ({ page }) 
   const labels = diagram.locator('svg g.node');
   await expect(labels.first()).toContainText('收到"人伤费用共计2469.86元"通知');
   await expect(diagram).not.toContainText('&quot;');
-  await expect(labels.nth(1)).toContainText(/A "quote" &\s*B 'test'/);
+  // SVG line tspans do not retain the whitespace at a wrap boundary. Linux
+  // and Windows fonts wrap at different words; verify every visible glyph.
+  await expect.poll(async () => (await labels.nth(1).textContent())?.replace(/\s+/g, ''))
+    .toBe('A"quote"&B\'test\'');
   await expect(diagram.locator('script, foreignObject, [onload], [onerror]')).toHaveCount(0);
   await diagram.screenshot({ path: 'test-results/mermaid-quote-labels.png' });
 });
