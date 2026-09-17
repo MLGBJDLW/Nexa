@@ -1,4 +1,105 @@
 use super::*;
+
+#[test]
+fn saved_shell_preference_preserves_policy_and_explicit_host_argv() {
+    use super::policy::apply_shell_preference;
+    let cwd = std::env::current_dir().unwrap();
+    for args in [
+        json!({"program":"git","args":["status"]}),
+        json!({"command":"git status","shell":false}),
+    ] {
+        let parsed = parse_run_shell_args(&args.to_string()).unwrap();
+        let invocation = normalize_run_shell_invocation(&parsed, ShellAccessMode::Open).unwrap();
+        assert_eq!(
+            apply_shell_preference(
+                &parsed,
+                ShellAccessMode::Open,
+                "missing-shell",
+                &cwd,
+                invocation.clone()
+            )
+            .unwrap(),
+            invocation
+        );
+    }
+    let parsed = parse_run_shell_args(&json!({"command":"git status"}).to_string()).unwrap();
+    let invocation = normalize_run_shell_invocation(&parsed, ShellAccessMode::Restricted).unwrap();
+    assert_eq!(
+        apply_shell_preference(
+            &parsed,
+            ShellAccessMode::Restricted,
+            "wsl:Ubuntu",
+            &cwd,
+            invocation.clone()
+        )
+        .unwrap(),
+        invocation
+    );
+    assert!(apply_shell_preference(
+        &parsed,
+        ShellAccessMode::Open,
+        "missing-shell",
+        &cwd,
+        invocation
+    )
+    .unwrap_err()
+    .contains("unavailable"));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "requires an installed WSL Bash distribution"]
+async fn native_wsl_selected_shell_maps_cwd_and_stops_linux_children() {
+    let discovery = crate::shell_environment::discover_shells().await;
+    let profile = discovery
+        .profiles
+        .iter()
+        .find(|p| p.kind == "wsl")
+        .unwrap_or_else(|| panic!("No ready WSL distribution: {discovery:?}"));
+    let directory = tempfile::Builder::new()
+        .prefix("nexa wsl 中文 ")
+        .tempdir()
+        .unwrap();
+    let cwd = directory.path().to_path_buf();
+    let db = db_with_source(&cwd);
+    let mut config = db.load_app_config().unwrap();
+    config.shell_access_mode = ShellAccessMode::Open;
+    config.default_shell = profile.id.clone();
+    db.save_app_config(&config).unwrap();
+    let arguments = json!({ "command": "printf 'NEXA_WSL_OK\\n'; pwd", "cwd": cwd, "stdin": "", "timeout_secs": 15 }).to_string();
+    let result = RunShellTool
+        .execute(crate::tools::ToolExecutionContext::new(
+            "native-wsl",
+            &arguments,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.contains("NEXA_WSL_OK"));
+    assert!(result.content.contains("nexa wsl 中文"));
+    assert!(result.artifacts.unwrap()["execution"]["program"]
+        .as_str()
+        .unwrap()
+        .ends_with("wsl.exe"));
+    let marker = format!("nexa-wsl-child-{}", uuid::Uuid::new_v4());
+    let command = format!("bash -c 'exec -a {marker} sleep 90' & wait");
+    let (program, args) = profile.invocation(Some(&command), &cwd).unwrap();
+    let output = execute_inner(&program, &args, &cwd, 1, None).await.unwrap();
+    assert!(output.killed_by_timeout);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let verify = format!("pgrep -f '^{marker} ' >/dev/null && exit 9; exit 0");
+    let (program, args) = profile.invocation(Some(&verify), &cwd).unwrap();
+    let output = execute_inner(&program, &args, &cwd, 10, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        output.exit_code,
+        Some(0),
+        "Linux child survived cancellation"
+    );
+}
 #[cfg(test)]
 use crate::db::Database;
 use crate::sources::CreateSourceInput;

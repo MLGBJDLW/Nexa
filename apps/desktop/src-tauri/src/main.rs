@@ -1007,6 +1007,7 @@ fn main() {
             // Terminal
             commands::terminal_start_session_cmd,
             commands::terminal_appearance_cmd,
+            commands::discover_shell_environments_cmd,
             commands::terminal_write_session_cmd,
             commands::terminal_resize_session_cmd,
             commands::terminal_close_session_cmd,

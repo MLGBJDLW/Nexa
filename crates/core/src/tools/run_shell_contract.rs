@@ -98,7 +98,7 @@ pub(crate) fn parameters_schema() -> Value {
         "properties": {
             "command": {
                 "type": "string",
-                "description": "Command string. Plain commands are parsed into exact argv without a shell. In ConfirmAll/Open modes, shell syntax such as ;, &&, |, redirection, command substitution, or multiline scripts automatically uses the platform default shell; Restricted mode still rejects shell syntax. You may also set shell explicitly. On Windows, path backslashes are preserved by the command parser; JSON strings still need escaped backslashes such as \"C:\\\\Users\\\\me\\\\script.py\". Do not provide command together with program or args."
+                "description": "Command string. Without a saved shell selection, plain commands are parsed into exact argv without a shell. In ConfirmAll/Open modes, shell syntax such as ;, &&, |, redirection, command substitution, or multiline scripts automatically uses the configured default shell; Restricted mode still rejects shell syntax. You may also set shell explicitly. On Windows, path backslashes are preserved by the command parser; JSON strings still need escaped backslashes such as \"C:\\\\Users\\\\me\\\\script.py\". Do not provide command together with program or args."
             },
             "shell": {
                 "oneOf": [
@@ -222,7 +222,7 @@ pub(crate) fn expected_format() -> Value {
         },
         "rules": [
             "Use command for simple one-line commands, or program plus args for exact argv control.",
-            "Plain commands are parsed into exact argv without a shell. In ConfirmAll/Open modes, recognizable shell syntax automatically uses the platform default shell; set shell explicitly when interpreter choice matters.",
+            "Without a saved shell selection, plain commands are parsed into exact argv without a shell. In ConfirmAll/Open modes, recognizable shell syntax automatically uses the configured default shell; set shell explicitly when interpreter choice matters.",
             "Restricted mode rejects shell syntax and explicit shell execution.",
             "Do not send command together with program or args.",
             "args must be an array of argv strings.",
@@ -302,11 +302,11 @@ fn invocation_modes_sentence() -> &'static str {
 }
 
 fn direct_command_sentence() -> &'static str {
-    "Plain `command` input is parsed into exact argv without a shell. In ConfirmAll/Open modes, recognizable shell syntax automatically uses the platform default shell; Restricted mode continues to reject it."
+    "Without a saved shell selection, plain `command` input is parsed into exact argv without a shell. In ConfirmAll/Open modes, recognizable shell syntax automatically uses the configured default shell; Restricted mode continues to reject it."
 }
 
 fn shell_mode_sentence() -> &'static str {
-    "Set `shell` explicitly when the interpreter choice matters. Shell execution is rejected in Restricted access and only works in ConfirmAll/Open."
+    "In ConfirmAll/Open, a saved shell environment also applies to plain command strings. Exact program/args stays on the host. Set `shell` explicitly to override the saved environment. Shell execution is rejected in Restricted access and only works in ConfirmAll/Open."
 }
 
 fn restricted_programs_sentence() -> String {

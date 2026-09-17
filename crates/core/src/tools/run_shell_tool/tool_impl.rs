@@ -1450,6 +1450,22 @@ async fn manage_service(
     service.process_tree.terminate();
     let kill_error = service.child.kill().await.err();
     let _ = service.child.wait().await;
+    if let Err(message) = service.process_tree.wait_for_cleanup().await {
+        let _ = service.activity_runtime.transition(
+            &service.activity_id,
+            ActivityState::Failed,
+            serde_json::json!({ "reason": "cleanup_unconfirmed" }),
+        );
+        let result = error_result(call_id, message);
+        drain_service_output_tasks(
+            service.stdout_task.take(),
+            service.stderr_task.take(),
+            SERVICE_LOG_DRAIN_TIMEOUT,
+        )
+        .await;
+        cache_completed_service(service_id, result.clone(), service.conversation_id.clone()).await;
+        return result;
+    }
     drain_service_output_tasks(
         service.stdout_task.take(),
         service.stderr_task.take(),
@@ -1576,6 +1592,22 @@ async fn finalize_exited_service(
     // A descendant can outlive the leader while retaining inherited stdout or
     // stderr. Kill the process tree first, then bound the pipe-drain wait.
     service.process_tree.terminate();
+    if let Err(message) = service.process_tree.wait_for_cleanup().await {
+        let _ = service.activity_runtime.transition(
+            &service.activity_id,
+            ActivityState::Failed,
+            serde_json::json!({ "reason": "cleanup_unconfirmed" }),
+        );
+        let result = error_result(call_id, message);
+        drain_service_output_tasks(
+            service.stdout_task.take(),
+            service.stderr_task.take(),
+            SERVICE_LOG_DRAIN_TIMEOUT,
+        )
+        .await;
+        cache_completed_service(service_id, result.clone(), service.conversation_id.clone()).await;
+        return result;
+    }
     drain_service_output_tasks(
         service.stdout_task.take(),
         service.stderr_task.take(),
@@ -2152,10 +2184,8 @@ impl Tool for RunShellTool {
                 "Code Ultra isolation does not allow detached processes.",
             ));
         }
-        let shell_access_mode = db
-            .load_app_config()
-            .map(|cfg| cfg.shell_access_mode)
-            .unwrap_or_default();
+        let app_config = db.load_app_config().unwrap_or_default();
+        let shell_access_mode = app_config.shell_access_mode;
 
         let (canonical_program, normalized_args) =
             match normalize_run_shell_invocation(&parsed, shell_access_mode) {
@@ -2171,31 +2201,6 @@ impl Tool for RunShellTool {
         }
 
         let timeout = clamp_timeout(parsed.timeout_secs);
-        let auto_promoted = isolation_sandbox.is_none()
-            && !parsed.background
-            && parsed.stdin.is_none()
-            && !is_native_filesystem_program(&canonical_program);
-        let managed_background =
-            isolation_sandbox.is_none() && (parsed.background || auto_promoted);
-        if managed_background && parsed.stdin.is_some() {
-            return Ok(error_result(
-                call_id,
-                "background run_shell does not accept stdin",
-            ));
-        }
-        let ready_url_candidate = if managed_background {
-            match parsed.ready_url.as_deref() {
-                Some(raw) => match validate_ready_url(raw) {
-                    Ok(url) => Some(ReadyUrlCandidate::explicit(url)),
-                    Err(message) => return Ok(error_result(call_id, message)),
-                },
-                None => infer_ready_url_from_invocation(&canonical_program, &normalized_args)
-                    .map(ReadyUrlCandidate::inferred),
-            }
-        } else {
-            None
-        };
-
         // Resolve cwd inside a registered source directory (blocking fs ops).
         let cwd_input = parsed
             .cwd
@@ -2250,6 +2255,52 @@ impl Tool for RunShellTool {
         let cwd_path = match cwd_result {
             Ok(p) => p,
             Err(msg) => return Ok(error_result(call_id, msg)),
+        };
+
+        // The isolation backend owns its interpreter. Preferences apply only to
+        // host execution, after cwd/source policy has resolved the host path.
+        let (canonical_program, normalized_args) = if isolation_sandbox.is_none() {
+            match super::policy::apply_shell_preference(
+                &parsed,
+                shell_access_mode,
+                &app_config.default_shell,
+                &cwd_path,
+                (canonical_program, normalized_args),
+            ) {
+                Ok(invocation) => invocation,
+                Err(message) => return Ok(error_result(call_id, message)),
+            }
+        } else {
+            (canonical_program, normalized_args)
+        };
+        if let Err(message) = validate_args(shell_access_mode, &canonical_program, &normalized_args)
+        {
+            return Ok(error_result(call_id, message));
+        }
+
+        let auto_promoted = isolation_sandbox.is_none()
+            && !parsed.background
+            && parsed.stdin.is_none()
+            && !is_native_filesystem_program(&canonical_program);
+        let managed_background =
+            isolation_sandbox.is_none() && (parsed.background || auto_promoted);
+        if managed_background && parsed.stdin.is_some() {
+            return Ok(error_result(
+                call_id,
+                "background run_shell does not accept stdin",
+            ));
+        }
+        let ready_url_candidate = if managed_background {
+            match parsed.ready_url.as_deref() {
+                Some(raw) => match validate_ready_url(raw) {
+                    Ok(url) => Some(ReadyUrlCandidate::explicit(url)),
+                    Err(message) => return Ok(error_result(call_id, message)),
+                },
+                None => infer_ready_url_from_invocation(&canonical_program, &normalized_args)
+                    .map(ReadyUrlCandidate::inferred),
+            }
+        } else {
+            None
         };
 
         if managed_background {

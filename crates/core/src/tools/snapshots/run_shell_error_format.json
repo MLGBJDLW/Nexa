@@ -40,7 +40,7 @@
     },
     "rules": [
       "Use command for simple one-line commands, or program plus args for exact argv control.",
-      "Plain commands are parsed into exact argv without a shell. In ConfirmAll/Open modes, recognizable shell syntax automatically uses the platform default shell; set shell explicitly when interpreter choice matters.",
+      "Without a saved shell selection, plain commands are parsed into exact argv without a shell. In ConfirmAll/Open modes, recognizable shell syntax automatically uses the configured default shell; set shell explicitly when interpreter choice matters.",
       "Restricted mode rejects shell syntax and explicit shell execution.",
       "Do not send command together with program or args.",
       "args must be an array of argv strings.",

@@ -35,13 +35,6 @@ export const TERMINAL_TOGGLE_EVENT = 'nexa:terminal-toggle';
 export const TERMINAL_OPEN_EVENT = 'nexa:terminal-open';
 const MAX_BUFFER_CHARS = 180_000;
 
-const SHELL_OPTIONS: Array<{ value: TerminalShell; label: string }> = [
-  { value: 'default', label: 'Default' },
-  { value: 'powershell', label: 'PowerShell' },
-  { value: 'cmd', label: 'Cmd' },
-  { value: 'bash', label: 'Bash' },
-];
-
 const FALLBACK_TERMINAL_THEME = {
   background: '#0a0a0f',
   foreground: '#f0f0f5',
@@ -175,6 +168,15 @@ export function TerminalDock({
   const [isOpen, setIsOpen] = useState(false);
   const [isTall, setIsTall] = useState(false);
   const [selectedShell, setSelectedShell] = useState<TerminalShell>('default');
+  const [shellProfiles, setShellProfiles] = useState<api.ShellProfile[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void api.discoverShellEnvironments().then(result => {
+      if (!cancelled && Array.isArray(result?.profiles)) setShellProfiles(result.profiles);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isOpen]);
   const [session, setSession] = useState<TerminalSessionInfo | null>(null);
   const [availableSessions, setAvailableSessions] = useState<TerminalSessionInfo[]>([]);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -688,7 +690,7 @@ export function TerminalDock({
           className="h-8 rounded-md border border-border/55 bg-surface-0 px-2 text-xs text-text-primary outline-none transition-colors hover:border-border-hover focus:border-accent"
           aria-label="Terminal shell"
         >
-          {SHELL_OPTIONS.map((option) => (
+          {[{ value: 'default', label: t('settings.shellSavedDefault') }, ...shellProfiles.map(profile => ({ value: profile.id, label: profile.label }))].map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

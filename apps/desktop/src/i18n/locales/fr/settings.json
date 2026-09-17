@@ -1017,4 +1017,13 @@
   "retiredModelSelection": "Le modèle {model} a été retiré par ce fournisseur. Choisissez un autre modèle avant d’envoyer.",
   "suggestedModelReplacement": "Remplacement suggéré : {model}.",
   "savedModelResolution": "L’identifiant du modèle enregistré a été résolu en {model}."
+  ,"shellEnvironment": "Environnement de commande"
+  ,"shellEnvironmentDesc": "Utilisé pour les commandes de l’agent et les nouveaux terminaux. Les sessions existantes conservent leur shell."
+  ,"shellAutomatic": "Automatique"
+  ,"shellUnavailable": "Indisponible"
+  ,"shellRestrictedHint": "Le mode restreint exécute les commandes directement sur l’hôte. Modifiez l’accès au shell dans les paramètres avancés pour utiliser un interpréteur."
+  ,"shellDiscoveryFailed": "Certains environnements n’ont pas pu être détectés. Relancez la détection."
+  ,"shellMissingHint": "L’environnement enregistré est indisponible. Choisissez-en un autre ou relancez la détection."
+  ,"shellRefresh": "Détecter à nouveau"
+  ,"shellSavedDefault": "Utiliser le choix enregistré"
 }
