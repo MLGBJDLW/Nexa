@@ -34,6 +34,7 @@ pub struct TerminalState {
 }
 
 struct TerminalSession {
+    wsl: Option<Arc<nexa_core::shell_environment::wsl_process::WslProcessLease>>,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
@@ -125,6 +126,8 @@ pub fn terminal_start_session_cmd(
     };
     let profile = nexa_core::shell_environment::resolve_profile(preference)?;
     let (program, args) = profile.invocation(None, &cwd)?;
+    let (args, wsl) = nexa_core::shell_environment::wsl_process::prepare(&program, &args)?;
+    let wsl = wsl.map(Arc::new);
     let pty_system = native_pty_system();
 
     {
@@ -174,6 +177,7 @@ pub fn terminal_start_session_cmd(
         let session_id = Uuid::new_v4().to_string();
         let output = Arc::new(Mutex::new(TerminalOutputBuffer::default()));
         let session = TerminalSession {
+            wsl: wsl.clone(),
             master: Arc::new(Mutex::new(pair.master)),
             writer: Arc::new(Mutex::new(writer)),
             killer: Arc::new(Mutex::new(child.clone_killer())),
@@ -212,6 +216,7 @@ pub fn terminal_start_session_cmd(
             state.active_by_conversation.clone(),
             session_id.clone(),
             child,
+            wsl,
         );
 
         return Ok(TerminalSessionInfo {
@@ -451,6 +456,9 @@ impl TerminalState {
             sessions.remove(session_id)
         };
         if let Some(session) = session {
+            if let Some(wsl) = &session.wsl {
+                wsl.terminate();
+            }
             if let Some(conversation_id) = session.conversation_id.as_ref() {
                 if let Ok(mut active) = self.active_by_conversation.lock() {
                     if active
@@ -469,6 +477,10 @@ impl TerminalState {
                 if !terminal_stop_succeeded(&err) {
                     return Err(format!("failed to stop terminal process: {err}"));
                 }
+            }
+            drop(killer);
+            if let Some(wsl) = &session.wsl {
+                wsl.wait_for_cleanup_blocking()?;
             }
         }
         Ok(())
@@ -637,9 +649,13 @@ fn spawn_terminal_waiter(
     active_by_conversation: Arc<Mutex<HashMap<String, String>>>,
     session_id: String,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
+    wsl: Option<Arc<nexa_core::shell_environment::wsl_process::WslProcessLease>>,
 ) {
     thread::spawn(move || {
         let result = child.wait();
+        let cleanup_error = wsl
+            .as_ref()
+            .and_then(|lease| lease.wait_for_cleanup_blocking().err());
         // Dropping the last ConPTY master can wait for its output pipe to
         // drain. The reader must remain able to inspect the session registry.
         let retired = sessions
@@ -667,6 +683,7 @@ fn spawn_terminal_waiter(
             ),
             Err(err) => (None, None, Some(format!("terminal wait failed: {err}"))),
         };
+        let data = cleanup_error.or(data);
         emit_app_event(
             &app_handle,
             TERMINAL_EVENT,

@@ -1000,8 +1000,9 @@ selectors override it; `program`/`args` remains exact host argv, and Restricted
 mode retains native scoped execution. Existing sessions keep their shell.
 `cwd` remains a host directory; WSL receives it through `wsl --cd`, without
 assuming a `/mnt` mount layout. Missing explicit profiles fail without falling
-back. WSL commands own a Linux process group in addition to the Windows process
-job; stop/timeout cleanup targets that group, never the whole distribution.
+back. WSL commands and terminals own Linux sessions in addition to their Windows
+proxies. Cleanup includes interactive background job groups, preserves other
+terminals, and runs during host shutdown without terminating the distribution.
 
 
 Long-running builds return a stable `activityId`, `cursor`, and `serviceId`.

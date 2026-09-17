@@ -491,7 +491,7 @@ pub(super) fn spawn_background_process(
     args: &[String],
     cwd: &Path,
 ) -> Result<(tokio::process::Child, ProcessTreeGuard), String> {
-    let (args, wsl) = super::wsl_process::prepare(program, args);
+    let (args, wsl) = super::wsl_process::prepare(program, args)?;
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(cwd)
@@ -531,7 +531,7 @@ pub(super) async fn execute_inner(
     timeout_secs: u64,
     stdin: Option<&str>,
 ) -> Result<RunShellOutput, String> {
-    let (args, wsl) = super::wsl_process::prepare(program, args);
+    let (args, wsl) = super::wsl_process::prepare(program, args)?;
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(cwd)

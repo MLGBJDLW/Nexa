@@ -1255,6 +1255,9 @@ fn main() {
             });
         }
         tauri::RunEvent::Exit => {
+            for error in nexa_core::shell_environment::wsl_process::shutdown_all_blocking() {
+                log::warn!("WSL shutdown cleanup: {error}");
+            }
             if let Some(remote) = app_handle.try_state::<remote::RemoteState>() {
                 remote.shutdown();
             }

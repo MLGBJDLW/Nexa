@@ -2,6 +2,7 @@
 //! Saved identifiers are preferences, never executable paths or shell fragments.
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+pub mod wsl_process;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +72,7 @@ fn local_profiles() -> Vec<ShellProfile> {
             ("pwsh", "PowerShell 7", "pwsh"),
             ("powershell", "Windows PowerShell", "powershell"),
             ("cmd", "Command Prompt", "cmd"),
+            ("sh", "sh", "sh"),
         ] {
             if let Some(profile) = local_profile(id, label, program) {
                 profiles.push(profile);
@@ -97,6 +99,16 @@ fn local_profiles() -> Vec<ShellProfile> {
                     .find(|p| executable(p))
             });
         if let Some(program) = bash {
+            let sh = program.with_file_name("sh.exe");
+            if !profiles.iter().any(|p| p.id == "sh") && executable(&sh) {
+                profiles.push(ShellProfile {
+                    id: "sh".into(),
+                    label: "sh".into(),
+                    program: sh.to_string_lossy().into_owned(),
+                    kind: "sh".into(),
+                    distribution: None,
+                });
+            }
             profiles.push(ShellProfile {
                 id: "bash".into(),
                 label: "Git Bash".into(),
@@ -306,6 +318,19 @@ pub fn agent_guidance(preference: &str, restricted: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_sh_remains_selectable_when_installed() {
+        if find_program("sh").is_some() {
+            let sh = resolve_profile("sh").unwrap();
+            assert_eq!(
+                sh.invocation(Some("printf ok"), Path::new("C:/"))
+                    .unwrap()
+                    .1,
+                ["-c", "printf ok"]
+            );
+        }
+    }
     #[test]
     fn wsl_discovery_decodes_unicode_and_deduplicates() {
         let bytes: Vec<u8> = "\u{feff}Ubuntu\r\n工作环境\r\nUbuntu\r\n"
