@@ -229,6 +229,9 @@ pub struct CapabilityRegistryProjection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeRouteTargetSnapshot {
+    /// Image eligibility frozen from this exact endpoint model descriptor.
+    #[serde(default)]
+    pub native_image_input: bool,
     pub fallback_index: usize,
     pub target_id: String,
     pub target_revision: u64,
@@ -254,6 +257,9 @@ pub struct RuntimeRouteTargetSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeRegistrySnapshot {
+    /// Image eligibility frozen from this exact endpoint model descriptor.
+    #[serde(default)]
+    pub native_image_input: bool,
     pub schema_version: u16,
     pub settings_revisions: Vec<SettingsRevisionV2>,
     pub binding_id: String,
@@ -317,4 +323,17 @@ pub struct RuntimeCapabilityResolution {
     pub model_id: String,
     pub snapshot: RuntimeRegistrySnapshot,
     pub fallbacks: Vec<RuntimeCapabilityFallback>,
+}
+
+impl RuntimeCapabilityResolution {
+    /// An automatic retry must never send pixels to a text-only fallback.
+    pub fn supports_native_images(&self) -> bool {
+        self.snapshot.native_image_input
+            && self
+                .snapshot
+                .fallback_targets
+                .iter()
+                .filter(|target| target.fallback_index > self.snapshot.fallback_index)
+                .all(|target| target.native_image_input)
+    }
 }

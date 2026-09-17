@@ -34,6 +34,7 @@ pub struct TerminalState {
 }
 
 struct TerminalSession {
+    wsl: Option<Arc<nexa_core::shell_environment::wsl_process::WslProcessLease>>,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
@@ -97,17 +98,11 @@ enum TerminalEventKind {
     Error,
 }
 
-#[derive(Clone)]
-struct ShellCandidate {
-    label: &'static str,
-    program: &'static str,
-    args: &'static [&'static str],
-}
-
 #[tauri::command]
 pub fn terminal_start_session_cmd(
     app_handle: AppHandle,
     state: State<'_, TerminalState>,
+    app_state: State<'_, super::AppState>,
     input: TerminalStartInput,
 ) -> Result<TerminalSessionInfo, String> {
     let cwd = resolve_terminal_cwd(input.cwd)?;
@@ -118,22 +113,30 @@ pub fn terminal_start_session_cmd(
         pixel_width: 0,
         pixel_height: 0,
     };
-    let shell = input
-        .shell
-        .unwrap_or_else(|| "default".to_string())
-        .trim()
-        .to_ascii_lowercase();
-    let candidates = shell_candidates(&shell);
+    let requested = input.shell.unwrap_or_else(|| "default".into());
+    let saved = app_state
+        .db
+        .load_app_config()
+        .map_err(|e| e.to_string())?
+        .default_shell;
+    let preference = if requested == "default" {
+        &saved
+    } else {
+        &requested
+    };
+    let profile = nexa_core::shell_environment::resolve_profile(preference)?;
+    let (program, args) = profile.invocation(None, &cwd)?;
+    let (args, wsl) = nexa_core::shell_environment::wsl_process::prepare(&program, &args)?;
+    let wsl = wsl.map(Arc::new);
     let pty_system = native_pty_system();
-    let mut last_error = None;
 
-    for candidate in candidates {
+    {
         let pair = match pty_system.openpty(size) {
             Ok(pair) => pair,
             Err(err) => return Err(format!("failed to create terminal pty: {err}")),
         };
-        let mut command = CommandBuilder::new(candidate.program);
-        command.args(candidate.args);
+        let mut command = CommandBuilder::new(&program);
+        command.args(&args);
         command.cwd(cwd.as_os_str());
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
@@ -143,11 +146,8 @@ pub fn terminal_start_session_cmd(
         let child = match pair.slave.spawn_command(command) {
             Ok(child) => child,
             Err(err) => {
-                last_error = Some(format!(
-                    "failed to start {} ({}): {err}",
-                    candidate.label, candidate.program
-                ));
-                continue;
+                let error = format!("failed to start {} ({}): {err}", profile.label, program);
+                return Err(error);
             }
         };
 
@@ -159,8 +159,15 @@ pub fn terminal_start_session_cmd(
             .master
             .take_writer()
             .map_err(|err| format!("failed to attach terminal input: {err}"))?;
-        let shell_label = resolved_shell_label(candidate.label, candidate.program);
-        if let Some(integration) = shell_integration_bootstrap(&shell_label, candidate.program) {
+        let shell_label = resolved_shell_label(&profile.label, &program);
+        if let Some(integration) = shell_integration_bootstrap(
+            if profile.kind == "wsl" {
+                "Bash"
+            } else {
+                &shell_label
+            },
+            &program,
+        ) {
             writer
                 .write_all(integration.as_bytes())
                 .and_then(|_| writer.flush())
@@ -170,10 +177,11 @@ pub fn terminal_start_session_cmd(
         let session_id = Uuid::new_v4().to_string();
         let output = Arc::new(Mutex::new(TerminalOutputBuffer::default()));
         let session = TerminalSession {
+            wsl: wsl.clone(),
             master: Arc::new(Mutex::new(pair.master)),
             writer: Arc::new(Mutex::new(writer)),
             killer: Arc::new(Mutex::new(child.clone_killer())),
-            shell: shell_label,
+            shell: shell_label.clone(),
             cwd: cwd.display().to_string(),
             process_id,
             conversation_id: conversation_id.clone(),
@@ -208,18 +216,17 @@ pub fn terminal_start_session_cmd(
             state.active_by_conversation.clone(),
             session_id.clone(),
             child,
+            wsl,
         );
 
         return Ok(TerminalSessionInfo {
             id: session_id,
-            shell: candidate.label.to_string(),
+            shell: shell_label,
             cwd: cwd.display().to_string(),
             process_id,
             conversation_id,
         });
     }
-
-    Err(last_error.unwrap_or_else(|| "failed to start terminal shell".to_string()))
 }
 
 #[tauri::command]
@@ -449,6 +456,9 @@ impl TerminalState {
             sessions.remove(session_id)
         };
         if let Some(session) = session {
+            if let Some(wsl) = &session.wsl {
+                wsl.terminate();
+            }
             if let Some(conversation_id) = session.conversation_id.as_ref() {
                 if let Ok(mut active) = self.active_by_conversation.lock() {
                     if active
@@ -467,6 +477,10 @@ impl TerminalState {
                 if !terminal_stop_succeeded(&err) {
                     return Err(format!("failed to stop terminal process: {err}"));
                 }
+            }
+            drop(killer);
+            if let Some(wsl) = &session.wsl {
+                wsl.wait_for_cleanup_blocking()?;
             }
         }
         Ok(())
@@ -635,9 +649,13 @@ fn spawn_terminal_waiter(
     active_by_conversation: Arc<Mutex<HashMap<String, String>>>,
     session_id: String,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
+    wsl: Option<Arc<nexa_core::shell_environment::wsl_process::WslProcessLease>>,
 ) {
     thread::spawn(move || {
         let result = child.wait();
+        let cleanup_error = wsl
+            .as_ref()
+            .and_then(|lease| lease.wait_for_cleanup_blocking().err());
         // Dropping the last ConPTY master can wait for its output pipe to
         // drain. The reader must remain able to inspect the session registry.
         let retired = sessions
@@ -665,6 +683,7 @@ fn spawn_terminal_waiter(
             ),
             Err(err) => (None, None, Some(format!("terminal wait failed: {err}"))),
         };
+        let data = cleanup_error.or(data);
         emit_app_event(
             &app_handle,
             TERMINAL_EVENT,
@@ -807,96 +826,6 @@ fn strip_windows_verbatim_prefix(path: &std::path::Path) -> Option<PathBuf> {
     }
 
     Some(normalized)
-}
-
-fn shell_candidates(requested: &str) -> Vec<ShellCandidate> {
-    #[cfg(windows)]
-    {
-        match requested {
-            "powershell" | "pwsh" => vec![
-                ShellCandidate {
-                    label: "PowerShell",
-                    program: "pwsh.exe",
-                    args: &["-NoLogo"],
-                },
-                ShellCandidate {
-                    label: "Windows PowerShell",
-                    program: "powershell.exe",
-                    args: &["-NoLogo"],
-                },
-            ],
-            "cmd" | "command" => vec![ShellCandidate {
-                label: "Command Prompt",
-                program: "cmd.exe",
-                args: &[],
-            }],
-            "bash" | "sh" => vec![
-                ShellCandidate {
-                    label: "Bash",
-                    program: "bash.exe",
-                    args: &["--login"],
-                },
-                ShellCandidate {
-                    label: "Git Bash",
-                    program: "sh.exe",
-                    args: &["--login"],
-                },
-            ],
-            _ => vec![
-                ShellCandidate {
-                    label: "PowerShell",
-                    program: "pwsh.exe",
-                    args: &["-NoLogo"],
-                },
-                ShellCandidate {
-                    label: "Windows PowerShell",
-                    program: "powershell.exe",
-                    args: &["-NoLogo"],
-                },
-                ShellCandidate {
-                    label: "Command Prompt",
-                    program: "cmd.exe",
-                    args: &[],
-                },
-            ],
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        match requested {
-            "bash" => vec![ShellCandidate {
-                label: "Bash",
-                program: "bash",
-                args: &["--login"],
-            }],
-            "sh" => vec![ShellCandidate {
-                label: "sh",
-                program: "sh",
-                args: &[],
-            }],
-            "zsh" => vec![ShellCandidate {
-                label: "Zsh",
-                program: "zsh",
-                args: &["--login"],
-            }],
-            _ => {
-                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-                vec![
-                    ShellCandidate {
-                        label: "Default Shell",
-                        program: Box::leak(shell.into_boxed_str()),
-                        args: &["-l"],
-                    },
-                    ShellCandidate {
-                        label: "sh",
-                        program: "sh",
-                        args: &[],
-                    },
-                ]
-            }
-        }
-    }
 }
 
 #[cfg(test)]

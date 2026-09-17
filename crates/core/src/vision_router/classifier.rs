@@ -127,6 +127,15 @@ fn classify_auto(
     );
 
     let plan = match intent {
+        VisionIntent::DenseText if native_available => {
+            // OCR may supplement native vision but must not replace pixels:
+            // even a document/screenshot can encode layout, charts and errors.
+            reason_codes.push("native_vision_selected_for_dense_text".to_string());
+            if input.ocr_available {
+                reason_codes.push("local_ocr_supplement_requested".to_string());
+            }
+            VisionRoutePlan::NativeDirect
+        }
         VisionIntent::DenseText if input.ocr_available && auxiliary_available => {
             reason_codes.push("ocr_first_with_vision_supplement".to_string());
             VisionRoutePlan::OcrThenVision
@@ -138,10 +147,6 @@ fn classify_auto(
         VisionIntent::DenseText if auxiliary_available => {
             reason_codes.push("ocr_unavailable_vision_selected".to_string());
             VisionRoutePlan::VisionOnly
-        }
-        VisionIntent::DenseText if native_available => {
-            reason_codes.push("ocr_unavailable_native_vision_selected".to_string());
-            VisionRoutePlan::NativeDirect
         }
         VisionIntent::VisualReasoning if native_available => {
             reason_codes.push("native_vision_selected".to_string());
@@ -381,6 +386,32 @@ mod tests {
         request.primary_supports_vision = true;
         let decision = classify_vision_route(request).unwrap();
         assert_eq!(decision.plan, VisionRoutePlan::NativeDirect);
+    }
+
+    #[test]
+    fn native_flash_keeps_screenshot_pixels_in_auto_mode() {
+        let policy = VisionRouterPolicy::default();
+        let mut request = input(&policy);
+        request.original_name = "Screenshot_2026.png";
+        request.user_prompt = "看看这个有什么问题";
+        request.primary_supports_vision = true;
+        request.auxiliary_available = false;
+        assert_eq!(
+            classify_vision_route(request).unwrap().plan,
+            VisionRoutePlan::NativeDirect
+        );
+    }
+
+    #[test]
+    fn explicit_ocr_still_overrides_native_vision() {
+        let policy = VisionRouterPolicy::default();
+        let mut request = input(&policy);
+        request.primary_supports_vision = true;
+        request.turn_override = Some(VisionTurnOverride::OcrOnly);
+        assert_eq!(
+            classify_vision_route(request).unwrap().plan,
+            VisionRoutePlan::OcrOnly
+        );
     }
 
     #[test]

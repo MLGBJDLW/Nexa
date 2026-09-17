@@ -1017,4 +1017,13 @@
   "retiredModelSelection": "此服務商已下線模型 {model}，請在傳送前選擇其他模型。",
   "suggestedModelReplacement": "建議替代模型：{model}。",
   "savedModelResolution": "已儲存的模型 ID 已解析為 {model}。"
+  ,"shellEnvironment": "命令環境"
+  ,"shellEnvironmentDesc": "用於 Agent 命令和新終端；現有終端保留原來的環境。"
+  ,"shellAutomatic": "自動選擇"
+  ,"shellUnavailable": "無法使用"
+  ,"shellRestrictedHint": "受限模式繼續在本機直接執行命令。若要使用解譯器，請在進階設定中調整命令存取權限。"
+  ,"shellDiscoveryFailed": "部分環境未能完成偵測，請重新偵測。"
+  ,"shellMissingHint": "已儲存的環境目前無法使用，請重新偵測或選擇其他環境。"
+  ,"shellRefresh": "重新偵測"
+  ,"shellSavedDefault": "使用已儲存的預設環境"
 }

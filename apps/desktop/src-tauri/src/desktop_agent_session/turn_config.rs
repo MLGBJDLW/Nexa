@@ -406,6 +406,17 @@ pub fn build_desktop_agent_turn_config(
             power_mode_section,
         ),
         volatile_instruction(
+            "command-environment",
+            "runtime.default_shell",
+            "selected command environment",
+            ContextTrustLevel::System,
+            109,
+            nexa_core::shell_environment::agent_guidance(
+                &app_cfg.default_shell,
+                app_cfg.shell_access_mode.is_restricted(),
+            ),
+        ),
+        volatile_instruction(
             "quality-policy",
             "runtime.orchestration_profile",
             "resolved orchestration quality profile",
@@ -521,6 +532,7 @@ pub fn build_desktop_agent_turn_config(
         context_pack.prompt_sections_for_stability(ContextItemStability::VolatileSuffix);
 
     let executor_config = AgentConfig {
+        native_vision: None,
         max_iterations: orchestration_policy.max_iterations,
         system_prompt,
         volatile_system_sections,

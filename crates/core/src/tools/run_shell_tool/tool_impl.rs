@@ -939,6 +939,7 @@ struct ManagedServiceRequest<'a> {
     args: &'a [String],
     cwd: &'a Path,
     ready_url_candidate: Option<ReadyUrlCandidate>,
+    persistent_invocation: bool,
     auto_promoted: bool,
     activity_runtime: ActivityRuntime,
     conversation_id: Option<&'a str>,
@@ -951,13 +952,13 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
         args,
         cwd,
         mut ready_url_candidate,
+        persistent_invocation,
         auto_promoted,
         activity_runtime,
         conversation_id,
     } = request;
-    let persistent_service = !auto_promoted
-        || ready_url_candidate.is_some()
-        || looks_like_persistent_service(program, args);
+    let persistent_service =
+        !auto_promoted || ready_url_candidate.is_some() || persistent_invocation;
     if let Some(candidate) = ready_url_candidate.as_ref() {
         if readiness_probe(&candidate.url).await {
             if candidate.rejects_preexisting_endpoint() {
@@ -1450,6 +1451,22 @@ async fn manage_service(
     service.process_tree.terminate();
     let kill_error = service.child.kill().await.err();
     let _ = service.child.wait().await;
+    if let Err(message) = service.process_tree.wait_for_cleanup().await {
+        let _ = service.activity_runtime.transition(
+            &service.activity_id,
+            ActivityState::Failed,
+            serde_json::json!({ "reason": "cleanup_unconfirmed" }),
+        );
+        let result = error_result(call_id, message);
+        drain_service_output_tasks(
+            service.stdout_task.take(),
+            service.stderr_task.take(),
+            SERVICE_LOG_DRAIN_TIMEOUT,
+        )
+        .await;
+        cache_completed_service(service_id, result.clone(), service.conversation_id.clone()).await;
+        return result;
+    }
     drain_service_output_tasks(
         service.stdout_task.take(),
         service.stderr_task.take(),
@@ -1576,6 +1593,22 @@ async fn finalize_exited_service(
     // A descendant can outlive the leader while retaining inherited stdout or
     // stderr. Kill the process tree first, then bound the pipe-drain wait.
     service.process_tree.terminate();
+    if let Err(message) = service.process_tree.wait_for_cleanup().await {
+        let _ = service.activity_runtime.transition(
+            &service.activity_id,
+            ActivityState::Failed,
+            serde_json::json!({ "reason": "cleanup_unconfirmed" }),
+        );
+        let result = error_result(call_id, message);
+        drain_service_output_tasks(
+            service.stdout_task.take(),
+            service.stderr_task.take(),
+            SERVICE_LOG_DRAIN_TIMEOUT,
+        )
+        .await;
+        cache_completed_service(service_id, result.clone(), service.conversation_id.clone()).await;
+        return result;
+    }
     drain_service_output_tasks(
         service.stdout_task.take(),
         service.stderr_task.take(),
@@ -1699,6 +1732,60 @@ fn error_result(call_id: &str, msg: impl Into<String>) -> ToolResult {
 mod review_regression_tests {
     use super::*;
 
+    #[tokio::test]
+    #[ignore = "requires Python and the platform shell"]
+    async fn selected_shell_preserves_silent_service_readiness_and_lifetime() {
+        use crate::tools::ToolExecutionContext;
+        let tmp = tempfile::tempdir().unwrap();
+        let db = crate::db::Database::open_memory().unwrap();
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = crate::app_settings::ShellAccessMode::Open;
+        config.default_shell = if cfg!(windows) { "powershell" } else { "sh" }.into();
+        db.save_app_config(&config).unwrap();
+        let python = if cfg!(windows) { "python" } else { "python3" };
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        std::fs::write(tmp.path().join("server.py"), "import time; time.sleep(60)").unwrap();
+        let owner = format!("selected-shell-service-{}", uuid::Uuid::new_v4());
+        for (command, ready, wait_for) in [
+            (
+                format!("{python} -c \"from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(('127.0.0.1', {port}), SimpleHTTPRequestHandler).serve_forever()\""),
+                true,
+                "output",
+            ),
+            (format!("{python} server.py"), false, "output"),
+            (format!("{python} -c \"import time; time.sleep(60)\""), false, "completion"),
+        ] {
+            let arguments = serde_json::json!({"command":command,"cwd":tmp.path()}).to_string();
+            let started = RunShellTool.execute(
+                ToolExecutionContext::new("start", &arguments, &db, &[])
+                    .with_conversation_id(Some(&owner)),
+            ).await.unwrap();
+            assert!(!started.is_error, "{}", started.content);
+            let receipt = started.artifacts.as_ref().unwrap();
+            let service_id = receipt["serviceId"].as_str().unwrap();
+            let permits = managed_loopback_permits(&owner).await;
+            // Always stop the child before checking expectations so a failed
+            // regression cannot leave a server or sleeper behind.
+            let stopped = manage_service("stop", "stop", service_id, Some(&owner)).await;
+            assert!(!stopped.is_error, "{}", stopped.content);
+            if ready {
+                assert_eq!(receipt["status"], "ready", "{}", started.content);
+                assert_eq!(receipt["readyUrl"], format!("http://127.0.0.1:{port}/"));
+                assert_eq!(permits.len(), 1);
+                assert_eq!(permits[0].port, port);
+            } else {
+                assert_eq!(receipt["status"], "running");
+                assert_eq!(receipt["nextAction"]["arguments"]["waitFor"], wait_for);
+                assert!(permits.is_empty());
+            }
+            assert!(managed_loopback_permits(&owner).await.is_empty());
+        }
+    }
+
     #[test]
     #[ignore = "subprocess fixture for delayed persistent service readiness"]
     fn delayed_persistent_service_fixture() {
@@ -1742,6 +1829,7 @@ mod review_regression_tests {
             args: &args,
             cwd: tmp.path(),
             ready_url_candidate: Some(ReadyUrlCandidate::explicit(url.clone())),
+            persistent_invocation: false,
             auto_promoted: false,
             activity_runtime: runtime.clone(),
             conversation_id: Some("delayed-owner"),
@@ -1808,7 +1896,7 @@ mod review_regression_tests {
             });
             let result = runtime.block_on(start_managed_service(ManagedServiceRequest {
                 call_id: &worker_id, program: executable.to_str().unwrap(), args: &args,
-                cwd: executable.parent().unwrap(), ready_url_candidate: None, auto_promoted: true,
+                cwd: executable.parent().unwrap(), ready_url_candidate: None, persistent_invocation: false, auto_promoted: true,
                 activity_runtime: ActivityRuntime::new(), conversation_id: process_conversation_id(&context),
             }));
             drop(runtime);
@@ -1868,6 +1956,7 @@ mod review_regression_tests {
             args: &args,
             cwd: executable.parent().unwrap(),
             ready_url_candidate: None,
+            persistent_invocation: false,
             auto_promoted: true,
             activity_runtime: ActivityRuntime::new(),
             conversation_id: Some("collision-owner"),
@@ -2152,10 +2241,8 @@ impl Tool for RunShellTool {
                 "Code Ultra isolation does not allow detached processes.",
             ));
         }
-        let shell_access_mode = db
-            .load_app_config()
-            .map(|cfg| cfg.shell_access_mode)
-            .unwrap_or_default();
+        let app_config = db.load_app_config().unwrap_or_default();
+        let shell_access_mode = app_config.shell_access_mode;
 
         let (canonical_program, normalized_args) =
             match normalize_run_shell_invocation(&parsed, shell_access_mode) {
@@ -2171,31 +2258,6 @@ impl Tool for RunShellTool {
         }
 
         let timeout = clamp_timeout(parsed.timeout_secs);
-        let auto_promoted = isolation_sandbox.is_none()
-            && !parsed.background
-            && parsed.stdin.is_none()
-            && !is_native_filesystem_program(&canonical_program);
-        let managed_background =
-            isolation_sandbox.is_none() && (parsed.background || auto_promoted);
-        if managed_background && parsed.stdin.is_some() {
-            return Ok(error_result(
-                call_id,
-                "background run_shell does not accept stdin",
-            ));
-        }
-        let ready_url_candidate = if managed_background {
-            match parsed.ready_url.as_deref() {
-                Some(raw) => match validate_ready_url(raw) {
-                    Ok(url) => Some(ReadyUrlCandidate::explicit(url)),
-                    Err(message) => return Ok(error_result(call_id, message)),
-                },
-                None => infer_ready_url_from_invocation(&canonical_program, &normalized_args)
-                    .map(ReadyUrlCandidate::inferred),
-            }
-        } else {
-            None
-        };
-
         // Resolve cwd inside a registered source directory (blocking fs ops).
         let cwd_input = parsed
             .cwd
@@ -2252,6 +2314,58 @@ impl Tool for RunShellTool {
             Err(msg) => return Ok(error_result(call_id, msg)),
         };
 
+        // Classify the requested invocation before an environment wrapper hides
+        // the executable/argv that declare service lifetime and readiness.
+        let persistent_invocation =
+            looks_like_persistent_service(&canonical_program, &normalized_args);
+        let inferred_ready_url =
+            infer_ready_url_from_invocation(&canonical_program, &normalized_args);
+
+        // The isolation backend owns its interpreter. Preferences apply only to
+        // host execution, after cwd/source policy has resolved the host path.
+        let (canonical_program, normalized_args) = if isolation_sandbox.is_none() {
+            match super::policy::apply_shell_preference(
+                &parsed,
+                shell_access_mode,
+                &app_config.default_shell,
+                &cwd_path,
+                (canonical_program, normalized_args),
+            ) {
+                Ok(invocation) => invocation,
+                Err(message) => return Ok(error_result(call_id, message)),
+            }
+        } else {
+            (canonical_program, normalized_args)
+        };
+        if let Err(message) = validate_args(shell_access_mode, &canonical_program, &normalized_args)
+        {
+            return Ok(error_result(call_id, message));
+        }
+
+        let auto_promoted = isolation_sandbox.is_none()
+            && !parsed.background
+            && parsed.stdin.is_none()
+            && !is_native_filesystem_program(&canonical_program);
+        let managed_background =
+            isolation_sandbox.is_none() && (parsed.background || auto_promoted);
+        if managed_background && parsed.stdin.is_some() {
+            return Ok(error_result(
+                call_id,
+                "background run_shell does not accept stdin",
+            ));
+        }
+        let ready_url_candidate = if managed_background {
+            match parsed.ready_url.as_deref() {
+                Some(raw) => match validate_ready_url(raw) {
+                    Ok(url) => Some(ReadyUrlCandidate::explicit(url)),
+                    Err(message) => return Ok(error_result(call_id, message)),
+                },
+                None => inferred_ready_url.map(ReadyUrlCandidate::inferred),
+            }
+        } else {
+            None
+        };
+
         if managed_background {
             return Ok(start_managed_service(ManagedServiceRequest {
                 call_id,
@@ -2259,6 +2373,7 @@ impl Tool for RunShellTool {
                 args: &normalized_args,
                 cwd: &cwd_path,
                 ready_url_candidate,
+                persistent_invocation,
                 auto_promoted,
                 activity_runtime: activity_runtime.cloned().unwrap_or_default(),
                 conversation_id,

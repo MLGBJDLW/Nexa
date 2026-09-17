@@ -174,6 +174,7 @@ async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_t
     let mut runtime = test_runtime();
     runtime.provider_config.api_key = Some("test-parent-key".into());
     runtime.base_config.model = Some("gpt-parent".into());
+    runtime.base_config.native_vision = Some(true);
     runtime.base_config.context_window = Some(1234);
     runtime.base_config.max_iterations = 32;
     runtime.base_config.power_mode = nexa_core::agent::power_mode::AgentPowerMode::Nexus;
@@ -199,6 +200,7 @@ async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_t
         .await
         .unwrap();
     assert_eq!(worker.effective_provider_type, ProviderType::Anthropic);
+    assert_eq!(worker.config.native_vision, Some(false));
     assert_eq!(worker.config.max_iterations, 24);
     assert_ne!(worker.config.context_window, Some(1234));
     assert_eq!(worker.config.reasoning_effort, Some(ReasoningEffort::High));
@@ -245,6 +247,74 @@ async fn private_endpoint_model_alias_keeps_its_own_reasoning_contract() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn no_op_private_worker_selectors_preserve_confirmed_image_support() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("private-vision".into());
+    runtime.base_config.native_vision = Some(true);
+    runtime.provider_config.api_key = Some("test-key".into());
+    runtime.provider_config.base_url = Some("https://private.example/v1".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    for selectors in [
+        serde_json::json!({"provider":provider_catalog_key(ProviderType::OpenAi)}),
+        serde_json::json!({"model":"private-vision"}),
+        serde_json::json!({"provider":provider_catalog_key(ProviderType::OpenAi), "model":"private-vision"}),
+    ] {
+        let mut input = serde_json::json!({"task":"Inspect supplied image", "allowed_tools":[]});
+        input
+            .as_object_mut()
+            .unwrap()
+            .extend(selectors.as_object().unwrap().clone());
+        let args = serde_json::from_value(input).unwrap();
+        let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "private-vision", None)
+            .await
+            .unwrap();
+        assert_eq!(worker.config.catalog_limits_authoritative, Some(false));
+        assert_eq!(worker.config.native_vision, Some(true));
+    }
+}
+
+#[tokio::test]
+async fn explicit_same_model_worker_recomputes_parent_fallback_image_policy() {
+    let db = Database::open_memory().unwrap();
+    let saved = db
+        .save_agent_config(
+            &serde_json::from_value(serde_json::json!({
+                "name":"Direct vision", "provider":"deep_seek", "apiKey":"test-key",
+                "baseUrl":"https://api.deepseek.com", "model":"deepseek-flash", "isDefault":false
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let mut runtime = test_runtime();
+    runtime.provider_config = crate::desktop_agent_session::desktop_provider_config(&saved);
+    runtime.base_config.provider_type = Some(ProviderType::DeepSeek);
+    runtime.base_config.model = Some("deepseek-flash".into());
+    runtime.base_config.native_vision = Some(false); // Parent has a text-only automatic fallback.
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args = serde_json::from_value(serde_json::json!({ "task":"Inspect supplied evidence", "agent_config_id":saved.id, "allowed_tools":[] })).unwrap();
+    let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "direct-vision", None)
+        .await
+        .unwrap();
+    assert_eq!(worker.config.native_vision, Some(true));
+    let inherited = serde_json::from_value(
+        serde_json::json!({ "task":"Inspect supplied evidence", "allowed_tools":[] }),
+    )
+    .unwrap();
+    let worker = prepare_subagent_worker(
+        &runtime,
+        &db,
+        vec![],
+        &inherited,
+        "inherited-direct-vision",
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(worker.config.native_vision, Some(true));
 }
 
 #[tokio::test]

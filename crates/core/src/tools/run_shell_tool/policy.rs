@@ -133,6 +133,41 @@ fn command_uses_shell_syntax(command: &str) -> bool {
         || command.contains("$(")
 }
 
+pub(super) fn apply_shell_preference(
+    parsed: &RunShellArgs,
+    mode: ShellAccessMode,
+    preference: &str,
+    cwd: &Path,
+    invocation: (String, Vec<String>),
+) -> Result<(String, Vec<String>), String> {
+    // Restricted execution and exact argv retain their host-native policy.
+    if mode.is_restricted() || parsed.program.is_some() {
+        return Ok(invocation);
+    }
+    let Some(command) = parsed.command.as_deref() else {
+        return Ok(invocation);
+    };
+    let shell = parse_shell_selector(parsed.shell.as_ref())?;
+    let explicitly_direct = parsed.shell.as_ref().is_some_and(|s| !s.is_null()) && shell.is_none();
+    let use_preference = shell == Some(CommandShell::Default)
+        || (shell.is_none()
+            && !explicitly_direct
+            && (!matches!(preference, "" | "auto" | "default")
+                || command_uses_shell_syntax(command)));
+    if use_preference {
+        crate::shell_environment::resolve_profile(preference)?.invocation(Some(command), cwd)
+    } else if let Some(shell) = shell {
+        let selector = if shell == CommandShell::PowerShell && !cfg!(windows) {
+            "pwsh"
+        } else {
+            shell.label()
+        };
+        crate::shell_environment::resolve_profile(selector)?.invocation(Some(command), cwd)
+    } else {
+        Ok(invocation)
+    }
+}
+
 /// Reject unsafe argv patterns.
 pub(super) fn validate_args(
     mode: ShellAccessMode,

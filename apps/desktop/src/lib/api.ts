@@ -403,7 +403,22 @@ export const showInFileExplorer = (path: string) =>
 
 // ── Terminal ────────────────────────────────────────────────────────────
 
-export type TerminalShell = 'default' | 'powershell' | 'cmd' | 'bash';
+export type TerminalShell = string;
+
+export interface ShellProfile {
+  id: string;
+  label: string;
+  program: string;
+  kind: string;
+  distribution?: string | null;
+}
+export interface ShellDiscovery {
+  profiles: ShellProfile[];
+  defaultProfileId: string;
+  warnings: string[];
+}
+export const discoverShellEnvironments = () =>
+  invoke<ShellDiscovery>('discover_shell_environments_cmd');
 
 export interface TerminalAppearance {
   source?: string | null;

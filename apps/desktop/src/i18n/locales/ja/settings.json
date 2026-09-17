@@ -1017,4 +1017,13 @@
   "retiredModelSelection": "このプロバイダーではモデル {model} の提供が終了しました。送信前に別のモデルを選択してください。",
   "suggestedModelReplacement": "推奨代替モデル：{model}。",
   "savedModelResolution": "保存済みのモデル ID は {model} に解決されました。"
+  ,"shellEnvironment": "コマンド環境"
+  ,"shellEnvironmentDesc": "エージェントのコマンドと新しいターミナルに使用します。既存のセッションは変更されません。"
+  ,"shellAutomatic": "自動選択"
+  ,"shellUnavailable": "利用不可"
+  ,"shellRestrictedHint": "制限モードではホスト上でコマンドを直接実行します。シェルを使用するには詳細設定で実行権限を変更してください。"
+  ,"shellDiscoveryFailed": "一部の環境を検出できませんでした。再検出してください。"
+  ,"shellMissingHint": "保存された環境は利用できません。再検出するか別の環境を選択してください。"
+  ,"shellRefresh": "再検出"
+  ,"shellSavedDefault": "保存済みの既定値を使用"
 }

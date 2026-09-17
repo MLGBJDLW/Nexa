@@ -1007,6 +1007,7 @@ fn main() {
             // Terminal
             commands::terminal_start_session_cmd,
             commands::terminal_appearance_cmd,
+            commands::discover_shell_environments_cmd,
             commands::terminal_write_session_cmd,
             commands::terminal_resize_session_cmd,
             commands::terminal_close_session_cmd,
@@ -1254,6 +1255,9 @@ fn main() {
             });
         }
         tauri::RunEvent::Exit => {
+            for error in nexa_core::shell_environment::wsl_process::shutdown_all_blocking() {
+                log::warn!("WSL shutdown cleanup: {error}");
+            }
             if let Some(remote) = app_handle.try_state::<remote::RemoteState>() {
                 remote.shutdown();
             }

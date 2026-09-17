@@ -8,7 +8,7 @@ use crate::error::CoreError;
 use crate::settings_schema_v2::{CapabilityBindingConstraintsV2, CapabilityFallbackModeV2};
 
 pub const VISION_OBSERVATION_SCHEMA_VERSION: u16 = 1;
-pub const VISION_CLASSIFIER_VERSION: u16 = 1;
+pub const VISION_CLASSIFIER_VERSION: u16 = 2;
 pub const DEFAULT_VISION_CACHE_RETENTION_DAYS: u16 = 30;
 
 const MAX_SUMMARY_CHARS: usize = 16_000;

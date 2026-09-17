@@ -13,6 +13,7 @@ mod parser;
 mod policy;
 mod shell_adapter;
 mod tool_impl;
+use crate::shell_environment::wsl_process;
 
 pub(crate) use tool_impl::observe_managed_service;
 pub use tool_impl::{

@@ -1017,4 +1017,13 @@
   "retiredModelSelection": "Das Modell {model} wurde bei diesem Anbieter eingestellt. Wählen Sie vor dem Senden ein anderes Modell.",
   "suggestedModelReplacement": "Empfohlener Ersatz: {model}.",
   "savedModelResolution": "Die gespeicherte Modell-ID wurde als {model} aufgelöst."
+  ,"shellEnvironment": "Befehlsumgebung"
+  ,"shellEnvironmentDesc": "Gilt für Agent-Befehle und neue Terminals. Bestehende Sitzungen behalten ihre Shell."
+  ,"shellAutomatic": "Automatisch"
+  ,"shellUnavailable": "Nicht verfügbar"
+  ,"shellRestrictedHint": "Im eingeschränkten Modus werden Befehle direkt auf dem Host ausgeführt. Ändern Sie den Shell-Zugriff unter Erweitert, um eine Shell zu verwenden."
+  ,"shellDiscoveryFailed": "Einige Umgebungen konnten nicht erkannt werden. Erneut versuchen."
+  ,"shellMissingHint": "Die gespeicherte Umgebung ist nicht verfügbar. Wählen Sie eine andere oder suchen Sie erneut."
+  ,"shellRefresh": "Erneut erkennen"
+  ,"shellSavedDefault": "Gespeicherte Vorgabe verwenden"
 }

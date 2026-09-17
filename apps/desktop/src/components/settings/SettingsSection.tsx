@@ -42,10 +42,10 @@ export function Section({
   };
 
   const header = (
-    <div className="flex min-w-0 flex-1 items-start gap-2.5">
-      <span className="mt-0.5 shrink-0 text-accent">{icon}</span>
+    <div className="flex min-w-0 flex-1 items-start gap-2">
+      <span className="mt-0.5 shrink-0 text-accent [&>svg]:size-4">{icon}</span>
       <div className="min-w-0">
-        <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+        <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
         {description && (
           <p className="mt-1 text-xs leading-relaxed text-text-tertiary">{description}</p>
         )}
@@ -70,7 +70,7 @@ export function Section({
           aria-expanded={open}
           aria-controls={panelId}
           title={open ? t('common.collapse') : t('common.expand')}
-          className="flex w-full items-start justify-between gap-3 px-4 py-5 text-left transition-colors hover:bg-surface-2/60 sm:px-6"
+          className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/60"
         >
           {header}
           <div className="flex shrink-0 items-center gap-2">
@@ -83,8 +83,8 @@ export function Section({
           </div>
         </button>
       ) : (
-        <div className="px-4 pt-5 sm:px-6 sm:pt-6">
-          <div className="mb-5 flex items-center gap-2.5">{header}</div>
+        <div className="px-4 pt-3">
+          <div className="mb-3 flex items-center gap-2">{header}</div>
         </div>
       )}
 
@@ -99,14 +99,14 @@ export function Section({
               {...getSoftCollapseMotion(!!shouldReduceMotion)}
               className="overflow-hidden"
             >
-              <div className="border-t border-border px-4 py-5 sm:px-6">
+              <div className="border-t border-border px-4 py-3">
                 {children}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       ) : (
-        <div className="px-4 pb-5 sm:px-6 sm:pb-6">
+        <div className="px-4 pb-3">
           {children}
         </div>
       )}
@@ -206,7 +206,7 @@ export function CollapsiblePanel({
             {...getSoftCollapseMotion(!!shouldReduceMotion)}
             className="overflow-hidden"
           >
-            <div className="border-t border-border px-4 py-4">
+            <div className="border-t border-border px-4 py-3">
               {children}
             </div>
           </motion.div>

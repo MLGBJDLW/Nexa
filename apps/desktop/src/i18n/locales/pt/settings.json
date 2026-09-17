@@ -1017,4 +1017,13 @@
   "retiredModelSelection": "Este provedor descontinuou o modelo {model}. Escolha outro modelo antes de enviar.",
   "suggestedModelReplacement": "Substituição sugerida: {model}.",
   "savedModelResolution": "O ID do modelo salvo foi resolvido como {model}."
+  ,"shellEnvironment": "Ambiente de comandos"
+  ,"shellEnvironmentDesc": "Usado nos comandos do agente e em novos terminais. As sessões existentes mantêm o shell."
+  ,"shellAutomatic": "Automático"
+  ,"shellUnavailable": "Indisponível"
+  ,"shellRestrictedHint": "O modo restrito executa comandos diretamente no computador. Altere o acesso ao shell nas configurações avançadas para usar um interpretador."
+  ,"shellDiscoveryFailed": "Não foi possível detectar alguns ambientes. Tente novamente."
+  ,"shellMissingHint": "O ambiente salvo não está disponível. Escolha outro ou repita a detecção."
+  ,"shellRefresh": "Detectar novamente"
+  ,"shellSavedDefault": "Usar o padrão salvo"
 }

@@ -1622,7 +1622,7 @@ export function SettingsPage() {
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
     <div
-      className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6"
+      className="mx-auto w-full max-w-5xl space-y-4 p-3 sm:p-5"
       data-testid="settings-page"
     >
       {/* Header */}
@@ -1634,12 +1634,12 @@ export function SettingsPage() {
         data-theme-surface="chrome"
         data-testid="settings-page-header"
       >
-        <h1 className="text-xl font-bold text-text-primary">{t('settings.title')}</h1>
-        <p className="mt-1 text-sm text-text-secondary">{t('settings.subtitle')}</p>
+        <h1 className="text-lg font-semibold text-text-primary">{t('settings.title')}</h1>
+        <p className="mt-1 text-xs text-text-secondary">{t('settings.subtitle')}</p>
       </motion.div>
 
       {/* Tab Navigation */}
-      <div className="relative">
+      <div className="sticky top-0 z-10 bg-surface-0 py-1">
         <div
           ref={tabStripRef}
           className="flex gap-1 rounded-lg border border-border bg-surface-1 p-1 overflow-x-auto"
@@ -1648,6 +1648,7 @@ export function SettingsPage() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
               onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-fast cursor-pointer whitespace-nowrap ${
                 activeTab === tab.id

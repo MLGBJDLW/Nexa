@@ -70,7 +70,7 @@ pub(super) enum CommandShell {
 }
 
 impl CommandShell {
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::Default => "default",
             Self::PowerShell => "powershell",
@@ -387,6 +387,7 @@ fn apply_os_options(cmd: &mut tokio::process::Command) {
 }
 
 pub(super) struct ProcessTreeGuard {
+    wsl: Option<super::wsl_process::WslProcessLease>,
     #[cfg(windows)]
     job: isize,
     #[cfg(unix)]
@@ -394,7 +395,16 @@ pub(super) struct ProcessTreeGuard {
 }
 
 impl ProcessTreeGuard {
+    pub(super) async fn wait_for_cleanup(&self) -> Result<(), String> {
+        if let Some(wsl) = &self.wsl {
+            wsl.wait_for_cleanup().await?;
+        }
+        Ok(())
+    }
     pub(super) fn terminate(&self) {
+        if let Some(wsl) = &self.wsl {
+            wsl.terminate();
+        }
         #[cfg(windows)]
         unsafe {
             use windows::Win32::Foundation::HANDLE;
@@ -458,6 +468,7 @@ fn attach_process_tree(child: &mut tokio::process::Child) -> Result<ProcessTreeG
             return Err(format!("failed to assign process to Job Object: {error}"));
         }
         Ok(ProcessTreeGuard {
+            wsl: None,
             job: job.0 as isize,
         })
     }
@@ -469,7 +480,10 @@ fn attach_process_tree(child: &mut tokio::process::Child) -> Result<ProcessTreeG
         .id()
         .ok_or_else(|| "spawned process has no process id".to_string())?
         as i32;
-    Ok(ProcessTreeGuard { process_group })
+    Ok(ProcessTreeGuard {
+        process_group,
+        wsl: None,
+    })
 }
 
 pub(super) fn spawn_background_process(
@@ -477,6 +491,7 @@ pub(super) fn spawn_background_process(
     args: &[String],
     cwd: &Path,
 ) -> Result<(tokio::process::Child, ProcessTreeGuard), String> {
+    let (args, wsl) = super::wsl_process::prepare(program, args)?;
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(cwd)
@@ -498,7 +513,10 @@ pub(super) fn spawn_background_process(
         .spawn()
         .map_err(|error| format!("failed to start background service '{program}': {error}"))?;
     match attach_process_tree(&mut child) {
-        Ok(process_tree) => Ok((child, process_tree)),
+        Ok(mut process_tree) => {
+            process_tree.wsl = wsl;
+            Ok((child, process_tree))
+        }
         Err(error) => {
             let _ = child.start_kill();
             Err(error)
@@ -513,6 +531,7 @@ pub(super) async fn execute_inner(
     timeout_secs: u64,
     stdin: Option<&str>,
 ) -> Result<RunShellOutput, String> {
+    let (args, wsl) = super::wsl_process::prepare(program, args)?;
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(cwd)
@@ -534,9 +553,10 @@ pub(super) async fn execute_inner(
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn '{program}': {e}"))?;
-    let process_tree = attach_process_tree(&mut child).inspect_err(|_| {
+    let mut process_tree = attach_process_tree(&mut child).inspect_err(|_| {
         let _ = child.start_kill();
     })?;
+    process_tree.wsl = wsl;
 
     let stdin_task = if let Some(input) = stdin {
         let mut child_stdin = child
@@ -574,6 +594,11 @@ pub(super) async fn execute_inner(
     };
 
     let killed_by_timeout = result.is_err();
+    let is_wsl = process_tree.wsl.is_some();
+    if is_wsl {
+        // The Linux supervisor can exit while a descendant still owns a pipe.
+        process_tree.terminate();
+    }
     if killed_by_timeout {
         if let Some(task) = &stdin_task {
             task.abort();
@@ -583,8 +608,9 @@ pub(super) async fn execute_inner(
         process_tree.terminate();
         let _ = child.kill().await;
     }
-    join_pipe_task(stdout_task, killed_by_timeout).await;
-    join_pipe_task(stderr_task, killed_by_timeout).await;
+    join_pipe_task(stdout_task, killed_by_timeout || is_wsl).await;
+    join_pipe_task(stderr_task, killed_by_timeout || is_wsl).await;
+    process_tree.wait_for_cleanup().await?;
     let stdout_bytes = std::mem::take(&mut *stdout_sink.lock().await);
     let stderr_bytes = std::mem::take(&mut *stderr_sink.lock().await);
     let (stdout, truncated_stdout) = bytes_to_clamped_string(&stdout_bytes, MAX_OUTPUT_BYTES);

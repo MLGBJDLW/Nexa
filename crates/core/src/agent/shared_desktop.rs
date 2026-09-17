@@ -40,10 +40,11 @@ impl AgentExecutor {
         let Some(conversation) = conversation_id else {
             return;
         };
-        let native_vision = self
-            .config
-            .provider_type
-            .is_some_and(|provider| crate::llm::model_supports_vision(&provider, model));
+        let native_vision = self.config.native_vision.unwrap_or_else(|| {
+            self.config
+                .provider_type
+                .is_some_and(|provider| crate::llm::model_supports_vision(&provider, model))
+        });
         if let Some(message) = current_shared_context(
             conversation,
             native_vision,

@@ -587,6 +587,7 @@ export interface ProviderStreamingConfig {
 }
 
 export interface AppConfig {
+  defaultShell?: string;
   uiLocale?: string;
   defaultSearchLimit: number;
   minSearchSimilarity: number;

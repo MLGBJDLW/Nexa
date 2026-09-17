@@ -1023,6 +1023,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 primary_native_vision_allowed,
             ) = match registry_resolution {
                 Some(resolution) => {
+                    let primary_native_vision_allowed = resolution.supports_native_images();
                     effective_db_config.provider = resolution.provider_id;
                     effective_db_config.provider_endpoint_id = Some(resolution.endpoint_id);
                     effective_db_config.base_url = resolution.provider_config.base_url.clone();
@@ -1038,7 +1039,6 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                             .fallbacks
                             .iter()
                             .all(|fallback| provider_config_is_local(&fallback.provider_config));
-                    let primary_native_vision_allowed = resolution.fallbacks.is_empty();
                     let mut egress_connections = vec![resolution.snapshot.connection_id.clone()];
                     egress_connections.extend(
                         resolution
@@ -1068,7 +1068,10 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     let provider_config = db_config_to_provider_config(&db_config, None);
                     let egress_id = if subscription_kind.is_some() { format!("subscription:{}", db_config.provider) } else { provider_config_egress_id(&provider_config) };
                     let primary_routes_local = provider_config_is_local(&provider_config);
-                    (provider_config, None, egress_id, primary_routes_local, true)
+                    {
+                        let native = subscription_kind.is_some() || nexa_core::llm::model_declares_vision_support(&provider_config.provider_type, &db_config.model);
+                        (provider_config, None, egress_id, primary_routes_local, native)
+                    }
                 }
             };
             let backend = if let Some(kind) = subscription_kind {
@@ -1222,6 +1225,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             let pinned_skill_ids = desktop_turn_config.pinned_skill_ids;
             let context_pack = desktop_turn_config.context_pack;
             let mut executor_config = desktop_turn_config.executor_config;
+            executor_config.native_vision = Some(primary_native_vision_allowed);
             if force_workspace_isolation {
                 executor_config.request_kind =
                     nexa_core::agent::AgentRequestKind::ScheduledIsolatedPatch;

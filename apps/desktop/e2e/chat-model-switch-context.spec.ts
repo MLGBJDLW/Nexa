@@ -372,6 +372,7 @@ test('appearance fonts and streaming preferences apply, import, survive reload a
   const font = readFileSync(join(process.cwd(), 'node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2'));
   await page.route('**/test-user-font.woff2', route => route.fulfill({ contentType: 'font/woff2', body: font }));
   await page.goto('/settings');
+  await page.getByTestId('display-preferences-trigger').click();
   const ui = page.getByTestId('ui-font-select');
   const code = page.getByTestId('code-font-select');
   await expect(ui.locator('option')).toHaveCount(17);
@@ -386,6 +387,7 @@ test('appearance fonts and streaming preferences apply, import, survive reload a
   await ui.selectOption('font-custom');
   await expect.poll(() => page.evaluate(() => document.fonts.check('16px ImportedNexa') && getComputedStyle(document.body).fontFamily)).toContain('ImportedNexa');
   await page.reload();
+  await page.getByTestId('display-preferences-trigger').click();
   await expect(ui).toHaveValue('font-custom');
   await expect(code).toHaveValue('jetbrains-mono');
   await expect(page.getByTestId('streaming-mode-smooth')).toHaveAttribute('aria-pressed', 'true');

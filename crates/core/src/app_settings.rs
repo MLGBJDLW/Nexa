@@ -802,6 +802,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub shell_access_mode: ShellAccessMode,
 
+    /// Shared shell profile for command strings and new interactive terminals.
+    /// Empty means automatic discovery. Explicit choices never silently fall back.
+    #[serde(default)]
+    pub default_shell: String,
+
     /// Global tool-approval mode. Default: `Ask` (per-call GUI dialog for
     /// high-risk tools). `AllowAll` bypasses the gate entirely; `DenyAll`
     /// rejects every gated call without prompting.
@@ -1003,6 +1008,7 @@ impl Default for AppConfig {
             local_model_root: String::new(),
             confirm_destructive: false,
             shell_access_mode: ShellAccessMode::Restricted,
+            default_shell: String::new(),
             tool_approval_mode: crate::approval::ToolApprovalMode::default(),
             auto_memory_extraction: true,
             auto_skill_learning: true,

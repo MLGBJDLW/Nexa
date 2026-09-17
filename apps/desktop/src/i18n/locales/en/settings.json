@@ -1017,4 +1017,13 @@
   "retiredModelSelection": "Model {model} has been retired on this provider. Choose another model before sending.",
   "suggestedModelReplacement": "Suggested replacement: {model}.",
   "savedModelResolution": "Saved model ID resolved to {model}."
+  ,"shellEnvironment": "Command environment"
+  ,"shellEnvironmentDesc": "Used for agent command strings and new terminals. Existing sessions keep their shell."
+  ,"shellAutomatic": "Automatic"
+  ,"shellUnavailable": "Unavailable"
+  ,"shellRestrictedHint": "Restricted mode keeps direct commands on the host. Change shell access in Advanced to allow shell execution."
+  ,"shellDiscoveryFailed": "Some environments could not be detected. Refresh to retry."
+  ,"shellMissingHint": "The saved environment is unavailable. Choose another environment or refresh."
+  ,"shellRefresh": "Detect again"
+  ,"shellSavedDefault": "Use saved default"
 }

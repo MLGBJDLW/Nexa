@@ -101,6 +101,7 @@ pub mod search;
 mod sensitive_data;
 pub mod settings_schema_v2;
 pub mod shared_desktop;
+pub mod shell_environment;
 pub mod skills;
 pub mod source_tree;
 pub mod sources;

@@ -136,6 +136,13 @@ test.beforeEach(async ({ page }) => {
         content: [
           'Here is the flow:',
           '',
+          ...(localStorage.getItem('nexa-e2e-mermaid-history') === 'entities' ? [
+            '```mermaid',
+            'flowchart TD',
+            '  Q[收到"人伤费用共计2469.86元"通知] --> E["A &quot;quote&quot; &amp; B &#39;test&#39;"]',
+            '```',
+            '',
+          ] : []),
           ...(localStorage.getItem('nexa-e2e-mermaid-history') === 'medical' ? [
             '```mermaid',
             'flowchart LR',
@@ -813,4 +820,37 @@ test('keeps every Mermaid timeline section readable', async ({ page }) => {
       expect(contrast.ratio, JSON.stringify(contrast)).toBeGreaterThanOrEqual(4.5);
     }
   }).toPass({ timeout: 10_000 });
+});
+
+
+test('decodes quote entities in repaired and explicit labels', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('nexa-e2e-mermaid-history', 'entities'));
+  await page.goto('/chat/conv-mermaid');
+  const diagram = page.getByTestId('mermaid-surface').first();
+  await expect(diagram.locator('svg')).toBeVisible();
+  const labels = diagram.locator('svg g.node');
+  await expect(labels.first()).toContainText('收到"人伤费用共计2469.86元"通知');
+  await expect(diagram).not.toContainText('&quot;');
+  // SVG line tspans do not retain the whitespace at a wrap boundary. Linux
+  // and Windows fonts wrap at different words; verify every visible glyph.
+  await expect.poll(async () => (await labels.nth(1).textContent())?.replace(/\s+/g, ''))
+    .toBe('A"quote"&B\'test\'');
+  await expect(diagram.locator('script, foreignObject, [onload], [onerror]')).toHaveCount(0);
+  await diagram.screenshot({ path: 'test-results/mermaid-quote-labels.png' });
+});
+
+
+test('decodes SVG entity text without creating markup', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const modulePath = '/src/components/chat/markdownComponents.tsx';
+    const { sanitizeMermaidSvg } = await import(/* @vite-ignore */ modulePath);
+    const safe = sanitizeMermaidSvg('<svg xmlns="http://www.w3.org/2000/svg"><text>&amp;lt;img src=x onerror=alert(1)&amp;gt; &amp;quot;quoted&amp;quot; &amp;#39;x&amp;#39;</text></svg>');
+    const template = document.createElement('template');
+    template.innerHTML = safe;
+    return { text: template.content.querySelector('text')?.textContent, executable: template.content.querySelectorAll('img, script, [onerror]').length };
+  });
+  expect(result.text).toBe('<img src=x onerror=alert(1)> "quoted" \'x\'');
+  expect(result.executable).toBe(0);
 });

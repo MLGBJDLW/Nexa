@@ -20,6 +20,11 @@ fn materialize_theme_registry(
 // ── App Config ──────────────────────────────────────────────────────
 
 #[tauri::command]
+pub async fn discover_shell_environments_cmd() -> nexa_core::shell_environment::ShellDiscovery {
+    nexa_core::shell_environment::discover_shells().await
+}
+
+#[tauri::command]
 pub async fn get_app_config_cmd(state: tauri::State<'_, AppState>) -> Result<AppConfig, String> {
     // Loading may migrate saved defaults, so use the bounded writer lane.
     state

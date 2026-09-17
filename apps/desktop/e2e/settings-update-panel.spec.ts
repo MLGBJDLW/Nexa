@@ -87,6 +87,11 @@ test.beforeEach(async ({ page }) => {
           return [];
         case "list_tool_permission_policies_cmd":
           return { persisted: [], session: [] };
+        case "discover_shell_environments_cmd":
+          return { profiles: [
+            { id: "powershell", label: "Windows PowerShell", kind: "powershell", program: "powershell.exe" },
+            { id: "wsl:Ubuntu", label: "WSL · Ubuntu", kind: "wsl", program: "wsl.exe", distribution: "Ubuntu" },
+          ], defaultProfileId: "powershell", warnings: [] };
         case "get_app_config_cmd":
           return {
             defaultSearchLimit: 20,
@@ -181,10 +186,10 @@ test("close-to-tray is visible in appearance and saves immediately", async ({ pa
   await page.goto("/settings");
   await page.getByRole("button", { name: "Appearance" }).click();
 
-  const trayOption = page.getByRole("button", { name: /Keep in system tray/ });
+  const trayOption = page.locator("#settings-close-behavior");
   await expect(trayOption).toBeVisible();
-  await trayOption.click();
-  await expect(trayOption).toHaveAttribute("aria-pressed", "true");
+  await trayOption.selectOption("minimize_to_tray");
+  await expect(trayOption).toHaveValue("minimize_to_tray");
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedAppConfig?: { windowCloseBehavior?: string } }
   ).__savedAppConfig?.windowCloseBehavior)).toBe("minimize_to_tray");
@@ -194,6 +199,7 @@ test("desktop pet settings are visible and persist locally", async ({ page }) =>
   await page.goto("/settings");
   await page.getByRole("button", { name: "Appearance" }).click();
 
+  await page.getByTestId("companion-preferences-trigger").click();
   const card = page.getByTestId("companion-settings-card");
   await expect(card.getByRole("heading", { name: "Desktop Pets" })).toBeVisible();
   await card.getByRole("button", { name: "Configure" }).click();
@@ -254,7 +260,7 @@ test("layout performs the silent startup update check", async ({ page }) => {
 test("settings agent behavior controls use the selected locale", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Appearance" }).click();
-  await page.getByRole("button", { name: "简体中文" }).click();
+  await page.getByLabel("Language", { exact: true }).selectOption("zh-CN");
   await page
     .locator("button")
     .filter({ has: page.getByRole("heading", { name: "高级设置" }) })
@@ -267,4 +273,27 @@ test("settings agent behavior controls use the selected locale", async ({ page }
   await expect(page.getByText("已记住的决定")).toBeVisible();
   await expect(page.getByText("暂无已记住的审批决定。")).toBeVisible();
   await expect(page.getByText("Tool Approval")).toHaveCount(0);
+});
+
+
+test("shell discovery saves WSL and compact sections work on a narrow window", async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  const select = page.locator('#default-shell');
+  await expect(select).toBeEnabled();
+  await select.selectOption('wsl:Ubuntu');
+  await page.getByTestId('shell-settings').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { defaultShell?: string } }).__savedAppConfig?.defaultShell)).toBe('wsl:Ubuntu');
+  const disclosure = page.getByTestId('display-preferences-trigger');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await disclosure.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('ui-font-select')).toBeVisible();
+  await disclosure.click();
+  await expect(page.getByTestId('ui-font-select')).toHaveCount(0);
+  await page.getByTestId('settings-page').screenshot({ path: testInfo.outputPath('settings-compact.png') });
+  await page.setViewportSize({ width: 680, height: 820 });
+  await expect(select).toBeVisible();
+  const overflow = await page.getByTestId('settings-page').evaluate(el => el.scrollWidth > el.clientWidth + 1);
+  expect(overflow).toBe(false);
+  await page.getByTestId('settings-page').screenshot({ path: testInfo.outputPath('settings-narrow.png') });
 });
