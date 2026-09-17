@@ -174,6 +174,7 @@ async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_t
     let mut runtime = test_runtime();
     runtime.provider_config.api_key = Some("test-parent-key".into());
     runtime.base_config.model = Some("gpt-parent".into());
+    runtime.base_config.native_vision = Some(true);
     runtime.base_config.context_window = Some(1234);
     runtime.base_config.max_iterations = 32;
     runtime.base_config.power_mode = nexa_core::agent::power_mode::AgentPowerMode::Nexus;
@@ -199,6 +200,7 @@ async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_t
         .await
         .unwrap();
     assert_eq!(worker.effective_provider_type, ProviderType::Anthropic);
+    assert_eq!(worker.config.native_vision, Some(false));
     assert_eq!(worker.config.max_iterations, 24);
     assert_ne!(worker.config.context_window, Some(1234));
     assert_eq!(worker.config.reasoning_effort, Some(ReasoningEffort::High));
