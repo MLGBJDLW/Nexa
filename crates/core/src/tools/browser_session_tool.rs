@@ -82,8 +82,6 @@ impl BrowserDiagnostics {
 }
 
 struct BrowserSession {
-    _browser: headless_chrome::Browser,
-    conversation_id: Option<String>,
     tabs: HashMap<String, BrowserTab>,
     active_tab_id: String,
     observations: HashMap<String, BrowserObservation>,
@@ -124,7 +122,77 @@ fn oldest_observation_id(observations: &HashMap<String, BrowserObservation>) -> 
         .map(|(observation_id, _)| observation_id.clone())
 }
 
-type SharedSession = Arc<Mutex<BrowserSession>>;
+/// The resource owns admission and lifetime separately from the transport lock.
+/// Close revokes queued work before waiting for the current operation and drops
+/// the owned browser before acknowledging closure, even when wait tasks hold Arcs.
+struct SessionResource<T, R = ()> {
+    conversation_id: Option<String>,
+    closing: AtomicBool,
+    close_gate: Mutex<()>,
+    transport: Mutex<Option<R>>,
+    value: Mutex<Option<T>>,
+}
+
+struct SessionGuard<'a, T>(std::sync::MutexGuard<'a, Option<T>>);
+impl<T> std::ops::Deref for SessionGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0.as_ref().expect("active resource")
+    }
+}
+impl<T> std::ops::DerefMut for SessionGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.0.as_mut().expect("active resource")
+    }
+}
+impl<T, R> SessionResource<T, R> {
+    fn new(value: T, conversation_id: Option<String>, transport: R) -> Self {
+        Self {
+            conversation_id,
+            closing: AtomicBool::new(false),
+            close_gate: Mutex::new(()),
+            transport: Mutex::new(Some(transport)),
+            value: Mutex::new(Some(value)),
+        }
+    }
+    fn lock(&self) -> Result<SessionGuard<'_, T>, String> {
+        if self.closing.load(Ordering::Acquire) {
+            return Err("browser session is closing or closed".into());
+        }
+        let value = self
+            .value
+            .lock()
+            .map_err(|_| "browser session is unavailable")?;
+        if self.closing.load(Ordering::Acquire) || value.is_none() {
+            return Err("browser session is closing or closed".into());
+        }
+        Ok(SessionGuard(value))
+    }
+    fn close(&self) -> Result<(), String> {
+        self.closing.store(true, Ordering::Release);
+        let _closing = self
+            .close_gate
+            .lock()
+            .map_err(|_| "browser close is unavailable; resource remains registered")?;
+        // Closing the transport first releases pending CDP calls. A worker may
+        // still own the operation lock, so draining before shutdown can stall.
+        let transport = self
+            .transport
+            .lock()
+            .map_err(|_| "browser transport cleanup failed; resource remains registered")?
+            .take();
+        drop(transport);
+        let owned = self
+            .value
+            .lock()
+            .map_err(|_| "browser cleanup failed; resource remains registered")?
+            .take();
+        drop(owned);
+        Ok(())
+    }
+}
+
+type SharedSession = Arc<SessionResource<BrowserSession, headless_chrome::Browser>>;
 type BrowserSessionRegistry = Arc<Mutex<HashMap<String, SharedSession>>>;
 
 fn belongs_to_conversation(owner: &Option<String>, conversation_id: Option<&str>) -> bool {
@@ -153,13 +221,7 @@ fn session_by_id(
         .get(session_id)
         .cloned()
         .ok_or_else(|| invalid(format!("Unknown browser session '{session_id}'")))?;
-    let owned_by_conversation = belongs_to_conversation(
-        &session
-            .lock()
-            .map_err(|_| CoreError::Internal("browser session is unavailable".to_string()))?
-            .conversation_id,
-        conversation_id,
-    );
+    let owned_by_conversation = belongs_to_conversation(&session.conversation_id, conversation_id);
     if !owned_by_conversation {
         return Err(invalid(
             "Browser session belongs to a different conversation. Create or list a session in the current conversation.",
@@ -253,16 +315,28 @@ fn configure_tab(tab: Arc<Tab>) -> Result<BrowserTab, String> {
     })
 }
 
+fn evaluate_json(tab: &Tab, expression: &str) -> Result<serde_json::Value, String> {
+    // headless_chrome::Tab::evaluate uses returnByValue=false: objects/arrays
+    // are remote handles, not RemoteObject.value. Serialize in the page so the
+    // transport returns a primitive and no object handle is leaked.
+    let result = tab
+        .evaluate(&format!("JSON.stringify(({expression}))"), false)
+        .map_err(|error| format!("failed to inspect browser data: {error}"))?;
+    let encoded = result
+        .value
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "browser observation did not return serialized data".to_string())?;
+    serde_json::from_str(encoded)
+        .map_err(|error| format!("invalid browser observation data: {error}"))
+}
+
 fn interactive_elements(tab: &Tab) -> Result<Vec<ObservedElement>, String> {
     let selector = serde_json::to_string(INTERACTIVE_SELECTOR).unwrap_or_default();
     let expression = format!(
         "Array.from(document.querySelectorAll({selector})).slice(0,200).map((el,index)=>{{const r=el.getBoundingClientRect();const role=el.getAttribute('role')||({{A:'link',BUTTON:'button',INPUT:'textbox',TEXTAREA:'textbox',SELECT:'combobox'}}[el.tagName]||'');const name=el.getAttribute('aria-label')||el.innerText||el.value||el.getAttribute('name')||'';return{{ref:`e_${{index+1}}`,index,tag:el.tagName.toLowerCase(),role,name:String(name).trim().slice(0,240),enabled:!el.disabled,visible:r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden',bounds:[r.x,r.y,r.width,r.height]}}}})"
     );
-    let value = tab
-        .evaluate(&expression, false)
-        .map_err(|error| format!("failed to inspect browser elements: {error}"))?
-        .value
-        .unwrap_or_else(|| serde_json::json!([]));
+    let value = evaluate_json(tab, &expression)?;
     serde_json::from_value(value)
         .map_err(|error| format!("failed to decode browser elements: {error}"))
 }
@@ -287,15 +361,10 @@ fn observe_tab(
         .capture_screenshot(Page::CaptureScreenshotFormatOption::Png, None, None, true)
         .map_err(|error| format!("failed to capture browser screenshot: {error}"))?;
     let elements = interactive_elements(&browser_tab.tab)?;
-    let viewport = browser_tab
-        .tab
-        .evaluate(
-            "({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio})",
-            false,
-        )
-        .ok()
-        .and_then(|result| result.value)
-        .unwrap_or_else(|| serde_json::json!({}));
+    let viewport = evaluate_json(
+        &browser_tab.tab,
+        "({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio})",
+    )?;
     let text = browser_tab
         .tab
         .evaluate(
@@ -388,7 +457,10 @@ fn validated_element(
     let actual = current
         .get(expected.index)
         .ok_or_else(|| "stale observation: target disappeared".to_string())?;
-    if actual.role != expected.role
+    if !actual.enabled
+        || !actual.visible
+        || actual.tag != expected.tag
+        || actual.role != expected.role
         || actual.name != expected.name
         || !bounds_stable(&actual.bounds, &expected.bounds)
     {
@@ -649,24 +721,28 @@ impl Tool for BrowserSessionTool {
             let session_id_for_worker = session_id.clone();
             let tab_id_for_worker = tab_id.clone();
             let conversation_id_for_worker = conversation_id.map(str::to_string);
-            let sessions_for_worker = Arc::clone(&self.sessions);
-            blocking(move || {
+            let (session, browser) = blocking(move || {
                 let browser = launch_browser_for_capture()?;
                 let tab = configure_tab(browser.new_tab().map_err(|error| error.to_string())?)?;
                 let session = BrowserSession {
-                    _browser: browser,
-                    conversation_id: conversation_id_for_worker,
                     tabs: HashMap::from([(tab_id_for_worker.clone(), tab)]),
                     active_tab_id: tab_id_for_worker,
                     observations: HashMap::new(),
                 };
-                sessions_for_worker
-                    .lock()
-                    .map_err(|_| "browser session registry is unavailable".to_string())?
-                    .insert(session_id_for_worker, Arc::new(Mutex::new(session)));
-                Ok(())
+                Ok((session, browser))
             })
             .await?;
+            self.sessions
+                .lock()
+                .map_err(|_| CoreError::Internal("browser session registry is unavailable".into()))?
+                .insert(
+                    session_id_for_worker,
+                    Arc::new(SessionResource::new(
+                        session,
+                        conversation_id_for_worker,
+                        browser,
+                    )),
+                );
             return Ok(ToolResult {
                 call_id: call_id.to_string(),
                 content: format!("Created browser session {session_id} with tab {tab_id}."),
@@ -679,18 +755,15 @@ impl Tool for BrowserSessionTool {
 
         let session_id = required(args.session_id.as_deref(), "sessionId")?.to_string();
         if action == "close_session" {
-            session_by_id(&self.sessions, &session_id, conversation_id)?;
-            let removed = self
-                .sessions
+            let resource = session_by_id(&self.sessions, &session_id, conversation_id)?;
+            // Revoke admission before queueing cleanup. No registry lock spans
+            // transport shutdown or an in-flight input operation.
+            resource.closing.store(true, Ordering::Release);
+            blocking(move || resource.close()).await?;
+            self.sessions
                 .lock()
-                .map_err(|_| {
-                    CoreError::Internal("browser session registry is unavailable".to_string())
-                })?
-                .remove(&session_id)
-                .is_some();
-            if !removed {
-                return Err(invalid(format!("Unknown browser session '{session_id}'")));
-            }
+                .map_err(|_| CoreError::Internal("browser session registry is unavailable".into()))?
+                .remove(&session_id);
             return Ok(ToolResult {
                 call_id: call_id.to_string(),
                 content: format!("Closed browser session {session_id}."),
@@ -737,8 +810,12 @@ impl Tool for BrowserSessionTool {
                     .lock()
                     .map_err(|_| "browser session is unavailable".to_string())?;
                 let browser_tab = configure_tab(
-                    session
-                        ._browser
+                    session_for_worker
+                        .transport
+                        .lock()
+                        .map_err(|_| "browser transport is unavailable")?
+                        .as_ref()
+                        .ok_or("browser transport is closed")?
                         .new_tab()
                         .map_err(|error| error.to_string())?,
                 )?;
@@ -769,14 +846,11 @@ impl Tool for BrowserSessionTool {
 
         let tab_id = if action == "close_tab" {
             required(args.tab_id.as_deref(), "tabId")?.to_string()
+        } else if let Some(tab_id) = args.tab_id.clone() {
+            tab_id
         } else {
-            args.tab_id.clone().unwrap_or_else(|| {
-                session
-                    .lock()
-                    .ok()
-                    .map(|session| session.active_tab_id.clone())
-                    .unwrap_or_default()
-            })
+            let resource = Arc::clone(&session);
+            blocking(move || Ok(resource.lock()?.active_tab_id.clone())).await?
         };
         let tab_id = required(Some(&tab_id), "tabId")?.to_string();
 
@@ -856,6 +930,14 @@ impl Tool for BrowserSessionTool {
             tokio::spawn(async move {
                 let started = Instant::now();
                 loop {
+                    if session_for_task.closing.load(Ordering::Acquire) {
+                        let _ = runtime_for_task.transition(
+                            &activity_id,
+                            ActivityState::Cancelled,
+                            serde_json::json!({ "reason": "session_closed" }),
+                        );
+                        return;
+                    }
                     let session_for_check = Arc::clone(&session_for_task);
                     let condition_for_check = condition.clone();
                     let tab_id_for_check = tab_id_for_task.clone();
@@ -962,16 +1044,23 @@ impl Tool for BrowserSessionTool {
             let action_for_worker = action.clone();
             let session_for_worker = Arc::clone(&session);
             let tab_id_for_worker = tab_id.clone();
-            Some(blocking(move || {
+            let (attempt, dispatched) = blocking(move || {
                 let mut session = session_for_worker.lock().map_err(|_| "browser session is unavailable".to_string())?;
                 let observation_id = required_string(observation_id.as_deref(), "observationId")?;
+                let mut dispatched = false;
+                let attempt = (|| -> Result<ObservationCapture, String> {
                 match action_for_worker.as_str() {
                     "press" => {
                         let tab = validated_observation(&session, &tab_id_for_worker, observation_id)?;
-                        tab.press_key(required_string(key.as_deref(), "key")?).map_err(|error| error.to_string())?;
+                        let key = required_string(key.as_deref(), "key")?;
+                        session.observations.retain(|_, observation| observation.tab_id != tab_id_for_worker);
+                        dispatched = true;
+                        tab.press_key(key).map_err(|error| error.to_string())?;
                     }
                     "scroll" => {
                         let tab = validated_observation(&session, &tab_id_for_worker, observation_id)?;
+                        session.observations.retain(|_, observation| observation.tab_id != tab_id_for_worker);
+                        dispatched = true;
                         tab.evaluate(&format!("window.scrollBy({scroll_x},{scroll_y})"), false).map_err(|error| error.to_string())?;
                     }
                     _ => {
@@ -979,6 +1068,10 @@ impl Tool for BrowserSessionTool {
                         let (tab, index) = validated_element(&session, &tab_id_for_worker, observation_id, target_ref)?;
                         let elements = tab.find_elements(INTERACTIVE_SELECTOR).map_err(|error| error.to_string())?;
                         let element = elements.get(index).ok_or_else(|| "stale observation: target disappeared".to_string())?;
+                        if action_for_worker == "type" { required_string(text.as_deref(), "text")?; }
+                        if action_for_worker == "select" { required_string(value.as_deref(), "value")?; }
+                        session.observations.retain(|_, observation| observation.tab_id != tab_id_for_worker);
+                        dispatched = true;
                         match action_for_worker.as_str() {
                             "click" => { element.click().map_err(|error| error.to_string())?; }
                             "type" => { element.type_into(required_string(text.as_deref(), "text")?).map_err(|error| error.to_string())?; }
@@ -988,7 +1081,30 @@ impl Tool for BrowserSessionTool {
                     }
                 }
                 observe_tab(&mut session, &tab_id_for_worker, after_diagnostic_cursor)
-            }).await?)
+                })();
+                Ok((attempt, dispatched))
+            }).await?;
+            match attempt {
+                Ok(mut capture) => {
+                    capture.data["actionReceipt"] = serde_json::json!({ "callId": call_id, "action": action, "status": "observed_after_action", "observationConsumed": true });
+                    Some(capture)
+                }
+                Err(error) => {
+                    let recovery = if dispatched {
+                        "Input may have reached the page. Observe again before deciding whether any further action is needed; do not repeat this input automatically."
+                    } else {
+                        "Input was not dispatched. Observe again and use a current target."
+                    };
+                    return Ok(ToolResult {
+                        call_id: call_id.into(),
+                        is_error: true,
+                        content: format!("{error}. {recovery}"),
+                        artifacts: Some(
+                            serde_json::json!({ "kind": "browserActionReceipt", "sessionId": session_id, "tabId": tab_id, "callId": call_id, "action": action, "status": if dispatched { "uncertain" } else { "not_dispatched" }, "observationConsumed": dispatched, "retrySafe": !dispatched }),
+                        ),
+                    });
+                }
+            }
         } else {
             None
         };
@@ -1042,6 +1158,124 @@ fn required_string<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closing_resource_rejects_queued_work_and_drops_before_receipt() {
+        struct Owned(Arc<AtomicBool>);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let resource = Arc::new(SessionResource::new(
+            Owned(dropped.clone()),
+            Some("owner".into()),
+            (),
+        ));
+        let active = resource.lock().unwrap();
+        let queued = resource.clone();
+        let (ready, waiting) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            ready.send(()).unwrap();
+            queued.lock().is_err()
+        });
+        waiting.recv().unwrap();
+        resource.closing.store(true, Ordering::Release);
+        assert!(resource.lock().is_err());
+        drop(active);
+        resource.close().unwrap();
+        assert!(worker.join().unwrap());
+        assert!(dropped.load(Ordering::Acquire));
+        // Cloned handles cannot extend the transport's life after close.
+        assert!(resource.value.lock().unwrap().is_none());
+        resource.close().unwrap();
+    }
+
+    #[test]
+    fn closing_transport_unblocks_a_worker_before_draining_it() {
+        struct Transport(std::sync::mpsc::Sender<()>);
+        impl Drop for Transport {
+            fn drop(&mut self) {
+                let _ = self.0.send(());
+            }
+        }
+        let (closed_tx, closed_rx) = std::sync::mpsc::channel();
+        let resource = Arc::new(SessionResource::new((), None, Transport(closed_tx)));
+        let active = resource.lock().unwrap();
+        let closer = resource.clone();
+        let thread = std::thread::spawn(move || closer.close());
+        // Keep the operation locked until transport shutdown releases it.
+        closed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(active);
+        thread.join().unwrap().unwrap();
+        assert!(resource.lock().is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an installed Chromium browser"]
+    async fn native_browser_consumes_input_observation_and_closes_owned_transport() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let tool = BrowserSessionTool::default();
+        let created = tool
+            .execute(ToolExecutionContext::new(
+                "create",
+                r#"{"action":"create_session"}"#,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let artifact = created.artifacts.unwrap();
+        let session_id = artifact["sessionId"].as_str().unwrap();
+        let tab_id = artifact["tabId"].as_str().unwrap();
+        let resource = session_by_id(&tool.sessions, session_id, None).unwrap();
+        {
+            let session = resource.lock().unwrap();
+            session.tabs[tab_id].tab.evaluate("window.nexaClicks=0;document.body.innerHTML='<button onclick=\"window.nexaClicks++\">Count</button>'", false).unwrap();
+        }
+        let observe = serde_json::json!({"action":"observe","sessionId":session_id,"tabId":tab_id})
+            .to_string();
+        let observed = tool
+            .execute(ToolExecutionContext::new("observe", &observe, &db, &[]))
+            .await
+            .unwrap();
+        let observation_id = observed.artifacts.as_ref().unwrap()["data"]["observationId"]
+            .as_str()
+            .unwrap();
+        let click = serde_json::json!({"action":"click","sessionId":session_id,"tabId":tab_id,"observationId":observation_id,"targetRef":"e_1"}).to_string();
+        let first = tool
+            .execute(ToolExecutionContext::new("click1", &click, &db, &[]))
+            .await
+            .unwrap();
+        assert!(!first.is_error, "{}", first.content);
+        let second = tool
+            .execute(ToolExecutionContext::new("click2", &click, &db, &[]))
+            .await
+            .unwrap();
+        assert!(second.is_error);
+        assert_eq!(
+            second.artifacts.as_ref().unwrap()["status"],
+            "not_dispatched"
+        );
+        let count = resource.lock().unwrap().tabs[tab_id]
+            .tab
+            .evaluate("window.nexaClicks", false)
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(count, 1);
+        let close =
+            serde_json::json!({"action":"close_session","sessionId":session_id}).to_string();
+        let closed = tool
+            .execute(ToolExecutionContext::new("close", &close, &db, &[]))
+            .await
+            .unwrap();
+        assert_eq!(closed.artifacts.unwrap()["sessionClosed"], true);
+        assert!(resource.lock().is_err());
+        assert!(resource.value.lock().unwrap().is_none());
+        assert!(!tool.sessions.lock().unwrap().contains_key(session_id));
+    }
 
     #[test]
     fn schema_keeps_one_stable_browser_surface() {
