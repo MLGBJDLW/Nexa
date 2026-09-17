@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.14.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.7...nexa-monorepo-v0.14.8) (2026-09-17)
+
+
+### Features
+
+* **desktop:** improve command environments, settings, and visual interactions ([1cdd90d](https://github.com/MLGBJDLW/Nexa/commit/1cdd90d1f68f4249021064ee65869cafbf90a46f))
+* **shell:** select detected native and WSL command environments ([5aa6324](https://github.com/MLGBJDLW/Nexa/commit/5aa6324c31b4f83ea58588c443d7bde6865a9243))
+
+
+### Bug Fixes
+
+* **browser:** own session transport and consume observed input targets ([9da3e84](https://github.com/MLGBJDLW/Nexa/commit/9da3e8421229f589350d91398aa605a719c8f4cf))
+* **browser:** separate operation handles from the process owner ([d13aa26](https://github.com/MLGBJDLW/Nexa/commit/d13aa2640fda322b1f68690e6148cf87a9177735))
+* **markdown:** decode Mermaid SVG label entities safely ([88728cb](https://github.com/MLGBJDLW/Nexa/commit/88728cbc66625e69c1b80973d0df1e6416dc6bcd))
+* **shell:** retain service intent across environment wrappers ([7e3130c](https://github.com/MLGBJDLW/Nexa/commit/7e3130c6011a7b3c79e1e9696f007fffbae74b82))
+* **shell:** supervise WSL terminals through close and host shutdown ([132c51e](https://github.com/MLGBJDLW/Nexa/commit/132c51e7f5acf9a0383c35c512e3d2f0c663813d))
+* **vision:** derive image support from the direct worker route ([51f2954](https://github.com/MLGBJDLW/Nexa/commit/51f2954916968ca6f1568be0ab6557ad5e78d284))
+* **vision:** preserve confirmed support for unchanged private routes ([39bec09](https://github.com/MLGBJDLW/Nexa/commit/39bec0940825ce2e2c502f5d5ac1fd47f7108bd2))
+* **vision:** preserve native images across pinned model routes ([33ac9f8](https://github.com/MLGBJDLW/Nexa/commit/33ac9f8c53c9226c509f0c61c6579b0fff85f310))
+
 ## [0.14.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.6...nexa-monorepo-v0.14.7) (2026-09-16)
 
 
