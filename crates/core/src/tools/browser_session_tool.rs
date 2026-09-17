@@ -82,6 +82,9 @@ impl BrowserDiagnostics {
 }
 
 struct BrowserSession {
+    // Attached over its own CDP connection; this handle does not own the
+    // process. Closing the separate owner can interrupt even new_tab calls.
+    browser: headless_chrome::Browser,
     tabs: HashMap<String, BrowserTab>,
     active_tab_id: String,
     observations: HashMap<String, BrowserObservation>,
@@ -723,8 +726,18 @@ impl Tool for BrowserSessionTool {
             let conversation_id_for_worker = conversation_id.map(str::to_string);
             let (session, browser) = blocking(move || {
                 let browser = launch_browser_for_capture()?;
-                let tab = configure_tab(browser.new_tab().map_err(|error| error.to_string())?)?;
+                let operation_browser = headless_chrome::Browser::connect_with_timeout(
+                    browser.get_ws_url(),
+                    Duration::from_secs(30),
+                )
+                .map_err(|error| format!("failed to attach browser operations: {error}"))?;
+                let tab = configure_tab(
+                    operation_browser
+                        .new_tab()
+                        .map_err(|error| error.to_string())?,
+                )?;
                 let session = BrowserSession {
+                    browser: operation_browser,
                     tabs: HashMap::from([(tab_id_for_worker.clone(), tab)]),
                     active_tab_id: tab_id_for_worker,
                     observations: HashMap::new(),
@@ -810,12 +823,8 @@ impl Tool for BrowserSessionTool {
                     .lock()
                     .map_err(|_| "browser session is unavailable".to_string())?;
                 let browser_tab = configure_tab(
-                    session_for_worker
-                        .transport
-                        .lock()
-                        .map_err(|_| "browser transport is unavailable")?
-                        .as_ref()
-                        .ok_or("browser transport is closed")?
+                    session
+                        .browser
                         .new_tab()
                         .map_err(|error| error.to_string())?,
                 )?;
@@ -1265,6 +1274,33 @@ mod tests {
             .value
             .unwrap();
         assert_eq!(count, 1);
+        let open = serde_json::json!({"action":"open_tab","sessionId":session_id}).to_string();
+        tool.execute(ToolExecutionContext::new("open", &open, &db, &[]))
+            .await
+            .unwrap();
+        // Keep an operation handle alive through close. It must not prolong
+        // process ownership or prevent the independent owner from closing CDP.
+        let retained_operation_browser = resource.lock().unwrap().browser.clone();
+        assert!(retained_operation_browser.get_version().is_ok());
+        let pending_tab = resource.lock().unwrap().tabs[tab_id].tab.clone();
+        let active_resource = resource.clone();
+        let active_tab_id = tab_id.to_string();
+        let pending = std::thread::spawn(move || {
+            let session = active_resource.lock().unwrap();
+            session.tabs[&active_tab_id]
+                .tab
+                .evaluate("window.nexaPending = true; new Promise(() => {})", true)
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while pending_tab
+            .evaluate("window.nexaPending === true", false)
+            .unwrap()
+            .value
+            != Some(serde_json::json!(true))
+        {
+            assert!(Instant::now() < deadline, "pending CDP call did not start");
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let close =
             serde_json::json!({"action":"close_session","sessionId":session_id}).to_string();
         let closed = tool
@@ -1275,6 +1311,8 @@ mod tests {
         assert!(resource.lock().is_err());
         assert!(resource.value.lock().unwrap().is_none());
         assert!(!tool.sessions.lock().unwrap().contains_key(session_id));
+        assert!(retained_operation_browser.get_version().is_err());
+        assert!(pending.join().unwrap().is_err());
     }
 
     #[test]
