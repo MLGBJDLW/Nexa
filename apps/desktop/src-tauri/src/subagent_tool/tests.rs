@@ -250,6 +250,34 @@ async fn private_endpoint_model_alias_keeps_its_own_reasoning_contract() {
 }
 
 #[tokio::test]
+async fn no_op_private_worker_selectors_preserve_confirmed_image_support() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("private-vision".into());
+    runtime.base_config.native_vision = Some(true);
+    runtime.provider_config.api_key = Some("test-key".into());
+    runtime.provider_config.base_url = Some("https://private.example/v1".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    for selectors in [
+        serde_json::json!({"provider":provider_catalog_key(ProviderType::OpenAi)}),
+        serde_json::json!({"model":"private-vision"}),
+        serde_json::json!({"provider":provider_catalog_key(ProviderType::OpenAi), "model":"private-vision"}),
+    ] {
+        let mut input = serde_json::json!({"task":"Inspect supplied image", "allowed_tools":[]});
+        input
+            .as_object_mut()
+            .unwrap()
+            .extend(selectors.as_object().unwrap().clone());
+        let args = serde_json::from_value(input).unwrap();
+        let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "private-vision", None)
+            .await
+            .unwrap();
+        assert_eq!(worker.config.catalog_limits_authoritative, Some(false));
+        assert_eq!(worker.config.native_vision, Some(true));
+    }
+}
+
+#[tokio::test]
 async fn explicit_same_model_worker_recomputes_parent_fallback_image_policy() {
     let db = Database::open_memory().unwrap();
     let saved = db

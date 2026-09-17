@@ -86,8 +86,6 @@ pub(super) async fn prepare_subagent_worker(
     // A worker may select a different model from the parent's image-capable
     // route. Keep exact inherited eligibility only while its identity matches.
     if args.route.agent_config_id.is_some()
-        || args.route.provider.is_some()
-        || args.route.model.is_some()
         || catalog_authoritative
         || config.model != runtime.base_config.model
         || provider_config.provider_type != runtime.provider_config.provider_type
