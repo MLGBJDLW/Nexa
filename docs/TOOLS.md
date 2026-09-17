@@ -776,6 +776,15 @@ interactive page. `desktop_automation` no longer accepts a web-search action.
 
 ### `browser_session`
 
+The standalone Chromium adapter owns its browser independently from outstanding
+wait handles. Closing revokes new work, closes the transport to unblock pending operations,
+drains those operations, and only then acknowledges closure. Input consumes the observed tab's
+references before dispatch. Its action receipt distinguishes pre-dispatch
+failure from an uncertain effect; after uncertain input, observe again before
+considering another action. The desktop adapter retains its native control leases
+and richer observation/action receipts.
+
+
 Control the conversation-owned Nexa Browser Workspace. This is the canonical
 interactive browser surface for agents; the retired built-in Playwright MCP is
 not required. The tool shares visible tabs, cookies, control leases, and
@@ -984,6 +993,17 @@ managed command and can be terminated when that command exits.
 
 ### `run_shell`
 
+Settings → Appearance → Command environment discovers local shells and ready WSL
+Bash distributions. The saved profile applies to new terminals and `command`
+strings in ConfirmAll/Open mode, including `shell: "default"`. Explicit shell
+selectors override it; `program`/`args` remains exact host argv, and Restricted
+mode retains native scoped execution. Existing sessions keep their shell.
+`cwd` remains a host directory; WSL receives it through `wsl --cd`, without
+assuming a `/mnt` mount layout. Missing explicit profiles fail without falling
+back. WSL commands own a Linux process group in addition to the Windows process
+job; stop/timeout cleanup targets that group, never the whole distribution.
+
+
 Long-running builds return a stable `activityId`, `cursor`, and `serviceId`.
 Continue the same process with
 `activity_observe({ activityId, afterSeq: cursor, waitFor: "completion", waitUpToMs: 30000 })`.
@@ -1026,7 +1046,7 @@ shell effects remain pending in the runtime evidence audit until verified.
 | `cwd` | string | yes | Working directory (absolute or relative to a source root) |
 | `timeout_secs` | integer | no | Timeout in seconds (default 30); `0` disables the per-command timeout for intentional long installs/downloads/builds |
 
-**Default restricted whitelist:** `python`, `python3`, `pip`, `pip3`, `node`, `npm`, `npx`, `git`, `pwd`, `ls`, `cat`, `mkdir`, `cp`, `mv` (`pip`/`pip3` are normalized to `python -m pip` / `python3 -m pip`; `copy`/`move` aliases normalize to `cp`/`mv`). `git` is read-only by default: allowed subcommands are `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `branch`, `tag`, `config`, `remote`, `describe`, and `blame`. `git config` additionally requires an explicit read-only flag such as `--get`, `--list`, or `--get-regexp`. In less-restricted Shell Access modes, arbitrary bare command names (for example `bash` or `powershell` when available) may be allowed, but `run_shell` still does not invoke a shell automatically.
+**Default restricted whitelist:** `python`, `python3`, `pip`, `pip3`, `node`, `npm`, `npx`, `git`, `pwd`, `ls`, `cat`, `mkdir`, `cp`, `mv` (`pip`/`pip3` are normalized to `python -m pip` / `python3 -m pip`; `copy`/`move` aliases normalize to `cp`/`mv`). `git` is read-only by default: allowed subcommands are `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, `branch`, `tag`, `config`, `remote`, `describe`, and `blame`. `git config` additionally requires an explicit read-only flag such as `--get`, `--list`, or `--get-regexp`. In less-restricted Shell Access modes, arbitrary bare command names (for example `bash` or `powershell` when available) may be allowed, and saved shell preferences apply to `command` strings. Exact `program`/`args` never adds a shell.
 
 **Safety posture:**
 - Always requires user confirmation before executing.
