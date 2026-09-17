@@ -544,7 +544,7 @@ impl AgentExecutor {
         tool_run_started_ids: &mut HashSet<String>,
     ) -> Result<ToolDispatchOutcome, CoreError> {
         ToolDispatchRuntime {
-            native_vision: None,
+            native_vision: self.config.native_vision,
             tools: &self.tools,
             config: &self.config,
             cancel_token: &self.cancel_token,

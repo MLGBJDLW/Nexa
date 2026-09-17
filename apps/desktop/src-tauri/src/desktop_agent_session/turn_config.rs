@@ -521,6 +521,7 @@ pub fn build_desktop_agent_turn_config(
         context_pack.prompt_sections_for_stability(ContextItemStability::VolatileSuffix);
 
     let executor_config = AgentConfig {
+        native_vision: None,
         max_iterations: orchestration_policy.max_iterations,
         system_prompt,
         volatile_system_sections,

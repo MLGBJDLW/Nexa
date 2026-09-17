@@ -631,6 +631,7 @@ fn materialize_route_resolution(
         .map(|candidate| materialize_runtime_fallback(conn, candidate))
         .collect::<Result<Vec<_>, _>>()?;
     let snapshot = RuntimeRegistrySnapshot {
+        native_image_input: selected_target.native_image_input,
         schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
         settings_revisions,
         binding_id: route.binding_id.clone(),
@@ -676,6 +677,13 @@ fn snapshot_route_target(
     let (connection_revision, target_revision, model_definition_revision) =
         validate_persisted_candidate(conn, candidate)?;
     Ok(RuntimeRouteTargetSnapshot {
+        native_image_input: candidate.definition.as_ref().is_some_and(|definition| {
+            definition.descriptor.capabilities.vision
+                || definition
+                    .descriptor
+                    .input_modalities
+                    .contains(&crate::model_catalog::ModelModality::Image)
+        }),
         fallback_index,
         target_id: candidate.target.id.clone(),
         target_revision,
@@ -843,6 +851,7 @@ fn materialize_pinned_resolution(
     snapshot: RuntimeRegistrySnapshot,
 ) -> Result<RuntimeCapabilityResolution, CoreError> {
     let selected = RuntimeRouteTargetSnapshot {
+        native_image_input: snapshot.native_image_input,
         fallback_index: snapshot.fallback_index,
         target_id: snapshot.target_id.clone(),
         target_revision: snapshot.target_revision,
@@ -881,6 +890,7 @@ fn apply_selected_route_target(
     target: &RuntimeRouteTargetSnapshot,
     reason: &str,
 ) {
+    snapshot.native_image_input = target.native_image_input;
     snapshot.target_id = target.target_id.clone();
     snapshot.target_revision = target.target_revision;
     snapshot.connection_id = target.connection_id.clone();
@@ -1790,6 +1800,40 @@ mod tests {
     }
 
     #[test]
+    fn native_image_eligibility_uses_the_pinned_model_and_entire_fallback_plan() {
+        let db = Database::open_memory().unwrap();
+        for (model, expected) in [("deepseek-flash", true), ("deepseek-v4-pro", false)] {
+            let saved = db
+                .save_agent_config(&agent(
+                    "deep_seek",
+                    "https://api.deepseek.com",
+                    model,
+                    "test-key",
+                ))
+                .unwrap();
+            let mut route = db
+                .resolve_runtime_capability(
+                    &RegistryScope {
+                        agent_id: Some(saved.id),
+                        ..RegistryScope::default()
+                    },
+                    "text_generation",
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(route.supports_native_images(), expected, "{model}");
+            let encoded = serde_json::to_value(&route.snapshot).unwrap();
+            let mut fallback: RuntimeRouteTargetSnapshot = serde_json::from_value(encoded).unwrap();
+            fallback.fallback_index = 1;
+            fallback.native_image_input = true;
+            route.snapshot.fallback_targets.push(fallback);
+            assert_eq!(route.supports_native_images(), expected);
+            route.snapshot.fallback_targets[0].native_image_input = false;
+            assert!(!route.supports_native_images());
+        }
+    }
+
+    #[test]
     fn refreshing_multiple_agents_keeps_every_binding_on_the_persisted_target_revision() {
         let db = Database::open_memory().unwrap();
         let first = db
@@ -2002,6 +2046,7 @@ mod tests {
             stream_max_retries: Some(3),
         };
         let snapshot = RuntimeRegistrySnapshot {
+            native_image_input: false,
             schema_version: 1,
             settings_revisions: Vec::new(),
             binding_id: "binding:a".to_string(),
@@ -2027,6 +2072,7 @@ mod tests {
             model_id: "gpt-4.1".to_string(),
             provider_streaming,
             fallback_targets: vec![RuntimeRouteTargetSnapshot {
+                native_image_input: false,
                 fallback_index: 1,
                 target_id: "target:fallback".to_string(),
                 target_revision: 1,

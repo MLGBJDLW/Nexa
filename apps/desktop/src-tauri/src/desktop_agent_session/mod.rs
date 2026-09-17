@@ -41,8 +41,8 @@ use nexa_core::conversation::{
 use nexa_core::db::Database;
 use nexa_core::error::CoreError;
 use nexa_core::llm::{
-    create_provider, model_declares_vision_support, model_supports_vision, ContentPart,
-    LlmProvider, Message, ProviderConfig, ProviderType, ReasoningEffort, Role,
+    create_provider, model_supports_vision, ContentPart, LlmProvider, Message, ProviderConfig,
+    ProviderType, ReasoningEffort, Role,
 };
 use nexa_core::mcp::{McpManager, McpServer};
 use nexa_core::mixture_of_agents::{AgentCollaborationMode, MoaPresetId};

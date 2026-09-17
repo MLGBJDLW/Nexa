@@ -334,12 +334,7 @@ pub async fn build_desktop_agent_vision_user_content(
         .map_err(|error| error.to_string())?
         .unwrap_or_default();
     let ocr_config = db.load_ocr_config().unwrap_or_default();
-    let primary_supports_vision = primary_native_vision_allowed
-        && (crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(
-            &db_config.provider,
-        )
-        .is_some()
-            || model_declares_vision_support(&provider_config.provider_type, &db_config.model));
+    let primary_supports_vision = primary_native_vision_allowed;
     // Subscription drivers validate image support against their live native
     // model catalog before submission. The same vision policy still applies.
     let primary_is_local = primary_routes_local;
