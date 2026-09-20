@@ -55,6 +55,12 @@ The Tauri terminal state owns PTY handles, process metadata, the conversation
 binding, and the bounded output buffer. The frontend receives output events and
 renders them through xterm.js.
 
+Asynchronous start, restore, switch and stop results belong to the conversation
+and operation that initiated them. A superseded result cannot replace the
+current session or input target. A terminal created for a previous conversation
+remains owned by that conversation; changing the visible conversation does not
+implicitly terminate it.
+
 Stopping is idempotent at the product boundary. In particular, portable-pty
 0.9's Windows killer returns an `Err(last_os_error())` value from the successful
 `TerminateProcess` branch (commonly rendered as `os error 0`); the backend
