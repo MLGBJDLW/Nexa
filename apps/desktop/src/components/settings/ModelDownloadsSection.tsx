@@ -196,7 +196,7 @@ export function ModelDownloadsSection({
       collapsible
       defaultOpen={false}
     >
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-3">
         <div className="rounded-xl border border-border bg-surface-1/70 p-4">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">

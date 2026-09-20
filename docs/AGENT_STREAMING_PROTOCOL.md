@@ -248,6 +248,12 @@ assistant message joined through the conversation turn. A completed task
 without that message is not allowed to settle to a blank answer; recovery
 remains armed until the durable message is available.
 
+The ordered trace remains the chat preview authority across `done` until durable
+messages replace it. Round summaries must not reorder thinking or steering
+boundaries after the final answer. `done.payload.message` replaces only the
+active answer block; if that sample has no answer block, it appends a final
+reply after the preceding trace instead of rewriting an earlier sample.
+
 The chat surface hydrates an active conversation once. Live events and recovery
 patch that projection instead of initiating a second completion fetch. React
 stream projection is scheduled as interruptible transition work; stable sidebar

@@ -343,7 +343,7 @@ export function WebSearchSettingsPanel({
         </span>
       }
     >
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-3">
         <div className="space-y-2">
           <div>
             <p className="text-sm font-medium text-text-primary">

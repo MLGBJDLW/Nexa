@@ -1708,7 +1708,7 @@ export function ChatPage() {
 
       {/* Main chat area */}
       <div
-        className="relative grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]"
+        className="relative grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto]"
         data-testid="chat-workspace-surface"
         data-theme-surface="content"
       >

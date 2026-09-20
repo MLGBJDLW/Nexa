@@ -42,7 +42,7 @@ export function OcrSettingsSection({
       ) : undefined}
     >
       {ocrConfig && (
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-3">
           {/* Enable toggle */}
           <div className="flex items-center justify-between">
             <div>
@@ -137,7 +137,7 @@ export function OcrSettingsSection({
           <div className="flex justify-end pt-2">
             <Button
               variant="primary"
-              size="md"
+              size="sm"
               icon={<Save size={16} />}
               loading={ocrSaveLoading}
               onClick={onSave}

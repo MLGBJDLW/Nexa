@@ -82,16 +82,15 @@ export function hasPersistedResultAfterLatestUserMessage(
  * streaming thinking phase this made earlier in-turn replies/thinking vanish
  * until the final persisted replay replaced the live state.
  *
- * While a turn is still streaming and both representations exist, prefer the
- * canonical trace timeline as the single source of visible truth. That keeps
- * prior reply/thinking/tool sections visible while the next thinking block is
- * streaming, and avoids rendering the same round twice.
+ * Keep the ordered trace authoritative through Done and the durable-history
+ * handoff. Switching back to rounds at Done appends any remaining steering and
+ * thinking after the final reply, since rounds do not carry user boundaries.
+ * The same projection therefore owns both active and completed previews.
  */
 export function projectChatStreamingVisibility(
   input: ChatStreamingVisibilityInput,
 ): ChatStreamingVisibilityProjection {
   if (
-    input.isStreaming &&
     input.streamRounds.length > 0 &&
     input.traceEvents.length > 0
   ) {

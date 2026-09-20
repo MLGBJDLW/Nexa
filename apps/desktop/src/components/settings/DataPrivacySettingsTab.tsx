@@ -161,7 +161,7 @@ export function DataPrivacySettingsTab({
             <span>{t('common.loading')}</span>
           </div>
         ) : traceSummary && traceSummary.totalSessions > 0 ? (
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-3">
             <div className="grid grid-cols-3 gap-3">
               <StatCard label={t('analytics.totalSessions')} value={formatCompact(traceSummary.totalSessions)} />
               <StatCard label={t('analytics.successRate')} value={`${(traceSummary.successRate * 100).toFixed(1)}%`} />
@@ -248,13 +248,13 @@ export function DataPrivacySettingsTab({
           </span>
         ) : undefined}
       >
-        <div className="mb-5 grid grid-cols-3 gap-3">
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <StatCard label={t('settings.totalDocs')} value={stats?.totalDocuments ?? '—'} />
           <StatCard label={t('settings.totalChunks')} value={stats?.totalChunks ?? '—'} />
           <StatCard label={t('settings.ftsEntries')} value={stats?.ftsRows ?? '—'} />
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} loading={rebuildLoading} onClick={onRebuild}>
             {t('settings.rebuildIndex')}
           </Button>
@@ -288,7 +288,7 @@ export function DataPrivacySettingsTab({
         ) : undefined}
       >
         {privacyConfig && (
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-3">
             <div>
               <h3 className="mb-2 text-sm font-medium text-text-primary">{t('settings.excludePatterns')}</h3>
               <p className="mb-3 text-xs text-text-tertiary">{t('settings.excludePatternsDesc')}</p>

@@ -593,7 +593,7 @@ export function ExtensionsSettingsTab({
             onDirtyChange={onPersonaEditorDirtyChange}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-3">
             <div className="flex justify-end">
               <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={onAddPersona}>
                 {personaCopy.addPersona}
@@ -729,7 +729,7 @@ export function ExtensionsSettingsTab({
             onDirtyChange={onSkillEditorDirtyChange}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-3">
             {skillProposals.length > 0 && (
               <div className="rounded-lg border border-accent/25 bg-accent/5 p-3">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1039,7 +1039,7 @@ export function ExtensionsSettingsTab({
             onDirtyChange={onMcpFormDirtyChange}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-surface-1/55 p-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-xs font-medium text-text-primary">

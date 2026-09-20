@@ -77,7 +77,7 @@ export function VideoSettingsSection({
       ) : undefined}
     >
       {videoConfig ? (
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-3">
           {/* Enable toggle */}
           <div className="flex items-center justify-between">
             <div>
@@ -322,7 +322,7 @@ export function VideoSettingsSection({
             <div className="flex-1" />
             <Button
               variant="primary"
-              size="md"
+              size="sm"
               icon={<Save size={16} />}
               loading={videoSaveLoading}
               onClick={onSave}

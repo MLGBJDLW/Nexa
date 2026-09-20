@@ -217,7 +217,7 @@ export function ProvidersSettingsTab({
           onDirtyChange={onProviderFormDirtyChange}
         />
       ) : providerView === 'selector' ? (
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-text-primary">{t('settings.selectProvider')}</h3>
@@ -304,7 +304,7 @@ export function ProvidersSettingsTab({
           )}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-3">
           <div
             className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/60 p-4 sm:flex-row sm:items-center sm:justify-between"
             data-provider-category="chat-reasoning"
@@ -342,7 +342,7 @@ export function ProvidersSettingsTab({
               <p className="mt-1 text-xs text-text-tertiary">{t('settings.noProvidersDesc')}</p>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="min-w-0 space-y-3">
               <div className="space-y-3">
                   {agentConfigs.map((config) => (
                     <div

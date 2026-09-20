@@ -95,7 +95,7 @@ export function UsageAnalyticsSettingsTab() {
     : point.requestCount));
 
   return (
-    <div className="space-y-5" data-testid="usage-analytics-tab">
+    <div className="min-w-0 space-y-3" data-testid="usage-analytics-tab">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-text-primary">{t('usage.title')}</h2>
@@ -163,7 +163,7 @@ export function UsageAnalyticsSettingsTab() {
         </div>
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-3 xl:grid-cols-2">
         <Breakdown title={t('usage.providerModel')} rows={data.byModel} totals={totals} t={t} locale={locale} />
         <Breakdown title={t('usage.operation')} rows={data.byOperation} totals={totals} t={t} locale={locale} />
       </div>

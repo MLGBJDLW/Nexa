@@ -245,7 +245,7 @@ export function PackageHostSettingsPanel({ onPackageStateChange }: PackageHostSe
         </span>
       }
     >
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-lg bg-surface-2 px-3 py-2">

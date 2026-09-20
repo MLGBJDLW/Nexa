@@ -15,7 +15,7 @@ export function ThemeSettingsTab() {
       description={t('themeStudio.description')}
       delay={0.03}
     >
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-3">
         <div>
           <p className="mb-2 text-sm font-medium text-text-primary">
             {t('settings.appearance.theme')}
