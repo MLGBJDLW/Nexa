@@ -137,14 +137,24 @@ impl PythonCommand {
         }
     }
 
-    fn run(&self, args: &[&str]) -> std::io::Result<std::process::Output> {
+    fn command(&self) -> Command {
         let mut cmd = Command::new(&self.program);
+        // Rust sends UTF-8 JSON and decodes UTF-8 output. Windows Python can
+        // otherwise use its ANSI code page for redirected stdio, corrupting
+        // request paths while making a second transcode appear to repair them.
         cmd.args(&self.prefix_args)
-            .args(args)
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8");
+        apply_quiet_command_options(&mut cmd);
+        cmd
+    }
+
+    fn run(&self, args: &[&str]) -> std::io::Result<std::process::Output> {
+        let mut cmd = self.command();
+        cmd.args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        apply_quiet_command_options(&mut cmd);
         with_suppressed_process_error_dialogs(|| cmd.output())
     }
 }
@@ -168,9 +178,8 @@ async fn run_python_with_input(
 ) -> Result<std::process::Output, CoreError> {
     use tokio::io::AsyncWriteExt;
 
-    let mut command = tokio::process::Command::new(&python.program);
+    let mut command = tokio::process::Command::from(python.command());
     command
-        .args(&python.prefix_args)
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::piped())
@@ -180,7 +189,6 @@ async fn run_python_with_input(
     if let Some(root) = integrity_root {
         command.env("NEXA_OFFICE_INTEGRITY_ROOT", root);
     }
-    apply_quiet_command_options(command.as_std_mut());
     let mut child = command
         .spawn()
         .map_err(|error| CoreError::Internal(format!("Office artifact engine failed: {error}")))?;
@@ -1056,6 +1064,62 @@ mod tests {
             assert!(rendered.ends_with("runtime\\Scripts\\python.exe"));
         } else {
             assert!(rendered.ends_with("runtime/bin/python"));
+        }
+    }
+
+    #[tokio::test]
+    async fn office_python_preserves_unicode_workspace_arguments_and_stdio() {
+        let Some(python) = find_system_python_for_venv() else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let probe = r#"
+import json, pathlib, sys
+request = json.load(sys.stdin)
+workspace = pathlib.Path.cwd()
+source = pathlib.Path(sys.argv[1])
+assert source.parent.samefile(workspace), (source, workspace)
+assert pathlib.Path(request['workspace_root']).samefile(workspace)
+assert source.read_text(encoding='utf-8') == request['text']
+result = {'workspace_root': str(workspace), 'source': str(source), 'request': request}
+print(json.dumps(result, ensure_ascii=False))
+print(request['text'], file=sys.stderr)
+"#;
+        for name in ["投资", "日本語", "한국어", "العربية", "café", "📊🙂"] {
+            let workspace = root.path().join(name);
+            std::fs::create_dir(&workspace).unwrap();
+            let source = workspace.join(format!("{name}.txt"));
+            let text = format!("{name}: 中文 日本語 한국어 العربية café 📊🙂");
+            std::fs::write(&source, &text).unwrap();
+            let request = serde_json::json!({
+                "workspace_root": workspace,
+                "source": source,
+                "text": text,
+            });
+            let output = run_python_with_input(
+                &python,
+                &[
+                    "-c".to_string(),
+                    probe.to_string(),
+                    source.display().to_string(),
+                ],
+                &workspace,
+                &request.to_string(),
+                Duration::from_secs(10),
+                None,
+            )
+            .await
+            .unwrap();
+            assert!(output.status.success(), "{name}: {:?}", output.stderr);
+            let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(result["request"], request, "{name}");
+            assert_eq!(
+                std::fs::canonicalize(result["workspace_root"].as_str().unwrap()).unwrap(),
+                std::fs::canonicalize(&workspace).unwrap(),
+                "{name}"
+            );
+            assert_eq!(result["source"], request["source"], "{name}");
+            assert_eq!(String::from_utf8(output.stderr).unwrap().trim(), text);
         }
     }
 

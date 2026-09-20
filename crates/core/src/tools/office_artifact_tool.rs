@@ -1471,6 +1471,60 @@ mod tests {
     }
 
     #[test]
+    fn unicode_workspace_and_request_paths_survive_registry_and_engine_boundaries() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open_memory().unwrap();
+        db.add_source(crate::sources::CreateSourceInput {
+            root_path: root.path().display().to_string(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .unwrap();
+        let tool = OfficeArtifactTool;
+        for name in ["投资", "日本語", "한국어", "العربية", "café", "📊🙂"] {
+            let workspace = root.path().join(name);
+            std::fs::create_dir(&workspace).unwrap();
+            let request = json!({
+                "requestVersion": 2,
+                "format": "docx",
+                "intent": "create",
+                "destination": workspace.join(format!("{name}.docx")),
+                "operations": [{"op": "create", "title": name}],
+            });
+            let arguments = json!({
+                "action": "assess",
+                "workspace_root": workspace,
+                "request": request,
+            })
+            .to_string();
+            let escaped_name: String = name
+                .encode_utf16()
+                .map(|unit| format!("\\u{unit:04x}"))
+                .collect();
+            for encoded in [arguments.clone(), arguments.replace(name, &escaped_name)] {
+                let normalized = crate::tools::normalize_tool_arguments(
+                    tool.name(),
+                    &encoded,
+                    &tool.parameters_schema(),
+                )
+                .unwrap();
+                let args: OfficeArtifactArgs = serde_json::from_str(&normalized).unwrap();
+                assert_eq!(Path::new(&args.workspace_root), workspace);
+                assert_eq!(
+                    resolve_workspace(&args.workspace_root, &db, &[]).unwrap(),
+                    std::fs::canonicalize(&workspace).unwrap()
+                );
+                let (_, request_json) = engine_arguments(&args).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(&request_json).unwrap(),
+                    request
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rust_boundary_rejects_coerced_versions_and_operation_types() {
         let invalid_version = serde_json::from_value::<OfficeArtifactArgs>(json!({
             "action": "execute",
