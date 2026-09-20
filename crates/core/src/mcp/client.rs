@@ -1723,25 +1723,31 @@ mod tests {
         let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let observed_attempts = Arc::clone(&attempts);
         let server = tokio::spawn(async move {
-            let mut stalled = Vec::new();
             loop {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 read_http_request(&mut stream).await.unwrap();
                 observed_attempts.fetch_add(1, Ordering::SeqCst);
-                stalled.push(stream);
+                write_text_response(
+                    &mut stream,
+                    "503 Service Unavailable",
+                    None,
+                    "connector is unavailable",
+                )
+                .await
+                .unwrap();
             }
         });
         let transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
         let mut client = McpClient {
             transport: Transport::StreamableHttp(transport),
             request_id: AtomicI64::new(1),
-            server_name: "stalled-handshake".into(),
+            server_name: "unavailable-handshake".into(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
-            call_timeout: Duration::from_millis(50),
+            call_timeout: DEFAULT_TIMEOUT,
         };
         let result = client.initialize_handshake().await;
         server.abort();
-        assert!(matches!(result, Err(CoreError::McpTransport(_))));
+        assert!(matches!(result, Err(CoreError::McpTransport(message)) if message.contains("503")));
         assert_eq!(
             attempts.load(Ordering::SeqCst),
             1,
