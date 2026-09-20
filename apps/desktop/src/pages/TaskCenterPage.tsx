@@ -42,6 +42,7 @@ import {
 } from '../lib/taskResume';
 import {
   taskCenterHistoryFromEvents,
+  mergeTaskCenterHistory,
   type TaskCenterHistoryItem,
 } from '../lib/streaming/taskCenterHistory';
 import type {
@@ -531,20 +532,16 @@ export function TaskCenterPage() {
         patch.artifacts = Array.isArray(nextArtifacts) ? nextArtifacts : [];
         patch.savedArtifacts = Array.isArray(nextSavedArtifacts) ? nextSavedArtifacts : [];
       } else if (panel === 'history') {
-        const [nextEvents, nextRunEvents, nextSchedulerEvents] = await Promise.all([
-          api.getAgentTaskRunEvents(runId),
-          api.getAgentRunEvents(runId).catch(() => []),
+        const [nextHistory, nextSchedulerEvents] = await Promise.all([
+          api.getAgentTaskHistory(runId, developerMode),
           api.listWorkflowAutomationSchedulerEventsForTaskRun(runId).catch(() => []),
         ]);
-        patch.events = taskCenterHistoryFromEvents(
-          Array.isArray(nextEvents) ? nextEvents : [],
-          Array.isArray(nextRunEvents) ? nextRunEvents : [],
-          Array.isArray(nextSchedulerEvents) ? nextSchedulerEvents : [],
-          { includeDeveloper: developerMode },
-        );
         patch.schedulerEvents = taskCenterHistoryFromEvents([], [], (
           Array.isArray(nextSchedulerEvents) ? nextSchedulerEvents : []
         ), { includeDeveloper: developerMode });
+        patch.events = mergeTaskCenterHistory(
+          Array.isArray(nextHistory) ? nextHistory : [], patch.schedulerEvents,
+        );
       } else if (panel === 'memory') {
         patch.projectMemories = selected.projectId ? await api.listProjectMemories(selected.projectId) : [];
       } else if (panel === 'risk') {

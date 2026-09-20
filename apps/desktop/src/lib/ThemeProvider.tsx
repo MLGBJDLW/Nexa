@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { type ThemeId, getInitialTheme, applyTheme, isThemeId } from './theme';
 import * as api from './api';
 import {
@@ -14,6 +15,7 @@ import {
   type ThemeResourcePlugin,
 } from './themeProfile';
 import { persistStartupAppearance, snapshotStartupAppearance } from './startupAppearance';
+import { connectEventSubscriptions } from './eventSubscriptions';
 
 interface ThemeContextValue {
   theme: ThemeId;
@@ -43,6 +45,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
   const registryRevisionRef = useRef(0);
   const mutationSequenceRef = useRef(0);
+  const hydrationRef = useRef<Promise<api.AppearanceRegistry> | null>(null);
   const activeCustomTheme = customThemes.find((profile) => profile.id === activeThemeId);
   const theme = activeCustomTheme?.baseTheme ?? (isThemeId(activeThemeId) ? activeThemeId : 'dark');
   const content = activeCustomTheme?.content ?? {};
@@ -115,19 +118,65 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let disposed = false;
-    const initialPlugins = readThemePlugins();
-    const initialActive = localStorage.getItem(ACTIVE_THEME_KEY) ?? getInitialTheme();
-    void api.hydrateAppearanceRegistry(initialPlugins, initialActive)
-      .then((registry) => { if (!disposed) applyRegistry(registry); })
-      .catch(() => undefined);
-    const timer = window.setInterval(() => {
-      void api.getAppearanceRegistry()
-        .then((registry) => {
-          if (!disposed && registry.revision > registryRevisionRef.current) applyRegistry(registry);
-        })
-        .catch(() => undefined);
-    }, 1_200);
-    return () => { disposed = true; window.clearInterval(timer); };
+    let started = false;
+    let pending = false;
+    let refreshAgain = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!disposed && !document.hidden) timer = window.setTimeout(() => void refresh(), 30_000);
+    };
+    const refresh = async () => {
+      if (disposed || document.hidden || !started) return;
+      if (pending) { refreshAgain = true; return; }
+      pending = true;
+      window.clearTimeout(timer);
+      try {
+        const registry = await api.getAppearanceRegistry();
+        if (!disposed && registry?.revision > registryRevisionRef.current) applyRegistry(registry);
+      } catch { /* Events remain authoritative; the next visible refresh reconciles missed delivery. */ }
+      finally { finishRefresh(); }
+    };
+    const finishRefresh = () => {
+      pending = false;
+      if (refreshAgain) { refreshAgain = false; void refresh(); }
+      else schedule();
+    };
+    const hydrate = async () => {
+      if (started || disposed) return;
+      started = true;
+      pending = true;
+      hydrationRef.current ??= api.hydrateAppearanceRegistry(
+        readThemePlugins(), localStorage.getItem(ACTIVE_THEME_KEY) ?? getInitialTheme(),
+      );
+      try {
+        const registry = await hydrationRef.current;
+        if (!disposed) applyRegistry(registry);
+      } catch { hydrationRef.current = null; }
+      finally { finishRefresh(); }
+    };
+    // Subscribe before hydration so another window or the agent cannot mutate
+    // the registry between the initial read and listener registration.
+    const connection = connectEventSubscriptions([
+      (isActive) => listen<api.AppearanceRegistry>('appearance://changed', ({ payload }) => {
+        if (!isActive() || !(payload?.revision > registryRevisionRef.current)) return;
+        // Agent tool artifacts are compacted for display. Their event contains
+        // only a revision; read the complete registry through its authority.
+        if (Array.isArray(payload.plugins)) applyRegistry(payload);
+        else void refresh();
+      }),
+    ], (state) => { if (state.status !== 'connecting') void hydrate(); });
+    const onVisibility = () => {
+      if (document.hidden) window.clearTimeout(timer);
+      else void refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      connection.stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [applyRegistry]);
 
   const setTheme = (newTheme: string) => {

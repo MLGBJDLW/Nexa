@@ -144,5 +144,9 @@ export function taskCenterHistoryFromRunEvents(
     .map((event) => itemFromTaskEvent(event, includeDeveloper))
     .filter((item): item is TaskCenterHistoryItem => Boolean(item));
   const schedulerItems = schedulerEvents.map(itemFromSchedulerEvent);
-  return [...canonicalItems, ...timelineItems, ...schedulerItems].sort(compareHistory).slice(-50);
+  return mergeTaskCenterHistory([...canonicalItems, ...timelineItems], schedulerItems);
+}
+
+export function mergeTaskCenterHistory(...sources: TaskCenterHistoryItem[][]): TaskCenterHistoryItem[] {
+  return sources.flat().sort(compareHistory).slice(-50);
 }

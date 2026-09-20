@@ -1375,6 +1375,11 @@ export const listAgentTaskRunSummaries = (
 export const getAgentTaskRunEvents = (runId: string) =>
   invoke<AgentTaskRunEvent[]>('get_agent_task_run_events_cmd', { runId });
 
+export const getAgentTaskHistory = (runId: string, includeDeveloper = false) =>
+  invoke<import('./streaming/taskCenterHistory').TaskCenterHistoryItem[]>(
+    'get_agent_task_history_cmd', { runId, includeDeveloper },
+  );
+
 export const getAgentRunEvents = (runId: string, afterEventSeq?: number) =>
   invoke<AgentRunEvent[]>('get_agent_run_events_cmd', { runId, afterEventSeq });
 

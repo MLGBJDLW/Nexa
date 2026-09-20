@@ -231,6 +231,19 @@ files are verified off the UI thread and published without overwriting a name.
     bounded, pauses on disconnect, and releases devices on exit or failure.
     Stored text records do not imply raw media was never sent to a provider.
 
+Appearance synchronization has one in-flight native read per mounted provider.
+Committed appearance events update the frontend immediately; revision-only
+events coalesce into a follow-up read. The fallback poll runs only while visible,
+and stale replies cannot overwrite a newer event. Hiding or unmounting cancels
+future scheduling, not an already executing native request. A permanently stuck
+native request therefore does not create an expanding queue of retries.
+
+Task Center history uses a bounded summary projection rather than loading full
+run payloads: visibility filtering precedes each timeline's 50-row limit, and
+tool outputs, snapshots and trace bodies are not sent through this history IPC.
+The canonical replay APIs retain complete records. The summary query can still
+scan and sort event metadata; its row limit is not a database scan bound.
+
 ## Normative runtime contracts
 
 - [Agent Streaming Protocol](./AGENT_STREAMING_PROTOCOL.md) defines the core
