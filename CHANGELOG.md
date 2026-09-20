@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.8...nexa-monorepo-v0.14.9) (2026-09-20)
+
+
+### Bug Fixes
+
+* **chat:** preserve steering order through terminal handoff ([6ec1720](https://github.com/MLGBJDLW/Nexa/commit/6ec17202b6fb12bfe4973f7e9fe4ec392b488d06))
+* **desktop:** stabilize terminal width, steering order, settings and Unicode tools ([16c8fd3](https://github.com/MLGBJDLW/Nexa/commit/16c8fd30a3de00c05a28d523663e68e5b07ae9e6))
+* **office:** preserve Unicode across Python process boundaries ([559ddcc](https://github.com/MLGBJDLW/Nexa/commit/559ddcc85f0051c04164658ca8643256da6b9f14))
+* **settings:** finish compact layouts across settings panels ([0cce428](https://github.com/MLGBJDLW/Nexa/commit/0cce4287820cc6a5624201b3cc1343e3e0f674be))
+* **terminal:** constrain chat grid width when fitting terminal ([f4d5d17](https://github.com/MLGBJDLW/Nexa/commit/f4d5d17749e519c3773628d46888b07fb040eeed))
+
 ## [0.14.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.7...nexa-monorepo-v0.14.8) (2026-09-17)
 
 
