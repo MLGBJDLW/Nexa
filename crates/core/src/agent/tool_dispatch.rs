@@ -166,13 +166,18 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
     if tool_name != "computer_observe" && tool_name != "computer_control" {
         return;
     }
+    let post_action_observation_verified = tool_name == "computer_control"
+        && crate::workflow_ir::verified_post_action_desktop_observation(None, artifacts.as_ref());
     let Some(root) = artifacts
         .as_mut()
         .and_then(serde_json::Value::as_object_mut)
     else {
         return;
     };
-    let source = root.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    let source = root
+        .get("data")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(root.clone()));
     let element_count = source
         .get("elements")
         .and_then(serde_json::Value::as_array)
@@ -184,6 +189,17 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
                 .map(Vec::len)
         })
         .unwrap_or(0);
+    let terminal_window_receipt = source
+        .get("terminalWindowReceipt")
+        .filter(|receipt| receipt.is_object())
+        .map(|receipt| serde_json::json!({
+            "kind": receipt.get("kind").and_then(serde_json::Value::as_str),
+            "windowId": receipt.get("windowId").and_then(serde_json::Value::as_u64),
+            "targetIdentity": receipt.get("targetIdentity").and_then(serde_json::Value::as_str),
+            "actionReceiptId": receipt.get("actionReceiptId").and_then(serde_json::Value::as_str),
+            "windowExists": receipt.get("windowExists").and_then(serde_json::Value::as_bool),
+            "inputDelivered": receipt.get("inputDelivered").and_then(serde_json::Value::as_bool),
+        }));
     let audit = serde_json::json!({
         "schemaVersion": source.get("schemaVersion").and_then(serde_json::Value::as_u64).unwrap_or(2),
         "kind": if tool_name == "computer_control" { "computerControlReceipt" } else { "computerObservationReceipt" },
@@ -192,6 +208,16 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
         "delivery": source.get("delivery").and_then(serde_json::Value::as_str),
         "effect": source.get("effect").and_then(serde_json::Value::as_str),
         "stateChanged": source.get("stateChanged").and_then(serde_json::Value::as_bool),
+        "windowId": source.get("windowId").or_else(|| source.pointer("/window/id")),
+        "targetIdentity": source.get("targetIdentity"),
+        "observationId": source.get("observationId"),
+        "consumedObservationId": source.get("consumedObservationId"),
+        "inputDelivered": source.get("inputDelivered"),
+        "targetVerified": source.get("targetVerified"),
+        "deliveryStatus": source.get("deliveryStatus"),
+        "actionReceiptId": source.get("actionReceiptId"),
+        "postActionObservationVerified": post_action_observation_verified,
+        "terminalWindowReceipt": terminal_window_receipt,
         "screenshotHash": source.get("screenshotHash").and_then(serde_json::Value::as_str)
             .or_else(|| source.pointer("/observation/screenshotHash").and_then(serde_json::Value::as_str)),
         "semanticHash": source.get("semanticHash").and_then(serde_json::Value::as_str)
@@ -210,6 +236,38 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
             .unwrap_or_else(|| serde_json::Value::String("Computer result".to_string()));
         tool_output.insert("llmContent".to_string(), display);
         tool_output.insert("data".to_string(), audit);
+    }
+}
+
+fn retain_desktop_target_binding(
+    artifacts: &mut Option<serde_json::Value>,
+    binding: Option<&serde_json::Value>,
+) {
+    let Some(binding) = binding else {
+        return;
+    };
+    let Some(root) = artifacts
+        .as_mut()
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let Some(data) = root
+        .entry("data")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+    else {
+        return;
+    };
+    for key in ["windowId", "targetIdentity"] {
+        if data.get(key).is_none_or(serde_json::Value::is_null) {
+            if let Some(value) = binding.get(key) {
+                data.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    if let Some(value) = binding.get("observationId") {
+        data.insert("consumedObservationId".into(), value.clone());
     }
 }
 
@@ -709,6 +767,7 @@ impl ToolDispatchRuntime<'_> {
         let mut interaction_barrier_reached = false;
 
         let mut dispatch_action_reconciliation = pending_action_reconciliation;
+        let mut desktop_target_bindings = std::collections::HashMap::new();
         for tool_batch in tool_batches {
             // Resource-conflicting interactive actions are placed in later
             // batches. If an earlier batch crossed an uncertain commit boundary,
@@ -720,6 +779,18 @@ impl ToolDispatchRuntime<'_> {
                     .take()
                     .expect("each scheduled call executes once");
                 let tc = tool_calls[index].clone();
+                if tc.name == "computer_control" {
+                    // Snapshot only the host-owned observation metadata before
+                    // execution can consume its token or a timeout drops the
+                    // future. Never reconstruct target identity from an HWND
+                    // after the operation, when that handle may have been reused.
+                    if let Some(binding) = crate::tools::computer_use_tool::control_target_binding(
+                        conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str())),
+                        &scheduling.invocation.arguments.to_string(),
+                    ) {
+                        desktop_target_bindings.insert(tc.id.clone(), binding);
+                    }
+                }
                 let tool_span = info_span!("tool_execution", tool = %tc.name);
                 let progress_tx = tx.clone();
                 let approval_tx = tx.clone();
@@ -1315,7 +1386,7 @@ impl ToolDispatchRuntime<'_> {
                 let (
                     tool_msg,
                     mut tool_context_msg,
-                    tool_artifacts,
+                    mut tool_artifacts,
                     tool_attachments,
                     tool_is_error,
                     run_status,
@@ -1481,6 +1552,16 @@ impl ToolDispatchRuntime<'_> {
                 };
                 let tool_attachments = normalize_ephemeral_tool_attachments(tool_attachments);
 
+                if crate::workflow_ir::tool_result_requires_desktop_observation(
+                    &tc.name,
+                    tool_is_error,
+                    tool_artifacts.as_ref(),
+                ) {
+                    retain_desktop_target_binding(
+                        &mut tool_artifacts,
+                        desktop_target_bindings.get(&tc.id),
+                    );
+                }
                 if tool_result_requires_action_reconciliation(
                     &tc.name,
                     tool_is_error,
@@ -2152,6 +2233,103 @@ mod visual_attachment_tests {
             }],
         )
         .is_none());
+    }
+
+    #[test]
+    fn desktop_target_evidence_survives_sanitization_without_screen_content() {
+        let mut artifacts = Some(serde_json::json!({
+            "artifacts":{"kind":"computerControl"},"data":{
+                "windowId":42,"targetIdentity":"target-a","targetVerified":true,
+                "inputDelivered":true,"deliveryStatus":"delivered","actionReceiptId":"receipt-a",
+                "observationId":"after-a","observation":{
+                    "observationId":"after-a","window":{"id":42,"title":"private-window-title"},
+                    "targetIdentity":"target-a","screenshotHash":"pixels","elements":[{"name":"private-screen-value"}]
+                }
+            },"toolOutput":{"llmContent":"private-screen-value","displayContent":"Input delivered."}
+        }));
+        let args = Some(r#"{"action":"invoke","window_id":42,"observation_id":"before-a"}"#);
+        assert!(
+            crate::workflow_ir::verified_post_action_desktop_observation(args, artifacts.as_ref())
+        );
+        strip_ephemeral_computer_artifacts("computer_control", &mut artifacts);
+        assert!(
+            crate::workflow_ir::verified_post_action_desktop_observation(args, artifacts.as_ref())
+        );
+        let persisted = artifacts.unwrap().to_string();
+        assert!(!persisted.contains("private-window-title"));
+        assert!(!persisted.contains("private-screen-value"));
+    }
+
+    #[test]
+    fn desktop_timeout_binding_survives_durable_sanitization() {
+        let result = crate::tools::structured_tool_error_result_with_side_effect(
+            "call-a",
+            "computer_action_timeout_uncertain",
+            "Input may still finish",
+            serde_json::json!({"recovery":"Observe the original target"}),
+            false,
+            crate::tools::ToolSideEffect::MayHaveOccurred,
+            None,
+        );
+        let mut artifacts = result.artifacts;
+        retain_desktop_target_binding(
+            &mut artifacts,
+            Some(&serde_json::json!({
+                "windowId":42,"targetIdentity":"original-process-instance","observationId":"consumed-a"
+            })),
+        );
+        strip_ephemeral_computer_artifacts("computer_control", &mut artifacts);
+        let artifacts = artifacts.unwrap();
+        assert_eq!(
+            artifacts.pointer("/data/windowId"),
+            Some(&serde_json::json!(42))
+        );
+        assert_eq!(
+            artifacts
+                .pointer("/data/targetIdentity")
+                .and_then(serde_json::Value::as_str),
+            Some("original-process-instance")
+        );
+        assert_eq!(
+            artifacts
+                .pointer("/data/consumedObservationId")
+                .and_then(serde_json::Value::as_str),
+            Some("consumed-a")
+        );
+        assert!(
+            crate::workflow_ir::tool_result_requires_desktop_observation(
+                "computer_control",
+                true,
+                Some(&artifacts)
+            )
+        );
+        assert!(
+            !crate::workflow_ir::verified_post_action_desktop_observation(None, Some(&artifacts))
+        );
+    }
+
+    #[test]
+    fn desktop_closure_receipt_persists_only_target_evidence() {
+        let mut artifacts = Some(serde_json::json!({"data":{
+            "terminalWindowReceipt":{
+                "kind":"computerWindowClosure","windowId":42,"targetIdentity":"target-a",
+                "actionReceiptId":"receipt-a","windowExists":false,"inputDelivered":true,
+                "windowTitle":"private-screen-value","elements":[{"value":"private-screen-value"}]
+            }
+        }}));
+        strip_ephemeral_computer_artifacts("computer_control", &mut artifacts);
+        let artifacts = artifacts.unwrap();
+        assert_eq!(
+            artifacts.pointer("/data/terminalWindowReceipt/windowExists"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(
+            artifacts
+                .pointer("/data/terminalWindowReceipt/targetIdentity")
+                .and_then(serde_json::Value::as_str),
+            Some("target-a")
+        );
+        assert!(!artifacts.to_string().contains("private-screen-value"));
     }
 
     #[test]

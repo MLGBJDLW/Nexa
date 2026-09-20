@@ -1221,14 +1221,102 @@ fn browser_terminal_closure_is_discussion(query: &str) -> bool {
         .any(|prefix| query.starts_with(prefix))
 }
 
+pub(crate) fn query_requests_desktop_terminal_closure(query: &str) -> bool {
+    let query = query.to_lowercase();
+    if [
+        "do not close",
+        "never close",
+        "never quit",
+        "never exit",
+        "don't close",
+        "do not quit",
+        "don't quit",
+        "do not exit",
+        "don't exit",
+        "without closing",
+        "不要关",
+        "不关闭",
+        "不得关闭",
+        "禁止关闭",
+        "无需关闭",
+        "别关",
+        "勿关",
+        "不要退出",
+        "别退出",
+        "不要按",
+        "不要使用",
+        "how to close",
+        "how do i close",
+        "如何关闭",
+        "怎样关闭",
+    ]
+    .iter()
+    .any(|negative| query.contains(negative))
+    {
+        return false;
+    }
+    [
+        "close the window",
+        "close this window",
+        "close that window",
+        "close the current window",
+        "close the app",
+        "close this app",
+        "close the application",
+        "quit the app",
+        "exit the app",
+        "close notepad",
+        "quit notepad",
+        "关闭窗口",
+        "关闭当前窗口",
+        "关闭这个窗口",
+        "关闭该窗口",
+        "关闭应用",
+        "关闭程序",
+        "退出应用",
+        "退出程序",
+        "关闭记事本",
+        "退出记事本",
+    ]
+    .iter()
+    .any(|command| {
+        query.match_indices(command).any(|(index, _)| {
+            let prefix = query[..index]
+                .rsplit([',', ';', '.', '，', '；', '。', '\n'])
+                .next()
+                .unwrap_or_default();
+            if [
+                "type ", "write ", "enter ", "input ", "输入", "写入", "键入", "打印", "示例",
+                "文本",
+            ]
+            .iter()
+            .any(|term| prefix.contains(term))
+            {
+                return false;
+            }
+            let rest = query[index + command.len()..].trim_start();
+            rest.is_empty()
+                || [
+                    ",", ".", ";", "!", "，", "。", "；", "！", "后", "并", "然后", "and ",
+                    "then ", "after ", "please",
+                ]
+                .iter()
+                .any(|suffix| rest.starts_with(suffix))
+        })
+    })
+}
+
 fn query_requests_desktop_operation(query: &str) -> bool {
-    (contains_any(query, DESKTOP_TERMS) && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS))
+    query_requests_desktop_terminal_closure(query)
+        || (contains_any(query, DESKTOP_TERMS)
+            && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS))
         || (contains_any(query, NATIVE_DESKTOP_APP_TERMS)
             && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS))
 }
 
 fn query_requests_desktop_interaction(query: &str) -> bool {
-    contains_any(query, DESKTOP_INTERACTION_TERMS)
+    query_requests_desktop_terminal_closure(query)
+        || contains_any(query, DESKTOP_INTERACTION_TERMS)
         || (contains_any(query, NATIVE_DESKTOP_APP_TERMS)
             && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS)
             && contains_any(query, DESKTOP_APP_ACTIVATION_TERMS))

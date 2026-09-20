@@ -143,6 +143,213 @@ mod tests {
         }
     }
 
+    struct DesktopEvidenceFixture(bool);
+    #[async_trait::async_trait]
+    impl Tool for DesktopEvidenceFixture {
+        fn name(&self) -> &str {
+            if self.0 {
+                "computer_control"
+            } else {
+                "computer_observe"
+            }
+        }
+        fn description(&self) -> &str {
+            "Host desktop receipt fixture"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object","properties":{"action":{"type":"string"},"window_id":{"type":"integer"},"observation_id":{"type":"string"}},"required":["action","window_id"],"additionalProperties":false})
+        }
+        fn requires_confirmation(&self, _: &serde_json::Value) -> bool {
+            false
+        }
+        async fn execute(
+            &self,
+            context: ToolExecutionContext<'_>,
+        ) -> Result<ToolResult, CoreError> {
+            let args: serde_json::Value = serde_json::from_str(context.arguments)?;
+            let window = args["window_id"].as_u64().unwrap();
+            if self.0 {
+                let mut result = crate::tools::structured_tool_error_result_with_side_effect(
+                    context.call_id,
+                    "computer_action_uncertain",
+                    "Input delivered without a verified capture",
+                    serde_json::json!({}),
+                    false,
+                    crate::tools::ToolSideEffect::MayHaveOccurred,
+                    None,
+                );
+                let artifacts = result.artifacts.as_mut().unwrap();
+                artifacts["windowId"] = serde_json::json!(window);
+                artifacts["targetIdentity"] = serde_json::json!(format!("target-{window}"));
+                Ok(result)
+            } else {
+                Ok(ToolResult::from_output(
+                    context.call_id,
+                    false,
+                    crate::tools::ToolOutput {
+                        llm_content: "Fresh target capture".into(),
+                        display_content: "Fresh target capture".into(),
+                        data: Some(
+                            serde_json::json!({"windowId":window,"targetIdentity":format!("target-{window}"),"observationId":format!("after-{window}"),"screenshotHash":"host-capture"}),
+                        ),
+                        artifacts: Some(serde_json::json!({"kind":"computerObservation"})),
+                        attachments: vec![],
+                    },
+                ))
+            }
+        }
+    }
+
+    fn desktop_call(id: &str, control: bool, window: u64) -> ToolCallRequest {
+        ToolCallRequest { id: id.into(), name: if control {"computer_control"} else {"computer_observe"}.into(),
+            arguments: serde_json::json!({"action":if control {"invoke"} else {"capture_window"},"window_id":window,"observation_id":format!("before-{window}")}).to_string(), thought_signature: None }
+    }
+
+    #[tokio::test]
+    async fn fresh_external_desktop_control_persists_target_gate_before_accepting_an_answer() {
+        let (mut session, _, _rx) = session(6);
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(true)));
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(false)));
+        assert!(
+            session
+                .execute(desktop_call("control", true, 42))
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+        assert!(session.persist_answer("Premature success").await.is_err());
+        let run = session
+            .input
+            .db
+            .get_agent_task_run_by_turn(&session.input.turn_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            run.plan.as_ref().unwrap()["workflowIr"]["checkpoint"]["desktopObservationTargets"][0]
+                ["windowId"],
+            42
+        );
+        session
+            .execute(desktop_call("wrong-window", false, 43))
+            .await
+            .unwrap();
+        assert!(session
+            .persist_answer("Wrong-window success")
+            .await
+            .is_err());
+        session
+            .execute(desktop_call("right-window", false, 42))
+            .await
+            .unwrap();
+        session.persist_answer("Verified target 42").await.unwrap();
+        let history = session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap();
+        assert!(!history
+            .iter()
+            .any(|message| message.content == "Premature success"
+                || message.content == "Wrong-window success"));
+    }
+
+    #[tokio::test]
+    async fn external_checkpoint_continuation_restores_and_discharges_the_original_target() {
+        let (mut session, _, _rx) = session(6);
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(true)));
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(false)));
+        session
+            .execute(desktop_call("before-pause", true, 42))
+            .await
+            .unwrap();
+        let run = session
+            .input
+            .db
+            .get_agent_task_run_by_turn(&session.input.turn_id)
+            .unwrap()
+            .unwrap();
+        let checkpoint = session
+            .input
+            .db
+            .create_task_resume_checkpoint(&run.id, "user_pause")
+            .unwrap();
+        session
+            .input
+            .db
+            .update_agent_task_run_progress(
+                &run.id,
+                Some("paused"),
+                Some("paused"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let response = ConversationMessage {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: run.conversation_id.clone(),
+            role: Role::User,
+            content: checkpoint.resume_prompt.clone(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 0,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        let launch = session
+            .input
+            .db
+            .resume_agent_turn_from_checkpoint(
+                &response,
+                None,
+                None,
+                "external-resume",
+                &checkpoint.id,
+            )
+            .unwrap();
+        let mut input = session.input;
+        input.user_prompt = checkpoint.resume_prompt;
+        input.next_sort_order = launch.user_message_sort_order + 1;
+        let resumed = ExternalToolSession::new(input).unwrap();
+        assert!(resumed
+            .persist_answer("Skipped resumed evidence")
+            .await
+            .is_err());
+        resumed
+            .execute(desktop_call("resumed-wrong", false, 43))
+            .await
+            .unwrap();
+        assert!(resumed
+            .persist_answer("Skipped original target")
+            .await
+            .is_err());
+        resumed
+            .execute(desktop_call("resumed-right", false, 42))
+            .await
+            .unwrap();
+        resumed
+            .persist_answer("Resumed target verified")
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn subscription_reads_shared_desktop_through_default_registry_on_every_platform() {
         use base64::{engine::general_purpose::STANDARD, Engine};
@@ -456,6 +663,8 @@ struct ExternalToolState {
     rounds: u32,
     completed: HashMap<String, (String, ToolResult)>,
     action_reconciliation: super::turn_loop::ActionReconciliationFence,
+    desktop_resume_workflow: Option<crate::workflow_ir::WorkflowIr>,
+    desktop_profile: crate::quality_profile::ResolvedOrchestrationProfile,
 }
 
 impl ExternalToolSession {
@@ -476,6 +685,33 @@ impl ExternalToolSession {
         ));
         let privacy = input.db.load_privacy_config()?;
         let activity = crate::activity::ActivityRuntime::with_database((*input.db).clone())?;
+        let desktop_profile = resolve_orchestration_profile(OrchestrationProfileInput {
+            profile: input.config.orchestration_profile,
+            custom: input.config.custom_orchestration.clone(),
+            max_iterations: input.config.max_iterations,
+            max_parallel: input.config.subagent_max_parallel,
+            max_calls_per_turn: input.config.subagent_max_calls_per_turn,
+            delegated_token_budget: input.config.subagent_token_budget,
+            verification_reserve_percent: input.config.subagent_verification_reserve_percent,
+        });
+        let mut desktop_resume_workflow =
+            if plan.interaction_requirements.requires_desktop_observation() {
+                Some(
+                    crate::workflow_ir::compile_workflow_ir(&plan, &desktop_profile, false)
+                        .map_err(CoreError::InvalidInput)?,
+                )
+            } else {
+                None
+            };
+        super::desktop_resume::restore_pending_desktop_evidence(
+            &input.db,
+            Some(&input.conversation_id),
+            Some(&input.turn_id),
+            &mut desktop_resume_workflow,
+            &plan,
+            &desktop_profile,
+            false,
+        )?;
         let state = ExternalToolState {
             plan,
             recorder: TurnLoopRecorder::new(route.kind, input.config.max_iterations),
@@ -487,6 +723,8 @@ impl ExternalToolSession {
             action_reconciliation: super::turn_loop::ActionReconciliationFence::from_resume_prompt(
                 &input.user_prompt,
             ),
+            desktop_resume_workflow,
+            desktop_profile,
         };
         Ok(Self {
             input,
@@ -584,6 +822,8 @@ impl ExternalToolSession {
             next_sort_order,
             rounds,
             action_reconciliation,
+            desktop_resume_workflow,
+            desktop_profile,
             ..
         } = &mut *state;
         let outcome = ToolDispatchRuntime {
@@ -616,7 +856,10 @@ impl ExternalToolSession {
                 loop_guard: guard,
                 trace: &mut trace,
                 sort_order: next_sort_order,
-                pending_action_reconciliation: action_reconciliation.blocks_interactive_input(),
+                pending_action_reconciliation: action_reconciliation.blocks_interactive_input()
+                    || desktop_resume_workflow.as_ref().is_some_and(|workflow| {
+                        !workflow.checkpoint.desktop_observation_targets.is_empty()
+                    }),
                 workspace_isolation: false,
             },
             &batch,
@@ -628,6 +871,62 @@ impl ExternalToolSession {
             *rounds += 1;
         }
         action_reconciliation.observe_tool_results(batch.as_slice(), &outcome.summaries);
+        if outcome.summaries.iter().any(|summary| {
+            batch
+                .as_slice()
+                .iter()
+                .find(|call| call.id == summary.call_id)
+                .is_some_and(|call| {
+                    crate::workflow_ir::tool_result_requires_desktop_observation(
+                        &call.name,
+                        summary.is_error,
+                        summary.artifacts.as_ref(),
+                    )
+                })
+        }) {
+            crate::workflow_ir::ensure_runtime_desktop_observation_gate(
+                desktop_resume_workflow,
+                plan,
+                desktop_profile,
+                false,
+            )
+            .map_err(CoreError::InvalidInput)?;
+        }
+        if let Some(workflow) = desktop_resume_workflow.as_mut() {
+            for call in batch.as_slice().iter().filter(|call| {
+                matches!(call.name.as_str(), "computer_observe" | "computer_control")
+            }) {
+                if let Some(summary) = outcome
+                    .summaries
+                    .iter()
+                    .find(|summary| summary.call_id == call.id)
+                {
+                    workflow.observe_tool_result_with_arguments(
+                        &call.id,
+                        &call.name,
+                        Some(&call.arguments),
+                        summary.is_error,
+                        summary.artifacts.as_ref(),
+                        &summary.content,
+                    );
+                }
+            }
+            if let Some(run) = self
+                .input
+                .db
+                .get_agent_task_run_by_turn(&self.input.turn_id)?
+            {
+                self.input.db.update_agent_task_run_progress(
+                    &run.id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&workflow.task_plan_checkpoint(plan)),
+                    None,
+                )?;
+            }
+        }
         let awaiting_interaction =
             super::turn_loop::awaiting_user_input_interaction_id(&outcome.summaries);
         let summary = outcome
@@ -724,6 +1023,13 @@ impl ExternalToolSession {
 
     pub async fn persist_answer(&self, text: &str) -> Result<PersistedAssistantMessage, CoreError> {
         let mut state = self.state.lock().await;
+        if state
+            .desktop_resume_workflow
+            .as_ref()
+            .is_some_and(crate::workflow_ir::WorkflowIr::desktop_evidence_pending)
+        {
+            return Err(CoreError::Agent("The task still has unverified desktop targets. Capture each exact pending window, or complete an explicitly requested close with a host-verified terminal receipt, before a final answer.".into()));
+        }
         let message = Message::text(Role::Assistant, text.to_string());
         let id = Uuid::new_v4().to_string();
         self.input.db.add_message(&ConversationMessage {

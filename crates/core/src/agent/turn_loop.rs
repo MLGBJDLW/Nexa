@@ -714,6 +714,15 @@ impl AgentExecutor {
                 );
             }
         }
+        super::desktop_resume::restore_pending_desktop_evidence(
+            db,
+            conversation_id,
+            turn_id,
+            &mut workflow_ir,
+            &task_plan,
+            &orchestration_policy,
+            self.config.power_mode.is_nexus(),
+        )?;
         let mut workspace_isolation = if !self.config.execution_mode.is_plan()
             && (workflow_ir
                 .as_ref()

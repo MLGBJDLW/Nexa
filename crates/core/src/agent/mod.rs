@@ -59,6 +59,8 @@ pub mod context;
 mod context_compaction;
 mod context_handoff;
 pub mod context_pipeline;
+mod desktop_resume;
+pub use desktop_resume::restore_pending_desktop_evidence;
 mod direct_dispatch;
 mod direct_dispatch_runner;
 mod events;
