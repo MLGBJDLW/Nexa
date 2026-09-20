@@ -616,6 +616,17 @@ pub fn infer_tool_access_profile(
             "filesystem",true,false,false,false,false,ApprovalRisk::Low,
             "Opens an authorized local file in Nexa's preview without changing files or launching external apps.",
         ),
+        "desktop_automation" if args.get("action").and_then(serde_json::Value::as_str)
+            .is_some_and(|action| action.trim().eq_ignore_ascii_case("list_apps")) => (
+            "installed_application_catalog",
+            true,
+            false,
+            false,
+            false,
+            false,
+            ApprovalRisk::Low,
+            "Reads installed application registrations and issues scoped discovery tokens without launching applications.",
+        ),
         "desktop_automation" => (
             "automation",
             true,
@@ -624,7 +635,7 @@ pub fn infer_tool_access_profile(
             true,
             true,
             ApprovalRisk::High,
-            "Can open or reveal source-scoped local paths in a desktop application.",
+            "Can launch an explicitly approved installed catalog application, or open/reveal/launch source-scoped paths.",
         ),
         "computer_observe" => {
             let discloses_window_content = args
