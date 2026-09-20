@@ -269,4 +269,13 @@ may inform a change, but it belongs in an Issue, PR discussion, or the ignored
 invariants, not mirror a particular upstream version or preserve a dated source
 dump.
 
+Release candidates are created as drafts with a resolvable tag. Publication
+requires both signed platform artifacts and the full CI workflow to succeed for
+the same immutable candidate SHA, including when resuming an older draft. The
+release validation path cannot take the metadata-only PR shortcut. Ordinary PRs
+retain their existing scope classification; a successful package build alone
+does not satisfy the release gate. Native interaction and long-duration resource
+acceptance remain separate evidence from CI and must not be claimed from a green
+build.
+
 See [README.md](./README.md) for the full documentation index.

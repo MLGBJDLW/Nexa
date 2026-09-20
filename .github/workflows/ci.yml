@@ -4,9 +4,15 @@ on:
   pull_request:
     branches: [master]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      target_sha:
+        description: Immutable release candidate to validate with the full suite
+        required: true
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ inputs.target_sha || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -24,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.target_sha || github.ref }}
           fetch-depth: 0
 
       - name: Classify trusted release metadata updates
@@ -33,9 +40,19 @@ jobs:
           NEXA_CI_BRANCH: ${{ github.head_ref || github.ref_name }}
           NEXA_CI_HEAD_REF: HEAD
           NEXA_CI_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          NEXA_CI_TARGET_SHA: ${{ inputs.target_sha }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -n "$NEXA_CI_TARGET_SHA" ]; then
+            if ! [[ "$NEXA_CI_TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$(git rev-parse HEAD)" != "$NEXA_CI_TARGET_SHA" ]; then
+              echo "::error::Release validation must check out the exact candidate SHA"
+              exit 1
+            fi
+            echo "release_metadata_only=false" >> "$GITHUB_OUTPUT"
+            echo "Full release validation: \`$NEXA_CI_TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           git fetch --no-tags origin master:refs/remotes/origin/master
           git diff --name-only "origin/master...HEAD" > /tmp/nexa-ci-changed-paths.txt
           release_metadata_only=$(node scripts/ci-scope.mjs < /tmp/nexa-ci-changed-paths.txt)
@@ -57,6 +74,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -89,6 +108,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -109,6 +130,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -173,6 +196,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -243,6 +268,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -300,6 +327,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -383,6 +412,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/install-ubuntu-packages
@@ -500,6 +531,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
