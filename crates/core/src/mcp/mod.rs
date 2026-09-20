@@ -1466,8 +1466,10 @@ mod tests {
         ];
         let mut manager = McpManager::new();
         for connector in &connectors {
+            // Discovery failure is injected as a JSON-RPC error, not a timer.
+            // Leave headroom for the healthy server during parallel DB fixtures.
             manager
-                .connect_server(&connector.server, Some(2))
+                .connect_server(&connector.server, Some(20))
                 .await
                 .unwrap();
         }
@@ -1505,7 +1507,11 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert!(!output.is_error);
+        assert!(
+            !output.is_error,
+            "healthy connector failed: {}",
+            output.content
+        );
         assert_eq!(output.content, "connector result");
         assert!(manager.connection_generation() > generation);
         assert!(manager.server_needs_reconnect(&failed.server));
