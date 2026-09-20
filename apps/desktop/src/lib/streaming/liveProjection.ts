@@ -118,7 +118,15 @@ function replaceTerminalReplyTrace(state: InternalStreamState, finalReply: strin
   if (!finalReply.trim()) return;
   let index = -1;
   for (let candidate = state.traceEvents.length - 1; candidate >= 0; candidate -= 1) {
-    if (state.traceEvents[candidate].kind === 'reply') {
+    const event = state.traceEvents[candidate];
+    // Done owns the active answer only. A steering restart or a completed tool
+    // round can leave earlier replies in the trace with no new answer delta.
+    // Replacing the last historical reply moves Done ahead of that boundary.
+    if (state.streamText.trim() && event.kind === 'reply' && (
+      state._activeAnswerBlockId
+        ? event.blockId === state._activeAnswerBlockId
+        : !event.blockId && event.text === state.streamText
+    )) {
       index = candidate;
       break;
     }

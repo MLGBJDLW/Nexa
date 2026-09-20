@@ -1,6 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { RUN_EVENT_FIXTURE_INIT_SCRIPT } from './run-event-fixture';
 
+for (const finalDelta of [false, true]) {
+  test(`chat-steering keeps Done after the correction through durable handoff (final delta: ${finalDelta})`, async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(async (withDelta) => {
+      const path = '/e2e/fixtures/steering-order.tsx';
+      (await import(/* @vite-ignore */ path)).renderSteeringTerminalHandoff(withDelta);
+    }, finalDelta);
+    await expect(page.getByText('I was only asking', { exact: true })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Complete handoff' }).click();
+    for (const persisted of [false, true]) {
+      if (persisted) await page.getByRole('button', { name: 'Load durable history' }).click();
+      const correction = page.getByText('I was only asking', { exact: true });
+      const final = page.getByText('Final summary', { exact: true });
+      await expect(correction).toHaveCount(1);
+      await expect(final).toHaveCount(1);
+      await expect(page.getByText('Earlier progress', { exact: true })).toHaveCount(1);
+      expect((await correction.boundingBox())!.y).toBeLessThan((await final.boundingBox())!.y);
+      expect((await page.getByText('Earlier progress', { exact: true }).boundingBox())!.y).toBeLessThan((await correction.boundingBox())!.y);
+    }
+  });
+}
+
 test('completed turns keep multiple steering bubbles between the correct work segments', async ({ page }) => {
   for (let reload = 0; reload < 2; reload++) {
     await page.goto('/');
