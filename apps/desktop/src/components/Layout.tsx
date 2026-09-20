@@ -315,7 +315,7 @@ export function Layout() {
               )}
             </button>
           </NexaPopoverTrigger>
-          <NexaPopoverContent side="right" align="end" aria-label={t('update.appUpdate')} className="max-h-[min(85dvh,760px)] w-[min(680px,calc(100vw-5rem))] overflow-y-auto rounded-xl border border-border bg-surface-1 p-5 text-text-primary shadow-xl" data-testid="sidebar-update-panel">
+          <NexaPopoverContent side="right" align="end" aria-label={t('update.appUpdate')} className="max-h-[min(85dvh,760px)] w-[min(560px,calc(100vw-5rem))] overflow-y-auto rounded-xl border border-border bg-surface-1 p-3 text-text-primary shadow-xl" data-testid="sidebar-update-panel">
             <UpdateSettingsPanel appVersion={appVersion} updater={updater} />
           </NexaPopoverContent>
           </NexaPopover>

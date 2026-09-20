@@ -114,7 +114,7 @@ export function EmbeddingConfigSection({
       ) : undefined}
     >
       {embedConfig && (
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-3">
           {/* Provider pills */}
           <div>
             <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.embeddingProvider')}</p>
@@ -281,7 +281,7 @@ export function EmbeddingConfigSection({
             <div className="flex items-center gap-3">
               <Button
                 variant="primary"
-                size="md"
+                size="sm"
                 icon={<Save size={16} />}
                 loading={embedSaveLoading}
                 onClick={() => onSave(materializedConfig ?? undefined)}
@@ -290,7 +290,7 @@ export function EmbeddingConfigSection({
               </Button>
               <Button
                 variant="secondary"
-                size="md"
+                size="sm"
                 icon={rebuildEmbedLoading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
                 loading={rebuildEmbedLoading}
                 onClick={onRebuild}

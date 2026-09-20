@@ -182,6 +182,32 @@ test("sidebar owns version and update controls without navigating away", async (
   await expect(page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" })).toBeVisible();
 });
 
+test('update panel stays compact and fits both wide and narrow windows', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.getByTestId('sidebar-update-toggle').click();
+  const panel = page.getByTestId('sidebar-update-panel');
+  await expect(panel).toBeVisible();
+  const source = panel.getByRole('button', { name: /Official GitHub Releases/ });
+  await expect(source).toBeVisible();
+  const wide = await panel.boundingBox();
+  expect(wide?.width).toBeLessThanOrEqual(560);
+  expect((await source.boundingBox())?.height).toBeLessThanOrEqual(78);
+  await panel.screenshot({ path: testInfo.outputPath('update-compact.png') });
+  await page.setViewportSize({ width: 680, height: 820 });
+  await expect(panel.getByRole('button', { name: 'Check for Updates' })).toBeVisible();
+  await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  const narrow = await panel.boundingBox();
+  expect(narrow!.x).toBeGreaterThanOrEqual(0);
+  expect(narrow!.x + narrow!.width).toBeLessThanOrEqual(680);
+  await panel.screenshot({ path: testInfo.outputPath('update-narrow.png') });
+  await page.setViewportSize({ width: 480, height: 820 });
+  await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  const currentVersion = await panel.getByText('Current version', { exact: true }).boundingBox();
+  const status = await panel.getByText('Status', { exact: true }).boundingBox();
+  expect(status!.y).toBeGreaterThan(currentVersion!.y + currentVersion!.height);
+  await panel.screenshot({ path: testInfo.outputPath('update-small.png') });
+});
+
 test("close-to-tray is visible in appearance and saves immediately", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "Appearance" }).click();

@@ -114,7 +114,7 @@ export function ProjectToolsPanel() {
         </div>
       }
     >
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid min-w-0 flex-1 grid-cols-3 gap-2">
             <div className="rounded-lg bg-surface-2 px-3 py-2">

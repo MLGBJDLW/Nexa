@@ -96,9 +96,9 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
         : t('update.error');
 
   return (
-    <div className="space-y-4 border-t border-border pt-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1">
+    <div className="@container/update min-w-0 space-y-3">
+      <div className="flex flex-col gap-2 @min-[28rem]/update:flex-row @min-[28rem]/update:items-start @min-[28rem]/update:justify-between">
+        <div className="min-w-0 space-y-1">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
             <RefreshCw size={16} className="text-accent" />
             {t('update.appUpdate')}
@@ -142,12 +142,12 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-surface-1/60 px-4 py-3">
+      <div className="rounded-lg border border-border bg-surface-1/60 p-3">
         <div className="flex flex-col gap-1">
           <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.source')}</p>
           <p className="text-xs text-text-tertiary">{t('update.sourceDescription')}</p>
         </div>
-        <div className="mt-3 grid gap-2">
+        <div className="mt-2 grid gap-2">
           {updateSourceOptions.map((option) => {
             const selected = option.id === source;
             return (
@@ -158,7 +158,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
                 disabled={sourceSwitchDisabled}
                 onClick={() => setUpdateSource(option.id)}
                 className={`
-                  flex min-h-[84px] w-full items-start gap-3 rounded-lg border px-3 py-3 text-left
+                  flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left
                   transition-colors disabled:cursor-not-allowed disabled:opacity-60
                   ${selected
                     ? 'border-accent/45 bg-accent/10 text-text-primary'
@@ -167,7 +167,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
               >
                 <span
                   className={`
-                    flex h-8 w-8 shrink-0 items-center justify-center rounded-md border
+                    flex h-7 w-7 shrink-0 items-center justify-center rounded-md border
                     ${selected ? 'border-accent/30 bg-accent/15 text-accent' : 'border-border bg-surface-1 text-text-tertiary'}
                   `}
                 >
@@ -183,7 +183,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
                       </Badge>
                     )}
                   </span>
-                  <span className="mt-1 block text-xs leading-5 text-text-tertiary">
+                  <span className="mt-1 block text-xs leading-relaxed text-text-tertiary">
                     {option.description}
                   </span>
                 </span>
@@ -193,18 +193,18 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.25fr]">
-        <div className="rounded-lg bg-surface-2 px-4 py-3">
+      <div className="grid grid-cols-2 gap-2 @min-[28rem]/update:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)]">
+        <div className="min-w-0 rounded-lg bg-surface-2 p-3">
           <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.currentVersion')}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums text-text-primary">v{appVersion || '...'}</p>
+          <p className="mt-1 wrap-anywhere text-sm font-semibold tabular-nums text-text-primary">v{appVersion || '...'}</p>
         </div>
-        <div className="rounded-lg bg-surface-2 px-4 py-3">
+        <div className="min-w-0 rounded-lg bg-surface-2 p-3">
           <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.latestVersion')}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums text-text-primary">
+          <p className="mt-1 wrap-anywhere text-sm font-semibold tabular-nums text-text-primary">
             {version ? `v${version}` : '-'}
           </p>
         </div>
-        <div className="rounded-lg bg-surface-2 px-4 py-3">
+        <div className="col-span-2 min-w-0 rounded-lg bg-surface-2 p-3 @min-[28rem]/update:col-span-1">
           <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.status')}</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Badge variant={statusMeta.variant} className="gap-1.5">

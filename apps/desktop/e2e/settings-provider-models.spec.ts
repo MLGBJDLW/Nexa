@@ -7,6 +7,29 @@ const imageProviderPresets = JSON.parse(
   readFileSync(new URL("../../../shared/image-provider-presets.json", import.meta.url), "utf8"),
 ) as unknown[];
 
+test('expanded settings keep compact spacing and controls inside narrow content', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 680, height: 820 });
+  await page.goto('/settings');
+  const settings = page.getByTestId('settings-page');
+  for (const tabName of ['Appearance', 'Theme', 'Models & Embedding', 'AI Providers', 'Media Processing', 'Data & Privacy', 'Extensions']) {
+    await page.getByRole('button', { name: tabName, exact: true }).click();
+    const disclosures = settings.locator('section > button[aria-expanded="false"]');
+    while (await disclosures.count()) await disclosures.first().click();
+    await expect.poll(() => settings.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    // All tabs share the 12px form rhythm already used by Appearance.
+    const bodyStacks = settings.locator('section > div:last-child > div[class*="space-y-"], section > [role="region"] > div > div[class*="space-y-"]');
+    for (const stack of await bodyStacks.all()) {
+      const gap = await stack.evaluate(element => {
+        const children = Array.from(element.children).filter(child => child.getBoundingClientRect().height > 0);
+        return Math.max(0, ...children.slice(0, -1).map(child => Number.parseFloat(getComputedStyle(child).marginBottom) || 0));
+      });
+      expect.soft(gap, `${tabName} form spacing`).toBeLessThanOrEqual(12);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`settings-${tabName.replaceAll(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`) });
+  }
+});
+
 test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific options', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto('/settings');

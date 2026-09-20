@@ -206,7 +206,7 @@ export function AgentQualitySettingsTab({
         </Badge>
       }
     >
-      <div data-testid="agent-quality-panel" className="space-y-5">
+      <div data-testid="agent-quality-panel" className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Badge variant={report ? statusBadgeVariant(report.status) : 'default'}>
@@ -251,7 +251,7 @@ export function AgentQualitySettingsTab({
             <span>{t('settings.agentQualityRunning')}</span>
           </div>
         ) : report ? (
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-3">
             <div className="grid gap-3 sm:grid-cols-3">
               <ScoreTile
                 label={t('settings.agentQualityCases')}
