@@ -188,7 +188,9 @@ impl BuiltinCapabilityDeclaration {
     }
 
     fn owns_tool(self, name: &str) -> bool {
-        self.tools.contains(&name)
+        self.tools
+            .iter()
+            .any(|declaration| capability_tool_declaration_matches(declaration, name))
     }
 }
 
@@ -424,7 +426,7 @@ const COMPUTER_USE_CONNECTOR_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapa
     description:
         "Classifies tools from an isolated computer-use MCP service so observation and actions stay behind Nexa's connector approval boundary.",
     surface: EcosystemSurfaceKind::Connector,
-    tools: &["mcp__computer_use__*"],
+    tools: &["mcp__computer_use__*", "mcp__windows_computer_use__*"],
     settings_surfaces: &["mcp", "tool-approvals"],
     workflows: &["observe-decide-act"],
 };
@@ -479,23 +481,45 @@ pub fn capability_owner_for_tool(name: &str) -> CapabilityOwner {
 }
 
 fn capability_for_tool_name(name: &str) -> BuiltinCapabilityDeclaration {
-    if is_computer_use_connector_tool(name) {
-        return COMPUTER_USE_CONNECTOR_PACKAGE;
-    }
-    if name == "mcp_tool" || name.starts_with("mcp__") {
-        return MCP_PACKAGE;
-    }
     BUILTIN_PACKAGES
         .iter()
         .copied()
         .find(|package| package.owns_tool(name))
-        .unwrap_or(CORE_AGENT_PACKAGE)
+        .unwrap_or_else(|| {
+            if is_mcp_tool_name(name) {
+                MCP_PACKAGE
+            } else {
+                CORE_AGENT_PACKAGE
+            }
+        })
 }
 
-fn is_computer_use_connector_tool(name: &str) -> bool {
-    let normalized = name.to_ascii_lowercase().replace('-', "_");
-    normalized.starts_with("mcp__computer_use__")
-        || normalized.starts_with("mcp__windows_computer_use__")
+pub(crate) fn is_mcp_tool_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("mcp_tool")
+        || name
+            .get(..5)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mcp__"))
+}
+
+/// Match exact built-in tools or a declared dynamic tool namespace. Keep this
+/// shared by the metadata projection and the executable package filter.
+pub(crate) fn capability_tool_declaration_matches(declaration: &str, name: &str) -> bool {
+    let Some(prefix) = declaration.strip_suffix('*') else {
+        return declaration == name;
+    };
+    let normalize = |byte: u8| {
+        if byte == b'-' {
+            b'_'
+        } else {
+            byte.to_ascii_lowercase()
+        }
+    };
+    !prefix.is_empty()
+        && name
+            .bytes()
+            .take(prefix.len())
+            .map(normalize)
+            .eq(prefix.bytes().map(normalize))
 }
 
 #[cfg(test)]
