@@ -265,6 +265,7 @@ test('pointer preparation establishes the post-scroll baseline for noop effect v
     url: afterPreparation.url,
     domFingerprint: afterPreparation.domFingerprint,
     userEpoch: afterPreparation.userEpoch,
+    observationOptions: { query: '', offset: 0 },
   });
 
   const bounds = await page.locator('#target').boundingBox();

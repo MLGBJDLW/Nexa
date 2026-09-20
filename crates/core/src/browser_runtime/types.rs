@@ -65,6 +65,10 @@ pub struct BrowserElement {
     pub enabled: bool,
     pub visible: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_truncated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checked: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<Vec<BrowserSelectOption>>,
@@ -121,9 +125,67 @@ pub struct BrowserObservation {
     pub viewport: serde_json::Value,
     pub content_hash: String,
     pub elements: Vec<BrowserElement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_coverage: Option<BrowserObservationCoverage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_limitations: Option<BrowserFrameLimitations>,
     pub accessibility_tree: Vec<BrowserElement>,
     pub control_owner: BrowserControlOwner,
     pub screenshot: Option<BrowserScreenshot>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserObservationOptions {
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+impl BrowserObservationOptions {
+    pub fn validate(&self) -> Result<(), String> {
+        if self
+            .query
+            .as_ref()
+            .is_some_and(|query| query.chars().count() > 240)
+        {
+            return Err("Browser observation query must contain at most 240 characters".into());
+        }
+        if self.offset as u128 > 9_007_199_254_740_991 {
+            return Err("Browser observation offset exceeds the supported integer range".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserObservationCoverage {
+    pub query: String,
+    pub offset: usize,
+    pub returned: usize,
+    pub total_matches: usize,
+    pub has_more: bool,
+    pub next_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserFrameLimitations {
+    pub unavailable_count: usize,
+    pub details_omitted: bool,
+    pub frames: Vec<BrowserUnavailableFrame>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserUnavailableFrame {
+    pub reason: String,
+    pub url: Option<String>,
+    pub title: String,
+    pub visible: bool,
+    pub bounds: BrowserElementBounds,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

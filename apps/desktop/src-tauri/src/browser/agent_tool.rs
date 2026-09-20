@@ -218,6 +218,8 @@ struct BrowserArgs {
     scroll_y: Option<i64>,
     condition: Option<serde_json::Value>,
     timeout_ms: Option<u64>,
+    query: Option<String>,
+    offset: Option<usize>,
 }
 
 fn required<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, CoreError> {
@@ -316,7 +318,21 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
                 ref_matches && name_matches && role_matches && state_matches
             });
             if condition_type == "element_absent" {
-                !matches
+                let omitted_controls = observation
+                    .pointer("/observationCoverage/hasMore")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                    || observation
+                        .pointer("/observationCoverage/offset")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0)
+                        > 0;
+                let inaccessible_frames = observation
+                    .pointer("/frameLimitations/unavailableCount")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
+                    > 0;
+                !matches && !omitted_controls && !inaccessible_frames
             } else {
                 matches
             }
@@ -385,6 +401,8 @@ impl Tool for NativeBrowserSessionTool {
                 "url": { "type": "string" },
                 "observationId": { "type": "string" },
                 "targetRef": { "type": "string" },
+                "query": { "type": "string", "maxLength": 240, "description": "observe only: case-insensitive substring filter on accessible name, role, or tag. Use this to locate controls omitted from a large observation; the result returns fresh refs and coverage." },
+                "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991_u64, "description": "observe only: start at this matching-control offset, using observationCoverage.nextOffset to continue. Keep the same query and page viewport while paging." },
                 "endRef": { "type": "string", "description": "Observation-scoped destination element ref for drag." },
                 "text": { "type": "string" },
                 "value": { "type": "string", "maxLength": 512, "description": "Exact value for select. Use either value or values." },
@@ -475,6 +493,16 @@ impl Tool for NativeBrowserSessionTool {
             Self::invalid(format!("Invalid browser_session arguments: {error}"))
         })?;
         let action = args.action.trim().to_ascii_lowercase();
+        let observation_options = nexa_core::browser_runtime::BrowserObservationOptions {
+            query: args.query.clone(),
+            offset: args.offset.unwrap_or(0),
+        };
+        observation_options.validate().map_err(Self::invalid)?;
+        if action != "observe" && (args.query.is_some() || args.offset.is_some()) {
+            return Err(Self::invalid(
+                "query and offset are supported only by browser_session observe",
+            ));
+        }
         if !browser_action_names().contains(&action.as_str()) {
             return Err(Self::invalid(format!(
                 "Unsupported browser_session action '{action}' on this platform"
@@ -888,7 +916,7 @@ impl Tool for NativeBrowserSessionTool {
             "observe" => {
                 let observation = self
                     .state
-                    .observe(session_id, tab_id, context.call_id)
+                    .observe_with_options(session_id, tab_id, context.call_id, &observation_options)
                     .await
                     .map_err(Self::invalid)?;
                 observation_result(context.call_id, observation)
@@ -1071,8 +1099,20 @@ impl Tool for NativeBrowserSessionTool {
                             .as_ref()
                             .is_some_and(|download| download.state == "completed") =>
                     {
+                        let options = nexa_core::browser_runtime::BrowserObservationOptions {
+                            query: outcome
+                                .observation
+                                .observation_coverage
+                                .as_ref()
+                                .map(|coverage| coverage.query.clone()),
+                            offset: outcome
+                                .observation
+                                .observation_coverage
+                                .as_ref()
+                                .map_or(0, |coverage| coverage.offset),
+                        };
                         self.state
-                            .observe(session_id, tab_id, context.call_id)
+                            .observe_with_options(session_id, tab_id, context.call_id, &options)
                             .await
                             .map(|observation| {
                                 outcome.observation = observation;
@@ -1157,8 +1197,23 @@ impl Tool for NativeBrowserSessionTool {
                 let timeout = std::time::Duration::from_millis(
                     args.timeout_ms.unwrap_or(30_000).clamp(1, 60_000),
                 );
+                let condition_options = nexa_core::browser_runtime::BrowserObservationOptions {
+                    query: condition
+                        .get("type")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|kind| kind.starts_with("element_"))
+                        .and_then(|_| condition.get("name").or_else(|| condition.get("role")))
+                        .and_then(serde_json::Value::as_str)
+                        .map(|value| value.chars().take(240).collect()),
+                    offset: 0,
+                };
                 let (observation, matched) = wait_for_browser_condition(timeout, condition, || {
-                    self.state.observe(session_id, tab_id, context.call_id)
+                    self.state.observe_with_options(
+                        session_id,
+                        tab_id,
+                        context.call_id,
+                        &condition_options,
+                    )
                 })
                 .await
                 .map_err(Self::invalid)?;
@@ -1496,7 +1551,7 @@ where
     }
 }
 
-fn observation_result(
+pub(super) fn observation_result(
     call_id: &str,
     observation: super::state::BrowserObservationPayload,
 ) -> Result<ToolResult, CoreError> {
@@ -1550,6 +1605,25 @@ fn browser_screenshot_attachment(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn absent_element_wait_requires_complete_inspection_coverage() {
+        let condition = serde_json::json!({"type":"element_absent","name":"Pending export"});
+        for observation in [
+            serde_json::json!({"elements":[],"observationCoverage":{"offset":0,"hasMore":true}}),
+            serde_json::json!({"elements":[],"observationCoverage":{"offset":300,"hasMore":false}}),
+            serde_json::json!({"elements":[],"frameLimitations":{"unavailableCount":1}}),
+        ] {
+            assert!(
+                !super::condition_matches(&observation, &condition),
+                "incomplete inspection cannot prove absence"
+            );
+        }
+        assert!(super::condition_matches(
+            &serde_json::json!({"elements":[],"observationCoverage":{"offset":0,"hasMore":false},"frameLimitations":{"unavailableCount":0}}),
+            &condition
+        ));
+    }
+
     #[tokio::test]
     async fn pending_browser_condition_returns_evidence_without_a_tool_error() {
         let condition = serde_json::json!({"type":"text_present", "text":"Finished"});
@@ -1710,6 +1784,8 @@ mod tests {
             viewport: serde_json::json!({ "width": 800, "height": 600 }),
             content_hash: "dom-hash".to_string(),
             elements: Vec::new(),
+            observation_coverage: None,
+            frame_limitations: None,
             accessibility_tree: Vec::new(),
             control_owner: BrowserControlOwner::Agent {
                 call_id: "call-1".to_string(),
