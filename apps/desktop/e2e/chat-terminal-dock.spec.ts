@@ -233,6 +233,45 @@ test('terminal remains interactive when WebGL is unavailable', async ({ page }) 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __terminalDiagnostics__: { writes: string[] } }).__terminalDiagnostics__.writes.join(''))).toContain('echo hello');
 });
 
+for (const initialWidth of [900, 1360]) {
+  test(`interactive terminal dock fits without horizontal scrolling from ${initialWidth}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: initialWidth, height: 900 });
+    await page.goto('/chat/conv-terminal-dock');
+    await page.getByRole('button', { name: 'Toggle terminal' }).click();
+    await expect(page.locator('.xterm')).toBeVisible();
+    await expect(page.getByText('Running')).toBeVisible();
+    await expect(page.getByTestId('terminal-screen')).toHaveCSS('font-size', '18px');
+
+    for (const width of [initialWidth, 900, 1100, 1600]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(async () => page.evaluate(() => {
+        const viewportWidth = document.documentElement.clientWidth;
+        const elements = [
+          document.documentElement,
+          document.body,
+          document.querySelector('[data-testid="chat-workspace-surface"]'),
+          document.querySelector('[data-testid="terminal-dock"]'),
+        ].filter((element): element is HTMLElement => element instanceof HTMLElement);
+        return elements.map((element) => ({
+          element: element.dataset.testid || element.tagName,
+          overflow: Math.max(0, element.scrollWidth - element.clientWidth),
+          outsideViewport: Math.max(0, element.getBoundingClientRect().right - viewportWidth),
+        })).filter(({ overflow, outsideViewport }) => overflow > 1 || outsideViewport > 1);
+      }), { message: `terminal and chat must fit a ${width}px viewport` }).toEqual([]);
+
+      await expect.poll(async () => page.getByTestId('terminal-screen').evaluate((host) => {
+        const screen = host.querySelector('.xterm-screen');
+        if (!screen) return Number.POSITIVE_INFINITY;
+        const style = getComputedStyle(host);
+        const available = host.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        return screen.getBoundingClientRect().width - available;
+      }), { message: 'terminal columns must fit the available content width' }).toBeLessThanOrEqual(1);
+    }
+
+    await page.screenshot({ path: testInfo.outputPath('terminal-width.png') });
+  });
+}
+
 test('opens an interactive terminal dock from the chat screen', async ({ page, context }) => {
   await page.addInitScript(() => {
     const plugin = {
