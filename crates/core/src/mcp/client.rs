@@ -1808,6 +1808,21 @@ mod tests {
                         .await
                         .unwrap();
                     }
+                    // Keep the one-request socket alive until the client has
+                    // consumed the response. Otherwise an immediate drop can
+                    // hide accidental pooling of a connection we cannot serve.
+                    let mut next_request = [0u8; 1];
+                    assert_eq!(
+                        tokio::time::timeout(
+                            Duration::from_secs(5),
+                            stream.read(&mut next_request),
+                        )
+                        .await
+                        .expect("client must close the one-request fixture connection")
+                        .unwrap(),
+                        0,
+                        "client reused a connection that the one-request fixture cannot serve"
+                    );
                 }
             });
             let client = McpClient::connect_streamable_http(&url, None, "older-server")
@@ -2440,8 +2455,10 @@ mod tests {
         content_type: &str,
         body: &[u8],
     ) -> std::io::Result<()> {
+        // Each fixture serves one request per accepted socket. Advertising
+        // closure prevents a pooled follow-up from racing the socket drop.
         let mut response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n",
             body.len()
         );
         if let Some(session_id) = session_id {
