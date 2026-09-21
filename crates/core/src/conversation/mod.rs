@@ -5,7 +5,9 @@ pub mod goal;
 pub mod memory;
 mod model_selection;
 mod remote_views;
+mod task_history;
 pub use model_selection::TurnModelSelection;
+pub use task_history::AgentTaskHistoryItem;
 pub mod summarizer;
 
 pub use goal::{ConversationGoal, ConversationGoalStatus};

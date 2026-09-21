@@ -25,6 +25,24 @@ does not mark every stage complete. Source authorities are
 [built-in capability views](../crates/core/src/plugins.rs), and
 [protocol maturity](../crates/core/src/protocol_exports.rs).
 
+MCP connectors share the host's tool interface, but retain independent health
+and resource ownership. A connector discovery failure must not hide tools from
+healthy connectors, and a partial discovery must not become a reusable complete
+registry snapshot. MCP tool-level errors remain failed tool results; they do not
+authorize transport recovery or replay of an operation that already ran.
+
+Each connector request has one deadline covering writes, response headers and
+the complete response body or event stream. Transport disposal releases owned
+readers and the direct stdio child even when initialization fails or is cancelled.
+Diagnostic history retains a bounded UTF-8 tail rather than all process output.
+These limits are independent of tool approvals and do not add a native plugin
+loader or expand connector permissions.
+
+Dynamic tool ownership uses the same namespace declarations in capability
+metadata and runtime assembly. A specialized MCP package, such as Computer Use,
+must be enabled and healthy alongside the MCP host package before its tools enter
+the executable registry. The settings projection applies that same decision.
+
 ## Product Constraint
 
 Nexa is a local-first desktop assistant for everyday knowledge and office work.

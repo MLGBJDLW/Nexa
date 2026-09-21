@@ -8,7 +8,8 @@ pub use nexa_core::browser_runtime::{
     BrowserBounds, BrowserControlOwner, BrowserElement, BrowserElementBounds, ControlLease,
 };
 use nexa_core::browser_runtime::{
-    BrowserObservation as CoreBrowserObservation, BrowserScreenshot,
+    BrowserFrameLimitations, BrowserObservation as CoreBrowserObservation,
+    BrowserObservationCoverage, BrowserObservationOptions, BrowserScreenshot,
     BrowserSession as CoreBrowserSession, BrowserTab as CoreBrowserTab,
 };
 use nexa_core::tools::run_shell_tool::{managed_loopback_permits, ManagedLoopbackPermit};
@@ -23,7 +24,6 @@ use super::policy::{
     normalize_browser_url, normalize_browser_url_candidate, validate_agent_network_url_with_permit,
     BrowserActionRisk, NavigationActor,
 };
-use super::scripts::OBSERVE_EXPRESSION;
 use super::webview_host::{
     capture_webview_image, create_child_webview, dispatch_eval_json, dispatch_trusted_key,
     dispatch_trusted_pointer_click, eval_json, insert_trusted_text, trusted_key_input_match,
@@ -49,6 +49,10 @@ struct BrowserPageSnapshot {
     dom_fingerprint: String,
     interaction_fingerprint: String,
     elements: Vec<BrowserElement>,
+    #[serde(default)]
+    observation_coverage: Option<BrowserObservationCoverage>,
+    #[serde(default)]
+    frame_limitations: Option<BrowserFrameLimitations>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,6 +192,7 @@ struct StoredObservation {
     user_epoch: u64,
     lease_generation: u64,
     elements: Vec<BrowserElement>,
+    options: BrowserObservationOptions,
     claimed_for_action: bool,
 }
 
@@ -200,6 +205,8 @@ struct ActionVerificationBaseline {
     url: String,
     dom_fingerprint: String,
     user_epoch: u64,
+    #[serde(default)]
+    observation_options: BrowserObservationOptions,
 }
 
 impl StoredObservation {
@@ -208,6 +215,7 @@ impl StoredObservation {
             url: self.url.clone(),
             dom_fingerprint: self.dom_fingerprint.clone(),
             user_epoch: self.user_epoch,
+            observation_options: self.options.clone(),
         }
     }
 }
@@ -1739,6 +1747,23 @@ impl BrowserState {
         tab_id: &str,
         call_id: &str,
     ) -> Result<BrowserObservationPayload, String> {
+        self.observe_with_options(
+            session_id,
+            tab_id,
+            call_id,
+            &BrowserObservationOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn observe_with_options(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        call_id: &str,
+        options: &BrowserObservationOptions,
+    ) -> Result<BrowserObservationPayload, String> {
+        options.validate()?;
         {
             let runtime = self
                 .inner
@@ -1754,7 +1779,7 @@ impl BrowserState {
             }
         }
         observe_across_navigation(
-            || self.observe_once(session_id, tab_id, call_id),
+            || self.observe_once(session_id, tab_id, call_id, options),
             || self.agent_lease_generation(session_id, tab_id, call_id),
             Duration::from_secs(20),
         )
@@ -1766,6 +1791,7 @@ impl BrowserState {
         session_id: &str,
         tab_id: &str,
         call_id: &str,
+        options: &BrowserObservationOptions,
     ) -> Result<BrowserObservationPayload, String> {
         self.acquire_agent_control(session_id, call_id)?;
         self.wait_until_workspace_visible(session_id, tab_id)
@@ -1780,11 +1806,15 @@ impl BrowserState {
             .await?;
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         let deadline = Instant::now() + Duration::from_secs(20);
+        let observe_expression = format!(
+            "window.__NEXA_BROWSER_RUNTIME__?.observe({})",
+            serde_json::to_string(options).map_err(|error| error.to_string())?
+        );
         let value = loop {
             self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
             let loading = self.tab_info(session_id, tab_id)?.loading;
             if !loading {
-                if let Ok(value) = eval_json(&webview, OBSERVE_EXPRESSION).await {
+                if let Ok(value) = eval_json(&webview, &observe_expression).await {
                     if value.is_object() {
                         break value;
                     }
@@ -1816,7 +1846,7 @@ impl BrowserState {
         };
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         let confirmation: BrowserPageSnapshot =
-            serde_json::from_value(eval_json(&webview, OBSERVE_EXPRESSION).await.map_err(
+            serde_json::from_value(eval_json(&webview, &observe_expression).await.map_err(
                 |error| format!("Could not confirm browser visual observation: {error}"),
             )?)
             .map_err(|error| format!("Could not decode browser visual confirmation: {error}"))?;
@@ -1875,6 +1905,7 @@ impl BrowserState {
                 user_epoch: snapshot.user_epoch,
                 lease_generation,
                 elements: snapshot.elements.clone(),
+                options: options.clone(),
                 claimed_for_action: false,
             };
             session.observations.insert(observation_id.clone(), stored);
@@ -1902,6 +1933,8 @@ impl BrowserState {
             viewport: snapshot.viewport,
             content_hash,
             elements: snapshot.elements.clone(),
+            observation_coverage: snapshot.observation_coverage,
+            frame_limitations: snapshot.frame_limitations,
             accessibility_tree: snapshot.elements,
             control_owner: owner,
             screenshot: Some(screenshot),
@@ -2115,8 +2148,9 @@ impl BrowserState {
                 .map_err(|error| {
                     format!("Browser pointer preparation returned invalid bounds: {error}")
                 })?;
-            let verification_baseline =
+            let mut verification_baseline =
                 action_verification_baseline_from_preparation(&prepared, "pointer")?;
+            verification_baseline.observation_options = observation.options.clone();
             self.require_visible_focused_host_window()?;
             #[cfg(windows)]
             {
@@ -2157,7 +2191,12 @@ impl BrowserState {
                 )
                 .await?;
             let fresh_observation = self
-                .observe(request.session_id, request.tab_id, request.call_id)
+                .observe_with_options(
+                    request.session_id,
+                    request.tab_id,
+                    request.call_id,
+                    &observation.options,
+                )
                 .await?;
             self.emit(
                 "agentAction",
@@ -2244,7 +2283,12 @@ impl BrowserState {
                 )
                 .await?;
             let fresh_observation = self
-                .observe(request.session_id, request.tab_id, request.call_id)
+                .observe_with_options(
+                    request.session_id,
+                    request.tab_id,
+                    request.call_id,
+                    &observation.options,
+                )
                 .await?;
             verify_requested_form_state(&request, &fresh_observation)?;
             drop(navigation_permit_guard);
@@ -2306,7 +2350,12 @@ impl BrowserState {
             )
             .await?;
         let fresh_observation = self
-            .observe(request.session_id, request.tab_id, request.call_id)
+            .observe_with_options(
+                request.session_id,
+                request.tab_id,
+                request.call_id,
+                &observation.options,
+            )
             .await?;
         verify_requested_form_state(&request, &fresh_observation)?;
         drop(navigation_permit_guard);
@@ -2364,8 +2413,9 @@ impl BrowserState {
         let prepared = preparation.resolve().await.map_err(|error| {
             format!("Trusted browser {preparation_label} preparation failed: {error}")
         })?;
-        let verification_baseline =
+        let mut verification_baseline =
             action_verification_baseline_from_preparation(&prepared, preparation_label)?;
+        verification_baseline.observation_options = observation.options.clone();
         if request.action == "set_checked"
             && prepared
                 .get("stateMatched")
@@ -2567,6 +2617,10 @@ impl BrowserState {
         let mut effect_observed = false;
         let mut last_signature: Option<(String, String, u64)> = None;
         let mut stable_since = started;
+        let observe_expression = format!(
+            "window.__NEXA_BROWSER_RUNTIME__?.observe({})",
+            serde_json::to_string(&before.observation_options).map_err(|error| error.to_string())?
+        );
         loop {
             let _ = self.agent_lease_generation(session_id, tab_id, call_id)?;
             let (webview, loading) = {
@@ -2587,7 +2641,7 @@ impl BrowserState {
                 last_signature = None;
                 stable_since = now;
             } else if let Ok(snapshot) =
-                eval_json(&webview, OBSERVE_EXPRESSION)
+                eval_json(&webview, &observe_expression)
                     .await
                     .and_then(|value| {
                         serde_json::from_value::<BrowserPageSnapshot>(value).map_err(|error| {

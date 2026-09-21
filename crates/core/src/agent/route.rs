@@ -112,7 +112,7 @@ fn prompt_section_for_requirements(
     if requirements.interaction.requires_desktop_observation() {
         sections.push(
             "## Desktop Observation Contract\n\
-             Call computer_observe before any computer_control. A successful control invalidates the previous observation for completion, so obtain a fresh computer_observe result and verify the visible effect before answering. A claimed or skipped verification check is not a desktop observation."
+             Call computer_observe before the first computer_control. Each control consumes its input observation. When it returns a fresh verified post-action observation of the same target, inspect that state and use its new observationId for the next action; an extra capture is unnecessary. If post-action capture is missing or the effect is uncertain, obtain a fresh computer_observe of that exact target before proceeding. A capture of another window or a claimed/skipped verification check cannot verify the action."
                 .to_string(),
         );
     }
@@ -161,7 +161,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
             .to_string(),
         AgentRouteKind::InteractionOperation => "## Route Pack: Native Interaction\n\
              - Start with computer_observe and bind every control to the returned window and observation identity. Prefer observation-scoped semantic targets: invoke/set_value and auto-delivered element clicks can operate without moving the user pointer. Use foreground only when native input is needed. For multi-step work in one window, offer approval_scope=window_session so the user can authorize that verified window for the current task.\n\
-             - Never call computer_control before a successful observation. After every successful control, use computer_observe again and verify the visible effect.\n\
+             - Never call computer_control before a successful observation. Read the returned post-action state and verify the effect; reuse only its fresh observationId for the next action on the same target. Call computer_observe again when that evidence is absent, stale or uncertain.\n\
              - A claimed, pending, or skipped record_verification check cannot replace the fresh desktop observation.\n\
              - Report a precise typed availability or permission failure instead of saying that no browser or computer capability exists."
             .to_string(),

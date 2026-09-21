@@ -1,20 +1,23 @@
 {
   "name": "desktop_automation",
-  "description": "Launch a desktop application, or open/reveal files inside registered source directories. Use launch_app with an executable path and literal args for computer use: the app survives tool completion, unlike child apps started through a managed shell. Verify startup with computer_observe list_windows and capture_window before input. Prefer open_in_nexa for built-in file previews; opening a previewable file externally requires the user's explicit request and external_requested=true. HTTP(S) pages and searches belong to browser_session so the user and Agent share Nexa Browser.",
+  "description": "Discover and launch installed Windows applications, or open/reveal source-scoped files. Start an application with list_apps(query), then launch_installed_app(app_id) after approval; this catalog launch accepts no path or command arguments and does not require adding system directories as sources. For a source-scoped executable with literal args, use launch_app. Both launch routes survive tool completion. Launchers can hand off to a different process id and name: use computer_observe list_windows to discover the actual app/window, then capture_window before input. Use wait_for_window only with a verified process identity from that inventory. Prefer open_in_nexa for built-in file previews; opening a previewable file externally requires the user's explicit request and external_requested=true. HTTP(S) pages and searches belong to browser_session so the user and Agent share Nexa Browser.",
   "parameters": {
     "type": "object",
     "properties": {
       "external_requested": {"type":"boolean","description":"Set true only when the user explicitly requested opening the file in an external application. Otherwise use open_in_nexa for previewable files."},
       "action": {
         "type": "string",
-        "enum": ["open_path", "reveal_path", "launch_app"],
-        "description": "Desktop action to perform. All targets must be inside the active registered source scope. launch_app requires an executable file (.exe on Windows)."
+        "enum": ["open_path", "reveal_path", "launch_app", "list_apps", "launch_installed_app"],
+        "description": "list_apps reads Windows App Paths and common system applications; launch_installed_app launches only an exact discovered app_id after approval. Other actions require targets inside active registered sources. launch_app requires an executable file (.exe on Windows)."
       },
       "path": {
         "type": "string",
         "description": "Absolute path or source-root relative path for the file or executable. Must resolve inside a registered source directory and the current source scope."
       },
       "args": {"type":"array","items":{"type":"string"},"description":"Literal arguments for launch_app only, passed directly to the executable without shell interpretation. The working directory is the executable's directory."},
+      "app_id": {"type":"string","minLength":1,"description":"Opaque appId returned by list_apps in this conversation. Required for launch_installed_app; tokens expire after 5 minutes and each permits one launch attempt. Preview does not consume the token. Never supply a path here."},
+      "query": {"type":"string","maxLength":120,"description":"Optional application name filter for list_apps, such as Excel, Notepad, or 记事本. This queries installed registrations, not files in source directories."},
+      "max_results": {"type":"integer","minimum":1,"maximum":50,"description":"Maximum list_apps results; defaults to 20."},
       "reason": {
         "type": "string",
         "description": "Brief user-facing reason for the desktop file action."

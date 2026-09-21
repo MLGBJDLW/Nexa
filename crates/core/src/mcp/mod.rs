@@ -992,19 +992,22 @@ impl McpManager {
         registry: &mut ToolRegistry,
         recovery_manager: Option<Weak<Mutex<McpManager>>>,
     ) -> Result<(), CoreError> {
+        let mut discovery_errors = Vec::new();
         for (server_id, client) in &self.clients {
-            let health = self.connection_health.get(server_id).ok_or_else(|| {
-                CoreError::Internal(format!(
+            let Some(health) = self.connection_health.get(server_id) else {
+                discovery_errors.push(format!(
                     "MCP connector {server_id} has no connection health state"
-                ))
-            })?;
+                ));
+                continue;
+            };
             let tools = {
                 let mut guard = client.lock().await;
                 match guard.list_tools().await {
                     Ok(tools) => tools,
                     Err(error) => {
                         health.mark_unhealthy();
-                        return Err(error);
+                        discovery_errors.push(format!("MCP connector {server_id}: {error}"));
+                        continue;
                     }
                 }
             };
@@ -1034,7 +1037,13 @@ impl McpManager {
                 registry.register(Box::new(mcp_tool));
             }
         }
-        Ok(())
+        // Keep healthy connectors available while signaling that this registry
+        // is incomplete, so callers do not cache it as a complete snapshot.
+        if discovery_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(CoreError::Mcp(discovery_errors.join("; ")))
+        }
     }
 }
 
@@ -1343,6 +1352,214 @@ mod tests {
         stream.write_all(headers.as_bytes()).await?;
         stream.write_all(&body).await?;
         stream.flush().await
+    }
+
+    struct TestConnector {
+        server: McpServer,
+        fail_listing: Arc<AtomicBool>,
+        initialize_calls: Arc<AtomicUsize>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for TestConnector {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn start_test_connector(name: &str, tool_is_error: bool) -> TestConnector {
+        let listener = TokioTcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fail_listing = Arc::new(AtomicBool::new(false));
+        let initialize_calls = Arc::new(AtomicUsize::new(0));
+        let server_fail_listing = Arc::clone(&fail_listing);
+        let server_initialize_calls = Arc::clone(&initialize_calls);
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let fail_listing = Arc::clone(&server_fail_listing);
+                let initialize_calls = Arc::clone(&server_initialize_calls);
+                tokio::spawn(async move {
+                    let (http_method, request) = read_test_http_request(&mut stream).await.unwrap();
+                    if http_method == "DELETE" {
+                        write_test_http_response(&mut stream, "204 No Content", None)
+                            .await
+                            .unwrap();
+                        return;
+                    }
+                    let id = request.get("id").cloned().unwrap_or_default();
+                    let result = match request["method"].as_str().unwrap_or_default() {
+                        "initialize" => {
+                            initialize_calls.fetch_add(1, Ordering::SeqCst);
+                            serde_json::json!({
+                                "protocolVersion": "2025-11-25",
+                                "capabilities": {},
+                                "serverInfo": { "name": "test", "version": "1.0.0" }
+                            })
+                        }
+                        "notifications/initialized" => {
+                            write_test_http_response(&mut stream, "202 Accepted", None)
+                                .await
+                                .unwrap();
+                            return;
+                        }
+                        "tools/list" => {
+                            if fail_listing.load(Ordering::SeqCst) {
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0", "id": id,
+                                    "error": { "code": -32603, "message": "Discovery unavailable" }
+                                });
+                                write_test_http_response(&mut stream, "200 OK", Some(&response))
+                                    .await
+                                    .unwrap();
+                                return;
+                            }
+                            serde_json::json!({
+                                "tools": [{
+                                    "name": "demo",
+                                    "inputSchema": { "type": "object", "properties": {} }
+                                }]
+                            })
+                        }
+                        "tools/call" => serde_json::json!({
+                            "isError": tool_is_error,
+                            "content": [{ "type": "text", "text": "connector result" }]
+                        }),
+                        other => panic!("unexpected MCP method {other}"),
+                    };
+                    let response =
+                        serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result });
+                    write_test_http_response(&mut stream, "200 OK", Some(&response))
+                        .await
+                        .unwrap();
+                });
+            }
+        });
+        TestConnector {
+            server: McpServer {
+                id: name.to_string(),
+                name: name.to_string(),
+                transport: "streamable_http".into(),
+                command: None,
+                args: None,
+                url: Some(format!("http://{address}/mcp")),
+                env_json: None,
+                headers_json: None,
+                enabled: true,
+                created_at: String::new(),
+                updated_at: String::new(),
+                builtin_id: None,
+            },
+            fail_listing,
+            initialize_calls,
+            task,
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_failure_preserves_other_connectors_in_registry() {
+        let connectors = [
+            start_test_connector("alpha", false).await,
+            start_test_connector("beta", false).await,
+        ];
+        let mut manager = McpManager::new();
+        for connector in &connectors {
+            // Discovery failure is injected as a JSON-RPC error, not a timer.
+            // Leave headroom for the healthy server during parallel DB fixtures.
+            manager
+                .connect_server(&connector.server, Some(20))
+                .await
+                .unwrap();
+        }
+        // Fail whichever connector is visited first, independently of HashMap order.
+        let failed_id = manager.clients.keys().next().unwrap().clone();
+        let failed = connectors
+            .iter()
+            .find(|connector| connector.server.id == failed_id)
+            .unwrap();
+        let healthy = connectors
+            .iter()
+            .find(|connector| connector.server.id != failed_id)
+            .unwrap();
+        failed.fail_listing.store(true, Ordering::SeqCst);
+        let generation = manager.connection_generation();
+        let mut registry = ToolRegistry::new();
+
+        let result = manager.register_tools(&mut registry).await;
+
+        assert!(
+            result.is_err(),
+            "incomplete discovery must not be cached as complete"
+        );
+        assert!(!registry.contains(&format!("mcp__{}__demo", failed.server.name)));
+        let healthy_tool = registry
+            .get(&format!("mcp__{}__demo", healthy.server.name))
+            .expect("a failing connector must not hide another connector's tools");
+        let db = Database::open_memory().unwrap();
+        let output = healthy_tool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "healthy-call",
+                "{}",
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(
+            !output.is_error,
+            "healthy connector failed: {}",
+            output.content
+        );
+        assert_eq!(output.content, "connector result");
+        assert!(manager.connection_generation() > generation);
+        assert!(manager.server_needs_reconnect(&failed.server));
+        assert!(!manager.server_needs_reconnect(&healthy.server));
+        manager.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn tool_result_is_error_is_preserved_without_transport_recovery() {
+        let connector = start_test_connector("remote", true).await;
+        let manager = Arc::new(Mutex::new(McpManager::new()));
+        let mut registry = ToolRegistry::new();
+        let generation = {
+            let mut guard = manager.lock().await;
+            guard
+                .connect_server(&connector.server, Some(2))
+                .await
+                .unwrap();
+            guard
+                .register_tools_with_recovery(&mut registry, Arc::downgrade(&manager))
+                .await
+                .unwrap();
+            guard.connection_generation()
+        };
+        let db = Database::open_memory().unwrap();
+        let output = registry
+            .get("mcp__remote__demo")
+            .unwrap()
+            .execute(crate::tools::ToolExecutionContext::new(
+                "error-call",
+                "{}",
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+
+        assert!(
+            output.is_error,
+            "MCP result.isError must remain a tool failure"
+        );
+        assert!(output.content.contains("connector result"));
+        assert!(!output.content.contains("recovery"));
+        let mut guard = manager.lock().await;
+        assert_eq!(guard.connection_generation(), generation);
+        assert!(!guard.server_needs_reconnect(&connector.server));
+        assert_eq!(connector.initialize_calls.load(Ordering::SeqCst), 1);
+        guard.shutdown().await;
     }
 
     #[tokio::test]

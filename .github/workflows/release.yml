@@ -187,6 +187,17 @@ jobs:
             exit 1
           fi
 
+  # Reuse every PR gate against the immutable candidate, including resumed
+  # drafts. Packaging alone does not establish runtime compatibility.
+  validate:
+    needs: [release-please, preflight]
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      target_sha: ${{ needs.release-please.outputs.target_sha }}
+    permissions:
+      contents: read
+
   build:
     needs: [release-please, preflight]
     if: needs.release-please.outputs.release_created == 'true'
@@ -378,8 +389,8 @@ jobs:
           done < /tmp/artifacts.txt
 
   publish:
-    needs: [release-please, build]
-    if: needs.release-please.outputs.release_created == 'true' && needs.build.result == 'success'
+    needs: [release-please, build, validate]
+    if: needs.release-please.outputs.release_created == 'true' && needs.build.result == 'success' && needs.validate.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

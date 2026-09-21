@@ -15,6 +15,7 @@ use headless_chrome::protocol::cdp::{Network, Page};
 use serde::{Deserialize, Serialize};
 
 use crate::activity::{ActivityEventKind, ActivitySpec, ActivityState, ActivitySurface};
+use crate::browser_runtime::{BrowserObservationCoverage, BrowserObservationOptions};
 use crate::error::CoreError;
 
 use super::fetch_url_tool::{
@@ -26,7 +27,35 @@ use super::{
 };
 
 const INTERACTIVE_SELECTOR: &str =
-    "a[href],button,input,textarea,select,[role=button],[role=link],[tabindex]";
+    "a[href],button,input:not([type=hidden i]),textarea,select,[contenteditable=true],[role=button],[role=link],[role=textbox],[role=checkbox],[role=radio],[role=switch],[role=combobox],[tabindex]";
+const INTERACTIVE_ELEMENTS_SCRIPT: &str = r#"
+(selector) => Array.from(document.querySelectorAll(selector)).map((el,index) => {
+  const r = el.getBoundingClientRect();
+  const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => document.getElementById(id)?.textContent || '').join(' ').replace(/\s+/g, ' ').trim();
+  const role = el.getAttribute('role') || (el.tagName === 'INPUT' && ({checkbox:'checkbox',radio:'radio',range:'slider',button:'button',submit:'button',reset:'button'}[el.type])) || ({A:'link',BUTTON:'button',INPUT:'textbox',TEXTAREA:'textbox',SELECT:'combobox'}[el.tagName] || '');
+  const name = labelledBy || el.getAttribute('aria-label') || Array.from(el.labels || []).map(label => label.innerText).join(' ') || el.innerText || el.getAttribute('alt') || (['button','submit','reset'].includes(el.type) ? el.value : '') || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '';
+  const privateValue = (el.tagName === 'INPUT' && ['password','hidden','file','checkbox','radio','button','submit','reset','image'].includes(el.type)) || ['current-password','new-password'].includes(el.autocomplete);
+  const value = privateValue ? null : ['INPUT','TEXTAREA'].includes(el.tagName) ? String(el.value) : el.isContentEditable ? el.innerText || '' : null;
+  return {ref:`e_${index+1}`,index,tag:el.tagName.toLowerCase(),role,name:String(name).trim().slice(0,240),inputType:el.type || null,value:value === null ? null : value.slice(0,2000),valueTruncated:value === null ? null : value.length > 2000,enabled:!el.matches(':disabled') && el.getAttribute('aria-disabled') !== 'true',visible:r.width>0 && r.height>0 && getComputedStyle(el).visibility!=='hidden',bounds:[r.x,r.y,r.width,r.height]};
+})
+"#;
+const FRAME_LIMITATIONS_SCRIPT: &str = r#"
+(() => {
+  const frames = [];
+  let unavailableCount = 0;
+  for (const frame of document.querySelectorAll('iframe')) {
+    let sameOrigin = false;
+    try { sameOrigin = Boolean(frame.contentDocument?.documentElement); } catch (_) {}
+    unavailableCount += 1;
+    if (frames.length >= 32) continue;
+    const rect = frame.getBoundingClientRect();
+    let url = null;
+    try { const parsed = new URL(frame.getAttribute('src') || '', document.baseURI); if (['http:','https:'].includes(parsed.protocol)) url = `${parsed.origin}${parsed.pathname}`.slice(0,2048); } catch (_) {}
+    frames.push({reason:sameOrigin?'frame_context_unavailable':'cross_origin_or_sandboxed_frame',url,title:(frame.title || '').slice(0,240),visible:rect.width>0 && rect.height>0 && getComputedStyle(frame).visibility!=='hidden',bounds:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}});
+  }
+  return {unavailableCount,detailsOmitted:unavailableCount>frames.length,frames};
+})()
+"#;
 const MAX_OBSERVATIONS: usize = 64;
 const MAX_WAIT_MS: u64 = 120_000;
 const OBSERVE_QUANTUM_MS: u64 = 2_500;
@@ -48,6 +77,8 @@ struct BrowserArgs {
     condition: Option<serde_json::Value>,
     timeout_ms: Option<u64>,
     after_diagnostic_cursor: Option<u64>,
+    query: Option<String>,
+    offset: Option<usize>,
 }
 
 struct BrowserTab {
@@ -101,6 +132,12 @@ struct ObservedElement {
     name: String,
     enabled: bool,
     visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    input_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    value_truncated: Option<bool>,
     bounds: [f64; 4],
 }
 
@@ -111,6 +148,7 @@ struct BrowserObservation {
     url: String,
     content_hash: String,
     elements: Vec<ObservedElement>,
+    options: BrowserObservationOptions,
 }
 
 struct ObservationCapture {
@@ -336,18 +374,56 @@ fn evaluate_json(tab: &Tab, expression: &str) -> Result<serde_json::Value, Strin
 
 fn interactive_elements(tab: &Tab) -> Result<Vec<ObservedElement>, String> {
     let selector = serde_json::to_string(INTERACTIVE_SELECTOR).unwrap_or_default();
-    let expression = format!(
-        "Array.from(document.querySelectorAll({selector})).slice(0,200).map((el,index)=>{{const r=el.getBoundingClientRect();const role=el.getAttribute('role')||({{A:'link',BUTTON:'button',INPUT:'textbox',TEXTAREA:'textbox',SELECT:'combobox'}}[el.tagName]||'');const name=el.getAttribute('aria-label')||el.innerText||el.value||el.getAttribute('name')||'';return{{ref:`e_${{index+1}}`,index,tag:el.tagName.toLowerCase(),role,name:String(name).trim().slice(0,240),enabled:!el.disabled,visible:r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden',bounds:[r.x,r.y,r.width,r.height]}}}})"
-    );
+    let expression = format!("({INTERACTIVE_ELEMENTS_SCRIPT})({selector})");
     let value = evaluate_json(tab, &expression)?;
     serde_json::from_value(value)
         .map_err(|error| format!("failed to decode browser elements: {error}"))
+}
+
+fn filter_observed_elements(
+    elements: Vec<ObservedElement>,
+    options: &BrowserObservationOptions,
+    viewport: &serde_json::Value,
+) -> (Vec<ObservedElement>, BrowserObservationCoverage) {
+    let query = options.query.as_deref().unwrap_or_default().trim();
+    let normalized_query = query.to_lowercase();
+    let mut matches: Vec<_> = elements
+        .into_iter()
+        .filter(|element| {
+            (element.visible || element.input_type.as_deref() == Some("file"))
+                && (query.is_empty()
+                    || format!("{} {} {}", element.name, element.role, element.tag)
+                        .to_lowercase()
+                        .contains(&normalized_query))
+        })
+        .collect();
+    let width = viewport["width"].as_f64().unwrap_or_default();
+    let height = viewport["height"].as_f64().unwrap_or_default();
+    matches.sort_by_key(|element| {
+        let [x, y, w, h] = element.bounds;
+        let in_viewport =
+            w > 0.0 && h > 0.0 && x < width && y < height && x + w > 0.0 && y + h > 0.0;
+        (!in_viewport, element.index)
+    });
+    let total_matches = matches.len();
+    let elements: Vec<_> = matches.into_iter().skip(options.offset).take(300).collect();
+    let next = options.offset.saturating_add(elements.len());
+    let coverage = BrowserObservationCoverage {
+        query: query.to_string(),
+        offset: options.offset,
+        returned: elements.len(),
+        total_matches,
+        has_more: next < total_matches,
+        next_offset: (next < total_matches).then_some(next),
+    };
+    (elements, coverage)
 }
 
 fn observe_tab(
     session: &mut BrowserSession,
     tab_id: &str,
     after_diagnostic_cursor: u64,
+    options: &BrowserObservationOptions,
 ) -> Result<ObservationCapture, String> {
     let browser_tab = session
         .tabs
@@ -368,6 +444,8 @@ fn observe_tab(
         &browser_tab.tab,
         "({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio})",
     )?;
+    let (elements, coverage) = filter_observed_elements(elements, options, &viewport);
+    let frame_limitations = evaluate_json(&browser_tab.tab, FRAME_LIMITATIONS_SCRIPT)?;
     let text = browser_tab
         .tab
         .evaluate(
@@ -397,6 +475,8 @@ fn observe_tab(
         "contentHash": content_hash,
         "screenshotHash": screenshot_hash,
         "elements": elements,
+        "observationCoverage": coverage,
+        "frameLimitations": frame_limitations,
         "accessibilityTree": elements,
         "consoleAndNetworkCursor": diagnostic_cursor,
         "diagnostics": diagnostics,
@@ -411,6 +491,7 @@ fn observe_tab(
             url,
             content_hash,
             elements,
+            options: options.clone(),
         },
     );
     if session.observations.len() > MAX_OBSERVATIONS {
@@ -663,6 +744,8 @@ impl Tool for BrowserSessionTool {
                 "url": { "type": "string" },
                 "observationId": { "type": "string" },
                 "targetRef": { "type": "string" },
+                "query": { "type": "string", "maxLength": 240, "description": "observe only: case-insensitive substring filter on accessible name, role, or tag. Use this to locate controls omitted from a large observation; the result returns fresh refs and coverage." },
+                "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991_u64, "description": "observe only: start at this matching-control offset, using observationCoverage.nextOffset to continue. Keep the same query and page viewport while paging." },
                 "text": { "type": "string" },
                 "value": { "type": "string" },
                 "key": { "type": "string" },
@@ -717,6 +800,16 @@ impl Tool for BrowserSessionTool {
         let args: BrowserArgs = serde_json::from_str(arguments)
             .map_err(|error| invalid(format!("Invalid browser_session arguments: {error}")))?;
         let action = args.action.trim().to_ascii_lowercase();
+        let observation_options = BrowserObservationOptions {
+            query: args.query.clone(),
+            offset: args.offset.unwrap_or(0),
+        };
+        observation_options.validate().map_err(invalid)?;
+        if action != "observe" && (args.query.is_some() || args.offset.is_some()) {
+            return Err(invalid(
+                "query and offset are supported only by browser_session observe",
+            ));
+        }
 
         if action == "create_session" {
             let session_id = format!("browser_{}", uuid::Uuid::new_v4());
@@ -1056,6 +1149,7 @@ impl Tool for BrowserSessionTool {
             let (attempt, dispatched) = blocking(move || {
                 let mut session = session_for_worker.lock().map_err(|_| "browser session is unavailable".to_string())?;
                 let observation_id = required_string(observation_id.as_deref(), "observationId")?;
+                let post_action_options = session.observations.get(observation_id).map(|observation| observation.options.clone()).unwrap_or_default();
                 let mut dispatched = false;
                 let attempt = (|| -> Result<ObservationCapture, String> {
                 match action_for_worker.as_str() {
@@ -1089,7 +1183,7 @@ impl Tool for BrowserSessionTool {
                         }
                     }
                 }
-                observe_tab(&mut session, &tab_id_for_worker, after_diagnostic_cursor)
+                observe_tab(&mut session, &tab_id_for_worker, after_diagnostic_cursor, &post_action_options)
                 })();
                 Ok((attempt, dispatched))
             }).await?;
@@ -1126,7 +1220,7 @@ impl Tool for BrowserSessionTool {
                 "Unsupported browser_session action '{action}'"
             )));
         }
-        let capture = match capture_after_action {
+        let mut capture = match capture_after_action {
             Some(capture) => capture,
             None => {
                 let session_for_worker = Arc::clone(&session);
@@ -1135,11 +1229,17 @@ impl Tool for BrowserSessionTool {
                     let mut session = session_for_worker
                         .lock()
                         .map_err(|_| "browser session is unavailable".to_string())?;
-                    observe_tab(&mut session, &tab_id_for_worker, after_diagnostic_cursor)
+                    observe_tab(
+                        &mut session,
+                        &tab_id_for_worker,
+                        after_diagnostic_cursor,
+                        &observation_options,
+                    )
                 })
                 .await?
             }
         };
+        capture.data["sessionId"] = serde_json::json!(session_id);
         let output = ToolOutput {
             llm_content: serde_json::to_string_pretty(&capture.data)?,
             display_content: format!("Observed browser tab {tab_id}."),
@@ -1167,6 +1267,54 @@ fn required_string<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observation_filter_pages_original_refs_and_prioritizes_visible_controls() {
+        let fixture: Vec<ObservedElement> = (0..341).map(|index| serde_json::from_value(serde_json::json!({
+            "ref": format!("e_{}", index + 1), "index": index, "tag": "button", "role": "button",
+            "name": if index == 340 { "Export reviewed report".to_string() } else { format!("Review record {index}") },
+            "enabled": true, "visible": true,
+            "bounds": [10, if index == 340 { 20 } else { 1000 + index * 30 }, 150, 24]
+        })).unwrap()).collect();
+        let viewport = serde_json::json!({"width":1360,"height":900});
+        let (first, coverage) = filter_observed_elements(
+            fixture.clone(),
+            &BrowserObservationOptions::default(),
+            &viewport,
+        );
+        assert_eq!(first[0].element_ref, "e_341");
+        assert_eq!(
+            first[0].index, 340,
+            "action resolution must retain the original DOM selector index"
+        );
+        assert_eq!(coverage.total_matches, 341);
+        assert_eq!(coverage.next_offset, Some(300));
+        let (next, coverage) = filter_observed_elements(
+            fixture.clone(),
+            &BrowserObservationOptions {
+                query: None,
+                offset: 300,
+            },
+            &viewport,
+        );
+        assert_eq!(next.len(), 41);
+        assert!(!coverage.has_more);
+        assert!(next.iter().all(|item| !first
+            .iter()
+            .any(|previous| previous.element_ref == item.element_ref)));
+        let (query, coverage) = filter_observed_elements(
+            fixture,
+            &BrowserObservationOptions {
+                query: Some(" EXPORT REVIEWED ".into()),
+                offset: 0,
+            },
+            &viewport,
+        );
+        assert_eq!(query.len(), 1);
+        assert_eq!(query[0].index, 340);
+        assert_eq!(coverage.query, "EXPORT REVIEWED");
+        assert!(!coverage.has_more);
+    }
 
     #[test]
     fn closing_resource_rejects_queued_work_and_drops_before_receipt() {
@@ -1421,6 +1569,7 @@ mod tests {
             url: "https://example.com".to_string(),
             content_hash: "hash".to_string(),
             elements: Vec::new(),
+            options: BrowserObservationOptions::default(),
         };
         let observations = HashMap::from([
             ("newest".to_string(), observation(newer)),

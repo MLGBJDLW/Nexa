@@ -307,11 +307,23 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     cursorDocument: null,
     cursorPoint: null,
     agentThread: null,
+    observationOptions: { query: '', offset: 0 },
   };
 
+  const labelledByText = (el) => (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => {
+    const label = el.getRootNode().getElementById?.(id) || el.ownerDocument.getElementById(id);
+    return label?.textContent || '';
+  }).join(' ').replace(/\s+/g, ' ').trim();
   const textOf = (el) => String(
-    el.getAttribute?.('aria-label') || Array.from(el.labels || []).map(label => label.innerText).join(' ') || el.innerText || el.getAttribute?.('placeholder') || el.getAttribute?.('name') || ''
+    labelledByText(el) || el.getAttribute?.('aria-label') || Array.from(el.labels || []).map(label => label.innerText).join(' ') || el.innerText || el.getAttribute?.('alt') || (['button','submit','reset'].includes(el.type) ? el.value : '') || el.getAttribute?.('placeholder') || el.getAttribute?.('title') || el.getAttribute?.('name') || ''
   ).trim().slice(0, 240);
+  const valueOf = (el) => {
+    if (el.tagName === 'INPUT' && ['password', 'hidden', 'file', 'checkbox', 'radio', 'button', 'submit', 'reset', 'image'].includes(el.type)) return null;
+    if (['current-password', 'new-password'].includes(el.autocomplete)) return null;
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return String(el.value);
+    if (el.isContentEditable) return el.innerText || '';
+    return null;
+  };
   const roleOf = (el) => el.getAttribute?.('role') || (el.tagName === 'INPUT' && ({ checkbox: 'checkbox', radio: 'radio', range: 'slider', button: 'button', submit: 'button', reset: 'button' }[el.type])) || ({
     A: 'link', BUTTON: 'button', INPUT: 'textbox', TEXTAREA: 'textbox', SELECT: 'combobox'
   }[el.tagName] || '');
@@ -380,37 +392,41 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     const style = getComputedStyle(element);
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
-  const interactiveElements = () => {
+  const interactiveElements = (rootList = roots()) => {
     const selector = 'a[href],button,input:not([type="hidden" i]),textarea,select,[contenteditable="true"],[role="button"],[role="link"],[role="textbox"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[tabindex]';
     const seen = new Set();
     const elements = [];
-    for (const root of roots()) {
+    for (const root of rootList) {
       for (const element of root.querySelectorAll?.(selector) || []) {
         if (!seen.has(element) && (isObservable(element) || (element.tagName === 'INPUT' && element.type === 'file'))) { seen.add(element); elements.push(element); }
-        if (elements.length >= 300) return elements;
       }
     }
     return elements;
   };
-  const dragDestinationElements = () => {
+  const dragDestinationElements = (rootList = roots()) => {
     const selector = '[draggable="true"],[ondrop],[ondragover],[data-dropzone],[data-drop-zone],[class*="drop" i],[id*="drop" i]';
     const elements = [];
-    for (const root of roots()) {
+    for (const root of rootList) {
       for (const element of root.querySelectorAll?.(selector) || []) {
         if (isObservable(element)) elements.push(element);
-        if (elements.length >= 100) return elements;
       }
     }
     return elements;
   };
-  const observableElements = () => {
+  const matchingElements = (rootList = roots()) => {
     const seen = new Set();
-    return [...interactiveElements(), ...dragDestinationElements()].filter((element) => {
+    const query = runtime.observationOptions.query.toLowerCase();
+    return [...interactiveElements(rootList), ...dragDestinationElements(rootList)].filter((element) => {
       if (seen.has(element)) return false;
       seen.add(element);
-      return true;
-    }).slice(0, 400);
+      return !query || `${textOf(element)} ${roleOf(element)} ${element.tagName.toLowerCase()}`.toLowerCase().includes(query);
+    }).map((element, index) => {
+      const rect = viewportBoundsOf(element);
+      const inViewport = rect.width > 0 && rect.height > 0 && rect.x < innerWidth && rect.y < innerHeight && rect.x + rect.width > 0 && rect.y + rect.height > 0;
+      return { element, index, inViewport };
+    }).sort((a, b) => Number(b.inViewport) - Number(a.inViewport) || a.index - b.index).map(item => item.element);
   };
+  const observableElements = () => matchingElements().slice(runtime.observationOptions.offset, runtime.observationOptions.offset + 300);
   const navigationTargetOf = (el) => {
     if (el.href) return el.href;
     const tag = String(el.tagName || '').toUpperCase();
@@ -441,10 +457,29 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     }
     return { x, y, width: rect.width, height: rect.height };
   };
+  const frameLimitationsOf = (rootList) => {
+    const frames = [];
+    let unavailableCount = 0;
+    for (const root of rootList) {
+      for (const frame of root.querySelectorAll?.('iframe') || []) {
+        try { if (frame.contentDocument?.documentElement) continue; } catch (_) {}
+        unavailableCount += 1;
+        if (frames.length >= 32) continue;
+        let url = null;
+        try {
+          const parsed = new URL(frame.getAttribute('src') || '', frame.ownerDocument.baseURI);
+          if (['http:', 'https:'].includes(parsed.protocol)) url = `${parsed.origin}${parsed.pathname}`.slice(0, 2048);
+        } catch (_) {}
+        frames.push({ reason: 'cross_origin_or_sandboxed_frame', url, title: (frame.title || '').slice(0, 240), visible: isObservable(frame), bounds: viewportBoundsOf(frame) });
+      }
+    }
+    return { unavailableCount, detailsOmitted: unavailableCount > frames.length, frames };
+  };
   const describe = (el, ref, optionBudget = 0) => {
     const rect = viewportBoundsOf(el);
     const name = textOf(el);
     const navigationTarget = navigationTargetOf(el);
+    const value = valueOf(el);
     return {
       ref,
       tag: String(el.tagName || '').toLowerCase(),
@@ -453,6 +488,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       href: navigationTarget,
       inputType: el.type || null,
       enabled: enabledOf(el),
+      value: value === null ? null : value.slice(0, 2000),
+      valueTruncated: value === null ? null : value.length > 2000,
       checked: checkedOf(el),
       options: el.tagName === 'SELECT' ? Array.prototype.slice.call(el.options, 0, Math.min(100, optionBudget)).map(option => ({ value: option.value.slice(0, 512), label: option.label.slice(0, 240), selected: option.selected, enabled: !option.matches(':disabled') })) : null,
       optionCount: el.tagName === 'SELECT' ? el.options.length : null,
@@ -544,9 +581,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     }
     return hashText(parts.join('\u001f'));
   };
-  const interactionFingerprintOf = () => {
+  const interactionFingerprintOf = (elements = observableElements()) => {
     const contextCache = new Map();
-    const interactiveState = observableElements().map((element) => {
+    const interactiveState = elements.map((element) => {
       const rect = viewportBoundsOf(element);
       const style = getComputedStyle(element);
       return [
@@ -571,24 +608,33 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
         Math.round(rect.width),
         Math.round(rect.height),
         textOf(element),
+        hashText(valueOf(element) || ''),
         targetContextFingerprint(element, contextCache),
       ].join('\u001f');
     }).join('\u001e');
     return `v4|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
   };
-  const domFingerprintOf = () => {
+  const domFingerprintOf = (interactionFingerprint = interactionFingerprintOf()) => {
     const bodyText = document.body?.innerText.slice(0, 30000) || '';
-    return `${interactionFingerprintOf()}|${hashText(bodyText)}`;
+    return `${interactionFingerprint}|${hashText(bodyText)}`;
   };
   const actionVerificationBaseline = () => ({
     url: location.href,
     userEpoch: runtime.userEpoch,
     domFingerprint: domFingerprintOf(),
+    observationOptions: { ...runtime.observationOptions },
   });
-  runtime.observe = () => {
+  runtime.observe = (options = {}) => {
+    const query = typeof options.query === 'string' ? options.query.trim() : '';
+    const offset = options.offset ?? 0;
+    if ([...query].length > 240 || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid browser observation query or offset');
+    runtime.observationOptions = { query, offset };
     runtime.refs = new Map();
     let optionBudget = 400;
-    const elements = observableElements().map((el) => {
+    const rootList = roots();
+    const matches = matchingElements(rootList);
+    const selected = matches.slice(offset, offset + 300);
+    const elements = selected.map((el) => {
       // Screenshot confirmation and settling may take further snapshots. A
       // reference belongs to the actual element, not the snapshot counter.
       let ref = runtime.refIds.get(el);
@@ -601,6 +647,9 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       optionBudget -= description.options?.length || 0;
       return description;
     });
+    // This synchronous capture has one selection and one interaction digest.
+    // Native screenshot confirmation still performs a separate fresh capture.
+    const interactionFingerprint = interactionFingerprintOf(selected);
     return {
       url: location.href,
       title: document.title,
@@ -609,9 +658,11 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
       historyLength: history.length,
       userEpoch: runtime.userEpoch,
-      domFingerprint: domFingerprintOf(),
-      interactionFingerprint: interactionFingerprintOf(),
+      domFingerprint: domFingerprintOf(interactionFingerprint),
+      interactionFingerprint,
       elements,
+      observationCoverage: { query, offset, returned: elements.length, totalMatches: matches.length, hasMore: offset + elements.length < matches.length, nextOffset: offset + elements.length < matches.length ? offset + elements.length : null },
+      frameLimitations: frameLimitationsOf(rootList),
     };
   };
   const validateAction = (input) => {
@@ -1142,7 +1193,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     }
   }, true);
   const bridge = Object.freeze({
-    observe: () => runtime.observe(),
+    observe: (options) => runtime.observe(options),
     targetContextFingerprint: (element) => targetContextFingerprint(element),
     resolveTargetRef: (ref) => runtime.refs.get(ref) || null,
     previewAction: (input) => runtime.previewAction(input),
@@ -1166,5 +1217,3 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   });
 })();
 "#;
-
-pub const OBSERVE_EXPRESSION: &str = "window.__NEXA_BROWSER_RUNTIME__?.observe()";

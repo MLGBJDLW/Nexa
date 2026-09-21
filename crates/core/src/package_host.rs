@@ -14,6 +14,7 @@ use crate::capability_package::{CapabilityPackageManifest, CapabilityPackagePerm
 use crate::db::Database;
 use crate::ecosystem::EcosystemSurfaceKind;
 use crate::error::CoreError;
+use crate::plugins::{capability_tool_declaration_matches, is_mcp_tool_name};
 use crate::tools::{default_tool_registry, ToolRegistry};
 
 pub const PACKAGE_HOST_CONTRACT_VERSION: u16 = 1;
@@ -284,7 +285,7 @@ impl PackageRuntimeAssembler {
                 }
             })?;
             tool_owners.insert(tool_name.clone(), owner.id.clone());
-            if owner.is_runtime_visible() && self.owner_exposes_tool(owner, &tool_name) {
+            if self.tool_is_runtime_visible(owner, &tool_name) {
                 allowed_names.push(tool_name);
             } else {
                 excluded_tools.push(tool_name);
@@ -312,7 +313,7 @@ impl PackageRuntimeAssembler {
                     tool_name: name.clone(),
                 }
             })?;
-            if owner.is_runtime_visible() && self.owner_exposes_tool(owner, &name) {
+            if self.tool_is_runtime_visible(owner, &name) {
                 visible.push(name);
             }
         }
@@ -320,21 +321,39 @@ impl PackageRuntimeAssembler {
     }
 
     fn tool_owner(&self, tool_name: &str) -> Option<&PackageHostRecord> {
-        self.snapshot.records.iter().find(|record| {
-            record.components.iter().any(|component| {
-                component.kind == PackageSurfaceKind::Capability && component.id == tool_name
-            }) || (record.id == "mcp-connectors"
-                && (tool_name == "mcp_tool" || tool_name.starts_with("mcp__")))
-        })
+        self.snapshot
+            .records
+            .iter()
+            .find(|record| {
+                record.components.iter().any(|component| {
+                    component.kind == PackageSurfaceKind::Capability
+                        && capability_tool_declaration_matches(&component.id, tool_name)
+                })
+            })
+            .or_else(|| {
+                self.snapshot
+                    .records
+                    .iter()
+                    .find(|record| record.id == "mcp-connectors" && is_mcp_tool_name(tool_name))
+            })
+    }
+
+    fn tool_is_runtime_visible(&self, owner: &PackageHostRecord, tool_name: &str) -> bool {
+        owner.is_runtime_visible()
+            && self.owner_exposes_tool(owner, tool_name)
+            // A specialized connector package still depends on the MCP host.
+            && (!is_mcp_tool_name(tool_name)
+                || self.snapshot.records.iter().any(|record| {
+                    record.id == "mcp-connectors" && record.is_runtime_visible()
+                }))
     }
 
     fn owner_exposes_tool(&self, owner: &PackageHostRecord, tool_name: &str) -> bool {
         owner.components.iter().any(|component| {
             component.kind == PackageSurfaceKind::Capability
-                && component.id == tool_name
+                && capability_tool_declaration_matches(&component.id, tool_name)
                 && component.enabled
-        }) || (owner.id == "mcp-connectors"
-            && (tool_name == "mcp_tool" || tool_name.starts_with("mcp__")))
+        }) || (owner.id == "mcp-connectors" && is_mcp_tool_name(tool_name))
     }
 }
 
@@ -807,6 +826,116 @@ mod tests {
                 tool_name: "unowned_tool".to_string(),
             }
         );
+    }
+
+    struct NamedConnectorTool(&'static str);
+
+    #[async_trait::async_trait]
+    impl crate::tools::Tool for NamedConnectorTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        fn description(&self) -> &str {
+            "Connector package filtering fixture"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({ "type": "object", "properties": {} })
+        }
+
+        async fn execute(
+            &self,
+            _context: crate::tools::ToolExecutionContext<'_>,
+        ) -> Result<crate::tools::ToolResult, CoreError> {
+            unreachable!("the assembler must filter tools before execution")
+        }
+    }
+
+    const CONNECTOR_TOOLS: [&str; 4] = [
+        "mcp__computer_use__computer",
+        "mcp__windows_computer_use__screenshot",
+        "mcp__computer-use__screenshot",
+        "mcp__computer_use_extra__search",
+    ];
+
+    fn connector_tool_registry() -> ToolRegistry {
+        let mut registry = ToolRegistry::new();
+        for name in CONNECTOR_TOOLS {
+            registry.register(Box::new(NamedConnectorTool(name)));
+        }
+        registry
+    }
+
+    #[test]
+    fn runtime_assembler_assigns_declared_connector_owner() {
+        let db = Database::open_memory().unwrap();
+        let capabilities = PackageRuntimeAssembler::database_builtin(&db)
+            .unwrap()
+            .assemble_tool_registry(connector_tool_registry())
+            .unwrap();
+
+        for name in CONNECTOR_TOOLS.iter().take(3) {
+            assert_eq!(capabilities.tool_owners[*name], "computer-use-connector");
+        }
+        assert_eq!(
+            capabilities.tool_owners[CONNECTOR_TOOLS[3]],
+            "mcp-connectors"
+        );
+        assert_eq!(capabilities.tools.tool_names().len(), CONNECTOR_TOOLS.len());
+    }
+
+    #[test]
+    fn runtime_assembler_applies_connector_package_and_mcp_gates() {
+        let states = [
+            (PackageLifecycleState::Enabled, PackageHealthState::Healthy),
+            (PackageLifecycleState::Disabled, PackageHealthState::Healthy),
+            (
+                PackageLifecycleState::Enabled,
+                PackageHealthState::Unhealthy,
+            ),
+        ];
+        for (connector_index, &(connector_state, connector_health)) in states.iter().enumerate() {
+            for (mcp_index, &(mcp_state, mcp_health)) in states.iter().enumerate() {
+                let db = Database::open_memory().unwrap();
+                db.upsert_package_host_state(
+                    "computer-use-connector",
+                    connector_state,
+                    connector_health,
+                )
+                .unwrap();
+                db.upsert_package_host_state("mcp-connectors", mcp_state, mcp_health)
+                    .unwrap();
+                let assembler = PackageRuntimeAssembler::database_builtin(&db).unwrap();
+                let names: Vec<_> = CONNECTOR_TOOLS
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect();
+                let projected = assembler.visible_tool_names(names.clone()).unwrap();
+                let capabilities = assembler
+                    .assemble_tool_registry(connector_tool_registry())
+                    .unwrap();
+                let expected: Vec<_> = names
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, name)| {
+                        (mcp_index == 0 && (index == 3 || connector_index == 0)).then_some(name)
+                    })
+                    .collect();
+
+                assert_eq!(
+                    projected, expected,
+                    "connector={connector_index}, mcp={mcp_index}"
+                );
+                assert_eq!(capabilities.tools.tool_names(), expected);
+                for name in CONNECTOR_TOOLS {
+                    assert_eq!(
+                        capabilities.tools.get(name).is_some(),
+                        expected.iter().any(|item| item == name)
+                    );
+                }
+            }
+        }
     }
 
     #[test]

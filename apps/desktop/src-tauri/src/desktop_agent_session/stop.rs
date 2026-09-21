@@ -1,5 +1,7 @@
 use super::*;
 
+mod desktop_evidence;
+
 pub fn execution_mode_artifact(execution_mode: AgentExecutionMode) -> serde_json::Value {
     serde_json::json!({
         "kind": "executionMode",
@@ -125,8 +127,21 @@ pub(crate) async fn fence_and_checkpoint_desktop_agent_turn(
     )
     .await?;
 
+    // run_driver and its sole Run Event forwarder are joined inside the task
+    // that was aborted above. Drain its queued PlanUpdated events, including
+    // the approval resolutions just submitted, before merging host evidence.
+    // Surviving OS workers publish Activity receipts, not new Run Events.
+    event_outbox.flush().await?;
+
     let action_receipts = match nexa_core::activity::ActivityRuntime::with_database(db.clone()) {
-        Ok(runtime) => action_receipts_requiring_reconciliation(&runtime, &turn_id).await,
+        Ok(runtime) => {
+            desktop_evidence::preserve_pending_targets(db, &runtime, &task_run_id, &turn_id)
+                .await
+                .map_err(|error| AgentRunEventOutboxFailure::Persistence {
+                    message: error.to_string(),
+                })?;
+            action_receipts_requiring_reconciliation(&runtime, &turn_id).await
+        }
         Err(error) => {
             warn!("Could not read action receipts while stopping; forcing reconciliation: {error}");
             vec!["activity_registry_unavailable".to_string()]

@@ -17,6 +17,9 @@ const desktopPackage = JSON.parse(fs.readFileSync(
   path.join(repositoryRoot, 'apps', 'desktop', 'package.json'),
   'utf8',
 ));
+const releaseConfig = JSON.parse(fs.readFileSync(
+  path.join(repositoryRoot, 'release-please-config.json'), 'utf8',
+));
 const nativeAcceptanceWorkflowPath = path.join(
   repositoryRoot,
   '.github',
@@ -93,10 +96,33 @@ test('release PR maintenance synchronizes lock metadata before dispatching CI', 
   assert.match(releaseWorkflow, /steps\.sync_lock\.outputs\.changed/);
 });
 
-test('full CI is front-loaded onto pull requests instead of repeated after merge', () => {
+test('ordinary pushes do not repeat CI; release candidates reuse full CI', () => {
   assert.match(ciWorkflow, /^  pull_request:\s*$/mu);
   assert.match(ciWorkflow, /^  workflow_dispatch:\s*$/mu);
   assert.doesNotMatch(ciWorkflow, /^  push:\s*$/mu);
+});
+
+test('release candidates start as drafts with an immediately resolvable tag', () => {
+  assert.equal(releaseConfig.packages['.'].draft, true);
+  assert.equal(releaseConfig.packages['.']['force-tag-creation'], true);
+});
+
+test('release publication requires full CI for the same immutable source as the build', () => {
+  const validationJob = releaseWorkflow.split('  validate:')[1]?.split('\n  build:')[0];
+  assert.ok(validationJob, 'release must validate its candidate before publication');
+  assert.match(validationJob, /uses: \.\/\.github\/workflows\/ci\.yml/);
+  assert.match(validationJob, /target_sha: \$\{\{ needs\.release-please\.outputs\.target_sha \}\}/);
+  assert.match(releaseWorkflow, /needs: \[release-please, build, validate\]/);
+  const publishJob = releaseWorkflow.split('  publish:')[1];
+  assert.match(publishJob, /needs\.validate\.result == 'success'/);
+  assert.match(ciWorkflow, /^  workflow_call:\s*$/mu);
+  const checkouts = [...ciWorkflow.matchAll(/- uses: actions\/checkout@v5\n([\s\S]*?)(?=\n      -|$)/g)];
+  assert.ok(checkouts.length > 0);
+  for (const checkout of checkouts) {
+    assert.match(checkout[1], /ref: \$\{\{ inputs\.target_sha \|\| github\.ref \}\}/);
+  }
+  assert.match(ciWorkflow, /if \[ -n "\$NEXA_CI_TARGET_SHA" \]; then[\s\S]*?release_metadata_only=false/);
+  assert.match(ciWorkflow, /git rev-parse HEAD/);
 });
 
 test('CI and release builds fail closed unless native TypeScript 7 owns tsc', () => {

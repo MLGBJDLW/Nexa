@@ -231,6 +231,19 @@ files are verified off the UI thread and published without overwriting a name.
     bounded, pauses on disconnect, and releases devices on exit or failure.
     Stored text records do not imply raw media was never sent to a provider.
 
+Appearance synchronization has one in-flight native read per mounted provider.
+Committed appearance events update the frontend immediately; revision-only
+events coalesce into a follow-up read. The fallback poll runs only while visible,
+and stale replies cannot overwrite a newer event. Hiding or unmounting cancels
+future scheduling, not an already executing native request. A permanently stuck
+native request therefore does not create an expanding queue of retries.
+
+Task Center history uses a bounded summary projection rather than loading full
+run payloads: visibility filtering precedes each timeline's 50-row limit, and
+tool outputs, snapshots and trace bodies are not sent through this history IPC.
+The canonical replay APIs retain complete records. The summary query can still
+scan and sort event metadata; its row limit is not a database scan bound.
+
 ## Normative runtime contracts
 
 - [Agent Streaming Protocol](./AGENT_STREAMING_PROTOCOL.md) defines the core
@@ -268,5 +281,14 @@ may inform a change, but it belongs in an Issue, PR discussion, or the ignored
 `docs/research/` workspace. Stable contracts should explain Nexa's behavior and
 invariants, not mirror a particular upstream version or preserve a dated source
 dump.
+
+Release candidates are created as drafts with a resolvable tag. Publication
+requires both signed platform artifacts and the full CI workflow to succeed for
+the same immutable candidate SHA, including when resuming an older draft. The
+release validation path cannot take the metadata-only PR shortcut. Ordinary PRs
+retain their existing scope classification; a successful package build alone
+does not satisfy the release gate. Native interaction and long-duration resource
+acceptance remain separate evidence from CI and must not be claimed from a green
+build.
 
 See [README.md](./README.md) for the full documentation index.

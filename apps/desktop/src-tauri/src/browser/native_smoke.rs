@@ -40,6 +40,7 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
                     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
                 }
                 server.abort();
+                native_form_competence(&webview).await?;
                 let restricted = Arc::new(AtomicBool::new(true));
                 let dialogs = Arc::new(super::super::dialogs::DialogPolicy::default());
                 super::super::dialogs::install(&webview, dialogs.clone(), restricted.clone(), |_| {}).await?;
@@ -134,4 +135,243 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
         .recv_timeout(std::time::Duration::from_secs(2))
         .unwrap()
         .unwrap();
+}
+
+/// Observe through the production JS, native screenshot finalizer and ToolResult
+/// serializer. A second capture checks the same options before refs are used.
+async fn fixture_observe(
+    webview: &Webview,
+    query: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    use nexa_core::browser_runtime::{BrowserControlOwner, BrowserObservation, BrowserScreenshot};
+    let options = serde_json::json!({"query": query, "offset": 0});
+    let expression = format!("window.__NEXA_BROWSER_RUNTIME__.observe({options})");
+    let snapshot = eval_json(webview, &expression).await?;
+    let plan = BrowserCapturePlan::new(
+        BrowserBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 640.0,
+            height: 480.0,
+        },
+        1.0,
+    )?;
+    let capture = capture_webview_image(
+        webview,
+        plan,
+        BrowserSurfaceGate::default().acquire().await?,
+    )
+    .await?;
+    let confirmed = eval_json(webview, &expression).await?;
+    if confirmed["interactionFingerprint"] != snapshot["interactionFingerprint"]
+        || confirmed["userEpoch"] != snapshot["userEpoch"]
+    {
+        return Err("Native fixture changed during its screenshot capture".into());
+    }
+    let elements =
+        serde_json::from_value(confirmed["elements"].clone()).map_err(|error| error.to_string())?;
+    let observation = BrowserObservation {
+        observation_id: "fixture-observation".into(),
+        session_id: "fixture-session".into(),
+        tab_id: "fixture-tab".into(),
+        url: confirmed["url"]
+            .as_str()
+            .ok_or("Missing fixture URL")?
+            .into(),
+        title: confirmed["title"].as_str().unwrap_or_default().into(),
+        ready_state: confirmed["readyState"].as_str().map(str::to_string),
+        text: confirmed["text"].as_str().unwrap_or_default().into(),
+        viewport: confirmed["viewport"].clone(),
+        content_hash: confirmed["domFingerprint"]
+            .as_str()
+            .ok_or("Missing fixture fingerprint")?
+            .into(),
+        elements,
+        observation_coverage: Some(
+            serde_json::from_value(confirmed["observationCoverage"].clone())
+                .map_err(|error| error.to_string())?,
+        ),
+        frame_limitations: Some(
+            serde_json::from_value(confirmed["frameLimitations"].clone())
+                .map_err(|error| error.to_string())?,
+        ),
+        accessibility_tree: Vec::new(),
+        control_owner: BrowserControlOwner::Agent {
+            call_id: "fixture".into(),
+        },
+        screenshot: Some(BrowserScreenshot {
+            mime_type: capture.mime_type,
+            content_hash: blake3::hash(&capture.image_bytes).to_hex().to_string(),
+            width: capture.width,
+            height: capture.height,
+            byte_length: capture.image_bytes.len(),
+            image_bytes: capture.image_bytes,
+        }),
+    };
+    let result = super::super::agent_tool::observation_result("fixture", observation)
+        .map_err(|error| error.to_string())?;
+    let output = result.output_channels();
+    if output.attachments.len() != 1
+        || !output.llm_content.contains("fixture-observation")
+        || output.llm_content.contains("private-native-password")
+    {
+        return Err("Native observation lost model evidence or exposed a password".into());
+    }
+    let typed_elements = output
+        .data
+        .as_ref()
+        .and_then(|data| data.get("elements"))
+        .ok_or("Missing typed model elements")?;
+    for element in confirmed["elements"]
+        .as_array()
+        .ok_or("Missing fixture elements")?
+    {
+        if let Some(value) = element["value"].as_str() {
+            let typed = typed_elements
+                .as_array()
+                .and_then(|elements| {
+                    elements
+                        .iter()
+                        .find(|candidate| candidate["ref"] == element["ref"])
+                })
+                .ok_or("Model ref lost in serialization")?;
+            if typed["value"].as_str() != Some(value) {
+                return Err("Model form value lost in serialization".into());
+            }
+        }
+    }
+    Ok(confirmed)
+}
+
+async fn native_form_competence(webview: &Webview) -> Result<(), String> {
+    eval_json(webview, r#"(() => {
+        document.body.innerHTML = '<span id="name-label">Project name</span><input id="name" aria-labelledby="name-label" value="Before"><label>Approved<input id="approved" type="checkbox"></label><input type="password" value="private-native-password"><button id="save">Save project</button><p id="receipt"></p><section id="queue"></section>';
+        document.getElementById('save').onclick = () => document.getElementById('receipt').textContent = document.getElementById('approved').checked ? 'Saved ' + document.getElementById('name').value : 'Approval missing';
+        document.getElementById('queue').innerHTML = Array.from({length:340}, (_, i) => '<button>Earlier record '+i+'</button>').join('') + '<button>Export reviewed report</button>';
+        return true;
+    })()"#).await?;
+    let before = fixture_observe(webview, Some("Project name")).await?;
+    let target = before["elements"]
+        .as_array()
+        .and_then(|elements| elements.first())
+        .ok_or("Native query did not find the labelled form field")?;
+    if target["name"] != "Project name" || target["value"] != "Before" {
+        return Err("Native form name/value evidence was incomplete".into());
+    }
+    let input = serde_json::json!({"action":"type", "userEpoch":before["userEpoch"], "interactionFingerprint":before["interactionFingerprint"], "targetRef":target["ref"], "expected":target, "text":"Reviewed"});
+    let prepared = eval_json(
+        webview,
+        &format!("window.__NEXA_BROWSER_RUNTIME__.prepareTrustedText({input})"),
+    )
+    .await?;
+    let guard = BrowserTrustedInputGuard {
+        webview: webview.clone(),
+        token: Arc::from("fixture-input"),
+    };
+    let armed = guard
+        .arm(
+            TrustedInputEventBudget::new(0, 0, 1)?,
+            TrustedInputMatch::Text {
+                data: "Reviewed".into(),
+            },
+            prepared["targetRef"]
+                .as_str()
+                .ok_or("Missing text target")?,
+            prepared["targetContext"]
+                .as_str()
+                .ok_or("Missing text context")?,
+        )
+        .await?;
+    insert_trusted_text(&armed, "Reviewed").await?;
+    armed.disarm().await?;
+    let after = fixture_observe(webview, Some("Project name")).await?;
+    if after["elements"][0]["value"] != "Reviewed" {
+        return Err("Trusted native text was not visible to the agent".into());
+    }
+    for (name, check_state) in [("Approved", true), ("Save project", false)] {
+        let before = fixture_observe(webview, Some(name)).await?;
+        let target = before["elements"]
+            .as_array()
+            .and_then(|elements| elements.iter().find(|element| element["name"] == name))
+            .ok_or("Missing native click target")?;
+        let input = serde_json::json!({"action": if check_state {"set_checked"} else {"click"}, "checked":true, "userEpoch":before["userEpoch"], "interactionFingerprint":before["interactionFingerprint"], "targetRef":target["ref"], "expected":target});
+        let prepared = eval_json(
+            webview,
+            &format!("window.__NEXA_BROWSER_RUNTIME__.prepareNativePointer({input})"),
+        )
+        .await?;
+        let bounds = &prepared["bounds"];
+        let x = bounds["x"].as_f64().ok_or("Missing native x")?
+            + bounds["width"].as_f64().ok_or("Missing native width")? / 2.0;
+        let y = bounds["y"].as_f64().ok_or("Missing native y")?
+            + bounds["height"].as_f64().ok_or("Missing native height")? / 2.0;
+        let armed = guard
+            .arm(
+                TrustedInputEventBudget::pointer_click(1, if check_state { 1 } else { 0 })?,
+                TrustedInputMatch::Pointer {
+                    x,
+                    y,
+                    button: "left".into(),
+                },
+                prepared["targetRef"]
+                    .as_str()
+                    .ok_or("Missing click target")?,
+                prepared["targetContext"]
+                    .as_str()
+                    .ok_or("Missing click context")?,
+            )
+            .await?;
+        dispatch_trusted_pointer_click(&armed, x, y, "left", &[], 1).await?;
+        armed.disarm().await?;
+        let after = fixture_observe(webview, Some(name)).await?;
+        if check_state && after["elements"][0]["checked"] != true {
+            return Err("Native checkbox state was not observed".into());
+        }
+        if !check_state
+            && !after["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Saved Reviewed")
+        {
+            return Err("Native form commit lacked a visible receipt".into());
+        }
+    }
+    let recovered = fixture_observe(webview, Some("Export reviewed report")).await?;
+    if recovered["elements"].as_array().map(Vec::len) != Some(1)
+        || recovered["observationCoverage"]["totalMatches"] != 1
+    {
+        return Err(
+            "Native filtered observation could not recover a control past the default element page"
+                .into(),
+        );
+    }
+    let approved = fixture_observe(webview, Some("Approved")).await?;
+    let target = &approved["elements"][0];
+    let input = serde_json::json!({"action":"set_checked","checked":true,"targetRef":target["ref"],"expected":target,"userEpoch":approved["userEpoch"],"interactionFingerprint":approved["interactionFingerprint"]});
+    let prepared = eval_json(
+        webview,
+        &format!("window.__NEXA_BROWSER_RUNTIME__.prepareNativePointer({input})"),
+    )
+    .await?;
+    let after_noop = fixture_observe(webview, Some("Approved")).await?;
+    if prepared["stateMatched"] != true
+        || prepared["verificationBaseline"]["observationOptions"]["query"] != "Approved"
+        || after_noop["domFingerprint"] != prepared["verificationBaseline"]["domFingerprint"]
+    {
+        return Err("Filtered native no-op changed its verification set".into());
+    }
+    eval_json(webview, "(() => { const label = document.createElement('label'); label.innerHTML = 'Queue mode<select><option value=\"pending\">Pending</option><option value=\"done\">Done</option></select>'; document.body.appendChild(label); return true; })()").await?;
+    let before = fixture_observe(webview, Some("Queue mode")).await?;
+    let target = &before["elements"][0];
+    let input = serde_json::json!({"action":"select","value":"done","targetRef":target["ref"],"expected":target,"userEpoch":before["userEpoch"],"interactionFingerprint":before["interactionFingerprint"]});
+    eval_json(
+        webview,
+        &format!("window.__NEXA_BROWSER_RUNTIME__.act({input})"),
+    )
+    .await?;
+    let after = fixture_observe(webview, Some("Queue mode")).await?;
+    if after["elements"][0]["selectedValues"] != serde_json::json!(["done"]) {
+        return Err("Late-page select lost its queried post-action evidence".into());
+    }
+    Ok(())
 }

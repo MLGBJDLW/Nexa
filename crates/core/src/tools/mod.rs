@@ -106,6 +106,7 @@ pub mod context_history_tool;
 pub mod conversation_goal_tool;
 pub mod create_file_tool;
 pub mod date_search_tool;
+mod desktop_app_catalog;
 pub mod desktop_automation_tool;
 pub(crate) mod diff_stats;
 pub mod document_info_tool;

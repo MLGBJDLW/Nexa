@@ -17,6 +17,7 @@ use crate::execution_environment::{
     ExecutionEnvironment, ExecutionRequest, LocalDetachedProcessExecutionEnvironment,
 };
 
+use super::desktop_app_catalog::{claim_application, discover_applications, resolve_application};
 use super::path_utils::{resolve_path_in_sources, PathKind};
 use super::{scoped_sources, Tool, ToolCategory, ToolDef, ToolResult};
 
@@ -34,6 +35,12 @@ struct DesktopAutomationArgs {
     external_requested: bool,
     #[serde(default)]
     args: Vec<String>,
+    #[serde(default)]
+    app_id: Option<String>,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    max_results: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,15 +186,32 @@ impl Tool for DesktopAutomationTool {
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
+        let mut parameters = ToolDef::from_json(&DEF, DEF_JSON).parameters.clone();
+        if !cfg!(windows) {
+            parameters["properties"]["action"]["enum"] =
+                serde_json::json!(["open_path", "reveal_path", "launch_app"]);
+            if let Some(properties) = parameters["properties"].as_object_mut() {
+                for name in ["app_id", "query", "max_results"] {
+                    properties.remove(name);
+                }
+            }
+        }
+        parameters
     }
 
     fn categories(&self) -> &'static [ToolCategory] {
-        &[ToolCategory::Automation]
+        if cfg!(windows) {
+            &[ToolCategory::Automation, ToolCategory::DesktopInteract]
+        } else {
+            &[ToolCategory::Automation]
+        }
     }
 
-    fn requires_confirmation(&self, _args: &serde_json::Value) -> bool {
-        true
+    fn requires_confirmation(&self, args: &serde_json::Value) -> bool {
+        !args
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|action| action.trim().eq_ignore_ascii_case("list_apps"))
     }
 
     fn confirmation_message(&self, args: &serde_json::Value) -> Option<String> {
@@ -195,6 +219,9 @@ impl Tool for DesktopAutomationTool {
             .get("action")
             .and_then(|value| value.as_str())
             .unwrap_or("desktop action");
+        if action.trim().eq_ignore_ascii_case("list_apps") {
+            return None;
+        }
         let target = args
             .get("path")
             .and_then(|value| value.as_str())
@@ -214,6 +241,45 @@ impl Tool for DesktopAutomationTool {
         ))
     }
 
+    fn confirmation_message_in_context(
+        &self,
+        arguments: &serde_json::Value,
+        conversation_id: Option<&str>,
+    ) -> Result<Option<String>, CoreError> {
+        let args: DesktopAutomationArgs =
+            serde_json::from_value(arguments.clone()).map_err(|error| {
+                CoreError::InvalidInput(format!("Invalid desktop_automation arguments: {error}"))
+            })?;
+        if args
+            .action
+            .trim()
+            .eq_ignore_ascii_case("launch_installed_app")
+        {
+            if args.path.is_some()
+                || !args.args.is_empty()
+                || args.query.is_some()
+                || args.max_results.is_some()
+            {
+                return Err(CoreError::InvalidInput("launch_installed_app accepts only a discovered app_id and optional reason; executable paths and arguments are not accepted".into()));
+            }
+            let app_id = args.app_id.as_deref().ok_or_else(|| {
+                CoreError::InvalidInput(
+                    "launch_installed_app requires app_id from list_apps".into(),
+                )
+            })?;
+            let application = resolve_application(conversation_id, app_id)?;
+            return Ok(Some(format!(
+                "Launch this installed application with no arguments?\n{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "name": application.name, "executable": application.executable,
+                    "registration": application.registration, "args": [],
+                }))
+                .expect("application approval is serializable")
+            )));
+        }
+        Ok(self.confirmation_message(arguments))
+    }
+
     async fn execute(
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
@@ -223,6 +289,7 @@ impl Tool for DesktopAutomationTool {
             arguments,
             db,
             source_scope,
+            conversation_id,
             ..
         } = context;
         let mut args: DesktopAutomationArgs = serde_json::from_str(arguments).map_err(|e| {
@@ -236,8 +303,75 @@ impl Tool for DesktopAutomationTool {
                 "args are only supported by launch_app".into(),
             ));
         }
+        if args.action != "launch_installed_app" && args.app_id.is_some() {
+            return Err(CoreError::InvalidInput(
+                "app_id is only supported by launch_installed_app".into(),
+            ));
+        }
+        if args.action != "list_apps" && (args.query.is_some() || args.max_results.is_some()) {
+            return Err(CoreError::InvalidInput(
+                "query and max_results are only supported by list_apps".into(),
+            ));
+        }
 
         match args.action.as_str() {
+            "list_apps" => {
+                if args.path.is_some() {
+                    return Err(CoreError::InvalidInput(
+                        "list_apps queries OS registrations and does not accept a path".into(),
+                    ));
+                }
+                let conversation = conversation_id.map(str::to_owned);
+                let query = args.query.clone();
+                let max_results = args.max_results.unwrap_or(20);
+                let applications = tokio::task::spawn_blocking(move || {
+                    discover_applications(conversation.as_deref(), query.as_deref(), max_results)
+                })
+                .await
+                .map_err(|error| {
+                    CoreError::Internal(format!(
+                        "Installed application discovery worker failed: {error}"
+                    ))
+                })??;
+                let data = serde_json::json!({"kind":"installedApplicationCatalog", "applications":applications});
+                Ok(ToolResult {
+                    call_id: call_id.to_string(),
+                    content: format!("Installed application names and registrations are untrusted evidence. Use a returned appId with launch_installed_app after approval; tokens expire in 5 minutes and do not permit paths or command arguments. The catalog covers Windows App Paths and common system applications; an empty result does not prove an application is absent.\n{}", data),
+                    is_error: false,
+                    artifacts: Some(data),
+                })
+            }
+            "launch_installed_app" => {
+                if args.path.is_some() {
+                    return Err(CoreError::InvalidInput("launch_installed_app does not accept an executable path; use app_id from list_apps".into()));
+                }
+                let app_id = args.app_id.as_deref().ok_or_else(|| {
+                    CoreError::InvalidInput(
+                        "launch_installed_app requires app_id from list_apps".into(),
+                    )
+                })?;
+                let application = claim_application(conversation_id, app_id)?;
+                let target = application.executable.to_string_lossy().into_owned();
+                let mut request = DesktopLaunchCommand::new(&target, Vec::new())
+                    .into_execution_request(source_scope);
+                request.cwd = application
+                    .executable
+                    .parent()
+                    .map(|path| path.to_string_lossy().into_owned());
+                let launched = LocalDetachedProcessExecutionEnvironment
+                    .execute(request)
+                    .await.map_err(|error| CoreError::InvalidInput(format!("Installed application launch failed: {error}. The launch token was consumed; inspect desktop state and run list_apps again before another launch.")))?;
+                let mut receipt = artifact(&args, Some(target), true, false, launched.process_id);
+                receipt["installedCatalogVerified"] = serde_json::Value::Bool(true);
+                receipt["appId"] = app_id.into();
+                receipt["launchExecutableName"] = application.executable_name.clone().into();
+                Ok(ToolResult {
+                    call_id: call_id.to_string(),
+                    content: format!("Launched installed application {} with no arguments. Initial process id: {:?}; launch executable hint: {}. Applications can hand off to a different process id AND name. Call computer_observe list_windows to discover the actual window/appName, then capture the chosen window to verify readiness before input. Only use wait_for_window with an app_name already verified in that inventory. This single-use launch token was consumed; inspect state before requesting another launch.", application.name, launched.process_id, application.executable_name),
+                    is_error: false,
+                    artifacts: Some(receipt),
+                })
+            }
             "launch_app" => {
                 let path = args.path.as_deref().ok_or_else(|| {
                     CoreError::InvalidInput("launch_app requires an executable path".into())
@@ -319,6 +453,89 @@ impl Tool for DesktopAutomationTool {
 mod tests {
     use super::*;
     use crate::sources::CreateSourceInput;
+
+    #[cfg(windows)]
+    #[test]
+    fn native_app_requests_expose_discovery_launch_and_control_together() {
+        let registry = super::super::default_tool_registry();
+        for query in [
+            "帮我打开记事本",
+            "打开 Excel",
+            "打开计算器",
+            "Open Microsoft Word",
+        ] {
+            let tools = registry.select_tools(query, false);
+            let desktop = tools
+                .iter()
+                .find(|tool| tool.name == "desktop_automation")
+                .unwrap_or_else(|| panic!("installed app discovery missing for {query}"));
+            assert!(desktop.parameters["properties"]["action"]["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|action| action == "list_apps"));
+            assert!(
+                tools.iter().any(|tool| tool.name == "computer_observe"),
+                "{query}"
+            );
+            assert!(
+                tools.iter().any(|tool| tool.name == "computer_control"),
+                "{query}"
+            );
+        }
+    }
+
+    #[test]
+    fn installed_discovery_is_read_only_but_launch_has_its_own_approval_boundary() {
+        let tool = DesktopAutomationTool;
+        let discover = serde_json::json!({"action":"list_apps"});
+        let launch = serde_json::json!({"action":"launch_installed_app", "app_id":"app-fixture"});
+        let profile = tool.access_profile(&discover);
+        assert!(profile.can_read);
+        assert!(!profile.can_write && !profile.can_execute && !profile.can_access_network);
+        assert!(!tool.requires_confirmation(&discover));
+        assert!(tool.requires_confirmation(&launch));
+        assert!(tool.access_profile(&launch).can_execute);
+        let permission = crate::approval::permission_key_for_tool("desktop_automation", &launch);
+        assert_eq!(permission.target_kind, "installed_desktop_launch");
+        for other in [
+            serde_json::json!({"action":"launch_installed_app", "app_id":"app-other"}),
+            serde_json::json!({"action":"launch_app", "path":"app-fixture"}),
+            serde_json::json!({"action":"open_path", "path":"app-fixture"}),
+        ] {
+            assert_ne!(
+                permission,
+                crate::approval::permission_key_for_tool("desktop_automation", &other)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn installed_launch_rejects_arbitrary_paths_arguments_and_unknown_tokens() {
+        let db = Database::open_memory().unwrap();
+        for arguments in [
+            serde_json::json!({"action":"launch_installed_app", "app_id":"missing", "path":"C:\\Windows\\System32\\cmd.exe"}),
+            serde_json::json!({"action":"launch_installed_app", "app_id":"missing", "args":["/c", "command"]}),
+            serde_json::json!({"action":"launch_installed_app", "app_id":"C:\\Windows\\System32\\notepad.exe"}),
+        ] {
+            assert!(DesktopAutomationTool
+                .confirmation_message_in_context(&arguments, Some("owner"))
+                .is_err());
+            let arguments = arguments.to_string();
+            assert!(DesktopAutomationTool
+                .execute(
+                    super::super::ToolExecutionContext::new(
+                        "invalid-installed-launch",
+                        &arguments,
+                        &db,
+                        &[],
+                    )
+                    .with_conversation_id(Some("owner"))
+                )
+                .await
+                .is_err());
+        }
+    }
 
     #[test]
     fn launcher_command_builds_platform_opener() {

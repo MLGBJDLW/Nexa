@@ -4,9 +4,15 @@ on:
   pull_request:
     branches: [master]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      target_sha:
+        description: Immutable release candidate to validate with the full suite
+        required: true
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ inputs.target_sha || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -24,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.target_sha || github.ref }}
           fetch-depth: 0
 
       - name: Classify trusted release metadata updates
@@ -33,9 +40,19 @@ jobs:
           NEXA_CI_BRANCH: ${{ github.head_ref || github.ref_name }}
           NEXA_CI_HEAD_REF: HEAD
           NEXA_CI_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          NEXA_CI_TARGET_SHA: ${{ inputs.target_sha }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -n "$NEXA_CI_TARGET_SHA" ]; then
+            if ! [[ "$NEXA_CI_TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$(git rev-parse HEAD)" != "$NEXA_CI_TARGET_SHA" ]; then
+              echo "::error::Release validation must check out the exact candidate SHA"
+              exit 1
+            fi
+            echo "release_metadata_only=false" >> "$GITHUB_OUTPUT"
+            echo "Full release validation: \`$NEXA_CI_TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           git fetch --no-tags origin master:refs/remotes/origin/master
           git diff --name-only "origin/master...HEAD" > /tmp/nexa-ci-changed-paths.txt
           release_metadata_only=$(node scripts/ci-scope.mjs < /tmp/nexa-ci-changed-paths.txt)
@@ -57,6 +74,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -89,6 +108,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -109,6 +130,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -173,6 +196,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -243,6 +268,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -300,6 +327,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -339,6 +368,14 @@ jobs:
           e2e/chat-recording-dock.spec.ts
           e2e/settings-provider-models.spec.ts
           --grep "settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|hydrates a paused run with its durable partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD keeps the conversation cache rate|conversation cache fallback keeps its own prompt denominator|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login"
+
+      - name: App resources and agent browser competence
+        working-directory: apps/desktop
+        run: >-
+          npx playwright test
+          e2e/app-resource-lifecycle.spec.ts
+          e2e/task-center.spec.ts
+          e2e/browser-agent-competence.spec.ts
 
       - name: Streaming scroll, questions, and desktop approval regressions
         working-directory: apps/desktop
@@ -380,9 +417,11 @@ jobs:
     needs: classify
     if: needs.classify.outputs.release_metadata_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Install Tauri system dependencies
         uses: ./.github/actions/install-ubuntu-packages
@@ -433,6 +472,13 @@ jobs:
 
       - name: Desktop Rust check
         run: cargo check -p nexa-desktop
+
+      - name: Desktop recovery and browser observation contracts
+        run: >-
+          cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
+          desktop_agent_session::stop::
+          completed_agent_appearance_reaches_native_change_notification
+          browser::
 
   # Keep this name stable: callers and merge policy treat it as the public CI
   # interface while the implementation jobs above may evolve independently.
@@ -500,6 +546,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

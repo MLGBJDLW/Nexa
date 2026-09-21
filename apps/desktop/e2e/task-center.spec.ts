@@ -171,6 +171,10 @@ test.beforeEach(async ({ page }) => {
           return { items: [clone(runningTask), clone(failedTask)], nextCursor: null };
         case 'get_agent_task_run_events_cmd':
           return clone(events);
+        case 'get_agent_task_history_cmd':
+          return clone(events.filter(event => event.payload?.taskTimeline
+            && (args.includeDeveloper || event.payload.taskTimeline.visibility !== 'developer'))
+            .map(event => ({ ...event, source: 'taskEvent', eventSeq: event.payload?.eventSeq })));
         case 'get_agent_subtask_runs_cmd':
           return clone(subtasks);
         case 'get_agent_execution_graph_cmd':
@@ -401,4 +405,41 @@ test('task center manages runs, graph, project memory, artifacts, and risk map',
     undefined,
     { timeout: 5000 },
   );
+});
+
+test('task center bounds history transfer before long tool and output payloads reach the renderer', async ({ page }) => {
+  await page.addInitScript(() => {
+    const native = (window as any).__TAURI_INTERNALS__;
+    const invoke = native.invoke;
+    const metrics = { events: 0, bytes: 0, fullLedgerReads: 0 };
+    Object.assign(window, { __historyTransfer: metrics });
+    native.invoke = async (cmd: string, args: Record<string, unknown>) => {
+      let result;
+      if (cmd === 'get_agent_run_events_cmd') {
+        metrics.fullLedgerReads++;
+        result = Array.from({ length: 2_000 }, (_, i) => ({
+          version: 2, runId: 'run-live', turnId: 'turn-live', eventSeq: i + 1,
+          kind: i % 10 === 0 ? 'status' : 'outputDelta', phase: 'responding', visibility: 'user',
+          label: `History item ${i}`, createdAt: '2026-09-20T00:00:00Z', payload: { content: 'x'.repeat(4_096) },
+        }));
+      } else if (cmd === 'get_agent_task_history_cmd') {
+        result = Array.from({ length: 50 }, (_, i) => ({
+          id: `run-live:${1501 + i * 10}`, runId: 'run-live', eventSeq: 1501 + i * 10,
+          eventType: 'status', label: `History item ${1500 + i * 10}`, createdAt: '2026-09-20T00:00:00Z', source: 'agentRun',
+        }));
+      } else return invoke(cmd, args);
+      metrics.events += result.length;
+      metrics.bytes += JSON.stringify(result).length;
+      return result;
+    };
+  });
+  await page.goto('/tasks');
+  await page.getByRole('button', { name: /Prepare board brief/ }).click();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(page.getByText('History item 1990', { exact: true })).toBeVisible();
+  const metrics = await page.evaluate(() => (window as any).__historyTransfer);
+  console.log('task center history transfer:', JSON.stringify(metrics));
+  expect(metrics.fullLedgerReads).toBe(0);
+  expect(metrics.events).toBeLessThanOrEqual(100);
+  expect(metrics.bytes).toBeLessThan(30_000);
 });

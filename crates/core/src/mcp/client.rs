@@ -29,6 +29,7 @@ const HEADER_MCP_PROTOCOL_VERSION: &str = "mcp-protocol-version";
 const HEADER_MCP_SESSION_ID: &str = "mcp-session-id";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const SSE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+const MAX_DIAGNOSTIC_BYTES: usize = 16 * 1024;
 const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
     ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -41,6 +42,17 @@ struct StdioTransport {
     stderr_handle: tokio::task::JoinHandle<()>,
 }
 
+impl Drop for StdioTransport {
+    fn drop(&mut self) {
+        // Failed discovery and cancelled connection futures do not reach the
+        // manager's explicit shutdown path. The transport still owns its I/O
+        // tasks and child in those cases.
+        self.reader_handle.abort();
+        self.stderr_handle.abort();
+        let _ = self.child.start_kill();
+    }
+}
+
 struct LegacySseTransport {
     client: HttpClient,
     message_url: Url,
@@ -48,6 +60,12 @@ struct LegacySseTransport {
     events_rx: mpsc::Receiver<Value>,
     diagnostics: Arc<Mutex<String>>,
     stream_handle: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for LegacySseTransport {
+    fn drop(&mut self) {
+        self.stream_handle.abort();
+    }
 }
 
 struct StreamableHttpTransport {
@@ -172,24 +190,30 @@ impl McpClient {
             "arguments": arguments,
         });
         let response = self.send_request("tools/call", Some(params)).await?;
-
-        if let Some(content) = response.get("content").and_then(|value| value.as_array()) {
-            let texts: Vec<&str> = content
-                .iter()
-                .filter_map(|item| {
-                    if item.get("type")?.as_str()? == "text" {
-                        item.get("text")?.as_str()
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            if !texts.is_empty() {
-                return Ok(texts.join("\n"));
-            }
+        let content = response
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|content| {
+                content
+                    .iter()
+                    .filter_map(|item| {
+                        if item.get("type")?.as_str()? == "text" {
+                            item.get("text")?.as_str()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|texts| !texts.is_empty())
+            .map(|texts| texts.join("\n"))
+            .unwrap_or_else(|| serde_json::to_string(&response).unwrap_or_default());
+        if response.get("isError").and_then(Value::as_bool) == Some(true) {
+            // This is a tool business error, not a broken transport. Preserve
+            // its diagnostic without triggering connection recovery/replay.
+            return Err(CoreError::Mcp(content));
         }
-
-        Ok(serde_json::to_string(&response).unwrap_or_default())
+        Ok(content)
     }
 
     /// Gracefully shut down the MCP server connection.
@@ -239,6 +263,7 @@ impl McpClient {
                         .await?;
                     return Ok(());
                 }
+                Err(error @ CoreError::McpTransport(_)) => return Err(error),
                 Err(err) => last_error = Some(err),
             }
         }
@@ -275,15 +300,24 @@ impl McpClient {
                 .insert("params".to_string(), p);
         }
 
-        match &self.transport {
-            Transport::StreamableHttp(_) => {
-                self.send_streamable_http_request(request, id, method, allow_reinitialize)
-                    .await
+        // One deadline owns the full physical request, including pipe writes,
+        // HTTP response bodies, and SSE streams which keep sending heartbeats.
+        let result = tokio::time::timeout(self.call_timeout, async {
+            match &self.transport {
+                Transport::StreamableHttp(_) => {
+                    self.send_streamable_http_request(request, id, method, allow_reinitialize)
+                        .await
+                }
+                _ => {
+                    self.send_transport_message(&request).await?;
+                    self.wait_for_response(id, method).await
+                }
             }
-            _ => {
-                self.send_transport_message(&request).await?;
-                self.wait_for_response(id, method).await
-            }
+        })
+        .await;
+        match result {
+            Ok(result) => result,
+            Err(_) => Err(self.transport_timeout_error(method).await),
         }
     }
 
@@ -302,7 +336,15 @@ impl McpClient {
                 .expect("notification object")
                 .insert("params".to_string(), p);
         }
-        self.send_transport_message(&notification).await
+        match tokio::time::timeout(
+            self.call_timeout,
+            self.send_transport_message(&notification),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(self.transport_timeout_error(method).await),
+        }
     }
 
     async fn send_transport_message(&mut self, payload: &Value) -> Result<(), CoreError> {
@@ -660,7 +702,8 @@ impl McpClient {
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
 
         let mut has_port = false;
         if let Some(env_map) = env {
@@ -801,7 +844,14 @@ impl McpClient {
 
         let status = response.status();
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = tokio::time::timeout(SSE_CONNECT_TIMEOUT, response.text())
+                .await
+                .map_err(|_| {
+                    CoreError::McpTransport(format!(
+                        "Timed out reading legacy SSE MCP error response from {base_url}"
+                    ))
+                })?
+                .unwrap_or_default();
             return Err(CoreError::Mcp(format!(
                 "Legacy SSE MCP server at {} returned {status}: {}",
                 base_url,
@@ -826,6 +876,7 @@ impl McpClient {
         let diagnostics = Arc::new(Mutex::new(String::new()));
         let (endpoint_tx, endpoint_rx) = oneshot::channel::<Result<Url, CoreError>>();
         let stream_diagnostics = diagnostics.clone();
+        let pending_message_url = base_url.clone();
         let stream_handle = tokio::spawn(async move {
             read_legacy_sse_stream(
                 response,
@@ -836,35 +887,31 @@ impl McpClient {
             )
             .await;
         });
-
-        let message_url = match tokio::time::timeout(SSE_CONNECT_TIMEOUT, endpoint_rx).await {
+        // Own the reader before waiting for the endpoint. Cancelling connection
+        // setup must drop the transport even before the server is initialized.
+        let mut transport = LegacySseTransport {
+            client,
+            message_url: pending_message_url,
+            custom_headers,
+            events_rx,
+            diagnostics,
+            stream_handle,
+        };
+        transport.message_url = match tokio::time::timeout(SSE_CONNECT_TIMEOUT, endpoint_rx).await {
             Ok(Ok(Ok(url))) => url,
-            Ok(Ok(Err(err))) => {
-                stream_handle.abort();
-                return Err(err);
-            }
+            Ok(Ok(Err(err))) => return Err(err),
             Ok(Err(_)) => {
-                stream_handle.abort();
                 return Err(CoreError::McpTransport(
                     "Legacy SSE MCP connection closed before publishing a message endpoint.".into(),
                 ));
             }
             Err(_) => {
-                stream_handle.abort();
                 return Err(CoreError::McpTransport(
                     "Timed out waiting for a legacy SSE MCP endpoint event.".into(),
                 ));
             }
         };
-
-        Ok(LegacySseTransport {
-            client,
-            message_url,
-            custom_headers,
-            events_rx,
-            diagnostics,
-            stream_handle,
-        })
+        Ok(transport)
     }
 
     fn build_streamable_http_transport(
@@ -1174,14 +1221,11 @@ impl McpClient {
                 })?,
             );
 
-            if let Ok(Ok(response)) = tokio::time::timeout(
-                self.call_timeout,
-                client.delete(endpoint_url).headers(headers).send(),
-            )
-            .await
-            {
-                let _ = response.bytes().await;
-            }
+            let _ = tokio::time::timeout(self.call_timeout, async {
+                let response = client.delete(endpoint_url).headers(headers).send().await?;
+                response.bytes().await
+            })
+            .await;
         }
 
         if let Transport::StreamableHttp(transport) = &mut self.transport {
@@ -1364,6 +1408,24 @@ async fn process_legacy_sse_event(
 
 async fn append_diagnostics(buffer: &Arc<Mutex<String>>, line: &str) {
     let mut guard = buffer.lock().await;
+    if line.len() >= MAX_DIAGNOSTIC_BYTES {
+        let mut start = line.len() - MAX_DIAGNOSTIC_BYTES;
+        while !line.is_char_boundary(start) {
+            start += 1;
+        }
+        guard.clear();
+        guard.push_str(&line[start..]);
+        return;
+    }
+    let separator_bytes = usize::from(!guard.is_empty());
+    let excess = (guard.len() + separator_bytes + line.len()).saturating_sub(MAX_DIAGNOSTIC_BYTES);
+    if excess > 0 {
+        let mut start = excess.min(guard.len());
+        while !guard.is_char_boundary(start) {
+            start += 1;
+        }
+        guard.drain(..start);
+    }
     if !guard.is_empty() {
         guard.push('\n');
     }
@@ -1601,6 +1663,372 @@ mod tests {
         path: String,
         headers: HashMap<String, String>,
         body: Vec<u8>,
+    }
+
+    #[tokio::test]
+    async fn diagnostics_keep_a_bounded_utf8_tail() {
+        let diagnostics = Arc::new(Mutex::new(String::new()));
+        for _ in 0..256 {
+            append_diagnostics(&diagnostics, &"诊断".repeat(128)).await;
+        }
+        append_diagnostics(&diagnostics, "latest failure").await;
+        let retained = diagnostics.lock().await;
+        assert!(
+            retained.len() <= 16 * 1024,
+            "MCP diagnostics grew without a byte limit"
+        );
+        assert!(retained.ends_with("latest failure"));
+        drop(retained);
+
+        append_diagnostics(
+            &diagnostics,
+            &format!("{}single-line-tail", "诊断".repeat(8_192)),
+        )
+        .await;
+        let retained = diagnostics.lock().await;
+        assert!(retained.len() <= 16 * 1024);
+        assert!(retained.ends_with("single-line-tail"));
+    }
+
+    #[tokio::test]
+    async fn request_deadline_includes_stalled_http_response_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_http_request(&mut stream).await.unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{").await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(transport),
+            request_id: AtomicI64::new(1),
+            server_name: "stalled-body".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            call_timeout: Duration::from_millis(50),
+        };
+        let result = tokio::time::timeout(Duration::from_millis(500), client.list_tools()).await;
+        server.abort();
+        assert!(
+            matches!(result, Ok(Err(CoreError::McpTransport(_)))),
+            "the configured request deadline must include the HTTP body: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn transport_failure_does_not_repeat_protocol_negotiation() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed_attempts = Arc::clone(&attempts);
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                read_http_request(&mut stream).await.unwrap();
+                observed_attempts.fetch_add(1, Ordering::SeqCst);
+                write_text_response(
+                    &mut stream,
+                    "503 Service Unavailable",
+                    None,
+                    "connector is unavailable",
+                )
+                .await
+                .unwrap();
+            }
+        });
+        let transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(transport),
+            request_id: AtomicI64::new(1),
+            server_name: "unavailable-handshake".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            call_timeout: DEFAULT_TIMEOUT,
+        };
+        let result = client.initialize_handshake().await;
+        server.abort();
+        assert!(matches!(result, Err(CoreError::McpTransport(message)) if message.contains("503")));
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "a transport failure was retried as a protocol version mismatch"
+        );
+    }
+
+    #[tokio::test]
+    async fn protocol_rejection_still_negotiates_an_older_version() {
+        for http_rejection in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let mut attempted_versions = Vec::new();
+                loop {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let request = read_http_request(&mut stream).await.unwrap();
+                    let request: Value = serde_json::from_slice(&request.body).unwrap();
+                    if request["method"] == "notifications/initialized" {
+                        write_empty_response(&mut stream, "202 Accepted", None)
+                            .await
+                            .unwrap();
+                        return attempted_versions;
+                    }
+                    assert_eq!(request["method"], "initialize");
+                    attempted_versions.push(request["params"]["protocolVersion"].clone());
+                    if attempted_versions.len() == 1 {
+                        let status = if http_rejection {
+                            "400 Bad Request"
+                        } else {
+                            "200 OK"
+                        };
+                        write_json_response(
+                            &mut stream,
+                            status,
+                            None,
+                            &json!({
+                                "jsonrpc": "2.0", "id": request["id"],
+                                "error": { "code": -32602, "message": "Unsupported protocol version" }
+                            }),
+                        )
+                        .await
+                        .unwrap();
+                    } else {
+                        write_json_response(
+                            &mut stream,
+                            "200 OK",
+                            None,
+                            &json!({
+                                "jsonrpc": "2.0", "id": request["id"],
+                                "result": {
+                                    "protocolVersion": request["params"]["protocolVersion"],
+                                    "capabilities": {},
+                                    "serverInfo": { "name": "older-server", "version": "1.0" }
+                                }
+                            }),
+                        )
+                        .await
+                        .unwrap();
+                    }
+                }
+            });
+            let client = McpClient::connect_streamable_http(&url, None, "older-server")
+                .await
+                .unwrap();
+            assert_eq!(client.protocol_version, SUPPORTED_PROTOCOL_VERSIONS[1]);
+            assert_eq!(
+                server.await.unwrap(),
+                vec![
+                    json!(SUPPORTED_PROTOCOL_VERSIONS[0]),
+                    json!(SUPPORTED_PROTOCOL_VERSIONS[1])
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn sse_heartbeats_do_not_extend_the_request_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_http_request(&mut stream).await.unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap();
+            loop {
+                if stream.write_all(b"8\r\n: ping\n\n\r\n").await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+        let transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(transport),
+            request_id: AtomicI64::new(1),
+            server_name: "heartbeat-only".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            call_timeout: Duration::from_millis(50),
+        };
+        let result = tokio::time::timeout(Duration::from_millis(500), client.list_tools()).await;
+        server.abort();
+        assert!(
+            matches!(result, Ok(Err(CoreError::McpTransport(_)))),
+            "heartbeats kept a request alive past its deadline: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_deadline_includes_stalled_http_delete_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let request = read_http_request(&mut stream).await.unwrap();
+            assert_eq!(request.method, "DELETE");
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nx")
+                .await
+                .unwrap();
+            std::future::pending::<()>().await;
+        });
+        let mut transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
+        transport.session_id = Some("closing-session".into());
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(transport),
+            request_id: AtomicI64::new(1),
+            server_name: "stalled-shutdown".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            call_timeout: Duration::from_millis(50),
+        };
+        let result = tokio::time::timeout(Duration::from_millis(500), client.shutdown()).await;
+        server.abort();
+        assert!(
+            matches!(result, Ok(Ok(()))),
+            "MCP shutdown waited indefinitely for DELETE response body: {result:?}"
+        );
+        let Transport::StreamableHttp(transport) = &client.transport else {
+            unreachable!()
+        };
+        assert!(transport.session_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_legacy_transport_stops_its_idle_reader() {
+        let stream_handle = tokio::spawn(std::future::pending::<()>());
+        let reader = stream_handle.abort_handle();
+        let (_events_tx, events_rx) = mpsc::channel(1);
+        let transport = LegacySseTransport {
+            client: build_http_client().unwrap(),
+            message_url: Url::parse("http://127.0.0.1/mcp").unwrap(),
+            custom_headers: HeaderMap::new(),
+            events_rx,
+            diagnostics: Arc::new(Mutex::new(String::new())),
+            stream_handle,
+        };
+        drop(transport);
+        tokio::task::yield_now().await;
+        let stopped = reader.is_finished();
+        reader.abort();
+        assert!(
+            stopped,
+            "dropping a failed or cancelled connection detached its reader"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelling_legacy_connection_before_endpoint_closes_the_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/sse", listener.local_addr().unwrap());
+        let connecting =
+            tokio::spawn(
+                async move { McpClient::connect_sse(&url, None, "pending-endpoint").await },
+            );
+        let (mut stream, _) = listener.accept().await.unwrap();
+        read_http_request(&mut stream).await.unwrap();
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n8\r\n: ping\n\n\r\n").await.unwrap();
+        // Allow the GET response to enter its endpoint-wait stage. The server
+        // intentionally never sends an endpoint event or completes its body.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!connecting.is_finished());
+        connecting.abort();
+        assert!(matches!(connecting.await, Err(error) if error.is_cancelled()));
+        let mut byte = [0];
+        let closed = tokio::time::timeout(Duration::from_millis(500), stream.read(&mut byte)).await;
+        assert!(
+            matches!(closed, Ok(Ok(0) | Err(_))),
+            "cancelled MCP setup retained its idle SSE reader and socket: {closed:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture invoked only by MCP transport lifecycle tests"]
+    fn stdio_lifecycle_fixture() {
+        use std::io::Write;
+
+        let Ok(address) = std::env::var("NEXA_TEST_MCP_LIFECYCLE_ADDRESS") else {
+            return;
+        };
+        let mut ready = std::net::TcpStream::connect(address).unwrap();
+        ready.write_all(b"ready").unwrap();
+        // The socket makes process exit observable without relying on platform
+        // process enumeration. Bound the fixture lifetime even for a red test.
+        std::thread::sleep(Duration::from_secs(3));
+        drop(ready);
+    }
+
+    async fn idle_stdio_fixture() -> (StdioTransport, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let environment = HashMap::from([(
+            "NEXA_TEST_MCP_LIFECYCLE_ADDRESS".into(),
+            listener.local_addr().unwrap().to_string(),
+        )]);
+        let command = std::env::current_exe().unwrap();
+        let transport = McpClient::build_stdio_transport(
+            command.to_str().unwrap(),
+            &[
+                "--exact".into(),
+                "mcp::client::tests::stdio_lifecycle_fixture".into(),
+                "--ignored".into(),
+                "--nocapture".into(),
+            ],
+            Some(&environment),
+        )
+        .await
+        .unwrap();
+        let (mut ready, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+            .await
+            .unwrap()
+            .unwrap();
+        let mut marker = [0; 5];
+        ready.read_exact(&mut marker).await.unwrap();
+        assert_eq!(&marker, b"ready");
+        (transport, ready)
+    }
+
+    #[tokio::test]
+    async fn dropping_stdio_transport_terminates_child_and_readers() {
+        let (transport, mut process_lifetime) = idle_stdio_fixture().await;
+        let stdout = transport.reader_handle.abort_handle();
+        let stderr = transport.stderr_handle.abort_handle();
+        let dropped_at = tokio::time::Instant::now();
+        drop(transport);
+        let mut byte = [0];
+        let exited = tokio::time::timeout(Duration::from_secs(5), process_lifetime.read(&mut byte))
+            .await
+            .unwrap();
+        assert!(
+            matches!(exited, Ok(0) | Err(_)),
+            "fixture process kept its lifetime socket open"
+        );
+        assert!(
+            dropped_at.elapsed() < Duration::from_secs(1),
+            "dropping MCP transport left its child running"
+        );
+        tokio::task::yield_now().await;
+        assert!(
+            stdout.is_finished() && stderr.is_finished(),
+            "MCP reader tasks outlived their transport"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_deadline_includes_blocked_stdio_write() {
+        let (transport, _process_lifetime) = idle_stdio_fixture().await;
+        let mut client = McpClient {
+            transport: Transport::Stdio(transport),
+            request_id: AtomicI64::new(1),
+            server_name: "blocked-stdin".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            call_timeout: Duration::from_millis(50),
+        };
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            client.call_tool("write", json!({ "body": "x".repeat(1024 * 1024) })),
+        )
+        .await;
+        client.shutdown().await.unwrap();
+        assert!(
+            matches!(result, Ok(Err(CoreError::McpTransport(_)))),
+            "a child which stops reading stdin escaped the request deadline: {result:?}"
+        );
     }
 
     #[tokio::test]

@@ -234,6 +234,26 @@ impl ToolPermissionKey {
             && args
                 .get("action")
                 .and_then(serde_json::Value::as_str)
+                .is_some_and(|action| action.trim().eq_ignore_ascii_case("launch_installed_app"))
+        {
+            // The opaque token resolves to an immutable, conversation-scoped
+            // catalog entry. The live approval displays that exact executable;
+            // source/file-open grants cannot authorize catalog launches.
+            let app_id = args
+                .get("app_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<missing>");
+            return Self::new(
+                &invocation.tool_name,
+                "installed_desktop_launch",
+                blake3::hash(app_id.as_bytes()).to_hex().to_string(),
+            );
+        }
+
+        if invocation.tool_name == "desktop_automation"
+            && args
+                .get("action")
+                .and_then(serde_json::Value::as_str)
                 .is_some_and(|action| action.trim().eq_ignore_ascii_case("launch_app"))
         {
             let launch = serde_json::json!({

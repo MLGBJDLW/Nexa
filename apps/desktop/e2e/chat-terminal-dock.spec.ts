@@ -30,6 +30,19 @@ test.beforeEach(async ({ page }) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     };
+    const race = new URL(location.href).searchParams.get('terminalRace');
+    const otherConversation = { ...conversation, id: 'conv-terminal-other', title: 'Other terminal conversation' };
+    const otherSession = {
+      id: 'terminal-other', shell: 'PowerShell', cwd: 'D:\\project-B', processId: 4243,
+      conversationId: otherConversation.id,
+    };
+    const initialSession = {
+      id: 'terminal-session-1', shell: 'PowerShell', cwd: 'D:\\project-A', processId: 4242,
+      conversationId: conversation.id,
+    };
+    const alternateSession = { ...initialSession, id: 'terminal-session-2', processId: 4244 };
+    const pendingCommands = new Map<string, () => void>();
+    const hold = (key: string) => new Promise<void>((resolve) => pendingCommands.set(key, resolve));
 
     const callbackMap = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, { event: string; handlerId: number }>();
@@ -42,7 +55,16 @@ test.beforeEach(async ({ page }) => {
       resizes: [] as Array<Record<string, unknown>>,
       closes: [] as string[],
       bindings: [] as Array<Record<string, unknown>>,
+      writeSessions: [] as string[],
+      pending: [] as string[],
     };
+    if (race === 'paste') Object.defineProperty(navigator, 'clipboard', { value: {
+      readText: async () => {
+        terminalDiagnostics.pending.push('clipboard');
+        await hold('clipboard');
+        return 'echo delayed paste';
+      },
+    } });
 
     const emitEvent = (eventName: string, payload: Record<string, unknown>) => {
       for (const [listenerId, listener] of listeners.entries()) {
@@ -96,9 +118,9 @@ test.beforeEach(async ({ page }) => {
         case 'get_wizard_state_cmd':
           return { completed: true, language: 'en', aiProvider: 'open_ai', sourceAdded: true };
         case 'list_conversations_cmd':
-          return [clone(conversation)];
+          return race ? [clone(conversation), clone(otherConversation)] : [clone(conversation)];
         case 'get_conversation_cmd':
-          return [clone(conversation), []];
+          return [clone(args.id === otherConversation.id ? otherConversation : conversation), []];
         case 'get_agent_run_event_page_cmd':
           return {
             events: [],
@@ -128,6 +150,10 @@ test.beforeEach(async ({ page }) => {
             processId: 4242,
             conversationId: String((args.input as Record<string, unknown> | undefined)?.conversationId ?? ''),
           };
+          if (race === 'start' && session.conversationId === conversation.id) {
+            terminalDiagnostics.pending.push('start');
+            await hold('start');
+          }
           setTimeout(() => {
             emitEvent('terminal:event', {
               sessionId: session.id,
@@ -141,15 +167,21 @@ test.beforeEach(async ({ page }) => {
         }
         case 'terminal_write_session_cmd':
           terminalDiagnostics.writes.push(String(args.data ?? ''));
+          terminalDiagnostics.writeSessions.push(String(args.sessionId ?? ''));
           return null;
         case 'terminal_resize_session_cmd':
           terminalDiagnostics.resizes.push(clone(args));
           return null;
         case 'terminal_close_session_cmd':
           terminalDiagnostics.closes.push(String(args.sessionId ?? ''));
+          if (race === 'restart') {
+            terminalDiagnostics.pending.push('close');
+            await hold('close');
+          }
           return null;
         case 'terminal_bind_session_cmd':
           terminalDiagnostics.bindings.push(clone(args));
+          if (race && args.sessionId === alternateSession.id) return clone(alternateSession);
           return {
             id: String(args.sessionId ?? 'terminal-session-1'),
             shell: 'PowerShell',
@@ -158,6 +190,12 @@ test.beforeEach(async ({ page }) => {
             conversationId: String(args.conversationId ?? ''),
           };
         case 'terminal_snapshot_session_cmd':
+          if (args.sessionId === otherSession.id) return { session: clone(otherSession), output: 'B prompt> ' };
+          if (race && args.sessionId === alternateSession.id) {
+            terminalDiagnostics.pending.push('snapshot');
+            await hold('snapshot');
+            return { session: clone(alternateSession), output: 'A alternate prompt> ' };
+          }
           return {
             session: {
               id: String(args.sessionId ?? 'terminal-session-1'),
@@ -169,7 +207,15 @@ test.beforeEach(async ({ page }) => {
             output: 'PS D:\\Apps\\ask_myself> ',
           };
         case 'terminal_list_sessions_cmd':
-          return [];
+          if (race === 'restore' && location.pathname.endsWith(otherConversation.id)) {
+            terminalDiagnostics.pending.push('list');
+            await hold('list');
+          }
+          return race === 'start' ? [clone(otherSession)]
+            : race ? [clone(initialSession), clone(alternateSession), clone(otherSession)] : [];
+        case 'terminal_active_session_cmd':
+          return args.conversationId === otherConversation.id ? clone(otherSession)
+            : race && race !== 'start' ? clone(initialSession) : null;
         case 'terminal_appearance_cmd':
           return {
             source: 'Windows Terminal', fontFamily: 'Consolas', fontSize: 18,
@@ -182,6 +228,12 @@ test.beforeEach(async ({ page }) => {
     };
 
     (window as unknown as { __terminalDiagnostics__: unknown }).__terminalDiagnostics__ = terminalDiagnostics;
+    (window as unknown as { __releaseTerminalCommand__: (key: string) => void }).__releaseTerminalCommand__ = (key) => {
+      const resolve = pendingCommands.get(key);
+      if (!resolve) throw new Error(`No pending terminal command: ${key}`);
+      pendingCommands.delete(key);
+      resolve();
+    };
     (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
       invoke,
       transformCallback: (callback: (event: unknown) => void) => {
@@ -231,6 +283,75 @@ test('terminal remains interactive when WebGL is unavailable', async ({ page }) 
   await page.locator('.xterm-helper-textarea').focus();
   await page.keyboard.type('echo hello');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __terminalDiagnostics__: { writes: string[] } }).__terminalDiagnostics__.writes.join(''))).toContain('echo hello');
+});
+
+for (const operation of ['start', 'switch', 'restart', 'paste'] as const) {
+test(`interactive terminal dock: a delayed terminal ${operation} cannot replace another conversation terminal`, async ({ page }) => {
+  await page.goto(`/chat/conv-terminal-dock?terminalRace=${operation}`);
+  await page.getByRole('button', { name: 'Toggle terminal' }).click();
+  const pendingCommand = operation === 'start' ? 'start' : operation === 'switch' ? 'snapshot'
+    : operation === 'restart' ? 'close' : 'clipboard';
+  if (operation !== 'start') {
+    await expect(page.getByText(/^PowerShell #4242 ·/)).toBeVisible();
+    if (operation === 'switch') {
+      await page.getByRole('combobox', { name: 'Active terminal session' }).click();
+      await page.getByRole('option', { name: '2: PowerShell #4244' }).click();
+    } else if (operation === 'restart') {
+      await page.getByRole('button', { name: 'Restart terminal' }).click();
+    } else {
+      await page.locator('.xterm-helper-textarea').focus();
+      await page.keyboard.press('Control+Shift+V');
+    }
+  }
+  await expect.poll(() => page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { pending: string[] };
+  }).__terminalDiagnostics__.pending)).toContain(pendingCommand);
+
+  await page.getByText('Other terminal conversation', { exact: true }).click();
+  await expect(page.getByText('PowerShell #4243')).toBeVisible();
+  await page.evaluate((command) => (window as unknown as {
+    __releaseTerminalCommand__: (key: string) => void;
+  }).__releaseTerminalCommand__(command), pendingCommand);
+  // Flush the released IPC promise and the React render it schedules.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.getByText('PowerShell #4243')).toBeVisible();
+  await expect(page.getByText('PowerShell #4242')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { writes: string[] };
+  }).__terminalDiagnostics__.writes.filter(Boolean))).toEqual([]);
+  await page.locator('.xterm-helper-textarea').focus();
+  await page.keyboard.type('echo current');
+  await expect.poll(() => page.evaluate(() => {
+    const diagnostics = (window as unknown as {
+      __terminalDiagnostics__: { writes: string[]; writeSessions: string[] };
+    }).__terminalDiagnostics__;
+    return diagnostics.writeSessions.filter((_, index) => Boolean(diagnostics.writes[index]));
+  })).toEqual(Array('echo current'.length).fill('terminal-other'));
+  expect(await page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { closes: string[] };
+  }).__terminalDiagnostics__.closes)).toEqual(operation === 'restart' ? ['terminal-session-1'] : []);
+  expect(await page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { starts: unknown[] };
+  }).__terminalDiagnostics__.starts.length)).toBe(operation === 'start' ? 1 : 0);
+});
+}
+
+test('interactive terminal dock: pending restoration does not offer another conversation terminal sessions', async ({ page }) => {
+  await page.goto('/chat/conv-terminal-dock?terminalRace=restore');
+  await page.getByRole('button', { name: 'Toggle terminal' }).click();
+  await expect(page.getByRole('combobox', { name: 'Active terminal session' })).toBeVisible();
+  await page.getByText('Other terminal conversation', { exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { pending: string[] };
+  }).__terminalDiagnostics__.pending)).toContain('list');
+  await expect(page.getByRole('combobox', { name: 'Active terminal session' })).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as {
+    __releaseTerminalCommand__: (key: string) => void;
+  }).__releaseTerminalCommand__('list'));
+  await expect(page.getByText('PowerShell #4243')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { bindings: unknown[] };
+  }).__terminalDiagnostics__.bindings)).toEqual([]);
 });
 
 for (const initialWidth of [900, 1360]) {

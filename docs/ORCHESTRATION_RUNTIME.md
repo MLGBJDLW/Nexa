@@ -36,6 +36,32 @@ do not imply wire or configuration compatibility with another project.
 
 ## Product contracts
 
+Native desktop completion follows the actual controlled target. Outstanding
+window identities and consumed observation tokens are checkpointed as opaque
+metadata; screen text and values are not retained for this purpose. A capture of
+another window or a recycled window handle cannot verify an earlier action.
+An action's verified same-target post-action capture is already fresh evidence
+and can supply the next observation token. Missing or uncertain capture requires
+another observation of that exact target. The controller must consume the same
+privacy-preserving receipt that is persisted, rather than relying on transient
+screen artifacts discarded before the next model step.
+
+Continuation restores pending desktop targets from the current run's durable
+plan and a validated checkpoint launch, never from JSON in a user prompt; malformed
+or cross-turn checkpoint state fails closed. Both internal and upstream-owned
+tool sessions persist these obligations and reject a final answer until the exact
+targets are reconciled. An explicitly requested window-close task may instead use
+the native host's same-target disappearance receipt after delivered input; ordinary
+editing, a failed capture, or text merely mentioning a close shortcut cannot use
+that terminal exception. If a native worker finishes after Stop saved the
+checkpoint, resume reconciles its persisted Completed receipt only when its
+conversation, turn, activity, target identity, and consumed observation match
+the original pending control and its saved close contract.
+For a host-verified modal dialog dismissal, the obligation instead transfers to
+its exact pre-observed owner without granting terminal-close permission. A new
+owner capture must begin after the host's handoff timestamp; another window or
+an older owner screenshot cannot discharge that obligation, including on resume.
+
 MoA and Nexus are independent axes. MoA changes how an acting model receives
 advice. Nexus changes how the client plans, delegates, checkpoints, and verifies
 work. Either may be enabled alone or both may be composed.
