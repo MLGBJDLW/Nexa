@@ -369,6 +369,14 @@ jobs:
           e2e/settings-provider-models.spec.ts
           --grep "settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|hydrates a paused run with its durable partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD keeps the conversation cache rate|conversation cache fallback keeps its own prompt denominator|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login"
 
+      - name: App resources and agent browser competence
+        working-directory: apps/desktop
+        run: >-
+          npx playwright test
+          e2e/app-resource-lifecycle.spec.ts
+          e2e/task-center.spec.ts
+          e2e/browser-agent-competence.spec.ts
+
       - name: Streaming scroll, questions, and desktop approval regressions
         working-directory: apps/desktop
         run: >-
@@ -409,7 +417,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.release_metadata_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:
@@ -464,6 +472,13 @@ jobs:
 
       - name: Desktop Rust check
         run: cargo check -p nexa-desktop
+
+      - name: Desktop recovery and browser observation contracts
+        run: >-
+          cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
+          desktop_agent_session::stop::
+          completed_agent_appearance_reaches_native_change_notification
+          browser::
 
   # Keep this name stable: callers and merge policy treat it as the public CI
   # interface while the implementation jobs above may evolve independently.

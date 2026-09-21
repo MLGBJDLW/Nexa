@@ -36,7 +36,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`computer_observe`](../crates/core/prompts/tools/computer_observe.json) | Observe the local Windows desktop without changing it |
 | [`context_history`](../crates/core/prompts/tools/context_history.json) | Recover exact text and tool results from earlier context windows of the current conversation |
 | [`create_file`](../crates/core/prompts/tools/create_file.json) | Create, overwrite, or incrementally append UTF-8 plain-text files at the specified path |
-| [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Launch a desktop application, or open/reveal files inside registered source directories |
+| [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Discover and launch installed Windows applications, or open/reveal source-scoped files |
 | [`download_asset`](../crates/core/prompts/tools/download_asset.json) | Download a supported public image asset (JPEG, PNG, WebP, or GIF) into the workspace with SSRF, redirect-hop, content-type, size, and output-path validation |
 | [`edit_file`](../crates/core/prompts/tools/edit_file.json) | Edit an existing plain-text file or create a new plain-text file |
 | [`extract_image_text`](../crates/core/prompts/tools/extract_image_text.json) | Extract visible text from a local image using the app's PaddleOCR runtime |
@@ -802,8 +802,10 @@ Form observations include associated labels, native/ARIA checkbox and radio
 roles, checked/mixed states, effective disabled state, and up to 100 select
 options per select (400 across the observation) with their labels, values,
 selection and enabled state. `optionCount` reports the full count, including
-omitted choices. Password field
-values are not included. Use `set_checked` with `targetRef` and a boolean
+omitted choices. Text fields expose their current `value` (up to 2,000
+characters with `valueTruncated`), including values normalized by page handlers.
+Password, hidden, file and password-autocomplete values are excluded.
+Use `set_checked` with `targetRef` and a boolean
 `checked` to ensure a checkbox, switch or radio has the desired state. Matching
 states skip input; radio controls can only be set true. Windows uses the same
 trusted WebView pointer transport as click. A fresh observation must confirm the
@@ -816,6 +818,22 @@ an empty array clears a multiple-select. All requested options must exist and
 be enabled before selection changes. Unchanged selections emit no input/change
 events, and the refreshed observation must confirm the requested values.
 `page_loaded` requires the observed document's `readyState` to be `complete`.
+
+`observe` accepts `query` (accessible name, role or tag) and `offset` to recover
+controls outside the first 300 results. Visible controls have priority;
+`observationCoverage` reports returned/total matches and the next offset.
+Each page is a new observation with fresh refs, not an extension of old input
+authority. Screenshot revalidation, action settling and post-action observations
+reuse the claimed query and offset. Model context
+projection preserves complete control entries and action identities within its
+budget; omitted entries have explicit continuation metadata instead of truncated
+JSON. This pagination covers controls, not long body text or select options.
+
+`frameLimitations` reports inaccessible frame counts and up to 32 sanitized
+frame descriptions. The desktop adapter can traverse same-origin frames;
+cross-origin or sandboxed frames remain unavailable for semantic input.
+The standalone adapter has no frame action context, including same-origin
+frames. An incomplete observation cannot prove `element_absent`.
 
 Windows WebView2 also supports these native interactions:
 
@@ -885,7 +903,14 @@ Observe a native Windows window. `list_windows` returns verified external
 top-level windows. `capture_window` returns an ephemeral screenshot plus a
 bounded UI Automation projection; `capture_mode: "som"` overlays element IDs.
 `wait_for_change` polls a captured observation for a material perceptual
-change. Capture actions require explicit model-egress consent.
+change. Post-action verification also accounts for semantic changes.
+Capture actions require explicit model-egress consent.
+UIA observations expose supported action patterns, current editable values,
+read-only state, toggle/selection state and expansion state when the provider
+supplies them. Values are bounded (1,024 characters per control, 8,192 total),
+truncation is explicit, and password values are excluded. Freshness compares
+private full-value hashes, so an edit past the displayed prefix still invalidates
+the old control observation.
 
 After `desktop_automation.launch_app`, use `wait_for_window` with its
 `process_id`. The wait returns matching window IDs and a fresh inventory token;
@@ -940,6 +965,10 @@ last fallback. Coordinates may use `captured_image_pixels` or
   before any foreground input; `foreground` explicitly selects mouse/keyboard
   delivery. `invoke` and `set_value` use background semantics; target applications
   can still activate themselves when responding to UI Automation.
+- Standard native checkbox styles use a verified state transition and the
+  application's real `BN_CLICKED` notification, with bounded native messages
+  and state readback. This avoids the mouse-down/up path of `BM_CLICK`; updating
+  the check mark alone does not count as a successful action.
 - `set_value` supports exact replacement with up to 65,536 characters, including
   multiline documents. An empty value clears a field. `type_text` supports up to
   8,000 characters with bounded newline/tab key events. Password protections,
@@ -958,18 +987,36 @@ is reported as unverifiable and must not be blindly retried. Text/key arguments
 are structurally redacted from approval, UI, trace, and durable provider-turn
 projections. Post-action screenshots and UIA names remain current-turn-only;
 durable artifacts retain hashes, counts, route, delivery, and effect receipts.
+They also retain the opaque target identity and consumed observation token.
+Fresh same-target post-action evidence can satisfy the observation gate without
+another capture. A different window or a recycled HWND cannot satisfy it.
+If the exact controlled window disappears after input, a host-generated
+`terminalWindowReceipt` can prove that window closed; it does not prove a save
+or another requested edit succeeded. Completion accepts this terminal evidence
+only for a task that explicitly requested closing the window.
+
+An observed native modal dialog can hand verification back to its exact owner
+when the host verifies the owner relationship before input, confirms the dialog
+has disappeared, and revalidates the original owner. The resulting
+`modalOwnerHandoffReceipt` names that owner and the earliest acceptable capture
+time. The agent must take a new owner screenshot; the receipt alone cannot
+complete the task, and another window from the same process is insufficient.
+The handoff does not grant permission to control the owner.
 
 ### `desktop_automation`
 
-Launch an application or open/reveal a source-scoped path on the user's visible desktop. Prefer
+Discover installed Windows applications, launch an application, or open/reveal
+a source-scoped path on the user's visible desktop. Prefer
 `open_in_nexa` for supported file previews. Opening a previewable file in an
 external application requires the user's explicit request and
 `external_requested: true`. HTTP(S) navigation belongs to `browser_session`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | yes | `launch_app`, `open_path` or `reveal_path` |
-| `path` | string | for all actions | Absolute or source-root relative path inside the active registered source scope; `launch_app` requires an executable file (`.exe` on Windows) |
+| `action` | string | yes | `list_apps`, `launch_installed_app`, `launch_app`, `open_path` or `reveal_path` |
+| `query` / `max_results` | string / integer | no | Installed-app name filter and bounded result count for `list_apps` |
+| `app_id` | string | for `launch_installed_app` | Opaque ID returned by `list_apps` in the same conversation |
+| `path` | string | for path actions | Absolute or source-root relative path inside the active registered source scope; `launch_app` requires an executable file (`.exe` on Windows) |
 | `args` | string[] | no | Literal arguments for `launch_app`, without shell interpretation; working directory is the executable's directory |
 | `external_requested` | boolean | no | True only for an explicitly requested external application |
 | `reason` | string | no | Brief user-facing reason for the action |
@@ -979,6 +1026,18 @@ Safety posture:
 - Local path actions must resolve inside a registered source and the active source scope.
 - Use `web_search` for readable search results.
 - Use `fetch_url` when the agent needs page text; use `browser_session` when the page must be observed or manipulated.
+
+On Windows, `list_apps` reads registered App Paths and recognized system
+applications without a workspace source. It does not inventory every Start Menu
+or UWP package. `launch_installed_app` requires approval for the resolved
+executable, accepts no arbitrary path or arguments, and atomically consumes its
+conversation-scoped token once. Tokens expire after five minutes; executable
+identity is rechecked before launch. Previewing approval does not consume the
+token. Rediscover after a failed launch instead of replaying a consumed ID.
+
+Installed launchers can delegate to a different process (for example,
+Calculator). Use a fresh `list_windows` result to identify the actual window;
+`launchExecutableName` is a hint, not an authoritative window process name.
 
 For computer use, `launch_app` starts a process independently of managed shell
 cleanup and returns its process ID. Follow it with `computer_observe` using
