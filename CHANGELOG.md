@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.9...nexa-monorepo-v0.14.10) (2026-09-21)
+
+
+### Bug Fixes
+
+* **agent:** complete native interaction recovery and bound app resources ([ff7d7d7](https://github.com/MLGBJDLW/Nexa/commit/ff7d7d785298996fac5c81bf582c8826d2eb6421))
+* **agent:** retain exact desktop evidence across stop and resume ([0fe7900](https://github.com/MLGBJDLW/Nexa/commit/0fe79002c97d57066a9a05c51e3b6c2e12c59067))
+* **browser:** preserve actionable observations through model and input paths ([c9f4473](https://github.com/MLGBJDLW/Nexa/commit/c9f4473ef441043d782bb07f05e7d9b5fe20aedb))
+* **computer:** expose native state and bind installed app launches ([2b29f95](https://github.com/MLGBJDLW/Nexa/commit/2b29f95d00e9edce9207e6aec15aaa3969841aa7))
+* **computer:** verify background effects and modal owner handoffs ([d1289a1](https://github.com/MLGBJDLW/Nexa/commit/d1289a129240bb002e168d1810e2d271b2f7cceb))
+* **mcp:** bound transport lifetimes and preserve tool failures ([f06b884](https://github.com/MLGBJDLW/Nexa/commit/f06b8849acb8acfd20fc142c06ce03943cbb84ed))
+* **mcp:** isolate connector discovery failures ([ed9d252](https://github.com/MLGBJDLW/Nexa/commit/ed9d25230b46f2834299b9c89f9aedb923370d48))
+* **plugins:** enforce declared connector ownership and host gates ([8fd6339](https://github.com/MLGBJDLW/Nexa/commit/8fd63399e2941c3999e92b4c7232bae31457e92d))
+* **release:** gate draft publication on full candidate validation ([277b3a2](https://github.com/MLGBJDLW/Nexa/commit/277b3a213afd0ef02c46e3d1a1324bbae4fe6514))
+* **terminal:** keep asynchronous operations scoped to their conversation ([9b6fb1e](https://github.com/MLGBJDLW/Nexa/commit/9b6fb1e5d9428ae5eb54233cd73f94f4bed43482))
+
+
+### Performance Improvements
+
+* **app:** bound appearance reads and task history payloads ([46c0040](https://github.com/MLGBJDLW/Nexa/commit/46c004026e9f9b1af80cb51179d5b30b8aa6a010))
+
 ## [0.14.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.8...nexa-monorepo-v0.14.9) (2026-09-20)
 
 
