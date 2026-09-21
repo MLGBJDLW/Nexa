@@ -66,6 +66,9 @@ fn workflow(value: Option<&Value>) -> Result<Option<WorkflowIr>, CoreError> {
                 .consumed_observation_id
                 .as_ref()
                 .is_some_and(|value| value.trim().is_empty())
+            || target
+                .observation_not_before_ms
+                .is_some_and(|value| value <= 0)
         {
             return Err(invalid("saved desktop target identity is invalid"));
         }
@@ -159,7 +162,7 @@ pub(super) fn load_desktop_resume_workflow(
         }
     }
     if let Some(saved) = selected.as_mut() {
-        reconcile_late_desktop_closures(db, conversation_id, turn_id, saved)?;
+        reconcile_late_desktop_receipts(db, conversation_id, turn_id, saved)?;
     }
     Ok(selected.filter(|workflow| {
         workflow.desktop_evidence_pending()
@@ -170,17 +173,15 @@ pub(super) fn load_desktop_resume_workflow(
 }
 
 // A committed native worker can finish after the async turn was stopped and its
-// checkpoint was saved. Only its exact durable terminal receipt can discharge
-// that saved obligation; a resumed prompt cannot grant closure permission.
-fn reconcile_late_desktop_closures(
+// checkpoint was saved. A modal receipt transfers the obligation to the exact
+// owner; only an originally authorized terminal closure can discharge it.
+fn reconcile_late_desktop_receipts(
     db: &Database,
     conversation_id: &str,
     turn_id: &str,
     saved: &mut WorkflowIr,
 ) -> Result<(), CoreError> {
-    if !saved.completion_contract.desktop_terminal_closure_evidence
-        || saved.checkpoint.desktop_observation_targets.is_empty()
-    {
+    if saved.checkpoint.desktop_observation_targets.is_empty() {
         return Ok(());
     }
     let rows = {
@@ -231,11 +232,17 @@ fn reconcile_late_desktop_closures(
         let identity = detail.get("targetIdentity").and_then(Value::as_str);
         let token = detail.get("consumedObservationId").and_then(Value::as_str);
         let window = detail.get("windowId").and_then(Value::as_u64);
-        if detail.get("actionReceiptId").and_then(Value::as_str) != Some(activity_id.as_str())
-            || detail
+        let matching_modal_receipt = detail
+            .pointer("/modalOwnerHandoffReceipt/actionReceiptId")
+            .and_then(Value::as_str)
+            == Some(activity_id.as_str());
+        let matching_terminal_receipt = saved.completion_contract.desktop_terminal_closure_evidence
+            && detail
                 .pointer("/terminalWindowReceipt/actionReceiptId")
                 .and_then(Value::as_str)
-                != Some(activity_id.as_str())
+                == Some(activity_id.as_str());
+        if detail.get("actionReceiptId").and_then(Value::as_str) != Some(activity_id.as_str())
+            || !(matching_modal_receipt || matching_terminal_receipt)
             || identity.is_none_or(|value| value.trim().is_empty())
             || token.is_none_or(|value| {
                 value.trim().is_empty() || value == "<observation-token-redacted>"
@@ -253,13 +260,25 @@ fn reconcile_late_desktop_closures(
             continue;
         }
         let artifacts = serde_json::json!({"artifacts":{"kind":"computerControl"}, "data":detail});
+        let verified_handoff =
+            crate::workflow_ir::verified_desktop_modal_owner_handoff(None, Some(&artifacts))
+                .is_some();
+        let verified_closure = matching_terminal_receipt
+            && detail
+                .get("modalOwnerHandoffReceipt")
+                .is_none_or(Value::is_null)
+            && crate::workflow_ir::verified_desktop_terminal_closure(None, Some(&artifacts))
+                .is_some();
+        if !verified_handoff && !verified_closure {
+            continue;
+        }
         saved.observe_tool_result_with_arguments(
             &activity_id,
             "computer_control",
             None,
             false,
             Some(&artifacts),
-            "Reconciled the native worker's durable target-bound terminal receipt after pause.",
+            "Reconciled the native worker's durable target-bound completion receipt after pause.",
         );
     }
     Ok(())

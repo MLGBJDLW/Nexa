@@ -88,18 +88,24 @@ pub(super) async fn preserve_pending_targets(
                 target_from_receipt(event.payload.get("detail").unwrap_or(&event.payload))
             });
         if let Some(target) = target {
-            let terminal_receipt = observation
+            let completed_transition_receipt = observation
                 .events
                 .iter()
                 .rev()
-                .filter(|event| event.kind == ActivityEventKind::Completed)
+                .filter(|event| {
+                    observation.record.state == ActivityState::Completed
+                        && event.kind == ActivityEventKind::Completed
+                        && event.seq == observation.record.last_event_seq
+                        && event.activity_id == record.activity_id
+                })
                 .filter_map(|event| event.payload.get("detail"))
                 .find(|detail| {
                     detail.get("actionReceiptId").and_then(Value::as_str)
                         == Some(record.activity_id.as_str())
-                        && detail
-                            .get("terminalWindowReceipt")
-                            .is_some_and(Value::is_object)
+                        && target_from_receipt(detail).as_ref() == Some(&target)
+                        && ["terminalWindowReceipt", "modalOwnerHandoffReceipt"]
+                            .iter()
+                            .any(|key| detail.get(*key).is_some_and(Value::is_object))
                 })
                 .cloned();
             // The runtime orders records by start time. As in WorkflowIr, only
@@ -113,7 +119,7 @@ pub(super) async fn preserve_pending_targets(
                 record.session_id,
                 record.activity_id,
                 target,
-                terminal_receipt,
+                completed_transition_receipt,
             ));
         }
     }
@@ -196,13 +202,14 @@ pub(super) async fn preserve_pending_targets(
             "",
         );
     }
-    for (call_id, activity_id, target, terminal_receipt) in targets {
+    for (call_id, activity_id, target, completed_transition_receipt) in targets {
         if completed_receipts.contains(&activity_id) {
             continue;
         }
-        if let Some(receipt) = terminal_receipt {
-            // Only the workflow's original explicit-close contract may accept
-            // the worker-owned closure proof; an editing task remains blocked.
+        if let Some(receipt) = completed_transition_receipt {
+            // WorkflowIr distinguishes explicit terminal closure from a verified
+            // modal-to-owner handoff. The latter transfers the pending target
+            // even for ordinary editing, and still requires fresh owner pixels.
             workflow.observe_tool_result(
                 &activity_id,
                 "computer_control",
@@ -210,7 +217,7 @@ pub(super) async fn preserve_pending_targets(
                 Some(&json!({
                     "artifacts":{"kind":"computerControl"}, "data":receipt,
                 })),
-                "Native worker completed with a target-bound terminal window receipt.",
+                "Native worker completed with a target-bound window transition receipt.",
             );
             continue;
         }
@@ -267,6 +274,7 @@ fn target_from_receipt(receipt: &Value) -> Option<DesktopObservationTarget> {
         window_id,
         target_identity: Some(identity.into()),
         consumed_observation_id: Some(observation.into()),
+        observation_not_before_ms: None,
     })
 }
 
@@ -317,20 +325,29 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn hard_stop_checkpoint_restores_exact_target_through_formal_resume() {
-        assert_hard_stop_resume(false, false).await;
+        assert_hard_stop_resume(false, false, false).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn hard_stop_replays_redacted_timeout_receipt_with_host_consumed_identity() {
-        assert_hard_stop_resume(true, false).await;
+        assert_hard_stop_resume(true, false, false).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn hard_stop_precommit_rejection_preserves_earlier_pending_target() {
-        assert_hard_stop_resume(false, true).await;
+        assert_hard_stop_resume(false, true, false).await;
     }
 
-    async fn assert_hard_stop_resume(completed_timeout: bool, add_precommit_rejection: bool) {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn hard_stop_modal_handoff_requires_fresh_exact_owner_observation() {
+        assert_hard_stop_resume(false, false, true).await;
+    }
+
+    async fn assert_hard_stop_resume(
+        completed_timeout: bool,
+        add_precommit_rejection: bool,
+        modal_handoff: bool,
+    ) {
         let db = Database::open_memory().unwrap();
         let conversation = db
             .create_conversation(&CreateConversationInput {
@@ -398,6 +415,18 @@ mod tests {
             activities.transition("rejected-before-input", ActivityState::Failed, json!({
                 "stage":"precommit_rejected","inputDelivered":false,"effectMayHaveOccurred":false,
                 "windowId":42,"targetIdentity":"process-generation-A","consumedObservationId":"never-consumed-new-token"
+            })).unwrap();
+        }
+        if modal_handoff {
+            activities.transition("pending-native-A", ActivityState::Completed, json!({
+                "stage":"observed","windowId":42,"targetIdentity":"process-generation-A","consumedObservationId":"before-A",
+                "actionReceiptId":"pending-native-A","targetVerified":true,"inputDelivered":true,"deliveryStatus":"delivered","effectMayHaveOccurred":true,
+                "terminalWindowReceipt":{"kind":"computerWindowClosure","windowId":42,"targetIdentity":"process-generation-A",
+                    "actionReceiptId":"pending-native-A","windowExists":false,"inputDelivered":true},
+                "modalOwnerHandoffReceipt":{"kind":"computerModalOwnerHandoff","windowId":42,"targetIdentity":"process-generation-A",
+                    "consumedObservationId":"before-A","actionReceiptId":"pending-native-A","windowExists":false,"inputDelivered":true,
+                    "ownerRelationshipVerified":true,"ownerObservedBeforeAction":true,"ownerObservationNotBeforeMs":1000,
+                    "owner":{"windowId":84,"targetIdentity":"process-generation-owner"}}
             })).unwrap();
         }
         let entered = Arc::new(AtomicBool::new(false));
@@ -498,20 +527,35 @@ mod tests {
         assert_eq!(saved.checkpoint.desktop_observation_targets.len(), 1);
         assert_eq!(
             saved.checkpoint.desktop_observation_targets[0].window_id,
-            42
+            if modal_handoff { 84 } else { 42 }
         );
         assert_eq!(
             saved.checkpoint.desktop_observation_targets[0]
                 .target_identity
                 .as_deref(),
-            Some("process-generation-A")
+            Some(if modal_handoff {
+                "process-generation-owner"
+            } else {
+                "process-generation-A"
+            })
         );
-        assert_eq!(
-            saved.checkpoint.desktop_observation_targets[0]
-                .consumed_observation_id
-                .as_deref(),
-            Some("before-A")
-        );
+        if modal_handoff {
+            assert!(
+                !saved.completion_contract.desktop_terminal_closure_evidence,
+                "ordinary editing does not acquire an explicit-close completion contract"
+            );
+            assert_eq!(
+                saved.checkpoint.desktop_observation_targets[0].observation_not_before_ms,
+                Some(1000)
+            );
+        } else {
+            assert_eq!(
+                saved.checkpoint.desktop_observation_targets[0]
+                    .consumed_observation_id
+                    .as_deref(),
+                Some("before-A")
+            );
+        }
 
         let response = user_message(&conversation.id, &checkpoint.resume_prompt);
         db.resume_agent_turn_from_checkpoint(
@@ -543,14 +587,30 @@ mod tests {
         )
         .unwrap();
         let restored = restored.as_mut().unwrap();
-        for (window, identity, token, remaining) in [
-            (77, "process-generation-B", "after-B", 1),
-            (42, "reused-hwnd-other-process", "after-reused-A", 1),
-            (42, "process-generation-A", "before-A", 1),
-            (42, "process-generation-A", "after-A", 0),
-        ] {
+        let captures = if modal_handoff {
+            [
+                (77, "wrong-owner", "wrong-owner-pixels", 1001, 1),
+                (84, "reused-owner-hwnd", "wrong-generation", 1001, 1),
+                (84, "process-generation-owner", "old-owner-pixels", 1000, 1),
+                (
+                    84,
+                    "process-generation-owner",
+                    "fresh-owner-pixels",
+                    1001,
+                    0,
+                ),
+            ]
+        } else {
+            [
+                (77, "process-generation-B", "after-B", 1001, 1),
+                (42, "reused-hwnd-other-process", "after-reused-A", 1001, 1),
+                (42, "process-generation-A", "before-A", 1001, 1),
+                (42, "process-generation-A", "after-A", 1001, 0),
+            ]
+        };
+        for (window, identity, token, captured_at, remaining) in captures {
             restored.observe_tool_result_with_arguments(token, "computer_observe", Some(r#"{"action":"capture_window"}"#), false, Some(&json!({
-                "artifacts":{"kind":"computerObservation"},"data":{"windowId":window,"targetIdentity":identity,"observationId":token,"screenshotHash":"fresh-pixels"}
+                "artifacts":{"kind":"computerObservation"},"data":{"windowId":window,"targetIdentity":identity,"observationId":token,"screenshotHash":"fresh-pixels","observationCapturedAtMs":captured_at}
             })), "");
             assert_eq!(
                 restored.checkpoint.desktop_observation_targets.len(),

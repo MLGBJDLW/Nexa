@@ -1243,16 +1243,29 @@ pub(crate) fn query_requests_desktop_terminal_closure(query: &str) -> bool {
         "勿关",
         "不要退出",
         "别退出",
+        "不退出",
+        "不得退出",
+        "禁止退出",
+        "无需退出",
+        "勿退出",
+        "不关掉",
         "不要按",
         "不要使用",
         "how to close",
         "how do i close",
+        "how to quit",
+        "how do i quit",
+        "how to exit",
+        "how do i exit",
         "如何关闭",
         "怎样关闭",
     ]
     .iter()
     .any(|negative| query.contains(negative))
     {
+        return false;
+    }
+    if browser_terminal_closure_is_discussion(&query) {
         return false;
     }
     [
@@ -1265,8 +1278,6 @@ pub(crate) fn query_requests_desktop_terminal_closure(query: &str) -> bool {
         "close the application",
         "quit the app",
         "exit the app",
-        "close notepad",
-        "quit notepad",
         "关闭窗口",
         "关闭当前窗口",
         "关闭这个窗口",
@@ -1275,35 +1286,58 @@ pub(crate) fn query_requests_desktop_terminal_closure(query: &str) -> bool {
         "关闭程序",
         "退出应用",
         "退出程序",
-        "关闭记事本",
-        "退出记事本",
     ]
     .iter()
     .any(|command| {
         query.match_indices(command).any(|(index, _)| {
-            let prefix = query[..index]
-                .rsplit([',', ';', '.', '，', '；', '。', '\n'])
-                .next()
-                .unwrap_or_default();
-            if [
-                "type ", "write ", "enter ", "input ", "输入", "写入", "键入", "打印", "示例",
-                "文本",
-            ]
-            .iter()
-            .any(|term| prefix.contains(term))
-            {
-                return false;
-            }
-            let rest = query[index + command.len()..].trim_start();
-            rest.is_empty()
-                || [
-                    ",", ".", ";", "!", "，", "。", "；", "！", "后", "并", "然后", "and ",
-                    "then ", "after ", "please",
-                ]
+            desktop_closure_command_in_context(&query, index, index + command.len())
+        })
+    }) || NATIVE_DESKTOP_APP_TERMS.iter().any(|app| {
+        query.match_indices(app).any(|(app_start, _)| {
+            let preceding = query[..app_start].trim_end();
+            ["close", "quit", "exit", "关闭", "关掉", "退出"]
                 .iter()
-                .any(|suffix| rest.starts_with(suffix))
+                .any(|verb| {
+                    let Some(prefix) = preceding.strip_suffix(verb) else {
+                        return false;
+                    };
+                    // English commands need a word boundary and whitespace
+                    // before the app; Chinese commands may directly adjoin it.
+                    if verb.is_ascii()
+                        && (preceding.len() == app_start
+                            || prefix.chars().last().is_some_and(|character| {
+                                character.is_alphanumeric() || character == '_'
+                            }))
+                    {
+                        return false;
+                    }
+                    desktop_closure_command_in_context(&query, prefix.len(), app_start + app.len())
+                })
         })
     })
+}
+
+fn desktop_closure_command_in_context(query: &str, start: usize, end: usize) -> bool {
+    let prefix = query[..start]
+        .rsplit([',', ';', '.', '，', '；', '。', '\n'])
+        .next()
+        .unwrap_or_default();
+    if [
+        "type ", "write ", "enter ", "input ", "输入", "写入", "键入", "打印", "示例", "文本",
+    ]
+    .iter()
+    .any(|term| prefix.contains(term))
+    {
+        return false;
+    }
+    let rest = query[end..].trim_start();
+    rest.is_empty()
+        || [
+            ",", ".", ";", "!", "，", "。", "；", "！", "后", "并", "然后", "and ", "then ",
+            "after ", "please",
+        ]
+        .iter()
+        .any(|suffix| rest.starts_with(suffix))
 }
 
 fn query_requests_desktop_operation(query: &str) -> bool {
@@ -2994,6 +3028,55 @@ mod tests {
         );
         assert!(requirements.browser_observation);
         assert!(requirements.browser_interaction);
+    }
+
+    #[test]
+    fn explicit_known_app_closure_uses_the_desktop_interaction_route() {
+        for query in [
+            "关闭 Excel",
+            "退出计算器",
+            "Close Microsoft Word",
+            "Quit Outlook",
+            "Exit Discord",
+            "关掉飞书",
+        ] {
+            assert!(query_requests_desktop_terminal_closure(query), "{query}");
+            let requirements = resolve_turn_capability_requirements(ToolVisibilityInput {
+                query,
+                system_prompt: "",
+                has_sources: false,
+            });
+            assert_eq!(
+                requirements.route,
+                ToolVisibilityRouteKind::InteractionOperation,
+                "{query}"
+            );
+            assert!(requirements.interaction.desktop_interaction, "{query}");
+            assert!(
+                requirements.interaction.requires_desktop_observation(),
+                "{query}"
+            );
+            assert!(
+                requirements
+                    .active_categories
+                    .contains(&ToolCategory::DesktopInteract),
+                "{query}"
+            );
+        }
+        for query in [
+            "输入‘关闭Excel’的操作说明",
+            "在记事本输入‘退出计算器’并保存",
+            "Type Close Microsoft Word",
+            "不要关闭 Excel",
+            "不退出计算器",
+            "How do I quit Outlook?",
+            "解释如何关闭Excel",
+            "\"Close Microsoft Word\"",
+            "关闭菜单，然后打开 Excel",
+            "disclose Excel",
+        ] {
+            assert!(!query_requests_desktop_terminal_closure(query), "{query}");
+        }
     }
 
     #[test]

@@ -98,6 +98,126 @@ fn late_closure_detail(activity_id: &str) -> Value {
             "windowExists":false,"inputDelivered":true}})
 }
 
+fn late_modal_handoff_detail(activity_id: &str) -> Value {
+    let mut detail = late_closure_detail(activity_id);
+    detail["modalOwnerHandoffReceipt"] = json!({"kind":"computerModalOwnerHandoff", "windowId":42,
+        "targetIdentity":"target-42", "consumedObservationId":"before-42", "actionReceiptId":activity_id,
+        "windowExists":false,"inputDelivered":true,"ownerRelationshipVerified":true,
+        "ownerObservedBeforeAction":true,"ownerObservationNotBeforeMs":1000,
+        "owner":{"windowId":77,"targetIdentity":"exact-owner"}});
+    detail
+}
+
+#[test]
+fn late_native_modal_handoff_restores_owner_obligation_without_granting_close_permission() {
+    use crate::activity::{ActivityRuntime, ActivitySpec};
+    let (db, run, _, mut saved) = fixture();
+    observe(&mut saved, 43, "target-43", "after-43");
+    let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
+    let activity = runtime
+        .start(
+            ActivitySpec::new(ActivitySurface::Desktop, "computer_control")
+                .with_conversation_id(&run.conversation_id)
+                .with_turn_id(&run.turn_id),
+        )
+        .unwrap();
+    resume(&db, &run, &saved);
+    runtime
+        .transition(
+            &activity.activity_id,
+            ActivityState::Completed,
+            late_modal_handoff_detail(&activity.activity_id),
+        )
+        .unwrap();
+    let resumed_plan = plan("Continue the task");
+    let mut resumed = None;
+    restore_pending_desktop_evidence(
+        &db,
+        Some(&run.conversation_id),
+        Some(&run.turn_id),
+        &mut resumed,
+        &resumed_plan,
+        &profile(),
+        false,
+    )
+    .unwrap();
+    let resumed = resumed.as_mut().unwrap();
+    assert!(
+        !resumed
+            .completion_contract
+            .desktop_terminal_closure_evidence
+    );
+    assert_eq!(resumed.checkpoint.desktop_observation_targets.len(), 1);
+    assert_eq!(
+        resumed.checkpoint.desktop_observation_targets[0].window_id,
+        77
+    );
+    assert_eq!(
+        resumed.checkpoint.desktop_observation_targets[0].observation_not_before_ms,
+        Some(1000)
+    );
+    for (window, identity, time, expected) in [
+        (78, "exact-owner", 1001, false),
+        (77, "other-owner", 1001, false),
+        (77, "exact-owner", 1000, false),
+        (77, "exact-owner", 1001, true),
+    ] {
+        resumed.observe_tool_result_with_arguments("owner", "computer_observe",
+            Some(&json!({"action":"capture_window","window_id":window}).to_string()), false,
+            Some(&json!({"data":{"kind":"computerObservationReceipt","windowId":window,
+                "targetIdentity":identity,"observationId":format!("owner-{time}"),"observationCapturedAtMs":time,
+                "screenshotHash":"owner-pixels"}})), "host owner capture");
+        assert_eq!(resumed.completion_allowed(), expected);
+    }
+}
+
+#[test]
+fn late_modal_handoff_cannot_transfer_a_different_pending_control_or_forged_relationship() {
+    use crate::activity::{ActivityRuntime, ActivitySpec};
+    for mismatch in ["token", "activity", "relation", "turn"] {
+        let (db, run, _, saved) = fixture();
+        let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
+        let activity = runtime
+            .start(
+                ActivitySpec::new(ActivitySurface::Desktop, "computer_control")
+                    .with_conversation_id(&run.conversation_id)
+                    .with_turn_id(if mismatch == "turn" {
+                        "other"
+                    } else {
+                        &run.turn_id
+                    }),
+            )
+            .unwrap();
+        resume(&db, &run, &saved);
+        let mut detail = late_modal_handoff_detail(&activity.activity_id);
+        match mismatch {
+            "token" => {
+                detail["consumedObservationId"] = json!("other-token");
+                detail["modalOwnerHandoffReceipt"]["consumedObservationId"] = json!("other-token");
+            }
+            "activity" => {
+                detail["modalOwnerHandoffReceipt"]["actionReceiptId"] = json!("other-action")
+            }
+            "relation" => {
+                detail["modalOwnerHandoffReceipt"]["ownerRelationshipVerified"] = json!(false)
+            }
+            _ => {}
+        }
+        runtime
+            .transition(&activity.activity_id, ActivityState::Completed, detail)
+            .unwrap();
+        let resumed =
+            load_desktop_resume_workflow(&db, Some(&run.conversation_id), Some(&run.turn_id))
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            resumed.checkpoint.desktop_observation_targets,
+            saved.checkpoint.desktop_observation_targets,
+            "{mismatch}"
+        );
+    }
+}
+
 #[test]
 fn late_native_worker_closure_is_reconciled_at_the_real_checkpoint_resume_boundary() {
     use crate::activity::{ActivityRuntime, ActivitySpec};

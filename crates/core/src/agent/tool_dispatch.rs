@@ -200,6 +200,25 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
             "windowExists": receipt.get("windowExists").and_then(serde_json::Value::as_bool),
             "inputDelivered": receipt.get("inputDelivered").and_then(serde_json::Value::as_bool),
         }));
+    let modal_owner_handoff = source
+        .get("modalOwnerHandoffReceipt")
+        .filter(|receipt| receipt.is_object())
+        .map(|receipt| serde_json::json!({
+            "kind": receipt.get("kind").and_then(serde_json::Value::as_str),
+            "windowId": receipt.get("windowId").and_then(serde_json::Value::as_u64),
+            "targetIdentity": receipt.get("targetIdentity").and_then(serde_json::Value::as_str),
+            "consumedObservationId": receipt.get("consumedObservationId").and_then(serde_json::Value::as_str),
+            "actionReceiptId": receipt.get("actionReceiptId").and_then(serde_json::Value::as_str),
+            "windowExists": receipt.get("windowExists").and_then(serde_json::Value::as_bool),
+            "inputDelivered": receipt.get("inputDelivered").and_then(serde_json::Value::as_bool),
+            "ownerRelationshipVerified": receipt.get("ownerRelationshipVerified").and_then(serde_json::Value::as_bool),
+            "ownerObservedBeforeAction": receipt.get("ownerObservedBeforeAction").and_then(serde_json::Value::as_bool),
+            "ownerObservationNotBeforeMs": receipt.get("ownerObservationNotBeforeMs").and_then(serde_json::Value::as_u64),
+            "owner": {
+                "windowId": receipt.pointer("/owner/windowId").and_then(serde_json::Value::as_u64),
+                "targetIdentity": receipt.pointer("/owner/targetIdentity").and_then(serde_json::Value::as_str),
+            },
+        }));
     let audit = serde_json::json!({
         "schemaVersion": source.get("schemaVersion").and_then(serde_json::Value::as_u64).unwrap_or(2),
         "kind": if tool_name == "computer_control" { "computerControlReceipt" } else { "computerObservationReceipt" },
@@ -212,12 +231,15 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
         "targetIdentity": source.get("targetIdentity"),
         "observationId": source.get("observationId"),
         "consumedObservationId": source.get("consumedObservationId"),
+        "observationCapturedAtMs": source.get("observationCapturedAtMs")
+            .or_else(|| source.pointer("/observation/observationCapturedAtMs")),
         "inputDelivered": source.get("inputDelivered"),
         "targetVerified": source.get("targetVerified"),
         "deliveryStatus": source.get("deliveryStatus"),
         "actionReceiptId": source.get("actionReceiptId"),
         "postActionObservationVerified": post_action_observation_verified,
         "terminalWindowReceipt": terminal_window_receipt,
+        "modalOwnerHandoffReceipt": modal_owner_handoff,
         "screenshotHash": source.get("screenshotHash").and_then(serde_json::Value::as_str)
             .or_else(|| source.pointer("/observation/screenshotHash").and_then(serde_json::Value::as_str)),
         "semanticHash": source.get("semanticHash").and_then(serde_json::Value::as_str)
@@ -2330,6 +2352,37 @@ mod visual_attachment_tests {
             Some("target-a")
         );
         assert!(!artifacts.to_string().contains("private-screen-value"));
+    }
+
+    #[test]
+    fn desktop_modal_handoff_retains_freshness_without_private_owner_content() {
+        let mut artifacts = Some(serde_json::json!({"data":{
+            "observation":{"observationCapturedAtMs":102},
+            "modalOwnerHandoffReceipt":{
+                "kind":"computerModalOwnerHandoff","windowId":42,"targetIdentity":"dialog",
+                "consumedObservationId":"dialog-token","actionReceiptId":"receipt-a",
+                "windowExists":false,"inputDelivered":true,"ownerRelationshipVerified":true,
+                "ownerObservedBeforeAction":true,"ownerObservationNotBeforeMs":101,
+                "owner":{"windowId":41,"targetIdentity":"owner","title":"private-owner-text"},
+                "text":"private-dialog-text"
+            }
+        }}));
+        strip_ephemeral_computer_artifacts("computer_control", &mut artifacts);
+        let artifacts = artifacts.unwrap();
+        assert_eq!(
+            artifacts.pointer("/data/observationCapturedAtMs"),
+            Some(&serde_json::json!(102))
+        );
+        assert_eq!(
+            artifacts.pointer("/data/modalOwnerHandoffReceipt/owner/windowId"),
+            Some(&serde_json::json!(41))
+        );
+        assert_eq!(
+            artifacts.pointer("/data/modalOwnerHandoffReceipt/ownerObservationNotBeforeMs"),
+            Some(&serde_json::json!(101))
+        );
+        assert!(!artifacts.to_string().contains("private-owner-text"));
+        assert!(!artifacts.to_string().contains("private-dialog-text"));
     }
 
     #[test]

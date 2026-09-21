@@ -152,6 +152,10 @@ pub struct DesktopObservationTarget {
     pub target_identity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consumed_observation_id: Option<String>,
+    /// A modal handoff needs pixels captured after the host verified the owner
+    /// became available. The source dialog's token is not an owner freshness fence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_not_before_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -704,27 +708,62 @@ impl WorkflowIr {
                 else { "Desktop evidence did not verify every outstanding control target; observe the pending target window." },
             );
         }
-        if tool_name == "computer_control"
-            && self.completion_contract.desktop_terminal_closure_evidence
-        {
-            if let Some(closed) = verified_desktop_terminal_closure(tool_arguments, artifacts) {
+        if tool_name == "computer_control" {
+            if let Some((source, owner)) =
+                verified_desktop_modal_owner_handoff(tool_arguments, artifacts)
+            {
                 self.checkpoint
                     .desktop_observation_targets
                     .retain(|target| {
-                        target.window_id != closed.window_id
-                            || target.target_identity != closed.target_identity
+                        target.window_id != source.window_id
+                            || target.target_identity != source.target_identity
+                            || target.consumed_observation_id != source.consumed_observation_id
                     });
-                let verified = self.checkpoint.desktop_observation_targets.is_empty();
-                self.record_gate("desktop-observation", verified, if verified {
+                if let Some(existing) =
+                    self.checkpoint
+                        .desktop_observation_targets
+                        .iter_mut()
+                        .find(|target| {
+                            target.window_id == owner.window_id
+                                && target.target_identity == owner.target_identity
+                        })
+                {
+                    existing.observation_not_before_ms = existing
+                        .observation_not_before_ms
+                        .max(owner.observation_not_before_ms);
+                } else {
+                    self.checkpoint.desktop_observation_targets.push(owner);
+                }
+                self.record_gate("desktop-observation", false,
+                    "The modal dialog closed and control returned to its verified owner; capture that exact owner after the handoff before completion.");
+                if self.completion_contract.desktop_terminal_closure_evidence {
+                    self.record_gate("desktop-terminal-closure", true,
+                        "The requested source dialog closed, but its verified owner still requires fresh visual evidence.");
+                }
+            } else if self.completion_contract.desktop_terminal_closure_evidence
+                && artifacts
+                    .and_then(|value| value.pointer("/data/modalOwnerHandoffReceipt"))
+                    .is_none_or(serde_json::Value::is_null)
+            {
+                if let Some(closed) = verified_desktop_terminal_closure(tool_arguments, artifacts) {
+                    self.checkpoint
+                        .desktop_observation_targets
+                        .retain(|target| {
+                            target.window_id != closed.window_id
+                                || target.target_identity != closed.target_identity
+                        });
+                    let verified = self.checkpoint.desktop_observation_targets.is_empty();
+                    self.record_gate("desktop-observation", verified, if verified {
                     "The native host verified that the explicitly requested target window closed after delivered input."
                 } else {
                     "The requested window closed, but other desktop targets still require verification."
                 });
-                self.record_gate(
-                    "desktop-terminal-closure",
-                    true,
-                    "Host-owned terminal receipt verifies the requested window closure.",
-                );
+                    self.record_gate(
+                        "desktop-terminal-closure",
+                        true,
+                        "Host-owned terminal receipt verifies the requested window closure.",
+                    );
+                }
             }
         }
         if matches!(
@@ -1455,10 +1494,81 @@ fn desktop_control_target(
                     .filter(|value| !value.is_empty() && *value != "<observation-token-redacted>")
             })
             .map(str::to_owned),
+        observation_not_before_ms: None,
     })
 }
 
-fn verified_desktop_terminal_closure(
+pub(crate) fn verified_desktop_modal_owner_handoff(
+    arguments: Option<&str>,
+    artifacts: Option<&serde_json::Value>,
+) -> Option<(DesktopObservationTarget, DesktopObservationTarget)> {
+    use serde_json::Value;
+    let artifacts = artifacts?;
+    let data = artifacts.get("data")?;
+    let kind = artifacts
+        .pointer("/artifacts/kind")
+        .or_else(|| artifacts.get("kind"))
+        .and_then(Value::as_str);
+    if kind != Some("computerControl")
+        && data.get("kind").and_then(Value::as_str) != Some("computerControlReceipt")
+    {
+        return None;
+    }
+    let source = desktop_control_target(arguments, Some(artifacts))?;
+    let identity = source.target_identity.as_deref()?;
+    let consumed = source.consumed_observation_id.as_deref()?;
+    let action = data
+        .get("actionReceiptId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())?;
+    let receipt = data.get("modalOwnerHandoffReceipt")?;
+    let owner_id = receipt.pointer("/owner/windowId").and_then(Value::as_u64)?;
+    let owner_identity = receipt
+        .pointer("/owner/targetIdentity")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())?;
+    let not_before = receipt
+        .get("ownerObservationNotBeforeMs")
+        .and_then(Value::as_i64)?;
+    if data.get("inputDelivered").and_then(Value::as_bool) != Some(true)
+        || data.get("targetVerified").and_then(Value::as_bool) != Some(true)
+        || data.get("deliveryStatus").and_then(Value::as_str) != Some("delivered")
+        || data.get("windowId").and_then(Value::as_u64) != Some(source.window_id)
+        || data.get("consumedObservationId").and_then(Value::as_str) != Some(consumed)
+        || receipt.get("kind").and_then(Value::as_str) != Some("computerModalOwnerHandoff")
+        || receipt.get("windowId").and_then(Value::as_u64) != Some(source.window_id)
+        || receipt.get("targetIdentity").and_then(Value::as_str) != Some(identity)
+        || receipt.get("consumedObservationId").and_then(Value::as_str) != Some(consumed)
+        || receipt.get("actionReceiptId").and_then(Value::as_str) != Some(action)
+        || receipt.get("windowExists").and_then(Value::as_bool) != Some(false)
+        || receipt.get("inputDelivered").and_then(Value::as_bool) != Some(true)
+        || receipt
+            .get("ownerRelationshipVerified")
+            .and_then(Value::as_bool)
+            != Some(true)
+        || receipt
+            .get("ownerObservedBeforeAction")
+            .and_then(Value::as_bool)
+            != Some(true)
+        || owner_id == 0
+        || owner_id == source.window_id
+        || owner_identity == identity
+        || not_before <= 0
+    {
+        return None;
+    }
+    Some((
+        source,
+        DesktopObservationTarget {
+            window_id: owner_id,
+            target_identity: Some(owner_identity.to_owned()),
+            consumed_observation_id: None,
+            observation_not_before_ms: Some(not_before),
+        },
+    ))
+}
+
+pub(crate) fn verified_desktop_terminal_closure(
     arguments: Option<&str>,
     artifacts: Option<&serde_json::Value>,
 ) -> Option<DesktopObservationTarget> {
@@ -1528,6 +1638,12 @@ fn desktop_observation_matches(
     window_id == Some(target.window_id)
         && observation_id.is_some()
         && observation_id != target.consumed_observation_id.as_deref()
+        && target.observation_not_before_ms.is_none_or(|not_before| {
+            observation
+                .get("observationCapturedAtMs")
+                .and_then(serde_json::Value::as_i64)
+                .is_some_and(|captured| captured > not_before)
+        })
         && target.target_identity.as_deref().is_none_or(|identity| {
             observation
                 .get("targetIdentity")
@@ -3576,6 +3692,166 @@ mod tests {
         }})
     }
 
+    fn desktop_modal_handoff_fixture() -> serde_json::Value {
+        let mut receipt = desktop_closure_fixture();
+        receipt["data"]["consumedObservationId"] = serde_json::json!("before");
+        receipt["data"]["modalOwnerHandoffReceipt"] = serde_json::json!({
+            "kind":"computerModalOwnerHandoff","windowId":42,"targetIdentity":"target-a",
+            "consumedObservationId":"before","actionReceiptId":"close-a","windowExists":false,
+            "inputDelivered":true,"ownerRelationshipVerified":true,"ownerObservedBeforeAction":true,
+            "ownerObservationNotBeforeMs":1000,"owner":{"windowId":77,"targetIdentity":"exact-owner"}
+        });
+        receipt
+    }
+
+    fn observe_modal_owner(
+        workflow: &mut WorkflowIr,
+        window: u64,
+        identity: &str,
+        captured: Option<i64>,
+    ) {
+        workflow.observe_tool_result_with_arguments(
+            "owner-capture",
+            "computer_observe",
+            Some(&serde_json::json!({"action":"capture_window","window_id":window}).to_string()),
+            false,
+            Some(
+                &serde_json::json!({"data":{"kind":"computerObservationReceipt","windowId":window,
+                "targetIdentity":identity,"observationId":format!("owner-{captured:?}"),
+                "observationCapturedAtMs":captured,"screenshotHash":"owner-pixels"}}),
+            ),
+            "owner screenshot",
+        );
+    }
+
+    #[test]
+    fn modal_handoff_transfers_editing_obligation_to_fresh_exact_owner_evidence() {
+        for objective in [
+            "Capture this app window and click Save",
+            "Capture this app window, close the window, then verify it",
+        ] {
+            let plan = interaction_plan(objective);
+            let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+            let close_contract = workflow
+                .completion_contract
+                .desktop_terminal_closure_evidence;
+            workflow.observe_tool_result_with_arguments(
+                "dialog-ok",
+                "computer_control",
+                Some(r#"{"action":"invoke","window_id":42,"observation_id":"before"}"#),
+                false,
+                Some(&desktop_modal_handoff_fixture()),
+                "dialog closed, owner available",
+            );
+            assert_eq!(workflow.checkpoint.desktop_observation_targets.len(), 1);
+            assert_eq!(
+                workflow.checkpoint.desktop_observation_targets[0].window_id,
+                77
+            );
+            assert_eq!(
+                workflow.checkpoint.desktop_observation_targets[0].observation_not_before_ms,
+                Some(1000)
+            );
+            assert!(workflow.checkpoint.desktop_observation_targets[0]
+                .consumed_observation_id
+                .is_none());
+            assert_eq!(
+                workflow
+                    .completion_contract
+                    .desktop_terminal_closure_evidence,
+                close_contract
+            );
+            assert!(
+                !workflow.completion_allowed(),
+                "handoff cannot directly complete even an explicit close task"
+            );
+            for (window, identity, time) in [
+                (78, "exact-owner", Some(1001)),
+                (77, "same-pid-other-window", Some(1001)),
+                (77, "exact-owner", None),
+                (77, "exact-owner", Some(999)),
+                (77, "exact-owner", Some(1000)),
+            ] {
+                observe_modal_owner(&mut workflow, window, identity, time);
+                assert!(
+                    !workflow.completion_allowed(),
+                    "accepted wrong or stale owner: {window}/{identity}/{time:?}"
+                );
+            }
+            observe_modal_owner(&mut workflow, 77, "exact-owner", Some(1001));
+            assert!(workflow.completion_allowed());
+        }
+    }
+
+    #[test]
+    fn modal_handoff_rejects_forged_or_missing_owner_relation_receipts() {
+        let plan = interaction_plan("Capture this app window and click Save");
+        for (path, invalid) in [
+            ("/data/modalOwnerHandoffReceipt", serde_json::Value::Null),
+            (
+                "/data/modalOwnerHandoffReceipt/ownerRelationshipVerified",
+                serde_json::json!(false),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/ownerObservedBeforeAction",
+                serde_json::Value::Null,
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/windowExists",
+                serde_json::json!(true),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/consumedObservationId",
+                serde_json::json!("other-token"),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/actionReceiptId",
+                serde_json::json!("other-action"),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/targetIdentity",
+                serde_json::json!("recycled-dialog"),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/owner/windowId",
+                serde_json::json!(42),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/owner/targetIdentity",
+                serde_json::json!(""),
+            ),
+            (
+                "/data/modalOwnerHandoffReceipt/ownerObservationNotBeforeMs",
+                serde_json::json!(0),
+            ),
+            ("/data/targetVerified", serde_json::json!(false)),
+            ("/data/inputDelivered", serde_json::json!(false)),
+            ("/data/windowId", serde_json::json!(99)),
+            ("/data/consumedObservationId", serde_json::Value::Null),
+        ] {
+            let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+            let mut receipt = desktop_modal_handoff_fixture();
+            *receipt.pointer_mut(path).unwrap() = invalid;
+            workflow.observe_tool_result_with_arguments(
+                "dialog-ok",
+                "computer_control",
+                Some(r#"{"action":"invoke","window_id":42,"observation_id":"before"}"#),
+                false,
+                Some(&receipt),
+                "unverified handoff",
+            );
+            observe_modal_owner(&mut workflow, 77, "exact-owner", Some(1001));
+            assert!(
+                !workflow.completion_allowed(),
+                "invalid handoff accepted at {path}"
+            );
+            assert_eq!(
+                workflow.checkpoint.desktop_observation_targets[0].window_id, 42,
+                "{path}"
+            );
+        }
+    }
+
     #[test]
     fn explicit_desktop_close_requires_and_accepts_bound_host_terminal_evidence() {
         let plan = interaction_plan("Capture this app window, close the window, then verify it");
@@ -3596,6 +3872,32 @@ mod tests {
     }
 
     #[test]
+    fn explicit_known_app_close_tasks_accept_bound_terminal_evidence() {
+        for objective in [
+            "关闭 Excel",
+            "退出计算器",
+            "Close Microsoft Word",
+            "Quit Outlook",
+            "Exit Discord",
+            "关掉飞书",
+        ] {
+            let plan = interaction_plan(objective);
+            let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+            assert!(
+                workflow
+                    .completion_contract
+                    .desktop_terminal_closure_evidence,
+                "{objective}"
+            );
+            assert!(!workflow.completion_allowed());
+            workflow.observe_tool_result_with_arguments("close", "computer_control",
+                Some(r#"{"action":"key","window_id":42,"observation_id":"before","key_sequence":"alt+f4"}"#),
+                false, Some(&desktop_closure_fixture()), "closed exact window");
+            assert!(workflow.completion_allowed(), "{objective}");
+        }
+    }
+
+    #[test]
     fn ordinary_edit_or_negated_close_cannot_accept_a_disappeared_window_as_success() {
         for objective in [
             "Capture this app window and click Save",
@@ -3605,6 +3907,11 @@ mod tests {
             "在记事本输入 Alt+F4 的使用方法并保存",
             "In Notepad, type close the window",
             "观察这个窗口，但无需关闭窗口",
+            "输入‘关闭Excel’的操作说明",
+            "在记事本输入‘退出计算器’并保存",
+            "Type Close Microsoft Word",
+            "不要关闭 Excel",
+            "不退出计算器",
         ] {
             let plan = interaction_plan(objective);
             let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
