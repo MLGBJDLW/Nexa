@@ -2230,7 +2230,15 @@ impl Tool for ScopedActivityTool {
         if let Some(id) = context.turn_id {
             spec = spec.with_turn_id(id);
         }
-        context.activity_runtime.unwrap().start(spec)?;
+        let runtime = context.activity_runtime.unwrap();
+        let activity = runtime.start(spec)?;
+        for index in 0..3 {
+            runtime.append(
+                &activity.activity_id,
+                crate::activity::ActivityEventKind::StdoutChunk,
+                serde_json::json!({ "data": format!("queued stdout {index}") }),
+            )?;
+        }
         Ok(ToolResult {
             call_id: context.call_id.into(),
             content: "build started".into(),
@@ -2324,6 +2332,62 @@ async fn delegated_process_is_observable_by_parent_without_child_transcript_pers
     assert_eq!(
         messages, 0,
         "private child messages must not enter the parent's history"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn completed_process_does_not_time_out_on_a_backpressured_progress_receiver() {
+    let db = Database::open_memory().unwrap();
+    let mut tools = ToolRegistry::new();
+    tools.register(Box::new(ScopedActivityTool));
+    let executor = AgentExecutor::new(
+        Box::new(MockProvider {
+            stream_calls: Arc::new(AtomicUsize::new(0)),
+        }),
+        tools,
+        AgentConfig {
+            max_iterations: 1,
+            tool_timeout_secs: Some(1),
+            ..Default::default()
+        },
+    );
+    let (tx, mut rx) = mpsc::channel(1);
+    let collect = tokio::spawn(async move {
+        let mut statuses = Vec::new();
+        while let Some(event) = rx.recv().await {
+            match event {
+                AgentEvent::ToolRunUpdated { run }
+                    if run
+                        .artifacts
+                        .as_ref()
+                        .is_some_and(|value| value["activity"]["kind"] == "started") =>
+                {
+                    tokio::time::sleep(Duration::from_secs(2)).await
+                }
+                AgentEvent::ToolRunCompleted { run } => statuses.push(run.status),
+                _ => {}
+            }
+        }
+        statuses
+    });
+    executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "build".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        collect.await.unwrap(),
+        [ToolRunStatus::Completed],
+        "progress delivery must not turn an already successful tool into a timeout"
     );
 }
 

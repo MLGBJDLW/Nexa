@@ -1318,7 +1318,11 @@ impl ToolDispatchRuntime<'_> {
                                             match activity_events.try_recv() {
                                                 Ok(event) => {
                                                     if let Some(event) = project_activity(event) {
-                                                        let _ = progress_tx.send(event).await;
+                                                        // The operation already finished. Its journal
+                                                        // and terminal receipt retain the result;
+                                                        // UI backpressure must not turn success into
+                                                        // a tool timeout after side effects occurred.
+                                                        let _ = progress_tx.try_send(event);
                                                     }
                                                 }
                                                 Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
