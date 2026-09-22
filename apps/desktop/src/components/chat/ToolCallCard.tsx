@@ -43,6 +43,11 @@ import * as api from '../../lib/api';
 import { FileBadge } from '../ui/FileBadge';
 import { Button } from '../ui/Button';
 import { Tooltip } from '../ui/Tooltip';
+import { ImagePreview } from '../ui/ImagePreview';
+import { extractToolVisualEvidence, type ToolVisualEvidence } from '../../lib/toolVisualEvidence';
+import { extractManagedProcess } from '../../lib/processArtifacts';
+import { ManagedProcessCard } from './ManagedProcessCard';
+export { extractToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
 import type { ToolCallEvent } from '../../lib/streaming/protocol';
 import {
@@ -150,16 +155,6 @@ interface GeneratedAudioArtifact {
   voice?: string;
   bytes?: number;
 }
-
-interface ToolVisualEvidence {
-  name: string;
-  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
-  base64: string;
-  contentHash?: string;
-}
-
-const MAX_TOOL_VISUAL_EVIDENCE_BASE64_BYTES = 6 * 1024 * 1024;
-const TOOL_VISUAL_EVIDENCE_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 interface ImagePromptArgs {
   prompt?: string;
@@ -847,49 +842,6 @@ function extractGeneratedAudioArtifact(
   return artifacts as unknown as GeneratedAudioArtifact;
 }
 
-function extractToolVisualEvidencePayload(value: unknown): ToolVisualEvidence | null {
-  if (!isRecord(value)) return null;
-  const evidence = value.evidence;
-  if (!isRecord(evidence)) return null;
-  const mimeType = evidence.mimeType;
-  const base64 = evidence.base64;
-  if (mimeType !== 'image/png' && mimeType !== 'image/jpeg' && mimeType !== 'image/webp') {
-    return null;
-  }
-  if (
-    typeof base64 !== 'string' ||
-    base64.length === 0 ||
-    base64.length > MAX_TOOL_VISUAL_EVIDENCE_BASE64_BYTES ||
-    base64.length % 4 !== 0 ||
-    !TOOL_VISUAL_EVIDENCE_BASE64.test(base64)
-  ) {
-    return null;
-  }
-  return {
-    name: typeof evidence.name === 'string' && evidence.name.trim()
-      ? evidence.name.trim()
-      : 'visual-evidence',
-    mimeType,
-    base64,
-    contentHash: typeof evidence.contentHash === 'string' ? evidence.contentHash : undefined,
-  };
-}
-
-export function extractToolVisualEvidence(
-  artifacts: ArtifactPayload | undefined,
-): ToolVisualEvidence | null {
-  if (!isRecord(artifacts)) return null;
-  const payload = artifacts.kind === 'toolVisualEvidence'
-    && artifacts.persistence === 'currentTurnOnly'
-    ? artifacts
-    : isRecord(artifacts.visualEvidence)
-      && artifacts.visualEvidence.kind === 'toolVisualEvidence'
-      && artifacts.visualEvidence.persistence === 'currentTurnOnly'
-      ? artifacts.visualEvidence
-      : null;
-  return extractToolVisualEvidencePayload(payload);
-}
-
 function extractSkillActivationArtifact(
   artifacts: ArtifactPayload | undefined,
 ): SkillActivationArtifact | null {
@@ -1033,6 +985,7 @@ function ToolVisualEvidencePreview({
 }) {
   const [imageError, setImageError] = useState(false);
   const source = `data:${evidence.mimeType};base64,${evidence.base64}`;
+  useEffect(() => setImageError(false), [source]);
   return (
     <div
       className="space-y-1.5"
@@ -1041,7 +994,7 @@ function ToolVisualEvidencePreview({
     >
       <div className="overflow-hidden rounded-md border border-border/60 bg-surface-0">
         {!imageError ? (
-          <img
+          <ImagePreview
             src={source}
             alt={`${label} visual evidence`}
             className={`${compact ? 'max-h-52' : 'max-h-[32rem]'} w-full object-contain`}
@@ -1194,7 +1147,7 @@ function GeneratedImagePreview({
     <div className={compact ? 'space-y-1.5' : 'space-y-2.5'} data-testid="generated-image-preview">
       <div className="overflow-hidden rounded-md border border-border/60 bg-surface-0">
         {previewSrc && !imageError ? (
-          <img
+          <ImagePreview
             src={previewSrc}
             alt={requestedPrompt || t('chat.generatedImageAlt')}
             className={`${maxHeight} w-full object-contain`}
@@ -1709,6 +1662,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const generatedImage = useMemo(() => extractGeneratedImageArtifact(artifacts), [artifacts]);
   const generatedAudio = useMemo(() => extractGeneratedAudioArtifact(artifacts), [artifacts]);
   const visualEvidence = useMemo(() => extractToolVisualEvidence(artifacts), [artifacts]);
+  const managedProcess = useMemo(() => extractManagedProcess(safeToolName, artifacts, activityEvents), [safeToolName, artifacts, activityEvents]);
   const graphUsage = useMemo(() => extractGraphAgentUsage(artifacts), [artifacts]);
   const officeArtifact = useMemo(() => extractOfficeArtifactEvidence(artifacts), [artifacts]);
   const questionRequest = useMemo(
@@ -1855,6 +1809,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     generatedImage ||
     generatedAudio ||
     visualEvidence ||
+    managedProcess ||
     graphUsage ||
     officeArtifact,
   );
@@ -1957,6 +1912,7 @@ export const ToolCallCard = memo(function ToolCallCard({
           </span>
         </button>
 
+        {managedProcess && <ManagedProcessCard process={managedProcess} active={isPending} />}
         <AnimatePresence initial={false}>
           {detailsExpanded && expandableDetails && (
             <motion.div
@@ -2127,6 +2083,7 @@ export const ToolCallCard = memo(function ToolCallCard({
             )}
           </span>
         </button>
+        {managedProcess && <ManagedProcessCard process={managedProcess} active={isPending} />}
         <AnimatePresence initial={false}>
           {detailsExpanded && expandableDetails && (
             <motion.div
@@ -2139,6 +2096,8 @@ export const ToolCallCard = memo(function ToolCallCard({
                 ) : null}
                 {skillActivation ? (
                   <SkillActivationPanel activation={skillActivation} compact />
+                ) : visualEvidence ? (
+                  <ToolVisualEvidencePreview evidence={visualEvidence} label={briefLabel} compact />
                 ) : generatedImage ? (
                   <GeneratedImagePreview image={generatedImage} compact />
                 ) : showImagePendingPreview ? (
@@ -2491,6 +2450,7 @@ export const ToolCallCard = memo(function ToolCallCard({
         </span>
       </button>
 
+      {managedProcess && <ManagedProcessCard process={managedProcess} active={isPending} />}
       {/* Expandable result */}
       <AnimatePresence>
         {expanded && expandableDetails && (

@@ -23,6 +23,7 @@ import { MessageActions } from './MessageActions';
 import { messageTimestamp } from '../../lib/relativeTime';
 import type { ConversationMessage, ImageAttachment, VisionTurnOverride } from '../../types/conversation';
 import { Modal } from '../ui/Modal';
+import { ImagePreview } from '../ui/ImagePreview';
 import { CitationChip } from './EvidenceCard';
 import {
   extractProposedPlan,
@@ -209,7 +210,7 @@ function VisionAttachmentTile({
   }
   return (
     <div className="relative overflow-hidden rounded-md border border-border bg-surface-1">
-      <img
+      <ImagePreview
         src={`data:${attachment.mediaType};base64,${attachment.base64Data}`}
         alt={attachment.originalName}
         className="max-h-[200px] max-w-[200px] object-contain"

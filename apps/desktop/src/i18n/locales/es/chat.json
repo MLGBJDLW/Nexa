@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "Preparando pantalla compartida…",
   "screenShareConversationChanged": "La conversación cambió. Inicia la pantalla compartida en el chat actual.",
   "computerUseOperating": "Controlando el equipo",
-  "computerUseObserving": "Leyendo la ventana seleccionada"
+  "computerUseObserving": "Leyendo la ventana seleccionada",
+  "processLive": "En directo",
+  "processLastReported": "Último estado",
+  "processOpenBrowser": "Abrir en el navegador",
+  "processState.running": "En ejecución",
+  "processState.ready": "Listo",
+  "processState.unhealthy": "Sin respuesta",
+  "processState.completed": "Completado",
+  "processState.failed": "Error",
+  "processState.stopped": "Detenido",
+  "processState.unavailable": "No disponible"
 }

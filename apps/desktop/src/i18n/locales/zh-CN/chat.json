@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "正在准备屏幕共享…",
   "screenShareConversationChanged": "对话已切换，请在当前对话重新开启屏幕共享。",
   "computerUseOperating": "正在操作电脑",
-  "computerUseObserving": "正在读取选定窗口"
+  "computerUseObserving": "正在读取选定窗口",
+  "processLive": "实时",
+  "processLastReported": "上次报告",
+  "processOpenBrowser": "在浏览器中打开",
+  "processState.running": "运行中",
+  "processState.ready": "已就绪",
+  "processState.unhealthy": "无响应",
+  "processState.completed": "已完成",
+  "processState.failed": "失败",
+  "processState.stopped": "已停止",
+  "processState.unavailable": "无法确认状态"
 }

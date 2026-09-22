@@ -15,6 +15,7 @@ import type {
 } from './api';
 import { useAgentStream, useRunningConversationIds } from './useAgentStream';
 import { streamStore } from './streamStore';
+import { mergeCurrentTurnVisualEvidence, retainMessageVisualEvidence } from './toolVisualEvidence';
 import { useTranslation } from '../i18n';
 import type {
   AgentConfig,
@@ -157,7 +158,8 @@ function mergeLocalMessageState(
   prev: ConversationMessage[],
   next: ConversationMessage[],
 ): ConversationMessage[] {
-  const merged = mergeImageAttachments(prev, next);
+  const withImages = mergeImageAttachments(prev, next);
+  const merged = retainMessageVisualEvidence(prev, withImages);
   const nextUserContent = new Set(
     merged.filter((m) => m.role === 'user').map((m) => m.content.trim()),
   );
@@ -910,9 +912,16 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   // and leave a transient blank turn on slower renderers.
   useEffect(() => {
     if (activeId && !isStreaming && hasPersistedStreamResult) {
+      // Preserve the captured pixels in this mounted session while retiring the
+      // streaming timeline. These messages are UI state only, never DB writes.
+      const completedStream = streamStore.getStream(activeId);
+      const capturedCalls = completedStream?.toolCalls ?? [];
+      if (capturedCalls.length) {
+        setMessagesForConversation(activeId, previous => mergeCurrentTurnVisualEvidence(previous, capturedCalls, activeId, completedStream?.taskRun?.userMessageId));
+      }
       streamStore.clearPreview(activeId);
     }
-  }, [activeId, hasPersistedStreamResult, isStreaming]);
+  }, [activeId, hasPersistedStreamResult, isStreaming, setMessagesForConversation]);
 
   /* ── Sync stream errors to chatError ────────────────────────────── */
   useEffect(() => {

@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "Подготовка демонстрации экрана…",
   "screenShareConversationChanged": "Разговор изменился. Начните демонстрацию экрана в текущем чате.",
   "computerUseOperating": "Управление компьютером",
-  "computerUseObserving": "Чтение выбранного окна"
+  "computerUseObserving": "Чтение выбранного окна",
+  "processLive": "В реальном времени",
+  "processLastReported": "Последний статус",
+  "processOpenBrowser": "Открыть в браузере",
+  "processState.running": "Выполняется",
+  "processState.ready": "Готово",
+  "processState.unhealthy": "Не отвечает",
+  "processState.completed": "Завершено",
+  "processState.failed": "Ошибка",
+  "processState.stopped": "Остановлено",
+  "processState.unavailable": "Недоступно"
 }

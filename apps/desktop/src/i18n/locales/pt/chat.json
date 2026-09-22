@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "Preparando compartilhamento de tela…",
   "screenShareConversationChanged": "A conversa mudou. Inicie o compartilhamento de tela na conversa atual.",
   "computerUseOperating": "Controlando o computador",
-  "computerUseObserving": "Lendo a janela selecionada"
+  "computerUseObserving": "Lendo a janela selecionada",
+  "processLive": "Ao vivo",
+  "processLastReported": "Último estado",
+  "processOpenBrowser": "Abrir no navegador",
+  "processState.running": "Em execução",
+  "processState.ready": "Pronto",
+  "processState.unhealthy": "Sem resposta",
+  "processState.completed": "Concluído",
+  "processState.failed": "Falhou",
+  "processState.stopped": "Parado",
+  "processState.unavailable": "Indisponível"
 }

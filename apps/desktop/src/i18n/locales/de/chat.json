@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "Bildschirmfreigabe wird vorbereitet…",
   "screenShareConversationChanged": "Der Chat wurde gewechselt. Starte die Bildschirmfreigabe im aktuellen Chat.",
   "computerUseOperating": "Computer wird gesteuert",
-  "computerUseObserving": "Ausgewähltes Fenster wird gelesen"
+  "computerUseObserving": "Ausgewähltes Fenster wird gelesen",
+  "processLive": "Live",
+  "processLastReported": "Zuletzt gemeldet",
+  "processOpenBrowser": "Im Browser öffnen",
+  "processState.running": "Läuft",
+  "processState.ready": "Bereit",
+  "processState.unhealthy": "Keine Antwort",
+  "processState.completed": "Abgeschlossen",
+  "processState.failed": "Fehlgeschlagen",
+  "processState.stopped": "Gestoppt",
+  "processState.unavailable": "Nicht verfügbar"
 }

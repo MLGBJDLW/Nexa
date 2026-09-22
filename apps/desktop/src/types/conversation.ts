@@ -1075,7 +1075,9 @@ export type ActivityEventKind =
   | 'state_changed'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'superseded'
+  | 'timed_out';
 
 export interface ActivityEvent {
   activityId: string;

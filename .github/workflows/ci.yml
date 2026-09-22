@@ -363,6 +363,7 @@ jobs:
           e2e/app-resource-lifecycle.spec.ts
           e2e/task-center.spec.ts
           e2e/browser-agent-competence.spec.ts
+          e2e/browser-preview-rendering.spec.ts
 
       - name: Streaming scroll, questions, and desktop approval regressions
         working-directory: apps/desktop
@@ -384,6 +385,8 @@ jobs:
           e2e/remote-phone.spec.ts
           e2e/remote-setup.spec.ts
           e2e/file-preview-agent-edit.spec.ts
+          e2e/chat-image-preview.spec.ts
+          e2e/chat-managed-process.spec.ts
           e2e/knowledge-graph-filters.spec.ts
           e2e/knowledge-graph-dark-theme.spec.ts
           e2e/app-window-frame.spec.ts
