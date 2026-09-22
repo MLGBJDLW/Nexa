@@ -7,9 +7,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
+import { open as chooseFile } from '@tauri-apps/plugin-dialog';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -37,7 +39,6 @@ import {
   SquarePen,
   TextCursorInput,
   TriangleAlert,
-  X,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import * as api from '../../lib/api';
@@ -357,6 +358,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
+  const [choosingFile, setChoosingFile] = useState(false);
   const {
     size: previewPanelWidth,
     setSize: setPreviewPanelWidth,
@@ -375,13 +377,17 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const agentPreviewRequest = useRef<string | null>(null);
   const htmlRequest = useRef<AbortController | null>(null);
   const textPreview = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const selectionGeneration = useRef(0);
+  const currentLocationKey = useRef(location.key);
+  currentLocationKey.current = location.key;
   const mediaReady = useRef<{ path: string; resolve: () => void; reject: (error: Error) => void } | null>(null);
 
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
 
-  useEffect(() => () => htmlRequest.current?.abort(), []);
+  useEffect(() => () => { htmlRequest.current?.abort(); selectionGeneration.current++; }, []);
   const openHtml = useCallback(async (path: string, conversationId?: string | null, resourcePaths: string[] = []) => {
     htmlRequest.current?.abort();
     const controller = new AbortController(); htmlRequest.current = controller;
@@ -441,6 +447,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
 
   useAgentPreviewRequests(async (request: AgentPreviewRequest) => {
     if (dirtyRef.current) throw new Error('The current preview has unsaved edits. Save or discard them before opening another file.');
+    selectionGeneration.current++;
     agentPreviewRequest.current = request.requestId;
     if (/\.html?$/i.test(request.path) && !request.line) {
       const receipt = await openHtml(request.path, request.conversationId, request.resourcePaths);
@@ -489,6 +496,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (dirtyRef.current && !window.confirm(labels.discardPrompt)) {
       return;
     }
+    selectionGeneration.current++;
     agentPreviewRequest.current = null;
     htmlRequest.current?.abort();
     mediaReady.current?.reject(new Error('The media preview was replaced.')); mediaReady.current = null;
@@ -512,6 +520,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       toast.error(labels.browserOpenFailed);
       return;
     }
+    selectionGeneration.current++;
     setOpen(false);
   }, [labels.browserOpenFailed, labels.discardPrompt]);
 
@@ -519,6 +528,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (dirty && !window.confirm(labels.discardPrompt)) {
       return;
     }
+    selectionGeneration.current++;
     loadGeneration.current++;
     agentPreviewRequest.current = null;
     mediaReady.current?.reject(new Error('The media preview was closed.')); mediaReady.current = null;
@@ -526,6 +536,29 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     setOpen(false);
   }, [dirty, labels.discardPrompt]);
 
+  const togglePreviewPanel = useCallback(() => {
+    if (open) close();
+    else setOpen(true);
+  }, [close, open]);
+
+  const pickFile = useCallback(async () => {
+    if (choosingFile) return;
+    const generation = ++selectionGeneration.current;
+    const locationKey = currentLocationKey.current;
+    setChoosingFile(true);
+    try {
+      const selected = await chooseFile({
+        multiple: false,
+        directory: false,
+        title: t('preview.openFile'),
+      });
+      if (generation === selectionGeneration.current && locationKey === currentLocationKey.current && typeof selected === 'string') openFilePreview(selected);
+    } catch (reason) {
+      if (generation === selectionGeneration.current && locationKey === currentLocationKey.current) toast.error(`${labels.loadFailed}: ${String(reason)}`);
+    } finally {
+      setChoosingFile(false);
+    }
+  }, [choosingFile, labels.loadFailed, openFilePreview, t]);
 
   const handlePreviewPanelResizeKey = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'ArrowLeft') {
@@ -678,6 +711,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
+      // Native dialogs (for example the image viewer) own the keyboard while open.
+      if (document.querySelector('dialog[open]')) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         void save();
@@ -690,9 +725,43 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', handler);
   }, [close, open, save]);
 
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => {
+      // A requested text selection may already own focus by this point.
+      if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
+    });
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !panelRef.current || document.querySelector('dialog[open]')) return;
+      const elements = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]',
+      )).filter(element => element.getClientRects().length > 0);
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const inside = panelRef.current.contains(document.activeElement);
+      if (!first || !last) {
+        event.preventDefault();
+        panelRef.current.focus();
+      } else if (event.shiftKey && (!inside || document.activeElement === first || document.activeElement === panelRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (!inside || document.activeElement === last)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', trapFocus);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', trapFocus);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [open]);
+
   const contextValue = useMemo(
-    () => ({ openFilePreview, openWebLink }),
-    [openFilePreview, openWebLink],
+    () => ({ openFilePreview, openWebLink, togglePreviewPanel, previewPanelOpen: open }),
+    [openFilePreview, openWebLink, togglePreviewPanel, open],
   );
   const content = preview?.content ?? '';
   const hasStructured = hasStructuredPreview(preview);
@@ -713,9 +782,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       ].filter(Boolean)
     : [];
 
-  return (
-    <FilePreviewContext.Provider value={contextValue}>
-      {children}
+  const workspace = document.getElementById('app-window-content');
+  const panel = (
       <AnimatePresence>
         {open && (
           <>
@@ -726,19 +794,22 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
               exit={{ opacity: 0 }}
               transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.15 }}
               data-testid="file-preview-backdrop"
-              className="fixed inset-0 z-50 bg-black/35 backdrop-blur-[1px]"
+              className="absolute inset-0 z-50 bg-black/35 backdrop-blur-[1px]"
               onClick={close}
               aria-hidden="true"
             />
             <motion.aside
+              ref={panelRef}
               key="file-preview-panel"
               initial={shouldReduceMotion ? false : { x: '100%', opacity: 0.8 }}
               animate={{ x: 0, opacity: 1 }}
               exit={shouldReduceMotion ? { opacity: 0 } : { x: '100%', opacity: 0.8 }}
               transition={shouldReduceMotion || isPreviewPanelResizing ? INSTANT_TRANSITION : { duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-              className="fixed inset-y-0 right-0 z-[51] flex max-w-full flex-col border-l border-border bg-surface-1 shadow-2xl"
+              id="file-preview-panel"
+              className="absolute inset-y-0 right-0 z-[51] flex min-w-0 max-w-full flex-col border-l border-border bg-surface-1 shadow-2xl"
               style={{ width: previewPanelWidth }}
               role="dialog"
+              tabIndex={-1}
               aria-modal="true"
               aria-label={labels.title}
             >
@@ -761,8 +832,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                   {preview?.kind === 'code' ? <FileCode2 size={18} /> : <FileText size={18} />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <h2 className="truncate text-sm font-semibold text-text-primary">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h2 className="min-w-0 truncate text-sm font-semibold text-text-primary">
                       {preview?.displayName ?? basename(activePath ?? labels.title)}
                     </h2>
                     {dirty && (
@@ -792,8 +863,18 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                 </div>
                 <button
                   type="button"
+                  onClick={() => void pickFile()}
+                  disabled={choosingFile}
+                  className="shrink-0 rounded-md p-2 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary disabled:opacity-40"
+                  title={t('preview.openFile')}
+                  aria-label={t('preview.openFile')}
+                >
+                  {choosingFile ? <Loader2 size={18} className="animate-spin" /> : <FolderOpen size={18} />}
+                </button>
+                <button
+                  type="button"
                   onClick={close}
-                  className="rounded-md p-2 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
+                  className="shrink-0 rounded-md p-2 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
                   title={labels.close}
                   aria-label={labels.close}
                 >
@@ -801,8 +882,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                 </button>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <div className="flex rounded-md border border-border bg-surface-2 p-0.5">
+              {preview && <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="flex max-w-full flex-wrap rounded-md border border-border bg-surface-2 p-0.5">
                   <ModeButton
                     active={mode === 'preview'}
                     icon={
@@ -933,7 +1014,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                     </button>
                   </>
                 )}
-              </div>
+              </div>}
             </header>
 
             {(preview?.warning || error) && (
@@ -954,14 +1035,15 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
               ) : !preview ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-text-tertiary">
                   <FileText size={28} />
-                  <p>{error ?? labels.unsupported}</p>
+                  <p>{error ?? t('preview.chooseFileHint')}</p>
                   <button
                     type="button"
-                    onClick={close}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+                    onClick={() => void pickFile()}
+                    disabled={choosingFile}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
                   >
-                    <X size={14} />
-                    {labels.close}
+                    <FolderOpen size={14} />
+                    {t('preview.openFile')}
                   </button>
                 </div>
               ) : mode === 'text' && preview.content != null ? (
@@ -1146,6 +1228,12 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
           </>
         )}
       </AnimatePresence>
+  );
+
+  return (
+    <FilePreviewContext.Provider value={contextValue}>
+      {children}
+      {workspace && createPortal(panel, workspace)}
     </FilePreviewContext.Provider>
   );
 }

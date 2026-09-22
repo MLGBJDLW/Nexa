@@ -7,6 +7,8 @@ interface FilePreviewContextValue {
   resolveFileUrl?: (path: string) => Promise<string>;
   loadEvidence?: typeof getEvidenceCard;
   openCodePreview?: (code: string, language: string) => void;
+  togglePreviewPanel?: () => void;
+  previewPanelOpen?: boolean;
   remote?: boolean;
 }
 

@@ -1,4 +1,7 @@
 {
+  "togglePanel": "Toggle file preview",
+  "openFile": "Open file…",
+  "chooseFileHint": "Open a file to preview its contents or edit text and code.",
   "title": "File Preview",
   "preview": "Preview",
   "structured": "Structured",

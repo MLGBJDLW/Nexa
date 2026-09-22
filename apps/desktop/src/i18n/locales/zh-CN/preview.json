@@ -1,4 +1,7 @@
 {
+  "togglePanel": "切换文件预览",
+  "openFile": "打开文件…",
+  "chooseFileHint": "打开文件以预览内容，或编辑文本和代码。",
   "title": "文件预览",
   "preview": "预览",
   "structured": "结构化",

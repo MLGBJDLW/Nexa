@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Copy, Minus, Square, X } from 'lucide-react';
+import { Copy, Minus, PanelRightOpen, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useTranslation } from '../i18n';
 import { Logo } from './Logo';
+import { useFilePreview } from '../features/preview/filePreviewContext';
 
 function hasNativeWindowRuntime(): boolean {
   if (typeof window === 'undefined') return false;
@@ -19,6 +20,7 @@ interface AppWindowFrameProps {
 
 export function AppWindowFrame({ children, area }: AppWindowFrameProps) {
   const { t } = useTranslation();
+  const { togglePreviewPanel, previewPanelOpen } = useFilePreview();
   const hasWindowRuntime = hasNativeWindowRuntime();
   const appWindow = useMemo(
     () => hasWindowRuntime ? getCurrentWindow() : null,
@@ -105,6 +107,21 @@ export function AppWindowFrame({ children, area }: AppWindowFrameProps) {
           <span className="pointer-events-none h-1 w-1 rounded-full bg-accent/70 shadow-[0_0_8px_var(--color-accent)]" aria-hidden="true" />
         </div>
 
+        {togglePreviewPanel && (
+          <button
+            type="button"
+            data-testid="file-preview-toggle"
+            aria-label={t('preview.togglePanel')}
+            title={t('preview.togglePanel')}
+            aria-expanded={previewPanelOpen}
+            aria-controls={previewPanelOpen ? 'file-preview-panel' : undefined}
+            onClick={togglePreviewPanel}
+            className={`mx-1 my-1 inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors hover:bg-surface-2 hover:text-text-primary ${previewPanelOpen ? 'bg-accent/10 text-accent' : 'text-text-secondary'}`}
+          >
+            <PanelRightOpen size={14} />
+            <span className="hidden sm:inline">{t('preview.title')}</span>
+          </button>
+        )}
         <div className="flex shrink-0 items-stretch" data-testid="app-window-controls">
           <button
             type="button"

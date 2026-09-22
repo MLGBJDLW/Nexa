@@ -217,6 +217,8 @@ test.beforeEach(async ({ page }) => {
         case 'check_ocr_models_cmd':
           return false;
           return 0;
+        case 'plugin:dialog|open':
+          return localStorage.getItem('e2e-picked-file');
         case 'preview_file_cmd':
           if (localStorage.getItem('e2e-delay-preview') === '1') await new Promise<void>(resolve => { delayedPreview = resolve; });
           if (String(args.path).endsWith('image.svg')) return { path: String(args.path),displayName:'image.svg',sourceId:null,agentEditAllowed:true,sourceName:'Temporary',extension:'.svg',mimeType:'image/svg+xml',kind:'image',content:null,editable:false,sizeBytes:90,hash:'metadata:image',lineCount:0,truncated:false,warning:null };
@@ -641,9 +643,9 @@ test('blocks agent navigation when the preview contains unsaved edits',async({pa
 test('does not reopen a preview after the agent cancels a pending load',async({page})=>{
   await page.goto('/chat/conv-agent-edit');
   await page.evaluate(()=>{localStorage.setItem('e2e-delay-preview','1');(window as unknown as {__emitAgentPreview:(id:string,path:string)=>void}).__emitAgentPreview('cancelled','D:\\Vault\\notes\\agent-edit.md');});
-  await expect(page.getByLabel('File Preview')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeVisible();
   await page.evaluate(()=>{(window as unknown as {__cancelAgentPreview:(id:string)=>void}).__cancelAgentPreview('cancelled');(window as unknown as {__releasePreview:()=>void}).__releasePreview();});
-  await expect(page.getByLabel('File Preview')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toHaveCount(0);
   expect(await page.evaluate(()=>(window as unknown as {__previewAcks:unknown[]}).__previewAcks.length)).toBe(0);
 });
 
@@ -665,7 +667,7 @@ test(`${restricted ? 'explains existing agent access restrictions for' : 'sends 
   await page.goto('/chat/conv-agent-edit');
 
   await page.getByRole('button', { name: /agent-edit\.md/i }).click();
-  await expect(page.getByLabel('File Preview')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
 
   const editor = page.getByTestId('file-preview-editor');
@@ -688,7 +690,7 @@ test(`${restricted ? 'explains existing agent access restrictions for' : 'sends 
     await expect(page.getByText(/This file is outside the agent’s allowed directories/)).toBeVisible();
     await page.getByTestId('file-preview-agent-instruction').fill('Make this clearer.');
     await page.getByTestId('file-preview-agent-instruction').press('Enter');
-    await expect(page.getByLabel('File Preview')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeVisible();
     expect(await page.evaluate(() => window.__lastAgentPrompt ?? '')).toBe('');
     await expect(editor).toBeEditable();
     return;
@@ -741,7 +743,7 @@ test('opens file preview as a large panel and closes it from outside clicks', as
 
   await page.getByRole('button', { name: /agent-edit\.md/i }).click();
 
-  const previewPanel = page.getByLabel('File Preview');
+  const previewPanel = page.getByRole('dialog', { name: 'File Preview', exact: true });
   await expect(previewPanel).toBeVisible();
   await expect
     .poll(async () => {
@@ -750,14 +752,125 @@ test('opens file preview as a large panel and closes it from outside clicks', as
     })
     .toBeGreaterThan(800);
 
+  const titlebar = await page.getByTestId('app-titlebar').boundingBox();
+  const panel = await previewPanel.boundingBox();
+  expect(panel!.y).toBeGreaterThanOrEqual(titlebar!.y + titlebar!.height);
+  const closeButton = previewPanel.getByRole('button', { name: 'Close', exact: true });
+  await expect(closeButton).toBeInViewport();
+  await closeButton.click({ trial: true });
+
   await page.getByTestId('file-preview-backdrop').click({ position: { x: 32, y: 120 } });
   await expect(previewPanel).toBeHidden();
+});
+
+test('opens the preview panel from the titlebar without a chat file link', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  const toggle = page.getByTestId('file-preview-toggle');
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  const panel = page.getByRole('dialog', { name: 'File Preview', exact: true });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText('Open a file to preview its contents or edit text and code.')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Open file…', exact: true }).last()).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await expect(panel).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('chooses a file from the panel and reopens the current file with keyboard access', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(() => localStorage.setItem('e2e-picked-file', 'D:\\Vault\\notes\\agent-edit.md'));
+  const toggle = page.getByTestId('file-preview-toggle');
+  await toggle.click();
+  const panel = page.getByRole('dialog', { name: 'File Preview', exact: true });
+  await panel.getByRole('button', { name: 'Open file…', exact: true }).last().click();
+  await expect(page.getByTestId('file-preview-editor')).toHaveValue(/Alpha is ready/);
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('file-preview-editor')).toHaveValue(/Alpha is ready/);
+
+  await page.getByTestId('file-preview-editor').fill('Keep my unsaved draft');
+  await page.evaluate(() => localStorage.removeItem('e2e-picked-file'));
+  await panel.getByRole('button', { name: 'Open file…', exact: true }).click();
+  await expect(page.getByTestId('file-preview-editor')).toHaveValue('Keep my unsaved draft');
+});
+
+test('keeps preview controls below changing titlebar heights and inside narrow windows', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 480, height: 700 });
+  await page.goto('/chat/conv-agent-edit');
+  await page.getByRole('button', { name: /agent-edit\.md/i }).click();
+  const panel = page.getByRole('dialog', { name: 'File Preview', exact: true });
+  await expect(panel).toBeVisible();
+  for (const titlebarHeight of ['2.25rem', '3rem']) {
+    await page.evaluate(value => document.documentElement.style.setProperty('--theme-titlebar-height', value), titlebarHeight);
+    const titlebar = await page.getByTestId('app-titlebar').boundingBox();
+    await expect.poll(async () => (await panel.boundingBox())!.y).toBe(titlebar!.y + titlebar!.height);
+    await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => (await panel.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+    await expect.poll(async () => {
+      const box = await panel.boundingBox();
+      return box!.x + box!.width;
+    }).toBeLessThanOrEqual(480);
+    await panel.getByRole('button', { name: 'Close', exact: true }).click({ trial: true });
+    await expect(page.getByTestId('file-preview-toggle')).toBeInViewport();
+  }
+  await page.screenshot({ path: testInfo.outputPath('preview-narrow.png') });
+});
+
+test('a delayed file choice cannot reopen a panel the user has closed', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(() => {
+    const runtime = (window as any).__TAURI_INTERNALS__;
+    const original = runtime.invoke;
+    runtime.invoke = (command: string, args: unknown) => command === 'plugin:dialog|open'
+      ? new Promise(resolve => { (window as any).__finishFileChoice = resolve; })
+      : original(command, args);
+  });
+  await page.getByTestId('file-preview-toggle').click();
+  const panel = page.getByRole('dialog', { name: 'File Preview', exact: true });
+  await panel.getByRole('button', { name: 'Open file…', exact: true }).last().click();
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__finishFileChoice)).toBe('function');
+  await panel.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(panel).toBeHidden();
+  await page.evaluate(() => (window as any).__finishFileChoice('D:\\Vault\\notes\\agent-edit.md'));
+  await expect(page.getByTestId('file-preview-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await page.getByTestId('file-preview-toggle').click();
+  await expect(panel.getByText('Open a file to preview its contents or edit text and code.')).toBeVisible();
+});
+
+test('keeps the file panel and unsaved draft when dismissing its image viewer', async ({ page }) => {
+  await page.route('https://example.test/preview-diagram.png', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="teal"/></svg>',
+  }));
+  await page.goto('/chat/conv-agent-edit');
+  await page.getByRole('button', { name: /agent-edit\.md/i }).click();
+  const panel = page.getByRole('dialog', { name: 'File Preview', exact: true });
+  const draft = '![Preview diagram](https://example.test/preview-diagram.png)';
+  await page.getByTestId('file-preview-editor').fill(draft);
+  await panel.getByRole('button', { name: 'Preview', exact: true }).click();
+  await panel.getByRole('button', { name: 'Preview: Preview diagram', exact: true }).click();
+  const lightbox = page.getByTestId('image-lightbox');
+  await expect(lightbox).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect.poll(() => lightbox.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  let discardPrompts = 0;
+  page.on('dialog', async dialog => { discardPrompts++; await dialog.dismiss(); });
+  await page.keyboard.press('Escape');
+  await expect(lightbox).toBeHidden();
+  await expect(panel).toBeVisible();
+  expect(discardPrompts).toBe(0);
+  await panel.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByTestId('file-preview-editor')).toHaveValue(draft);
 });
 
 test('opens HTML through the built-in browser and acknowledges actual load completion', async ({ page }) => {
   await page.goto('/chat/conv-agent-edit');
   await page.getByRole('button', { name: /index\.html/i }).click();
-  await expect(page.getByLabel('File Preview')).toBeHidden();
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(1);
   await expect(page.getByTestId('file-preview-html-preview')).toHaveCount(0);
   await page.evaluate(() => { (window as any).__holdBrowserLoad(); (window as any).__emitAgentPreview('html-agent', 'D:\\Vault\\web\\index.html', null, ['D:\\Vault\\web\\assets\\main.js']); });
@@ -775,7 +888,7 @@ test('closes file preview only after a dirty web link is confirmed and routed', 
   await page.goto('/chat/conv-agent-edit');
 
   await page.getByRole('button', { name: /agent-edit\.md/i }).click();
-  const previewPanel = page.getByLabel('File Preview');
+  const previewPanel = page.getByRole('dialog', { name: 'File Preview', exact: true });
   await expect(previewPanel).toBeVisible();
 
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -803,7 +916,7 @@ test('renders structured DOCX without requesting layout rendering', async ({ pag
   await page.goto('/chat/conv-agent-edit');
 
   await page.getByRole('button', { name: /structured-report\.docx/i }).click();
-  await expect(page.getByLabel('File Preview')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeVisible();
   await expect(page.getByTestId('file-preview-structured-document')).toBeVisible();
   await expect(page.getByTestId('file-preview-structured-document')).toContainText('Quarterly Report');
   await expect(page.getByTestId('file-preview-structured-document')).toContainText('North America');
@@ -815,7 +928,7 @@ test('renders structured XLSX sheets, formulas, and extracted text fallback', as
   await page.goto('/chat/conv-agent-edit');
 
   await page.getByRole('button', { name: /budget\.xlsx/i }).click();
-  await expect(page.getByLabel('File Preview')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeVisible();
 
   const workbook = page.getByTestId('file-preview-workbook');
   await expect(workbook).toBeVisible();
@@ -836,7 +949,7 @@ test('shows the agent panel for read-only extracted Office text and routes to Py
   await page.goto('/chat/conv-agent-edit');
 
   await page.getByRole('button', { name: /office-proposal\.docx/i }).click();
-  await expect(page.getByLabel('File Preview')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeVisible();
   await expect(page.getByText('Read-only')).toBeVisible();
 
   const readable = page.getByTestId('file-preview-readable-content');

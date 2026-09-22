@@ -1,4 +1,7 @@
 {
+  "togglePanel": "Показать или скрыть предпросмотр файла",
+  "openFile": "Открыть файл…",
+  "chooseFileHint": "Откройте файл для просмотра содержимого или редактирования текста и кода.",
   "title": "File Preview",
   "preview": "Preview",
   "structured": "Structured",

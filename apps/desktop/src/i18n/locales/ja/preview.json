@@ -1,4 +1,7 @@
 {
+  "togglePanel": "ファイルプレビューの表示を切り替え",
+  "openFile": "ファイルを開く…",
+  "chooseFileHint": "ファイルを開いて内容をプレビューしたり、テキストやコードを編集したりできます。",
   "title": "File Preview",
   "preview": "Preview",
   "structured": "Structured",

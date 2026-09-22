@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentPropsWithoutRef } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useFilePreview } from './filePreviewContext';
 import { localFileReference } from './localFileReference';
+import { ImagePreview } from '../../components/ui/ImagePreview';
 
 export function PreviewImage({ src, node: _node, ...props }: ComponentPropsWithoutRef<'img'> & { node?: unknown }) {
   const { resolveFileUrl, openFilePreview } = useFilePreview();
@@ -21,5 +22,5 @@ export function PreviewImage({ src, node: _node, ...props }: ComponentPropsWitho
     return () => { active = false; };
   }, [src, resolveFileUrl]);
   if (failed) return <button type="button" className="text-sm text-accent underline" onClick={() => src && openFilePreview(localFileReference(src))}>{props.alt || src}</button>;
-  return url ? <img {...props} src={url} loading="lazy" onError={() => setFailed(true)} /> : <span className="text-xs text-text-tertiary">{props.alt}</span>;
+  return url ? <ImagePreview {...props} src={url} loading="lazy" onError={() => setFailed(true)} /> : <span className="text-xs text-text-tertiary">{props.alt}</span>;
 }

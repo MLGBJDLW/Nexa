@@ -1,4 +1,7 @@
 {
+  "togglePanel": "Dateivorschau ein-/ausblenden",
+  "openFile": "Datei öffnen…",
+  "chooseFileHint": "Öffnen Sie eine Datei, um ihren Inhalt anzuzeigen oder Text und Code zu bearbeiten.",
   "title": "File Preview",
   "preview": "Preview",
   "structured": "Structured",

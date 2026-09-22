@@ -166,8 +166,8 @@ function AppShell() {
   return (
     <I18nProvider>
       <MotionConfig reducedMotion="user">
-        <AppWindowFrame area={location.pathname === '/' ? 'home' : 'task'}>
-          <FilePreviewProvider>
+        <FilePreviewProvider>
+          <AppWindowFrame area={location.pathname === '/' ? 'home' : 'task'}>
             {startupReady && <CommandPalette />}
             {startupReady && wizardCompleted === false && location.pathname !== '/wizard' && (
               <Navigate to="/wizard" replace />
@@ -185,8 +185,8 @@ function AppShell() {
               </div>
               {startupReady && <GlobalBrowserDock />}
             </div>
-          </FilePreviewProvider>
-        </AppWindowFrame>
+          </AppWindowFrame>
+        </FilePreviewProvider>
       </MotionConfig>
     </I18nProvider>
   );
