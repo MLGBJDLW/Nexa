@@ -5,6 +5,7 @@ use crate::approval::ApprovalDecision;
 
 const MAX_EPHEMERAL_TOOL_IMAGE_BASE64_BYTES: usize = 16 * 1024 * 1024;
 const MAX_EPHEMERAL_UI_IMAGE_BASE64_BYTES: usize = 6 * 1024 * 1024;
+const MAX_COMPLETION_ACTIVITY_DRAIN: usize = 512;
 
 fn is_pending_user_input_artifact(artifacts: Option<&serde_json::Value>) -> bool {
     let Some(artifact) = artifacts.and_then(serde_json::Value::as_object) else {
@@ -1277,6 +1278,28 @@ impl ToolDispatchRuntime<'_> {
                                 _ => None,
                             };
                             let mut scoped_activity_ids: HashSet<String> = observed_activity_id.into_iter().collect();
+                            let mut project_activity = |event: crate::activity::ActivityEvent| {
+                                let starts_scoped_activity = event.kind == crate::activity::ActivityEventKind::Started
+                                    && event.payload.get("toolDispatchId").and_then(serde_json::Value::as_str)
+                                        == Some(activity_dispatch_id.as_str());
+                                if !starts_scoped_activity && !scoped_activity_ids.contains(&event.activity_id) {
+                                    return None;
+                                }
+                                if starts_scoped_activity {
+                                    scoped_activity_ids.insert(event.activity_id.clone());
+                                }
+                                let note = format!("{} activity {:?} (event #{})", progress_tool_name, event.kind, event.seq);
+                                Some(AgentEvent::ToolRunUpdated {
+                                    run: build_tool_run_item(
+                                        self.tools, &progress_call_id, &progress_tool_name,
+                                        ToolRunStatus::Running, Some(&tc.arguments), None, None,
+                                        Some(serde_json::json!({
+                                            "activity": event,
+                                            "activityRecord": self.activity_runtime.get(&event.activity_id),
+                                        })), Some(note), None,
+                                    ),
+                                })
+                            };
                             let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
                             heartbeat
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1284,47 +1307,31 @@ impl ToolDispatchRuntime<'_> {
                             loop {
                                 tokio::select! {
                                     biased;
-                                    r = &mut exec_fut => break r,
+                                    r = &mut exec_fut => {
+                                        // A fast tool, or a delayed executor poll, can make both
+                                        // completion and queued progress ready together. Preserve
+                                        // that progress before publishing the terminal receipt.
+                                        // Drain only a bounded snapshot so unrelated producers
+                                        // cannot keep an already completed tool alive indefinitely.
+                                        let pending = activity_events.len().min(MAX_COMPLETION_ACTIVITY_DRAIN);
+                                        for _ in 0..=pending {
+                                            match activity_events.try_recv() {
+                                                Ok(event) => {
+                                                    if let Some(event) = project_activity(event) {
+                                                        let _ = progress_tx.send(event).await;
+                                                    }
+                                                }
+                                                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                                                Err(_) => break,
+                                            }
+                                        }
+                                        break r;
+                                    },
                                     event = activity_events.recv() => {
                                         let Ok(event) = event else { continue; };
-                                        let starts_scoped_activity = event.kind
-                                            == crate::activity::ActivityEventKind::Started
-                                            && event
-                                                .payload
-                                                .get("toolDispatchId")
-                                                .and_then(serde_json::Value::as_str)
-                                                == Some(activity_dispatch_id.as_str());
-                                        if !starts_scoped_activity
-                                            && !scoped_activity_ids.contains(&event.activity_id)
-                                        {
-                                            continue;
+                                        if let Some(event) = project_activity(event) {
+                                            let _ = progress_tx.send(event).await;
                                         }
-                                        if starts_scoped_activity {
-                                            scoped_activity_ids.insert(event.activity_id.clone());
-                                        }
-                                        let note = format!(
-                                            "{} activity {:?} (event #{})",
-                                            progress_tool_name, event.kind, event.seq,
-                                        );
-                                        let _ = progress_tx
-                                            .send(AgentEvent::ToolRunUpdated {
-                                                run: build_tool_run_item(
-                                                    self.tools,
-                                                    &progress_call_id,
-                                                    &progress_tool_name,
-                                                    ToolRunStatus::Running,
-                                                    Some(&tc.arguments),
-                                                    None,
-                                                    None,
-                                                    Some(serde_json::json!({
-                                                        "activity": event,
-                                                        "activityRecord": self.activity_runtime.get(&event.activity_id),
-                                                    })),
-                                                    Some(note),
-                                                    None,
-                                                ),
-                                            })
-                                            .await;
                                     }
                                     _ = heartbeat.tick() => {
                                         let note = format!("running {}...", progress_tool_name);

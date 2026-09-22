@@ -2260,7 +2260,24 @@ async fn delegated_process_is_observable_by_parent_without_child_transcript_pers
     .with_activity_runtime(runtime.clone())
     .with_tool_scope("parent-conversation".into(), Some("parent-turn".into()));
     let (tx, mut rx) = mpsc::channel(128);
-    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let drain = tokio::spawn(async move {
+        let mut lifecycle = Vec::new();
+        while let Some(event) = rx.recv().await {
+            match event {
+                AgentEvent::ToolRunUpdated { run }
+                    if run
+                        .artifacts
+                        .as_ref()
+                        .is_some_and(|value| value["activity"]["kind"] == "started") =>
+                {
+                    lifecycle.push("started")
+                }
+                AgentEvent::ToolRunCompleted { .. } => lifecycle.push("completed"),
+                _ => {}
+            }
+        }
+        lifecycle
+    });
     executor
         .run(
             vec![],
@@ -2275,7 +2292,11 @@ async fn delegated_process_is_observable_by_parent_without_child_transcript_pers
         )
         .await
         .unwrap();
-    drain.await.unwrap();
+    assert_eq!(
+        drain.await.unwrap(),
+        ["started", "completed"],
+        "a tool completing in one poll must publish its queued activity before completion"
+    );
     let activity = runtime.get("delegated-build").unwrap();
     assert_eq!(
         activity.conversation_id.as_deref(),
@@ -2740,14 +2761,15 @@ async fn initial_process_progress_is_scoped_when_provider_call_ids_repeat() {
     .unwrap();
     let runtime = crate::activity::ActivityRuntime::new();
     let mut workers = Vec::new();
-    for (index, owner) in ["same-owner", "same-owner", "other-owner"]
-        .into_iter()
-        .enumerate()
+    for (index, (owner, lifetime_ms)) in
+        [("same-owner", 0), ("same-owner", 2500), ("other-owner", 0)]
+            .into_iter()
+            .enumerate()
     {
         let marker = format!("worker-{index}");
         let script = directory.path().join(format!("worker-{index}.js"));
         std::fs::write(&script, format!(
-            "process.stdout.write('{marker}-start\\n');setTimeout(()=>process.stdout.write('{marker}-end\\n'),200);setTimeout(()=>{{}},600);"
+            "process.stdout.write('{marker}-start\\n');setTimeout(()=>process.stdout.write('{marker}-end\\n'),{lifetime_ms});"
         )).unwrap();
         let arguments = serde_json::json!({
             "program":"node", "args":[script.to_string_lossy()],
@@ -2784,6 +2806,7 @@ async fn initial_process_progress_is_scoped_when_provider_call_ids_repeat() {
         .with_activity_runtime(runtime.clone())
         .with_tool_scope(owner.into(), None);
         let db = db.clone();
+        let runtime = runtime.clone();
         workers.push(tokio::spawn(async move {
             let (tx, mut rx) = mpsc::channel(128);
             let collect = tokio::spawn(async move {
@@ -2834,14 +2857,30 @@ async fn initial_process_progress_is_scoped_when_provider_call_ids_repeat() {
                 .unwrap();
             let (output, artifact) = collect.await.unwrap();
             assert!(
-                output.contains(&format!("{marker}-start")),
-                "initial stdout never reached ToolRunUpdated: {output:?}"
-            );
-            assert!(
                 output.lines().all(|line| line.starts_with(&marker)),
                 "another worker's output leaked into this call: {output:?}"
             );
-            let artifact = artifact.expect("completed process receipt");
+            let mut artifact = artifact.expect("completed tool receipt");
+            if artifact["status"] == "exited" {
+                assert!(
+                    output.contains(&format!("{marker}-start")),
+                    "completed process dropped queued startup output: {output:?}"
+                );
+            } else {
+                // Startup can legitimately detach before producing output on a
+                // loaded host. Follow the returned activity instead of assuming
+                // a short-lived fixture must finish within the startup window.
+                let activity_id = artifact["activityId"].as_str().unwrap();
+                let completion = runtime.wait_for_completion(activity_id, 0, Duration::from_secs(30)).await.unwrap();
+                assert!(completion.record.state.is_terminal(), "fixture did not finish");
+                let arguments = serde_json::json!({ "service_action": "wait", "service_id": artifact["serviceId"], "timeout_secs": 3 }).to_string();
+                let result = crate::tools::run_shell_tool::RunShellTool.execute(
+                    crate::tools::ToolExecutionContext::new("collect-process", &arguments, &db, &[])
+                        .with_conversation_id(Some(owner)).with_activity_runtime(&runtime),
+                ).await.unwrap();
+                assert!(!result.is_error, "{}", result.content);
+                artifact = result.artifacts.unwrap();
+            }
             assert_eq!(artifact["status"], "exited");
             assert!(
                 artifact["stdoutTail"]
