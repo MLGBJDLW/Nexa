@@ -85,21 +85,8 @@ jobs:
       - name: Verify documentation links and schema index
         run: npm run docs:check
 
-      - name: Reject tracked local research docs
-        shell: bash
-        run: |
-          tracked="$(git ls-files -- \
-            'docs/research/**' \
-            'docs/local/**' \
-            'docs/*-primary-source-research.md' \
-            'docs/**/*-primary-source-research.md' \
-            'docs/*-implementation-research.md' \
-            'docs/**/*-implementation-research.md')"
-          if [[ -n "$tracked" ]]; then
-            echo "Local-only research documents must not be tracked:"
-            echo "$tracked"
-            exit 1
-          fi
+      - name: Reject tracked local workspace artifacts
+        run: npm run repository:check
 
   release_metadata:
     name: Release Metadata Contracts

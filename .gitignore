@@ -42,6 +42,8 @@ build/
 *.lcov
 coverage/
 tarpaulin-report.html
+apps/desktop/test-results*/
+apps/desktop/playwright-report/
 
 # Debug/test output — scratch files in root
 /*.txt
@@ -73,6 +75,13 @@ apps/desktop/src-tauri/tauri.autoport.json
 
 # Agents
 .claude/
+.codex/
+.agents/
+AGENTS.md
+CLAUDE.md
+CONTEXT.md
+GEMINI.md
+.github/nexa-patches/
 
 # pycache
 __pycache__
