@@ -266,7 +266,9 @@ async fn serve(State(root): State<WebRoot>, request: Request<Body>) -> Response 
             Err(_) => return StatusCode::NOT_FOUND.into_response(),
         }
     };
-    let mut response = ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-store"), (header::REFERRER_POLICY, "no-referrer"), (header::X_CONTENT_TYPE_OPTIONS, "nosniff"), (header::CONTENT_SECURITY_POLICY, "default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; style-src 'self' https: 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'none'")], body).into_response();
+    // Bundled editors and canvas/3D renderers commonly create blob workers.
+    // Without worker-src those inherit script-src, which rejects blob URLs.
+    let mut response = ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-store"), (header::REFERRER_POLICY, "no-referrer"), (header::X_CONTENT_TYPE_OPTIONS, "nosniff"), (header::CONTENT_SECURITY_POLICY, "default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; style-src 'self' https: 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'none'")], body).into_response();
     response
         .headers_mut()
         .insert(header::CONTENT_LENGTH, metadata.len().into());

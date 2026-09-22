@@ -650,6 +650,47 @@ test('keeps the native surface visible across same-session snapshot refreshes', 
   expect(hiddenAfter).toBe(hiddenBefore);
 });
 
+test('suspends the native browser behind file previews and restores the same tab after closing', async ({ page }) => {
+  await page.goto('/chat/conv-browser-workspace');
+  await page.getByTestId('browser-workspace-toggle').click();
+  const latestVisible = () => page.evaluate(() => (window as unknown as {
+    __browserDiagnostics__: { bounds: Array<{ sessionId: string; visible: boolean }> };
+  }).__browserDiagnostics__.bounds.filter(entry => entry.sessionId === 'browser-session-1').at(-1)?.visible);
+  await expect.poll(latestVisible).toBe(true);
+  await page.getByTestId('file-preview-toggle').click();
+  await expect(page.locator('#file-preview-panel')).toBeVisible();
+  await expect.poll(latestVisible).toBe(false);
+  await page.getByTestId('file-preview-toggle').click();
+  await expect(page.locator('#file-preview-panel')).toHaveCount(0);
+  await expect.poll(latestVisible).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as {
+    __browserDiagnostics__: { creates: unknown[]; closedSessions: string[] };
+  }).__browserDiagnostics__)).toMatchObject({ creates: [expect.anything()], closedSessions: [] });
+});
+
+test('suspends the native browser for stacked HTML dialogs until the final overlay closes', async ({ page }) => {
+  await page.goto('/chat/conv-browser-workspace');
+  await page.getByTestId('browser-workspace-toggle').click();
+  const latestVisible = () => page.evaluate(() => (window as unknown as {
+    __browserDiagnostics__: { bounds: Array<{ sessionId: string; visible: boolean }> };
+  }).__browserDiagnostics__.bounds.filter(entry => entry.sessionId === 'browser-session-1').at(-1)?.visible);
+  await expect.poll(latestVisible).toBe(true);
+  await page.evaluate(() => {
+    for (const id of ['first-overlay', 'second-overlay']) {
+      const dialog = document.createElement('dialog');
+      dialog.id = id;
+      dialog.textContent = 'Image preview';
+      document.body.append(dialog);
+      dialog.showModal();
+    }
+  });
+  await expect.poll(latestVisible).toBe(false);
+  await page.evaluate(() => document.getElementById('second-overlay')!.remove());
+  await expect.poll(latestVisible).toBe(false);
+  await page.evaluate(() => (document.getElementById('first-overlay') as HTMLDialogElement).close());
+  await expect.poll(latestVisible).toBe(true);
+});
+
 test('drops a deferred page pick when the active conversation changes', async ({ page }) => {
   await page.goto('/chat/conv-browser-workspace');
   await page.getByTestId('browser-workspace-toggle').click();
@@ -871,10 +912,10 @@ test('reveals the shared Browser Workspace when the Agent creates or observes it
 
   await expect(page.getByTestId('browser-dock')).toBeVisible();
   await expect(page.getByTestId('browser-native-surface')).toBeVisible();
-  const diagnostics = await page.evaluate(() => (window as unknown as {
+  // Native layout commits on the next frame after the dock mounts.
+  await expect.poll(() => page.evaluate(() => (window as unknown as {
     __browserDiagnostics__: { bounds: Array<Record<string, unknown>> };
-  }).__browserDiagnostics__);
-  expect(diagnostics.bounds.some((entry) => entry.visible === true)).toBe(true);
+  }).__browserDiagnostics__.bounds.some(entry => entry.visible === true))).toBe(true);
 });
 
 test('recovers a missed visibility event from the owning session snapshot', async ({ page }) => {
