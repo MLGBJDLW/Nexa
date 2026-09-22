@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.11...nexa-monorepo-v0.14.12) (2026-09-22)
+
+
+### Bug Fixes
+
+* **agent:** drain queued activity before tool completion ([cc70b19](https://github.com/MLGBJDLW/Nexa/commit/cc70b19dd97776af83d8bef76f715f2cd0b44aa7))
+* **agent:** keep completion delivery outside the tool deadline ([ca947d3](https://github.com/MLGBJDLW/Nexa/commit/ca947d3a7a4b1ff3fc298d1e6f60f8770570bea0))
+* **agent:** preserve process progress when completion wins polling ([557442f](https://github.com/MLGBJDLW/Nexa/commit/557442fea5f4bbf69b6516c8541484dd0a126882))
+
 ## [0.14.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.10...nexa-monorepo-v0.14.11) (2026-09-22)
 
 
