@@ -1244,6 +1244,9 @@ impl ToolDispatchRuntime<'_> {
 
                         let tool_start = std::time::Instant::now();
                         let execute_tool = async {
+                            let activity_dispatch_id = uuid::Uuid::new_v4().to_string();
+                            let scoped_activity_runtime = self.activity_runtime
+                                .for_tool_dispatch(activity_dispatch_id.clone());
                             let exec_fut = self.tools.execute(
                                 &tc.name,
                                 crate::tools::ToolExecutionContext {
@@ -1256,13 +1259,13 @@ impl ToolDispatchRuntime<'_> {
                                     turn_id: turn_id.or_else(|| self.tool_scope.and_then(|scope| scope.1.as_deref())),
                                     tool_registry: Some(discovery_tools),
                                     cancel_token: Some(self.cancel_token),
-                                    activity_runtime: Some(self.activity_runtime),
+                                    activity_runtime: Some(&scoped_activity_runtime),
                                     event_tx: Some(&progress_tx),
                                 },
                             );
                             tokio::pin!(exec_fut);
                             let mut activity_events = self.activity_runtime.subscribe();
-                            let mut scoped_activity_id = match tc.name.as_str() {
+                            let observed_activity_id = match tc.name.as_str() {
                                 "activity_observe" | "wait_subagent" | "observe_subagent" => {
                                     let key = if tc.name == "activity_observe" { "activityId" } else { "agentId" };
                                     serde_json::from_str::<serde_json::Value>(&tc.arguments).ok()
@@ -1273,6 +1276,7 @@ impl ToolDispatchRuntime<'_> {
                                 }
                                 _ => None,
                             };
+                            let mut scoped_activity_ids: HashSet<String> = observed_activity_id.into_iter().collect();
                             let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
                             heartbeat
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1287,20 +1291,16 @@ impl ToolDispatchRuntime<'_> {
                                             == crate::activity::ActivityEventKind::Started
                                             && event
                                                 .payload
-                                                .get("sessionId")
+                                                .get("toolDispatchId")
                                                 .and_then(serde_json::Value::as_str)
-                                                == Some(progress_call_id.as_str());
-                                        let matches_scoped_activity = scoped_activity_id
-                                            .as_deref()
-                                            == Some(event.activity_id.as_str());
-                                        if event.activity_id != progress_call_id
-                                            && !starts_scoped_activity
-                                            && !matches_scoped_activity
+                                                == Some(activity_dispatch_id.as_str());
+                                        if !starts_scoped_activity
+                                            && !scoped_activity_ids.contains(&event.activity_id)
                                         {
                                             continue;
                                         }
                                         if starts_scoped_activity {
-                                            scoped_activity_id = Some(event.activity_id.clone());
+                                            scoped_activity_ids.insert(event.activity_id.clone());
                                         }
                                         let note = format!(
                                             "{} activity {:?} (event #{})",
@@ -1316,7 +1316,10 @@ impl ToolDispatchRuntime<'_> {
                                                     Some(&tc.arguments),
                                                     None,
                                                     None,
-                                                    Some(serde_json::json!({ "activity": event })),
+                                                    Some(serde_json::json!({
+                                                        "activity": event,
+                                                        "activityRecord": self.activity_runtime.get(&event.activity_id),
+                                                    })),
                                                     Some(note),
                                                     None,
                                                 ),

@@ -2670,6 +2670,9 @@ async fn completion_wait_streams_existing_process_output_before_it_finishes() {
                     .and_then(|value| value.pointer("/activity/payload/data"))
                     .and_then(serde_json::Value::as_str)
                 {
+                    let record = &run.artifacts.as_ref().unwrap()["activityRecord"];
+                    assert_eq!(record["ownerTool"], "run_shell");
+                    assert_eq!(record["surface"], "process");
                     chunks.push(data.to_string());
                 }
             }
@@ -2722,6 +2725,136 @@ async fn completion_wait_streams_existing_process_output_before_it_finishes() {
         vec!["Compiling 2/3"],
         "output must reach the UI during the same wait, without leaking another conversation"
     );
+}
+
+#[tokio::test]
+async fn initial_process_progress_is_scoped_when_provider_call_ids_repeat() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = Database::open_memory().unwrap();
+    db.add_source(crate::sources::CreateSourceInput {
+        root_path: directory.path().to_string_lossy().to_string(),
+        include_globs: vec![],
+        exclude_globs: vec![],
+        watch_enabled: false,
+    })
+    .unwrap();
+    let runtime = crate::activity::ActivityRuntime::new();
+    let mut workers = Vec::new();
+    for (index, owner) in ["same-owner", "same-owner", "other-owner"]
+        .into_iter()
+        .enumerate()
+    {
+        let marker = format!("worker-{index}");
+        let script = directory.path().join(format!("worker-{index}.js"));
+        std::fs::write(&script, format!(
+            "process.stdout.write('{marker}-start\\n');setTimeout(()=>process.stdout.write('{marker}-end\\n'),200);setTimeout(()=>{{}},600);"
+        )).unwrap();
+        let arguments = serde_json::json!({
+            "program":"node", "args":[script.to_string_lossy()],
+            "cwd":directory.path().to_string_lossy(),
+        });
+        let provider = ScriptedProvider {
+            stream_calls: Arc::new(AtomicUsize::new(0)),
+            final_answer: "process complete",
+            first_chunks: vec![StreamChunk {
+                delta: String::new(),
+                tool_call_delta: Some(ToolCallDelta {
+                    id: "reused-provider-call".into(),
+                    name: Some("run_shell".into()),
+                    index: Some(0),
+                    thought_signature: None,
+                    arguments_delta: arguments.to_string().into(),
+                }),
+                finish_reason: Some(FinishReason::Stop),
+                usage: None,
+                thinking_delta: None,
+            }],
+        };
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(crate::tools::run_shell_tool::RunShellTool));
+        let executor = AgentExecutor::new(
+            Box::new(provider),
+            registry,
+            AgentConfig {
+                max_iterations: 1,
+                tool_approval_mode: ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+        )
+        .with_activity_runtime(runtime.clone())
+        .with_tool_scope(owner.into(), None);
+        let db = db.clone();
+        workers.push(tokio::spawn(async move {
+            let (tx, mut rx) = mpsc::channel(128);
+            let collect = tokio::spawn(async move {
+                let mut chunks = Vec::new();
+                let mut process_finished = false;
+                let mut final_artifact = None;
+                while let Some(event) = rx.recv().await {
+                    if let AgentEvent::ToolRunUpdated { run }
+                    | AgentEvent::ToolRunCompleted { run } = event
+                    {
+                        if run.status == ToolRunStatus::Running {
+                            if let Some(data) = run
+                                .artifacts
+                                .as_ref()
+                                .and_then(|value| value.pointer("/activity/payload/data"))
+                                .and_then(serde_json::Value::as_str)
+                            {
+                                assert!(
+                                    !process_finished,
+                                    "output must arrive while the process is running"
+                                );
+                                let record = &run.artifacts.as_ref().unwrap()["activityRecord"];
+                                assert_eq!(record["ownerTool"], "run_shell");
+                                assert_eq!(record["surface"], "process");
+                                chunks.push(data.to_string());
+                            }
+                        } else if run.status == ToolRunStatus::Completed {
+                            process_finished = true;
+                            final_artifact = run.artifacts;
+                        }
+                    }
+                }
+                (chunks.concat(), final_artifact)
+            });
+            executor
+                .run(
+                    vec![],
+                    vec![ContentPart::Text {
+                        text: "run the process".into(),
+                    }],
+                    &db,
+                    None,
+                    None,
+                    tx,
+                    0,
+                )
+                .await
+                .unwrap();
+            let (output, artifact) = collect.await.unwrap();
+            assert!(
+                output.contains(&format!("{marker}-start")),
+                "initial stdout never reached ToolRunUpdated: {output:?}"
+            );
+            assert!(
+                output.lines().all(|line| line.starts_with(&marker)),
+                "another worker's output leaked into this call: {output:?}"
+            );
+            let artifact = artifact.expect("completed process receipt");
+            assert_eq!(artifact["status"], "exited");
+            assert!(
+                artifact["stdoutTail"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains(&format!("{marker}-end")),
+                "completed receipt must preserve its output without live events"
+            );
+        }));
+    }
+    for worker in workers {
+        worker.await.unwrap();
+    }
 }
 
 struct ThoughtOnlyProvider {

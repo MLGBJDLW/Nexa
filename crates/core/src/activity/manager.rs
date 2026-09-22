@@ -54,6 +54,7 @@ fn persistent_runtime_key(database: &Database) -> Option<PathBuf> {
 #[derive(Clone)]
 pub struct ActivityRuntime {
     inner: Arc<ActivityRuntimeInner>,
+    tool_dispatch_id: Option<String>,
 }
 
 impl Default for ActivityRuntime {
@@ -74,6 +75,17 @@ impl ActivityRuntime {
                 database: None,
                 max_events_per_activity: DEFAULT_MAX_EVENTS_PER_ACTIVITY,
             }),
+            tool_dispatch_id: None,
+        }
+    }
+
+    /// Share the journal while tagging newly started activities with the exact
+    /// executor invocation. Provider call IDs and adapter session IDs are not
+    /// unique across parallel workers and must not be used for this routing.
+    pub(crate) fn for_tool_dispatch(&self, dispatch_id: String) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            tool_dispatch_id: Some(dispatch_id),
         }
     }
 
@@ -103,7 +115,10 @@ impl ActivityRuntime {
             });
         if let (Some(key), Some(cache)) = (runtime_key.as_ref(), runtime_cache.as_ref()) {
             if let Some(inner) = cache.get(key).and_then(Weak::upgrade) {
-                return Ok(Self { inner });
+                return Ok(Self {
+                    inner,
+                    tool_dispatch_id: None,
+                });
             }
         }
 
@@ -118,6 +133,7 @@ impl ActivityRuntime {
                 database: Some(database),
                 max_events_per_activity: DEFAULT_MAX_EVENTS_PER_ACTIVITY,
             }),
+            tool_dispatch_id: None,
         };
         runtime.mark_unfinished_as_orphaned()?;
         if let (Some(key), Some(cache)) = (runtime_key, runtime_cache.as_mut()) {
@@ -148,6 +164,7 @@ impl ActivityRuntime {
                 "conversationId": record.conversation_id,
                 "turnId": record.turn_id,
                 "taskRunId": record.task_run_id,
+                "toolDispatchId": self.tool_dispatch_id,
             }),
         };
         let mut entry = ActivityEntry::new(record.clone());

@@ -1543,6 +1543,10 @@ async fn exited_service_result(
     let mut artifacts = serde_json::json!({
         "kind": "managedService",
         "fileChangeTracking": "untracked",
+        "stdoutTail": logs.stdout,
+        "stderrTail": logs.stderr,
+        "stdoutTruncated": logs.stdout_truncated,
+        "stderrTruncated": logs.stderr_truncated,
     });
     if let Some(object) = artifacts.as_object_mut() {
         object.insert(
