@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.10...nexa-monorepo-v0.14.11) (2026-09-22)
+
+
+### Bug Fixes
+
+* **browser:** support web components and respect preview overlays ([d6883aa](https://github.com/MLGBJDLW/Nexa/commit/d6883aaa93ec99df8346d310861120cd001eed6e))
+* **chat:** show image previews and live process feedback ([e56bad3](https://github.com/MLGBJDLW/Nexa/commit/e56bad3d79900d36417b655c9546d08532e61d31))
+* **preview:** make file and image previews accessible below titlebar ([95040b1](https://github.com/MLGBJDLW/Nexa/commit/95040b13960c14217be1f1b2a07f885afdc2ceaf))
+* restore preview, capture and browser interaction workflows ([a602172](https://github.com/MLGBJDLW/Nexa/commit/a60217263fd51a4d714ea793fd18783a2a084dba))
+* **runtime:** bind process progress to its exact tool dispatch ([3108e46](https://github.com/MLGBJDLW/Nexa/commit/3108e4669df8849c220ede262210342b1f40c94c))
+
 ## [0.14.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.9...nexa-monorepo-v0.14.10) (2026-09-21)
 
 
