@@ -1,6 +1,8 @@
 import type { ArtifactPayload, ToolRunItem } from '../../types/conversation';
 import type { ToolCallEvent, TraceToolEvent } from './protocol';
 import type { InternalStreamState } from './state';
+import { mergeToolArtifacts } from '../toolVisualEvidence';
+import { mergeToolActivityEvents } from '../processArtifacts';
 import {
   resetActiveStreamBlocks,
   type StreamTerminalProjectionState,
@@ -57,7 +59,8 @@ function finalizeToolCall(
     argsStatus: isError ? 'error' : 'done',
     content,
     isError,
-    artifacts,
+    artifacts: mergeToolArtifacts(toolCall.artifacts, artifacts),
+    activityEvents: mergeToolActivityEvents(toolCall.activityEvents, artifacts),
   };
 }
 
@@ -67,18 +70,7 @@ function patchToolCallFromRun(previous: ToolCallEvent, run: ToolRunItem): ToolCa
   // The screenshot event is intentionally ephemeral. Merge it into the live
   // projection so it does not replace the durable result artifact that will
   // be restored when the conversation is reopened.
-  const incomingArtifacts = run.artifacts;
-  const artifacts = incomingArtifacts
-    && !Array.isArray(incomingArtifacts)
-    && incomingArtifacts.kind === 'toolVisualEvidence'
-    && incomingArtifacts.persistence === 'currentTurnOnly'
-    ? {
-        ...(previous.artifacts && !Array.isArray(previous.artifacts)
-          ? previous.artifacts
-          : {}),
-        visualEvidence: incomingArtifacts,
-      }
-    : incomingArtifacts ?? previous.artifacts;
+  const artifacts = mergeToolArtifacts(previous.artifacts, run.artifacts);
   return {
     ...previous,
     toolName: run.toolName || previous.toolName,
@@ -93,6 +85,7 @@ function patchToolCallFromRun(previous: ToolCallEvent, run: ToolRunItem): ToolCa
     content: run.content ?? previous.content,
     isError: run.isError ?? previous.isError,
     artifacts,
+    activityEvents: mergeToolActivityEvents(previous.activityEvents, run.artifacts),
     durationMs: run.durationMs ?? previous.durationMs,
     progressNote: run.progressNote ?? previous.progressNote,
   };

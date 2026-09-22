@@ -1,4 +1,7 @@
 {
+  "togglePanel": "Mostrar ou ocultar a prévia do arquivo",
+  "openFile": "Abrir arquivo…",
+  "chooseFileHint": "Abra um arquivo para visualizar seu conteúdo ou editar texto e código.",
   "title": "File Preview",
   "preview": "Preview",
   "structured": "Structured",

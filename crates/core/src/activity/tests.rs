@@ -11,6 +11,44 @@ fn action_receipts_can_distinguish_persistent_from_ephemeral_runtimes() {
 }
 
 #[tokio::test]
+async fn tool_dispatch_scopes_share_the_journal_without_replacing_adapter_sessions() {
+    let runtime = ActivityRuntime::new();
+    let first = runtime.for_tool_dispatch("dispatch-one".into());
+    let second = first.for_tool_dispatch("dispatch-two".into());
+    for (scoped, expected) in [(&first, "dispatch-one"), (&second, "dispatch-two")] {
+        let record = scoped
+            .start(
+                ActivitySpec::new(ActivitySurface::Browser, "browser_session")
+                    .with_session_id("same-browser-session"),
+            )
+            .unwrap();
+        let observed = runtime
+            .observe(&record.activity_id, 0, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(
+            observed.record.session_id.as_deref(),
+            Some("same-browser-session")
+        );
+        assert_eq!(
+            observed.events[0].payload["sessionId"],
+            "same-browser-session"
+        );
+        assert_eq!(observed.events[0].payload["toolDispatchId"], expected);
+    }
+    let unscoped = runtime
+        .start(ActivitySpec::new(ActivitySurface::Process, "run_shell"))
+        .unwrap();
+    assert!(runtime
+        .observe(&unscoped.activity_id, 0, Duration::ZERO)
+        .await
+        .unwrap()
+        .events[0]
+        .payload["toolDispatchId"]
+        .is_null());
+}
+
+#[tokio::test]
 async fn malformed_history_is_quarantined_without_disabling_new_durable_activities() {
     let db = Database::open_memory().unwrap();
     let runtime = ActivityRuntime::with_database(db.clone()).unwrap();

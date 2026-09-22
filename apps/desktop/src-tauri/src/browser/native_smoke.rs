@@ -41,6 +41,7 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
                 }
                 server.abort();
                 native_form_competence(&webview).await?;
+                native_shadow_component_competence(&webview).await?;
                 let restricted = Arc::new(AtomicBool::new(true));
                 let dialogs = Arc::new(super::super::dialogs::DialogPolicy::default());
                 super::super::dialogs::install(&webview, dialogs.clone(), restricted.clone(), |_| {}).await?;
@@ -135,6 +136,103 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
         .recv_timeout(std::time::Duration::from_secs(2))
         .unwrap()
         .unwrap();
+}
+
+async fn native_shadow_component_competence(webview: &Webview) -> Result<(), String> {
+    eval_json(webview, r#"(() => {
+        document.body.innerHTML = '<section id="component"></section><output id="receipt"></output>';
+        const root = document.getElementById('component').attachShadow({mode:'open'});
+        root.innerHTML = '<section id="nested"></section>';
+        const nested = root.querySelector('section').attachShadow({mode:'open'});
+        nested.innerHTML = '<input aria-label="Component editor" value="Before"><button>Save component</button>';
+        nested.querySelector('button').onclick = () => document.getElementById('receipt').textContent = 'Saved ' + nested.querySelector('input').value;
+        return true;
+    })()"#).await?;
+    let guard = BrowserTrustedInputGuard {
+        webview: webview.clone(),
+        token: Arc::from("fixture-input"),
+    };
+    for (name, action) in [("Component editor", "type"), ("Save component", "click")] {
+        let before = fixture_observe(webview, Some(name)).await?;
+        let target = &before["elements"][0];
+        if target["name"] != name {
+            return Err("Native observation missed a nested web component control".into());
+        }
+        let input = serde_json::json!({"action":action,"targetRef":target["ref"],"expected":target,"userEpoch":before["userEpoch"],"interactionFingerprint":before["interactionFingerprint"]});
+        let method = if action == "type" {
+            "prepareTrustedText"
+        } else {
+            "prepareNativePointer"
+        };
+        let prepared = eval_json(
+            webview,
+            &format!("window.__NEXA_BROWSER_RUNTIME__.{method}({input})"),
+        )
+        .await?;
+        let (budget, expected) = if action == "type" {
+            if prepared["focused"] != true {
+                return Err("Native web component editor could not receive focus".into());
+            }
+            (
+                TrustedInputEventBudget::text_insert(),
+                TrustedInputMatch::Text {
+                    data: "Reviewed component".into(),
+                },
+            )
+        } else {
+            let bounds = &prepared["bounds"];
+            let x = bounds["x"].as_f64().ok_or("Missing component x")?
+                + bounds["width"].as_f64().ok_or("Missing component width")? / 2.0;
+            let y = bounds["y"].as_f64().ok_or("Missing component y")?
+                + bounds["height"]
+                    .as_f64()
+                    .ok_or("Missing component height")?
+                    / 2.0;
+            (
+                TrustedInputEventBudget::pointer_click(1, 0)?,
+                TrustedInputMatch::Pointer {
+                    x,
+                    y,
+                    button: "left".into(),
+                },
+            )
+        };
+        let armed = guard
+            .arm(
+                budget,
+                expected.clone(),
+                prepared["targetRef"]
+                    .as_str()
+                    .ok_or("Missing component target")?,
+                prepared["targetContext"]
+                    .as_str()
+                    .ok_or("Missing component context")?,
+            )
+            .await?;
+        match expected {
+            TrustedInputMatch::Text { data } => insert_trusted_text(&armed, &data).await?,
+            TrustedInputMatch::Pointer { x, y, button } => {
+                dispatch_trusted_pointer_click(&armed, x, y, &button, &[], 1).await?
+            }
+            _ => unreachable!(),
+        }
+        armed.disarm().await?;
+        let after = fixture_observe(webview, Some(name)).await?;
+        if before["userEpoch"] != after["userEpoch"] {
+            return Err(
+                "Trusted native component input incorrectly triggered user takeover".into(),
+            );
+        }
+        if action == "type" && after["elements"][0]["value"] != "Reviewed component" {
+            return Err("Native component text did not reach the editor".into());
+        }
+    }
+    if eval_json(webview, "document.getElementById('receipt').textContent").await?
+        != "Saved Reviewed component"
+    {
+        return Err("Native web component click did not produce its visible receipt".into());
+    }
+    Ok(())
 }
 
 /// Observe through the production JS, native screenshot finalizer and ToolResult

@@ -48,7 +48,7 @@ export function isCheckpointContinuationMessage(message: ConversationMessage): b
     && artifactContainsKind(message.artifacts, 'checkpointContinuation');
 }
 
-function isNormalUserTurnMessage(message: ConversationMessage): boolean {
+export function isNormalUserTurnMessage(message: ConversationMessage): boolean {
   return (
     message.role === 'user' &&
     !isSteeringMessage(message) &&

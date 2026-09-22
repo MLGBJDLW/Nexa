@@ -598,6 +598,142 @@ async function observe(page: import('@playwright/test').Page): Promise<BrowserOb
   ).__NEXA_BROWSER_RUNTIME__.observe());
 }
 
+async function installShadowControls(page: import('@playwright/test').Page) {
+  await page.setContent('<!doctype html><main id="host"></main><button id="outside">Outside</button>');
+  await page.evaluate(() => {
+    const root = document.getElementById('host')!.attachShadow({ mode: 'open' });
+    root.innerHTML = '<section id="nested"></section>';
+    const nested = root.querySelector('#nested')!.attachShadow({ mode: 'open' });
+    nested.innerHTML = '<button id="action">Component action</button><input aria-label="Component editor" value="old"><input type="checkbox" aria-label="Component toggle">';
+    nested.querySelector('button')!.addEventListener('click', event => {
+      (event.currentTarget as HTMLButtonElement).textContent = 'Component completed';
+    });
+  });
+  await page.addScriptTag({ content: runtimeSource });
+  await page.addScriptTag({ content: takeoverSource });
+}
+
+test('native pointer preparation and trusted clicks reach nested web component controls', async ({ page }) => {
+  await installShadowControls(page);
+  const observation = await observe(page);
+  const target = observation.elements.find(element => element.name === 'Component action')!;
+  const prepared = await page.evaluate(input => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), actionInput(observation, 'click', target.ref));
+  const x = prepared.bounds.x + prepared.bounds.width / 2;
+  const y = prepared.bounds.y + prepared.bounds.height / 2;
+  const armed = await page.evaluate(({ targetRef, x, y }) => {
+    const fixture = window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge; __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard };
+    const target = fixture.__NEXA_BROWSER_RUNTIME__.resolveTargetRef(targetRef)!;
+    return fixture.__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'shadow-click', { pointerDown: 1, keyDown: 0, input: 0 }, {
+      kind: 'pointer', x, y, button: 'left', targetRef, targetContext: fixture.__NEXA_BROWSER_RUNTIME__.targetContextFingerprint(target),
+    });
+  }, { targetRef: target.ref, x, y });
+  expect(armed).toBe(true);
+  await page.mouse.click(x, y);
+  await expect(page.getByRole('button', { name: 'Component completed' })).toBeVisible();
+  expect((await observe(page)).userEpoch).toBe(observation.userEpoch);
+});
+
+test('trusted text input reaches nested web component editors without user takeover', async ({ page }) => {
+  await installShadowControls(page);
+  const observation = await observe(page);
+  const target = observation.elements.find(element => element.name === 'Component editor')!;
+  const prepared = await page.evaluate(input => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareTrustedText(input), actionInput(observation, 'type', target.ref));
+  expect(prepared.focused).toBe(true);
+  expect(await page.evaluate(targetRef => {
+    const fixture = window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge; __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard };
+    const target = fixture.__NEXA_BROWSER_RUNTIME__.resolveTargetRef(targetRef)!;
+    return fixture.__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'shadow-text', { pointerDown: 0, keyDown: 0, input: 1 }, {
+      kind: 'text', data: '组件 editor', targetRef, targetContext: fixture.__NEXA_BROWSER_RUNTIME__.targetContextFingerprint(target),
+    });
+  }, target.ref)).toBe(true);
+  await page.keyboard.insertText('组件 editor');
+  await expect(page.getByRole('textbox', { name: 'Component editor' })).toHaveValue('组件 editor');
+  expect((await observe(page)).userEpoch).toBe(observation.userEpoch);
+});
+
+test('trusted keyboard activation reaches web components and still detects unrelated user input', async ({ page }) => {
+  await installShadowControls(page);
+  const observation = await observe(page);
+  const target = observation.elements.find(element => element.name === 'Component toggle')!;
+  const prepared = await page.evaluate(input => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareTrustedKey(input), actionInput(observation, 'press', target.ref));
+  expect(prepared.focused).toBe(true);
+  expect(await page.evaluate(targetRef => {
+    const fixture = window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge; __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard };
+    const target = fixture.__NEXA_BROWSER_RUNTIME__.resolveTargetRef(targetRef)!;
+    return fixture.__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'shadow-key', { pointerDown: 0, keyDown: 1, input: 1 }, {
+      kind: 'key', key: ' ', targetRef, targetContext: fixture.__NEXA_BROWSER_RUNTIME__.targetContextFingerprint(target),
+    });
+  }, target.ref)).toBe(true);
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('checkbox', { name: 'Component toggle' })).toBeChecked();
+  expect((await observe(page)).userEpoch).toBe(observation.userEpoch);
+  await page.getByRole('button', { name: 'Outside', exact: true }).click();
+  expect((await observe(page)).userEpoch).toBeGreaterThan(observation.userEpoch);
+});
+
+test('web component pointer preparation rejects an overlay outside its shadow root', async ({ page }) => {
+  await installShadowControls(page);
+  await page.evaluate(() => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:999;background:white';
+    document.body.append(overlay);
+  });
+  const observation = await observe(page);
+  const target = observation.elements.find(element => element.name === 'Component action')!;
+  await expect(page.evaluate(input => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), actionInput(observation, 'click', target.ref))).rejects.toThrow(/covered by another element/);
+});
+
+test('web component controls respect inert shadow hosts', async ({ page }) => {
+  await installShadowControls(page);
+  await page.locator('#host').evaluate(host => { host.inert = true; });
+  const observation = await observe(page);
+  const target = observation.elements.find(element => element.name === 'Component action')!;
+  await expect(page.evaluate(input => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), actionInput(observation, 'click', target.ref))).rejects.toThrow(/disabled/);
+});
+
+test('trusted web component actions reject an enclosing row recycled after arming', async ({ page }) => {
+  await installShadowControls(page);
+  await page.evaluate(() => {
+    const row = document.createElement('article');
+    row.innerHTML = '<span id="identity">Account A</span>';
+    const host = document.getElementById('host')!;
+    host.before(row);
+    row.append(host);
+  });
+  const observation = await observe(page);
+  const target = observation.elements.find(element => element.name === 'Component action')!;
+  const prepared = await page.evaluate(input => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), actionInput(observation, 'click', target.ref));
+  const x = prepared.bounds.x + prepared.bounds.width / 2;
+  const y = prepared.bounds.y + prepared.bounds.height / 2;
+  expect(await page.evaluate(({ targetRef, x, y }) => {
+    const fixture = window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge; __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard };
+    const element = fixture.__NEXA_BROWSER_RUNTIME__.resolveTargetRef(targetRef)!;
+    return fixture.__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'shadow-recycle', { pointerDown: 1, keyDown: 0, input: 0 }, {
+      kind: 'pointer', x, y, button: 'left', targetRef, targetContext: fixture.__NEXA_BROWSER_RUNTIME__.targetContextFingerprint(element),
+    });
+  }, { targetRef: target.ref, x, y })).toBe(true);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.locator('#identity').evaluate(el => { el.textContent = 'Account B'; });
+  await page.mouse.up();
+  await expect(page.getByRole('button', { name: 'Component action', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as {
+    __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard;
+  }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'shadow-recycle'))).toBe(false);
+});
+
 async function targetBinding(page: import('@playwright/test').Page, selector: string) {
   return page.evaluate(selector => {
     const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;

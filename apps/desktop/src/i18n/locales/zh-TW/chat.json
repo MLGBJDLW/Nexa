@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "正在準備螢幕共用…",
   "screenShareConversationChanged": "對話已切換，請在目前對話重新開啟螢幕共用。",
   "computerUseOperating": "正在操作電腦",
-  "computerUseObserving": "正在讀取選定視窗"
+  "computerUseObserving": "正在讀取選定視窗",
+  "processLive": "即時",
+  "processLastReported": "上次回報",
+  "processOpenBrowser": "在瀏覽器中開啟",
+  "processState.running": "執行中",
+  "processState.ready": "已就緒",
+  "processState.unhealthy": "無回應",
+  "processState.completed": "已完成",
+  "processState.failed": "失敗",
+  "processState.stopped": "已停止",
+  "processState.unavailable": "無法確認狀態"
 }

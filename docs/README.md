@@ -25,7 +25,6 @@ English is the canonical language for maintained technical documentation.
 ## Understand the system
 
 [ARCHITECTURE.md](ARCHITECTURE.md) is the canonical architecture entry point.
-[CONTEXT.md](../CONTEXT.md) defines the Agent Run and provider vocabulary.
 
 | Contract | Authority covered |
 | --- | --- |
@@ -78,3 +77,8 @@ work areas. The former `docs/architecture/` tree and research-style Markdown
 filenames remain ignored. Generated release history, legal notices, and
 domain-specific bundled skill assets have their own purpose and are not
 rewritten as current architecture.
+
+Local agent instructions (`AGENTS.md`, `CLAUDE.md`, `CONTEXT.md`, `GEMINI.md`),
+agent workspace directories, and temporary patch payloads are ignored and must
+not be committed. `npm run repository:check` enforces this even for force-added
+files. Product prompts and bundled skills remain maintained source assets.

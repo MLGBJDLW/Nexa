@@ -2,6 +2,9 @@
 
 Local HTML opens in Nexa's Browser Workspace with JavaScript and relative
 resources. Opening the main file does not grant access to its entire directory.
+The titlebar's File Preview button also opens a file picker for previewing local
+documents or editing text and code. HTML files selected there open in Browser
+Workspace.
 
 ## Open an artifact
 
@@ -23,6 +26,11 @@ The page can use relative addresses such as `assets/main.js` and
 `data/chart.json`. Paths are checked against the active file-access policy.
 Every asset must be under the HTML file's parent directory, and at most 256
 assets can be listed.
+
+ES modules, Web Components, SVG/CSS, and workers created from same-origin or
+blob URLs can render in this preview. Modules and worker scripts that load
+other files still need those dependencies in the asset list. The preview's
+network and file-access restrictions remain in effect.
 
 Build the allowlist from dependencies you created or inspected. Page scripts,
 HTML tags, and dynamic requests cannot extend it. A request embedded in an

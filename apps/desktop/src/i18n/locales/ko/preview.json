@@ -1,4 +1,7 @@
 {
+  "togglePanel": "파일 미리보기 전환",
+  "openFile": "파일 열기…",
+  "chooseFileHint": "파일을 열어 내용을 미리 보거나 텍스트와 코드를 편집하세요.",
   "title": "File Preview",
   "preview": "Preview",
   "structured": "Structured",

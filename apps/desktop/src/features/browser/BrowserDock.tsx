@@ -69,6 +69,15 @@ const DEFAULT_WIDTH = 620;
 const WIDTH_STORAGE_KEY = 'nexa-browser-dock-width';
 const MAX_BROWSER_TABS_PER_SESSION = 16;
 
+function nativeBrowserOccluded(): boolean {
+  // Native child WebViews paint above the application's DOM, including the
+  // HTML top layer. CSS z-index alone cannot put a preview/dialog above them.
+  return Array.from(document.querySelectorAll('dialog[open], [aria-modal="true"]')).some(element => {
+    const style = getComputedStyle(element);
+    return element.getClientRects().length > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+}
+
 interface BrowserSessionRequestScope {
   conversationId: string;
   conversationGeneration: number;
@@ -330,7 +339,7 @@ export function BrowserDock({
     await api.setBrowserBounds(
       targetSessionId,
       nextBounds,
-      visible,
+      visible && !nativeBrowserOccluded(),
       nextVisibilityRevision(targetSessionId),
     );
   }, [bounds, nextVisibilityRevision]);
@@ -344,7 +353,7 @@ export function BrowserDock({
       const current = await existingPromise;
       if (!sessionScopeOwnsCurrent(scope)) return null;
       if (current?.conversationId === conversationId && url) {
-        await api.openBrowserTab(current.id, url, openRef.current ? bounds() : null);
+        await api.openBrowserTab(current.id, url, openRef.current && !nativeBrowserOccluded() ? bounds() : null);
         if (!sessionScopeOwnsCurrent(scope)) return null;
         const refreshed = await api.activeBrowserSession(conversationId);
         if (commitSession(scope, refreshed)) recoverRequestedVisibility(scope, refreshed);
@@ -367,10 +376,10 @@ export function BrowserDock({
           conversationId,
           url: url || 'https://www.google.com',
           openInitialUrlOnReuse: Boolean(url),
-          bounds: openRef.current ? nextBounds : null,
+          bounds: openRef.current && !nativeBrowserOccluded() ? nextBounds : null,
         });
       } else if (url) {
-        await api.openBrowserTab(current.id, url, openRef.current ? nextBounds : null);
+        await api.openBrowserTab(current.id, url, openRef.current && !nativeBrowserOccluded() ? nextBounds : null);
         current = await api.activeBrowserSession(conversationId);
       }
       return current;
@@ -451,8 +460,21 @@ export function BrowserDock({
     const element = contentRef.current;
     if (!element) return;
     const observer = new ResizeObserver(scheduleVisibleBounds);
+    let occluded = nativeBrowserOccluded();
+    const overlayObserver = new MutationObserver(() => {
+      const nextOccluded = nativeBrowserOccluded();
+      if (nextOccluded === occluded) return;
+      occluded = nextOccluded;
+      scheduleVisibleBounds();
+    });
     const handleResize = scheduleVisibleBounds;
     observer.observe(element);
+    overlayObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['aria-modal', 'open', 'hidden', 'style', 'class'],
+    });
     window.addEventListener('resize', handleResize);
     scheduleVisibleBounds();
     return () => {
@@ -461,6 +483,7 @@ export function BrowserDock({
       }
       if (pendingFrame !== null) window.cancelAnimationFrame(pendingFrame);
       observer.disconnect();
+      overlayObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       void api.setBrowserBounds(
         scopedSessionId,
@@ -582,6 +605,7 @@ export function BrowserDock({
         const sourceTabId = typeof payload.tabId === 'string' ? payload.tabId : '';
         if (
           !openRef.current
+          || nativeBrowserOccluded()
           || !url
           || !sourceTabId
           || !currentSession.tabs.some(tab => tab.id === sourceTabId)
@@ -603,7 +627,7 @@ export function BrowserDock({
           eventSessionId,
           sourceTabId,
           url,
-          openRef.current ? bounds() : null,
+          openRef.current && !nativeBrowserOccluded() ? bounds() : null,
         ).then(async () => {
           if (!sessionScopeOwnsCurrent(scope)) return;
           try {
@@ -756,7 +780,7 @@ export function BrowserDock({
       await api.openBrowserTab(
         current.id,
         'https://www.google.com',
-        openRef.current ? bounds() : null,
+        openRef.current && !nativeBrowserOccluded() ? bounds() : null,
       );
       if (sessionScopeOwnsCurrent(scope)) await refresh();
     } catch (error) {

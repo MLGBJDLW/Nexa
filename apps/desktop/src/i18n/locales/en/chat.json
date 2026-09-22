@@ -713,5 +713,15 @@
   "screenSharePreparingConversation": "Preparing screen sharing…",
   "screenShareConversationChanged": "The conversation changed. Start screen sharing in the current chat.",
   "computerUseOperating": "Controlling the computer",
-  "computerUseObserving": "Reading the selected window"
+  "computerUseObserving": "Reading the selected window",
+  "processLive": "Live",
+  "processLastReported": "Last reported",
+  "processOpenBrowser": "Open in browser",
+  "processState.running": "Running",
+  "processState.ready": "Ready",
+  "processState.unhealthy": "Not responding",
+  "processState.completed": "Completed",
+  "processState.failed": "Failed",
+  "processState.stopped": "Stopped",
+  "processState.unavailable": "Unavailable"
 }

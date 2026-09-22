@@ -138,7 +138,7 @@ export function replaceToolCatalog(markdown, catalog) {
 }
 
 function maintainedDocument(file) {
-  return /^(?:README(?:\.zh-CN)?|CONTRIBUTING|CONTEXT)\.md$/u.test(file)
+  return /^(?:README(?:\.zh-CN)?|CONTRIBUTING)\.md$/u.test(file)
     || /^docs\/[^/]+\.md$/u.test(file)
     || file === 'integrations/office-addin/README.md'
     || /^apps\/desktop\/(?:public\/provider-icons\/README|src-tauri\/resources\/[^/]+\/README)\.md$/u.test(file);

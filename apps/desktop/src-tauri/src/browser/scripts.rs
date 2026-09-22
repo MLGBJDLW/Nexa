@@ -60,6 +60,27 @@ pub fn browser_takeover_script(token: &str) -> String {
   const observationBridge = () => {
     try { return window.top.__NEXA_BROWSER_RUNTIME__; } catch (_) { return null; }
   };
+  const deepElementFromPoint = (root, x, y) => {
+    let hit = root.elementFromPoint(x, y);
+    while (hit?.shadowRoot) {
+      const inner = hit.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === hit) break;
+      hit = inner;
+    }
+    return hit;
+  };
+  const deepActiveElement = (root) => {
+    let active = root.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return active;
+  };
+  const composedContains = (target, node) => {
+    for (let current = node; current; current = current.assignedSlot || current.parentElement || current.getRootNode?.().host) {
+      if (current === target) return true;
+    }
+    return false;
+  };
+  const eventElement = (event) => event.composedPath?.().find(node => node?.nodeType === 1) || event.target;
   const guardContextMatches = () => {
     const bridge = observationBridge();
     const guard = trustedInputGuard;
@@ -74,15 +95,15 @@ pub fn browser_takeover_script(token: &str) -> String {
     if (trustedInputGuard && !trustedInputGuard.blocked && trustedInputGuard.pointerDown + trustedInputGuard.keyDown + trustedInputGuard.input === 0) trustedInputGuard = null;
     if (!normalized || !normalizedExpected || typeof operationId !== 'string' || !operationId || trustedInputGuard) return false;
     const hit = normalizedExpected.kind === 'pointer'
-      ? document.elementFromPoint(normalizedExpected.x, normalizedExpected.y)
-      : document.activeElement;
+      ? deepElementFromPoint(document, normalizedExpected.x, normalizedExpected.y)
+      : deepActiveElement(document);
     const bridge = observationBridge();
     const target = bridge?.resolveTargetRef(normalizedExpected.targetRef);
     if (!target || target === document.body || target === document.documentElement) return false;
     if (!target.isConnected || bridge.targetContextFingerprint(target) !== normalizedExpected.targetContext) return false;
     let matches = normalizedExpected.kind === 'files'
       ? target.tagName === 'INPUT' && target.type === 'file'
-      : hit === target || Boolean(target.contains?.(hit));
+      : composedContains(target, hit);
     for (let ownerWindow = target.ownerDocument.defaultView; !matches && ownerWindow && ownerWindow !== window;) {
       try {
         const frame = ownerWindow.frameElement;
@@ -178,7 +199,7 @@ pub fn browser_takeover_script(token: &str) -> String {
   const eventTargetsArmedElement = (event) => {
     const target = trustedInputGuard?.target;
     if (!target || target === document.body || target === document.documentElement) return true;
-    return event.target === target || Boolean(target.contains?.(event.target));
+    return composedContains(target, eventElement(event));
   };
 
   const matchesTrustedInput = (type, event) => {
@@ -201,13 +222,13 @@ pub fn browser_takeover_script(token: &str) -> String {
       return event.data === expected.data && eventTargetsArmedElement(event);
     }
     if (expected.kind === 'files') {
-      const files = event.target?.files;
+      const files = eventElement(event)?.files;
       return eventTargetsArmedElement(event) && files?.length === expected.files.length
         && expected.files.every((file, index) => files[index].name === file.name && files[index].size === file.size);
     }
     if (expected.kind === 'key') return eventTargetsArmedElement(event);
     if (expected.kind === 'pointer') {
-      const rect = event.target?.getBoundingClientRect?.();
+      const rect = eventElement(event)?.getBoundingClientRect?.();
       return eventTargetsArmedElement(event) && Boolean(rect
         && expected.x >= rect.left && expected.x <= rect.right
         && expected.y >= rect.top && expected.y <= rect.bottom);
@@ -327,7 +348,36 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   const roleOf = (el) => el.getAttribute?.('role') || (el.tagName === 'INPUT' && ({ checkbox: 'checkbox', radio: 'radio', range: 'slider', button: 'button', submit: 'button', reset: 'button' }[el.type])) || ({
     A: 'link', BUTTON: 'button', INPUT: 'textbox', TEXTAREA: 'textbox', SELECT: 'combobox'
   }[el.tagName] || '');
-  const enabledOf = (el) => !el.matches?.(':disabled') && el.getAttribute?.('aria-disabled') !== 'true' && !el.closest?.('[inert]');
+  const composedParent = (element) => element.assignedSlot || element.parentElement || element.getRootNode?.().host;
+  const deepElementFromPoint = (root, x, y) => {
+    // Start at the document so a page-level overlay still blocks the target.
+    // Querying only the target's shadow root would bypass that occlusion check.
+    let hit = root.elementFromPoint(x, y);
+    while (hit?.shadowRoot) {
+      const inner = hit.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === hit) break;
+      hit = inner;
+    }
+    return hit;
+  };
+  const deepActiveElement = (root) => {
+    let active = root.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return active;
+  };
+  const composedContains = (target, node) => {
+    for (let current = node; current; current = composedParent(current)) {
+      if (current === target) return true;
+    }
+    return false;
+  };
+  const enabledOf = (el) => {
+    if (el.matches?.(':disabled') || el.getAttribute?.('aria-disabled') === 'true') return false;
+    for (let ancestor = el; ancestor; ancestor = composedParent(ancestor)) {
+      if (ancestor.hasAttribute?.('inert')) return false;
+    }
+    return true;
+  };
   const checkedOf = (el) => {
     if (el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.type)) return el.indeterminate ? 'mixed' : Boolean(el.checked);
     if (['checkbox', 'radio', 'switch'].includes(roleOf(el))) {
@@ -538,10 +588,13 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     if (!element) return '';
     const parts = [String(element.tagName), roleOf(element), element.id || '', element.getAttribute?.('name') || '', navigationTargetOf(element) || ''];
     if (!element.isContentEditable && !['INPUT','TEXTAREA','SELECT'].includes(element.tagName)) parts.push(textOf(element));
-    let owner = element.closest('tr,[role="row"],li,[role="listitem"],article,fieldset,[role="group"],[data-row-id],[data-item-id]');
+    let owner = null;
+    for (let ancestor = element; ancestor; ancestor = composedParent(ancestor)) {
+      if (ancestor.matches('tr,[role="row"],li,[role="listitem"],article,fieldset,[role="group"],[data-row-id],[data-item-id]')) { owner = ancestor; break; }
+    }
     let branch = element;
     if (!owner) {
-      for (let parent = element.parentElement; parent && !parent.matches('body,html,main,[role="main"]'); parent = parent.parentElement) {
+      for (let parent = composedParent(element); parent && !parent.matches('body,html,main,[role="main"]'); parent = composedParent(parent)) {
         // Do not promote an unrelated toolbar to the entire collection.
         if (parent.querySelector('tr,[role="row"],li,[role="listitem"],article,main')) break;
         if (contextText(parent, cache)) { owner = parent; break; }
@@ -853,7 +906,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
       const progress = step / 8;
       const point = { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress };
       const target = ownerDocument === destination.ownerDocument
-        ? ownerDocument.elementFromPoint(point.x, point.y) || destination
+        ? deepElementFromPoint(ownerDocument, point.x, point.y) || destination
         : destination;
       dispatchPointer(target, 'pointermove', input, point, 1, true);
       dispatchPointer(target, 'mousemove', input, point, 1, true);
@@ -900,8 +953,8 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     if (point.x < 0 || point.y < 0 || point.x >= ownerWindow.innerWidth || point.y >= ownerWindow.innerHeight) {
       throw new Error('Browser pointer target is outside the viewport');
     }
-    const hit = ownerDocument.elementFromPoint(point.x, point.y);
-    if (!hit || (hit !== el && !el.contains(hit))) {
+    const hit = deepElementFromPoint(ownerDocument, point.x, point.y);
+    if (!hit || !composedContains(el, hit)) {
       throw new Error('Browser pointer target is covered by another element');
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
@@ -934,7 +987,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
-      focused: ownerDocument.activeElement === el,
+      focused: deepActiveElement(ownerDocument) === el,
       targetContext,
       targetRef: input.targetRef,
       verificationBaseline: actionVerificationBaseline(),
@@ -943,12 +996,12 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
   runtime.prepareTrustedKey = (input) => {
     const { el } = validateAction(input);
     const ownerDocument = el?.ownerDocument || document;
-    const target = el || ownerDocument.activeElement || ownerDocument.body;
+    const target = el || deepActiveElement(ownerDocument) || ownerDocument.body;
     const targetContext = targetContextFingerprint(target);
     target?.focus?.();
     if (targetContext !== targetContextFingerprint(target)) throw new Error('stale observation: target context changed during preparation');
     return {
-      focused: ownerDocument.activeElement === target,
+      focused: deepActiveElement(ownerDocument) === target,
       targetContext,
       targetRef: input.targetRef || runtime.refIds.get(target),
       verificationBaseline: actionVerificationBaseline(),
@@ -994,7 +1047,7 @@ pub const BROWSER_INIT_SCRIPT: &str = r#"
           el.dispatchEvent(new realm.Event('change', { bubbles: true }));
         }
       } else if (input.action === 'press') {
-        const target = el || document.activeElement || document.body;
+        const target = el || deepActiveElement(document) || document.body;
         const realm = target.ownerDocument?.defaultView || window;
         const key = String(input.key || '');
         if (key === 'Enter') {
