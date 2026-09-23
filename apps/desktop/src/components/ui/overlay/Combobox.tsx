@@ -56,10 +56,10 @@ export function NexaCombobox({
           <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 text-text-tertiary" />
         </button>
       </NexaPopoverTrigger>
-      <NexaPopoverContent className="min-w-[var(--radix-popover-trigger-width)] p-1">
+      <NexaPopoverContent className="nexa-combobox-content min-w-[var(--radix-popover-trigger-width)] p-1">
         <Command loop>
           <Command.Input className="nexa-combobox-input" placeholder={searchPlaceholder} />
-          <Command.List className="nexa-combobox-list max-h-72 overflow-y-auto p-1">
+          <Command.List className="nexa-combobox-list p-1">
             <Command.Empty className="px-2 py-6 text-center text-xs text-text-tertiary">{emptyLabel}</Command.Empty>
             {options.map(option => (
               <Command.Item

@@ -1,7 +1,7 @@
 use reqwest::Url;
 use serde_json::json;
 
-use crate::app_settings::ImageGenerationConfig;
+use crate::app_settings::{ImageGenerationConfig, ImageGenerationSource};
 use crate::conversation::AgentConfig;
 use crate::db::Database;
 use crate::error::CoreError;
@@ -161,6 +161,15 @@ fn resolve_config(
     let app_config = db.load_app_config()?;
     let image_config = app_config.image_generation;
     if image_config.is_configured() {
+        if image_config.api_style == "openrouter_images"
+            && request.provider.is_none()
+            && request.api_style.is_none()
+            && request.model.is_some_and(|model| model.contains('/'))
+        {
+            // A publisher-qualified slug selects a model within the configured
+            // aggregator, not a different account with a direct vendor key.
+            return Ok(image_config_to_resolved(image_config));
+        }
         if let Some(provider) = requested_provider_hint(request) {
             if image_config_matches_provider(&image_config, provider) {
                 return Ok(image_config_to_resolved(image_config));
@@ -231,7 +240,15 @@ fn agent_config_to_resolved(config: AgentConfig) -> ResolvedImageConfig {
 
     ResolvedImageConfig {
         provider: config.provider,
-        api_style: None,
+        api_style: config
+            .base_url
+            .as_deref()
+            .and_then(|base| Url::parse(base).ok())
+            .filter(|url| {
+                url.host_str() == Some("openrouter.ai")
+                    && url.path().trim_end_matches('/') == "/api/v1"
+            })
+            .map(|_| "openrouter_images".to_string()),
         api_key: config.api_key,
         base_url: config.base_url.filter(|value| !value.trim().is_empty()),
         model: image_model,
@@ -252,7 +269,9 @@ fn requested_provider_hint(request: &ImageGenerationRequest<'_>) -> Option<Image
 }
 
 fn provider_hint_from_text(haystack: &str) -> Option<ImageProvider> {
-    if is_xai_identity(haystack) {
+    if haystack.contains("openrouter") {
+        Some(ImageProvider::OpenAi)
+    } else if is_xai_identity(haystack) {
         Some(ImageProvider::Xai)
     } else if haystack.contains("qwen")
         || haystack.contains("dashscope")
@@ -269,6 +288,7 @@ fn provider_hint_from_text(haystack: &str) -> Option<ImageProvider> {
     } else if haystack.contains("openai")
         || haystack.contains("open_ai")
         || haystack.contains("openai_images")
+        || haystack.contains("openrouter_images")
         || haystack.contains("images_generation")
         || haystack.contains("gpt-image")
         || haystack.contains("zhipu")
@@ -320,6 +340,7 @@ fn image_config_matches_provider(config: &ImageGenerationConfig, provider: Image
                 .to_lowercase(),
             ) && (haystack.contains("openai")
                 || haystack.contains("openai_images")
+                || haystack.contains("openrouter_images")
                 || haystack.contains("compatible")
                 || haystack.contains("gpt-image")
                 || haystack.contains("zhipu")
@@ -394,6 +415,12 @@ fn infer_provider(
     request: &ImageGenerationRequest<'_>,
     config: &ResolvedImageConfig,
 ) -> ImageProvider {
+    // An aggregator's protocol wins over a vendor prefix in the model slug.
+    if request.api_style == Some("openrouter_images")
+        || config.api_style.as_deref() == Some("openrouter_images")
+    {
+        return ImageProvider::OpenAi;
+    }
     if let Some(provider) = requested_provider_hint(request) {
         return provider;
     }
@@ -448,7 +475,7 @@ fn default_model(provider: ImageProvider) -> &'static str {
     match provider {
         ImageProvider::OpenAi => "gpt-image-2.5-flare",
         ImageProvider::Xai => "grok-imagine-image-2.0",
-        ImageProvider::Google => "gemini-3-pro-image-preview",
+        ImageProvider::Google => "gemini-3.1-flash-image",
         ImageProvider::Qwen => "qwen-image-2.0-pro",
     }
 }
@@ -497,6 +524,16 @@ fn settings_schema() -> CapabilitySettingsSchema {
     CapabilitySettingsSchema {
         config_key: "imageGeneration".to_string(),
         fields: vec![
+            field(
+                "source",
+                "Image source",
+                "string",
+                false,
+                false,
+                "auto follows the chat account; subscription uses signed-in Codex; apiKey uses the configured image endpoint. Subscription failures never fall back to API billing.",
+                None,
+                Some(json!("auto")),
+            ),
             field(
                 "providerPreset",
                 "Provider",
@@ -605,6 +642,24 @@ fn runtime_checks(config: Option<&ImageGenerationConfig>) -> Vec<CapabilityRunti
         )];
     };
 
+    if config.source == ImageGenerationSource::Subscription {
+        return vec![check(
+            "subscription",
+            "Codex subscription",
+            CapabilityRuntimeStatus::Unknown,
+            CapabilityCheckSeverity::Info,
+            "The desktop runtime verifies Codex sign-in, image support and quota at execution. No image API key is required.",
+        )];
+    }
+    if config.source == ImageGenerationSource::Auto && !config.is_configured() {
+        return vec![check(
+            "automatic-source",
+            "Follow chat",
+            CapabilityRuntimeStatus::Unknown,
+            CapabilityCheckSeverity::Info,
+            "Codex chats use their subscription. API chats require an image-capable API configuration. The active chat selects the route at execution.",
+        )];
+    }
     vec![
         provider_check(config),
         api_key_check(config),
@@ -762,10 +817,71 @@ mod tests {
     use crate::db::Database;
 
     #[test]
+    fn subscription_and_auto_readiness_do_not_require_an_image_api_key() {
+        let mut config = ImageGenerationConfig::default();
+        assert_eq!(runtime_checks(Some(&config))[0].id, "automatic-source");
+        config.source = ImageGenerationSource::Subscription;
+        let checks = runtime_checks(Some(&config));
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].id, "subscription");
+        assert_eq!(checks[0].status, CapabilityRuntimeStatus::Unknown);
+        config.source = ImageGenerationSource::ApiKey;
+        assert!(runtime_checks(Some(&config))
+            .iter()
+            .any(|check| check.id == "api-key" && check.status == CapabilityRuntimeStatus::Error));
+    }
+
+    #[test]
+    fn openrouter_image_model_vendor_does_not_change_the_configured_protocol() {
+        let db = Database::open_memory().unwrap();
+        let mut config = AppConfig::default();
+        config.image_generation = ImageGenerationConfig {
+            source: Default::default(),
+            provider: "openrouter".into(),
+            api_style: "openrouter_images".into(),
+            api_key: "router-key".into(),
+            base_url: Some("https://openrouter.ai/api/v1".into()),
+            model: "google/gemini-3.1-flash-image".into(),
+            size: None,
+            quality: None,
+            output_format: Some("png".into()),
+        };
+        db.save_app_config(&config).unwrap();
+        for model in [
+            "google/gemini-3.1-flash-image",
+            "qwen/qwen-image-3",
+            "openai/gpt-image-2.5-flare",
+        ] {
+            let runtime = resolve_runtime(
+                &db,
+                &ImageGenerationRequest {
+                    provider_config_id: None,
+                    provider: None,
+                    api_style: None,
+                    model: Some(model),
+                    output_format: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(runtime.provider, ImageProvider::OpenAi);
+            assert_eq!(
+                runtime.config.api_style.as_deref(),
+                Some("openrouter_images")
+            );
+            assert_eq!(
+                runtime.config.base_url.as_deref(),
+                Some("https://openrouter.ai/api/v1")
+            );
+            assert_eq!(runtime.config.api_key, "router-key");
+        }
+    }
+
+    #[test]
     fn image_xai_runtime_preserves_endpoint_key_model_and_adapter() {
         let db = Database::open_memory().unwrap();
         let mut config = AppConfig::default();
         config.image_generation = ImageGenerationConfig {
+            source: Default::default(),
             provider: "open_ai".to_string(),
             api_style: "xai_images".to_string(),
             api_key: "xai-image-key".to_string(),
@@ -951,7 +1067,10 @@ mod tests {
                 provider_catalogs: Vec::new(),
                 runtime_checks: Vec::new(),
             },
-            Some(&ImageGenerationConfig::default()),
+            Some(&ImageGenerationConfig {
+                source: ImageGenerationSource::ApiKey,
+                ..Default::default()
+            }),
         );
 
         assert!(manifest
@@ -973,6 +1092,7 @@ mod tests {
         let db = Database::open_memory().expect("open in-memory db");
         let mut config = AppConfig::default();
         config.image_generation = ImageGenerationConfig {
+            source: Default::default(),
             provider: "google".to_string(),
             api_style: "gemini_generate_content".to_string(),
             api_key: "image-key".to_string(),

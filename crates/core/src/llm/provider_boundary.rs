@@ -90,6 +90,11 @@ pub(super) fn is_minimax_public_endpoint(provider: ProviderType, base_url: Optio
         && endpoint_matches(provider, base_url, &["api.minimax.io"], &["/v1"])
 }
 
+pub(super) fn is_mimo_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
+    provider == ProviderType::OpenAi
+        && endpoint_matches(provider, base_url, &["api.xiaomimimo.com"], &["/v1"])
+}
+
 pub(super) fn is_mistral_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
     provider == ProviderType::OpenAi
         && endpoint_matches(provider, base_url, &["api.mistral.ai"], &["/v1"])
@@ -204,6 +209,7 @@ pub(super) fn endpoint_id(provider: ProviderType, base_url: Option<&str>) -> Str
         "api.openai.com" if path_is(&url, &["/v1"]) => Some("openai-public"),
         "api.x.ai" if path_is(&url, &["/v1"]) => Some("xai-public"),
         "api.minimax.io" if path_is(&url, &["/v1"]) => Some("minimax-public"),
+        "api.xiaomimimo.com" if path_is(&url, &["/v1"]) => Some("mimo-public"),
         "api.mistral.ai" if path_is(&url, &["/v1"]) => Some("mistral-public"),
         "api.meta.ai" if path_is(&url, &["/v1"]) => Some("meta-model-api-public"),
         "openrouter.ai" if path_is(&url, &["/api/v1"]) => Some("openrouter-public"),

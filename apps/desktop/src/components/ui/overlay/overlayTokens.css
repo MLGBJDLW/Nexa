@@ -20,6 +20,45 @@
   backdrop-filter: blur(var(--overlay-blur));
   transform-origin: var(--radix-select-content-transform-origin, var(--radix-popover-content-transform-origin));
   animation: nexa-overlay-open 140ms var(--ease-out);
+  box-sizing: border-box;
+}
+
+/* Collision positioning chooses a side; it does not constrain descendants.
+   Every portalled surface must also consume its available viewport space. */
+.nexa-overlay-content.nexa-popover-content {
+  max-height: min(var(--radix-popover-content-available-height, 100dvh), calc(100dvh - 20px));
+  max-width: min(var(--radix-popover-content-available-width, 100vw), calc(100vw - 20px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.nexa-overlay-content.nexa-menu-content {
+  max-height: min(var(--radix-dropdown-menu-content-available-height, 100dvh), calc(100dvh - 20px));
+  max-width: min(var(--radix-dropdown-menu-content-available-width, 100vw), calc(100vw - 20px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.nexa-overlay-content.nexa-contextmenu-content {
+  max-height: min(var(--radix-context-menu-content-available-height, 100dvh), calc(100dvh - 20px));
+  max-width: min(var(--radix-context-menu-content-available-width, 100vw), calc(100vw - 20px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.nexa-overlay-content.nexa-combobox-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.nexa-combobox-content > [cmdk-root] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.nexa-combobox-content .nexa-combobox-input { flex: 0 0 auto; }
+.nexa-combobox-list {
+  min-height: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .nexa-overlay-content[data-state='closed'] {
@@ -75,6 +114,8 @@
 }
 
 .nexa-multi-select-content {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   min-width: var(--radix-dropdown-menu-trigger-width);
   max-width: min(32rem, calc(100vw - 20px));
@@ -82,6 +123,7 @@
 }
 
 .nexa-multi-select-viewport {
+  min-height: 0;
   max-height: min(24rem, var(--radix-dropdown-menu-content-available-height));
   overflow-y: auto;
   overscroll-behavior: contain;

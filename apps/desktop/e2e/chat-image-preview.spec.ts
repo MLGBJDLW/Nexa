@@ -71,3 +71,28 @@ test('image viewer fits narrow windows and zooms without losing its close contro
   await viewer.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(viewer).toHaveCount(0);
 });
+
+for (const mode of ['', 'compact', 'trace', 'portrait']) {
+  test(`image frames fit displayed pixels across window sizes (${mode || 'standard'})`, async ({ page }, testInfo) => {
+    await page.goto(`/e2e/fixtures/chat-image-preview.html?${mode}=1`);
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 720 });
+      const frames = page.getByTestId('tool-image-frame');
+      await expect(frames).toHaveCount(2);
+      for (const frame of await frames.all()) {
+        const picture = frame.getByRole('img');
+        await expect(picture).toBeVisible();
+        await expect.poll(async () => picture.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+        const bounds = await frame.boundingBox();
+        const pixels = await picture.boundingBox();
+        expect(Math.abs(bounds!.width - pixels!.width)).toBeLessThanOrEqual(3);
+        expect(Math.abs(bounds!.height - pixels!.height)).toBeLessThanOrEqual(3);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        const ratio = await picture.evaluate(img => (img as HTMLImageElement).naturalWidth / (img as HTMLImageElement).naturalHeight);
+        expect(Math.abs(pixels!.width / pixels!.height - ratio)).toBeLessThan(0.02);
+      }
+    }
+    await page.getByTestId('tool-visual-evidence').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`image-frame-${mode || 'standard'}.png`) });
+  });
+}

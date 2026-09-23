@@ -12,7 +12,8 @@ export function NexaContextMenuContent({ className = '', ...props }: ComponentPr
       <ContextMenu.Content
         {...props}
         collisionPadding={props.collisionPadding ?? 10}
-        className={`nexa-overlay-content pointer-events-auto p-1 ${className}`}
+        updatePositionStrategy={props.updatePositionStrategy ?? 'always'}
+        className={`nexa-overlay-content nexa-contextmenu-content pointer-events-auto p-1 ${className}`}
       />
     </ContextMenu.Portal>
   );

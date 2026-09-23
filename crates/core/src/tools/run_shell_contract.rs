@@ -330,7 +330,7 @@ fn plain_text_tools_sentence() -> &'static str {
 }
 
 fn large_payload_sentence() -> &'static str {
-    "For large scripts or generated text, pass the content through `stdin` and use a program form that reads stdin (for example python with args [\"-\"]); do not stuff large content into argv."
+    "For large scripts or generated text, pass the content through `stdin` and use a program form that reads stdin (for example python with args [\"-\"]); do not stuff large content into argv. If a disposable script or intermediate file must be saved, place it under <active-workspace>/.nexa/tmp/<task>/, even when cwd is a nested directory. Keep maintained source and user deliverables at their intended paths; honor explicit user paths."
 }
 
 fn html_pptx_sentence() -> &'static str {

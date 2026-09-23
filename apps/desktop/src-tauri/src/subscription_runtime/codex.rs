@@ -18,6 +18,10 @@ use tokio::{
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
+#[path = "codex_images.rs"]
+mod image_generation;
+pub(crate) use image_generation::generate_subscription_image;
+
 /// One reader owns stdout. A bounded mailbox prevents output from exhausting
 /// memory while a tool is awaiting approval; it never blocks clock responses.
 struct Wire {
@@ -38,6 +42,10 @@ impl Drop for Wire {
 
 impl Wire {
     async fn start() -> Result<Self, CoreError> {
+        Self::start_for_images(false).await
+    }
+
+    async fn start_for_images(images: bool) -> Result<Self, CoreError> {
         let binary = tokio::task::spawn_blocking(
             crate::commands::subscription_accounts::resolve_codex_binary,
         )
@@ -47,6 +55,11 @@ impl Wire {
         let mut command = tokio::process::Command::new(binary.program);
         command.args(["app-server", "--stdio", "--strict-config"]);
         for (key, value) in static_config() {
+            let value = if images && key == "features.image_generation" {
+                json!(true)
+            } else {
+                value
+            };
             command.arg("-c").arg(format!("{key}={value}"));
         }
         command
@@ -84,7 +97,8 @@ impl Wire {
                     .position(|byte| *byte == b'\n')
                     .map(|index| index + 1)
                     .unwrap_or(chunk.len());
-                if frame.len() + length > MAX_FRAME {
+                let limit = if images { 48 * 1024 * 1024 } else { MAX_FRAME };
+                if frame.len() + length > limit {
                     let _ = tx
                         .send(Err(protocol_error("Codex protocol frame too large")))
                         .await;
@@ -203,6 +217,10 @@ fn rpc_result(message: Value, method: &str) -> Result<Value, CoreError> {
 fn static_config() -> serde_json::Map<String, Value> {
     let mut config = serde_json::Map::new();
     config.insert("web_search".into(), json!("disabled"));
+    // Some models require the code-mode wrapper to call any tool, including
+    // client-owned dynamic tools. Keep its host available; native effect tools
+    // remain disabled and Nexa still authorizes every dynamic callback.
+    config.insert("features.code_mode_host".into(), json!(true));
     for key in [
         "tools.update_plan.enabled",
         "tools.experimental_request_user_input.enabled",
@@ -231,7 +249,6 @@ fn static_config() -> serde_json::Map<String, Value> {
         "skill_search",
         "code_mode",
         "code_mode_only",
-        "code_mode_host",
         "deferred_executor",
         "token_budget",
     ] {
@@ -784,8 +801,7 @@ mod tests {
         let models = catalog["data"].as_array().unwrap();
         let model = models
             .iter()
-            .find(|model| model["model"] == "gpt-5.4-mini")
-            .or_else(|| models.iter().find(|model| model["isDefault"] == true))
+            .find(|model| model["isDefault"] == true)
             .unwrap()["model"]
             .as_str()
             .unwrap()
@@ -847,6 +863,9 @@ mod tests {
             json!({"config":{"mcp_servers":{"team.tools":{"env":{"SECRET":"never-copy"}}}}});
         let skills = json!({"data":[{"cwd":cwd,"skills":[],"errors":[]}]});
         let disabled = disable_ambient(&config, &skills, &cwd).unwrap();
+        assert_eq!(disabled["features.code_mode_host"], true);
+        assert_eq!(disabled["features.shell_tool"], false);
+        assert_eq!(disabled["features.image_generation"], false);
         assert_eq!(
             disabled["mcp_servers"],
             json!({"team.tools":{"enabled":false}})

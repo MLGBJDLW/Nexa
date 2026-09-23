@@ -1096,7 +1096,8 @@ impl AgentExecutor {
             self.config.context_window,
             self.config.context_window_resolution,
             max_response_tokens,
-        );
+        )
+        .with_compact_percent(self.config.auto_compact_percent);
         let mut loop_guard = AgentLoopGuard::new();
         let mut long_task_state = LongTaskState::new();
         let mut force_non_streaming_llm = llm_streaming_disabled_by_env()

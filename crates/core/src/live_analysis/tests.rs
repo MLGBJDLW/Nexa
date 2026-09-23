@@ -53,9 +53,13 @@ fn native_live_protocols_keep_credentials_and_modalities_scoped() {
     let google = NativeLiveConfig {
         protocol: NativeLiveProtocol::GeminiLive,
         api_key: "key".into(),
-        model: "gemini-3.1-flash-live-preview".into(),
+        model: "gemini-3.8-live".into(),
         base_url: None,
     };
+    assert_eq!(google.protocol.default_model(), "gemini-3.8-live");
+    assert!(google.setup("Observe")["setup"]["generationConfig"]
+        .get("thinkingConfig")
+        .is_none());
     assert_eq!(
         google.setup("Observe")["setup"]["generationConfig"]["responseModalities"],
         json!(["AUDIO"])

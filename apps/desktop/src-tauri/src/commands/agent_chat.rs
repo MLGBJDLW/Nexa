@@ -1246,7 +1246,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             let session_dependencies =
                 build_desktop_agent_session_dependencies(DesktopAgentSessionDependencyRequest {
                     preview_host: Arc::new(crate::preview_tool::NativeNexaPreviewHost::new(handle.clone())),
-                    subscription_runtime: subscription_kind.is_some(),
+                    subscription_runtime: subscription_kind,
                     db: &db,
                     mcp_manager: &mcp_manager,
                     event_seq: &stream_event_seq_for_task,

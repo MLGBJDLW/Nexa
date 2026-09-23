@@ -15,7 +15,8 @@ export function NexaPopoverContent({ className = '', ...props }: ComponentProps<
         {...props}
         collisionPadding={props.collisionPadding ?? 10}
         sideOffset={props.sideOffset ?? 6}
-        className={`nexa-overlay-content pointer-events-auto ${className}`}
+        updatePositionStrategy={props.updatePositionStrategy ?? 'always'}
+        className={`nexa-overlay-content nexa-popover-content pointer-events-auto ${className}`}
       />
     </Popover.Portal>
   );

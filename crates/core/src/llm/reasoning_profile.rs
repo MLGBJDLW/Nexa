@@ -11,10 +11,10 @@ use crate::provider_catalog::{find_provider_preset, model_capabilities_from_cata
 use super::provider_boundary::{
     endpoint_id, is_alibaba_chat_endpoint, is_anthropic_public_endpoint, is_azure_openai_endpoint,
     is_deepseek_anthropic_endpoint, is_deepseek_public_endpoint, is_google_public_endpoint,
-    is_meta_model_api_endpoint, is_minimax_public_endpoint, is_mistral_public_endpoint,
-    is_moonshot_public_endpoint, is_openai_public_endpoint, is_openrouter_public_endpoint,
-    is_siliconflow_public_endpoint, is_xai_public_endpoint, is_zhipu_model_api_endpoint,
-    provider_id,
+    is_meta_model_api_endpoint, is_mimo_public_endpoint, is_minimax_public_endpoint,
+    is_mistral_public_endpoint, is_moonshot_public_endpoint, is_openai_public_endpoint,
+    is_openrouter_public_endpoint, is_siliconflow_public_endpoint, is_xai_public_endpoint,
+    is_zhipu_model_api_endpoint, provider_id,
 };
 use super::{ProviderType, ReasoningEffort};
 
@@ -439,10 +439,14 @@ pub fn resolve_reasoning_profile(
 
     if is_xai_public_endpoint(provider, base_url) {
         return match model.as_str() {
-            "grok-4.6" => {
+            "grok-4.6" | "grok-4.7" => {
                 let mut value = profile(
                     key,
-                    "xai-grok-4.6-reasoning-v1",
+                    if model == "grok-4.7" {
+                        "xai-grok-4.7-reasoning-v1"
+                    } else {
+                        "xai-grok-4.6-reasoning-v1"
+                    },
                     ThinkingModeControl::AlwaysOn,
                     ReasoningEffortField::TopLevel,
                     ReasoningEffortMapping::Exact,
@@ -510,6 +514,27 @@ pub fn resolve_reasoning_profile(
             // Completions adapter must not translate its nested control.
             _ => ReasoningProfile::unsupported(key),
         };
+    }
+
+    if is_mimo_public_endpoint(provider, base_url)
+        && matches!(
+            model.as_str(),
+            "mimo-v2.6-pro" | "mimo-v2.6-flash" | "mimo-v2.6-pro-ultraspeed"
+        )
+    {
+        let mut value = profile(
+            key,
+            "mimo-v2.6-thinking-v1",
+            ThinkingModeControl::ThinkingType,
+            ReasoningEffortField::None,
+            ReasoningEffortMapping::Exact,
+            (&[], None),
+            ReasoningBudgetField::None,
+        );
+        value.preserve_reasoning_history = true;
+        value.replay_policy = ReasoningReplayPolicy::RequiredOnToolCall;
+        value.omit_temperature_when_reasoning = true;
+        return value;
     }
 
     if is_minimax_public_endpoint(provider, base_url) && model.starts_with("minimax-m") {

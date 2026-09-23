@@ -391,7 +391,7 @@ pub async fn generate_theme_background_cmd(
     state: tauri::State<'_, AppState>,
     prompt: String,
 ) -> Result<ThemeBackgroundAsset, String> {
-    use nexa_core::tools::image_generation_tool::GenerateImageTool;
+    use crate::image_generation_tool::DesktopImageGenerationTool;
     use nexa_core::tools::{Tool, ToolExecutionContext};
 
     let prompt = prompt.trim();
@@ -411,7 +411,13 @@ pub async fn generate_theme_background_cmd(
         "filename": "nexa-theme-background.png"
     })
     .to_string();
-    let result = GenerateImageTool
+    let source = state
+        .db
+        .load_app_config()
+        .map_err(|e| e.to_string())?
+        .image_generation
+        .source;
+    let result = DesktopImageGenerationTool::new(source, None, None)
         .execute(ToolExecutionContext::new(
             &call_id,
             &arguments,

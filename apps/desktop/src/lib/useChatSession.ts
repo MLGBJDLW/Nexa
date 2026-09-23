@@ -186,6 +186,10 @@ async function resolveContextWindowForConfig(
   config: AgentConfig | null,
 ): Promise<ResolvedContextWindowState> {
   if (!config) return { contextWindow: 0, authority: 'provider_managed' };
+  const policy = await api.getModelContextPolicy(config.id, config.model).catch(() => null);
+  if (policy && !policy.managedByProvider) {
+    return { contextWindow: policy.effectiveContextWindow ?? 0, authority: policy.contextAuthority };
+  }
   if (config.contextWindow && config.contextWindow > 0) {
     return { contextWindow: config.contextWindow, authority: 'user_override' };
   }
@@ -314,6 +318,7 @@ export type ChatSendOptions = ChatSendOptionsBase & (
 );
 
 export interface UseChatSessionReturn {
+  applyModelContextPolicy: (snapshot: api.ModelContextPolicySnapshot) => void;
   messages: ConversationMessage[];
   turns: ConversationTurn[];
   taskRun: AgentTaskRun | null;
@@ -1831,6 +1836,19 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     loadConversations,
     reloadMessages,
     applyCompactionUsage,
+    applyModelContextPolicy: (snapshot: api.ModelContextPolicySnapshot) => {
+      const capacity = snapshot.effectiveContextWindow ?? 0;
+      setContextWindow(capacity);
+      setContextAuthority(snapshot.contextAuthority);
+      if (activeId) {
+        contextWindowCacheRef.current[activeId] = capacity;
+        contextAuthorityCacheRef.current[activeId] = snapshot.contextAuthority;
+      }
+      if (defaultAgentConfigRef.current?.id === agentConfig?.id) {
+        setDefaultContextWindow(capacity);
+        setDefaultContextAuthority(snapshot.contextAuthority);
+      }
+    },
     deleteMessage,
     editAndResend,
     switchAgentConfig,

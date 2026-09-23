@@ -10,6 +10,12 @@ interface ProviderIconMeta {
 }
 
 const PROVIDER_ICON_META: Record<string, ProviderIconMeta> = {
+  sourceful: { asset: '/provider-icons/sourceful.svg', fallback: 'SF', label: 'Sourceful', tone: 'bg-text-primary/10 text-text-primary' },
+  flux: { asset: '/provider-icons/flux.svg', fallback: 'FL', label: 'Black Forest Labs', tone: 'bg-text-primary/10 text-text-primary' },
+  krea: { asset: '/provider-icons/krea.svg', fallback: 'KR', label: 'Krea', tone: 'bg-text-primary/10 text-text-primary' },
+  microsoft: { asset: '/provider-icons/microsoft.svg', fallback: 'MI', label: 'Microsoft AI', tone: 'bg-text-primary/10 text-text-primary' },
+  recraft: { asset: '/provider-icons/recraft.svg', fallback: 'RE', label: 'Recraft', tone: 'bg-text-primary/10 text-text-primary' },
+
   copilot: {
     glyph: GoCopilot,
     fallback: 'GH',
@@ -119,6 +125,7 @@ const PROVIDER_ICON_META: Record<string, ProviderIconMeta> = {
     tone: 'bg-violet-500/12 text-violet-400',
   },
   meta: {
+    asset: '/provider-icons/meta.svg',
     fallback: 'M',
     label: 'Meta',
     tone: 'bg-blue-500/12 text-blue-400',
@@ -130,6 +137,7 @@ const PROVIDER_ICON_META: Record<string, ProviderIconMeta> = {
     tone: 'bg-text-primary/10 text-text-primary',
   },
   groq: {
+    asset: '/provider-icons/groq.svg',
     fallback: 'GQ',
     label: 'Groq',
     tone: 'bg-orange-500/12 text-orange-400',
@@ -169,6 +177,15 @@ const PROVIDER_ICON_META: Record<string, ProviderIconMeta> = {
     label: 'ByteDance',
     tone: 'bg-blue-500/12 text-blue-400',
   },
+  xiaomimimo: { asset: '/provider-icons/xiaomimimo.svg', fallback: 'Mi', label: 'Xiaomi MiMo', tone: 'bg-orange-500/12 text-orange-500' },
+  cohere: { asset: '/provider-icons/cohere.svg', fallback: 'C', label: 'Cohere', tone: 'bg-emerald-500/12 text-emerald-500' },
+  inception: { asset: '/provider-icons/inception.svg', fallback: 'I', label: 'Inception', tone: 'bg-text-primary/10 text-text-primary' },
+  inference: { asset: '/provider-icons/inference.svg', fallback: 'IN', label: 'Inference', tone: 'bg-sky-500/12 text-sky-500' },
+  sakana: { asset: '/provider-icons/sakana.svg', fallback: 'S', label: 'Sakana AI', tone: 'bg-red-500/12 text-red-500' },
+  antgroup: { asset: '/provider-icons/antgroup.svg', fallback: 'A', label: 'InclusionAI / Ant Group', tone: 'bg-blue-500/12 text-blue-500' },
+  prismml: { asset: '/provider-icons/prismml.svg', fallback: 'P', label: 'PrismML', tone: 'bg-text-primary/10 text-text-primary' },
+  unbiased: { asset: '/provider-icons/unbiased.svg', fallback: 'U', label: 'Unbiased', tone: 'bg-text-primary/10 text-text-primary' },
+  nexagi: { asset: '/provider-icons/nexagi.svg', fallback: 'N', label: 'Nex-AGI', tone: 'bg-text-primary/10 text-text-primary' },
   custom: {
     fallback: 'AI',
     label: 'Custom provider',
@@ -204,6 +221,7 @@ const PROVIDER_TYPE_TO_ICON: Record<string, string> = {
 };
 
 const PRESET_ID_TO_ICON: Record<string, string> = {
+  xiaomimimo: 'xiaomimimo',
   githubcopilot: 'copilot',
   openaicodex: 'openai',
   openai: 'openai',
@@ -233,6 +251,7 @@ const PRESET_ID_TO_ICON: Record<string, string> = {
 };
 
 const BASE_URL_ICON_MATCHERS: Array<[RegExp, string]> = [
+  [/xiaomimimo\.com|mimo\.mi\.com/i, 'xiaomimimo'],
   [/openrouter\.ai/i, 'openrouter'],
   [/anthropic\.com/i, 'anthropic'],
   [/googleapis\.com|generativelanguage/i, 'gemini'],
@@ -258,6 +277,20 @@ const BASE_URL_ICON_MATCHERS: Array<[RegExp, string]> = [
 ];
 
 const LABEL_ICON_MATCHERS: Array<[RegExp, string]> = [
+  [/sourceful|riverflow/i, 'sourceful'],
+  [/black-forest-labs|flux/i, 'flux'],
+  [/krea/i, 'krea'],
+  [/microsoft|mai-image/i, 'microsoft'],
+  [/recraft/i, 'recraft'],
+  [/xiaomi|\bmimo\b/i, 'xiaomimimo'],
+  [/cohere|command-a/i, 'cohere'],
+  [/inception|mercury/i, 'inception'],
+  [/inference-net|schematron/i, 'inference'],
+  [/sakana|fugu/i, 'sakana'],
+  [/inclusionai|ling-3|antgroup/i, 'antgroup'],
+  [/prism-?ml|prism-ml|bonsai/i, 'prismml'],
+  [/unbiased|pareto/i, 'unbiased'],
+  [/nex-agi|nex-n2/i, 'nexagi'],
   [/openrouter/i, 'openrouter'],
   [/anthropic|claude/i, 'anthropic'],
   [/gemini|google/i, 'gemini'],
@@ -286,6 +319,7 @@ const LABEL_ICON_MATCHERS: Array<[RegExp, string]> = [
 
 interface ResolveProviderIconInput {
   provider: string;
+  model?: string | null;
   providerId?: string | null;
   baseUrl?: string | null;
   label?: string | null;
@@ -323,10 +357,15 @@ function normalizeKey(value: string | null | undefined): string {
 
 export function resolveProviderIconMeta({
   provider,
+  model,
   providerId,
   baseUrl,
   label,
 }: ResolveProviderIconInput): ProviderIconMeta {
+  if (model) {
+    const brand = LABEL_ICON_MATCHERS.find(([pattern]) => pattern.test(model));
+    if (brand) return PROVIDER_ICON_META[brand[1]];
+  }
   const presetIcon = PRESET_ID_TO_ICON[normalizeKey(providerId)];
   if (presetIcon) {
     return PROVIDER_ICON_META[presetIcon];
@@ -353,13 +392,14 @@ export function resolveProviderIconMeta({
 
 export function ProviderIcon({
   provider,
+  model,
   providerId,
   baseUrl,
   label,
   className = '',
   size = 'md',
 }: ProviderIconProps) {
-  const meta = resolveProviderIconMeta({ provider, providerId, baseUrl, label });
+  const meta = resolveProviderIconMeta({ provider, model, providerId, baseUrl, label });
   const Glyph = meta.glyph;
   const maskStyle = meta.asset
     ? ({

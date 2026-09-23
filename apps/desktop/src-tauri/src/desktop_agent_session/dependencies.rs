@@ -112,6 +112,13 @@ pub async fn build_desktop_agent_session_dependencies(
         terminal_state,
         browser_state,
     } = request;
+    let image_subscription = subscription_runtime;
+    let image_model = executor_config.model.clone();
+    let subscription_runtime = subscription_runtime.is_some();
+    let image_source = db
+        .load_app_config()
+        .map(|config| config.image_generation.source)
+        .unwrap_or_default();
 
     let skill_select_started = Instant::now();
     let selected_skills = if pinned_skill_ids.is_empty() {
@@ -283,6 +290,12 @@ pub async fn build_desktop_agent_session_dependencies(
         nexa_core::tools::open_in_nexa_tool::OpenInNexaTool::new(preview_host),
     ));
     let before_package_filter_count = tools.tool_names().len();
+    tools = crate::image_generation_tool::install_desktop_image_tool(
+        tools,
+        image_source,
+        image_subscription,
+        image_model,
+    );
     let current_prefilter = tools.clone();
     let assembled = package_assembler.and_then(|assembler| assembler.assemble_tool_registry(tools));
     let package_snapshot_cache =

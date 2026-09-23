@@ -199,6 +199,25 @@ test.beforeEach(async ({ page }) => {
           return null;
         case 'list_agent_configs_cmd':
           return [clone(defaultAgentConfig)];
+        case 'get_model_context_policy_cmd':
+        case 'save_model_context_policy_cmd': {
+          const key = `e2e-context-policy:${String(args.model)}`;
+          if (cmd === 'save_model_context_policy_cmd') {
+            if (localStorage.getItem('e2e-policy-save-error')) throw new Error('save unavailable');
+            localStorage.setItem(key, JSON.stringify(args.policy));
+          }
+          const policy = JSON.parse(localStorage.getItem(key) ?? '{"contextWindow":null,"autoCompactPercent":null}');
+          const capacity = policy.contextWindow ?? 1047576;
+          const reserve = Math.min(32768, Math.floor(capacity / 2));
+          const safety = Math.min(8192, Math.max(1024, Math.floor(capacity / 25)));
+          const budget = capacity - reserve - safety;
+          return { model: String(args.model), policy, modelLimit: 1047576,
+            effectiveContextWindow: capacity, contextAuthority: policy.contextWindow == null ? 'catalog' : 'user_override',
+            responseTokenLimit: 32768, responseReserve: reserve, safetyReserve: safety,
+            promptBudget: budget, triggerTokens: Math.floor(budget * (policy.autoCompactPercent ?? 78) / 100),
+            managedByProvider: localStorage.getItem('e2e-policy-managed') === 'true',
+          };
+        }
         case 'get_model_context_window':
           return 1047576;
         case 'list_conversations_cmd':
@@ -208,6 +227,7 @@ test.beforeEach(async ({ page }) => {
           return [clone(conversations[id]), clone(messagesByConversation[id] ?? [])];
         }
         case 'list_sources':
+        case 'get_recent_queries':
           return [];
         case 'get_conversation_sources_cmd':
           return [];
@@ -278,6 +298,169 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test('drops multiple files into the textarea and keeps attachments in their conversation', async ({ page }) => {
+  await page.goto('/chat/conv-draft-a');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Review these files');
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['notes'], '报告.md', { type: '' }));
+    data.items.add(new File(['%PDF-1.4'], 'résumé.pdf', { type: 'application/pdf' }));
+    data.items.add(new File(['image'], '画像.png', { type: 'image/png' }));
+    data.items.add(new File(['ignored'], 'unsupported.exe'));
+    return data;
+  });
+  await input.dispatchEvent('dragenter', { dataTransfer: transfer });
+  await expect(page.getByTestId('chat-input')).toHaveAttribute('data-dragging', 'true');
+  await input.dispatchEvent('dragover', { dataTransfer: transfer });
+  await input.dispatchEvent('drop', { dataTransfer: transfer });
+  await expect(page.getByTestId('chat-input')).toHaveAttribute('data-dragging', 'false');
+  await expect(page.getByTestId('chat-input').getByText('报告.md', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('chat-input').getByText('résumé.pdf', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  await expect(page.getByTestId('chat-input').getByText('unsupported.exe')).toHaveCount(0);
+  await expect(input).toHaveValue('Review these files');
+  await page.getByRole('button', { name: /Draft B/ }).click();
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(0);
+  await page.getByRole('button', { name: /Draft A/ }).click();
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  await expect(input).toHaveValue('Review these files');
+  await transfer.dispose();
+});
+
+test('file drops outside the composer cannot navigate and text drags keep native behavior', async ({ page }) => {
+  await page.goto('/chat/conv-draft-a');
+  await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
+  const result = await page.evaluate(() => {
+    const files = new DataTransfer();
+    files.items.add(new File(['notes'], 'notes.txt', { type: 'text/plain' }));
+    const fileDrop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: files });
+    document.body.dispatchEvent(fileDrop);
+    const text = new DataTransfer();
+    text.setData('text/plain', 'dragged text');
+    const textDrop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: text });
+    document.querySelector('[data-testid="chat-input-textarea"]')!.dispatchEvent(textDrop);
+    return { filePrevented: fileDrop.defaultPrevented, textPrevented: textDrop.defaultPrevented };
+  });
+  expect(result).toEqual({ filePrevented: true, textPrevented: false });
+});
+
+test('a slow dropped file stays with its original draft when switching conversations', async ({ page }) => {
+  await page.goto('/chat/conv-draft-a');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('A before the read');
+  await page.evaluate(() => {
+    const read = FileReader.prototype.readAsDataURL;
+    FileReader.prototype.readAsDataURL = function (blob) {
+      Object.assign(window, { finishAttachmentRead: () => read.call(this, blob) });
+    };
+    const data = new DataTransfer();
+    data.items.add(new File(['notes'], 'slow-report.txt', { type: 'text/plain' }));
+    document.querySelector('[data-testid="chat-input-textarea"]')!.dispatchEvent(
+      new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }),
+    );
+  });
+  await input.fill('A edited during the read');
+  await page.getByRole('button', { name: /Draft B/ }).click();
+  await expect(input).toHaveValue('');
+  await expect(input).toBeEnabled();
+  await input.fill('B must stay separate');
+  await page.evaluate(() => (window as unknown as { finishAttachmentRead: () => void }).finishAttachmentRead());
+  await page.getByRole('button', { name: /Draft A/ }).click();
+  await expect(input).toHaveValue('A edited during the read');
+  await expect(page.getByTestId('chat-input').getByText('slow-report.txt', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /Draft B/ }).click();
+  await expect(input).toHaveValue('B must stay separate');
+  await expect(page.getByTestId('chat-input').getByText('slow-report.txt', { exact: true })).toHaveCount(0);
+});
+
+test('context settings preview the real budget, persist, and reset without changing the draft', async ({ page }) => {
+  await page.goto('/chat/conv-draft-a');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep my draft');
+  await page.getByTestId('chat-context-trigger').click();
+  const panel = page.getByTestId('context-policy-panel');
+  await expect(panel.getByRole('heading', { name: 'Context & compaction' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Custom', exact: true }).click();
+  await panel.getByRole('button', { name: '128K', exact: true }).click();
+  await panel.getByRole('button', { name: 'Earlier · 65%', exact: true }).click();
+  await expect(panel).toContainText('above 58.6K input tokens');
+  await panel.getByTestId('context-policy-save').click();
+  await expect(panel.getByRole('status')).toHaveText('Saved. Ready for the next turn.');
+  await panel.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(input).toHaveValue('Keep my draft');
+  await page.reload();
+  await page.getByTestId('chat-context-trigger').click();
+  await expect(panel.getByTestId('context-policy-capacity')).toHaveValue('128000');
+  await expect(panel.getByTestId('context-policy-threshold')).toHaveValue('65');
+  await page.screenshot({ path: 'test-results/context-policy-custom.png', fullPage: true });
+  await panel.getByRole('button', { name: 'Reset to automatic', exact: true }).click();
+  await panel.getByTestId('context-policy-save').click();
+  await expect(panel.getByRole('button', { name: 'Automatic', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel.getByTestId('context-policy-threshold')).toHaveValue('78');
+});
+
+test('context settings remain usable at narrow widths and keep edits on save failure', async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 720 });
+  await page.goto('/chat/conv-draft-a');
+  await page.evaluate(() => localStorage.setItem('e2e-policy-save-error', 'true'));
+  await page.getByTestId('chat-context-trigger').click();
+  const panel = page.getByTestId('context-policy-panel');
+  await panel.getByRole('button', { name: 'Custom', exact: true }).click();
+  await panel.getByTestId('context-policy-capacity').fill('2000000');
+  await expect(panel.getByTestId('context-policy-save')).toBeDisabled();
+  await panel.getByTestId('context-policy-capacity').fill('64000');
+  await panel.getByTestId('context-policy-save').click();
+  await expect(panel.getByRole('alert')).toContainText('Could not save');
+  await expect(panel.getByTestId('context-policy-capacity')).toHaveValue('64000');
+  await page.evaluate(() => localStorage.removeItem('e2e-policy-save-error'));
+  await panel.getByTestId('context-policy-save').click();
+  await expect(panel.getByRole('status')).toBeVisible();
+  const box = await panel.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(820);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(720);
+  await page.screenshot({ path: 'test-results/context-policy-compact.png', fullPage: true });
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+});
+
+test('subscription context settings honestly show provider management', async ({ page }) => {
+  await page.goto('/chat/conv-draft-a');
+  await page.evaluate(() => localStorage.setItem('e2e-policy-managed', 'true'));
+  await page.getByTestId('chat-context-trigger').click();
+  const panel = page.getByTestId('context-policy-panel');
+  await expect(panel).toContainText('Managed by your subscription');
+  await expect(panel.getByTestId('context-policy-save')).toHaveCount(0);
+});
+
+test('context controls and publisher SVGs are legible in Chinese dark mode', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('nexa-locale', 'zh-CN');
+    localStorage.setItem('nexa-theme', 'dark');
+  });
+  await page.goto('/chat/conv-draft-a');
+  await page.getByTestId('chat-context-trigger').click();
+  const panel = page.getByTestId('context-policy-panel');
+  await panel.getByRole('button', { name: '自定义', exact: true }).click();
+  await panel.getByRole('button', { name: '256K', exact: true }).click();
+  await expect(panel.getByRole('button', { name: '保存设置', exact: true })).toBeInViewport();
+  await page.screenshot({ path: 'test-results/context-policy-zh-dark.png', fullPage: true });
+  const brands = await page.evaluate(async () => {
+    const moduleUrl = '/src/lib/providerIcons.tsx';
+    const { resolveProviderIconMeta } = await import(/* @vite-ignore */ moduleUrl);
+    return ['xiaomi/mimo-v2.6-pro', 'cohere/command-a-plus', 'prism-ml/ternary-bonsai-2-27b', 'unbiased/pareto', 'inference-net/schematron-v2-turbo', 'sakana/fugu-max', 'inclusionai/ling-3.0-flash-vl', 'inception/mercury-2.5', 'nex-agi/nex-n2.5-pro', 'meta/muse-spark-1.3-contributor'].map(model => resolveProviderIconMeta({ provider: 'openrouter', providerId: 'openrouter', model }).asset);
+  });
+  for (const asset of brands) {
+    expect(asset).toMatch(/^\/provider-icons\/.*\.svg$/);
+    expect(asset).not.toContain('openrouter.svg');
+    const response = await page.request.get(asset);
+    expect(response.ok()).toBeTruthy();
+    expect(await response.text()).toContain('<svg');
+  }
+});
+
 test('keeps input drafts scoped to each conversation', async ({ page }) => {
   await page.goto('/chat/conv-draft-a');
 
@@ -305,7 +488,7 @@ test('keeps an input draft after leaving and returning to chat', async ({ page }
   await page.getByRole('link', { name: 'Search' }).click();
   await expect(page).toHaveURL(/\/$/);
 
-  await page.getByRole('link', { name: 'Chat' }).click();
+  await page.locator('a[href="/chat"]').click();
   await expect(page).toHaveURL(/\/chat$/);
 
   await page.getByRole('button', { name: /Draft A/ }).click();
@@ -540,11 +723,11 @@ test('routes one custom wallpaper chrome surface through the active chat sidebar
   await expect.poll(async () => (
     await paintedSurfaceStyle(composer)
   ).backgroundAlpha).toBe(1);
-  expect({
+  await expect.poll(async () => ({
     toolbar: await paintedSurfaceStyle(toolbarControl, false),
     composer: await paintedSurfaceStyle(composer),
     reading: await paintedSurfaceStyle(readingSurface),
-  }).toEqual({
+  })).toEqual({
     toolbar: { surface: 'transparent', backgroundAlpha: 1, backdropFilter: 'none' },
     composer: { surface: 'transparent', backgroundAlpha: 1, backdropFilter: 'none' },
     reading: { surface: 'transparent', backgroundAlpha: 1, backdropFilter: 'none' },

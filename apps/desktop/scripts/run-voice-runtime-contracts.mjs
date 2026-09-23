@@ -643,7 +643,7 @@ test('voice runtime no longer builds an unbounded Promise chain or JSON byte arr
     'utf8',
   );
   assert.match(realtimeNativeSource, /REPLAY_CHUNK_MILLIS: u64 = 100/);
-  assert.match(realtimeNativeSource, /wait_for_session_ready\(&mut socket\)/);
+  assert.match(realtimeNativeSource, /wait_for_session_ready\(&mut socket, dialect, &task_id\)/);
   assert.match(realtimeNativeSource, /transcribe_realtime_spool/);
   assert.doesNotMatch(realtimeNativeSource, /std::fs::read\(wav_path\)/);
 });

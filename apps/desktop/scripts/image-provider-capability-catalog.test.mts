@@ -83,3 +83,11 @@ test('native image catalog preserves per-model options and the xAI protocol', ()
   assert.deepEqual(presets[0].models[0].descriptor.limits.supportedSizes, ['16:9|2k']);
   assert.deepEqual(presets[0].models[0].descriptor.outputModalities, ['image']);
 });
+
+
+test('model output formats override the provider fallback in image descriptors', () => {
+  const capabilityPackage = { providerCatalogs: [{ id: 'imageProviders', items: [{ ...rawRuntimePreset, models: [{ ...rawRuntimePreset.models[0], outputFormats: ['jpeg'] }] }] }] } as unknown as CapabilityPackageView;
+  const model = extractImageProviderPresets(capabilityPackage, [])[0].models[0];
+  assert.deepEqual(model.outputFormats, ['jpeg']);
+  assert.deepEqual(model.descriptor.limits.outputFormats, ['jpeg']);
+});

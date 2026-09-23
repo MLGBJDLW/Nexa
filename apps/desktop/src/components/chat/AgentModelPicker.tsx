@@ -759,6 +759,7 @@ export function AgentModelPicker({
                           >
                             <ProviderIcon
                               provider={row.providerRow.config.provider}
+                              model={row.model.id}
                               providerId={row.providerRow.preset?.id}
                               baseUrl={row.providerRow.config.baseUrl}
                               label={row.providerRow.label}
@@ -796,6 +797,7 @@ export function AgentModelPicker({
                         <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-2 border-b border-border/50 pb-2">
                           <ProviderIcon
                             provider={activeModelRow.providerRow.config.provider}
+                            model={activeModelRow.model.id}
                             providerId={activeModelRow.providerRow.preset?.id}
                             baseUrl={activeModelRow.providerRow.config.baseUrl}
                             label={activeModelRow.providerRow.label}

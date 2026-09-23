@@ -1,3 +1,4 @@
+import { isTextToSpeechConfigured } from '../lib/autoSpeech';
 import type { ArtifactPayload } from '../types/conversation';
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -9,6 +10,7 @@ import { Logo } from '../components/Logo';
 import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatInput, ActiveExtensions, ChatRunOverview, TaskBoard, AgentModelPicker, ConnectionStatusBanner, type AgentModelSelection, type ChatInputSendOptions } from '../components/chat';
 import { ApprovalDialog } from '../components/chat/ApprovalDialog';
 import { DecisionTray } from '../components/chat/DecisionTray';
+import { ContextPolicyPopover } from '../components/chat/ContextPolicyPopover';
 import {
   TerminalDock,
   TERMINAL_TOGGLE_EVENT,
@@ -703,9 +705,7 @@ export function ChatPage() {
     const nextEnabled = !appConfig.textToSpeech.autoSpeakFinalAnswers;
     if (nextEnabled) {
       const tts = appConfig.textToSpeech;
-      const configured = tts.apiStyle === 'sherpa_onnx'
-        ? Boolean(tts.executablePath?.trim() && tts.modelPath?.trim() && tts.tokensPath?.trim())
-        : Boolean(tts.apiKey.trim() && tts.model.trim() && tts.voice.trim());
+      const configured = isTextToSpeechConfigured(tts);
       if (!configured) {
         toast.error(t('chat.autoTtsNeedsProvider'));
         return;
@@ -2020,7 +2020,17 @@ export function ChatPage() {
               planModeEnabled={planModeEnabled}
               onPlanModeChange={setPlanModeEnabled}
               activeGoalContext={activeGoalContext}
-              contextIndicator={chat.activeId ? (
+              contextIndicator={selectedAgentConfig ? (
+                <ContextPolicyPopover
+                  key={`${selectedAgentConfig.id}:${selectedAgentConfig.model}`}
+                  config={selectedAgentConfig}
+                  usedTokens={chat.tokenUsage?.promptTokens}
+                  isStreaming={chat.isStreaming}
+                  isCompacting={isCompacting}
+                  onCompact={chat.activeId && manualCompactionAvailable ? handleCompactConversation : undefined}
+                  onSaved={chat.applyModelContextPolicy}
+                >
+                {(openContextPolicy) => (
                 <ChatRunOverview
                   isStreaming={chat.isStreaming}
                   tokenUsage={chat.tokenUsage}
@@ -2030,7 +2040,10 @@ export function ChatPage() {
                   isCompacting={isCompacting}
                   turnTiming={chat.turnTiming}
                   taskPhase={chat.taskRun?.phase}
+                  onConfigureContext={openContextPolicy}
                 />
+                )}
+                </ContextPolicyPopover>
               ) : null}
               onRestoreCheckpoint={chat.activeId ? async () => {
                 await chat.reloadMessages();

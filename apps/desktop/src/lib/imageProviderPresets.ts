@@ -11,6 +11,7 @@ import {
 
 export type ImageApiStyle =
   | "openai_images"
+  | "openrouter_images"
   | "xai_images"
   | "gemini_generate_content"
   | "dashscope_multimodal";
@@ -21,6 +22,7 @@ export interface ImageModelPreset {
   recommended?: boolean;
   qualityOptions?: string[];
   sizeOptions?: ImageSizeOption[];
+  outputFormats?: string[];
   descriptor: ModelDescriptor;
 }
 
@@ -87,4 +89,8 @@ export function getImageQualityOptions(preset: ImageProviderPreset, model: strin
 
 export function getImageSizeOptions(preset: ImageProviderPreset, model: string): ImageSizeOption[] {
   return preset.models.find(candidate => candidate.id === model)?.sizeOptions ?? preset.sizeOptions;
+}
+
+export function getImageOutputFormats(preset: ImageProviderPreset, model: string): string[] {
+  return preset.models.find(candidate => candidate.id === model)?.outputFormats ?? preset.outputFormats;
 }

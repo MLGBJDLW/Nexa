@@ -166,7 +166,7 @@ impl AgentConfig {
         }
     }
 
-    pub(super) fn resolved_max_response_tokens(&self, model: &str) -> u32 {
+    pub fn resolved_max_response_tokens(&self, model: &str) -> u32 {
         self.resolved_output_budget(model).effective_tokens
     }
 }

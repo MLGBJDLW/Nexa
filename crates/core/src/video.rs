@@ -1693,7 +1693,7 @@ fn transcribe_media_wav(
                 inherited.language = speech.language.clone().or_else(|| video.language.clone());
                 transcribe_audio(wav_path, &inherited)
             }
-            "openai_transcription" | "dashscope_asr" => {
+            "openai_transcription" | "dashscope_asr" | "dashscope_audio_asr" => {
                 transcribe_cloud_wav_chunks(wav_path, speech)
             }
             "sherpa_onnx" => {
@@ -1841,7 +1841,10 @@ pub fn media_runtime_status(
             let configured = speech.is_configured();
             let ready = match speech.api_style.as_str() {
                 "local_whisper" => configured && check_whisper_model_exists(video),
-                "openai_transcription" | "dashscope_asr" | "sherpa_onnx" => configured,
+                "openai_transcription"
+                | "dashscope_asr"
+                | "dashscope_audio_asr"
+                | "sherpa_onnx" => configured,
                 _ => false,
             };
             CapabilityRuntimeStatus {

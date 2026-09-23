@@ -282,7 +282,7 @@ pub struct DesktopAgentSessionConfigInput<'a> {
 
 pub struct DesktopAgentSessionDependencyRequest<'a> {
     pub preview_host: Arc<dyn nexa_core::tools::open_in_nexa_tool::NexaPreviewHost>,
-    pub subscription_runtime: bool,
+    pub subscription_runtime: Option<crate::subscription_runtime::SubscriptionRuntimeKind>,
     pub db: &'a Database,
     pub mcp_manager: &'a Arc<tokio::sync::Mutex<McpManager>>,
     pub event_seq: &'a AgentRunEventOutbox,

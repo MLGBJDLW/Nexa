@@ -40,6 +40,8 @@ struct AnthropicThinking {
     budget_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     block_binding: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -713,6 +715,7 @@ fn uses_adaptive_thinking(model: &str) -> bool {
             | "claude-mythos-5"
             | "claude-mythos-5-1"
             | "claude-opus-5"
+            | "claude-opus-5-5"
             | "claude-sonnet-5"
             | "claude-opus-4-8"
             | "claude-opus-4-7"
@@ -722,7 +725,7 @@ fn uses_adaptive_thinking(model: &str) -> bool {
 fn requires_thinking_binding_controls(model: &str) -> bool {
     matches!(
         model.trim().to_ascii_lowercase().as_str(),
-        "claude-fable-5-1" | "claude-mythos-5-1"
+        "claude-fable-5-1" | "claude-mythos-5-1" | "claude-opus-5-5"
     )
 }
 
@@ -768,8 +771,12 @@ fn build_request_body(
     // NOTE: Anthropic's API returns a clear error for models that don't support
     // thinking, so budget-based thinking is not model-gated (unlike Gemini).
     let (thinking, output_config, temperature, effective_max_tokens) = if uses_adaptive {
-        let effort = anthropic_reasoning_effort(request.reasoning_effort.as_ref())
-            .or_else(|| always_thinking.then(|| "low".to_string()));
+        let effort = if request.model == "claude-opus-5-5" && request.reasoning_effort.is_none() {
+            Some("medium".to_string())
+        } else {
+            anthropic_reasoning_effort(request.reasoning_effort.as_ref())
+        }
+        .or_else(|| always_thinking.then(|| "low".to_string()));
         if let Some(effort) = effort {
             (
                 Some(AnthropicThinking {
@@ -780,6 +787,7 @@ fn build_request_body(
                     // retaining the messages and completed tool results.
                     block_binding: binding_controls
                         .then(|| serde_json::json!({"prefix_mismatch_behavior":"drop_block"})),
+                    display: (request.model == "claude-opus-5-5").then_some("summarized"),
                 }),
                 Some(AnthropicOutputConfig { effort }),
                 None,
@@ -798,6 +806,7 @@ fn build_request_body(
                 r#type: "enabled".to_string(),
                 budget_tokens: Some(budget),
                 block_binding: None,
+                display: None,
             }),
             None,
             None, // Anthropic requires temperature unset when thinking is enabled
@@ -2065,6 +2074,43 @@ mod tests {
         assert!(
             anthropic_beta_headers(&request.model).contains("thinking-binding-controls-2026-08-01")
         );
+    }
+
+    #[test]
+    fn opus55_preserves_adaptive_thinking_and_visible_progress() {
+        for effort in [
+            None,
+            Some(ReasoningEffort::None),
+            Some(ReasoningEffort::Max),
+        ] {
+            let messages = vec![Message::text(Role::User, "solve it")];
+            let (_, api_messages) = convert_messages(&messages);
+            let mut request = request_with_messages(messages, None);
+            request.model = "claude-opus-5-5".into();
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = effort.clone();
+            request.thinking_budget = Some(2048);
+            let body = serde_json::to_value(build_request_body(&request, None, api_messages, true))
+                .unwrap();
+            assert_eq!(body["thinking"]["type"], "adaptive");
+            assert_eq!(body["thinking"]["display"], "summarized");
+            assert_eq!(
+                body["thinking"]["block_binding"]["prefix_mismatch_behavior"],
+                "drop_block"
+            );
+            assert_eq!(
+                body["output_config"]["effort"],
+                match effort {
+                    None => "medium",
+                    Some(ReasoningEffort::None) => "low",
+                    _ => "max",
+                }
+            );
+            assert!(body["thinking"].get("budget_tokens").is_none());
+            assert!(body.get("temperature").is_none());
+            assert!(anthropic_beta_headers(&request.model)
+                .contains("thinking-binding-controls-2026-08-01"));
+        }
     }
 
     #[test]

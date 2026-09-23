@@ -6,11 +6,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use futures::{SinkExt, StreamExt};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::process::Command;
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 use uuid::Uuid;
 
 use crate::app_settings::TextToSpeechConfig;
@@ -85,7 +87,7 @@ pub async fn synthesize_speech_preview(
     let speed = speed_override.unwrap_or(config.speed).clamp(0.5, 2.0);
     let client = reqwest::Client::builder()
         .user_agent(crate::USER_AGENT)
-        .timeout(Duration::from_secs(180))
+        .timeout(Duration::from_secs(300))
         .build()
         .map_err(|error| {
             CoreError::InvalidInput(format!("Failed to build HTTP client: {error}"))
@@ -99,7 +101,10 @@ pub async fn synthesize_speech_preview(
         }
         "azure_speech" => synthesize_azure(&client, config, text, &voice, speed).await?,
         "dashscope_speech" => {
-            synthesize_dashscope(&client, config, text, &model, &voice, speed).await?
+            synthesize_dashscope_stream(config, text, &model, &voice, speed).await?
+        }
+        "dashscope_audio_generation" => {
+            synthesize_dashscope_audio_generation(&client, config, text, &model, speed).await?
         }
         "sherpa_onnx" => synthesize_sherpa_onnx(config, text, &model, &voice, speed).await?,
         _ => synthesize_openai(&client, config, text, &model, &voice, speed).await?,
@@ -391,41 +396,126 @@ async fn synthesize_azure(
     binary_response(response, "Azure Speech", fallback_media_type).await
 }
 
-async fn synthesize_dashscope(
-    client: &reqwest::Client,
+async fn synthesize_dashscope_stream(
     config: &TextToSpeechConfig,
     text: &str,
     model: &str,
     voice: &str,
     speed: f32,
 ) -> Result<GeneratedSpeech, CoreError> {
+    use crate::dashscope_speech::{task_endpoint, task_error, task_message};
     let format = match normalize_format(&config.output_format) {
         "wav" => "wav",
         "opus" => "opus",
         _ => "mp3",
     };
-    let endpoint = format!(
-        "{}/SpeechSynthesizer",
-        base_url(config).trim_end_matches('/')
+    let endpoint = task_endpoint(&base_url(config)).map_err(CoreError::InvalidInput)?;
+    let mut request = endpoint
+        .into_client_request()
+        .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+    request.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {}", config.api_key.trim())
+            .parse()
+            .map_err(|_| {
+                CoreError::InvalidInput("Invalid DashScope authorization header".into())
+            })?,
     );
+    tokio::time::timeout(Duration::from_secs(180), async {
+        let (mut socket, _) = tokio::time::timeout(Duration::from_secs(15), tokio_tungstenite::connect_async(request))
+            .await.map_err(|_| CoreError::TransientLlm("DashScope speech connection timed out".into()))?
+            .map_err(|e| CoreError::TransientLlm(format!("DashScope speech connection failed: {e}")))?;
+        let task_id = Uuid::new_v4().simple().to_string();
+        let run = task_message("run-task", &task_id, json!({"task_group":"audio","task":"tts","function":"SpeechSynthesizer","model":model,
+            "parameters":{"text_type":"PlainText","voice":voice,"format":format,"sample_rate":24000,"rate":speed,"volume":50,"pitch":1},"input":{}}));
+        let wire_error = |e| CoreError::TransientLlm(format!("DashScope speech transport failed: {e}"));
+        socket.send(Message::Text(run.to_string().into())).await.map_err(wire_error)?;
+        let mut started = false;
+        let mut audio = Vec::new();
+        while let Some(message) = socket.next().await {
+            match message.map_err(wire_error)? {
+                Message::Text(text_event) => {
+                    let event: Value = serde_json::from_str(&text_event).map_err(|e| CoreError::Parse(format!("Invalid DashScope task event: {e}")))?;
+                    if event.pointer("/header/task_id").and_then(Value::as_str) != Some(task_id.as_str()) { continue; }
+                    match event.pointer("/header/event").and_then(Value::as_str) {
+                        Some("task-started") if !started => {
+                            started = true;
+                            // The protocol limits each text packet. Split on character boundaries.
+                            let characters: Vec<_> = text.chars().collect();
+                            for chunk in characters.chunks(500) {
+                                let message = task_message("continue-task", &task_id, json!({"input":{"text":chunk.iter().collect::<String>()}}));
+                                socket.send(Message::Text(message.to_string().into())).await.map_err(wire_error)?;
+                            }
+                            let finish = task_message("finish-task", &task_id, json!({"input":{}}));
+                            socket.send(Message::Text(finish.to_string().into())).await.map_err(wire_error)?;
+                        }
+                        Some("task-finished") => {
+                            let _ = socket.close(None).await;
+                            if !started || audio.is_empty() { return Err(CoreError::Llm("DashScope finished without audio".into())); }
+                            return Ok(GeneratedSpeech {bytes:audio, media_type:media_type_for_format(format).to_string()});
+                        }
+                        Some("task-failed" | "error") => return Err(CoreError::Llm(task_error(&event))),
+                        _ => {}
+                    }
+                }
+                Message::Binary(bytes) if started => {
+                    if audio.len().saturating_add(bytes.len()) > MAX_GENERATED_AUDIO_BYTES {
+                        return Err(CoreError::Llm("DashScope audio exceeds the response safety limit".into()));
+                    }
+                    audio.extend_from_slice(&bytes);
+                }
+                Message::Ping(data) => socket.send(Message::Pong(data)).await.map_err(wire_error)?,
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+        Err(CoreError::TransientLlm("DashScope speech closed before task-finished".into()))
+    }).await.map_err(|_| CoreError::TransientLlm("DashScope speech task timed out".into()))?
+}
+
+fn dashscope_audio_generation_body(
+    config: &TextToSpeechConfig,
+    text: &str,
+    model: &str,
+    speed: f32,
+) -> Result<Value, CoreError> {
+    if text.chars().count() > 3_000 {
+        return Err(CoreError::InvalidInput(
+            "Qwen Audio 3.1 TTS Next accepts at most 3000 characters per request.".into(),
+        ));
+    }
+    if !matches!(config.output_format.as_str(), "wav" | "mp3") {
+        return Err(CoreError::InvalidInput(
+            "Qwen Audio generation supports WAV or MP3 playback.".into(),
+        ));
+    }
+    Ok(
+        json!({"model":model, "input":{"text_prompt":text,"format":config.output_format,"sample_rate":48000,"channels":1,"rate":speed}}),
+    )
+}
+
+async fn synthesize_dashscope_audio_generation(
+    client: &reqwest::Client,
+    config: &TextToSpeechConfig,
+    text: &str,
+    model: &str,
+    speed: f32,
+) -> Result<GeneratedSpeech, CoreError> {
+    let body = dashscope_audio_generation_body(config, text, model, speed)?;
+    let format = config.output_format.as_str();
+    let base = base_url(config);
+    let endpoint = if base.trim_end_matches('/').ends_with("/SpeechSynthesizer") {
+        base.trim_end_matches('/').to_string()
+    } else {
+        format!("{}/SpeechSynthesizer", base.trim_end_matches('/'))
+    };
     let response = client
         .post(endpoint)
         .bearer_auth(config.api_key.trim())
-        .json(&json!({
-            "model": model,
-            "input": {
-                "text": text,
-                "voice": voice,
-                "format": format,
-                "sample_rate": 24000,
-                "rate": speed
-            }
-        }))
+        .json(&body)
         .send()
         .await
-        .map_err(|error| {
-            CoreError::TransientLlm(format!("DashScope speech request failed: {error}"))
-        })?;
+        .map_err(|e| CoreError::TransientLlm(format!("DashScope audio generation failed: {e}")))?;
     let status = response.status();
     let bytes =
         read_bounded_response(response, "DashScope Speech", MAX_MINIMAX_RESPONSE_BYTES).await?;
@@ -859,3 +949,7 @@ mod tests {
         assert!(decode_base64_audio("not base64", "test").is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "text_to_speech_dashscope_tests.rs"]
+mod dashscope_tests;

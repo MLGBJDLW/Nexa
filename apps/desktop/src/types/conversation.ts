@@ -739,6 +739,7 @@ export interface WebSearchProviderStatus {
 }
 
 export interface ImageGenerationConfig {
+  source?: 'auto' | 'subscription' | 'apiKey';
   provider: string;
   apiStyle: string;
   apiKey: string;

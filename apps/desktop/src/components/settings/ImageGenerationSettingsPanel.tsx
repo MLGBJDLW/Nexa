@@ -1,3 +1,4 @@
+import { hydrateImageProviderPreset, type RuntimeImageProviderPreset } from "../../lib/imageProviderCatalogHydration";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NexaSelect } from "../ui/overlay";
 import { ChevronDown, Eye, EyeOff, Image as ImageIcon, Save } from "lucide-react";
@@ -15,6 +16,7 @@ import {
   getDefaultImageModel,
   getImageQualityOptions,
   getImageSizeOptions,
+  getImageOutputFormats,
   IMAGE_PROVIDER_PRESETS,
   type ImageProviderPreset,
 } from "../../lib/imageProviderPresets";
@@ -88,7 +90,7 @@ function configFromPreset(
     model: getDefaultImageModel(preset),
     size: firstSize(preset),
     quality: firstOption(preset.qualityOptions),
-    outputFormat: firstOption(preset.outputFormats),
+    outputFormat: firstOption(getImageOutputFormats(preset, getDefaultImageModel(preset))),
     apiKey: preservesCredential ? current.apiKey : "",
   };
 }
@@ -155,6 +157,7 @@ export function ImageGenerationSettingsPanel({
   const [showKey, setShowKey] = useState(false);
   const [preferAgentDefaults, setPreferAgentDefaults] = useState(true);
   const [capabilityPackage, setCapabilityPackage] = useState<CapabilityPackageView | null>(null);
+  const [discoveredModels, setDiscoveredModels] = useState<RuntimeImageProviderPreset["models"] | null>(null);
   const storedImageConfig = appConfig.imageGeneration ?? DEFAULT_IMAGE_CONFIG;
   const loadPlugin = useCallback(async () => {
     try {
@@ -171,8 +174,10 @@ export function ImageGenerationSettingsPanel({
   }, [loadPlugin]);
 
   const providerPresets = useMemo(
-    () => extractImageProviderPresets(capabilityPackage, IMAGE_PROVIDER_PRESETS),
-    [capabilityPackage],
+    () => extractImageProviderPresets(capabilityPackage, IMAGE_PROVIDER_PRESETS).map(preset =>
+      preset.apiStyle === 'openrouter_images' && discoveredModels
+        ? hydrateImageProviderPreset({ ...preset, models: discoveredModels }) : preset),
+    [capabilityPackage, discoveredModels],
   );
   const preferredAgentPreset = useMemo(() => {
     const imageCapableConfigs = agentConfigs.filter(
@@ -196,11 +201,20 @@ export function ImageGenerationSettingsPanel({
       }, providerPresets) ?? fallbackPresetForConfig(imageConfig, providerPresets),
     [imageConfig.apiStyle, imageConfig.baseUrl, imageConfig.provider, providerPresets],
   );
+  useEffect(() => {
+    if (!expanded || activePreset.apiStyle !== 'openrouter_images' || discoveredModels) return;
+    let cancelled = false;
+    void api.discoverOpenRouterImageModels().then(models => {
+      if (!cancelled && Array.isArray(models) && models.length > 0) setDiscoveredModels(models);
+    }).catch(error => console.warn('[image-catalog] using bundled OpenRouter catalog', error));
+    return () => { cancelled = true; };
+  }, [expanded, activePreset.apiStyle, discoveredModels]);
   const selectedModelDescriptor = activePreset.models.find(
     (model) => model.id === imageConfig.model,
   )?.descriptor;
   const qualityOptions = getImageQualityOptions(activePreset, imageConfig.model);
   const sizeOptions = getImageSizeOptions(activePreset, imageConfig.model);
+  const outputFormats = getImageOutputFormats(activePreset, imageConfig.model);
   const sharedKeySource = useMemo(
     () => findSharedProviderCredential(agentConfigs, imageConfig.provider, imageConfig.baseUrl),
     [agentConfigs, imageConfig.baseUrl, imageConfig.provider],
@@ -208,12 +222,15 @@ export function ImageGenerationSettingsPanel({
   const resolvedApiKey = imageConfig.apiKey.trim() || sharedKeySource?.apiKey.trim() || "";
   const usesSharedProviderKey = !imageConfig.apiKey.trim() && Boolean(sharedKeySource);
   const configured = Boolean(resolvedApiKey && imageConfig.model.trim());
+  const imageSource = imageConfig.source ?? 'auto';
+  const subscriptionOnly = imageSource === 'subscription';
   const materializedImageConfig = useMemo(
     () => ({
       ...imageConfig,
       apiKey: resolvedApiKey,
+      outputFormat: outputFormats.includes(imageConfig.outputFormat ?? '') ? imageConfig.outputFormat : firstOption(outputFormats),
     }),
-    [imageConfig, resolvedApiKey],
+    [imageConfig, resolvedApiKey, outputFormats],
   );
   const materializedAppConfig = useMemo(
     () => ({
@@ -240,9 +257,11 @@ export function ImageGenerationSettingsPanel({
   const changeModel = (model: string) => {
     const qualityOptions = getImageQualityOptions(activePreset, model);
     const sizeOptions = getImageSizeOptions(activePreset, model);
+    const formats = getImageOutputFormats(activePreset, model);
     updateImageConfig({
       ...imageConfig,
       model,
+      outputFormat: formats.includes(imageConfig.outputFormat ?? '') ? imageConfig.outputFormat : firstOption(formats),
       quality: qualityOptions.includes(imageConfig.quality ?? '') ? imageConfig.quality : firstOption(qualityOptions),
       size: sizeOptions.some(option => option.value === imageConfig.size) ? imageConfig.size : sizeOptions[0]?.value ?? null,
     });
@@ -285,25 +304,27 @@ export function ImageGenerationSettingsPanel({
             <Badge
               variant="default"
               className={
-                configured
+                imageSource !== 'apiKey'
+                  ? "border-accent/20 bg-accent/10 text-accent"
+                  : configured
                   ? "border-success/20 bg-success/10 text-success"
                   : "border-warning/25 bg-warning/10 text-warning"
               }
             >
-              {configured ? t('settings.configured') : t('settings.needsApiKey')}
+              {subscriptionOnly ? t('settings.imageSourceSubscription') : imageSource === 'auto' ? t('settings.imageSourceAuto') : configured ? t('settings.configured') : t('settings.needsApiKey')}
             </Badge>
-            <Badge variant="default" className="border-border bg-surface-1 text-text-secondary">
+            {!subscriptionOnly && <Badge variant="default" className="border-border bg-surface-1 text-text-secondary">
               {usesSharedProviderKey && sharedKeySource
                 ? t('settings.providerApiKeySource', { provider: sharedKeySource.name })
                 : imageConfig.apiKey.trim()
                   ? t('settings.dedicatedApiKeySource')
                   : t('settings.noApiKeySource')}
-            </Badge>
+            </Badge>}
           </div>
           <p className="mt-0.5 truncate text-xs text-text-tertiary">
-            {activePreset.name} · {imageConfig.model || t('settings.model')}
+            {subscriptionOnly ? t('settings.imageSourceSubscriptionHint') : `${activePreset.name} · ${imageConfig.model || t('settings.model')}`}
           </p>
-          {runtimeChecks.length > 0 && (
+          {!subscriptionOnly && runtimeChecks.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {runtimeChecks.map((check) => (
                 <Badge
@@ -326,9 +347,20 @@ export function ImageGenerationSettingsPanel({
       {expanded && (
         <div className="border-t border-border px-4 py-4">
           <p className="mb-4 text-xs text-text-tertiary">
-            {t('settings.imageGenerationDesc')}
+            {subscriptionOnly ? t('settings.imageSourceSubscriptionHint') : imageSource === 'auto' ? t('settings.imageSourceAutoHint') : t('settings.imageGenerationDesc')}
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="mb-5 rounded-lg border border-border bg-surface-1 p-3" data-testid="image-source-selector">
+            <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.imageGenerationSource')}</p>
+            <div className="grid grid-cols-1 gap-1 rounded-lg bg-surface-2 p-1 sm:grid-cols-3">
+              {([
+                ['auto', t('settings.imageSourceAuto')],
+                ['subscription', t('settings.imageSourceSubscription')],
+                ['apiKey', t('settings.imageSourceApiKey')],
+              ] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={imageSource === value} onClick={() => updateImageConfig({ ...imageConfig, source: value })} className={`rounded-md px-2 py-2 text-xs font-medium transition-colors ${imageSource === value ? 'bg-accent/15 text-accent ring-1 ring-accent/30' : 'text-text-secondary hover:bg-surface-3'}`}>{label}</button>)}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-text-tertiary">{imageSource === 'auto' ? t('settings.imageSourceAutoHint') : subscriptionOnly ? t('settings.imageSourceSubscriptionNote') : t('settings.imageSourceApiKeyHint')}</p>
+          </div>
+          {!subscriptionOnly && <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
             <NexaSelect
@@ -462,17 +494,17 @@ export function ImageGenerationSettingsPanel({
             </div>
           )}
 
-          {activePreset.outputFormats.length > 1 && (
+          {outputFormats.length > 1 && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-text-primary">{t('settings.outputFormat')}</label>
               <NexaSelect
-                value={imageConfig.outputFormat ?? ""}
+                value={materializedImageConfig.outputFormat ?? ""}
                 onChange={(event) =>
                   updateImageConfig({ ...imageConfig, outputFormat: event.target.value || null })
                 }
                 className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
               >
-                {activePreset.outputFormats.map((format) => (
+                {outputFormats.map((format) => (
                   <option key={format} value={format}>
                     {format}
                   </option>
@@ -480,7 +512,7 @@ export function ImageGenerationSettingsPanel({
               </NexaSelect>
             </div>
           )}
-          </div>
+          </div>}
           <div className="mt-4 flex justify-end border-t border-border pt-3">
             <Button
               type="button"
@@ -489,7 +521,7 @@ export function ImageGenerationSettingsPanel({
               icon={<Save size={14} />}
               loading={loading}
               onClick={() => void handleSave()}
-              disabled={!imageConfig.model.trim() || !resolvedApiKey}
+              disabled={imageSource === 'apiKey' && (!imageConfig.model.trim() || !resolvedApiKey)}
             >
               {t('common.save')}
             </Button>

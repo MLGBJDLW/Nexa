@@ -992,12 +992,12 @@ function ToolVisualEvidencePreview({
       data-testid="tool-visual-evidence"
       data-content-hash={evidence.contentHash || undefined}
     >
-      <div className="overflow-hidden rounded-md border border-border/60 bg-surface-0">
+      <div className="w-fit max-w-full overflow-hidden rounded-md border border-border/60 bg-surface-0" data-testid="tool-image-frame">
         {!imageError ? (
           <ImagePreview
             src={source}
             alt={`${label} visual evidence`}
-            className={`${compact ? 'max-h-52' : 'max-h-[32rem]'} w-full object-contain`}
+            className={`${compact ? 'max-h-52' : 'max-h-[32rem]'} block h-auto w-auto max-w-full object-contain`}
             onError={() => setImageError(true)}
           />
         ) : (
@@ -1145,12 +1145,12 @@ function GeneratedImagePreview({
 
   return (
     <div className={compact ? 'space-y-1.5' : 'space-y-2.5'} data-testid="generated-image-preview">
-      <div className="overflow-hidden rounded-md border border-border/60 bg-surface-0">
+      <div className="w-fit max-w-full overflow-hidden rounded-md border border-border/60 bg-surface-0" data-testid="tool-image-frame">
         {previewSrc && !imageError ? (
           <ImagePreview
             src={previewSrc}
             alt={requestedPrompt || t('chat.generatedImageAlt')}
-            className={`${maxHeight} w-full object-contain`}
+            className={`${maxHeight} block h-auto w-auto max-w-full object-contain`}
             data-testid="generated-image-img"
             onError={() => setImageError(t('chat.generatedImageLoadFailed'))}
           />

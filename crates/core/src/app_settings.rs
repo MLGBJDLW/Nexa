@@ -10,9 +10,20 @@ const WIZARD_STATE_KEY: &str = "wizard_state";
 const CURRENT_TOOL_VISIBILITY_DEFAULTS_VERSION: u32 = 3;
 const CURRENT_DICTATION_DEFAULTS_VERSION: u32 = 1;
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageGenerationSource {
+    #[default]
+    Auto,
+    Subscription,
+    ApiKey,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenerationConfig {
+    #[serde(default)]
+    pub source: ImageGenerationSource,
     #[serde(default = "default_image_provider")]
     pub provider: String,
     #[serde(default = "default_image_api_style")]
@@ -34,6 +45,7 @@ pub struct ImageGenerationConfig {
 impl Default for ImageGenerationConfig {
     fn default() -> Self {
         Self {
+            source: ImageGenerationSource::Auto,
             provider: default_image_provider(),
             api_style: default_image_api_style(),
             api_key: String::new(),
@@ -144,9 +156,18 @@ impl TextToSpeechConfig {
             return has_common_paths && has_family_paths;
         }
 
-        !self.api_key.trim().is_empty()
-            && !self.model.trim().is_empty()
-            && !self.voice.trim().is_empty()
+        !self.api_key.trim().is_empty() && self.has_model_configuration()
+    }
+
+    pub fn has_model_configuration(&self) -> bool {
+        !self.model.trim().is_empty()
+            && if self.api_style == "dashscope_audio_generation" {
+                self.base_url
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+            } else {
+                !self.voice.trim().is_empty()
+            }
     }
 }
 
@@ -295,7 +316,15 @@ impl SpeechToTextConfig {
                         .as_deref()
                         .is_some_and(|value| !value.trim().is_empty())
             }
-            "openai_transcription" | "dashscope_asr" => {
+            "dashscope_streaming_asr" => {
+                crate::dashscope_speech::is_streaming_asr_model(&self.model)
+                    && !self.api_key.trim().is_empty()
+                    && self
+                        .base_url
+                        .as_deref()
+                        .is_some_and(|v| !v.trim().is_empty())
+            }
+            "openai_transcription" | "dashscope_asr" | "dashscope_audio_asr" => {
                 !self.api_key.trim().is_empty()
                     && !self.model.trim().is_empty()
                     && self

@@ -76,7 +76,9 @@ pub async fn transcribe_cloud_wav(
     }
     match config.api_style.as_str() {
         "openai_transcription" => transcribe_openai_compatible_wav(audio_data, config).await,
-        "dashscope_asr" => transcribe_dashscope_wav(audio_data, config).await,
+        "dashscope_asr" | "dashscope_audio_asr" => {
+            transcribe_dashscope_wav(audio_data, config).await
+        }
         _ => Err(CoreError::InvalidInput(format!(
             "Unsupported cloud speech-to-text API style: {}",
             config.api_style
@@ -110,7 +112,17 @@ pub async fn transcribe_cloud_wav_path(
     }
 
     let block_align = usize::from(wav.channels) * 2;
-    let max_segment_bytes = MAX_SEGMENT_DATA_BYTES / block_align * block_align;
+    let max_segment_bytes = if matches!(
+        config.api_style.as_str(),
+        "dashscope_audio_asr" | "dashscope_asr"
+    ) {
+        MAX_SEGMENT_DATA_BYTES
+            .min(7 * 1024 * 1024)
+            .min(wav.sample_rate as usize * block_align * 240)
+    } else {
+        MAX_SEGMENT_DATA_BYTES
+    } / block_align
+        * block_align;
     let total_data_bytes = wav.data_bytes as usize;
     let overlap_bytes = (wav.sample_rate as usize)
         .saturating_mul(block_align)
@@ -127,7 +139,9 @@ pub async fn transcribe_cloud_wav_path(
         file.read_exact(&mut segment[44..]).await?;
         let segment_transcript = match config.api_style.as_str() {
             "openai_transcription" => transcribe_openai_compatible_wav(segment, config).await?,
-            "dashscope_asr" => transcribe_dashscope_wav(segment, config).await?,
+            "dashscope_asr" | "dashscope_audio_asr" => {
+                transcribe_dashscope_wav(segment, config).await?
+            }
             _ => {
                 return Err(CoreError::InvalidInput(format!(
                     "Unsupported cloud speech-to-text API style: {}",
@@ -314,33 +328,87 @@ fn chat_completions_endpoint(base_url: &str) -> String {
     }
 }
 
+fn dashscope_request(
+    audio_data: &[u8],
+    config: &SpeechToTextConfig,
+) -> (String, serde_json::Value) {
+    let data_url = format!("data:audio/wav;base64,{}", BASE64.encode(audio_data));
+    let messages = serde_json::json!([{"role":"user", "content":[{"type":"input_audio", "input_audio":{"data":data_url}}]}]);
+    let base = config
+        .base_url
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('/');
+    if config.api_style == "dashscope_audio_asr" {
+        let endpoint = if base.ends_with("/generation") {
+            base.to_string()
+        } else {
+            format!("{base}/generation")
+        };
+        let mut parameters = serde_json::json!({"format":"wav"});
+        let languages: Vec<_> = config
+            .language
+            .as_deref()
+            .unwrap_or_default()
+            .split(|c: char| c == ',' || c == ';' || c == '/' || c.is_whitespace())
+            .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("auto"))
+            .take(4)
+            .collect();
+        if !languages.is_empty() {
+            parameters["language_hints"] = serde_json::json!(languages);
+        }
+        (
+            endpoint,
+            serde_json::json!({"model":config.model.trim(), "input":{"messages":messages}, "parameters":parameters}),
+        )
+    } else {
+        let mut asr_options = serde_json::json!({"enable_itn":true});
+        if let Some(language) = config
+            .language
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("auto"))
+        {
+            asr_options["language"] = serde_json::json!(language);
+        }
+        (
+            chat_completions_endpoint(base),
+            serde_json::json!({"model":config.model.trim(),"messages":messages,"stream":false,"asr_options":asr_options}),
+        )
+    }
+}
+
+fn parse_dashscope_transcript(
+    body: &str,
+    config: &SpeechToTextConfig,
+) -> Result<String, CoreError> {
+    if config.api_style == "dashscope_audio_asr" {
+        let value: serde_json::Value = serde_json::from_str(body)
+            .map_err(|e| CoreError::Parse(format!("Invalid Qwen Audio ASR response: {e}")))?;
+        // Both documented wrappers expose accumulated text here. Do not fall
+        // back to the final sentence, which would silently truncate a recording.
+        return value
+            .pointer("/output/text")
+            .and_then(serde_json::Value::as_str)
+            .map(|text| text.trim().to_string())
+            .ok_or_else(|| CoreError::Parse("Qwen Audio ASR returned no transcript text".into()));
+    }
+    let transcript: DashScopeTranscript = serde_json::from_str(body)
+        .map_err(|e| CoreError::Parse(format!("Invalid Qwen ASR response: {e}")))?;
+    transcript
+        .choices
+        .first()
+        .map(|choice| choice.message.content.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| CoreError::Parse("Qwen ASR returned no transcript text".into()))
+}
+
 async fn transcribe_dashscope_wav(
     audio_data: Vec<u8>,
     config: &SpeechToTextConfig,
 ) -> Result<String, CoreError> {
-    let endpoint = chat_completions_endpoint(config.base_url.as_deref().unwrap_or_default());
-    let data_url = format!("data:audio/wav;base64,{}", BASE64.encode(audio_data));
-    let mut asr_options = serde_json::json!({ "enable_itn": true });
-    if let Some(language) = config
-        .language
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        asr_options["language"] = serde_json::Value::String(language.to_string());
-    }
-    let body = serde_json::json!({
-        "model": config.model.trim(),
-        "messages": [{
-            "role": "user",
-            "content": [{
-                "type": "input_audio",
-                "input_audio": { "data": data_url }
-            }]
-        }],
-        "stream": false,
-        "asr_options": asr_options
-    });
+    let (endpoint, body) = dashscope_request(&audio_data, config);
     let response = async_client()
         .post(endpoint)
         .bearer_auth(config.api_key.trim())
@@ -359,14 +427,7 @@ async fn transcribe_dashscope_wav(
             response_body.chars().take(500).collect::<String>()
         )));
     }
-    let transcript: DashScopeTranscript = serde_json::from_str(&response_body)
-        .map_err(|error| CoreError::Parse(format!("Invalid Qwen ASR response: {error}")))?;
-    transcript
-        .choices
-        .first()
-        .map(|choice| choice.message.content.trim().to_string())
-        .filter(|text| !text.is_empty())
-        .ok_or_else(|| CoreError::Parse("Qwen ASR returned no transcript text".into()))
+    parse_dashscope_transcript(&response_body, config)
 }
 
 /// Blocking cloud transcription for source-ingestion workers. The shared
@@ -386,7 +447,9 @@ pub fn transcribe_cloud_wav_blocking(
             "openai_transcription" => {
                 transcribe_openai_compatible_wav_blocking(&audio_data, config)
             }
-            "dashscope_asr" => transcribe_dashscope_wav_blocking(&audio_data, config),
+            "dashscope_asr" | "dashscope_audio_asr" => {
+                transcribe_dashscope_wav_blocking(&audio_data, config)
+            }
             _ => Err(CoreError::InvalidInput(format!(
                 "Unsupported cloud speech-to-text API style: {}",
                 config.api_style
@@ -451,26 +514,7 @@ fn transcribe_dashscope_wav_blocking(
     audio_data: &[u8],
     config: &SpeechToTextConfig,
 ) -> Result<String, CoreError> {
-    let endpoint = chat_completions_endpoint(config.base_url.as_deref().unwrap_or_default());
-    let data_url = format!("data:audio/wav;base64,{}", BASE64.encode(audio_data));
-    let mut asr_options = serde_json::json!({ "enable_itn": true });
-    if let Some(language) = config
-        .language
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        asr_options["language"] = serde_json::Value::String(language.to_string());
-    }
-    let body = serde_json::json!({
-        "model": config.model.trim(),
-        "messages": [{
-            "role": "user",
-            "content": [{ "type": "input_audio", "input_audio": { "data": data_url } }]
-        }],
-        "stream": false,
-        "asr_options": asr_options
-    });
+    let (endpoint, body) = dashscope_request(audio_data, config);
     let response = blocking_client()
         .post(endpoint)
         .bearer_auth(config.api_key.trim())
@@ -487,14 +531,7 @@ fn transcribe_dashscope_wav_blocking(
             response_body.chars().take(500).collect::<String>()
         )));
     }
-    let transcript: DashScopeTranscript = serde_json::from_str(&response_body)
-        .map_err(|error| CoreError::Parse(format!("Invalid Qwen ASR response: {error}")))?;
-    transcript
-        .choices
-        .first()
-        .map(|choice| choice.message.content.trim().to_string())
-        .filter(|text| !text.is_empty())
-        .ok_or_else(|| CoreError::Parse("Qwen ASR returned no transcript text".into()))
+    parse_dashscope_transcript(&response_body, config)
 }
 
 fn required_path(value: &Option<String>, label: &str) -> Result<String, CoreError> {
@@ -666,3 +703,7 @@ mod tests {
         assert_eq!(parse_sherpa_stdout(output, wav), "你好世界");
     }
 }
+
+#[cfg(test)]
+#[path = "speech_to_text_dashscope_tests.rs"]
+mod dashscope_tests;

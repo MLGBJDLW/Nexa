@@ -109,12 +109,35 @@
     "outputFormats": ["mp3"]
   },
   {
+    "id": "qwen-audio-generation",
+    "name": "Qwen Audio 3.1 TTS Next",
+    "provider": "qwen",
+    "apiStyle": "dashscope_audio_generation",
+    "requiresApiKey": true,
+    "baseUrl": "",
+    "description": "Text-directed audio generation (China Beijing). Enter your workspace HTTPS SpeechSynthesizer endpoint. Describe speech, dialogue or soundscapes in up to 3000 characters; no voice ID is required.",
+    "models": [
+      {
+        "id": "qwen-audio-3.1-tts-next",
+        "name": "Qwen Audio 3.1 TTS Next",
+        "source": "curated",
+        "productReadiness": "product_ready",
+        "recommended": true
+      }
+    ],
+    "voices": [],
+    "outputFormats": [
+      "wav",
+      "mp3"
+    ]
+  },
+  {
     "id": "dashscope-cosyvoice",
     "name": "Alibaba CosyVoice / Qwen TTS",
     "provider": "qwen",
     "apiStyle": "dashscope_speech",
     "requiresApiKey": true,
-    "baseUrl": "https://dashscope.aliyuncs.com/api/v1/services/audio/tts",
+    "baseUrl": "https://dashscope.aliyuncs.com/api-ws/v1/inference",
     "description": "Alibaba Cloud Model Studio speech for Mandarin, English, dialects, and multilingual content. Voice availability is model-specific; custom model and voice IDs remain editable.",
     "models": [
       { "id": "qwen-audio-3.0-tts-flash", "name": "Qwen Audio 3.0 TTS Flash", "source": "curated", "productReadiness": "known", "recommended": true },
@@ -128,7 +151,13 @@
       { "id": "longanhuan_v3.6", "name": "龙安欢 V3.6 (普通话/English)", "recommended": true },
       { "id": "longjielidou_v3.6", "name": "龙杰力豆 V3.6 (普通话/English)" },
       { "id": "loongeva_v3.6", "name": "Eva V3.6 (American English)" },
-      { "id": "loongjohn", "name": "John (American English)" }
+      { "id": "loongjohn", "name": "John (American English)" },
+      {"id": "longanlingxin", "name": "龙安灵心 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]},
+      {"id": "longanlufeng", "name": "龙安露风 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]},
+      {"id": "longanfengyue", "name": "龙安风月 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]},
+      {"id": "longanyuanfei", "name": "龙安圆菲 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]},
+      {"id": "longanlingxi", "name": "龙安灵汐 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]},
+      {"id": "longanxiaoxin", "name": "龙安小新 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]}
     ],
     "outputFormats": ["wav", "mp3", "opus"]
   },

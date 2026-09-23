@@ -50,7 +50,7 @@ impl NativeLiveProtocol {
     pub fn default_model(self) -> &'static str {
         match self {
             Self::OpenAiRealtime => "gpt-realtime-2.1",
-            Self::GeminiLive => "gemini-3.1-flash-live-preview",
+            Self::GeminiLive => "gemini-3.8-live",
             Self::QwenRealtime => "qwen3.5-omni-flash-realtime",
         }
     }

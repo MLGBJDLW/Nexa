@@ -8,7 +8,7 @@ import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
 import { useDesktopMonitors, useDesktopWindows } from '../../lib/screenCapture';
 
-const models: Record<LiveProtocol, string> = { openAiRealtime: 'gpt-realtime-2.1', geminiLive: 'gemini-3.1-flash-live-preview', qwenRealtime: 'qwen3.5-omni-flash-realtime' };
+const models: Record<LiveProtocol, string> = { openAiRealtime: 'gpt-realtime-2.1', geminiLive: 'gemini-3.8-live', qwenRealtime: 'qwen3.5-omni-flash-realtime' };
 const protocolNames: Record<LiveProtocol, string> = { openAiRealtime: 'OpenAI Realtime', geminiLive: 'Gemini Live', qwenRealtime: 'Qwen Omni Realtime' };
 const field = 'w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50';
 const button = 'inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:pointer-events-none';

@@ -13,7 +13,7 @@ import {
 } from './modelCatalog.ts';
 
 export type RuntimeImageProviderPreset = Omit<ImageProviderPreset, 'models'> & {
-  models: (LegacyCatalogModel & { qualityOptions?: string[]; sizeOptions?: ImageSizeOption[] })[];
+  models: (LegacyCatalogModel & { qualityOptions?: string[]; sizeOptions?: ImageSizeOption[]; outputFormats?: string[] })[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -29,7 +29,7 @@ function isNullableString(value: unknown): value is string | null {
 }
 
 function isImageApiStyle(value: unknown): value is ImageApiStyle {
-  return value === 'openai_images'
+  return value === 'openrouter_images' || value === 'openai_images'
     || value === 'xai_images'
     || value === 'gemini_generate_content'
     || value === 'dashscope_multimodal';
@@ -99,6 +99,7 @@ export function hydrateImageProviderPreset(
   const models = preset.models.map((model) => ({
     ...model,
     qualityOptions: isStringArray(model.qualityOptions) ? model.qualityOptions : undefined,
+    outputFormats: isStringArray(model.outputFormats) && model.outputFormats.length > 0 ? model.outputFormats : undefined,
     sizeOptions: Array.isArray(model.sizeOptions) && model.sizeOptions.every(isImageSizeOption)
       ? model.sizeOptions : undefined,
     descriptor: isPickerSafeModelDescriptor(model.descriptor)
@@ -115,7 +116,7 @@ export function hydrateImageProviderPreset(
       region: inferModelCatalogRegion(preset.baseUrl),
       apiStyle: preset.apiStyle,
       supportedSizes: (model.sizeOptions ?? preset.sizeOptions).map((option) => option.value),
-      outputFormats: preset.outputFormats,
+      outputFormats: model.outputFormats ?? preset.outputFormats,
     })),
   };
 }

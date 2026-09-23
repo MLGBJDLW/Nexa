@@ -5,6 +5,7 @@ import { ChevronDown, Cloud, Eye, EyeOff, Laptop, Play, RefreshCw, Save, Search,
 import { useTranslation } from '../../i18n';
 import { clearSpeechCache, refreshTtsVoiceCatalog, synthesizeSpeechPreview } from '../../lib/api';
 import { ProviderIcon } from '../../lib/providerIcons';
+import { isTextToSpeechConfigured } from '../../lib/autoSpeech';
 import {
   findSharedProviderCredential,
   providerCredentialScope,
@@ -110,14 +111,7 @@ export function TextToSpeechSettingsPanel({
   const [voiceCatalog, setVoiceCatalog] = useState<TtsVoiceCatalogSnapshot | null>(() =>
     loadTtsVoiceCatalog(materializedConfig),
   );
-  const configured = scopeActive && (localProvider
-    ? Boolean(
-        config.executablePath?.trim()
-        && config.modelPath?.trim()
-        && config.tokensPath?.trim()
-        && (!localFamilyNeedsVoices || config.voicesPath?.trim()),
-      )
-    : Boolean(resolvedApiKey && config.model.trim() && config.voice.trim()));
+  const configured = scopeActive && isTextToSpeechConfigured(materializedConfig);
   const matchingVoiceCatalog = voiceCatalog && ttsVoiceCatalogMatches(voiceCatalog, materializedConfig)
     ? voiceCatalog
     : null;
@@ -343,7 +337,7 @@ export function TextToSpeechSettingsPanel({
             {!localProvider && (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary">{t('settings.baseUrl')}</label>
-                <Input value={config.baseUrl ?? ''} onChange={(event) => update({ baseUrl: event.target.value || null })} />
+                <Input value={config.baseUrl ?? ''} placeholder={config.apiStyle === 'dashscope_audio_generation' ? 'https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer' : undefined} onChange={(event) => update({ baseUrl: event.target.value || null })} />
               </div>
             )}
 
@@ -358,7 +352,7 @@ export function TextToSpeechSettingsPanel({
               <ModelDescriptorBadges descriptor={selectedModelDescriptor} surface="text_to_speech" />
             </div>
 
-            <div className="space-y-2 md:col-span-2">
+            {config.apiStyle !== 'dashscope_audio_generation' && <div className="space-y-2 md:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-sm font-medium text-text-primary">
                   {localProvider ? t('settings.ttsSpeakerId') : t('settings.ttsVoice')}
@@ -423,7 +417,7 @@ export function TextToSpeechSettingsPanel({
                 </p>
               )}
               {voiceCatalogError && <p className="text-[11px] text-danger">{voiceCatalogError}</p>}
-            </div>
+            </div>}
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-text-primary">{t('settings.ttsOutputFormat')}</label>
@@ -499,7 +493,7 @@ export function TextToSpeechSettingsPanel({
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-text-primary">{t('settings.ttsPreviewText')}</label>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={previewText} onChange={(event) => setPreviewText(event.target.value)} />
+                <Input value={previewText} maxLength={config.apiStyle === 'dashscope_audio_generation' ? 3000 : 20000} onChange={(event) => setPreviewText(event.target.value)} />
                 <Button
                   type="button"
                   variant="secondary"

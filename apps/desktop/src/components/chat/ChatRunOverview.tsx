@@ -63,6 +63,7 @@ interface ChatRunOverviewProps {
   isCompacting?: boolean;
   turnTiming?: TurnTiming | null;
   taskPhase?: string | null;
+  onConfigureContext?: () => void;
 }
 
 const SEGMENT_LABEL_KEYS: Record<string, TranslationKey> = {
@@ -209,6 +210,7 @@ export function ChatRunOverview({
   isCompacting = false,
   turnTiming,
   taskPhase,
+  onConfigureContext,
 }: ChatRunOverviewProps) {
   const { t } = useTranslation();
   const overviewRef = useRef<HTMLDivElement>(null);
@@ -446,7 +448,14 @@ export function ChatRunOverview({
         aria-expanded={detailsOpen}
         aria-controls={detailsOpen ? 'chat-context-details' : undefined}
         data-testid="chat-context-trigger"
+        aria-haspopup={onConfigureContext ? 'dialog' : undefined}
         onClick={() => {
+          if (onConfigureContext) {
+            suppressHoverRef.current = true;
+            setDetailsOpen(false);
+            onConfigureContext();
+            return;
+          }
           suppressHoverRef.current = false;
           setDetailsOpen(true);
         }}
