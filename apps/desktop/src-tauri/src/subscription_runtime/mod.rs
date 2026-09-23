@@ -1,7 +1,7 @@
 //! Official subscription agents share Nexa's run lifecycle and tool runtime.
 //! Each Nexa turn owns one upstream session. Renderer reload never launches it.
 
-mod codex;
+pub(crate) mod codex;
 mod copilot;
 mod copilot_response;
 mod projection;

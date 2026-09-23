@@ -10,9 +10,20 @@ const WIZARD_STATE_KEY: &str = "wizard_state";
 const CURRENT_TOOL_VISIBILITY_DEFAULTS_VERSION: u32 = 3;
 const CURRENT_DICTATION_DEFAULTS_VERSION: u32 = 1;
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageGenerationSource {
+    #[default]
+    Auto,
+    Subscription,
+    ApiKey,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenerationConfig {
+    #[serde(default)]
+    pub source: ImageGenerationSource,
     #[serde(default = "default_image_provider")]
     pub provider: String,
     #[serde(default = "default_image_api_style")]
@@ -34,6 +45,7 @@ pub struct ImageGenerationConfig {
 impl Default for ImageGenerationConfig {
     fn default() -> Self {
         Self {
+            source: ImageGenerationSource::Auto,
             provider: default_image_provider(),
             api_style: default_image_api_style(),
             api_key: String::new(),

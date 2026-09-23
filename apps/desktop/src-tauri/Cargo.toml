@@ -32,6 +32,7 @@ uuid = { version = "1", features = ["v4"] }
 nexa-core = { path = "../../../crates/core", default-features = false }
 nexa-remote = { path = "../../../crates/remote" }
 base64 = "0.22"
+tempfile = "3"
 rusqlite = { version = "0.32" }
 chrono = { version = "0.4", features = ["clock"] }
 blake3 = "1"
@@ -57,7 +58,6 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["N
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["block2", "objc2-app-kit", "WKSnapshotConfiguration", "WKWebView"] }
 
 [dev-dependencies]
-tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 
 [features]

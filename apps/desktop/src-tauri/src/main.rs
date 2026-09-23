@@ -13,6 +13,7 @@ mod companion_window;
 mod delegation_scheduler;
 mod desktop_agent_session;
 mod desktop_control_status;
+mod image_generation_tool;
 mod preview_tool;
 mod remote;
 mod subagent_lifecycle;

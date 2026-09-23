@@ -18,6 +18,10 @@ use tokio::{
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
+#[path = "codex_images.rs"]
+mod image_generation;
+pub(crate) use image_generation::generate_subscription_image;
+
 /// One reader owns stdout. A bounded mailbox prevents output from exhausting
 /// memory while a tool is awaiting approval; it never blocks clock responses.
 struct Wire {
@@ -38,6 +42,10 @@ impl Drop for Wire {
 
 impl Wire {
     async fn start() -> Result<Self, CoreError> {
+        Self::start_for_images(false).await
+    }
+
+    async fn start_for_images(images: bool) -> Result<Self, CoreError> {
         let binary = tokio::task::spawn_blocking(
             crate::commands::subscription_accounts::resolve_codex_binary,
         )
@@ -47,6 +55,15 @@ impl Wire {
         let mut command = tokio::process::Command::new(binary.program);
         command.args(["app-server", "--stdio", "--strict-config"]);
         for (key, value) in static_config() {
+            let value = if images
+                && matches!(
+                    key.as_str(),
+                    "features.image_generation" | "features.code_mode_host"
+                ) {
+                json!(true)
+            } else {
+                value
+            };
             command.arg("-c").arg(format!("{key}={value}"));
         }
         command
@@ -84,7 +101,8 @@ impl Wire {
                     .position(|byte| *byte == b'\n')
                     .map(|index| index + 1)
                     .unwrap_or(chunk.len());
-                if frame.len() + length > MAX_FRAME {
+                let limit = if images { 48 * 1024 * 1024 } else { MAX_FRAME };
+                if frame.len() + length > limit {
                     let _ = tx
                         .send(Err(protocol_error("Codex protocol frame too large")))
                         .await;

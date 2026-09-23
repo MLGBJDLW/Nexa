@@ -1025,5 +1025,13 @@
   ,"shellDiscoveryFailed": "일부 환경을 감지하지 못했습니다. 다시 감지하세요."
   ,"shellMissingHint": "저장된 환경을 사용할 수 없습니다. 다른 환경을 선택하거나 다시 감지하세요."
   ,"shellRefresh": "다시 감지"
-  ,"shellSavedDefault": "저장된 기본 환경 사용"
+  ,"shellSavedDefault": "저장된 기본 환경 사용",
+  "imageGenerationSource": "Image generation source",
+  "imageSourceAuto": "Follow chat",
+  "imageSourceSubscription": "Codex subscription",
+  "imageSourceApiKey": "API Key",
+  "imageSourceAutoHint": "Codex chats use the signed-in subscription; API chats use the image API configured below. Unsupported subscriptions stop with a clear error.",
+  "imageSourceSubscriptionHint": "Use the signed-in ChatGPT account. Codex manages the image model and output options.",
+  "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
+  "imageSourceApiKeyHint": "Use the provider, model and API key configured below."
 }

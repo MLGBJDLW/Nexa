@@ -220,6 +220,8 @@ export function ImageGenerationSettingsPanel({
   const resolvedApiKey = imageConfig.apiKey.trim() || sharedKeySource?.apiKey.trim() || "";
   const usesSharedProviderKey = !imageConfig.apiKey.trim() && Boolean(sharedKeySource);
   const configured = Boolean(resolvedApiKey && imageConfig.model.trim());
+  const imageSource = imageConfig.source ?? 'auto';
+  const subscriptionOnly = imageSource === 'subscription';
   const materializedImageConfig = useMemo(
     () => ({
       ...imageConfig,
@@ -302,20 +304,20 @@ export function ImageGenerationSettingsPanel({
                   : "border-warning/25 bg-warning/10 text-warning"
               }
             >
-              {configured ? t('settings.configured') : t('settings.needsApiKey')}
+              {subscriptionOnly ? t('settings.imageSourceSubscription') : configured ? t('settings.configured') : imageSource === 'auto' ? t('settings.imageSourceAuto') : t('settings.needsApiKey')}
             </Badge>
-            <Badge variant="default" className="border-border bg-surface-1 text-text-secondary">
+            {!subscriptionOnly && <Badge variant="default" className="border-border bg-surface-1 text-text-secondary">
               {usesSharedProviderKey && sharedKeySource
                 ? t('settings.providerApiKeySource', { provider: sharedKeySource.name })
                 : imageConfig.apiKey.trim()
                   ? t('settings.dedicatedApiKeySource')
                   : t('settings.noApiKeySource')}
-            </Badge>
+            </Badge>}
           </div>
           <p className="mt-0.5 truncate text-xs text-text-tertiary">
-            {activePreset.name} · {imageConfig.model || t('settings.model')}
+            {subscriptionOnly ? t('settings.imageSourceSubscriptionHint') : `${activePreset.name} · ${imageConfig.model || t('settings.model')}`}
           </p>
-          {runtimeChecks.length > 0 && (
+          {!subscriptionOnly && runtimeChecks.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {runtimeChecks.map((check) => (
                 <Badge
@@ -340,7 +342,18 @@ export function ImageGenerationSettingsPanel({
           <p className="mb-4 text-xs text-text-tertiary">
             {t('settings.imageGenerationDesc')}
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="mb-5 rounded-lg border border-border bg-surface-1 p-3" data-testid="image-source-selector">
+            <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.imageGenerationSource')}</p>
+            <div className="grid grid-cols-1 gap-1 rounded-lg bg-surface-2 p-1 sm:grid-cols-3">
+              {([
+                ['auto', t('settings.imageSourceAuto')],
+                ['subscription', t('settings.imageSourceSubscription')],
+                ['apiKey', t('settings.imageSourceApiKey')],
+              ] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={imageSource === value} onClick={() => updateImageConfig({ ...imageConfig, source: value })} className={`rounded-md px-2 py-2 text-xs font-medium transition-colors ${imageSource === value ? 'bg-accent/15 text-accent ring-1 ring-accent/30' : 'text-text-secondary hover:bg-surface-3'}`}>{label}</button>)}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-text-tertiary">{imageSource === 'auto' ? t('settings.imageSourceAutoHint') : subscriptionOnly ? t('settings.imageSourceSubscriptionNote') : t('settings.imageSourceApiKeyHint')}</p>
+          </div>
+          {!subscriptionOnly && <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
             <NexaSelect
@@ -492,7 +505,7 @@ export function ImageGenerationSettingsPanel({
               </NexaSelect>
             </div>
           )}
-          </div>
+          </div>}
           <div className="mt-4 flex justify-end border-t border-border pt-3">
             <Button
               type="button"
@@ -501,7 +514,7 @@ export function ImageGenerationSettingsPanel({
               icon={<Save size={14} />}
               loading={loading}
               onClick={() => void handleSave()}
-              disabled={!imageConfig.model.trim() || !resolvedApiKey}
+              disabled={imageSource === 'apiKey' && (!imageConfig.model.trim() || !resolvedApiKey)}
             >
               {t('common.save')}
             </Button>

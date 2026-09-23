@@ -1025,5 +1025,13 @@
   ,"shellDiscoveryFailed": "部分环境未能检测完成，请重新检测。"
   ,"shellMissingHint": "已保存的环境当前不可用，请重新检测或选择其他环境。"
   ,"shellRefresh": "重新检测"
-  ,"shellSavedDefault": "使用已保存的默认环境"
+  ,"shellSavedDefault": "使用已保存的默认环境",
+  "imageGenerationSource": "生图来源",
+  "imageSourceAuto": "跟随聊天",
+  "imageSourceSubscription": "Codex 订阅",
+  "imageSourceApiKey": "API Key",
+  "imageSourceAutoHint": "Codex 订阅聊天自动使用订阅生图；API 聊天使用下方图片接口。不支持生图的订阅会明确提示。",
+  "imageSourceSubscriptionHint": "使用已登录的 ChatGPT 账号，生图模型与输出选项由 Codex 管理。",
+  "imageSourceSubscriptionNote": "请先在 AI 提供商中登录 Codex。生图使用订阅图片额度，失败时不会自动切换到 API Key。",
+  "imageSourceApiKeyHint": "使用下方配置的服务商、模型与 API Key。"
 }

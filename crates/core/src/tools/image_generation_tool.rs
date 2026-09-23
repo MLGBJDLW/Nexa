@@ -27,6 +27,41 @@ const DEF_JSON: &str = include_str!("../../prompts/tools/generate_image.json");
 
 pub struct GenerateImageTool;
 
+/// Import only the bounded inline image returned by the official Codex runtime.
+/// Upstream saved paths are never read or trusted as Nexa artifacts.
+pub fn codex_subscription_image_result(
+    call_id: &str,
+    prompt: &str,
+    encoded: &str,
+    revised_prompt: Option<&str>,
+    filename: Option<&str>,
+) -> Result<ToolResult, CoreError> {
+    const MAX_BYTES: usize = 32 * 1024 * 1024;
+    if encoded.len() > MAX_BYTES.div_ceil(3) * 4 + 128 {
+        return Err(CoreError::InvalidInput(
+            "Codex image exceeds the preview size limit".into(),
+        ));
+    }
+    let bytes = decode_base64_image(encoded, "Codex subscription")?;
+    if bytes.len() > MAX_BYTES || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err(CoreError::InvalidInput(
+            "Codex returned an invalid PNG preview".into(),
+        ));
+    }
+    let args: GenerateImageArgs =
+        serde_json::from_value(json!({"prompt":prompt,"filename":filename}))
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+    let (path, suggested_filename) = resolve_preview_path(&args, "png")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, &bytes)?;
+    Ok(ToolResult {
+        call_id: call_id.into(), content: "Image generated with the signed-in ChatGPT/Codex subscription. Ready for preview; not saved to the workspace.".into(), is_error:false,
+        artifacts:Some(json!({"kind":"generatedImage","provider":"openai_codex","model":"codex-image-generation","path":path,"previewPath":path,"suggestedFilename":suggested_filename,"mediaType":"image/png","bytes":bytes.len(),"saved":false,"transient":true,"prompt":prompt,"requestedPrompt":prompt,"effectivePrompt":revised_prompt,"promptRewriteObservable":revised_prompt.is_some(),"promptIntegrity":match revised_prompt {Some(effective) if effective.trim() == prompt.trim() => "unchanged", Some(_) => "revised", None => "unobservable"}})),
+    })
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum ImagePromptMode {
@@ -146,6 +181,12 @@ impl Tool for GenerateImageTool {
         let args: GenerateImageArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid generate_image arguments: {e}"))
         })?;
+
+        if db.load_app_config()?.image_generation.source
+            == crate::app_settings::ImageGenerationSource::Subscription
+        {
+            return Err(CoreError::InvalidInput("Subscription image generation requires the desktop Codex runtime. No API request was sent.".into()));
+        }
 
         if args.prompt.trim().is_empty() {
             return Ok(error_result(call_id, "Image prompt cannot be empty."));
@@ -1246,6 +1287,39 @@ fn preview_cache_filename(suggested_filename: &str, extension: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscription_image_import_preserves_prompt_provenance_and_validates_bytes() {
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+        for revised in [None, Some("a blue circle")] {
+            let result = codex_subscription_image_result(
+                "image-test",
+                "circle",
+                png,
+                revised,
+                Some("circle.png"),
+            )
+            .unwrap();
+            let artifact = result.artifacts.unwrap();
+            assert_eq!(artifact["requestedPrompt"], "circle");
+            assert_eq!(artifact["promptRewriteObservable"], revised.is_some());
+            assert_eq!(
+                artifact["promptIntegrity"],
+                if revised.is_some() {
+                    "revised"
+                } else {
+                    "unobservable"
+                }
+            );
+            assert!(artifact.get("promptMode").is_none());
+            let path = Path::new(artifact["previewPath"].as_str().unwrap());
+            assert!(std::fs::read(path)
+                .unwrap()
+                .starts_with(b"\x89PNG\r\n\x1a\n"));
+            std::fs::remove_file(path).unwrap();
+        }
+        assert!(codex_subscription_image_result("bad", "circle", "c2VjcmV0", None, None).is_err());
+    }
 
     fn test_args() -> GenerateImageArgs {
         GenerateImageArgs {

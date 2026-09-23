@@ -2482,6 +2482,30 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
   expect(await image.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
 
+test('image generation source follows chat or explicitly selects subscription and API', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 820, height: 900 });
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  const panel = page.getByTestId('image-generation-settings-panel');
+  await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
+  const source = panel.getByTestId('image-source-selector');
+  await expect(source.getByRole('button', { name: 'Follow chat', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await source.getByRole('button', { name: 'Codex subscription', exact: true }).click();
+  await expect(panel.locator('input[type=password]')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { source?: string } } }).__savedAppConfig?.imageGeneration?.source)).toBe('subscription');
+  await source.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('image-subscription-source.png') });
+  await source.getByRole('button', { name: 'API Key', exact: true }).click();
+  await expectNexaValue(panel.locator('[data-nexa-select-trigger]').first(), 'qwen-dashscope-cn');
+  await expect(panel.locator('input[type=password]')).toHaveValue('sk-qwen-demo');
+  await source.getByRole('button', { name: 'Follow chat', exact: true }).click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { source?: string } } }).__savedAppConfig?.imageGeneration?.source)).toBe('auto');
+  expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+});
+
 test('bottom-edge model and provider menus stay inside the viewport and reach their last option', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 680, height: 300 });
   await page.goto('/settings');
