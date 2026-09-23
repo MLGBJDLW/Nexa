@@ -102,6 +102,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
       aria-label={t('chat.contextPolicyTitle')}
       data-testid="context-policy-panel"
       className="flex w-[min(25rem,calc(100vw-1.5rem))] max-h-[min(42rem,var(--radix-popover-content-available-height))] flex-col overflow-hidden rounded-2xl border border-border/75 bg-surface-0 text-text-primary shadow-2xl"
+      style={{ overflow: 'hidden' }}
     >
       <div className="flex shrink-0 items-start gap-3 border-b border-border/60 px-5 py-4">
         <span className="rounded-xl bg-accent/10 p-2 text-accent"><Gauge className="h-5 w-5" /></span>

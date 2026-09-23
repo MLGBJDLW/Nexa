@@ -14,7 +14,8 @@ export function NexaMenuContent({ className = '', ...props }: ComponentProps<typ
         {...props}
         collisionPadding={props.collisionPadding ?? 10}
         sideOffset={props.sideOffset ?? 6}
-        className={`nexa-overlay-content pointer-events-auto p-1 ${className}`}
+        updatePositionStrategy={props.updatePositionStrategy ?? 'always'}
+        className={`nexa-overlay-content nexa-menu-content pointer-events-auto p-1 ${className}`}
       />
     </DropdownMenu.Portal>
   );

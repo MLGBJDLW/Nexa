@@ -2481,3 +2481,36 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
   await expect(image).toContainText('2K');
   expect(await image.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
+
+test('bottom-edge model and provider menus stay inside the viewport and reach their last option', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 680, height: 300 });
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  const panel = page.getByTestId('image-generation-settings-panel');
+  await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
+  const triggers = panel.locator('[data-nexa-select-trigger]');
+  await selectNexaOption(triggers.first(), 'openai');
+  await triggers.nth(1).evaluate(el => el.scrollIntoView({ block: 'end' }));
+  await triggers.nth(1).click();
+  const content = page.locator('.nexa-combobox-content:visible');
+  await expect(content).toBeVisible();
+  await expect.poll(async () => {
+    const box = await content.boundingBox();
+    return Boolean(box && box.y >= 8 && box.y + box.height <= 292);
+  }).toBe(true);
+  const list = content.locator('.nexa-combobox-list');
+  await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await content.getByRole('option', { name: /GPT Image 1 Mini/ }).click();
+  await expectNexaValue(triggers.nth(1), 'gpt-image-1-mini');
+  await triggers.first().evaluate(el => el.scrollIntoView({ block: 'end' }));
+  await triggers.first().click();
+  const select = page.locator('.nexa-select-content:visible');
+  await expect.poll(async () => {
+    const box = await select.boundingBox();
+    return Boolean(box && box.y >= 8 && box.y + box.height <= 292);
+  }).toBe(true);
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await expectNexaValue(triggers.first(), 'custom-openai-images');
+  await page.screenshot({ path: testInfo.outputPath('bottom-edge-selection.png') });
+});
