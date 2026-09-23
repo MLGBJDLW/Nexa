@@ -429,6 +429,8 @@ export function ChatInput({
   const historyDraftRef = useRef<{ value: string; cursor: number } | null>(null);
   const previousPowerModeKeyRef = useRef(draftKey);
   const previousDraftKeyRef = useRef(draftKey);
+  const currentDraftKeyRef = useRef(draftKey);
+  currentDraftKeyRef.current = draftKey;
   const sharedDraftTransferRef = useRef<{ from: string; to: string } | null>(null);
   const sendInFlightRef = useRef(false);
   const voiceDraftSessionRef = useRef<VoiceDraftSession | null>(null);
@@ -1151,22 +1153,24 @@ export function ChatInput({
 
   const addAttachmentFromDataUrl = useCallback(
     (dataUrl: string, name: string): boolean => {
-      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      const match = dataUrl.match(/^data:([^;]+);base64,(.*)$/);
       if (!match) return false;
       const [, mediaType, base64Data] = match;
       const allowedMediaType = getAllowedAttachmentMediaType(mediaType, name);
       if (!allowedMediaType) return false;
-      setAttachments((prev) => {
-        const next = [
-          ...prev,
-          { base64Data, mediaType: allowedMediaType, originalName: name },
-        ];
-        persistDraft(value, next);
-        return next;
-      });
+      // FileReader can finish after a draft switch or a text edit. Append to
+      // its original draft's latest snapshot, never to a stale render's text.
+      const ownerDraft = draftsRef.current[draftKey] ?? readChatInputDraft(draftKey);
+      const next = {
+        ...ownerDraft,
+        attachments: [...ownerDraft.attachments, { base64Data, mediaType: allowedMediaType, originalName: name }],
+      };
+      draftsRef.current[draftKey] = cloneDraftState(next);
+      persistChatInputDraft(draftKey, next);
+      if (currentDraftKeyRef.current === draftKey) setAttachments(next.attachments);
       return true;
     },
-    [persistDraft, value],
+    [draftKey],
   );
 
   const addAttachment = useCallback(
@@ -1184,7 +1188,7 @@ export function ChatInput({
 
   const handleFileSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (isStreaming) return;
+      if (attachmentLocked) return;
       const files = e.target.files;
       if (!files) return;
       for (const file of Array.from(files)) {
@@ -1196,7 +1200,7 @@ export function ChatInput({
       }
       e.target.value = "";
     },
-    [addAttachment, isStreaming],
+    [addAttachment, attachmentLocked],
   );
 
   const removeAttachment = useCallback((index: number) => {
@@ -1211,12 +1215,33 @@ export function ChatInput({
     });
   }, [persistDraft, previewAttachment, value]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  useEffect(() => {
+    // File drops outside the composer must not navigate the WebView away from Nexa.
+    const preventFileNavigation = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    document.addEventListener("dragover", preventFileNavigation);
+    document.addEventListener("drop", preventFileNavigation);
+    return () => {
+      document.removeEventListener("dragover", preventFileNavigation);
+      document.removeEventListener("drop", preventFileNavigation);
+    };
   }, []);
 
+  useEffect(() => {
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+  }, [attachmentLocked, draftKey]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = attachmentLocked ? "none" : "copy";
+  }, [attachmentLocked]);
+
   const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     if (attachmentLocked) return;
@@ -1227,6 +1252,7 @@ export function ChatInput({
   }, [attachmentLocked]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current -= 1;
@@ -1238,6 +1264,7 @@ export function ChatInput({
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes("Files")) return;
       e.preventDefault();
       e.stopPropagation();
       dragCounterRef.current = 0;
