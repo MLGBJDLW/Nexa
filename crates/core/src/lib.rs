@@ -79,6 +79,7 @@ pub mod ocr;
 pub mod ocr;
 pub mod office_live_bridge;
 pub mod office_runtime;
+pub mod openrouter_images;
 pub mod package_host;
 pub mod parse;
 pub mod persona;

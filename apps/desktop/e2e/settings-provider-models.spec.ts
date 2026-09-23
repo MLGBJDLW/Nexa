@@ -842,6 +842,8 @@ test.beforeEach(async ({ page }) => {
             ],
           };
         }
+        case "discover_openrouter_image_models_cmd":
+          return [{ id: 'test-publisher/new-image', name: 'New discovered image', source: 'discovered', qualityOptions: ['high'], sizeOptions: [{ value: '2K', label: '2K' }], inputModalities: ['text'], outputModalities: ['image'] }];
         case "synthesize_speech_preview_cmd": {
           const preview = {
             assetId: "speech-preview",
@@ -1654,7 +1656,7 @@ test("settings promotes low-latency speech providers with their own logos", asyn
   await selectNexaOption(selects.nth(1), "canopylabs/orpheus-v1-english");
   await expectNexaValue(selects.nth(1), "canopylabs/orpheus-v1-english");
   await expectNexaValue(selects.nth(2), "wav");
-  await expect(panel.locator('[title="Groq"]')).toContainText("GQ");
+  await expect(panel.locator('[title="Groq"] > span')).toHaveAttribute("style", /provider-icons\/groq\.svg/);
   await expect(panel.getByTestId("tts-voice-catalog")).toContainText("Hannah");
   await expect(panel.getByTestId("tts-voice-catalog")).not.toContainText("Fahad");
   await selectNexaOption(selects.nth(1), "canopylabs/orpheus-arabic-saudi");
@@ -2449,4 +2451,33 @@ test("subscription catalog failure invalidates stale models and prevents saving"
   await form.getByRole("button", { name: "Refresh", exact: true }).last().click();
   await expect(form.getByRole("alert")).toContainText("catalog unavailable");
   await expect(form.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+});
+
+test("Qwen Audio and dynamically discovered OpenRouter image models are usable in settings", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 900 });
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  const tts = page.getByTestId('text-to-speech-settings-panel');
+  await tts.locator('button').first().click();
+  await selectNexaOption(tts.locator('[data-nexa-select-trigger]').first(), 'qwen-audio-generation');
+  await expect(tts.getByTestId('tts-voice-input')).toHaveCount(0);
+  await expect(tts.getByRole('button', { name: 'Preview voice' })).toBeDisabled();
+  await tts.locator('input[type=password]').fill('test-key');
+  await tts.getByPlaceholder('https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer').fill('https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer');
+  await expect(tts.getByRole('button', { name: 'Preview voice' })).toBeEnabled();
+  await tts.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { textToSpeech?: { apiStyle?: string } } }).__savedAppConfig?.textToSpeech?.apiStyle)).toBe('dashscope_audio_generation');
+  const stt = page.getByTestId('speech-to-text-settings-panel');
+  await stt.locator('button').first().click();
+  await selectNexaOption(stt.getByTestId('stt-provider-select'), 'alibaba-qwen-audio-streaming');
+  await expectNexaValue(stt.locator('[data-nexa-select-trigger]').nth(1), 'qwen-audio-3.1-asr-flash-streaming');
+  await selectNexaOption(stt.getByTestId('stt-provider-select'), 'alibaba-qwen-audio');
+  await expect(stt.getByText('After recording', { exact: true })).toBeVisible();
+  const image = page.getByTestId('image-generation-settings-panel');
+  await image.getByRole('button', { name: 'Expand image generation settings' }).click();
+  await selectNexaOption(image.locator('[data-nexa-select-trigger]').first(), 'openrouter-images');
+  await selectNexaOption(image.locator('[data-nexa-select-trigger]').nth(1), 'test-publisher/new-image');
+  await expectNexaValue(image.locator('[data-nexa-select-trigger]').nth(1), 'test-publisher/new-image');
+  await expect(image).toContainText('2K');
+  expect(await image.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });

@@ -387,8 +387,40 @@ async fn generate_openai_image(
         "https://api.openai.com/v1"
     });
     let base = base_url.trim_end_matches('/');
-    let url = format!("{base}/images/generations");
-    let body = if is_xai {
+    let openrouter = config.api_style.as_deref() == Some("openrouter_images");
+    let url = if openrouter {
+        format!("{base}/images")
+    } else {
+        format!("{base}/images/generations")
+    };
+    let body = if openrouter {
+        let models = crate::openrouter_images::discover_models()
+            .await
+            .unwrap_or_else(|_| crate::openrouter_images::catalog_fallback());
+        let descriptor = models.iter().find(|candidate| candidate.id == model)
+            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable or requires unsupported reference/vector output. Refresh the image catalog in Settings.".into()))?;
+        let mut body = crate::openrouter_images::generation_body(
+            descriptor,
+            &args.prompt,
+            args.size.as_deref().or(config.size.as_deref()),
+            selected_image_quality(config, args, model),
+            output_format,
+        )?;
+        for (name, value) in [
+            ("aspect_ratio", args.aspect_ratio.as_ref().map(|v| json!(v))),
+            ("resolution", args.resolution.as_ref().map(|v| json!(v))),
+            ("background", args.background.as_ref().map(|v| json!(v))),
+            (
+                "output_compression",
+                args.output_compression.map(|v| json!(v)),
+            ),
+        ] {
+            if let Some(value) = value {
+                crate::openrouter_images::set_parameter(&mut body, descriptor, name, value)?;
+            }
+        }
+        body
+    } else if is_xai {
         build_xai_images_body(config, args, model)?
     } else {
         build_openai_images_body(config, args, model, output_format)
@@ -473,7 +505,13 @@ fn build_openai_images_body(
 }
 
 fn is_gpt_image_25(model: &str) -> bool {
-    matches!(model, "gpt-image-2.5-flare" | "gpt-image-2.5-sunburst")
+    matches!(
+        model,
+        "gpt-image-2.5-flare"
+            | "gpt-image-2.5-sunburst"
+            | "gpt-image-2.5-flare-2026-09-08"
+            | "gpt-image-2.5-sunburst-2026-09-08"
+    )
 }
 
 fn validate_image_options(

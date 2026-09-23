@@ -2732,3 +2732,5 @@ export const deleteToolPermissionPolicy = (
 
 export const clearToolPermissionPolicies = () =>
   invoke<void>('clear_tool_permission_policies_cmd');
+
+export const discoverOpenRouterImageModels = () => invoke<import("./imageProviderCatalogHydration").RuntimeImageProviderPreset["models"]>("discover_openrouter_image_models_cmd");

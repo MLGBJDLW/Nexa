@@ -11,6 +11,7 @@ import {
 
 export type ImageApiStyle =
   | "openai_images"
+  | "openrouter_images"
   | "xai_images"
   | "gemini_generate_content"
   | "dashscope_multimodal";

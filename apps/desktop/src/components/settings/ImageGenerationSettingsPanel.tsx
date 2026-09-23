@@ -1,3 +1,4 @@
+import { hydrateImageProviderPreset, type RuntimeImageProviderPreset } from "../../lib/imageProviderCatalogHydration";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NexaSelect } from "../ui/overlay";
 import { ChevronDown, Eye, EyeOff, Image as ImageIcon, Save } from "lucide-react";
@@ -155,6 +156,7 @@ export function ImageGenerationSettingsPanel({
   const [showKey, setShowKey] = useState(false);
   const [preferAgentDefaults, setPreferAgentDefaults] = useState(true);
   const [capabilityPackage, setCapabilityPackage] = useState<CapabilityPackageView | null>(null);
+  const [discoveredModels, setDiscoveredModels] = useState<RuntimeImageProviderPreset["models"] | null>(null);
   const storedImageConfig = appConfig.imageGeneration ?? DEFAULT_IMAGE_CONFIG;
   const loadPlugin = useCallback(async () => {
     try {
@@ -171,8 +173,10 @@ export function ImageGenerationSettingsPanel({
   }, [loadPlugin]);
 
   const providerPresets = useMemo(
-    () => extractImageProviderPresets(capabilityPackage, IMAGE_PROVIDER_PRESETS),
-    [capabilityPackage],
+    () => extractImageProviderPresets(capabilityPackage, IMAGE_PROVIDER_PRESETS).map(preset =>
+      preset.apiStyle === 'openrouter_images' && discoveredModels
+        ? hydrateImageProviderPreset({ ...preset, models: discoveredModels }) : preset),
+    [capabilityPackage, discoveredModels],
   );
   const preferredAgentPreset = useMemo(() => {
     const imageCapableConfigs = agentConfigs.filter(
@@ -196,6 +200,14 @@ export function ImageGenerationSettingsPanel({
       }, providerPresets) ?? fallbackPresetForConfig(imageConfig, providerPresets),
     [imageConfig.apiStyle, imageConfig.baseUrl, imageConfig.provider, providerPresets],
   );
+  useEffect(() => {
+    if (!expanded || activePreset.apiStyle !== 'openrouter_images' || discoveredModels) return;
+    let cancelled = false;
+    void api.discoverOpenRouterImageModels().then(models => {
+      if (!cancelled && Array.isArray(models) && models.length > 0) setDiscoveredModels(models);
+    }).catch(error => console.warn('[image-catalog] using bundled OpenRouter catalog', error));
+    return () => { cancelled = true; };
+  }, [expanded, activePreset.apiStyle, discoveredModels]);
   const selectedModelDescriptor = activePreset.models.find(
     (model) => model.id === imageConfig.model,
   )?.descriptor;

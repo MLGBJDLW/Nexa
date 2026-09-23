@@ -231,7 +231,15 @@ fn agent_config_to_resolved(config: AgentConfig) -> ResolvedImageConfig {
 
     ResolvedImageConfig {
         provider: config.provider,
-        api_style: None,
+        api_style: config
+            .base_url
+            .as_deref()
+            .and_then(|base| Url::parse(base).ok())
+            .filter(|url| {
+                url.host_str() == Some("openrouter.ai")
+                    && url.path().trim_end_matches('/') == "/api/v1"
+            })
+            .map(|_| "openrouter_images".to_string()),
         api_key: config.api_key,
         base_url: config.base_url.filter(|value| !value.trim().is_empty()),
         model: image_model,
@@ -252,7 +260,9 @@ fn requested_provider_hint(request: &ImageGenerationRequest<'_>) -> Option<Image
 }
 
 fn provider_hint_from_text(haystack: &str) -> Option<ImageProvider> {
-    if is_xai_identity(haystack) {
+    if haystack.contains("openrouter") {
+        Some(ImageProvider::OpenAi)
+    } else if is_xai_identity(haystack) {
         Some(ImageProvider::Xai)
     } else if haystack.contains("qwen")
         || haystack.contains("dashscope")
@@ -269,6 +279,7 @@ fn provider_hint_from_text(haystack: &str) -> Option<ImageProvider> {
     } else if haystack.contains("openai")
         || haystack.contains("open_ai")
         || haystack.contains("openai_images")
+        || haystack.contains("openrouter_images")
         || haystack.contains("images_generation")
         || haystack.contains("gpt-image")
         || haystack.contains("zhipu")
@@ -320,6 +331,7 @@ fn image_config_matches_provider(config: &ImageGenerationConfig, provider: Image
                 .to_lowercase(),
             ) && (haystack.contains("openai")
                 || haystack.contains("openai_images")
+                || haystack.contains("openrouter_images")
                 || haystack.contains("compatible")
                 || haystack.contains("gpt-image")
                 || haystack.contains("zhipu")
@@ -394,6 +406,12 @@ fn infer_provider(
     request: &ImageGenerationRequest<'_>,
     config: &ResolvedImageConfig,
 ) -> ImageProvider {
+    // An aggregator's protocol wins over a vendor prefix in the model slug.
+    if request.api_style == Some("openrouter_images")
+        || config.api_style.as_deref() == Some("openrouter_images")
+    {
+        return ImageProvider::OpenAi;
+    }
     if let Some(provider) = requested_provider_hint(request) {
         return provider;
     }
@@ -448,7 +466,7 @@ fn default_model(provider: ImageProvider) -> &'static str {
     match provider {
         ImageProvider::OpenAi => "gpt-image-2.5-flare",
         ImageProvider::Xai => "grok-imagine-image-2.0",
-        ImageProvider::Google => "gemini-3-pro-image-preview",
+        ImageProvider::Google => "gemini-3.1-flash-image",
         ImageProvider::Qwen => "qwen-image-2.0-pro",
     }
 }
@@ -760,6 +778,50 @@ mod tests {
     use crate::app_settings::AppConfig;
     use crate::conversation::SaveAgentConfigInput;
     use crate::db::Database;
+
+    #[test]
+    fn openrouter_image_model_vendor_does_not_change_the_configured_protocol() {
+        let db = Database::open_memory().unwrap();
+        let mut config = AppConfig::default();
+        config.image_generation = ImageGenerationConfig {
+            provider: "openrouter".into(),
+            api_style: "openrouter_images".into(),
+            api_key: "router-key".into(),
+            base_url: Some("https://openrouter.ai/api/v1".into()),
+            model: "google/gemini-3.1-flash-image".into(),
+            size: None,
+            quality: None,
+            output_format: Some("png".into()),
+        };
+        db.save_app_config(&config).unwrap();
+        for model in [
+            "google/gemini-3.1-flash-image",
+            "qwen/qwen-image-3",
+            "openai/gpt-image-2.5-flare",
+        ] {
+            let runtime = resolve_runtime(
+                &db,
+                &ImageGenerationRequest {
+                    provider_config_id: None,
+                    provider: Some("openrouter"),
+                    api_style: None,
+                    model: Some(model),
+                    output_format: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(runtime.provider, ImageProvider::OpenAi);
+            assert_eq!(
+                runtime.config.api_style.as_deref(),
+                Some("openrouter_images")
+            );
+            assert_eq!(
+                runtime.config.base_url.as_deref(),
+                Some("https://openrouter.ai/api/v1")
+            );
+            assert_eq!(runtime.config.api_key, "router-key");
+        }
+    }
 
     #[test]
     fn image_xai_runtime_preserves_endpoint_key_model_and_adapter() {

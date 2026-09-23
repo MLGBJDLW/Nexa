@@ -29,7 +29,7 @@ function isNullableString(value: unknown): value is string | null {
 }
 
 function isImageApiStyle(value: unknown): value is ImageApiStyle {
-  return value === 'openai_images'
+  return value === 'openrouter_images' || value === 'openai_images'
     || value === 'xai_images'
     || value === 'gemini_generate_content'
     || value === 'dashscope_multimodal';

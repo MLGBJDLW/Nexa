@@ -24,7 +24,7 @@
       },
       "api_style": {
         "type": "string",
-        "description": "Optional API adapter override: openai_images, xai_images, gemini_generate_content, or dashscope_multimodal. xAI requires xai_images for its aspect_ratio, resolution and quality contract."
+        "description": "Optional API adapter override: openai_images, openrouter_images, xai_images, gemini_generate_content, or dashscope_multimodal. xAI requires xai_images for its aspect_ratio, resolution and quality contract."
       },
       "provider_config_id": {
         "type": "string",
