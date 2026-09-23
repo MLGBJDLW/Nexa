@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.14.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.12...nexa-monorepo-v0.14.13) (2026-09-23)
+
+
+### Features
+
+* **agent:** guide subagent delegation in ordinary tasks ([aed45c1](https://github.com/MLGBJDLW/Nexa/commit/aed45c11d4d6607d45c00131c932118db46333dc))
+* **chat:** configure model context budgets and compaction visually ([7f02942](https://github.com/MLGBJDLW/Nexa/commit/7f02942dbd716c0be9ee3d56af531bc72ff9405f))
+* **images:** route generation through API or Codex subscription ([ea5db6b](https://github.com/MLGBJDLW/Nexa/commit/ea5db6b0900a4d04e1d50bbeabdfa76ef107637b))
+* **media:** discover OpenRouter image models and refresh Gemini Live ([2e38d86](https://github.com/MLGBJDLW/Nexa/commit/2e38d86969f1a7b04ae21a2918fc5cf2a905b3dc))
+* **models:** refresh provider adapters and publisher branding ([e396837](https://github.com/MLGBJDLW/Nexa/commit/e39683748f5192f68e25bddce5bb74dcdf482087))
+* **models:** update text, speech and image adapters with context and composer UX ([6500289](https://github.com/MLGBJDLW/Nexa/commit/650028958875a681cb8386f8528756f2409cf1bd))
+* **speech:** adapt Qwen Audio 3.1 and DashScope task protocols ([36cc70c](https://github.com/MLGBJDLW/Nexa/commit/36cc70c8288b599668af0d0bfa33f6259c357a12))
+
+
+### Bug Fixes
+
+* **agent:** keep delegation guidance within prompt budgets ([92ffb73](https://github.com/MLGBJDLW/Nexa/commit/92ffb73014a7f17d9a86925dd10f5b67735aa4ee))
+* **agent:** keep disposable helper scripts under workspace .nexa ([e4029d6](https://github.com/MLGBJDLW/Nexa/commit/e4029d6e41b7f2707dbadde1ac56a6da1c499a3e))
+* **chat:** accept file drops without crossing draft boundaries ([8240186](https://github.com/MLGBJDLW/Nexa/commit/824018699bd0210d544bd35e41fb6ad910b92762))
+* **chat:** fit image preview frames to displayed dimensions ([3bf54c3](https://github.com/MLGBJDLW/Nexa/commit/3bf54c34b24a9c66484f57dea03aaba4f43ec79e))
+* **codex:** keep the tool host available for current models ([7563845](https://github.com/MLGBJDLW/Nexa/commit/7563845175066f69cd4dc651b9aa42f79f809c27))
+* **copilot:** surface structured upstream content filtering ([a600ed1](https://github.com/MLGBJDLW/Nexa/commit/a600ed1ef24e889ea92d239d82cc35d07a7170b1))
+* **images:** expose model-specific OpenRouter output formats ([a898e33](https://github.com/MLGBJDLW/Nexa/commit/a898e33810e802f1d7ddeabfc500ad9cf464150b))
+* **images:** preserve aggregator routing for publisher model slugs ([b0bcb7f](https://github.com/MLGBJDLW/Nexa/commit/b0bcb7f064f88e85c0befa7ff0f253204933a3b0))
+* **images:** replace the built-in tool before subscription routing ([3317ffe](https://github.com/MLGBJDLW/Nexa/commit/3317ffea2043ac952866ab6a3495462e5e8aac53))
+* **speech:** share voice-free TTS readiness across chat and settings ([2e8483b](https://github.com/MLGBJDLW/Nexa/commit/2e8483b19fa30e4912a92c9000bfdb29d2e11f72))
+* **ui:** constrain menus and popovers to available viewport space ([aa212a3](https://github.com/MLGBJDLW/Nexa/commit/aa212a31af293a1f37fd5ab55b557959f5db5432))
+* **ui:** distinguish image source selection from API readiness ([0e7c075](https://github.com/MLGBJDLW/Nexa/commit/0e7c07575a9a4e82c1770967bd438e44b1dd667c))
+
 ## [0.14.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.11...nexa-monorepo-v0.14.12) (2026-09-22)
 
 
