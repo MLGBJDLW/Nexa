@@ -146,7 +146,13 @@ impl TextToSpeechConfig {
 
         !self.api_key.trim().is_empty()
             && !self.model.trim().is_empty()
-            && !self.voice.trim().is_empty()
+            && if self.api_style == "dashscope_audio_generation" {
+                self.base_url
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+            } else {
+                !self.voice.trim().is_empty()
+            }
     }
 }
 
@@ -295,7 +301,15 @@ impl SpeechToTextConfig {
                         .as_deref()
                         .is_some_and(|value| !value.trim().is_empty())
             }
-            "openai_transcription" | "dashscope_asr" => {
+            "dashscope_streaming_asr" => {
+                crate::dashscope_speech::is_streaming_asr_model(&self.model)
+                    && !self.api_key.trim().is_empty()
+                    && self
+                        .base_url
+                        .as_deref()
+                        .is_some_and(|v| !v.trim().is_empty())
+            }
+            "openai_transcription" | "dashscope_asr" | "dashscope_audio_asr" => {
                 !self.api_key.trim().is_empty()
                     && !self.model.trim().is_empty()
                     && self

@@ -205,12 +205,17 @@ pub async fn start(
             if !stt.is_configured()
                 || !matches!(
                     stt.api_style.as_str(),
-                    "openai_realtime_transcription" | "dashscope_realtime_asr"
+                    "openai_realtime_transcription"
+                        | "dashscope_realtime_asr"
+                        | "dashscope_streaming_asr"
                 )
             {
                 return Err("Configure streaming speech recognition in Settings before using a microphone with incremental Live".into());
             }
-            if stt.api_style == "dashscope_realtime_asr" {
+            if matches!(
+                stt.api_style.as_str(),
+                "dashscope_realtime_asr" | "dashscope_streaming_asr"
+            ) {
                 rate = 16_000;
             }
         }

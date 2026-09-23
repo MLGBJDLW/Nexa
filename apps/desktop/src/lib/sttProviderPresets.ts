@@ -19,7 +19,7 @@ export interface SttCatalogItem {
 export type SttAudioInput = 'completeFile' | 'chunkStream';
 export type SttTranscriptDelivery = 'finalOnly' | 'interimAndFinal';
 export type SttInterimSemantics = 'none' | 'appendDelta' | 'replaceSnapshot';
-export type SttFinalization = 'endOfFile' | 'clientCommit' | 'sessionFinish';
+export type SttFinalization = 'endOfFile' | 'clientCommit' | 'sessionFinish' | 'taskFinish';
 export type SttTransport = 'httpMultipart' | 'httpJson' | 'websocket' | 'localOffline';
 
 export interface SttRuntimeCapabilities {

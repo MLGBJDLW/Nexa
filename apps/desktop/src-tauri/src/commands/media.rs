@@ -409,12 +409,12 @@ pub async fn transcribe_voice_audio_spool_cmd(
     }
     let wav_path = prepared.path;
     let result = match speech_config.api_style.as_str() {
-        "openai_transcription" | "dashscope_asr" => {
+        "openai_transcription" | "dashscope_asr" | "dashscope_audio_asr" => {
             nexa_core::speech_to_text::transcribe_cloud_wav_path(&wav_path, &speech_config)
                 .await
                 .map_err(|e| e.to_string())
         }
-        "openai_realtime_transcription" | "dashscope_realtime_asr" => {
+        "openai_realtime_transcription" | "dashscope_realtime_asr" | "dashscope_streaming_asr" => {
             super::realtime_transcription::transcribe_realtime_spool(&wav_path, &speech_config)
                 .await
         }

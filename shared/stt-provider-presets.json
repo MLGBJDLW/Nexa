@@ -56,6 +56,80 @@
     ]
   },
   {
+    "id": "alibaba-qwen-audio-streaming",
+    "name": "Alibaba Qwen Audio Streaming",
+    "provider": "alibaba_model_studio",
+    "apiStyle": "dashscope_streaming_asr",
+    "requiresApiKey": true,
+    "baseUrl": "https://dashscope.aliyuncs.com/api-ws/v1/inference",
+    "description": "Live multilingual Qwen Audio recognition with sentence snapshots and task completion.",
+    "transcription": {
+      "audioInput": "chunkStream",
+      "transcriptDelivery": "interimAndFinal",
+      "interimSemantics": "replaceSnapshot",
+      "finalization": "taskFinish",
+      "transport": "websocket",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": true
+    },
+    "models": [
+      {
+        "id": "qwen-audio-3.1-asr-flash-streaming",
+        "name": "Qwen Audio 3.1 ASR Flash Streaming",
+        "source": "curated",
+        "productReadiness": "product_ready",
+        "recommended": true
+      },
+      {
+        "id": "qwen-audio-3.0-asr-flash-streaming",
+        "name": "Qwen Audio 3.0 ASR Flash Streaming",
+        "source": "curated",
+        "productReadiness": "known",
+        "recommended": false
+      },
+      {
+        "id": "qwen-audio-3.1-asr-flash-message",
+        "name": "Qwen Audio 3.1 ASR Flash Message",
+        "source": "curated",
+        "productReadiness": "known"
+      }
+    ]
+  },
+  {
+    "id": "alibaba-qwen-audio",
+    "name": "Alibaba Qwen Audio Transcription",
+    "provider": "alibaba_model_studio",
+    "apiStyle": "dashscope_audio_asr",
+    "requiresApiKey": true,
+    "baseUrl": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    "description": "Qwen Audio recording transcription over HTTP. Managed recordings are split into bounded audio segments.",
+    "transcription": {
+      "audioInput": "completeFile",
+      "transcriptDelivery": "finalOnly",
+      "interimSemantics": "none",
+      "finalization": "endOfFile",
+      "transport": "httpJson",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": true
+    },
+    "models": [
+      {
+        "id": "qwen-audio-3.1-asr-flash",
+        "name": "Qwen Audio 3.1 ASR Flash",
+        "source": "curated",
+        "productReadiness": "product_ready",
+        "recommended": true
+      },
+      {
+        "id": "qwen-audio-3.0-asr-flash",
+        "name": "Qwen Audio 3.0 ASR Flash",
+        "source": "curated",
+        "productReadiness": "known",
+        "recommended": false
+      }
+    ]
+  },
+  {
     "id": "alibaba-qwen-asr",
     "name": "Alibaba Qwen3 ASR",
     "provider": "alibaba_model_studio",

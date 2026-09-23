@@ -33,6 +33,7 @@ pub mod context_pack;
 pub mod context_policy;
 pub mod conversation;
 pub mod crypto;
+pub mod dashscope_speech;
 pub mod db;
 pub mod db_executor;
 pub mod dreaming;

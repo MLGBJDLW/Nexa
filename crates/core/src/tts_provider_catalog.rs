@@ -410,12 +410,31 @@ async fn discover_dashscope_voices(
         config,
         "https://dashscope.aliyuncs.com/api/v1/services/audio/tts",
     );
+    let base = if base.contains("/api-ws/") {
+        let mut url =
+            reqwest::Url::parse(&base).map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+        let scheme = match url.scheme() {
+            "wss" => "https",
+            "ws" => "http",
+            value => value,
+        }
+        .to_string();
+        url.set_scheme(&scheme)
+            .map_err(|_| CoreError::InvalidInput("Invalid DashScope URL scheme".into()))?;
+        url.set_path(
+            &url.path()
+                .replace("/api-ws/v1/inference", "/api/v1/services/audio/tts"),
+        );
+        url.to_string()
+    } else {
+        base
+    };
     let endpoint = if base.trim_end_matches('/').ends_with("/tts") {
         format!("{}/customization", base.trim_end_matches('/'))
     } else {
         base
     };
-    let qwen = config.model.to_ascii_lowercase().contains("qwen");
+    let qwen = config.model.to_ascii_lowercase().starts_with("qwen3-tts");
     let (model, action) = if qwen {
         ("qwen-voice-design", "list")
     } else {

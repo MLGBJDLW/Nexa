@@ -101,11 +101,12 @@ export function isRealtimeTranscriptionConfig(
 export function isSpeechToTextConfigured(config?: SpeechToTextConfig | null): boolean {
   if (!config || config.apiStyle === 'local_whisper') return true;
   if (config.apiStyle === 'openai_realtime_transcription'
-    || config.apiStyle === 'dashscope_realtime_asr') {
+    || config.apiStyle === 'dashscope_realtime_asr'
+    || config.apiStyle === 'dashscope_streaming_asr') {
     return isRealtimeTranscriptionConfig(config)
       && Boolean(config.apiKey.trim() && config.baseUrl?.trim() && config.model.trim());
   }
-  if (config.apiStyle === 'openai_transcription' || config.apiStyle === 'dashscope_asr') {
+  if (config.apiStyle === 'openai_transcription' || config.apiStyle === 'dashscope_asr' || config.apiStyle === 'dashscope_audio_asr') {
     return Boolean(config.apiKey.trim() && config.baseUrl?.trim() && config.model.trim());
   }
   if (config.apiStyle === 'sherpa_onnx') {
