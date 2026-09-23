@@ -161,6 +161,15 @@ fn resolve_config(
     let app_config = db.load_app_config()?;
     let image_config = app_config.image_generation;
     if image_config.is_configured() {
+        if image_config.api_style == "openrouter_images"
+            && request.provider.is_none()
+            && request.api_style.is_none()
+            && request.model.is_some_and(|model| model.contains('/'))
+        {
+            // A publisher-qualified slug selects a model within the configured
+            // aggregator, not a different account with a direct vendor key.
+            return Ok(image_config_to_resolved(image_config));
+        }
         if let Some(provider) = requested_provider_hint(request) {
             if image_config_matches_provider(&image_config, provider) {
                 return Ok(image_config_to_resolved(image_config));
@@ -803,7 +812,7 @@ mod tests {
                 &db,
                 &ImageGenerationRequest {
                     provider_config_id: None,
-                    provider: Some("openrouter"),
+                    provider: None,
                     api_style: None,
                     model: Some(model),
                     output_format: None,
