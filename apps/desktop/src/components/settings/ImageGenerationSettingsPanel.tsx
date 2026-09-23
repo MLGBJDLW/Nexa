@@ -299,12 +299,14 @@ export function ImageGenerationSettingsPanel({
             <Badge
               variant="default"
               className={
-                configured
+                imageSource !== 'apiKey'
+                  ? "border-accent/20 bg-accent/10 text-accent"
+                  : configured
                   ? "border-success/20 bg-success/10 text-success"
                   : "border-warning/25 bg-warning/10 text-warning"
               }
             >
-              {subscriptionOnly ? t('settings.imageSourceSubscription') : configured ? t('settings.configured') : imageSource === 'auto' ? t('settings.imageSourceAuto') : t('settings.needsApiKey')}
+              {subscriptionOnly ? t('settings.imageSourceSubscription') : imageSource === 'auto' ? t('settings.imageSourceAuto') : configured ? t('settings.configured') : t('settings.needsApiKey')}
             </Badge>
             {!subscriptionOnly && <Badge variant="default" className="border-border bg-surface-1 text-text-secondary">
               {usesSharedProviderKey && sharedKeySource
@@ -340,7 +342,7 @@ export function ImageGenerationSettingsPanel({
       {expanded && (
         <div className="border-t border-border px-4 py-4">
           <p className="mb-4 text-xs text-text-tertiary">
-            {t('settings.imageGenerationDesc')}
+            {subscriptionOnly ? t('settings.imageSourceSubscriptionHint') : imageSource === 'auto' ? t('settings.imageSourceAutoHint') : t('settings.imageGenerationDesc')}
           </p>
           <div className="mb-5 rounded-lg border border-border bg-surface-1 p-3" data-testid="image-source-selector">
             <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.imageGenerationSource')}</p>
