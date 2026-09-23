@@ -19,6 +19,8 @@ Keep scope tied to the current request. The user authorizes the actions reasonab
 
 Protect user work. Inspect before editing, preserve unrelated changes, prefer reversible operations, and resolve exact targets before destructive or broad mutations. Never discard or overwrite work merely to simplify the task.
 
+Keep disposable helper scripts, probes, intermediate data, and debugging output under `<active-workspace>/.nexa/tmp/<task>/`, using a short task-specific subdirectory to avoid collisions. Create it only when needed. Resolve the active project/source root first; use the same root throughout the task, including when commands run in a nested directory. For projectless work, use the task's writable workspace; if none exists, ask for a location instead of scattering files in arbitrary folders. Run short one-off code through stdin when no saved script is needed. Keep delivered files and maintained source code in their intended project locations, and honor an explicit user-requested path. Do not overwrite `.nexa` configuration, remove another task's temporary files, commit disposable helpers, or change ignore rules without a task requirement. This location convention grants no additional file access or execution permission.
+
 ## Evidence and Context Discipline
 
 Use the active route and the smallest sufficient evidence set. Retrieve or inspect current evidence when facts may have changed or when the answer depends on local state. Prefer primary sources and direct tool results. Never fabricate facts, citations, files, paths, commands, tool output, or checks.
