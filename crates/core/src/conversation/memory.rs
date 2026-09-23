@@ -233,7 +233,8 @@ fn model_profile_context_window(m: &str) -> Option<u32> {
     // ── Exact matches for verified model IDs (highest priority) ────
     let context_tokens = match m {
         // OpenAI GPT-5.6 / GPT-5.5 / GPT-5.4 series (1.05M)
-        "gpt-6-astra" | "gpt-5.6" | "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna" => 1_050_000,
+        "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-5.6" | "gpt-5.6-sol"
+        | "gpt-5.6-terra" | "gpt-5.6-luna" => 1_050_000,
         "gpt-5.5" | "gpt-5.5-2026-04-23" | "gpt-5.5-pro" | "gpt-5.5-pro-2026-04-23" => 1_050_000,
         "gpt-5.4" | "gpt-5.4-2026-03-05" | "gpt-5.4-pro" | "gpt-5.4-pro-2026-03-05" => 1_050_000,
         "gpt-5.4-mini" | "gpt-5.4-mini-2026-03-05" => 400_000,

@@ -38,7 +38,13 @@ const discoveryCredentials = new Map([
 // contract to exact integration-critical IDs so Nexa's curated picker is not
 // mistaken for an exhaustive mirror of the router's full catalog.
 const publicRequiredModelIds = new Map([
-  ['text:openrouter', ['z-ai/glm-5.3', 'z-ai/glm-5.3-flash']],
+  ['text:openrouter', [
+    'z-ai/glm-5.3', 'z-ai/glm-5.3-flash',
+    'x-ai/grok-4.7', 'anthropic/claude-opus-5.5',
+    'openai/gpt-6-sol', 'openai/gpt-6-luna',
+    'openai/gpt-6-sol-pro', 'openai/gpt-6-luna-pro',
+    'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed',
+  ]],
 ]);
 
 const readJson = async (relativePath) => JSON.parse(

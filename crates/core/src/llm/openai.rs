@@ -1453,7 +1453,12 @@ fn build_generic_responses_request(
             })
         })
         .collect();
-    build_responses_request_with_tools(request, dialect, tools, false)
+    build_responses_request_with_tools(
+        request,
+        dialect,
+        tools,
+        dialect == super::native_search::NativeSearchDialect::OpenAiResponses,
+    )
 }
 
 fn build_responses_request_with_tools(
@@ -1480,7 +1485,34 @@ fn build_responses_request_with_tools(
             // ToolCallRequest::thought_signature and never shown as reasoning.
             body["include"] = serde_json::json!(["reasoning.encrypted_content"]);
         }
-        if let Some(effort) = request.reasoning_effort.as_ref() {
+        if matches!(
+            request.model.as_str(),
+            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna"
+        ) {
+            let disabled = request.reasoning_enabled == Some(false)
+                || request.reasoning_effort == Some(ReasoningEffort::None);
+            let effort = if disabled {
+                if request.model == "gpt-6-astra" {
+                    "low"
+                } else {
+                    "none"
+                }
+            } else {
+                match request.reasoning_effort.as_ref() {
+                    Some(ReasoningEffort::Minimal | ReasoningEffort::Low) => "low",
+                    Some(ReasoningEffort::High) => "high",
+                    Some(ReasoningEffort::XHigh) => "xhigh",
+                    Some(ReasoningEffort::Max | ReasoningEffort::Ultra) => "max",
+                    _ => "medium",
+                }
+            };
+            body["reasoning"] = serde_json::json!({ "effort": effort });
+            if effort == "none" {
+                if let Some(temperature) = request.temperature {
+                    body["temperature"] = serde_json::json!(temperature);
+                }
+            }
+        } else if let Some(effort) = request.reasoning_effort.as_ref() {
             body["reasoning"] = serde_json::json!({ "effort": effort.to_string() });
         } else if let Some(temperature) = request.temperature {
             body["temperature"] = serde_json::json!(temperature);
@@ -1584,6 +1616,15 @@ fn generic_responses_capability(
 fn is_deepseek_responses_model(model: &str) -> bool {
     let model = model.trim().to_ascii_lowercase();
     model == "deepseek-flash" || model.starts_with("deepseek-v4")
+}
+
+fn is_direct_gpt6_responses_model(config: &ProviderConfig, model: &str) -> bool {
+    config.provider_type == ProviderType::OpenAi
+        && super::provider_boundary::is_openai_public_endpoint(
+            config.provider_type,
+            config.base_url.as_deref(),
+        )
+        && matches!(model.trim(), "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna")
 }
 
 fn is_direct_deepseek_responses_request(
@@ -3036,12 +3077,13 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn reasoning_replay_policy(&self, model: &str) -> ReasoningReplayPolicy {
-        let api_style = if self.config.provider_type == ProviderType::DeepSeek
-            && super::provider_boundary::is_deepseek_public_endpoint(
-                self.config.provider_type,
-                self.config.base_url.as_deref(),
-            )
-            && is_deepseek_responses_model(model)
+        let api_style = if is_direct_gpt6_responses_model(&self.config, model)
+            || (self.config.provider_type == ProviderType::DeepSeek
+                && super::provider_boundary::is_deepseek_public_endpoint(
+                    self.config.provider_type,
+                    self.config.base_url.as_deref(),
+                )
+                && is_deepseek_responses_model(model))
         {
             ReasoningApiStyle::OpenAiResponses
         } else {
@@ -3057,8 +3099,10 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn replay_history_projection(&self, request: &CompletionRequest) -> ReplayHistoryProjection {
-        if request.reasoning_enabled == Some(false)
-            || request.reasoning_effort == Some(ReasoningEffort::None)
+        if (request.reasoning_enabled == Some(false)
+            || request.reasoning_effort == Some(ReasoningEffort::None))
+            && !(is_direct_gpt6_responses_model(&self.config, &request.model)
+                && request.model == "gpt-6-astra")
         {
             ReplayHistoryProjection::Caller(ReasoningReplayPolicy::NotRequired)
         } else {
@@ -3077,6 +3121,9 @@ impl LlmProvider for OpenAiProvider {
             }
             Some(_) => ReasoningApiStyle::OpenAiResponses,
             None if is_direct_deepseek_responses_request(&self.config, request) => {
+                ReasoningApiStyle::OpenAiResponses
+            }
+            None if is_direct_gpt6_responses_model(&self.config, &request.model) => {
                 ReasoningApiStyle::OpenAiResponses
             }
             None => ReasoningApiStyle::OpenAiChatCompletions,
@@ -3177,6 +3224,14 @@ impl LlmProvider for OpenAiProvider {
                     Err(error) => return Err(error),
                 }
             }
+        } else if is_direct_gpt6_responses_model(&self.config, &request.model) {
+            return self
+                .complete_responses(
+                    request,
+                    super::native_search::NativeSearchDialect::OpenAiResponses,
+                    None,
+                )
+                .await;
         } else if is_direct_deepseek_responses_request(&self.config, request) {
             let dialect = super::native_search::NativeSearchDialect::DeepSeekResponses;
             let result = match self.complete_responses(request, dialect, None).await {
@@ -3387,6 +3442,15 @@ impl LlmProvider for OpenAiProvider {
                 completion_response_to_provider_events(response),
             )));
         }
+        if is_direct_gpt6_responses_model(&self.config, &request.model) {
+            return self
+                .stream_responses_events(
+                    request,
+                    super::native_search::NativeSearchDialect::OpenAiResponses,
+                    None,
+                )
+                .await;
+        }
         if is_direct_deepseek_responses_request(&self.config, request) {
             let dialect = super::native_search::NativeSearchDialect::DeepSeekResponses;
             return match self.stream_responses_events(request, dialect, None).await {
@@ -3496,6 +3560,119 @@ mod tests {
         assert_eq!(body["max_completion_tokens"], 128_000);
         assert!(body.get("temperature").is_none());
         assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn gpt6_direct_routes_use_responses_with_tool_replay_and_valid_sampling() {
+        let config = endpoint_config(ProviderType::OpenAi, "https://api.openai.com/v1");
+        let provider = OpenAiProvider::new(config.clone()).unwrap();
+        for model in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+            let mut request = endpoint_reasoning_request(model);
+            request.reasoning_effort = None;
+            request.reasoning_enabled = None;
+            request.temperature = Some(0.7);
+            request.tools = Some(vec![ToolDefinition {
+                name: "read_file".into(),
+                description: "Read a file".into(),
+                parameters: serde_json::json!({"type":"object","properties":{}}),
+            }]);
+            assert_eq!(
+                provider.route_snapshot(&request).api_style,
+                ReasoningApiStyle::OpenAiResponses
+            );
+            let body = build_generic_responses_request(
+                &request,
+                super::super::native_search::NativeSearchDialect::OpenAiResponses,
+            )
+            .unwrap();
+            assert_eq!(body["reasoning"]["effort"], "medium");
+            assert_eq!(body["include"][0], "reasoning.encrypted_content");
+            assert_eq!(body["tools"][0]["type"], "function");
+            assert!(body.get("temperature").is_none());
+            request.reasoning_enabled = Some(false);
+            let body = build_generic_responses_request(
+                &request,
+                super::super::native_search::NativeSearchDialect::OpenAiResponses,
+            )
+            .unwrap();
+            assert_eq!(
+                body["reasoning"]["effort"],
+                if model == "gpt-6-astra" {
+                    "low"
+                } else {
+                    "none"
+                }
+            );
+            assert_eq!(body.get("temperature").is_some(), model != "gpt-6-astra");
+            for endpoint in [
+                "https://example.com/v1",
+                "https://api.openai.com/proxy",
+                "https://api.x.ai/v1",
+            ] {
+                assert!(!is_direct_gpt6_responses_model(
+                    &endpoint_config(ProviderType::OpenAi, endpoint),
+                    model
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn mimo26_and_grok47_compile_endpoint_specific_reasoning_controls() {
+        for model in [
+            "mimo-v2.6-pro",
+            "mimo-v2.6-flash",
+            "mimo-v2.6-pro-ultraspeed",
+        ] {
+            let config = endpoint_config(ProviderType::OpenAi, "https://api.xiaomimimo.com/v1");
+            let mut request = endpoint_reasoning_request(model);
+            request.reasoning_enabled = Some(true);
+            request.reasoning_effort = Some(ReasoningEffort::High);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["thinking"]["type"], "enabled");
+            assert!(body.get("reasoning_effort").is_none());
+            assert!(body.get("temperature").is_none());
+            let profile = resolve_reasoning_profile(
+                ProviderType::OpenAi,
+                config.base_url.as_deref(),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            assert!(profile.preserve_reasoning_history);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = None;
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["thinking"]["type"], "disabled");
+            let custom = endpoint_config(ProviderType::OpenAi, "https://api.xiaomimimo.com/proxy");
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&custom),
+            ))
+            .unwrap();
+            assert!(body.get("thinking").is_none());
+        }
+        let config = endpoint_config(ProviderType::OpenAi, "https://api.x.ai/v1");
+        let mut request = endpoint_reasoning_request("grok-4.7");
+        request.reasoning_effort = Some(ReasoningEffort::XHigh);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["reasoning_effort"], "xhigh");
+        assert!(body.get("stop").is_none());
     }
 
     #[test]

@@ -1093,7 +1093,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_catalog_defaults_to_fable_51() {
+    fn anthropic_catalog_lists_opus55_and_fable_51() {
         let anthropic = find_provider_preset("anthropic", Some("https://api.anthropic.com/v1"))
             .expect("anthropic preset should match");
         let ids = anthropic
@@ -1102,7 +1102,8 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"claude-fable-5-1"));
+        assert_eq!(ids.first(), Some(&"claude-opus-5-5"));
+        assert!(ids.contains(&"claude-opus-5"));
         assert!(ids.contains(&"claude-mythos-5"));
         assert!(ids.contains(&"claude-sonnet-5"));
         assert!(ids.contains(&"claude-opus-4-8"));
@@ -1498,17 +1499,17 @@ mod tests {
             .expect("xAI preset should match its exact base URL");
         assert_eq!(
             xai.models.first().map(|model| model.id.as_str()),
-            Some("grok-4.6")
+            Some("grok-4.7")
         );
-        let grok46 = xai
+        let grok47 = xai
             .models
             .first()
-            .expect("Grok 4.6 should lead the direct xAI catalog");
-        let reasoning = grok46
+            .expect("Grok 4.7 should lead the direct xAI catalog");
+        let reasoning = grok47
             .capabilities
             .as_ref()
             .and_then(|capabilities| capabilities.reasoning.as_ref())
-            .expect("Grok 4.6 should expose reasoning controls");
+            .expect("Grok 4.7 should expose reasoning controls");
         assert_eq!(
             reasoning.effort_levels,
             vec![

@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { useTranslation } from '../../i18n';
 import type { ModelCatalogSurface, ModelDescriptor } from '../../lib/modelCatalog';
 import { NexaCombobox } from '../ui/overlay/Combobox';
+import { ProviderIcon } from '../../lib/providerIcons';
 
 export interface CatalogModelPickerItem {
   id: string;
@@ -63,6 +64,7 @@ export function CatalogModelPicker({
     value: model.id,
     label: `${model.name}${model.recommended ? ' ★' : ''}`,
     description: catalogModelOptionDescription(model, t),
+    badge: <ProviderIcon provider={model.descriptor.providerId} model={model.id} size="xs" />,
     keywords: [model.id, model.descriptor.family, model.descriptor.providerId, ...(model.descriptor.aliases ?? [])],
     disabled: model.descriptor.lifecycle === 'removed' || model.descriptor.availableToCredential === false,
   })), [models, t]);
