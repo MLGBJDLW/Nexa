@@ -585,10 +585,15 @@ mod tests {
     #[test]
     fn shared_catalog_has_fast_defaults_and_voices() {
         let presets = load_tts_provider_presets().expect("valid tts provider catalog");
-        assert_eq!(presets.len(), 8);
+        assert_eq!(presets.len(), 9);
         for preset in presets {
             assert!(preset.models.iter().any(|model| model.recommended));
-            assert!(preset.voices.iter().any(|voice| voice.recommended));
+            if preset.api_style == "dashscope_audio_generation" {
+                // TTS Next describes the voice in text_prompt instead of a voice ID.
+                assert!(preset.voices.is_empty());
+            } else {
+                assert!(preset.voices.iter().any(|voice| voice.recommended));
+            }
         }
         let local = load_tts_provider_presets()
             .expect("valid tts provider catalog")

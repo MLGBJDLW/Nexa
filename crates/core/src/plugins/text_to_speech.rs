@@ -196,7 +196,7 @@ mod tests {
     fn provider_catalog_is_exposed_through_manifest_data() {
         let catalog = provider_catalog();
         assert_eq!(catalog.id, "ttsProviders");
-        assert_eq!(catalog.items.len(), 8);
+        assert_eq!(catalog.items.len(), 9);
     }
 
     #[test]
