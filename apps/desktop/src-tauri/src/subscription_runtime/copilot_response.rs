@@ -33,8 +33,12 @@ impl Response {
             ));
         }
         self.attempt += 1;
+        Ok(self.abandon_attempt())
+    }
+
+    pub(super) fn abandon_attempt(&mut self) -> Vec<String> {
         self.group = None;
-        Ok(self.answer_blocks.drain().collect())
+        self.answer_blocks.drain().collect()
     }
 
     pub(super) fn observe_answer(&mut self, id: &str) -> Result<(), CoreError> {

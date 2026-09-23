@@ -373,6 +373,26 @@ async fn project_event(
                 .usage
                 .prompt_tokens
                 .saturating_add(projection.usage.completion_tokens);
+            // Copilot normalizes Anthropic's refusal stop reason to content_filter.
+            // Treat the explicit protocol signal as a failed turn, never infer it
+            // from assistant prose (which may be quoting an error for the user).
+            let main_response = data
+                .get("initiator")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(str::is_empty);
+            if main_response
+                && (data
+                    .get("contentFilterTriggered")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                    || data.get("finishReason").and_then(serde_json::Value::as_str)
+                        == Some("content_filter"))
+            {
+                projection
+                    .discard_answer_blocks(tx, response.abandon_attempt())
+                    .await?;
+                return Err(protocol_error("Copilot upstream content filtering blocked or truncated this response (content_filter). Nexa did not receive a complete answer. The request was stopped without automatically retrying or switching models."));
+            }
         }
         "session.error" => {
             return Err(protocol_error(
@@ -392,6 +412,63 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn explicit_content_filter_clears_the_failed_attempt_without_classifying_prose() {
+        for signal in [
+            serde_json::json!({"contentFilterTriggered":true}),
+            serde_json::json!({"finishReason":"content_filter"}),
+        ] {
+            let (tx, mut rx) = mpsc::channel(16);
+            let mut projection = Projection::default();
+            let mut response = super::super::copilot_response::Response::default();
+            let notice = "The model returned no content because the response was blocked by content filtering.";
+            project_test_event(
+                &mut projection,
+                &mut response,
+                &tx,
+                "assistant.message",
+                serde_json::json!({"messageId":"filtered","content":notice}),
+            )
+            .await
+            .unwrap();
+            // Text alone is a valid quote; only the structured signal rejects it.
+            assert_eq!(projection.answer, notice);
+            project_test_event(
+                &mut projection,
+                &mut response,
+                &tx,
+                "assistant.usage",
+                serde_json::json!({"contentFilterTriggered":true,"initiator":"sub-agent"}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                projection.answer, notice,
+                "background usage cannot fail the parent response"
+            );
+            let error = project_test_event(
+                &mut projection,
+                &mut response,
+                &tx,
+                "assistant.usage",
+                signal,
+            )
+            .await
+            .unwrap_err();
+            assert!(error
+                .to_string()
+                .contains("Copilot upstream content filtering"));
+            assert!(projection.answer.is_empty());
+            let mut cleared = false;
+            while let Ok(event) = rx.try_recv() {
+                if let AgentEvent::StreamBlockSnapshot { block_id, text, .. } = event {
+                    cleared |= block_id == "filtered" && text.is_empty();
+                }
+            }
+            assert!(cleared, "the UI must discard the filtered attempt too");
+        }
+    }
     #[test]
     fn empty_tool_mode_preserves_normal_system_keychain_login() {
         let options = with_login_credential_backend(
