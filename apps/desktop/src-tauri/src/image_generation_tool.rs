@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use nexa_core::app_settings::ImageGenerationSource;
 use nexa_core::error::CoreError;
 use nexa_core::tools::image_generation_tool::{codex_subscription_image_result, GenerateImageTool};
-use nexa_core::tools::{Tool, ToolExecutionContext, ToolResult};
+use nexa_core::tools::{Tool, ToolExecutionContext, ToolRegistry, ToolResult};
 use serde_json::{json, Value};
 
 use crate::subscription_runtime::SubscriptionRuntimeKind;
@@ -30,6 +30,21 @@ fn image_route(source: ImageGenerationSource, chat: Option<SubscriptionRuntimeKi
 pub(crate) struct DesktopImageGenerationTool {
     route: ImageRoute,
     model: Option<String>,
+}
+
+pub(crate) fn install_desktop_image_tool(
+    tools: ToolRegistry,
+    source: ImageGenerationSource,
+    chat: Option<SubscriptionRuntimeKind>,
+    model: Option<String>,
+) -> ToolRegistry {
+    // Registration appends and lookup returns the first match. Replace the core
+    // API tool so neither discovery nor execution can bypass the selected route.
+    let mut tools = tools.without_names(&["generate_image"]);
+    tools.register(Box::new(DesktopImageGenerationTool::new(
+        source, chat, model,
+    )));
+    tools
 }
 
 impl DesktopImageGenerationTool {
@@ -88,6 +103,51 @@ impl Tool for DesktopImageGenerationTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn assembled_catalog_replaces_the_api_tool_for_subscription_chats() {
+        let db = nexa_core::db::Database::open_memory().unwrap();
+        let assembler =
+            nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&db).unwrap();
+        for (source, chat, subscription) in [
+            (
+                ImageGenerationSource::Auto,
+                Some(SubscriptionRuntimeKind::Codex),
+                true,
+            ),
+            (ImageGenerationSource::Subscription, None, true),
+            (
+                ImageGenerationSource::ApiKey,
+                Some(SubscriptionRuntimeKind::Codex),
+                false,
+            ),
+        ] {
+            let builtin = assembler.builtin_tool_registry();
+            assert!(builtin.get("generate_image").is_some());
+            let tools = install_desktop_image_tool(builtin, source, chat, None);
+            let tools = assembler.assemble_tool_registry(tools).unwrap().tools;
+            assert_eq!(
+                tools
+                    .definitions()
+                    .iter()
+                    .filter(|tool| tool.name == "generate_image")
+                    .count(),
+                1
+            );
+            let selected = tools.get("generate_image").unwrap();
+            assert_eq!(
+                selected
+                    .description()
+                    .contains("signed-in ChatGPT/Codex subscription"),
+                subscription
+            );
+            assert_eq!(
+                selected.parameters_schema()["properties"]
+                    .get("provider_config_id")
+                    .is_none(),
+                subscription
+            );
+        }
+    }
     #[test]
     fn image_source_choice_matches_chat_without_paid_fallback() {
         assert_eq!(
