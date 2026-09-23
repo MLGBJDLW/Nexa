@@ -13,7 +13,8 @@ import { streamStore } from '../../src/lib/streamStore';
 import type { AgentRunEvent, ToolRunItem, ConversationMessage } from '../../src/types/conversation';
 
 const canvas = document.createElement('canvas');
-canvas.width = 640; canvas.height = 360;
+const portrait = new URLSearchParams(location.search).has('portrait');
+canvas.width = portrait ? 360 : 640; canvas.height = portrait ? 960 : 360;
 const context = canvas.getContext('2d')!;
 context.fillStyle = '#162134'; context.fillRect(0, 0, 640, 360);
 context.fillStyle = '#27364d'; context.fillRect(12, 12, 616, 38);
