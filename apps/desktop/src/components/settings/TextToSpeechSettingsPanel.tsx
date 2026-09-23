@@ -5,6 +5,7 @@ import { ChevronDown, Cloud, Eye, EyeOff, Laptop, Play, RefreshCw, Save, Search,
 import { useTranslation } from '../../i18n';
 import { clearSpeechCache, refreshTtsVoiceCatalog, synthesizeSpeechPreview } from '../../lib/api';
 import { ProviderIcon } from '../../lib/providerIcons';
+import { isTextToSpeechConfigured } from '../../lib/autoSpeech';
 import {
   findSharedProviderCredential,
   providerCredentialScope,
@@ -110,14 +111,7 @@ export function TextToSpeechSettingsPanel({
   const [voiceCatalog, setVoiceCatalog] = useState<TtsVoiceCatalogSnapshot | null>(() =>
     loadTtsVoiceCatalog(materializedConfig),
   );
-  const configured = scopeActive && (localProvider
-    ? Boolean(
-        config.executablePath?.trim()
-        && config.modelPath?.trim()
-        && config.tokensPath?.trim()
-        && (!localFamilyNeedsVoices || config.voicesPath?.trim()),
-      )
-    : Boolean(resolvedApiKey && config.model.trim() && (config.apiStyle === 'dashscope_audio_generation' ? config.baseUrl?.trim() : config.voice.trim())));
+  const configured = scopeActive && isTextToSpeechConfigured(materializedConfig);
   const matchingVoiceCatalog = voiceCatalog && ttsVoiceCatalogMatches(voiceCatalog, materializedConfig)
     ? voiceCatalog
     : null;

@@ -1,3 +1,4 @@
+import { isTextToSpeechConfigured } from '../lib/autoSpeech';
 import type { ArtifactPayload } from '../types/conversation';
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -704,9 +705,7 @@ export function ChatPage() {
     const nextEnabled = !appConfig.textToSpeech.autoSpeakFinalAnswers;
     if (nextEnabled) {
       const tts = appConfig.textToSpeech;
-      const configured = tts.apiStyle === 'sherpa_onnx'
-        ? Boolean(tts.executablePath?.trim() && tts.modelPath?.trim() && tts.tokensPath?.trim())
-        : Boolean(tts.apiKey.trim() && tts.model.trim() && tts.voice.trim());
+      const configured = isTextToSpeechConfigured(tts);
       if (!configured) {
         toast.error(t('chat.autoTtsNeedsProvider'));
         return;

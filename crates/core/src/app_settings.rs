@@ -156,8 +156,11 @@ impl TextToSpeechConfig {
             return has_common_paths && has_family_paths;
         }
 
-        !self.api_key.trim().is_empty()
-            && !self.model.trim().is_empty()
+        !self.api_key.trim().is_empty() && self.has_model_configuration()
+    }
+
+    pub fn has_model_configuration(&self) -> bool {
+        !self.model.trim().is_empty()
             && if self.api_style == "dashscope_audio_generation" {
                 self.base_url
                     .as_deref()

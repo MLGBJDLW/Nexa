@@ -156,14 +156,24 @@ fn runtime_checks(config: Option<&TextToSpeechConfig>) -> Vec<CapabilityRuntimeC
         ),
         check(
             "model-and-voice",
-            "Model and voice",
-            if config.model.trim().is_empty() || config.voice.trim().is_empty() {
+            if config.api_style == "dashscope_audio_generation" {
+                "Model and workspace endpoint"
+            } else {
+                "Model and voice"
+            },
+            if !config.has_model_configuration() {
                 CapabilityRuntimeStatus::Error
             } else {
                 CapabilityRuntimeStatus::Pass
             },
             CapabilityCheckSeverity::Error,
-            if config.model.trim().is_empty() || config.voice.trim().is_empty() {
+            if config.api_style == "dashscope_audio_generation" {
+                if config.has_model_configuration() {
+                    "Speech model and workspace endpoint are configured; voice is described in the prompt."
+                } else {
+                    "Choose a speech model and set its workspace endpoint."
+                }
+            } else if !config.has_model_configuration() {
                 "Choose both a speech model and voice."
             } else {
                 "Speech model and voice are selected."
@@ -191,6 +201,19 @@ fn check(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn voice_less_tts_readiness_requires_the_workspace_endpoint() {
+        let mut config = TextToSpeechConfig { api_style: "dashscope_audio_generation".into(), model: "qwen-audio-3.1-tts-next".into(), api_key: "key".into(), voice: String::new(), base_url: Some("https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer".into()), ..Default::default() };
+        assert!(config.is_configured());
+        assert!(runtime_checks(Some(&config))
+            .iter()
+            .all(|check| check.status == CapabilityRuntimeStatus::Pass));
+        config.base_url = None;
+        assert!(!config.is_configured());
+        assert!(runtime_checks(Some(&config))
+            .iter()
+            .any(|check| check.status == CapabilityRuntimeStatus::Error));
+    }
 
     #[test]
     fn provider_catalog_is_exposed_through_manifest_data() {
