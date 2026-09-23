@@ -843,7 +843,7 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case "discover_openrouter_image_models_cmd":
-          return [{ id: 'test-publisher/new-image', name: 'New discovered image', source: 'discovered', qualityOptions: ['high'], sizeOptions: [{ value: '2K', label: '2K' }], inputModalities: ['text'], outputModalities: ['image'] }];
+          return [{ id: 'test-publisher/new-image', name: 'New discovered image', outputFormats: ['jpeg'], source: 'discovered', qualityOptions: ['high'], sizeOptions: [{ value: '2K', label: '2K' }], inputModalities: ['text'], outputModalities: ['image'] }];
         case "synthesize_speech_preview_cmd": {
           const preview = {
             assetId: "speech-preview",
@@ -2479,6 +2479,8 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
   await selectNexaOption(image.locator('[data-nexa-select-trigger]').nth(1), 'test-publisher/new-image');
   await expectNexaValue(image.locator('[data-nexa-select-trigger]').nth(1), 'test-publisher/new-image');
   await expect(image).toContainText('2K');
+  await image.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { outputFormat?: string } } }).__savedAppConfig?.imageGeneration?.outputFormat)).toBe('jpeg');
   expect(await image.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
 

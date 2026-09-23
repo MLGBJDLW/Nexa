@@ -19,9 +19,11 @@ pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
         // The current tool produces raster images from text. Do not offer
         // vector-only models or models requiring style reference uploads.
         if parameters.pointer("/input_references/min").and_then(Value::as_u64).unwrap_or(0) > 0 { return None; }
-        if let Some(formats) = parameters.pointer("/output_format/values").and_then(Value::as_array) {
-            if !formats.iter().any(|format| matches!(format.as_str(), Some("png" | "jpeg" | "webp"))) { return None; }
-        }
+        let formats: Vec<String> = parameters.get("output_format").map(|format| {
+            format["values"].as_array().into_iter().flatten().filter_map(Value::as_str)
+                .filter(|format| matches!(*format, "png" | "jpeg" | "webp")).map(str::to_string).collect()
+        }).unwrap_or_else(|| vec!["png".into()]);
+        if formats.is_empty() { return None; }
         if !model.pointer("/architecture/output_modalities").and_then(Value::as_array)?.iter().any(|v| v == "image") { return None; }
         let values = |name: &str| -> Vec<String> { parameters[name]["values"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect() };
         let ratios = values("aspect_ratio");
@@ -36,7 +38,7 @@ pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
             id:id.into(), name:model["name"].as_str().unwrap_or(id).into(),
             recommended:id == "google/gemini-3.1-flash-image", quality_options:Some(values("quality")),
             metadata:json!({"source":"official", "productReadiness":"known", "sizeOptions":sizes,
-                "inputModalities":["text"], "outputModalities":["image"], "supportedParameters":parameters,
+                "inputModalities":["text"], "outputModalities":["image"], "outputFormats":formats, "supportedParameters":parameters,
                 "lastVerifiedAt":chrono::Utc::now().format("%Y-%m-%d").to_string()}).as_object().unwrap().clone(),
         })
     }).collect()
@@ -171,6 +173,23 @@ pub fn set_parameter(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn jpeg_only_models_expose_the_format_accepted_by_the_endpoint() {
+        let models = parse_models(
+            &json!({"data":[{"id":"sourceful/riverflow-v2.5-fast","architecture":{"output_modalities":["image"]},"supported_parameters":{"output_format":{"type":"enum","values":["jpeg"]}}}]}),
+        );
+        assert_eq!(models[0].metadata["outputFormats"], json!(["jpeg"]));
+        assert_eq!(
+            generation_body(&models[0], "a river", None, None, "jpeg").unwrap()["output_format"],
+            "jpeg"
+        );
+        assert!(generation_body(&models[0], "a river", None, None, "png").is_err());
+        let bundled = catalog_fallback()
+            .into_iter()
+            .find(|m| m.id == "sourceful/riverflow-v2.5-fast")
+            .unwrap();
+        assert_eq!(bundled.metadata["outputFormats"], json!(["jpeg"]));
+    }
     #[test]
     fn image_discovery_filters_unsupported_outputs_and_drives_request_options() {
         let mut source = json!({"id":"vendor/new-image", "name":"New image", "architecture":{"output_modalities":["image"]},"supported_parameters":{"resolution":{"type":"enum","values":["2K"]},"quality":{"type":"enum","values":["high"]}}});

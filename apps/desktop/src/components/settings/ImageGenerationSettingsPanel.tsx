@@ -16,6 +16,7 @@ import {
   getDefaultImageModel,
   getImageQualityOptions,
   getImageSizeOptions,
+  getImageOutputFormats,
   IMAGE_PROVIDER_PRESETS,
   type ImageProviderPreset,
 } from "../../lib/imageProviderPresets";
@@ -89,7 +90,7 @@ function configFromPreset(
     model: getDefaultImageModel(preset),
     size: firstSize(preset),
     quality: firstOption(preset.qualityOptions),
-    outputFormat: firstOption(preset.outputFormats),
+    outputFormat: firstOption(getImageOutputFormats(preset, getDefaultImageModel(preset))),
     apiKey: preservesCredential ? current.apiKey : "",
   };
 }
@@ -213,6 +214,7 @@ export function ImageGenerationSettingsPanel({
   )?.descriptor;
   const qualityOptions = getImageQualityOptions(activePreset, imageConfig.model);
   const sizeOptions = getImageSizeOptions(activePreset, imageConfig.model);
+  const outputFormats = getImageOutputFormats(activePreset, imageConfig.model);
   const sharedKeySource = useMemo(
     () => findSharedProviderCredential(agentConfigs, imageConfig.provider, imageConfig.baseUrl),
     [agentConfigs, imageConfig.baseUrl, imageConfig.provider],
@@ -226,8 +228,9 @@ export function ImageGenerationSettingsPanel({
     () => ({
       ...imageConfig,
       apiKey: resolvedApiKey,
+      outputFormat: outputFormats.includes(imageConfig.outputFormat ?? '') ? imageConfig.outputFormat : firstOption(outputFormats),
     }),
-    [imageConfig, resolvedApiKey],
+    [imageConfig, resolvedApiKey, outputFormats],
   );
   const materializedAppConfig = useMemo(
     () => ({
@@ -254,9 +257,11 @@ export function ImageGenerationSettingsPanel({
   const changeModel = (model: string) => {
     const qualityOptions = getImageQualityOptions(activePreset, model);
     const sizeOptions = getImageSizeOptions(activePreset, model);
+    const formats = getImageOutputFormats(activePreset, model);
     updateImageConfig({
       ...imageConfig,
       model,
+      outputFormat: formats.includes(imageConfig.outputFormat ?? '') ? imageConfig.outputFormat : firstOption(formats),
       quality: qualityOptions.includes(imageConfig.quality ?? '') ? imageConfig.quality : firstOption(qualityOptions),
       size: sizeOptions.some(option => option.value === imageConfig.size) ? imageConfig.size : sizeOptions[0]?.value ?? null,
     });
@@ -489,17 +494,17 @@ export function ImageGenerationSettingsPanel({
             </div>
           )}
 
-          {activePreset.outputFormats.length > 1 && (
+          {outputFormats.length > 1 && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-text-primary">{t('settings.outputFormat')}</label>
               <NexaSelect
-                value={imageConfig.outputFormat ?? ""}
+                value={materializedImageConfig.outputFormat ?? ""}
                 onChange={(event) =>
                   updateImageConfig({ ...imageConfig, outputFormat: event.target.value || null })
                 }
                 className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
               >
-                {activePreset.outputFormats.map((format) => (
+                {outputFormats.map((format) => (
                   <option key={format} value={format}>
                     {format}
                   </option>
