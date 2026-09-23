@@ -292,7 +292,8 @@ impl AgentExecutor {
             self.config.context_window,
             self.config.context_window_resolution,
             max_response_tokens,
-        );
+        )
+        .with_compact_percent(self.config.auto_compact_percent);
         let Some(budget) = pipeline.context_budget() else {
             // An unknown/custom provider owns its capacity. Do not trigger
             // speculative compaction from a fabricated local fallback.
@@ -441,7 +442,8 @@ impl AgentExecutor {
             self.config.context_window,
             self.config.context_window_resolution,
             self.config.resolved_max_response_tokens(model),
-        );
+        )
+        .with_compact_percent(self.config.auto_compact_percent);
         if !self.history_handoff_enabled(run.conversation_id) {
             *messages = pipeline.trim_after_overflow_recovery(messages);
         }
@@ -478,7 +480,8 @@ impl AgentExecutor {
             self.config.context_window,
             self.config.context_window_resolution,
             self.config.resolved_max_response_tokens(model),
-        );
+        )
+        .with_compact_percent(self.config.auto_compact_percent);
         let target = pipeline
             .context_budget()
             .map(|budget| (budget as f32 * COMPACTION_TARGET_USAGE) as u32)

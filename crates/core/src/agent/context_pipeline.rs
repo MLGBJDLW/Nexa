@@ -7,12 +7,13 @@ use crate::llm::Message;
 
 /// Start compacting before the provider's hard limit is close enough to make
 /// one large tool result turn an otherwise healthy run into an overflow retry.
-const AUTO_COMPACT_THRESHOLD: f32 = 0.78;
+const AUTO_COMPACT_THRESHOLD: u8 = crate::context_policy::DEFAULT_COMPACT_PERCENT;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ContextPipeline {
     context_window: Option<u32>,
     max_response_tokens: u32,
+    compact_percent: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +44,7 @@ impl ContextPipeline {
                 .unwrap_or_else(|| resolve_context_window(model, context_window_override))
                 .capacity_tokens,
             max_response_tokens,
+            compact_percent: AUTO_COMPACT_THRESHOLD,
         }
     }
 
@@ -52,6 +54,11 @@ impl ContextPipeline {
                 .saturating_sub(self.max_response_tokens)
                 .saturating_sub(context_safety_buffer(context_window))
         })
+    }
+
+    pub(crate) fn with_compact_percent(mut self, percent: Option<u8>) -> Self {
+        self.compact_percent = percent.unwrap_or(AUTO_COMPACT_THRESHOLD).clamp(60, 95);
+        self
     }
 
     pub(crate) fn budget_decision(self, prompt_tokens: u32) -> ContextBudgetDecision {
@@ -64,7 +71,8 @@ impl ContextPipeline {
                     (prompt_tokens as f32 / budget as f32) * 100.0
                 },
                 should_compact: budget > 0
-                    && prompt_tokens > (budget as f64 * AUTO_COMPACT_THRESHOLD as f64) as u32,
+                    && u64::from(prompt_tokens) * 100
+                        > u64::from(budget) * u64::from(self.compact_percent),
             },
             None => ContextBudgetDecision {
                 budget_tokens: 0,
@@ -110,6 +118,20 @@ mod tests {
         assert!(decision.budget_tokens < 1_000);
         assert!(decision.usage_pct > 80.0);
         assert!(decision.should_compact);
+    }
+
+    #[test]
+    fn configured_compaction_triggers_against_input_budget_after_reserves() {
+        let pipeline = ContextPipeline::new("private", Some(100_000), 20_000);
+        let budget = pipeline.context_budget().unwrap();
+        assert_eq!(budget, 76_000);
+        let early = pipeline.with_compact_percent(Some(65));
+        let late = pipeline.with_compact_percent(Some(90));
+        assert!(!early.budget_decision(budget * 65 / 100).should_compact);
+        assert!(early.budget_decision(budget * 65 / 100 + 1).should_compact);
+        assert!(early.budget_decision(60_000).should_compact);
+        assert!(!late.budget_decision(60_000).should_compact);
+        assert!(late.budget_decision(budget * 90 / 100 + 1).should_compact);
     }
 
     #[test]

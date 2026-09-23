@@ -1368,12 +1368,13 @@ pub async fn start_context_compaction_cmd(
                 } else {
                     None
                 };
-            Ok((conversation, config, summary_provider, mode))
+            let context_policy = nexa_core::context_policy::policy_snapshot(database, &config)?;
+            Ok((conversation, config, summary_provider, mode, context_policy))
         })
         .await
         .map_err(|error| error.to_string())?
         .value;
-    let (conversation, config, summary_provider, mode) = prepared;
+    let (conversation, config, summary_provider, mode, context_policy) = prepared;
     let (provider_config, provider_label, model) = summary_provider.unwrap_or_else(|| {
         (
             db_config_to_provider_config(&config, None),
@@ -1397,13 +1398,8 @@ pub async fn start_context_compaction_cmd(
         request,
         snapshot_version: conversation.updated_at,
         model,
-        context_window: config
-            .context_window
-            .and_then(|value| u32::try_from(value).ok()),
-        max_response_tokens: config
-            .max_tokens
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(4_096),
+        context_window: context_policy.effective_context_window,
+        max_response_tokens: context_policy.response_reserve,
         provider_type: Some(provider_type),
         provider_label,
         summarizer: provider,

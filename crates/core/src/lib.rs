@@ -30,6 +30,7 @@ pub mod compile;
 pub mod context_history;
 pub mod context_maintenance;
 pub mod context_pack;
+pub mod context_policy;
 pub mod conversation;
 pub mod crypto;
 pub mod db;

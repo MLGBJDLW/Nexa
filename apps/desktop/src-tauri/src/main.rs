@@ -968,6 +968,8 @@ fn main() {
             commands::set_capability_registry_read_mode_cmd,
             commands::test_agent_connection_cmd,
             commands::refresh_provider_model_catalog_cmd,
+            commands::get_model_context_policy_cmd,
+            commands::save_model_context_policy_cmd,
             commands::list_provider_presets_cmd,
             commands::get_codex_account_snapshot_cmd,
             commands::start_codex_account_login_cmd,

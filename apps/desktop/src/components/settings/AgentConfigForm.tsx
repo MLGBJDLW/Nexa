@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { ContextPolicyPopover } from '../chat/ContextPolicyPopover';
 import { useTranslation, type TranslationKey } from "../../i18n";
 import * as api from "../../lib/api";
 import type {
@@ -1120,7 +1121,18 @@ export function AgentConfigForm({
             <label className="text-sm font-medium text-text-primary">
               {t("settings.contextWindow")}
             </label>
-            <Input
+            {config ? <ContextPolicyPopover
+              config={config}
+              isStreaming={false}
+              isCompacting={false}
+              onSaved={(snapshot) => setContextWindow(snapshot.policy.contextWindow)}
+            >
+              {(openPolicy) => <button type="button"
+                disabled={provider !== config.provider || normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(config.baseUrl ?? '') || model !== config.model}
+                onClick={openPolicy}
+                className="w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-2 disabled:opacity-40"
+              >{t('chat.contextPolicyTitle')}</button>}
+            </ContextPolicyPopover> : <Input
               type="number"
               value={contextWindow ?? ""}
               onChange={(e) => {
@@ -1130,9 +1142,9 @@ export function AgentConfigForm({
               placeholder={t("settings.contextWindowPlaceholder")}
               min={1024}
               step={1}
-            />
+            />}
             <p className="text-xs text-text-tertiary">
-              {t("settings.contextWindowHelp")}
+              {config ? t('chat.contextPolicySettingsHelp') : t("settings.contextWindowHelp")}
             </p>
           </div>
 

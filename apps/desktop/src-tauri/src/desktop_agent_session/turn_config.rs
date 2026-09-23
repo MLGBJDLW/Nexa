@@ -224,6 +224,21 @@ pub fn build_desktop_agent_turn_config(
     } else {
         ""
     };
+    let context_policy = db
+        .load_model_context_policy(
+            &db_config.provider,
+            db_config.base_url.as_deref(),
+            &db_config.model,
+        )
+        .unwrap_or_else(|error| {
+            log::warn!("Unable to load model context policy: {error}");
+            None
+        });
+    let mut effective_config = db_config.clone();
+    if let Some(policy) = &context_policy {
+        effective_config.context_window = policy.context_window.map(i64::from);
+    }
+    let db_config = &effective_config;
     let provider_type = provider_type_for_config(db_config);
     let context_window_resolution = resolve_desktop_context_window(db_config);
     let catalog_limits_authoritative =
@@ -544,6 +559,9 @@ pub fn build_desktop_agent_turn_config(
             .context_window
             .and_then(|value| u32::try_from(value).ok()),
         context_window_resolution: Some(context_window_resolution),
+        auto_compact_percent: context_policy
+            .as_ref()
+            .and_then(|policy| policy.auto_compact_percent),
         catalog_limits_authoritative: Some(catalog_limits_authoritative),
         reasoning_enabled: power_policy.reasoning_enabled,
         thinking_budget: power_policy.thinking_budget,

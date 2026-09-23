@@ -9,6 +9,7 @@ import { Logo } from '../components/Logo';
 import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatInput, ActiveExtensions, ChatRunOverview, TaskBoard, AgentModelPicker, ConnectionStatusBanner, type AgentModelSelection, type ChatInputSendOptions } from '../components/chat';
 import { ApprovalDialog } from '../components/chat/ApprovalDialog';
 import { DecisionTray } from '../components/chat/DecisionTray';
+import { ContextPolicyPopover } from '../components/chat/ContextPolicyPopover';
 import {
   TerminalDock,
   TERMINAL_TOGGLE_EVENT,
@@ -2020,7 +2021,17 @@ export function ChatPage() {
               planModeEnabled={planModeEnabled}
               onPlanModeChange={setPlanModeEnabled}
               activeGoalContext={activeGoalContext}
-              contextIndicator={chat.activeId ? (
+              contextIndicator={selectedAgentConfig ? (
+                <ContextPolicyPopover
+                  key={`${selectedAgentConfig.id}:${selectedAgentConfig.model}`}
+                  config={selectedAgentConfig}
+                  usedTokens={chat.tokenUsage?.promptTokens}
+                  isStreaming={chat.isStreaming}
+                  isCompacting={isCompacting}
+                  onCompact={chat.activeId && manualCompactionAvailable ? handleCompactConversation : undefined}
+                  onSaved={chat.applyModelContextPolicy}
+                >
+                {(openContextPolicy) => (
                 <ChatRunOverview
                   isStreaming={chat.isStreaming}
                   tokenUsage={chat.tokenUsage}
@@ -2030,7 +2041,10 @@ export function ChatPage() {
                   isCompacting={isCompacting}
                   turnTiming={chat.turnTiming}
                   taskPhase={chat.taskRun?.phase}
+                  onConfigureContext={openContextPolicy}
                 />
+                )}
+                </ContextPolicyPopover>
               ) : null}
               onRestoreCheckpoint={chat.activeId ? async () => {
                 await chat.reloadMessages();

@@ -1930,6 +1930,31 @@ export interface ModelContextWindowResolution {
   authority: ContextWindowAuthority;
 }
 
+export interface ModelContextPolicy {
+  contextWindow: number | null;
+  autoCompactPercent: number | null;
+}
+
+export interface ModelContextPolicySnapshot {
+  model: string;
+  policy: ModelContextPolicy;
+  modelLimit: number | null;
+  effectiveContextWindow: number | null;
+  contextAuthority: ContextWindowAuthority;
+  responseTokenLimit: number;
+  responseReserve: number;
+  safetyReserve: number;
+  promptBudget: number | null;
+  triggerTokens: number | null;
+  managedByProvider: boolean;
+}
+
+export const getModelContextPolicy = (agentConfigId: string, model: string) =>
+  invoke<ModelContextPolicySnapshot>('get_model_context_policy_cmd', { agentConfigId, model });
+
+export const saveModelContextPolicy = (agentConfigId: string, model: string, policy: ModelContextPolicy) =>
+  invoke<ModelContextPolicySnapshot>('save_model_context_policy_cmd', { agentConfigId, model, policy });
+
 export const getModelContextWindowResolution = (
   provider: string,
   baseUrl: string | null | undefined,

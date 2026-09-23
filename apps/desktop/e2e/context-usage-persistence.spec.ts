@@ -555,7 +555,7 @@ test('context usage ring persists after reloading the same conversation', async 
   await page.reload();
 
   await expect(contextTrigger).toHaveAttribute('aria-label', /7% context used/);
-  await contextTrigger.click();
+  await contextTrigger.hover();
   await expect(page.getByTestId('chat-context-details')).toContainText('Verified endpoint catalog');
 });
 

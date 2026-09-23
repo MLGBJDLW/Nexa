@@ -279,6 +279,9 @@ pub struct AgentConfig {
     pub max_actual_tokens_per_run: Option<u32>,
     /// Override context window size (auto-detected from model when `None`).
     pub context_window: Option<u32>,
+    /// Percent of the available input budget that triggers proactive compaction.
+    #[serde(default)]
+    pub auto_compact_percent: Option<u8>,
     #[serde(default)]
     pub context_management_mode: crate::context_history::ContextManagementMode,
     /// Endpoint-scoped resolution supplied by the host. This prevents a
@@ -464,6 +467,7 @@ impl Default for AgentConfig {
             max_tokens: None,
             max_actual_tokens_per_run: None,
             context_window: None,
+            auto_compact_percent: None,
             context_management_mode: crate::context_history::ContextManagementMode::default(),
             context_window_resolution: None,
             catalog_limits_authoritative: None,

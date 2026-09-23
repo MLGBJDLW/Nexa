@@ -915,6 +915,87 @@ fn desktop_summarization_provider_config_requires_provider_override() {
 }
 
 #[test]
+fn context_policy_reaches_the_executor_and_matches_the_ui_budget() {
+    use nexa_core::context_policy::{policy_snapshot, ModelContextPolicy};
+    let db = Database::open_memory().unwrap();
+    let mut config = test_agent_config();
+    config.model = "gpt-6-sol".into();
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: config.provider.clone(),
+            model: config.model.clone(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap();
+    let app = AppConfig::default();
+    let build = || {
+        build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+            db: &db,
+            conversation: &conversation,
+            turn_id: "policy-test",
+            message: "Continue",
+            persona_id: None,
+            explicit_skill_ids: &[],
+            db_config: &config,
+            app_cfg: &app,
+            execution_mode: AgentExecutionMode::Normal,
+            power_mode: AgentPowerMode::Standard,
+            collaboration_mode: AgentCollaborationMode::Direct,
+            moa_preset: MoaPresetId::FastReview,
+            orchestration_profile: OrchestrationProfile::Balanced,
+            custom_orchestration: None,
+        })
+    };
+    let original = build();
+    assert_eq!(
+        original.context_window_resolution.capacity_tokens,
+        Some(128_000)
+    );
+    db.save_model_context_policy(
+        &config.provider,
+        None,
+        &config.model,
+        &ModelContextPolicy {
+            context_window: Some(64_000),
+            auto_compact_percent: Some(65),
+        },
+    )
+    .unwrap();
+    let preview = policy_snapshot(&db, &config).unwrap();
+    let updated = build();
+    assert_eq!(
+        updated.context_window_resolution.capacity_tokens,
+        Some(64_000)
+    );
+    assert_eq!(updated.executor_config.context_window, Some(64_000));
+    assert_eq!(updated.executor_config.auto_compact_percent, Some(65));
+    assert_eq!(
+        updated
+            .executor_config
+            .resolved_max_response_tokens(&config.model),
+        preview.response_reserve
+    );
+    assert_eq!(preview.trigger_tokens, Some(19_136));
+    // Restoring automatic overrides a legacy provider-wide context override.
+    db.save_model_context_policy(
+        &config.provider,
+        None,
+        &config.model,
+        &ModelContextPolicy::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        build().context_window_resolution.capacity_tokens,
+        Some(1_050_000)
+    );
+    // An already prepared turn keeps its immutable policy.
+    assert_eq!(updated.executor_config.context_window, Some(64_000));
+}
+
+#[test]
 fn desktop_summarization_provider_config_rejects_cross_provider_credential_reuse() {
     let db = Database::open_memory().expect("open memory db");
     let mut db_config = test_agent_config();
