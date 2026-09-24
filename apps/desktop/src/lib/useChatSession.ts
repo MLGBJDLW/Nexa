@@ -15,6 +15,7 @@ import type {
 } from './api';
 import { useAgentStream, useRunningConversationIds } from './useAgentStream';
 import { streamStore } from './streamStore';
+import { replaceRunUsage } from './liveUsageAggregate';
 import { mergeCurrentTurnVisualEvidence, retainMessageVisualEvidence } from './toolVisualEvidence';
 import { useTranslation } from '../i18n';
 import type {
@@ -1740,25 +1741,46 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const scopedRateLimited = activeId && !liveUsageSuppressed ? rateLimited : false;
   const scopedError = activeId ? chatError : null;
 
-  // Usage events are cumulative per run. Re-read the canonical conversation
-  // aggregate instead of adding the live counters to a possibly overlapping
-  // hydrated snapshot. Coalesce bursts and never overlap database requests.
-  const liveUsageRefreshRef = useRef(scopedLastUsage);
-  liveUsageRefreshRef.current = scopedLastUsage;
+  // Retain the completed-run aggregate. Refresh only the current run and
+  // replace its contribution so long conversations do not re-query history.
   useEffect(() => {
     if (!activeId || !activeIsStreaming || liveUsageSuppressed) return;
     let cancelled = false;
     let pending = false;
+    let baseline: UsageSnapshot | null = null;
+    let baselineLoaded = false;
+    let boundRunId: string | undefined;
     let refreshedUsage: typeof scopedLastUsage | undefined;
     const refresh = async () => {
-      const observed = liveUsageRefreshRef.current;
-      if (cancelled || pending || document.hidden || observed === refreshedUsage) return;
+      if (cancelled || pending || document.hidden) return;
+      // The launch handshake may arrive between React renders. Read its
+      // authoritative identity here so an early effect never misses the run.
+      const runtime = streamStore.getStream(activeId);
+      const runId = runtime?.turnHandle?.runId ?? runtime?.taskRun?.id;
+      if (!runtime?.isStreaming || !runId) return;
+      const observed = runtime.lastUsage;
+      if (boundRunId !== runId) {
+        boundRunId = runId;
+        baseline = null;
+        baselineLoaded = false;
+        refreshedUsage = undefined;
+      }
+      if (observed === refreshedUsage) return;
       pending = true;
       try {
-        const snapshot = await api.getConversationUsageSnapshot(activeId);
-        if (!cancelled && activeIdRef.current === activeId) {
-          if (snapshot) setUsageSnapshot(snapshot);
-          refreshedUsage = observed;
+        if (!baselineLoaded) {
+          baseline = await api.getConversationUsageSnapshot(activeId);
+          baselineLoaded = true;
+          if (cancelled) return;
+        }
+        const run = await api.getRunUsageSnapshot(runId);
+        const latest = streamStore.getStream(activeId);
+        if (!cancelled && activeIdRef.current === activeId && latest?.isStreaming
+          && (latest.turnHandle?.runId ?? latest.taskRun?.id) === runId) {
+          if (run) {
+            setUsageSnapshot(replaceRunUsage(baseline, runId, run));
+            refreshedUsage = observed;
+          } else if (observed === null) refreshedUsage = observed;
         }
       } catch {
         // Keep the last confirmed totals and retry on the next observation tick.
