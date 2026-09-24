@@ -53,6 +53,7 @@ impl OrderedDispatch {
 struct DispatchCapacity {
     ordinary: Arc<Semaphore>,
     control: Arc<Semaphore>,
+    terminal_input: Arc<Semaphore>,
 }
 
 impl Default for DispatchCapacity {
@@ -60,6 +61,7 @@ impl Default for DispatchCapacity {
         Self {
             ordinary: Arc::new(Semaphore::new(64)),
             control: Arc::new(Semaphore::new(8)),
+            terminal_input: Arc::new(Semaphore::new(16)),
         }
     }
 }
@@ -80,6 +82,13 @@ impl DispatchCapacity {
                 | "cancel_model_download_cmd"
         ) {
             &self.control
+        } else if matches!(
+            command,
+            "terminal_write_session_cmd" | "terminal_resize_session_cmd"
+        ) {
+            // A background database/tool backlog must not reject typing or
+            // PTY cursor replies. UI writes are serialized per session.
+            &self.terminal_input
         } else {
             &self.ordinary
         };
@@ -212,7 +221,11 @@ mod tests {
             .admit("agent_stop_cmd")
             .expect("slow reads must not exclude cancellation");
         let close = capacity.admit("terminal_close_session_cmd").unwrap();
-        drop((requests, stop, close));
+        let input = capacity
+            .admit("terminal_write_session_cmd")
+            .expect("slow reads must not reject terminal typing");
+        let resize = capacity.admit("terminal_resize_session_cmd").unwrap();
+        drop((requests, stop, close, input, resize));
         assert!(capacity.admit("search").is_ok());
     }
 }

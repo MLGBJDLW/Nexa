@@ -456,8 +456,33 @@ impl TerminalState {
             sessions.remove(session_id)
         };
         if let Some(session) = session {
-            if let Some(wsl) = &session.wsl {
-                wsl.terminate();
+            let stopped = (|| -> Result<(), String> {
+                if let Some(wsl) = &session.wsl {
+                    wsl.terminate();
+                }
+                let mut killer = session
+                    .killer
+                    .lock()
+                    .map_err(|_| "terminal process handle is unavailable".to_string())?;
+                if let Err(err) = killer.kill() {
+                    if !terminal_stop_succeeded(&err) {
+                        return Err(format!("failed to stop terminal process: {err}"));
+                    }
+                }
+                drop(killer);
+                if let Some(wsl) = &session.wsl {
+                    wsl.wait_for_cleanup_blocking()?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = stopped {
+                // Retain ownership so Close can retry a failed termination or
+                // descendant cleanup instead of losing the live process handle.
+                self.sessions
+                    .lock()
+                    .map_err(|_| "terminal session state is unavailable".to_string())?
+                    .insert(session_id.to_string(), session);
+                return Err(error);
             }
             if let Some(conversation_id) = session.conversation_id.as_ref() {
                 if let Ok(mut active) = self.active_by_conversation.lock() {
@@ -468,19 +493,6 @@ impl TerminalState {
                         active.remove(conversation_id);
                     }
                 }
-            }
-            let mut killer = session
-                .killer
-                .lock()
-                .map_err(|_| "terminal process handle is unavailable".to_string())?;
-            if let Err(err) = killer.kill() {
-                if !terminal_stop_succeeded(&err) {
-                    return Err(format!("failed to stop terminal process: {err}"));
-                }
-            }
-            drop(killer);
-            if let Some(wsl) = &session.wsl {
-                wsl.wait_for_cleanup_blocking()?;
             }
         }
         Ok(())
@@ -705,7 +717,7 @@ fn spawn_terminal_waiter(
 fn shell_integration_bootstrap(shell: &str, program: &str) -> Option<String> {
     if shell.contains("PowerShell") {
         return Some(
-            "$global:NexaOriginalPrompt=${function:prompt}; function global:prompt { $nexaSucceeded=$?; $nexaExit=if ($nexaSucceeded) { 0 } elseif ($null -ne $global:LASTEXITCODE -and $global:LASTEXITCODE -ne 0) { $global:LASTEXITCODE } else { 1 }; [Console]::Write(\"`e]633;D;$nexaExit`a`e]633;P;Cwd=$($PWD.Path)`a`e]633;A`a\"); if ($global:NexaOriginalPrompt) { & $global:NexaOriginalPrompt } else { \"PS $($PWD.Path)> \" } }\r"
+            "$global:NexaOriginalPrompt=${function:prompt}; function global:prompt { $nexaSucceeded=$?; $nexaExit=if ($nexaSucceeded) { 0 } elseif ($null -ne $global:LASTEXITCODE -and $global:LASTEXITCODE -ne 0) { $global:LASTEXITCODE } else { 1 }; $nexaEsc=[char]27; [Console]::Write(\"$nexaEsc]633;D;$nexaExit`a$nexaEsc]633;P;Cwd=$($PWD.Path)`a$nexaEsc]633;A`a\"); if ($global:NexaOriginalPrompt) { & $global:NexaOriginalPrompt } else { \"PS $($PWD.Path)> \" } }\r"
                 .to_string(),
         );
     }

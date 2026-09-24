@@ -191,6 +191,7 @@ export function TerminalDock({
   const outputBufferRef = useRef('');
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startingRef = useRef<(() => boolean) | null>(null);
+  const closedStartsRef = useRef(new Set<() => boolean>());
   const restoringRef = useRef<(() => boolean) | null>(null);
   const requestRef = useRef({ conversationId });
   useLayoutEffect(() => {
@@ -262,6 +263,7 @@ export function TerminalDock({
   }, []);
 
   const closeActiveSession = useCallback(async (nextStatus: TerminalStatus = 'exited') => {
+    if (startingRef.current?.()) closedStartsRef.current.add(startingRef.current);
     const isCurrent = beginSessionRequest();
     if (!isCurrent) return false;
     setIsRestoring(false);
@@ -281,6 +283,9 @@ export function TerminalDock({
       await api.closeTerminalSession(sessionId);
     } catch (err) {
       if (!isCurrent()) return false;
+      sessionIdRef.current = sessionId;
+      setSession(session);
+      if (session) setAvailableSessions((sessions) => [...sessions.filter((item) => item.id !== sessionId), session]);
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       setStatus('error');
@@ -288,19 +293,17 @@ export function TerminalDock({
       return false;
     }
     return isCurrent();
-  }, [appendSystemLine, beginSessionRequest]);
+  }, [appendSystemLine, beginSessionRequest, session]);
 
-  const closeTerminalDock = useCallback(() => {
+  const closeTerminalDock = useCallback(async () => {
     setIsOpen(false);
     setIsTall(false);
     setError(null);
-    if (!sessionIdRef.current) {
-      setStatus('idle');
-      setSession(null);
+    if (await closeActiveSession('idle')) {
       outputBufferRef.current = '';
       xtermRef.current?.reset();
     }
-  }, []);
+  }, [closeActiveSession]);
 
   const startSession = useCallback(async (shell: TerminalShell = selectedShell) => {
     if (startingRef.current?.()) return;
@@ -326,11 +329,17 @@ export function TerminalDock({
         cols: term?.cols ?? 80,
         conversationId: conversationId ?? null,
       });
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        if (closedStartsRef.current.has(isCurrent)) await api.closeTerminalSession(started.id);
+        return;
+      }
       const info = conversationId
         ? await api.bindTerminalSession(started.id, conversationId)
         : started;
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        if (closedStartsRef.current.has(isCurrent)) await api.closeTerminalSession(started.id);
+        return;
+      }
       sessionIdRef.current = info.id;
       setSession(info);
       setAvailableSessions((sessions) => [
@@ -348,6 +357,7 @@ export function TerminalDock({
       appendSystemLine(message);
     } finally {
       if (startingRef.current === isCurrent) startingRef.current = null;
+      closedStartsRef.current.delete(isCurrent);
     }
   }, [appendSystemLine, beginSessionRequest, conversationId, resizeActiveTerminal, selectedShell]);
 
@@ -442,6 +452,8 @@ export function TerminalDock({
       const key = event.key.toLowerCase();
       const copyShortcut = key === 'c' && (event.ctrlKey || event.metaKey);
       if (copyShortcut && term.hasSelection()) {
+        event.preventDefault();
+        event.stopPropagation();
         const selectedText = term.getSelection();
         void writeClipboardText(selectedText)
           .then(() => toast.success(t('chat.terminalSelectionCopied')))
@@ -451,18 +463,21 @@ export function TerminalDock({
           });
         return false;
       }
-      const pasteShortcut = key === 'v' && (
-        event.metaKey || (event.ctrlKey && event.shiftKey)
-      );
+      const pasteShortcut = (key === 'v' && (event.metaKey || event.ctrlKey))
+        || (key === 'insert' && event.shiftKey);
       if (pasteShortcut) {
-        if (!navigator.clipboard?.readText) return false;
+        if (!navigator.clipboard?.readText) return true;
+        event.preventDefault();
+        event.stopPropagation();
         const sessionId = sessionIdRef.current;
         const request = requestRef.current;
         void navigator.clipboard.readText()
           .then((text) => {
-            if (!text || !sessionId || requestRef.current !== request
+            if (disposed || !text || !sessionId || requestRef.current !== request
               || sessionIdRef.current !== sessionId || statusRef.current !== 'running') return;
-            return api.writeTerminalSession(sessionId, text);
+            // xterm normalizes newlines and honors bracketed-paste mode.
+            // Writing clipboard bytes directly bypasses the terminal protocol.
+            term.paste(text);
           })
           .catch((pasteError) => {
             const message = pasteError instanceof Error ? pasteError.message : String(pasteError);
@@ -849,8 +864,8 @@ export function TerminalDock({
             iconOnly
             icon={<X size={14} />}
             aria-label="Close terminal"
-            title="Collapse terminal without stopping it"
-            onClick={closeTerminalDock}
+            title="Close terminal"
+            onClick={() => void closeTerminalDock()}
           />
         </div>
       </div>
