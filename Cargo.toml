@@ -16,3 +16,13 @@ lto = false
 codegen-units = 16
 strip = true
 opt-level = 2
+
+# Repeated local test builds otherwise retain large per-crate incremental graphs.
+# Keep line tables for useful backtraces without full variable debug information.
+[profile.dev]
+incremental = false
+debug = "line-tables-only"
+
+[profile.test]
+incremental = false
+debug = "line-tables-only"

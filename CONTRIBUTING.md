@@ -58,6 +58,24 @@ trusted deployment; a normal desktop build does not provision Office trust.
 
 ## Verification
 
+### Local disk usage
+
+Development and test profiles disable Cargo incremental graphs and retain only
+line-table debug information. To opt into faster incremental rebuilds for one
+session, set `CARGO_INCREMENTAL=1`; full debugger information can be restored
+with `CARGO_PROFILE_DEV_DEBUG=2`.
+
+Run `npm run cache:status` to preview local cache usage. After stopping native
+builds, development servers, and test browsers, `npm run cache:prune` removes
+the oldest known development cache groups to stay within 20 GiB and expires
+groups untouched for 14 days. Override these limits with
+`-- --max-gib=10 --max-age-days=7`. The command handles workspace Cargo debug
+profiles, Vite/Ruff caches, Playwright reports and test results; it refuses
+symlinks/junctions and never removes release bundles, downloaded model data,
+package dependencies, or caches outside this checkout. Custom Cargo target
+directories remain managed by their owner. Cleanup is explicit so tests and
+native builds cannot silently lose artifacts while running.
+
 Run checks that exercise the changed boundary. A documentation-only change can
 be verified without starting models, a desktop session, or native Office.
 
