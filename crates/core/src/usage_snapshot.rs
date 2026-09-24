@@ -1,10 +1,12 @@
 //! Durable usage projections derived from canonical Run Events.
 
 use crate::agent::context::ContextUsageBreakdown;
+#[cfg(test)]
 use crate::agent_run::{AgentRunEvent, AgentRunEventKind};
 use crate::conversation::memory::ContextWindowAuthority;
 use crate::db::Database;
 use crate::error::CoreError;
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,15 +40,38 @@ pub struct UsageSnapshot {
 
 impl Database {
     pub fn get_run_usage_snapshot(&self, run_id: &str) -> Result<Option<UsageSnapshot>, CoreError> {
-        let events = self.list_agent_run_events(run_id)?;
-        let mut snapshot = run_usage_snapshot(&events);
+        // A live HUD needs only the newest cumulative usage payload, not every
+        // text/tool event accumulated over the lifetime of this run.
+        let conn = self.conn();
+        let payload: Option<String> = conn
+            .query_row(
+                "SELECT payload_json FROM agent_run_events
+             WHERE run_id = ?1 AND kind IN ('usageUpdated', 'done')
+               AND json_type(payload_json, '$.usageTotal') = 'object'
+             ORDER BY event_seq DESC LIMIT 1",
+                [run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let mut snapshot = payload
+            .map(|raw| serde_json::from_str::<serde_json::Value>(&raw))
+            .transpose()?
+            .as_ref()
+            .and_then(usage_snapshot_from_payload);
         if let Some(snapshot) = snapshot.as_mut() {
-            if let Some((capacity, authority)) = self
-                .get_agent_task_run_events(run_id)?
-                .iter()
-                .rev()
-                .find(|event| event.label == "context_resolution")
-                .and_then(|event| event.payload.as_ref())
+            let context: Option<String> = conn
+                .query_row(
+                    "SELECT payload_json FROM agent_task_run_events
+                 WHERE run_id = ?1 AND label = 'context_resolution'
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                    [run_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            if let Some((capacity, authority)) = context
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .as_ref()
                 .and_then(context_resolution_from_payload)
             {
                 snapshot.context_capacity = capacity;
@@ -83,52 +108,55 @@ impl Database {
     }
 }
 
+#[cfg(test)]
 fn run_usage_snapshot(events: &[AgentRunEvent]) -> Option<UsageSnapshot> {
     events.iter().rev().find_map(|event| {
-        if !matches!(
+        if matches!(
             event.kind,
             AgentRunEventKind::UsageUpdated | AgentRunEventKind::Done
         ) {
-            return None;
-        }
-
-        let raw = event.payload.get("usageTotal")?.clone();
-        let prompt_tokens = json_u64(&raw, "promptTokens");
-        let completion_tokens = json_u64(&raw, "completionTokens");
-        let total_tokens = json_u64(&raw, "totalTokens").max(prompt_tokens + completion_tokens);
-        let last_prompt_tokens = event
-            .payload
-            .get("lastPromptTokens")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(prompt_tokens);
-        let context_breakdown = event
-            .payload
-            .get("contextBreakdown")
-            .cloned()
-            .and_then(|value| serde_json::from_value(value).ok());
-        let source = if prompt_tokens + completion_tokens > 0 {
-            UsageSnapshotSource::Provider
-        } else if last_prompt_tokens > 0 {
-            UsageSnapshotSource::Estimated
+            usage_snapshot_from_payload(&event.payload)
         } else {
-            UsageSnapshotSource::Normalized
-        };
+            None
+        }
+    })
+}
 
-        Some(UsageSnapshot {
-            source,
-            prompt_tokens,
-            completion_tokens,
-            total_tokens,
-            thinking_tokens: json_u64(&raw, "thinkingTokens"),
-            cache_read_tokens: json_u64(&raw, "cacheReadTokens"),
-            cache_miss_tokens: json_u64(&raw, "cacheMissTokens"),
-            cache_creation_tokens: json_u64(&raw, "cacheCreationTokens"),
-            last_prompt_tokens,
-            context_capacity: None,
-            context_authority: None,
-            context_breakdown,
-            provider_raw: raw,
-        })
+fn usage_snapshot_from_payload(payload: &serde_json::Value) -> Option<UsageSnapshot> {
+    let raw = payload.get("usageTotal")?.clone();
+    let prompt_tokens = json_u64(&raw, "promptTokens");
+    let completion_tokens = json_u64(&raw, "completionTokens");
+    let total_tokens = json_u64(&raw, "totalTokens").max(prompt_tokens + completion_tokens);
+    let last_prompt_tokens = payload
+        .get("lastPromptTokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(prompt_tokens);
+    let context_breakdown = payload
+        .get("contextBreakdown")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok());
+    let source = if prompt_tokens + completion_tokens > 0 {
+        UsageSnapshotSource::Provider
+    } else if last_prompt_tokens > 0 {
+        UsageSnapshotSource::Estimated
+    } else {
+        UsageSnapshotSource::Normalized
+    };
+
+    Some(UsageSnapshot {
+        source,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        thinking_tokens: json_u64(&raw, "thinkingTokens"),
+        cache_read_tokens: json_u64(&raw, "cacheReadTokens"),
+        cache_miss_tokens: json_u64(&raw, "cacheMissTokens"),
+        cache_creation_tokens: json_u64(&raw, "cacheCreationTokens"),
+        last_prompt_tokens,
+        context_capacity: None,
+        context_authority: None,
+        context_breakdown,
+        provider_raw: raw,
     })
 }
 
@@ -268,6 +296,23 @@ mod tests {
         assert_eq!(snapshot.last_prompt_tokens, 180);
         assert_eq!(snapshot.cache_read_tokens, 10);
         assert_eq!(snapshot.context_breakdown.unwrap().total_tokens, 180);
+    }
+
+    #[test]
+    fn live_database_projection_reads_latest_usage_without_replaying_text() {
+        let db = Database::open_memory().unwrap();
+        let first = usage_event(1, 100, 20);
+        let second = usage_event(2, 180, 30);
+        db.save_agent_run_event(&first).unwrap();
+        db.save_agent_run_event(&second).unwrap();
+        db.conn().execute(
+            "INSERT INTO agent_run_events (run_id, turn_id, event_seq, version, kind, phase, payload_json)
+             VALUES ('run-usage', 'turn-usage', 3, 1, 'textDelta', 'generating', '{\"text\":\"still working\"}')",
+            [],
+        ).unwrap();
+        let snapshot = db.get_run_usage_snapshot("run-usage").unwrap().unwrap();
+        assert_eq!(snapshot, run_usage_snapshot(&[first, second]).unwrap());
+        assert!(db.get_run_usage_snapshot("other-run").unwrap().is_none());
     }
 
     #[test]

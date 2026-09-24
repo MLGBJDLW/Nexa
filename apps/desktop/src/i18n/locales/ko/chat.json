@@ -755,5 +755,13 @@
   "contextPolicySaveFailed": "Could not save. Your changes are still here; please retry.",
   "contextPolicyManagedTitle": "Managed by your subscription",
   "contextPolicyManaged": "This service manages its context window and automatic compaction. Nexa cannot override them. Usage remains available in the context indicator.",
-  "contextPolicySettingsHelp": "Uses the same settings as the chat context indicator. Save provider or model changes before opening."
+  "contextPolicySettingsHelp": "Uses the same settings as the chat context indicator. Save provider or model changes before opening.",
+  "gitRefresh": "Git 상태 새로 고침",
+  "gitCopyBranch": "브랜치 복사",
+  "gitCopyFailed": "브랜치를 복사할 수 없습니다",
+  "gitClean": "작업 트리가 깨끗합니다",
+  "gitStaged": "스테이징",
+  "gitWorking": "작업 트리",
+  "gitTruncated": "변경된 경로 중 처음 300개만 표시합니다.",
+  "gitNoDiff": "변경 사항이 없습니다."
 }

@@ -36,5 +36,21 @@
   "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels.",
   "dialogHandled": "Réponse envoyée à la boîte de dialogue",
   "dialogDismissed": "Boîte de dialogue inattendue fermée ; vérifiez la page avant de réessayer",
-  "dialogPaused": "Page suspendue après des dialogues répétés. Fermez ou rechargez cet onglet."
+  "dialogPaused": "Page suspendue après des dialogues répétés. Fermez ou rechargez cet onglet.",
+  "recentActions": "Actions récentes",
+  "actionVerified": "Vérifié",
+  "actionUnchanged": "Page inchangée",
+  "actionInProgress": "En cours",
+  "actionReview": "À vérifier",
+  "actionClick": "Clic",
+  "actionDoubleClick": "Double clic",
+  "actionMove": "Déplacer",
+  "actionHover": "Survoler",
+  "actionDrag": "Glisser",
+  "actionType": "Saisir",
+  "actionSelect": "Sélectionner",
+  "actionCheck": "Cocher",
+  "actionPress": "Touche",
+  "actionScroll": "Défiler",
+  "actionUpload": "Téléverser"
 }

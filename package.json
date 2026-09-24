@@ -2,7 +2,10 @@
   "name": "nexa-monorepo",
   "private": true,
   "scripts": {
-    "repository:check": "node --test scripts/repository-policy.test.mjs && node scripts/repository-policy.mjs",
+    "cache:status": "node scripts/dev-cache.mjs",
+    "cache:prune": "node scripts/dev-cache.mjs --apply",
+    "cache:test": "node --test scripts/dev-cache.test.mjs",
+    "repository:check": "node --test scripts/repository-policy.test.mjs scripts/dev-cache.test.mjs && node scripts/repository-policy.mjs",
     "docs:generate": "node scripts/docs-check.mjs generate",
     "docs:check": "node --test scripts/docs-check.test.mjs && node scripts/docs-check.mjs check",
     "tauri": "npm run tauri --prefix apps/desktop --",

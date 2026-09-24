@@ -17,12 +17,15 @@
   "sourceDescription": "選擇 Nexa 從哪裡檢查發行版並下載更新套件。",
   "sourceActive": "目前",
   "sourceGithub": "GitHub",
-  "sourceGithubDescription": "官方 GitHub Releases，並保留現有代理備援。",
+  "sourceGithubDescription": "官方 GitHub Releases。",
   "currentVersion": "目前版本",
   "latestVersion": "最新版本",
   "status": "狀態",
   "lastChecked": "上次檢查 {time}",
   "notChecked": "尚未檢查",
   "releaseNotes": "發行說明",
-  "details": "詳細資訊"
+  "details": "詳細資訊",
+  "sourceCustom": "自訂鏡像",
+  "mirrorAddress": "鏡像站位址",
+  "mirrorHint": "前綴代理：在此 HTTPS 位址後接上原始 GitHub 連結。更新仍會驗證簽章。"
 }

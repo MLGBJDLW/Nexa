@@ -36,5 +36,21 @@
   "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels.",
   "dialogHandled": "페이지 대화상자에 응답했습니다",
   "dialogDismissed": "예상하지 못한 대화상자를 닫았습니다. 재시도 전에 페이지를 확인하세요",
-  "dialogPaused": "반복되는 대화상자로 페이지를 일시 중지했습니다. 탭을 닫거나 새로고침하세요."
+  "dialogPaused": "반복되는 대화상자로 페이지를 일시 중지했습니다. 탭을 닫거나 새로고침하세요.",
+  "recentActions": "최근 브라우저 작업",
+  "actionVerified": "확인됨",
+  "actionUnchanged": "페이지 변경 없음",
+  "actionInProgress": "진행 중",
+  "actionReview": "확인 필요",
+  "actionClick": "클릭",
+  "actionDoubleClick": "두 번 클릭",
+  "actionMove": "이동",
+  "actionHover": "가리키기",
+  "actionDrag": "끌기",
+  "actionType": "입력",
+  "actionSelect": "선택",
+  "actionCheck": "체크",
+  "actionPress": "키",
+  "actionScroll": "스크롤",
+  "actionUpload": "업로드"
 }

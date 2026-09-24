@@ -15,6 +15,7 @@ import type {
 } from './api';
 import { useAgentStream, useRunningConversationIds } from './useAgentStream';
 import { streamStore } from './streamStore';
+import { replaceRunUsage } from './liveUsageAggregate';
 import { mergeCurrentTurnVisualEvidence, retainMessageVisualEvidence } from './toolVisualEvidence';
 import { useTranslation } from '../i18n';
 import type {
@@ -1740,16 +1741,72 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const scopedRateLimited = activeId && !liveUsageSuppressed ? rateLimited : false;
   const scopedError = activeId ? chatError : null;
 
+  // Retain the completed-run aggregate. Refresh only the current run and
+  // replace its contribution so long conversations do not re-query history.
+  useEffect(() => {
+    if (!activeId || !activeIsStreaming || liveUsageSuppressed) return;
+    let cancelled = false;
+    let pending = false;
+    let baseline: UsageSnapshot | null = null;
+    let baselineLoaded = false;
+    let boundRunId: string | undefined;
+    let refreshedUsage: typeof scopedLastUsage | undefined;
+    const refresh = async () => {
+      if (cancelled || pending || document.hidden) return;
+      // The launch handshake may arrive between React renders. Read its
+      // authoritative identity here so an early effect never misses the run.
+      const runtime = streamStore.getStream(activeId);
+      const runId = runtime?.turnHandle?.runId ?? runtime?.taskRun?.id;
+      if (!runtime?.isStreaming || !runId) return;
+      const observed = runtime.lastUsage;
+      if (boundRunId !== runId) {
+        boundRunId = runId;
+        baseline = null;
+        baselineLoaded = false;
+        refreshedUsage = undefined;
+      }
+      if (observed === refreshedUsage) return;
+      pending = true;
+      try {
+        if (!baselineLoaded) {
+          baseline = await api.getConversationUsageSnapshot(activeId);
+          baselineLoaded = true;
+          if (cancelled) return;
+        }
+        const run = await api.getRunUsageSnapshot(runId);
+        const latest = streamStore.getStream(activeId);
+        if (!cancelled && activeIdRef.current === activeId && latest?.isStreaming
+          && (latest.turnHandle?.runId ?? latest.taskRun?.id) === runId) {
+          if (run) {
+            setUsageSnapshot(replaceRunUsage(baseline, runId, run));
+            refreshedUsage = observed;
+          } else if (observed === null) refreshedUsage = observed;
+        }
+      } catch {
+        // Keep the last confirmed totals and retry on the next observation tick.
+      } finally {
+        pending = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 750);
+    const onVisible = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [activeId, activeIsStreaming, liveUsageSuppressed]);
+
   // Streaming usage describes the in-flight run. Once the run is durable,
   // prefer the backend conversation snapshot so cache and token totals remain
   // aggregated across completed turns instead of falling back to only the
   // latest run kept by the stream store.
   const isUsingLiveUsage = (shouldShowLivePreview || usageSnapshot == null) && scopedLastUsage != null;
   const usageForView = isUsingLiveUsage ? scopedLastUsage : usageSnapshot ?? scopedLastUsage;
-  // The context ring needs the in-flight run's latest prompt size, but a cache
-  // hit rate only becomes authoritative after that run is durable. Keep the
-  // current conversation's completed-run aggregate stable while streaming,
-  // then let completion hydration fold the new sample into the snapshot.
+  // The context ring uses the latest prompt; cache totals use the periodically
+  // refreshed durable aggregate, including confirmed steps of the active run.
   const cacheUsageForView = isUsingLiveUsage ? usageSnapshot : usageForView;
   const durableContextAuthority = !isUsingLiveUsage ? usageSnapshot?.contextAuthority : null;
   const usageContextWindow = durableContextAuthority

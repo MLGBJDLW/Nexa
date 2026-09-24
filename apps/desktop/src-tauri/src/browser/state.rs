@@ -1659,6 +1659,109 @@ impl BrowserState {
         Ok(permit)
     }
 
+    pub(super) async fn present_workspace(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        visible: bool,
+    ) -> Result<BrowserSessionInfo, String> {
+        let info = self.acquire_agent_control(session_id, call_id)?;
+        if visible {
+            let tab_id = info
+                .active_tab_id
+                .as_deref()
+                .ok_or("No browser tab to show")?;
+            self.wait_until_workspace_visible(session_id, tab_id)
+                .await?;
+            return self.session_info(session_id);
+        }
+        let collapsed = self.collapse_workspace_surface(session_id, call_id).await?;
+        self.emit(
+            "workspaceCollapsed",
+            serde_json::json!({
+                "sessionId": session_id, "conversationId": collapsed.conversation_id,
+                "minimumVisibilityRevision": collapsed.visibility_revision,
+            }),
+        );
+        if !info.workspace_visible {
+            return Ok(collapsed);
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let current = self.session_info(session_id)?;
+            if current.visibility_revision > collapsed.visibility_revision {
+                return if current.workspace_visible {
+                    Err(
+                        "Browser presentation changed while collapsing; inspect current state"
+                            .into(),
+                    )
+                } else {
+                    Ok(current)
+                };
+            }
+            if Instant::now() >= deadline {
+                return Err(
+                    "Browser surface was hidden, but the workspace UI did not acknowledge collapse"
+                        .into(),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    async fn collapse_workspace_surface(
+        &self,
+        session_id: &str,
+        call_id: &str,
+    ) -> Result<BrowserSessionInfo, String> {
+        let gate = {
+            let runtime = self
+                .inner
+                .lock()
+                .map_err(|_| "Browser runtime is unavailable")?;
+            runtime
+                .sessions
+                .get(session_id)
+                .ok_or("Browser session closed")?
+                .surface_gate
+                .clone()
+        };
+        let _flight = gate.acquire().await?;
+        let mut runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser runtime is unavailable")?;
+        let session = runtime
+            .sessions
+            .get_mut(session_id)
+            .ok_or("Browser session closed")?;
+        if !matches!(session.control_lease.owner(), BrowserControlOwner::Agent { call_id: owner } if owner == call_id)
+        {
+            return Err("Browser control changed before collapse".into());
+        }
+        session.visibility_revision = next_visibility_request_revision(
+            session.visibility_revision,
+            session.visibility_request_revision,
+        );
+        session.visibility_requested = false;
+        session.visibility_request_revision = None;
+        session.workspace_visible = false;
+        session.observations.clear();
+        session.control_lease.invalidate();
+        // Revoke admission before hiding; page state survives, stale inputs do not.
+        for tab in session.tabs.values() {
+            tab.network_proxy.revoke_agent_network_access();
+            tab.downloads.cancel();
+            let _ = tab
+                .webview
+                .eval("window.__NEXA_BROWSER_RUNTIME__?.invalidateForUserTakeover()");
+            tab.webview.hide().map_err(|error| error.to_string())?;
+        }
+        let info = session_info(session);
+        drop(runtime);
+        Ok(info)
+    }
+
     fn request_workspace_visibility(&self, session_id: &str) -> Result<(), String> {
         let (conversation_id, minimum_visibility_revision) = {
             let mut runtime = self
@@ -1942,6 +2045,26 @@ impl BrowserState {
     }
 
     pub async fn act(&self, request: BrowserActRequest<'_>) -> Result<BrowserActOutcome, String> {
+        let (session_id, tab_id, action, call_id) = (
+            request.session_id,
+            request.tab_id,
+            request.action,
+            request.call_id,
+        );
+        let result = self.act_inner(request).await;
+        if result.is_err() {
+            self.emit(
+                "agentAction",
+                serde_json::json!({
+                    "sessionId": session_id, "tabId": tab_id, "action": action,
+                    "callId": call_id, "phase": "failed",
+                }),
+            );
+        }
+        result
+    }
+
+    async fn act_inner(&self, request: BrowserActRequest<'_>) -> Result<BrowserActOutcome, String> {
         self.require_visible_focused_host_window()?;
         let current_url = self
             .webview(request.session_id, request.tab_id)?
@@ -2059,6 +2182,7 @@ impl BrowserState {
         }
         let action_input = serde_json::to_string(&serde_json::json!({
             "action": request.action,
+                "callId": request.call_id,
             "targetRef": request.target_ref,
             "endRef": request.end_ref,
             "text": request.text,
@@ -2087,6 +2211,7 @@ impl BrowserState {
                 "sessionId": request.session_id,
                 "tabId": request.tab_id,
                 "action": request.action,
+                "callId": request.call_id,
                 "phase": "moving",
                 "targetRef": request.target_ref,
                 "endRef": request.end_ref,
@@ -2129,6 +2254,7 @@ impl BrowserState {
                     "sessionId": request.session_id,
                     "tabId": request.tab_id,
                     "action": request.action,
+                "callId": request.call_id,
                     "phase": "committing",
                     "targetRef": request.target_ref,
                 }),
@@ -2204,6 +2330,7 @@ impl BrowserState {
                     "sessionId": request.session_id,
                     "tabId": request.tab_id,
                     "action": request.action,
+                "callId": request.call_id,
                     "phase": if effect_observed { "verified" } else { "observedUnchanged" },
                     "effectObserved": effect_observed,
                     "observationId": fresh_observation.observation_id,
@@ -2241,6 +2368,7 @@ impl BrowserState {
                 "sessionId": request.session_id,
                 "tabId": request.tab_id,
                 "action": request.action,
+                "callId": request.call_id,
                 "phase": "committing",
                 "targetRef": request.target_ref,
                 "endRef": request.end_ref,
@@ -2298,6 +2426,7 @@ impl BrowserState {
                     "sessionId": request.session_id,
                     "tabId": request.tab_id,
                     "action": request.action,
+                "callId": request.call_id,
                     "phase": if effect_observed { "verified" } else { "observedUnchanged" },
                     "effectObserved": effect_observed,
                     "observationId": fresh_observation.observation_id,
@@ -2365,6 +2494,7 @@ impl BrowserState {
                 "sessionId": request.session_id,
                 "tabId": request.tab_id,
                 "action": request.action,
+                "callId": request.call_id,
                 "phase": if effect_observed { "verified" } else { "observedUnchanged" },
                 "effectObserved": effect_observed,
                 "observationId": fresh_observation.observation_id,

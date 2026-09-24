@@ -17,12 +17,15 @@
   "sourceDescription": "Nexa がリリースを確認し更新パッケージを取得する場所を選びます。",
   "sourceActive": "使用中",
   "sourceGithub": "GitHub",
-  "sourceGithubDescription": "公式 GitHub Releases。既存のプロキシフォールバックを使用します。",
+  "sourceGithubDescription": "公式 GitHub Releases。",
   "currentVersion": "現在のバージョン",
   "latestVersion": "最新バージョン",
   "status": "ステータス",
   "lastChecked": "最終確認 {time}",
   "notChecked": "まだ確認していません",
   "releaseNotes": "リリースノート",
-  "details": "詳細"
+  "details": "詳細",
+  "sourceCustom": "カスタムミラー",
+  "mirrorAddress": "ミラーの URL",
+  "mirrorHint": "プレフィックスプロキシ：この HTTPS URL に元の GitHub URL を追加します。更新の署名検証は維持されます。"
 }

@@ -16,6 +16,8 @@ import type {
 } from '../../lib/taskArtifacts';
 import type { ActiveGoalContext } from '../../lib/goalContext';
 import { compactTaskLabel } from '../../lib/taskArtifacts';
+import type { useGitWorkspace } from '../../lib/gitWorkspace';
+import { GitWorkspaceDetails } from './GitWorkspaceDetails';
 
 function derivePlanCounts(plan: PlanArtifact) {
   const total = plan.steps.length;
@@ -250,10 +252,14 @@ export function PlanProgressPanel({
   plan,
   goal = null,
   subtasks = [],
+  git,
+  conversationId,
 }: {
   plan?: PlanArtifact | null;
   goal?: ActiveGoalContext | null;
   subtasks?: SubtaskRunArtifact[];
+  git?: ReturnType<typeof useGitWorkspace>;
+  conversationId?: string | null;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -271,11 +277,11 @@ export function PlanProgressPanel({
     ? t('chat.goalStatusTitle')
     : plan
       ? t('chat.planLabel')
-      : t('chat.subtasksLabel');
+      : subtasks.length ? t('chat.subtasksLabel') : 'Git';
   const panelTitle = compactTaskLabel(goal?.objective
     ?? current?.title
     ?? plan?.title
-    ?? t('chat.subtasksDefaultSummary'));
+    ?? (subtasks.length ? t('chat.subtasksDefaultSummary') : git?.repos[0]?.branch ?? 'Git'));
   let currentIcon = goal
     ? <Target className="h-3 w-3 text-accent" />
     : plan
@@ -469,6 +475,9 @@ export function PlanProgressPanel({
             {counts.completed}/{counts.total}
           </span>
         )}
+        {git && git.repos.length > 0 && <span data-testid="git-workspace-summary" className="max-w-28 truncate text-[10px] text-text-tertiary" title={git.repos.map(repo => repo.branch).join(', ')}>
+          <GitBranch className="mr-1 inline h-3 w-3" />{git.repos.length > 1 ? git.repos.length : git.repos[0].branch} · {git.repos.reduce((sum, repo) => sum + repo.files.length, 0)}
+        </span>}
         {subtaskCounts.running > 0 && (
           <span
             className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
@@ -521,6 +530,7 @@ export function PlanProgressPanel({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 rotate-180 text-text-tertiary transition-transform" />
         </button>
 
+        {open && conversationId && git && (git.repos.length > 0 || git.error) && <GitWorkspaceDetails conversationId={conversationId} repos={git.repos} error={git.error} onRefresh={git.refresh} />}
         {plan && (
           <>
             <div className="mx-1 mt-1 h-1 rounded-full bg-surface-0">

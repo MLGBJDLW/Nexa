@@ -36,5 +36,21 @@
   "pickRegionHint": "拖动以附加页面坐标（当前不捕获像素），按 Escape 取消。",
   "dialogHandled": "已答复网页提示",
   "dialogDismissed": "已取消意外的网页提示，请检查页面后再决定是否重试",
-  "dialogPaused": "网页连续弹出提示，已暂停该页面。可关闭或重新加载此标签页。"
+  "dialogPaused": "网页连续弹出提示，已暂停该页面。可关闭或重新加载此标签页。",
+  "recentActions": "最近的浏览器操作",
+  "actionVerified": "已验证",
+  "actionUnchanged": "页面无变化",
+  "actionInProgress": "进行中",
+  "actionReview": "需要检查",
+  "actionClick": "点击",
+  "actionDoubleClick": "双击",
+  "actionMove": "移动",
+  "actionHover": "悬停",
+  "actionDrag": "拖动",
+  "actionType": "输入",
+  "actionSelect": "选择",
+  "actionCheck": "勾选",
+  "actionPress": "按键",
+  "actionScroll": "滚动",
+  "actionUpload": "上传"
 }

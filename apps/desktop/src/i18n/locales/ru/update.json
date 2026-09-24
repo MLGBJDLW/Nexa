@@ -17,12 +17,15 @@
   "sourceDescription": "Выберите, где Nexa проверяет релизы и загружает пакеты обновлений.",
   "sourceActive": "Активен",
   "sourceGithub": "GitHub",
-  "sourceGithubDescription": "Официальные GitHub Releases с существующим резервным прокси.",
+  "sourceGithubDescription": "Официальные GitHub Releases.",
   "currentVersion": "Текущая версия",
   "latestVersion": "Последняя версия",
   "status": "Статус",
   "lastChecked": "Последняя проверка {time}",
   "notChecked": "Еще не проверялось",
   "releaseNotes": "Заметки к выпуску",
-  "details": "Подробности"
+  "details": "Подробности",
+  "sourceCustom": "Своё зеркало",
+  "mirrorAddress": "Адрес зеркала",
+  "mirrorHint": "Прокси с префиксом: исходный URL GitHub добавляется к этому HTTPS-адресу. Проверка подписей сохраняется."
 }

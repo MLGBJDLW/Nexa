@@ -142,6 +142,7 @@ test.beforeEach(async ({ page }) => {
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
     type UsageSample = {
+      runId: string;
       promptTokens: number;
       completionTokens: number;
       totalTokens: number;
@@ -156,7 +157,7 @@ test.beforeEach(async ({ page }) => {
       JSON.parse(localStorage.getItem('__e2e_usage_samples__') ?? '{}') as Record<string, UsageSample[]>;
     const recordUsageSample = (conversationId: string, sample: UsageSample) => {
       const all = usageSamples();
-      all[conversationId] = [...(all[conversationId] ?? []), sample];
+      all[conversationId] = [...(all[conversationId] ?? []).filter(item => item.runId !== sample.runId), sample];
       localStorage.setItem('__e2e_usage_samples__', JSON.stringify(all));
     };
     const durableUsageSnapshot = (conversationId: string) => {
@@ -180,7 +181,7 @@ test.beforeEach(async ({ page }) => {
         contextCapacity: 1048576,
         contextAuthority: 'catalog',
         contextBreakdown: latest.contextBreakdown,
-        providerRaw: null,
+        providerRaw: { runs: samples.map(sample => ({ runId: sample.runId, usage: sample })) },
       };
     };
 
@@ -236,8 +237,20 @@ test.beforeEach(async ({ page }) => {
           const messages = messagesByConversation[id] ?? [];
           return [clone(conversation), clone(messages)];
         }
+        case 'get_run_usage_snapshot_cmd': {
+          localStorage.setItem('__run_usage_reads__', String(Number(localStorage.getItem('__run_usage_reads__') ?? 0) + 1));
+          const sample = Object.values(usageSamples()).flat().find(item => item.runId === args.runId);
+          return sample ? { ...sample, source: 'provider', contextCapacity: 1048576, contextAuthority: 'catalog', providerRaw: sample } : null;
+        }
         case 'get_conversation_usage_snapshot_cmd':
+          localStorage.setItem('__conversation_usage_reads__', String(Number(localStorage.getItem('__conversation_usage_reads__') ?? 0) + 1));
           return durableUsageSnapshot(String(args.conversationId ?? ''));
+        case 'conversation_git_status_cmd':
+          if (localStorage.getItem('__e2e_git_error__')) throw new Error('Git command failed: corrupt index');
+          return args.conversationId === 'conv-e2e'
+            ? JSON.parse(localStorage.getItem('__e2e_git_repos__') ?? '[]') : [];
+        case 'conversation_git_diff_cmd':
+          return `diff --git a/${args.path} b/${args.path}\n+confirmed staged change`;
         case 'list_sources':
           return [];
         case 'get_conversation_sources_cmd':
@@ -401,12 +414,15 @@ test.beforeEach(async ({ page }) => {
         case 'agent_chat_cmd': {
           const conversationId = String(args.conversationId ?? '');
           const userText = String(args.message ?? '');
+          const runId = nextId('usage-run');
+          const turnId = nextId('usage-turn');
           const lowerCacheSample = /lower cache/i.test(userText);
           const fullCacheSample = /full cache/i.test(userText);
           const changedPromptSample = /changed prompt/i.test(userText);
-          const responseDelay = /keep streaming/i.test(userText) ? 1200 : 60;
+          const responseDelay = /multi step/i.test(userText) ? 3500 : /keep streaming/i.test(userText) ? 2500 : 60;
           const promptTokens = changedPromptSample ? 90000 : 74000;
           const streamUsage = {
+            runId,
             promptTokens,
             completionTokens: 1400,
             totalTokens: promptTokens + 1400,
@@ -466,6 +482,7 @@ test.beforeEach(async ({ page }) => {
           setTimeout(() => {
             emitEvent('agent://run-event', {
               conversationId,
+              runId, turnId,
               type: 'usageUpdate',
               usageTotal: streamUsage,
               lastPromptTokens: streamUsage.lastPromptTokens,
@@ -475,6 +492,7 @@ test.beforeEach(async ({ page }) => {
           setTimeout(() => {
             emitEvent('agent://run-event', {
               conversationId,
+              runId, turnId,
               type: 'done',
               message: assistantMessage,
               usageTotal: streamUsage,
@@ -483,8 +501,14 @@ test.beforeEach(async ({ page }) => {
               cached: false,
             });
           }, responseDelay);
+          if (/multi step/i.test(userText)) setTimeout(() => {
+            streamUsage.completionTokens += 100;
+            streamUsage.totalTokens += 100;
+            recordUsageSample(conversationId, streamUsage);
+            emitEvent('agent://run-event', { conversationId, runId, turnId, type: 'usageUpdate', usageTotal: streamUsage, lastPromptTokens: streamUsage.lastPromptTokens });
+          }, 900);
 
-          return null;
+          return { sessionId: conversationId, runId, turnId, state: 'running' };
         }
         default:
           return null;
@@ -571,7 +595,7 @@ test('usage cache is scoped to conversation id and does not leak to another conv
   await expect(contextTrigger).not.toHaveAttribute('aria-label', /\d+% context used/);
 });
 
-test('context HUD keeps the conversation cache rate stable until the live turn is durable', async ({ page }) => {
+test('context HUD refreshes confirmed conversation cache usage before the live turn ends', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   const contextTrigger = page.getByTestId('chat-context-trigger');
   const contextDetails = page.getByTestId('chat-context-details');
@@ -597,14 +621,15 @@ test('context HUD keeps the conversation cache rate stable until the live turn i
 
   await expect(page.getByTestId('chat-stop')).toBeVisible();
   await page.waitForTimeout(150);
-  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('50.0%');
+  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
   await expect(page.getByTestId('chat-stop')).toBeHidden();
   await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
   await contextTrigger.hover();
   await expect(page.getByTestId('chat-run-cache-hit')).toHaveText('40.0%');
 });
 
-test('conversation cache fallback keeps its own prompt denominator while a new prompt streams', async ({ page }) => {
+test('live conversation cache totals keep the aggregate prompt denominator without double counting', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   const cacheSummary = page.getByTestId('chat-run-cache-hit-summary');
 
@@ -618,7 +643,8 @@ test('conversation cache fallback keeps its own prompt denominator while a new p
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-stop')).toBeVisible();
   await page.waitForTimeout(150);
-  await expect(cacheSummary).toContainText('100.0%');
+  await expect(cacheSummary).toContainText('73.7%');
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
   await expect(page.getByTestId('chat-stop')).toBeHidden();
   await expect(cacheSummary).toContainText('73.7%');
 });
@@ -736,4 +762,54 @@ test('manual compact is rejected while the target conversation is streaming', as
 
   await expect(page.getByText('Wait for the current response to finish before compacting.')).toBeVisible();
   await expect(page.getByTestId('chat-compact-status')).toHaveCount(0);
+});
+
+
+test('Git capsule appears only for repository sources and opens staged diffs', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('__e2e_git_repos__', JSON.stringify([{
+    sourceId: 'source-repo', root: 'D:/repo', branch: 'feature/workspace', oid: 'abc123',
+    upstream: 'origin/main', ahead: 2, behind: 1, truncated: false,
+    files: [{ path: 'src/中文 file.ts', index: 'M', worktree: '.' }, { path: 'new.txt', index: '?', worktree: '?' }],
+  }])));
+  await page.goto('/chat/conv-e2e');
+  await expect(page.getByTestId('git-workspace-summary')).toContainText('feature/workspace');
+  await page.getByTestId('task-board-collapsed').click();
+  const details = page.getByTestId('git-workspace-details');
+  await expect(details).toContainText('↑2 ↓1');
+  await details.getByRole('button', { name: 'Staged', exact: true }).click();
+  await expect(page.getByTestId('git-diff-preview')).toContainText('+confirmed staged change');
+  await page.getByTestId('task-board-expanded').screenshot({ path: testInfo.outputPath('git-capsule.png') });
+  await page.setViewportSize({ width: 480, height: 820 });
+  await expect.poll(() => details.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.goto('/chat/conv-empty');
+  await expect(page.getByTestId('git-workspace-summary')).toHaveCount(0);
+});
+
+
+test('live cache refresh queries only the active run after baseline hydration', async ({ page }) => {
+  await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-input-textarea').fill('Generate the first cache sample.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('50.0%');
+  await expect(page.getByTestId('chat-stop')).toBeHidden();
+  await page.getByTestId('chat-input-textarea').fill('Generate a lower cache sample, multi step, and keep streaming.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
+  const reads = await page.evaluate(() => ({ all: Number(localStorage.getItem('__conversation_usage_reads__')), run: Number(localStorage.getItem('__run_usage_reads__')) }));
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('__run_usage_reads__')))).toBeGreaterThanOrEqual(reads.run + 1);
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
+  expect(await page.evaluate(() => Number(localStorage.getItem('__conversation_usage_reads__')))).toBe(reads.all);
+  await expect(page.getByTestId('chat-stop')).toBeHidden();
+  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
+});
+
+
+test('Git capsule exposes repository errors and supports retry', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('__e2e_git_error__', '1'));
+  await page.goto('/chat/conv-e2e');
+  await page.getByTestId('task-board-collapsed').click();
+  await expect(page.getByTestId('git-workspace-details')).toContainText('corrupt index');
+  await page.evaluate(() => localStorage.removeItem('__e2e_git_error__'));
+  await page.getByRole('button', { name: 'Refresh Git status' }).click();
+  await expect(page.getByTestId('task-board')).toHaveCount(0);
 });

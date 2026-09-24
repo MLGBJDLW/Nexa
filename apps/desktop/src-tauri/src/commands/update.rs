@@ -5,15 +5,16 @@ use tauri::{Manager, ResourceId, Runtime, Webview};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
-const GITHUB_UPDATE_ENDPOINTS: &[&str] = &[
-    "https://github.com/MLGBJDLW/Nexa/releases/latest/download/latest.json",
-    "https://mirror.ghproxy.com/https://github.com/MLGBJDLW/Nexa/releases/latest/download/latest-ghproxy.json",
-];
+const GITHUB_UPDATE_ENDPOINT: &str =
+    "https://github.com/MLGBJDLW/Nexa/releases/latest/download/latest.json";
+const GHFAST_BASE_URL: &str = "https://ghfast.top";
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UpdateSource {
     Github,
+    Ghfast,
+    Custom,
 }
 
 #[derive(Serialize)]
@@ -31,15 +32,45 @@ fn parse_endpoint(value: &str) -> Result<Url, String> {
     Url::parse(value).map_err(|error| format!("Invalid update endpoint {value}: {error}"))
 }
 
-async fn endpoints_for_source(
+fn mirror_for_source(
     source: UpdateSource,
-    _timeout_ms: Option<u64>,
-) -> Result<Vec<Url>, String> {
-    match source {
-        UpdateSource::Github => GITHUB_UPDATE_ENDPOINTS
-            .iter()
-            .map(|endpoint| parse_endpoint(endpoint))
-            .collect(),
+    custom_mirror: Option<&str>,
+) -> Result<Option<String>, String> {
+    let value = match source {
+        UpdateSource::Github => return Ok(None),
+        UpdateSource::Ghfast => GHFAST_BASE_URL,
+        UpdateSource::Custom => custom_mirror.unwrap_or_default().trim(),
+    };
+    let url = parse_endpoint(value)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Use an HTTPS mirror base URL without credentials, query, or fragment".into());
+    }
+    Ok(Some(url.as_str().trim_end_matches('/').to_owned()))
+}
+
+fn mirrored_url(original: &Url, mirror: Option<&str>) -> Result<Url, String> {
+    match mirror {
+        None => Ok(original.clone()),
+        Some(base) => {
+            // A mirror changes transport only. Manifest assets must still name
+            // this repository, and the updater retains its pinned signing key.
+            if original.scheme() != "https"
+                || original.host_str() != Some("github.com")
+                || !original.path().starts_with("/MLGBJDLW/Nexa/releases/")
+                || !original.username().is_empty()
+                || original.password().is_some()
+                || original.port().is_some()
+            {
+                return Err("Update asset is not an official Nexa GitHub release URL".into());
+            }
+            parse_endpoint(&format!("{base}/{original}"))
+        }
     }
 }
 
@@ -48,8 +79,13 @@ pub async fn check_update_from_source_cmd<R: Runtime>(
     webview: Webview<R>,
     source: UpdateSource,
     timeout: Option<u64>,
+    custom_mirror: Option<String>,
 ) -> Result<Option<UpdateMetadata>, String> {
-    let endpoints = endpoints_for_source(source, timeout).await?;
+    let mirror = mirror_for_source(source, custom_mirror.as_deref())?;
+    let endpoints = vec![mirrored_url(
+        &parse_endpoint(GITHUB_UPDATE_ENDPOINT)?,
+        mirror.as_deref(),
+    )?];
     let mut builder = webview
         .updater_builder()
         .endpoints(endpoints)
@@ -60,7 +96,10 @@ pub async fn check_update_from_source_cmd<R: Runtime>(
     }
 
     let updater = builder.build().map_err(|error| error.to_string())?;
-    let update = updater.check().await.map_err(|error| error.to_string())?;
+    let mut update = updater.check().await.map_err(|error| error.to_string())?;
+    if let Some(update) = update.as_mut() {
+        update.download_url = mirrored_url(&update.download_url, mirror.as_deref())?;
+    }
 
     Ok(update.map(|update| {
         let metadata = UpdateMetadata {
@@ -73,4 +112,45 @@ pub async fn check_update_from_source_cmd<R: Runtime>(
         };
         metadata
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mirrors_cover_manifest_and_asset_without_changing_the_origin() {
+        for source in [UpdateSource::Ghfast, UpdateSource::Custom] {
+            let mirror = mirror_for_source(source, Some("https://mirror.example/proxy/")).unwrap();
+            for original in [
+                GITHUB_UPDATE_ENDPOINT,
+                "https://github.com/MLGBJDLW/Nexa/releases/download/v1.0.0/Nexa.nsis.zip",
+            ] {
+                let result =
+                    mirrored_url(&parse_endpoint(original).unwrap(), mirror.as_deref()).unwrap();
+                assert_eq!(
+                    result.as_str(),
+                    format!("{}/{original}", mirror.as_ref().unwrap())
+                );
+            }
+        }
+        assert!(mirror_for_source(UpdateSource::Github, None)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn invalid_mirrors_and_foreign_assets_are_rejected() {
+        for value in [
+            "",
+            "http://mirror.example",
+            "https://u:p@mirror.example",
+            "https://mirror.example?token=x",
+            "https://mirror.example/#x",
+        ] {
+            assert!(mirror_for_source(UpdateSource::Custom, Some(value)).is_err());
+        }
+        let foreign = parse_endpoint("https://example.com/payload.zip").unwrap();
+        assert!(mirrored_url(&foreign, Some(GHFAST_BASE_URL)).is_err());
+    }
 }

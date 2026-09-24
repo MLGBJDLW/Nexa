@@ -17,12 +17,15 @@
   "sourceDescription": "Choisissez où Nexa vérifie les versions et télécharge les paquets de mise à jour.",
   "sourceActive": "Active",
   "sourceGithub": "GitHub",
-  "sourceGithubDescription": "GitHub Releases officiel avec le proxy existant en secours.",
+  "sourceGithubDescription": "GitHub Releases officiel.",
   "currentVersion": "Version actuelle",
   "latestVersion": "Dernière version",
   "status": "État",
   "lastChecked": "Dernière vérification {time}",
   "notChecked": "Pas encore vérifié",
   "releaseNotes": "Notes de version",
-  "details": "Détails"
+  "details": "Détails",
+  "sourceCustom": "Miroir personnalisé",
+  "mirrorAddress": "URL du miroir",
+  "mirrorHint": "Proxy par préfixe : l’URL GitHub est ajoutée à cette adresse HTTPS. Les signatures restent vérifiées."
 }

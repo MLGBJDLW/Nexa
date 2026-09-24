@@ -51,8 +51,9 @@ export const RUN_EVENT_FIXTURE_INIT_SCRIPT = String.raw`
       };
     }
 
-    const eventSeq = (sequences.get(conversationId) || 0) + 1;
-    sequences.set(conversationId, eventSeq);
+    const sequenceKey = input.runId ? runId : conversationId;
+    const eventSeq = (sequences.get(sequenceKey) || 0) + 1;
+    sequences.set(sequenceKey, eventSeq);
     let kind = type;
     let phase = 'responding';
     let label = type;
