@@ -755,5 +755,13 @@
   "contextPolicySaveFailed": "Could not save. Your changes are still here; please retry.",
   "contextPolicyManagedTitle": "Managed by your subscription",
   "contextPolicyManaged": "This service manages its context window and automatic compaction. Nexa cannot override them. Usage remains available in the context indicator.",
-  "contextPolicySettingsHelp": "Uses the same settings as the chat context indicator. Save provider or model changes before opening."
+  "contextPolicySettingsHelp": "Uses the same settings as the chat context indicator. Save provider or model changes before opening.",
+  "gitRefresh": "Git 状態を更新",
+  "gitCopyBranch": "ブランチ名をコピー",
+  "gitCopyFailed": "ブランチ名をコピーできません",
+  "gitClean": "変更はありません",
+  "gitStaged": "ステージ済み",
+  "gitWorking": "作業ツリー",
+  "gitTruncated": "変更されたパスを最初の 300 件まで表示します。",
+  "gitNoDiff": "差分はありません。"
 }

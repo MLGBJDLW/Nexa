@@ -755,5 +755,13 @@
   "contextPolicySaveFailed": "Could not save. Your changes are still here; please retry.",
   "contextPolicyManagedTitle": "Managed by your subscription",
   "contextPolicyManaged": "This service manages its context window and automatic compaction. Nexa cannot override them. Usage remains available in the context indicator.",
-  "contextPolicySettingsHelp": "Uses the same settings as the chat context indicator. Save provider or model changes before opening."
+  "contextPolicySettingsHelp": "Uses the same settings as the chat context indicator. Save provider or model changes before opening.",
+  "gitRefresh": "Atualizar Git",
+  "gitCopyBranch": "Copiar ramo",
+  "gitCopyFailed": "Não foi possível copiar o ramo",
+  "gitClean": "Sem alterações",
+  "gitStaged": "Preparado",
+  "gitWorking": "Trabalho",
+  "gitTruncated": "São apresentados os primeiros 300 caminhos alterados.",
+  "gitNoDiff": "Sem diferenças."
 }

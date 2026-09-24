@@ -238,6 +238,11 @@ test.beforeEach(async ({ page }) => {
         }
         case 'get_conversation_usage_snapshot_cmd':
           return durableUsageSnapshot(String(args.conversationId ?? ''));
+        case 'conversation_git_status_cmd':
+          return args.conversationId === 'conv-e2e'
+            ? JSON.parse(localStorage.getItem('__e2e_git_repos__') ?? '[]') : [];
+        case 'conversation_git_diff_cmd':
+          return `diff --git a/${args.path} b/${args.path}\n+confirmed staged change`;
         case 'list_sources':
           return [];
         case 'get_conversation_sources_cmd':
@@ -738,4 +743,25 @@ test('manual compact is rejected while the target conversation is streaming', as
 
   await expect(page.getByText('Wait for the current response to finish before compacting.')).toBeVisible();
   await expect(page.getByTestId('chat-compact-status')).toHaveCount(0);
+});
+
+
+test('Git capsule appears only for repository sources and opens staged diffs', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('__e2e_git_repos__', JSON.stringify([{
+    sourceId: 'source-repo', root: 'D:/repo', branch: 'feature/workspace', oid: 'abc123',
+    upstream: 'origin/main', ahead: 2, behind: 1, truncated: false,
+    files: [{ path: 'src/中文 file.ts', index: 'M', worktree: '.' }, { path: 'new.txt', index: '?', worktree: '?' }],
+  }])));
+  await page.goto('/chat/conv-e2e');
+  await expect(page.getByTestId('git-workspace-summary')).toContainText('feature/workspace');
+  await page.getByTestId('task-board-collapsed').click();
+  const details = page.getByTestId('git-workspace-details');
+  await expect(details).toContainText('↑2 ↓1');
+  await details.getByRole('button', { name: 'Staged', exact: true }).click();
+  await expect(page.getByTestId('git-diff-preview')).toContainText('+confirmed staged change');
+  await page.getByTestId('task-board-expanded').screenshot({ path: testInfo.outputPath('git-capsule.png') });
+  await page.setViewportSize({ width: 480, height: 820 });
+  await expect.poll(() => details.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.goto('/chat/conv-empty');
+  await expect(page.getByTestId('git-workspace-summary')).toHaveCount(0);
 });

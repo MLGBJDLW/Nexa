@@ -552,6 +552,7 @@ export function ChatPage() {
   // Source scope forwarded from route state, applied when the first send
   // auto-creates a conversation.
   const currentSourceIdsRef = useRef<string[]>(initialSourceIds);
+  const [gitSourceRevision, setGitSourceRevision] = useState(0);
   useEffect(() => {
     currentSourceIdsRef.current = initialSourceIds;
   }, [initialSourceIds]);
@@ -561,6 +562,7 @@ export function ChatPage() {
   );
   const handleSourceSelectionChange = useCallback((ids: string[]) => {
     currentSourceIdsRef.current = ids;
+    setGitSourceRevision(value => value + 1);
   }, []);
 
   const [activePersonaId, setActivePersonaId] = useState('default');
@@ -1898,6 +1900,9 @@ export function ChatPage() {
               />
             </div>
             <TaskBoard
+              conversationId={chat.activeId}
+              isStreaming={chat.isStreaming}
+              sourceRevision={String(gitSourceRevision)}
               messages={chat.messages}
               toolCalls={chat.toolCalls}
               taskRun={chat.taskRun}

@@ -755,5 +755,13 @@
   "contextPolicySaveFailed": "保存失败，修改已保留，请重试。",
   "contextPolicyManagedTitle": "由订阅服务自动管理",
   "contextPolicyManaged": "此服务自行管理上下文窗口和自动压缩，Nexa 无法覆盖这些设置。仍可通过上下文指示器查看用量。",
-  "contextPolicySettingsHelp": "与聊天输入框共用同一设置。若修改了供应商或模型，请先保存配置。"
+  "contextPolicySettingsHelp": "与聊天输入框共用同一设置。若修改了供应商或模型，请先保存配置。",
+  "gitRefresh": "刷新 Git 状态",
+  "gitCopyBranch": "复制分支名",
+  "gitCopyFailed": "无法复制分支名",
+  "gitClean": "工作区干净",
+  "gitStaged": "暂存区",
+  "gitWorking": "工作区",
+  "gitTruncated": "仅显示前 300 个变更路径。",
+  "gitNoDiff": "此处没有差异。"
 }

@@ -880,6 +880,8 @@ fn main() {
             commands::get_agent_run_events_cmd,
             commands::get_agent_run_event_page_cmd,
             commands::get_run_usage_snapshot_cmd,
+            commands::conversation_git_status_cmd,
+            commands::conversation_git_diff_cmd,
             commands::get_conversation_usage_snapshot_cmd,
             commands::get_ai_usage_analytics_cmd,
             commands::delete_ai_usage_records_cmd,

@@ -12,8 +12,12 @@ import {
   findLatestSubtaskArtifacts,
 } from '../../lib/taskArtifacts';
 import { PlanProgressPanel } from './TaskPanels';
+import { useGitWorkspace } from '../../lib/gitWorkspace';
 
 interface TaskBoardProps {
+  conversationId?: string | null;
+  isStreaming?: boolean;
+  sourceRevision?: string;
   messages: ConversationMessage[];
   toolCalls: ToolCallEvent[];
   taskRun?: AgentTaskRun | null;
@@ -22,12 +26,16 @@ interface TaskBoardProps {
 }
 
 export function TaskBoard({
+  conversationId,
+  isStreaming = false,
+  sourceRevision = '',
   messages,
   toolCalls,
   taskRun,
   taskEvents = [],
   goal = null,
 }: TaskBoardProps) {
+  const git = useGitWorkspace(conversationId, isStreaming, `${sourceRevision}:${messages.length}:${toolCalls.filter(call => call.status !== 'running').length}`);
   const plan = useMemo(
     () => findLatestUpdatePlanArtifact(messages, toolCalls)
       ?? findLatestPlanArtifact(messages, toolCalls, taskRun?.plan),
@@ -45,11 +53,11 @@ export function TaskBoard({
     [messages, taskEvents, taskRun?.artifacts, taskRun?.userMessageId, toolCalls],
   );
 
-  if (!plan && !goal && subtasks.length === 0) {
+  if (!plan && !goal && subtasks.length === 0 && git.repos.length === 0) {
     return null;
   }
 
-  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0) {
+  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && git.repos.length === 0) {
     return null;
   }
 
@@ -58,7 +66,7 @@ export function TaskBoard({
       data-testid="task-board"
       className="pointer-events-none absolute right-3 top-14 z-20 w-[min(22rem,calc(100%-1.5rem))] md:right-4"
     >
-      <PlanProgressPanel plan={plan} goal={goal} subtasks={subtasks} />
+      <PlanProgressPanel key={conversationId} plan={plan?.routeKind === 'DirectResponse' ? null : plan} goal={goal} subtasks={subtasks} git={git} conversationId={conversationId} />
     </div>
   );
 }
