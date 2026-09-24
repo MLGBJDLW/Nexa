@@ -37,6 +37,9 @@ pub(super) fn validate_program(program: &str, mode: ShellAccessMode) -> Result<S
         return Err("program must not be empty".to_string());
     }
     if program.contains('/') || program.contains('\\') {
+        if !mode.is_restricted() && Path::new(program).is_absolute() {
+            return Ok(program.to_string());
+        }
         return Err(
             "program must be a bare name (no path separators); only whitelisted commands are allowed"
                 .to_string(),

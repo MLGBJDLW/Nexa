@@ -313,6 +313,24 @@ fn test_shell_command_rejected_in_restricted_mode() {
 }
 
 #[test]
+fn explicit_executable_paths_follow_the_selected_shell_access_policy() {
+    #[cfg(windows)]
+    let paths = [
+        r"C:\Program Files\工具\runner.exe",
+        r"\\server\tools\runner.exe",
+    ];
+    #[cfg(not(windows))]
+    let paths = ["/opt/tools/runner", "/opt/工具/runner"];
+    for path in paths {
+        assert!(validate_program(path, ShellAccessMode::Restricted).is_err());
+        for mode in [ShellAccessMode::Open, ShellAccessMode::ConfirmAll] {
+            assert_eq!(validate_program(path, mode).unwrap(), path);
+        }
+    }
+    assert!(validate_program("../runner", ShellAccessMode::Open).is_err());
+}
+
+#[test]
 fn test_shell_command_maps_default_shell_in_open_mode() {
     let command = "git status --short && git diff --stat";
     let parsed = parse_run_shell_args(&format!(
@@ -548,12 +566,12 @@ fn test_managed_background_budget_uses_the_execution_promotion_rules() {
 }
 
 #[test]
-fn test_managed_wait_budget_is_a_short_observation_quantum() {
-    assert_eq!(managed_wait_budget_secs(None), 3);
-    assert_eq!(managed_wait_budget_secs(Some(0)), 3);
+fn test_managed_wait_budget_honors_requested_waits_with_a_bounded_quantum() {
+    assert_eq!(managed_wait_budget_secs(None), 10);
+    assert_eq!(managed_wait_budget_secs(Some(0)), 10);
     assert_eq!(managed_wait_budget_secs(Some(1)), 1);
-    assert_eq!(managed_wait_budget_secs(Some(30)), 3);
-    assert_eq!(managed_wait_budget_secs(Some(900)), 3);
+    assert_eq!(managed_wait_budget_secs(Some(30)), 30);
+    assert_eq!(managed_wait_budget_secs(Some(900)), 60);
 }
 
 #[tokio::test]

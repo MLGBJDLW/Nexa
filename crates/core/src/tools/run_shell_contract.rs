@@ -114,7 +114,7 @@ pub(crate) fn parameters_schema() -> Value {
             "program": {
                 "type": "string",
                 "description": format!(
-                    "Program to execute when not using command. In restricted mode it must be one of: {programs}. pwd/ls/cat/mkdir/cp/mv run natively inside the app and work even when the OS has no matching external binary. pip/pip3 are normalized to python/python3 -m pip. Simple aliases copy->cp and move->mv are also accepted. In less-restricted shell access modes, any bare command name may be allowed. No shell interpreter is invoked automatically.",
+                    "Program to execute when not using command. In restricted mode it must be one of: {programs}. pwd/ls/cat/mkdir/cp/mv run natively inside the app and work even when the OS has no matching external binary. pip/pip3 are normalized to python/python3 -m pip. Simple aliases copy->cp and move->mv are also accepted. In ConfirmAll/Open modes, use a command name or an absolute executable path, including paths containing spaces. Restricted mode still requires a whitelisted bare name. No shell interpreter is invoked automatically.",
                     programs = PROGRAM_WHITELIST.join(", ")
                 )
             },
@@ -159,7 +159,7 @@ pub(crate) fn parameters_schema() -> Value {
                 "type": "string",
                 "enum": ["run", "status", "wait", "stop"],
                 "default": "run",
-                "description": "Use status, wait, or stop with a service_id returned by a detached run. status takes one snapshot. wait returns on the next completion/state change and is capped at a 3-second observation quantum. Prefer activity_observe with a cursor for incremental events. Omit for ordinary commands."
+                "description": "Use status, wait, or stop with a service_id returned by a detached run. status takes one snapshot. wait blocks until completion or its observation budget expires (default 10 seconds, maximum 60 seconds); a live timed wait is progress, not a repeated-call error. Prefer activity_observe with a cursor for incremental events. Omit for ordinary commands."
             },
             "service_id": {
                 "type": "string",
@@ -353,7 +353,7 @@ fn shell_parameter_description() -> &'static str {
 
 fn timeout_parameter_description() -> String {
     format!(
-        "Timeout in seconds for a finite foreground run (native filesystem operations or commands using stdin). Default {DEFAULT_TIMEOUT_SECS}. External commands without stdin automatically detach if still running. With service_action=wait this is only a short observation budget and is capped at 3 seconds."
+        "Timeout in seconds for a finite foreground run (native filesystem operations or commands using stdin). Default {DEFAULT_TIMEOUT_SECS}. External commands without stdin automatically detach if still running. With service_action=wait this is an observation budget (default 10 seconds, maximum 60 seconds); it does not terminate the process."
     )
 }
 
