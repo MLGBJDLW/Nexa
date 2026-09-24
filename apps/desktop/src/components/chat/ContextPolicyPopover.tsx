@@ -58,9 +58,11 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
   }, [open, identity, config.id, config.model, t]);
 
   const capacity = automatic ? snapshot?.modelLimit ?? null : Number(capacityText);
-  const percent = compactPercent ?? 78;
+  const percent = compactPercent ?? snapshot?.defaultCompactPercent ?? 90;
   const invalid = !automatic && (!Number.isInteger(capacity) || !capacity || capacity < 8192 || capacity > (snapshot?.modelLimit ?? 16_777_216));
-  const responseReserve = capacity ? Math.min(snapshot?.responseTokenLimit ?? 16_384, Math.floor(capacity / 2)) : 0;
+  const reserveTarget = snapshot?.responseReserveTarget ?? snapshot?.responseReserve ?? 16_384;
+  const automaticReserve = snapshot?.responseReserveIsAutomatic ?? config.maxTokens == null;
+  const responseReserve = capacity ? Math.min(reserveTarget, automaticReserve ? Math.max(1, Math.floor(capacity / 2)) : capacity) : 0;
   const safetyReserve = capacity ? capacity <= 8192 ? 256 : Math.min(8192, Math.max(1024, Math.floor(capacity / 25))) : 0;
   const promptBudget = capacity ? Math.max(0, capacity - responseReserve - safetyReserve) : 0;
   const trigger = Math.floor(promptBudget * percent / 100);
@@ -147,7 +149,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
 
             <section className="space-y-3 border-t border-border/60 pt-4">
               <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-semibold">{t('chat.contextPolicyTiming')}</h3><span className="text-base font-semibold tabular-nums text-accent">{percent}<span className="ml-0.5 text-xs">%</span></span></div>
-              <div className="grid grid-cols-3 gap-2">{([{ value: 65, label: 'chat.contextPolicyEarlier' }, { value: null, label: 'chat.contextPolicyBalanced' }, { value: 90, label: 'chat.contextPolicyLater' }] as const).map(item => <button type="button" key={item.label} aria-pressed={compactPercent === item.value} className={optionClass(compactPercent === item.value)} onClick={() => { setCompactPercent(item.value); touch(); }}>{t(item.label)}</button>)}</div>
+              <div className="grid grid-cols-3 gap-2">{([{ value: 65, label: 'chat.contextPolicyEarlier' }, { value: null, label: 'chat.contextPolicyBalanced' }, { value: 95, label: 'chat.contextPolicyLater' }] as const).map(item => <button type="button" key={item.label} aria-pressed={compactPercent === item.value} className={optionClass(compactPercent === item.value)} onClick={() => { setCompactPercent(item.value); touch(); }}>{t(item.label)}</button>)}</div>
               <input data-testid="context-policy-threshold" aria-label={t('chat.contextPolicyTiming')} type="range" min={60} max={95} step={1} value={percent} onChange={event => { setCompactPercent(Number(event.target.value)); touch(); }} className="block h-5 w-full cursor-pointer accent-accent" />
               <div className="flex justify-between text-[10px] text-text-tertiary"><span>{t('chat.contextPolicyMoreRoom')}</span><span>{t('chat.contextPolicyMoreHistory')}</span></div>
               <p className="text-xs leading-5 text-text-secondary">{capacity && !invalid ? t('chat.contextPolicyTriggerAt', { tokens: numberLabel(trigger) }) : t('chat.contextPolicyUnknownTrigger')}</p>

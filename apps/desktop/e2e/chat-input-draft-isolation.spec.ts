@@ -213,8 +213,9 @@ test.beforeEach(async ({ page }) => {
           const budget = capacity - reserve - safety;
           return { model: String(args.model), policy, modelLimit: 1047576,
             effectiveContextWindow: capacity, contextAuthority: policy.contextWindow == null ? 'catalog' : 'user_override',
-            responseTokenLimit: 32768, responseReserve: reserve, safetyReserve: safety,
-            promptBudget: budget, triggerTokens: Math.floor(budget * (policy.autoCompactPercent ?? 78) / 100),
+            responseTokenLimit: 384000, responseReserveTarget: 32768, responseReserveIsAutomatic: true,
+            responseReserve: reserve, safetyReserve: safety, defaultCompactPercent: 90,
+            promptBudget: budget, triggerTokens: Math.floor(budget * (policy.autoCompactPercent ?? 90) / 100),
             managedByProvider: localStorage.getItem('e2e-policy-managed') === 'true',
           };
         }
@@ -381,6 +382,10 @@ test('context settings preview the real budget, persist, and reset without chang
   await page.getByTestId('chat-context-trigger').click();
   const panel = page.getByTestId('context-policy-panel');
   await expect(panel.getByRole('heading', { name: 'Context & compaction' })).toBeVisible();
+  // The provider's 384K output ceiling must not be mistaken for its 32K
+  // planning reserve in the live preview of a million-token context.
+  await expect(panel).toContainText('above 906K input tokens');
+  await expect(panel.getByRole('button', { name: 'Balanced · 90%', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await panel.getByRole('button', { name: 'Custom', exact: true }).click();
   await panel.getByRole('button', { name: '128K', exact: true }).click();
   await panel.getByRole('button', { name: 'Earlier · 65%', exact: true }).click();
@@ -397,7 +402,7 @@ test('context settings preview the real budget, persist, and reset without chang
   await panel.getByRole('button', { name: 'Reset to automatic', exact: true }).click();
   await panel.getByTestId('context-policy-save').click();
   await expect(panel.getByRole('button', { name: 'Automatic', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(panel.getByTestId('context-policy-threshold')).toHaveValue('78');
+  await expect(panel.getByTestId('context-policy-threshold')).toHaveValue('90');
 });
 
 test('context settings remain usable at narrow widths and keep edits on save failure', async ({ page }) => {

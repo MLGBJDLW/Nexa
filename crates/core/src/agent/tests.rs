@@ -492,13 +492,10 @@ fn model_step_output_reserve_is_provider_aware_and_respects_explicit_choice() {
     );
     assert_eq!(
         catalog_driven.effective_tokens,
-        catalog_driven.catalog_cap.unwrap()
+        FALLBACK_DEEPSEEK_RESPONSE_TOKENS
     );
-    assert_eq!(
-        catalog_driven.wire_max_tokens(),
-        Some(catalog_driven.effective_tokens),
-    );
-    assert!(catalog_driven.effective_tokens > FALLBACK_DEEPSEEK_RESPONSE_TOKENS);
+    assert_eq!(catalog_driven.wire_max_tokens(), catalog_driven.catalog_cap,);
+    assert!(catalog_driven.requested_tokens > catalog_driven.effective_tokens);
 
     for (provider_type, model) in [
         (ProviderType::OpenAi, "gpt-5.6"),
@@ -516,7 +513,8 @@ fn model_step_output_reserve_is_provider_aware_and_respects_explicit_choice() {
             OutputBudgetAuthority::VerifiedCatalogCapability,
             "{provider_type:?}/{model} should use catalog output authority"
         );
-        assert_eq!(plan.effective_tokens, plan.catalog_cap.unwrap());
+        assert!(plan.effective_tokens <= FALLBACK_DEEPSEEK_RESPONSE_TOKENS);
+        assert_eq!(plan.wire_max_tokens(), plan.catalog_cap);
     }
 
     let private_openai_compatible = AgentConfig {
@@ -565,7 +563,7 @@ fn model_step_output_reserve_is_provider_aware_and_respects_explicit_choice() {
     );
     assert_eq!(
         official_automatic.effective_tokens,
-        official_automatic.catalog_cap.unwrap()
+        FALLBACK_AGENT_RESPONSE_TOKENS
     );
 
     let official_explicit = AgentConfig {
@@ -639,14 +637,14 @@ fn model_step_output_reserve_is_provider_aware_and_respects_explicit_choice() {
 }
 
 #[test]
-fn automatic_output_uses_prompt_headroom_beyond_the_local_half_context_reserve() {
+fn automatic_output_uses_prompt_headroom_beyond_the_local_planning_reserve() {
     let plan = AgentConfig {
         provider_type: Some(ProviderType::OpenAi),
         context_window: Some(100_000),
         ..Default::default()
     }
     .resolved_output_budget("gpt-6-astra");
-    assert_eq!(plan.effective_tokens, 50_000);
+    assert_eq!(plan.effective_tokens, FALLBACK_AGENT_RESPONSE_TOKENS);
     let output = plan.wire_max_tokens_for_prompt(10_000).unwrap();
     assert!(output > 50_000);
     assert!(output + 10_000 <= 100_000);

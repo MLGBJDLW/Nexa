@@ -1942,7 +1942,10 @@ export interface ModelContextPolicySnapshot {
   effectiveContextWindow: number | null;
   contextAuthority: ContextWindowAuthority;
   responseTokenLimit: number;
+  responseReserveTarget: number;
+  responseReserveIsAutomatic: boolean;
   responseReserve: number;
+  defaultCompactPercent: number;
   safetyReserve: number;
   promptBudget: number | null;
   triggerTokens: number | null;

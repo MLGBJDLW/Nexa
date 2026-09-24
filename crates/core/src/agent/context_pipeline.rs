@@ -112,6 +112,35 @@ mod tests {
     use crate::llm::Role;
 
     #[test]
+    fn million_token_models_do_not_compact_at_half_their_window() {
+        let config = crate::agent::AgentConfig {
+            provider_type: Some(crate::llm::ProviderType::DeepSeek),
+            context_window_resolution: Some(
+                crate::provider_catalog::resolve_endpoint_model_context_window(
+                    "deep_seek",
+                    Some("https://api.deepseek.com"),
+                    "deepseek-flash",
+                    None,
+                ),
+            ),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.context_window_resolution.unwrap().capacity_tokens,
+            Some(1_000_000)
+        );
+        let pipeline = ContextPipeline::new_with_resolution(
+            "deepseek-flash",
+            None,
+            config.context_window_resolution,
+            config.resolved_max_response_tokens("deepseek-flash"),
+        );
+        assert!(!pipeline.budget_decision(520_000).should_compact);
+        assert!(!pipeline.budget_decision(850_000).should_compact);
+        assert!(pipeline.budget_decision(950_000).should_compact);
+    }
+
+    #[test]
     fn compact_decision_tracks_budget_usage() {
         let pipeline = ContextPipeline::new("test-model", Some(1_000), 100);
         let decision = pipeline.budget_decision(800);
