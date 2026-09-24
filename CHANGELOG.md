@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.14.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.13...nexa-monorepo-v0.14.14) (2026-09-24)
+
+
+### Features
+
+* **browser:** expose presentation controls and verified action feedback ([ba51272](https://github.com/MLGBJDLW/Nexa/commit/ba5127202479772169027b783d9d1a96083038c9))
+* **chat:** show scoped Git status and diffs in the task capsule ([05e0e2f](https://github.com/MLGBJDLW/Nexa/commit/05e0e2faf9d8ed9e26d695261fffb54cf4aceee6))
+* **updater:** add compact mirror source selection ([df55969](https://github.com/MLGBJDLW/Nexa/commit/df559695b22a72c2edaf52922e25b07ce9c53834))
+* **workspace:** improve browser visibility, live usage, mirrors and Git ([d1703b7](https://github.com/MLGBJDLW/Nexa/commit/d1703b7a130f8b757c5dc153799ff6afb56edd51))
+
+
+### Bug Fixes
+
+* **chat:** refresh confirmed cache usage during active turns ([d0f418e](https://github.com/MLGBJDLW/Nexa/commit/d0f418ed1aeea1bd69937fbfa686b90704d0b5a9))
+* **chat:** refresh Git scope after source selection is saved ([46f1afe](https://github.com/MLGBJDLW/Nexa/commit/46f1afe2edd9015881843a16f5cefdad7049dada))
+* **git:** keep repository failures visible and retryable ([56b0845](https://github.com/MLGBJDLW/Nexa/commit/56b0845af8977fa7a645ca0e0bc37ddea86c8ef7))
+
+
+### Performance Improvements
+
+* **chat:** refresh active-run usage against a fixed conversation baseline ([a7b50b5](https://github.com/MLGBJDLW/Nexa/commit/a7b50b597d37ad4163b04b34caf7c6228433c5f9))
+
 ## [0.14.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.12...nexa-monorepo-v0.14.13) (2026-09-23)
 
 
