@@ -1272,7 +1272,9 @@ impl AgentExecutor {
                 model,
                 self.config.context_window,
                 self.config.context_window_resolution,
-                max_response_tokens,
+                self.config
+                    .resolved_max_response_tokens(model)
+                    .min(max_response_tokens),
             )
             .with_compact_percent(self.config.auto_compact_percent);
             let before_trim = prompt_cache::message_sequence_fingerprint(messages);

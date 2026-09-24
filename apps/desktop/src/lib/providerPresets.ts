@@ -85,11 +85,11 @@ function providerKeyForPresetLookup(provider: string, normalizedBaseUrl: string)
   return isLegacyQwenPayg ? "alibaba_model_studio" : provider;
 }
 
-function isAlibabaBeijingWorkspaceEndpoint(
+function alibabaWorkspacePresetId(
   provider: string,
   normalizedBaseUrl: string,
-): boolean {
-  if (provider !== 'alibaba_model_studio' || !normalizedBaseUrl) return false;
+): string | null {
+  if (provider !== 'alibaba_model_studio' || !normalizedBaseUrl) return null;
   try {
     const url = new URL(normalizedBaseUrl);
     if (
@@ -101,18 +101,23 @@ function isAlibabaBeijingWorkspaceEndpoint(
       url.hash ||
       url.pathname.replace(/\/+$/, '') !== '/compatible-mode/v1'
     ) {
-      return false;
+      return null;
     }
-    const suffix = '.cn-beijing.maas.aliyuncs.com';
     const host = url.hostname.toLowerCase();
-    if (!host.endsWith(suffix)) return false;
-    const workspaceId = host.slice(0, -suffix.length);
-    return workspaceId.length > 0 &&
-      !workspaceId.includes('.') &&
-      workspaceId !== 'trial' &&
-      workspaceId !== 'token-plan';
+    for (const [suffix, presetId] of [
+      ['.cn-beijing.maas.aliyuncs.com', 'alibaba-model-studio'],
+      ['.ap-southeast-1.maas.aliyuncs.com', 'qwen-cloud-intl'],
+    ]) {
+      if (!host.endsWith(suffix)) continue;
+      const workspaceId = host.slice(0, -suffix.length);
+      return workspaceId.length > 0 &&
+        !workspaceId.includes('.') &&
+        workspaceId !== 'trial' &&
+        workspaceId !== 'token-plan' ? presetId : null;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -140,10 +145,11 @@ export function findProviderPreset(input: {
       return PROVIDER_PRESETS.find(preset => preset.id === 'deepseek') ?? null;
     }
     // Alibaba recommends workspace-dedicated PAYG hosts in production. They
-    // share the Beijing model contract while credentials and cache identities
+    // share their regional model contract while credentials and cache identities
     // remain bound to the exact workspace URL elsewhere.
-    if (isAlibabaBeijingWorkspaceEndpoint(lookupProvider, normalizedBaseUrl)) {
-      return PROVIDER_PRESETS.find((preset) => preset.id === 'alibaba-model-studio') ?? null;
+    const workspacePresetId = alibabaWorkspacePresetId(lookupProvider, normalizedBaseUrl);
+    if (workspacePresetId) {
+      return PROVIDER_PRESETS.find((preset) => preset.id === workspacePresetId) ?? null;
     }
     // A configured endpoint is part of the capability identity. Familiar
     // provider labels or hosts must not make an edited endpoint inherit an
@@ -182,7 +188,8 @@ export function findProviderModelPreset(input: {
     return null;
   }
   return (
-    preset.models.find((candidate) => normalizeModelId(candidate.id) === model) ??
+    preset.models.find((candidate) => [candidate.id, ...candidate.descriptor.aliases]
+      .some((id) => normalizeModelId(id) === model)) ??
     null
   );
 }

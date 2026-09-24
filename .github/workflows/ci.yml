@@ -469,6 +469,8 @@ jobs:
           desktop_agent_session::stop::
           completed_agent_appearance_reaches_native_change_notification
           browser::
+          command_dispatch::tests::
+          commands::terminal::tests::
           commands::update::tests::
 
   # Keep this name stable: callers and merge policy treat it as the public CI
@@ -567,3 +569,16 @@ jobs:
 
       - name: Desktop Rust check
         run: cargo check -p nexa-desktop
+
+      - name: Windows terminal and browser contracts
+        run: >-
+          cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
+          command_dispatch::tests::
+          commands::terminal::tests::
+          browser::agent_tool::tests::
+
+      - name: Native PowerShell terminal input and paste
+        shell: pwsh
+        run: |
+          $env:NEXA_TEST_PWSH = (Get-Command pwsh).Source
+          cargo test -p nexa-desktop --no-default-features --bin nexa-desktop native_powershell_input_and_paste_keep_protocol_bytes -- --ignored --nocapture

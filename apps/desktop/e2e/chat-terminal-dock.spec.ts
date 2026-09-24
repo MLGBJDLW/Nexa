@@ -65,6 +65,9 @@ test.beforeEach(async ({ page }) => {
         return 'echo delayed paste';
       },
     } });
+    if (race === 'paste-protocol') Object.defineProperty(navigator, 'clipboard', { value: {
+      readText: async () => 'echo first\r\necho second\necho 中文',
+    } });
 
     const emitEvent = (eventName: string, payload: Record<string, unknown>) => {
       for (const [listenerId, listener] of listeners.entries()) {
@@ -174,6 +177,7 @@ test.beforeEach(async ({ page }) => {
           return null;
         case 'terminal_close_session_cmd':
           terminalDiagnostics.closes.push(String(args.sessionId ?? ''));
+          if (race === 'close-fail' && terminalDiagnostics.closes.length === 1) throw new Error('fixture close failed');
           if (race === 'restart') {
             terminalDiagnostics.pending.push('close');
             await hold('close');
@@ -204,7 +208,7 @@ test.beforeEach(async ({ page }) => {
               processId: 4242,
               conversationId: 'conv-terminal-dock',
             },
-            output: 'PS D:\\Apps\\ask_myself> ',
+            output: `${race === 'paste-protocol' ? '\x1b[?2004h' : ''}PS D:\\Apps\\ask_myself> `,
           };
         case 'terminal_list_sessions_cmd':
           if (race === 'restore' && location.pathname.endsWith(otherConversation.id)) {
@@ -284,6 +288,56 @@ test('terminal remains interactive when WebGL is unavailable', async ({ page }) 
   await page.keyboard.type('echo hello');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __terminalDiagnostics__: { writes: string[] } }).__terminalDiagnostics__.writes.join(''))).toContain('echo hello');
 });
+
+test('interactive terminal dock: close stops the running session in one click', async ({ page }) => {
+  await page.goto('/chat/conv-terminal-dock');
+  await page.getByRole('button', { name: 'Toggle terminal' }).click();
+  await expect(page.getByText('Running', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+  await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { closes: string[] };
+  }).__terminalDiagnostics__.closes)).toEqual(['terminal-session-1']);
+});
+
+test('interactive terminal dock: closing a pending start reaps its eventual process', async ({ page }) => {
+  await page.goto('/chat/conv-terminal-dock?terminalRace=start');
+  await page.getByRole('button', { name: 'Toggle terminal' }).click();
+  await expect(page.getByText('Starting', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+  await page.evaluate(() => (window as unknown as { __releaseTerminalCommand__: (key: string) => void }).__releaseTerminalCommand__('start'));
+  await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { closes: string[] };
+  }).__terminalDiagnostics__.closes)).toEqual(['terminal-session-1']);
+});
+
+test('interactive terminal dock: a failed close retains the session for retry', async ({ page }) => {
+  await page.goto('/chat/conv-terminal-dock?terminalRace=close-fail');
+  await page.getByRole('button', { name: 'Toggle terminal' }).click();
+  await expect(page.getByText('Running', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+  await expect(page.getByText('Error', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+  await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as {
+    __terminalDiagnostics__: { closes: string[] };
+  }).__terminalDiagnostics__.closes)).toEqual(['terminal-session-1', 'terminal-session-1']);
+});
+
+for (const shortcut of ['Control+V', 'Control+Shift+V', 'Shift+Insert']) {
+  test(`interactive terminal dock: ${shortcut} preserves bracketed multiline paste exactly once`, async ({ page }) => {
+    await page.goto('/chat/conv-terminal-dock?terminalRace=paste-protocol');
+    await page.getByRole('button', { name: 'Toggle terminal' }).click();
+    await expect(page.getByText('Running', { exact: true })).toBeVisible();
+    await expect(page.locator('.xterm-helper-textarea')).toBeVisible();
+    await page.locator('.xterm-helper-textarea').focus();
+    await page.keyboard.press(shortcut);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {
+      __terminalDiagnostics__: { writes: string[] };
+    }).__terminalDiagnostics__.writes)).toEqual(['\x1b[200~echo first\recho second\recho 中文\x1b[201~']);
+  });
+}
 
 for (const operation of ['start', 'switch', 'restart', 'paste'] as const) {
 test(`interactive terminal dock: a delayed terminal ${operation} cannot replace another conversation terminal`, async ({ page }) => {

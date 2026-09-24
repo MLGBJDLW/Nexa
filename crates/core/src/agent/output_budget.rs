@@ -152,10 +152,21 @@ impl AgentConfig {
                 capacity
             }
         });
+        // Catalog output capacity is a ceiling, not space every ordinary
+        // agent step will consume. Reserving all 384K/1M output tokens here
+        // would compact a million-token conversation around its midpoint.
+        // Keep the full verified wire ceiling, then clamp it to the actual
+        // prompt headroom at dispatch. Explicit user budgets still reserve
+        // the requested output in full.
+        let reserve_target = if automatic {
+            fallback.min(requested_tokens)
+        } else {
+            requested_tokens
+        };
         let effective_tokens = catalog_cap
             .into_iter()
             .chain(reserve_cap)
-            .fold(requested_tokens, u32::min);
+            .fold(reserve_target, u32::min);
 
         OutputBudgetPlan {
             requested_tokens,
@@ -168,5 +179,10 @@ impl AgentConfig {
 
     pub fn resolved_max_response_tokens(&self, model: &str) -> u32 {
         self.resolved_output_budget(model).effective_tokens
+    }
+
+    pub fn resolved_response_token_limit(&self, model: &str) -> u32 {
+        let plan = self.resolved_output_budget(model);
+        plan.wire_max_tokens().unwrap_or(plan.effective_tokens)
     }
 }

@@ -236,6 +236,70 @@ impl<T, R> SessionResource<T, R> {
 type SharedSession = Arc<SessionResource<BrowserSession, headless_chrome::Browser>>;
 type BrowserSessionRegistry = Arc<Mutex<HashMap<String, SharedSession>>>;
 
+fn owned_session_resources<T, R>(
+    sessions: &HashMap<String, Arc<SessionResource<T, R>>>,
+    conversation_id: Option<&str>,
+) -> Vec<(String, Arc<SessionResource<T, R>>)> {
+    let mut owned = sessions
+        .iter()
+        .filter(|(_, resource)| {
+            belongs_to_conversation(&resource.conversation_id, conversation_id)
+                && !resource.closing.load(Ordering::Acquire)
+        })
+        .map(|(id, resource)| (id.clone(), Arc::clone(resource)))
+        .collect::<Vec<_>>();
+    owned.sort_by(|left, right| left.0.cmp(&right.0));
+    owned
+}
+
+/// Opening has already succeeded. A failed capture must not invite the model to
+/// create a duplicate tab/session or replay navigation to a page with side effects.
+pub fn browser_open_observation_failure(
+    call_id: &str,
+    action: &str,
+    session_id: &str,
+    tab_id: &str,
+    error: impl std::fmt::Display,
+) -> ToolResult {
+    let artifacts = serde_json::json!({
+        "kind": "browserOpenReceipt",
+        "action": action,
+        "sessionId": session_id,
+        "tabId": tab_id,
+        "opened": true,
+        "observationPending": true,
+        "retrySafe": false,
+        "sideEffect": "may_have_occurred",
+        "recovery": { "action": "observe", "sessionId": session_id, "tabId": tab_id },
+    });
+    ToolResult {
+        call_id: call_id.into(),
+        content: format!(
+            "Browser tab was opened, but its initial observation failed: {error}. Do not repeat {action}; use browser_session observe with sessionId={session_id} and tabId={tab_id} to inspect the existing page.\n{artifacts}"
+        ),
+        is_error: true,
+        artifacts: Some(artifacts),
+    }
+}
+
+/// Bind a completed opening capture to the same observation used for input.
+/// The workflow accepts this receipt only for create_session/open_tab, never
+/// a plain mutation acknowledgement or an arbitrary screenshot attachment.
+pub fn mark_browser_open_observation(result: ToolResult, action: &str) -> ToolResult {
+    let mut output = result.output_channels();
+    if !result.is_error && matches!(action, "create_session" | "open_tab") {
+        if let (Some(data), Some(artifacts)) = (&output.data, &mut output.artifacts) {
+            artifacts["openingObservation"] = serde_json::json!({
+                "action": action,
+                "sessionId": data.get("sessionId"),
+                "tabId": data.get("tabId"),
+                "observationId": data.get("observationId"),
+            });
+        }
+    }
+    ToolResult::from_output(result.call_id, result.is_error, output)
+}
+
 fn belongs_to_conversation(owner: &Option<String>, conversation_id: Option<&str>) -> bool {
     owner.as_deref() == conversation_id
 }
@@ -714,12 +778,13 @@ impl Tool for BrowserSessionTool {
     }
 
     fn description(&self) -> &str {
-        "Operate a persistent, isolated Chromium session with stable session/tab IDs. observe atomically returns screenshot, text, URL, viewport, diagnostics, and observation-scoped semantic element refs. Interactions reject stale observations. wait_for is condition-based and becomes a browser Activity instead of blocking the agent."
+        "Operate a persistent, isolated Chromium session with stable session/tab IDs. Use list_sessions to recover existing sessions in this conversation. create_session or open_tab with url opens the page and returns its initial screenshot and observation-scoped refs in one call. observe atomically returns screenshot, text, URL, viewport, diagnostics, and semantic element refs. Interactions reject stale observations. wait_for is condition-based and becomes a browser Activity instead of blocking the agent."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
         let actions = [
             "create_session",
+            "list_sessions",
             "list_tabs",
             "open_tab",
             "activate_tab",
@@ -734,14 +799,15 @@ impl Tool for BrowserSessionTool {
             "close_tab",
             "close_session",
         ];
-        let action_variants = browser_session_action_schema_variants(&actions, &["create_session"]);
+        let action_variants =
+            browser_session_action_schema_variants(&actions, &["create_session", "list_sessions"]);
         serde_json::json!({
             "type": "object",
             "properties": {
                 "action": { "type": "string", "enum": actions },
                 "sessionId": { "type": "string", "description": "Explicit session target. Required for close_session and close_tab so terminal receipts bind the exact requested target." },
                 "tabId": { "type": "string", "description": "Explicit tab target. Required for close_tab so a final-tab receipt binds the exact requested target." },
-                "url": { "type": "string" },
+                "url": { "type": "string", "description": "URL for navigate, create_session, or open_tab. Creating with a URL returns the initial page observation; use its returned sessionId, tabId and observationId directly." },
                 "observationId": { "type": "string" },
                 "targetRef": { "type": "string" },
                 "query": { "type": "string", "maxLength": 240, "description": "observe only: case-insensitive substring filter on accessible name, role, or tag. Use this to locate controls omitted from a large observation; the result returns fresh refs and coverage." },
@@ -811,7 +877,59 @@ impl Tool for BrowserSessionTool {
             ));
         }
 
+        if action == "list_sessions" {
+            let owned = owned_session_resources(
+                &*self.sessions.lock().map_err(|_| {
+                    CoreError::Internal("browser session registry is unavailable".into())
+                })?,
+                conversation_id,
+            );
+            // Discovery is also the recovery path for pending operations. Never
+            // wait for a CDP operation lock merely to rediscover a session ID.
+            let sessions = owned
+                .into_iter()
+                .filter_map(|(id, resource)| {
+                    if resource.closing.load(Ordering::Acquire) {
+                        return None;
+                    }
+                    let snapshot = match resource.value.try_lock() {
+                        Ok(value) => value.as_ref().map(|session| {
+                            serde_json::json!({
+                                "id": id,
+                                "activeTabId": session.active_tab_id,
+                                "tabCount": session.tabs.len(),
+                                "status": "ready",
+                            })
+                        }),
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            Some(serde_json::json!({ "id": id, "status": "busy" }))
+                        }
+                        Err(std::sync::TryLockError::Poisoned(_)) => {
+                            Some(serde_json::json!({ "id": id, "status": "unavailable" }))
+                        }
+                    };
+                    snapshot
+                })
+                .collect::<Vec<_>>();
+            let artifacts = serde_json::json!({ "kind": "browserSessions", "sessions": sessions });
+            return Ok(ToolResult {
+                call_id: call_id.into(),
+                content: serde_json::to_string_pretty(&artifacts)?,
+                is_error: false,
+                artifacts: Some(artifacts),
+            });
+        }
+
         if action == "create_session" {
+            // Validate before allocating a browser; never silently discard a URL.
+            let validated_url = match args.url.as_deref() {
+                Some(url) => Some(
+                    validate_url_for_browser_capture(url)
+                        .await
+                        .map_err(invalid)?,
+                ),
+                None => None,
+            };
             let session_id = format!("browser_{}", uuid::Uuid::new_v4());
             let tab_id = format!("tab_{}", uuid::Uuid::new_v4());
             let session_id_for_worker = session_id.clone();
@@ -838,17 +956,47 @@ impl Tool for BrowserSessionTool {
                 Ok((session, browser))
             })
             .await?;
+            let resource = Arc::new(SessionResource::new(
+                session,
+                conversation_id_for_worker,
+                browser,
+            ));
             self.sessions
                 .lock()
                 .map_err(|_| CoreError::Internal("browser session registry is unavailable".into()))?
-                .insert(
-                    session_id_for_worker,
-                    Arc::new(SessionResource::new(
-                        session,
-                        conversation_id_for_worker,
-                        browser,
+                .insert(session_id_for_worker, Arc::clone(&resource));
+            if let Some(url) = validated_url {
+                let tab_id_for_worker = tab_id.clone();
+                let capture = blocking(move || {
+                    let mut session = resource.lock()?;
+                    let tab = &session.tabs[&tab_id_for_worker];
+                    tab.allow_loopback
+                        .store(is_loopback_url(&url), Ordering::Relaxed);
+                    super::browser_navigation::navigate_to_document(
+                        &tab.tab,
+                        url.as_str(),
+                        Duration::from_secs(10),
+                    )?;
+                    observe_tab(
+                        &mut session,
+                        &tab_id_for_worker,
+                        0,
+                        &BrowserObservationOptions::default(),
+                    )
+                })
+                .await;
+                return match capture {
+                    Ok(capture) => observation_result(call_id, &session_id, &tab_id, capture)
+                        .map(|result| mark_browser_open_observation(result, &action)),
+                    Err(error) => Ok(browser_open_observation_failure(
+                        call_id,
+                        &action,
+                        &session_id,
+                        &tab_id,
+                        error,
                     )),
-                );
+                };
+            }
             return Ok(ToolResult {
                 call_id: call_id.to_string(),
                 content: format!("Created browser session {session_id} with tab {tab_id}."),
@@ -921,21 +1069,44 @@ impl Tool for BrowserSessionTool {
                         .new_tab()
                         .map_err(|error| error.to_string())?,
                 )?;
-                if let Some(url) = validated_url {
-                    browser_tab
-                        .allow_loopback
-                        .store(is_loopback_url(&url), Ordering::Relaxed);
-                    super::browser_navigation::navigate_to_document(
-                        &browser_tab.tab,
-                        url.as_str(),
-                        Duration::from_secs(10),
-                    )?;
-                }
                 session.tabs.insert(tab_id_for_worker.clone(), browser_tab);
                 session.active_tab_id = tab_id_for_worker;
                 Ok(())
             })
             .await?;
+            if let Some(url) = validated_url {
+                let resource = Arc::clone(&session);
+                let tab_id_for_worker = tab_id.clone();
+                let capture = blocking(move || {
+                    let mut session = resource.lock()?;
+                    let tab = &session.tabs[&tab_id_for_worker];
+                    tab.allow_loopback
+                        .store(is_loopback_url(&url), Ordering::Relaxed);
+                    super::browser_navigation::navigate_to_document(
+                        &tab.tab,
+                        url.as_str(),
+                        Duration::from_secs(10),
+                    )?;
+                    observe_tab(
+                        &mut session,
+                        &tab_id_for_worker,
+                        0,
+                        &BrowserObservationOptions::default(),
+                    )
+                })
+                .await;
+                return match capture {
+                    Ok(capture) => observation_result(call_id, &session_id, &tab_id, capture)
+                        .map(|result| mark_browser_open_observation(result, &action)),
+                    Err(error) => Ok(browser_open_observation_failure(
+                        call_id,
+                        &action,
+                        &session_id,
+                        &tab_id,
+                        error,
+                    )),
+                };
+            }
             return Ok(ToolResult {
                 call_id: call_id.to_string(),
                 content: format!("Opened browser tab {tab_id}."),
@@ -1220,7 +1391,7 @@ impl Tool for BrowserSessionTool {
                 "Unsupported browser_session action '{action}'"
             )));
         }
-        let mut capture = match capture_after_action {
+        let capture = match capture_after_action {
             Some(capture) => capture,
             None => {
                 let session_for_worker = Arc::clone(&session);
@@ -1239,22 +1410,31 @@ impl Tool for BrowserSessionTool {
                 .await?
             }
         };
-        capture.data["sessionId"] = serde_json::json!(session_id);
-        let output = ToolOutput {
-            llm_content: serde_json::to_string_pretty(&capture.data)?,
-            display_content: format!("Observed browser tab {tab_id}."),
-            data: Some(capture.data.clone()),
-            artifacts: Some(
-                serde_json::json!({ "kind": "browserObservation", "sessionId": session_id, "observation": capture.data }),
-            ),
-            attachments: vec![ToolOutputAttachment {
-                name: "browser-session.png".to_string(),
-                mime_type: "image/png".to_string(),
-                data: serde_json::json!({ "base64": STANDARD.encode(capture.screenshot) }),
-            }],
-        };
-        Ok(ToolResult::from_output(call_id, false, output))
+        observation_result(call_id, &session_id, &tab_id, capture)
     }
+}
+
+fn observation_result(
+    call_id: &str,
+    session_id: &str,
+    tab_id: &str,
+    mut capture: ObservationCapture,
+) -> Result<ToolResult, CoreError> {
+    capture.data["sessionId"] = serde_json::json!(session_id);
+    let output = ToolOutput {
+        llm_content: serde_json::to_string_pretty(&capture.data)?,
+        display_content: format!("Observed browser tab {tab_id}."),
+        data: Some(capture.data.clone()),
+        artifacts: Some(
+            serde_json::json!({ "kind": "browserObservation", "sessionId": session_id, "observation": capture.data }),
+        ),
+        attachments: vec![ToolOutputAttachment {
+            name: "browser-session.png".to_string(),
+            mime_type: "image/png".to_string(),
+            data: serde_json::json!({ "base64": STANDARD.encode(capture.screenshot) }),
+        }],
+    };
+    Ok(ToolResult::from_output(call_id, false, output))
 }
 
 fn required_string<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, String> {
@@ -1267,6 +1447,204 @@ fn required_string<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_discovery_only_returns_current_owner_and_live_resources() {
+        let own = Arc::new(SessionResource::new((), Some("current".into()), ()));
+        let other = Arc::new(SessionResource::new((), Some("other".into()), ()));
+        let detached = Arc::new(SessionResource::new((), None, ()));
+        let closing = Arc::new(SessionResource::new((), Some("current".into()), ()));
+        closing.closing.store(true, Ordering::Release);
+        let sessions = HashMap::from([
+            ("owned".into(), own),
+            ("other".into(), other),
+            ("detached".into(), detached),
+            ("closing".into(), closing),
+        ]);
+        let owned = owned_session_resources(&sessions, Some("current"));
+        assert_eq!(
+            owned.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["owned"]
+        );
+        assert_eq!(owned_session_resources(&sessions, None)[0].0, "detached");
+        assert!(owned_session_resources(&sessions, Some("missing")).is_empty());
+    }
+
+    #[test]
+    fn opened_page_capture_failure_preserves_target_and_prohibits_replay() {
+        for action in ["create_session", "open_tab"] {
+            let result =
+                browser_open_observation_failure("call", action, "session", "tab", "capture lost");
+            assert!(result.is_error);
+            let receipt = result.artifacts.as_ref().unwrap();
+            assert_eq!(receipt["opened"], true);
+            assert_eq!(receipt["retrySafe"], false);
+            assert_eq!(
+                receipt["recovery"],
+                serde_json::json!({"action":"observe","sessionId":"session","tabId":"tab"})
+            );
+            assert!(result.llm_context_content().contains("Do not repeat"));
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_validates_url_before_launch_and_empty_discovery_needs_no_browser() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let tool = BrowserSessionTool::default();
+        for url in [
+            "javascript:alert(1)",
+            "file:///private.txt",
+            "http://169.254.169.254/latest",
+        ] {
+            let args = serde_json::json!({"action":"create_session","url":url}).to_string();
+            assert!(tool
+                .execute(ToolExecutionContext::new("create", &args, &db, &[]))
+                .await
+                .is_err());
+            assert!(tool.sessions.lock().unwrap().is_empty());
+        }
+        let listed = tool
+            .execute(ToolExecutionContext::new(
+                "list",
+                r#"{"action":"list_sessions"}"#,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(listed.artifacts.unwrap()["sessions"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an installed Chromium browser"]
+    async fn browser_startup_url_returns_actionable_pixels_and_recoverable_session() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let page_loads = Arc::new(AtomicUsize::new(0));
+        let loads = page_loads.clone();
+        let server = tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let loads = loads.clone();
+                tokio::spawn(async move {
+                    let mut request = vec![0; 8192];
+                    let count = stream.read(&mut request).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&request[..count]);
+                    if request.starts_with("GET /first ") || request.starts_with("GET /second ") {
+                        loads.fetch_add(1, Ordering::SeqCst);
+                    }
+                    let body = "<!doctype html><html><body><button onclick=\"document.getElementById('status').textContent='Saved once'\">Save fixture</button><p id='status'>Ready fixture</p></body></html>";
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+        let db = crate::db::Database::open_memory().unwrap();
+        let tool = BrowserSessionTool::default();
+        let args = serde_json::json!({"action":"create_session","url":format!("{base_url}/first")})
+            .to_string();
+        let created = tool
+            .execute(
+                ToolExecutionContext::new("create", &args, &db, &[])
+                    .with_conversation_id(Some("owner")),
+            )
+            .await
+            .unwrap();
+        assert!(!created.is_error, "{}", created.content);
+        let output = created.output_channels();
+        let observed = output.data.unwrap();
+        assert_eq!(output.attachments.len(), 1);
+        assert_eq!(observed["url"], format!("{base_url}/first"));
+        assert!(observed["text"].as_str().unwrap().contains("Ready fixture"));
+        let session_id = observed["sessionId"].as_str().unwrap();
+        let tab_id = observed["tabId"].as_str().unwrap();
+        let resource = session_by_id(&tool.sessions, session_id, Some("owner")).unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let busy = std::thread::spawn(move || {
+            let _operation = resource.lock().unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let listed = tokio::time::timeout(
+            Duration::from_secs(1),
+            tool.execute(
+                ToolExecutionContext::new(
+                    "discover-busy",
+                    r#"{"action":"list_sessions"}"#,
+                    &db,
+                    &[],
+                )
+                .with_conversation_id(Some("owner")),
+            ),
+        )
+        .await;
+        release_tx.send(()).unwrap();
+        busy.join().unwrap();
+        let busy_session = &listed
+            .expect("session discovery must not wait for a browser operation")
+            .unwrap()
+            .artifacts
+            .unwrap()["sessions"][0];
+        assert_eq!(busy_session["id"], session_id);
+        assert_eq!(busy_session["status"], "busy");
+        let args = serde_json::json!({"action":"click","sessionId":session_id,"tabId":tab_id,"observationId":observed["observationId"],"targetRef":"e_1"}).to_string();
+        let clicked = tool
+            .execute(
+                ToolExecutionContext::new("click", &args, &db, &[])
+                    .with_conversation_id(Some("owner")),
+            )
+            .await
+            .unwrap();
+        assert!(!clicked.is_error, "{}", clicked.content);
+        assert!(clicked.llm_context_content().contains("Saved once"));
+        for (owner, expected) in [("owner", 1), ("different", 0)] {
+            let listed = tool
+                .execute(
+                    ToolExecutionContext::new("list", r#"{"action":"list_sessions"}"#, &db, &[])
+                        .with_conversation_id(Some(owner)),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                listed.artifacts.unwrap()["sessions"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                expected
+            );
+        }
+        let args = serde_json::json!({"action":"open_tab","sessionId":session_id,"url":format!("{base_url}/second")}).to_string();
+        let opened = tool
+            .execute(
+                ToolExecutionContext::new("open", &args, &db, &[])
+                    .with_conversation_id(Some("owner")),
+            )
+            .await
+            .unwrap();
+        assert!(!opened.is_error, "{}", opened.content);
+        let output = opened.output_channels();
+        assert_eq!(output.attachments.len(), 1);
+        let second = output.data.unwrap();
+        assert_eq!(second["url"], format!("{base_url}/second"));
+        assert_ne!(second["tabId"], tab_id);
+        assert_eq!(second["sessionId"], session_id);
+        assert_eq!(
+            page_loads.load(Ordering::SeqCst),
+            2,
+            "one navigation per opening"
+        );
+        let args = serde_json::json!({"action":"close_session","sessionId":session_id}).to_string();
+        tool.execute(
+            ToolExecutionContext::new("close", &args, &db, &[]).with_conversation_id(Some("owner")),
+        )
+        .await
+        .unwrap();
+        assert!(tool.sessions.lock().unwrap().is_empty());
+        server.abort();
+    }
 
     #[test]
     fn observation_filter_pages_original_refs_and_prioritizes_visible_controls() {
@@ -1469,6 +1847,7 @@ mod tests {
         let actions = schema["properties"]["action"]["enum"].as_array().unwrap();
         for action in [
             "create_session",
+            "list_sessions",
             "observe",
             "click",
             "wait_for",

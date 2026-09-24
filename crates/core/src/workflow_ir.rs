@@ -647,7 +647,8 @@ impl WorkflowIr {
         let verified_browser_visual_observation =
             is_verified_browser_visual_observation(tool_name, artifacts)
                 && (tool_name != "browser_session"
-                    || normalized_tool_action(tool_arguments).as_deref() == Some("observe"));
+                    || normalized_tool_action(tool_arguments).as_deref() == Some("observe")
+                    || verified_browser_opening_observation(tool_arguments, artifacts));
         if verified_browser_visual_observation {
             self.record_gate(
                 "browser-visual-observation",
@@ -1768,13 +1769,47 @@ fn normalized_tool_action(tool_arguments: Option<&str>) -> Option<String> {
 fn browser_session_action_invalidates_observation(tool_arguments: Option<&str>) -> bool {
     match normalized_tool_action(tool_arguments).as_deref() {
         // Inventory calls do not change the shared page, and observe is the
-        // only action authorized to establish a fresh pixel completion gate.
+        // usual read authorized to establish a fresh pixel completion gate.
         Some("list_sessions" | "list_tabs" | "observe") | None => false,
         // Every other successful browser_session action either changes the
         // session/tab/page or advances visible interaction state. Treat future
         // actions fail-closed so a newly added mutation cannot reuse old pixels.
         Some(_) => true,
     }
+}
+
+fn verified_browser_opening_observation(
+    arguments: Option<&str>,
+    artifacts: Option<&serde_json::Value>,
+) -> bool {
+    let Some(action) = normalized_tool_action(arguments) else {
+        return false;
+    };
+    if !matches!(action.as_str(), "create_session" | "open_tab") {
+        return false;
+    }
+    let Some(artifacts) = artifacts else {
+        return false;
+    };
+    let Some(receipt) = artifacts.pointer("/artifacts/openingObservation") else {
+        return false;
+    };
+    let Some(data) = artifacts.get("data") else {
+        return false;
+    };
+    if receipt.get("action").and_then(serde_json::Value::as_str) != Some(action.as_str()) {
+        return false;
+    }
+    ["sessionId", "tabId", "observationId"]
+        .into_iter()
+        .all(|key| {
+            data.get(key)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| {
+                    !value.trim().is_empty()
+                        && receipt.get(key).and_then(serde_json::Value::as_str) == Some(value)
+                })
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3166,6 +3201,98 @@ mod tests {
             assert!(
                 workflow.completion_allowed(),
                 "a fresh screenshot-bearing observe must repair `{action}`"
+            );
+        }
+    }
+
+    #[test]
+    fn browser_opening_pixels_complete_the_gate_only_with_a_bound_capture_receipt() {
+        use crate::tools::browser_session_tool::{
+            browser_open_observation_failure, mark_browser_open_observation,
+        };
+        use crate::tools::{ToolOutput, ToolResult};
+        for action in ["create_session", "open_tab"] {
+            let plan = interaction_plan("Open the browser and visit https://example.com");
+            let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+            let args = serde_json::json!({"action":action,"url":"https://example.com"}).to_string();
+            let result = mark_browser_open_observation(
+                ToolResult::from_output(
+                    "opening",
+                    false,
+                    ToolOutput {
+                        llm_content: "Fresh page state".into(),
+                        display_content: "Fresh page state".into(),
+                        data: Some(
+                            serde_json::json!({"sessionId":"session","tabId":"tab","observationId":"capture","screenshotHash":"pixels"}),
+                        ),
+                        artifacts: Some(serde_json::json!({"kind":"browserObservation"})),
+                        attachments: vec![],
+                    },
+                ),
+                action,
+            );
+            for invalid in [
+                "sessionId",
+                "tabId",
+                "observationId",
+                "action",
+                "pixels",
+                "receipt",
+            ] {
+                let mut artifacts = result.artifacts.clone().unwrap();
+                match invalid {
+                    "pixels" => artifacts["data"]["screenshotHash"] = serde_json::Value::Null,
+                    "receipt" => {
+                        artifacts["artifacts"]["openingObservation"] = serde_json::Value::Null
+                    }
+                    key => {
+                        artifacts["artifacts"]["openingObservation"][key] =
+                            serde_json::json!("different")
+                    }
+                }
+                workflow.observe_tool_result_with_arguments(
+                    "bad-opening",
+                    "browser_session",
+                    Some(&args),
+                    false,
+                    Some(&artifacts),
+                    "Opened a page",
+                );
+                assert!(
+                    !workflow.completion_allowed(),
+                    "{action}: {invalid} must not count as fresh capture"
+                );
+            }
+            workflow.observe_tool_result_with_arguments(
+                "opening",
+                "browser_session",
+                Some(&args),
+                false,
+                result.artifacts.as_ref(),
+                "Opened and observed the exact page",
+            );
+            assert!(
+                workflow.completion_allowed(),
+                "{action} includes an actual bound capture"
+            );
+            let failed = browser_open_observation_failure(
+                "later-opening",
+                action,
+                "session",
+                "new-tab",
+                "capture unavailable",
+            );
+            workflow.observe_tool_result_with_arguments(
+                "later-opening",
+                "browser_session",
+                Some(&args),
+                true,
+                failed.artifacts.as_ref(),
+                &failed.content,
+            );
+            assert!(
+                !workflow.completion_allowed(),
+                "failed new opening invalidates previous page evidence"
             );
         }
     }

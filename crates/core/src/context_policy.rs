@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{db::Database, error::CoreError};
 
-pub const DEFAULT_COMPACT_PERCENT: u8 = 78;
+pub const DEFAULT_COMPACT_PERCENT: u8 = 90;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -107,7 +107,10 @@ pub struct ModelContextPolicySnapshot {
     pub effective_context_window: Option<u32>,
     pub context_authority: crate::conversation::memory::ContextWindowAuthority,
     pub response_token_limit: u32,
+    pub response_reserve_target: u32,
+    pub response_reserve_is_automatic: bool,
     pub response_reserve: u32,
+    pub default_compact_percent: u8,
     pub safety_reserve: u32,
     pub prompt_budget: Option<u32>,
     pub trigger_tokens: Option<u32>,
@@ -139,6 +142,10 @@ pub fn policy_snapshot(
         policy.context_window,
     );
     let mut agent = crate::agent::AgentConfig {
+        max_tokens: config
+            .max_tokens
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0),
         provider_type: Some(crate::provider_registry::provider_type_for_parts(
             &config.provider,
             config.base_url.as_deref(),
@@ -153,7 +160,8 @@ pub fn policy_snapshot(
         ),
         ..Default::default()
     };
-    let response_token_limit = agent.resolved_max_response_tokens(&config.model);
+    let response_token_limit = agent.resolved_response_token_limit(&config.model);
+    let response_reserve_target = agent.resolved_max_response_tokens(&config.model);
     agent.context_window_resolution = Some(resolved);
     let response_reserve = agent.resolved_max_response_tokens(&config.model);
     let safety_reserve = resolved
@@ -171,7 +179,10 @@ pub fn policy_snapshot(
         effective_context_window: resolved.capacity_tokens,
         context_authority: resolved.authority,
         response_token_limit,
+        response_reserve_target,
+        response_reserve_is_automatic: agent.max_tokens.is_none(),
         response_reserve,
+        default_compact_percent: DEFAULT_COMPACT_PERCENT,
         safety_reserve,
         prompt_budget,
         trigger_tokens: prompt_budget
@@ -184,6 +195,31 @@ pub fn policy_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_distinguishes_output_capacity_from_planning_reserve() {
+        let db = Database::open_memory().unwrap();
+        let mut config: crate::conversation::AgentConfig =
+            serde_json::from_value(serde_json::json!({
+                "id":"test", "name":"DeepSeek", "provider":"deep_seek", "apiKey":"",
+                "baseUrl":"https://api.deepseek.com", "model":"deepseek-flash", "isDefault":true,
+                "createdAt":"", "updatedAt":""
+            }))
+            .unwrap();
+        let automatic = policy_snapshot(&db, &config).unwrap();
+        assert_eq!(automatic.model_limit, Some(1_000_000));
+        assert_eq!(automatic.response_token_limit, 384_000);
+        assert_eq!(automatic.response_reserve, 32_768);
+        assert_eq!(automatic.trigger_tokens, Some(863_136));
+        assert!(automatic.response_reserve_is_automatic);
+
+        config.max_tokens = Some(120_000);
+        let explicit = policy_snapshot(&db, &config).unwrap();
+        assert_eq!(explicit.response_token_limit, 120_000);
+        assert_eq!(explicit.response_reserve, 120_000);
+        assert!(!explicit.response_reserve_is_automatic);
+        assert_eq!(explicit.trigger_tokens, Some(784_627));
+    }
 
     #[test]
     fn model_policies_survive_reopen_and_never_cross_endpoints_or_models() {

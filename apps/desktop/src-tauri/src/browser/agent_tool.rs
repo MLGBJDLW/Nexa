@@ -190,6 +190,29 @@ impl NativeBrowserSessionTool {
                 )
             })
     }
+
+    async fn observe_opened_tab(
+        &self,
+        call_id: &str,
+        action: &str,
+        session_id: &str,
+        tab_id: &str,
+    ) -> Result<ToolResult, CoreError> {
+        let observed = self
+            .state
+            .observe(session_id, tab_id, call_id)
+            .await
+            .map_err(Self::invalid)
+            .and_then(|observation| observation_result(call_id, observation));
+        Ok(match observed {
+            Ok(result) => nexa_core::tools::browser_session_tool::mark_browser_open_observation(
+                result, action,
+            ),
+            Err(error) => nexa_core::tools::browser_session_tool::browser_open_observation_failure(
+                call_id, action, session_id, tab_id, error,
+            ),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -379,7 +402,7 @@ impl Tool for NativeBrowserSessionTool {
     }
 
     fn description(&self) -> &str {
-        "Operate the user-visible Nexa Browser Workspace. The Agent and user share the same native WebView session, tabs, cookies, DOM, and control lease. show_workspace expands the existing browser; hide_workspace collapses it while preserving tabs and revoking pending inputs. Use observe before interactions; element refs are observation-scoped and rejected after user takeover, collapse, or page changes."
+        "Operate the user-visible Nexa Browser Workspace. The Agent and user share the same native WebView session, tabs, cookies, DOM, and control lease. Use list_sessions/list_tabs to recover existing pages. create_session with url or open_tab returns the initial page screenshot and observation-scoped refs in one call. show_workspace expands the existing browser; hide_workspace collapses it while preserving tabs and revoking pending inputs. Use fresh observations before interactions; refs are rejected after user takeover, collapse, or page changes."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -400,7 +423,7 @@ impl Tool for NativeBrowserSessionTool {
                 "action": { "type": "string", "enum": actions },
                 "sessionId": { "type": "string", "description": "Explicit session target. Required for close_session and close_tab so terminal receipts bind the exact requested target." },
                 "tabId": { "type": "string", "description": "Explicit tab target. Required for close_tab so a final-tab receipt binds the exact requested target." },
-                "url": { "type": "string" },
+                "url": { "type": "string", "description": "URL for navigate, create_session, or open_tab. Creating with a URL returns the initial page observation; use its returned sessionId, tabId and observationId directly." },
                 "observationId": { "type": "string" },
                 "targetRef": { "type": "string" },
                 "query": { "type": "string", "maxLength": 240, "description": "observe only: case-insensitive substring filter on accessible name, role, or tag. Use this to locate controls omitted from a large observation; the result returns fresh refs and coverage." },
@@ -557,6 +580,14 @@ impl Tool for NativeBrowserSessionTool {
                 .state
                 .acquire_agent_control(&session.id, context.call_id)
                 .map_err(Self::invalid)?;
+            if args.url.is_some() {
+                let tab_id = session.active_tab_id.as_deref().ok_or_else(|| {
+                    Self::invalid("Created browser session has no active tab; use list_sessions to inspect it")
+                })?;
+                return self
+                    .observe_opened_tab(context.call_id, &action, &session.id, tab_id)
+                    .await;
+            }
             return success(
                 context.call_id,
                 "Created shared browser session.",
@@ -688,17 +719,15 @@ impl Tool for NativeBrowserSessionTool {
             receipt.finish(
                 ActivityState::Completed,
                 serde_json::json!({
-                    "stage": "observed",
+                    "stage": "opened",
                     "action": action,
                     "browserSessionId": session_id,
                     "tabId": &tab.id,
                 }),
             )?;
-            return success(
-                context.call_id,
-                "Opened a shared browser tab.",
-                serde_json::json!({ "kind": "browserTab", "sessionId": session_id, "tab": tab }),
-            );
+            return self
+                .observe_opened_tab(context.call_id, &action, session_id, &tab.id)
+                .await;
         }
 
         let session = self.state.session_info(session_id).map_err(Self::invalid)?;

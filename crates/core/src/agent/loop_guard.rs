@@ -39,6 +39,7 @@ pub(crate) struct AgentLoopGuard {
     last_tool_signature: Option<String>,
     repeated_tool_signature_count: u32,
     repeated_tool_intervention_used: bool,
+    pending_live_wait_signatures: Vec<String>,
     observation_fingerprints: HashMap<String, blake3::Hash>,
     discovery_fingerprints: std::collections::HashSet<(String, blake3::Hash)>,
     repeated_discovery_results: u32,
@@ -72,6 +73,10 @@ impl AgentLoopGuard {
         tool_calls: &[ToolCallRequest],
     ) -> Option<LoopGuardIntervention> {
         self.record_protocol_progress();
+        self.pending_live_wait_signatures = tool_calls
+            .iter()
+            .map(|call| tool_call_batch_signature(std::slice::from_ref(call)))
+            .collect();
         if !tool_calls.is_empty() {
             let has_action_progress = tool_calls
                 .iter()
@@ -230,15 +235,22 @@ impl AgentLoopGuard {
         artifacts: Option<&Value>,
     ) -> Option<LoopGuardIntervention> {
         // A timed, authoritative wait for a live process/worker is productive
-        // waiting, even when a compiler is quiet. Zero-duration polls, errors,
-        // terminal receipts and mixed action batches retain normal guards.
-        if !is_error
-            && is_live_wait_receipt(call, artifacts)
-            && self.last_tool_signature.as_deref()
-                == Some(tool_call_batch_signature(std::slice::from_ref(call)).as_str())
-        {
-            self.repeated_tool_signature_count = 0;
-            self.repeated_tool_intervention_used = false;
+        // waiting, even when a compiler is quiet. Every call in a parallel
+        // batch must supply its own live timed receipt; errors, instant polls
+        // and mixed action batches retain the normal guard.
+        if !is_error && is_live_wait_receipt(call, artifacts) {
+            let signature = tool_call_batch_signature(std::slice::from_ref(call));
+            if let Some(index) = self
+                .pending_live_wait_signatures
+                .iter()
+                .position(|pending| pending == &signature)
+            {
+                self.pending_live_wait_signatures.remove(index);
+                if self.pending_live_wait_signatures.is_empty() {
+                    self.repeated_tool_signature_count = 0;
+                    self.repeated_tool_intervention_used = false;
+                }
+            }
         }
         if !is_error && tool_call_is_discovery(&call.name) {
             // Compare actual results across alternating discovery tools and
@@ -348,6 +360,18 @@ fn is_live_wait_receipt(call: &ToolCallRequest, artifacts: Option<&Value>) -> bo
         call.name.as_str(),
         receipt.get("kind").and_then(Value::as_str),
     ) {
+        ("run_shell", Some("managedService")) => {
+            args.get("service_action").and_then(Value::as_str) == Some("wait")
+                && args
+                    .get("service_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !id.is_empty())
+                && args.get("service_id") == receipt.get("serviceId")
+                && matches!(
+                    receipt.get("status").and_then(Value::as_str),
+                    Some("running" | "ready" | "finalizing")
+                )
+        }
         ("wait_subagent", Some("subagent_wait_result")) => {
             args.get("agentId").is_some()
                 && args.get("agentId") == receipt.pointer("/worker/agentId")
@@ -504,6 +528,147 @@ fn character_ngrams(value: &str, width: usize) -> HashMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "subprocess fixture for managed shell wait regression"]
+    fn quiet_shell_wait_fixture() {
+        std::thread::sleep(std::time::Duration::from_secs(12));
+    }
+
+    #[tokio::test]
+    async fn live_shell_wait_receipts_survive_repeated_observation_without_relaunch() {
+        use crate::tools::{run_shell_tool::RunShellTool, Tool, ToolExecutionContext};
+        let db = crate::db::Database::open_memory().unwrap();
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = crate::app_settings::ShellAccessMode::Open;
+        db.save_app_config(&config).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let owner = format!("shell-wait-regression-{}", uuid::Uuid::new_v4());
+        let arguments = serde_json::json!({"program":executable, "args":["--ignored","--exact",
+            "agent::loop_guard::tests::quiet_shell_wait_fixture", "--nocapture"], "cwd":executable.parent()}).to_string();
+        let started = RunShellTool
+            .execute(
+                ToolExecutionContext::new("start", &arguments, &db, &[])
+                    .with_conversation_id(Some(&owner)),
+            )
+            .await
+            .unwrap();
+        assert!(!started.is_error, "{}", started.content);
+        let id = started.artifacts.as_ref().unwrap()["serviceId"]
+            .as_str()
+            .unwrap();
+        let mut wait = call(
+            &serde_json::json!({"service_action":"wait", "service_id":id, "timeout_secs":1})
+                .to_string(),
+        );
+        wait.name = "run_shell".into();
+        let mut guard = AgentLoopGuard::new();
+        let mut failure = None;
+        for _ in 0..4 {
+            if let Some(intervention) = guard.observe_model_step("", &[wait.clone()]) {
+                failure = Some(intervention.reason);
+                break;
+            }
+            let result = RunShellTool
+                .execute(
+                    ToolExecutionContext::new("wait", &wait.arguments, &db, &[])
+                        .with_conversation_id(Some(&owner)),
+                )
+                .await
+                .unwrap();
+            if result.is_error || !is_live_wait_receipt(&wait, result.artifacts.as_ref()) {
+                failure = Some(format!(
+                    "missing authoritative timed live receipt: {:?}",
+                    result.artifacts
+                ));
+                break;
+            }
+            guard.observe_tool_result(
+                &wait,
+                result.is_error,
+                &result.content,
+                result.artifacts.as_ref(),
+            );
+        }
+        let stop = serde_json::json!({"service_action":"stop", "service_id":id}).to_string();
+        let stopped = RunShellTool
+            .execute(
+                ToolExecutionContext::new("stop", &stop, &db, &[])
+                    .with_conversation_id(Some(&owner)),
+            )
+            .await
+            .unwrap();
+        assert!(!stopped.is_error, "{}", stopped.content);
+        assert!(failure.is_none(), "{failure:?}");
+    }
+
+    #[test]
+    fn repeated_shell_waits_with_a_live_receipt_are_not_rate_limited() {
+        let mut guard = AgentLoopGuard::new();
+        let mut wait = call(r#"{"service_action":"wait","service_id":"build","timeout":3}"#);
+        wait.name = "run_shell".into();
+        let active = serde_json::json!({"kind":"managedService", "serviceId":"build",
+            "status":"running", "waitedMs":3000});
+        for _ in 0..10 {
+            assert!(
+                guard.observe_model_step("", &[wait.clone()]).is_none(),
+                "a quiet compiler is productive waiting, not a retry loop"
+            );
+            assert!(guard
+                .observe_tool_result(&wait, false, "", Some(&active))
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn shell_wait_exemption_requires_a_matching_live_timed_receipt() {
+        let mut wait = call(r#"{"service_action":"wait","service_id":"build","timeout_secs":3}"#);
+        wait.name = "run_shell".into();
+        let active = serde_json::json!({"kind":"managedService", "serviceId":"build", "status":"running", "waitedMs":3000});
+        assert!(is_live_wait_receipt(&wait, Some(&active)));
+        for (key, value) in [
+            ("serviceId", serde_json::json!("other")),
+            ("status", serde_json::json!("exited")),
+            ("waitedMs", serde_json::json!(0)),
+        ] {
+            let mut invalid = active.clone();
+            invalid[key] = value;
+            assert!(!is_live_wait_receipt(&wait, Some(&invalid)));
+        }
+        wait.arguments = r#"{"service_action":"status","service_id":"build"}"#.into();
+        assert!(!is_live_wait_receipt(&wait, Some(&active)));
+    }
+
+    #[test]
+    fn parallel_waits_require_progress_receipts_for_every_call() {
+        let waits = ["build", "tests"].map(|id| {
+            let mut request = call(
+                &serde_json::json!({"service_action":"wait", "service_id":id, "timeout_secs":3})
+                    .to_string(),
+            );
+            request.name = "run_shell".into();
+            request
+        });
+        for complete in [true, false] {
+            let mut guard = AgentLoopGuard::new();
+            let mut blocked = false;
+            for _ in 0..8 {
+                if guard.observe_model_step("", &waits).is_some() {
+                    blocked = true;
+                    break;
+                }
+                for (index, wait) in waits.iter().enumerate() {
+                    let receipt = serde_json::json!({"kind":"managedService", "serviceId": (["build", "tests"][index]),
+                        "status":"running", "waitedMs": if complete || index == 0 { 3000 } else { 0 }});
+                    guard.observe_tool_result(wait, false, "", Some(&receipt));
+                }
+            }
+            assert_eq!(
+                blocked, !complete,
+                "a batch exemption requires all authoritative live waits"
+            );
+        }
+    }
 
     #[test]
     fn bounded_waits_for_live_workers_are_not_unproductive_retries() {

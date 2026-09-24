@@ -4,6 +4,96 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 #[test]
+#[ignore = "requires Windows ConPTY and installed PowerShell 5.1 and 7"]
+fn native_powershell_input_and_paste_keep_protocol_bytes() {
+    let pwsh = std::env::var("NEXA_TEST_PWSH").unwrap_or_else(|_| "pwsh.exe".into());
+    for program in ["powershell.exe", pwsh.as_str()] {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = CommandBuilder::new(program);
+        command.args(["-NoLogo", "-NoProfile"]);
+        command.env("TERM", "xterm-256color");
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let writer = Arc::new(Mutex::new(pair.master.take_writer().unwrap()));
+        let response_writer = writer.clone();
+        let output = Arc::new(Mutex::new(String::new()));
+        let recorded = output.clone();
+        thread::spawn(move || {
+            let mut bytes = [0u8; 8192];
+            let mut pending = String::new();
+            while let Ok(n) = reader.read(&mut bytes) {
+                if n == 0 {
+                    break;
+                }
+                let text = String::from_utf8_lossy(&bytes[..n]);
+                pending.push_str(&text);
+                if pending.contains("\x1b[6n") {
+                    let mut writer = response_writer.lock().unwrap();
+                    let _ = writer.write_all(b"\x1b[1;1R");
+                    let _ = writer.flush();
+                    pending.clear();
+                }
+                if pending.len() > 32 {
+                    pending = pending
+                        .chars()
+                        .rev()
+                        .take(8)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
+                }
+                recorded.lock().unwrap().push_str(&text);
+            }
+        });
+        let send = |text: &str| {
+            let mut writer = writer.lock().unwrap();
+            writer.write_all(text.as_bytes()).unwrap();
+            writer.flush().unwrap();
+        };
+        let wait_for = |marker: &str| {
+            let deadline = Instant::now() + Duration::from_secs(12);
+            while Instant::now() < deadline {
+                if output.lock().unwrap().contains(marker) {
+                    return true;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            false
+        };
+        send(&shell_integration_bootstrap("PowerShell", program).unwrap());
+        let initialized = wait_for("\x1b]633;A\x07");
+        for ch in "Write-Output ('NEXA_' + 'TYPED_OK')\r".chars() {
+            send(&ch.to_string());
+            thread::sleep(Duration::from_millis(2));
+        }
+        let typed = wait_for("NEXA_TYPED_OK");
+        send("Write-Output ('NEXA_' + 'PASTE_OK'); Write-Output ('多语言_' + '输入成功')\r");
+        let pasted = wait_for("NEXA_PASTE_OK") && wait_for("多语言_输入成功");
+        let _ = child.kill();
+        let _ = child.wait();
+        let captured = output.lock().unwrap().clone();
+        assert!(
+            initialized && typed && pasted,
+            "{program}: initialize={initialized}, type={typed}, paste={pasted}: {captured}"
+        );
+        assert!(
+            !captured.contains("e]633;"),
+            "{program} leaked unsupported prompt escapes: {captured}"
+        );
+        drop(pair.master);
+    }
+}
+
+#[test]
 #[ignore = "requires Windows ConPTY and an installed WSL Bash distribution"]
 fn native_wsl_terminal_close_reaps_job_control_children() {
     fn spawn(

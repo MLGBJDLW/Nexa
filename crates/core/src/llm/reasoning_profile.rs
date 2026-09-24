@@ -232,7 +232,10 @@ impl ReasoningProfile {
                 | ReasoningEffort::Max
                 | ReasoningEffort::XHigh
                 | ReasoningEffort::Ultra => ReasoningEffort::XHigh,
-                ReasoningEffort::None => return None,
+                // Only profiles that explicitly accept `none` may send it.
+                // Omni uses this value to disable thinking; Max/Flash use
+                // enable_thinking and do not accept it in this profile.
+                ReasoningEffort::None => ReasoningEffort::None,
             },
             ReasoningEffortMapping::OpenAiCompatible | ReasoningEffortMapping::Exact => {
                 effort.clone()
@@ -753,6 +756,39 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_alibaba_chat_endpoint(provider, base_url) {
+        let qwen_payg = provider == ProviderType::AlibabaModelStudio
+            && find_provider_preset("alibaba_model_studio", base_url).is_some_and(|preset| {
+                matches!(
+                    preset.id.as_str(),
+                    "alibaba-model-studio" | "qwen-cloud-intl"
+                )
+            });
+        if model == "qwen3.8-omni-flash" && qwen_payg {
+            let mut value = profile(
+                key,
+                "alibaba-qwen3.8-omni-chat-v1",
+                ThinkingModeControl::ProviderDefault,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Qwen38Chat,
+                (
+                    &[
+                        ReasoningEffort::None,
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::XHigh,
+                    ],
+                    Some(ReasoningEffort::Low),
+                ),
+                // The official Omni contract documents effort controls but
+                // does not publish a numeric thinking-budget range.
+                ReasoningBudgetField::None,
+            );
+            value.effort_budget_exclusive = true;
+            value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = true;
+            return value;
+        }
+
         if model == "zhipu/glm-5.3" && is_alibaba_model_studio_payg_endpoint(provider, base_url) {
             let mut value = profile(
                 key,
@@ -778,7 +814,12 @@ pub fn resolve_reasoning_profile(
         if matches!(
             model.as_str(),
             "qwen3.8-max" | "qwen3.8-max-preview" | "qwen3.8-flash"
-        ) {
+        ) || (qwen_payg
+            && matches!(
+                model.as_str(),
+                "qwen3.8-max-0902" | "qwen3.8-max-2026-09-02"
+            ))
+        {
             let mode_control = if model == "qwen3.8-max-preview" {
                 ThinkingModeControl::AlwaysOn
             } else {
@@ -1104,6 +1145,46 @@ mod tests {
                 "qwen3.8-max",
             );
             assert_eq!(value.mode_control, ThinkingModeControl::Unsupported);
+        }
+    }
+
+    #[test]
+    fn qwen38_september_profiles_do_not_inherit_payg_capabilities_on_other_routes() {
+        for (provider, endpoint) in [
+            (
+                ProviderType::Qwen,
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://private.example/v1",
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com:8443/compatible-mode/v1",
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://workspace123.ap-southeast-1.maas.aliyuncs.com/v2",
+            ),
+        ] {
+            for model in [
+                "qwen3.8-max-0902",
+                "qwen3.8-max-2026-09-02",
+                "qwen3.8-omni-flash",
+            ] {
+                let value = resolve_reasoning_profile(
+                    provider,
+                    Some(endpoint),
+                    ReasoningApiStyle::OpenAiChatCompletions,
+                    model,
+                );
+                assert_eq!(
+                    value.mode_control,
+                    ThinkingModeControl::Unsupported,
+                    "{endpoint}/{model}"
+                );
+            }
         }
     }
 

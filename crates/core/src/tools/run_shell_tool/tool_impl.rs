@@ -177,8 +177,8 @@ const AUTO_SERVICE_SETTLE_MS: u64 = 1_500;
 const MAX_SERVICE_LOG_BYTES: usize = 32 * 1024;
 const SERVICE_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const SERVICE_LOG_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-const DEFAULT_WAIT_TIMEOUT_SECS: u64 = 3;
-const MAX_WAIT_TIMEOUT_SECS: u64 = 3;
+const DEFAULT_WAIT_TIMEOUT_SECS: u64 = 10;
+const MAX_WAIT_TIMEOUT_SECS: u64 = 60;
 const MANAGED_LOOPBACK_LEASE_TTL: Duration = Duration::from_secs(3);
 
 pub(super) fn managed_wait_budget_secs(requested: Option<u64>) -> u64 {
@@ -1645,6 +1645,28 @@ async fn wait_for_service(
     wait_timeout_secs: u64,
     conversation_id: Option<&str>,
 ) -> ToolResult {
+    let started = Instant::now();
+    let mut result =
+        wait_for_service_inner(call_id, service_id, wait_timeout_secs, conversation_id).await;
+    if let Some(receipt) = result
+        .artifacts
+        .as_mut()
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        receipt.insert(
+            "waitedMs".into(),
+            serde_json::json!(started.elapsed().as_millis() as u64),
+        );
+    }
+    result
+}
+
+async fn wait_for_service_inner(
+    call_id: &str,
+    service_id: &str,
+    wait_timeout_secs: u64,
+    conversation_id: Option<&str>,
+) -> ToolResult {
     let deadline = Instant::now() + Duration::from_secs(wait_timeout_secs);
     loop {
         let mut finalizing_result = None;
@@ -1713,10 +1735,17 @@ async fn wait_for_service(
                 Some(result) => result,
                 None => manage_service(call_id, "status", service_id, conversation_id).await,
             };
-            result.content = format!(
+            if result.artifacts.as_ref().is_some_and(|receipt| {
+                matches!(
+                    receipt["status"].as_str(),
+                    Some("running" | "ready" | "unhealthy" | "finalizing")
+                )
+            }) {
+                result.content = format!(
                 "Still running after waiting {wait_timeout_secs}s. Continue with other work and poll again with service_action=\"wait\" or service_action=\"status\"; use service_action=\"stop\" to end it.\n{}",
                 result.content
-            );
+                );
+            }
             return result;
         }
         tokio::time::sleep(SERVICE_POLL_INTERVAL).await;
@@ -1795,7 +1824,16 @@ mod review_regression_tests {
     fn delayed_persistent_service_fixture() {
         use std::io::{Read, Write};
         let port = std::fs::read_to_string("fixture-port").unwrap();
-        std::thread::sleep(Duration::from_millis(2200));
+        // Parent explicitly releases readiness after observing detachment.
+        // Wall-clock sleeps race the runtime scheduler during the full suite.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !std::path::Path::new("fixture-release").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "parent did not release fixture readiness"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", port.trim())).unwrap();
         println!("server started"); // No URL log: the declared candidate must survive detachment.
         for stream in listener.incoming() {
@@ -1839,8 +1877,10 @@ mod review_regression_tests {
             conversation_id: Some("delayed-owner"),
         })
         .await;
+        assert!(!launched.is_error, "{}", launched.content);
         let receipt = launched.artifacts.as_ref().unwrap();
         let service_id = receipt["serviceId"].as_str().unwrap();
+        std::fs::write(tmp.path().join("fixture-release"), b"ready").unwrap();
         let result = tokio::time::timeout(Duration::from_secs(6), async {
             let mut arguments = receipt["nextAction"]["arguments"].clone();
             loop {

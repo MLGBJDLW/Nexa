@@ -47,6 +47,15 @@ test('browser CI image matches locked Playwright and avoids live APT installatio
   assert.doesNotMatch(browserJob, /playwright install --with-deps|configure-ubuntu-apt/u);
 });
 
+test('native terminal input regression executes on Windows instead of matching zero Linux tests', () => {
+  const windowsJob = ciWorkflow.split('  windows-check:')[1];
+  const linuxJob = ciWorkflow.split('  linux_desktop:')[1].split('  check:')[0];
+  assert.match(windowsJob, /runs-on: windows-latest/u);
+  assert.match(windowsJob, /native_powershell_input_and_paste_keep_protocol_bytes -- --ignored --nocapture/u);
+  assert.match(windowsJob, /NEXA_TEST_PWSH/u);
+  assert.doesNotMatch(linuxJob, /native_powershell_input_and_paste_keep_protocol_bytes/u);
+});
+
 test('manual dispatch can resume an existing draft release without creating a new tag', () => {
   assert.match(releaseWorkflow, /^      release_tag:\s*$/m);
   assert.match(
