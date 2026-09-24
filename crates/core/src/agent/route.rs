@@ -105,7 +105,7 @@ fn prompt_section_for_requirements(
     if requirements.requires_visual_observation_after_mutation() {
         sections.push(
             "## Interaction Completion Contract\n\
-             This turn requires real rendered browser evidence. For a generated web artifact, use process tooling to serve or render it and observe it after the last workspace mutation. For requested navigation or interaction, use browser_session and rely only on its fresh pixel-bearing observation. A file write, command, session listing, or claimed/skipped check is not visual evidence. Do not claim completion while the visual gate is pending."
+             This turn requires real rendered browser evidence. For a generated web artifact, use process tooling to serve or render it and observe it after the last workspace mutation. For requested navigation or interaction, use browser_session and rely only on its fresh pixel-bearing observation. To start a new browser, call create_session with url; it returns the initial screenshot and usable observation refs. For an existing browser or after context recovery, use list_sessions/list_tabs and observe the exact page before input. If opening succeeded but observation failed, follow the returned observe recovery on the same sessionId/tabId; do not create a duplicate or replay navigation. A file write, command, session listing, or claimed/skipped check is not visual evidence. Do not claim completion while the visual gate is pending."
                 .to_string(),
         );
     }
@@ -154,12 +154,14 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
                 .to_string(),
         AgentRouteKind::WebLookup => "## Route Pack: Web Lookup\n\
              - Use fetch_url for ordinary static page text. Use browser_session for JavaScript apps, authenticated flows, interaction, localhost, or page-state debugging; use its atomic observations and never reuse an element ref after the page changes.\n\
+             - For a new browser, create_session with url returns the initial screenshot and usable refs. Recover existing work with list_sessions/list_tabs and a fresh observe; follow an observationPending receipt's observe recovery without repeating create_session/open_tab.\n\
              - Use web_search for external facts that may have changed or when the knowledge base is insufficient.\n\
              - Prefer authoritative sources and fetch full pages before citing; do not cite search snippets as evidence.\n\
              - Use the user's language for queries when appropriate, and use 1 focused query for simple lookups or 2-3 distinct angles for broad research.\n\
              - Cite fetched web evidence with real URL identifiers and distinguish web evidence from local knowledge-base evidence."
             .to_string(),
         AgentRouteKind::InteractionOperation => "## Route Pack: Native Interaction\n\
+             - computer_observe is built in on Windows. Discover the requested window with list_windows, filtering by process_id/app_name when known. If windowCoverage.hasMore is true, continue with its nextOffset and the same filters. Capture the exact target using the observation token from its page; inventory does not authorize input.\n\
              - Start with computer_observe and bind every control to the returned window and observation identity. Prefer observation-scoped semantic targets: invoke/set_value and auto-delivered element clicks can operate without moving the user pointer. Use foreground only when native input is needed. For multi-step work in one window, offer approval_scope=window_session so the user can authorize that verified window for the current task.\n\
              - Never call computer_control before a successful observation. Read the returned post-action state and verify the effect; reuse only its fresh observationId for the next action on the same target. Call computer_observe again when that evidence is absent, stale or uncertain.\n\
              - A claimed, pending, or skipped record_verification check cannot replace the fresh desktop observation.\n\

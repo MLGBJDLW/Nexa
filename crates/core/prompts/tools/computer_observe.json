@@ -42,6 +42,12 @@
         "maxLength": 240,
         "description": "For list_windows/wait_for_window, exact case-insensitive appName from list_windows. When combined with process_id both must match. wait_for_window requires at least one filter and returns matched/timedOut; capture the returned window before input."
       },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "list_windows only: matching-window offset, using windowCoverage.nextOffset to continue beyond max_results. Keep the same process_id/app_name filters while paging. Each page returns a fresh observation token; capture the target with the token from its page. Titles remain withheld until capture consent."
+      },
       "include_elements": {
         "type": "boolean",
         "description": "For capture_window/wait_for_change, include a bounded UI Automation semantic projection with observation-scoped element ids. Defaults to true."

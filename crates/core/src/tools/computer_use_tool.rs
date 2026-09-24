@@ -586,6 +586,8 @@ struct ObserveArgs {
     #[serde(default)]
     app_name: Option<String>,
     #[serde(default)]
+    offset: Option<usize>,
+    #[serde(default)]
     include_elements: Option<bool>,
     #[serde(default)]
     max_elements: Option<usize>,
@@ -2022,11 +2024,30 @@ where
         .map_err(|error| CoreError::Internal(format!("Computer use worker failed: {error}")))?
 }
 
+struct WindowInventory {
+    windows: Vec<WindowSnapshot>,
+    total_matches: usize,
+    offset: usize,
+}
+
+impl WindowInventory {
+    fn coverage(&self) -> serde_json::Value {
+        let next = self.offset.saturating_add(self.windows.len());
+        serde_json::json!({
+            "offset": self.offset,
+            "returned": self.windows.len(),
+            "totalMatches": self.total_matches,
+            "hasMore": next < self.total_matches,
+            "nextOffset": (next < self.total_matches).then_some(next),
+        })
+    }
+}
+
 async fn matching_window_inventory<F, Fut>(
     args: &ObserveArgs,
     wait: bool,
     mut enumerate: F,
-) -> Result<Vec<WindowSnapshot>, CoreError>
+) -> Result<WindowInventory, CoreError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<Vec<WindowSnapshot>, CoreError>>,
@@ -2045,6 +2066,10 @@ where
                 .into(),
         ));
     }
+    if wait && args.offset.is_some() {
+        return Err(CoreError::InvalidInput("offset is supported only by list_windows; wait for the target first, then page the inventory.".into()));
+    }
+    let offset = args.offset.unwrap_or(0);
     let timeout_ms = args.timeout_ms.unwrap_or(2_500);
     let poll_ms = args.poll_interval_ms.unwrap_or(100);
     if !(100..=10_000).contains(&timeout_ms) || !(50..=1_000).contains(&poll_ms) {
@@ -2061,18 +2086,33 @@ where
                     "Window inventory timed out; no fresh window list was obtained.".into(),
                 ));
             }
-            return Ok(Vec::new());
+            return Ok(WindowInventory {
+                windows: Vec::new(),
+                total_matches: 0,
+                offset,
+            });
         };
-        let windows = inventory?
+        let mut windows = inventory?
             .into_iter()
             .filter(|window| {
                 args.process_id.is_none_or(|pid| window.pid == pid)
                     && app_name.is_none_or(|name| window.app_name.eq_ignore_ascii_case(name))
             })
+            .collect::<Vec<_>>();
+        // Focus/title changes must not reorder pages during discovery.
+        windows.sort_by_key(|window| window.id);
+        let total_matches = windows.len();
+        let windows = windows
+            .into_iter()
+            .skip(offset)
             .take(args.max_results.unwrap_or(50).clamp(1, 100))
             .collect::<Vec<_>>();
         if !wait || !windows.is_empty() || tokio::time::Instant::now() >= deadline {
-            return Ok(windows);
+            return Ok(WindowInventory {
+                windows,
+                total_matches,
+                offset,
+            });
         }
         tokio::time::sleep_until(
             deadline.min(tokio::time::Instant::now() + Duration::from_millis(poll_ms)),
@@ -2206,9 +2246,11 @@ impl Tool for ComputerObserveTool {
             "list_windows" | "wait_for_window" => {
                 let wait = args.action.trim().eq_ignore_ascii_case("wait_for_window");
                 let started = Instant::now();
-                let windows =
+                let inventory =
                     matching_window_inventory(&args, wait, || blocking(platform::list_windows))
                         .await?;
+                let coverage = inventory.coverage();
+                let windows = inventory.windows;
                 let matched = !windows.is_empty();
                 let observation_id = remember_observation(
                     conversation_id,
@@ -2231,6 +2273,7 @@ impl Tool for ComputerObserveTool {
                     "schemaVersion": 2,
                     "observationId": observation_id,
                     "windows": windows,
+                    "windowCoverage": coverage,
                     "matched": matched,
                     "timedOut": wait && !matched,
                     "elapsedMs": started.elapsed().as_millis() as u64,
@@ -2255,6 +2298,7 @@ impl Tool for ComputerObserveTool {
                     "schemaVersion": 2,
                     "observationId": observation_id,
                     "windows": llm_windows,
+                    "windowCoverage": coverage,
                     "matched": matched,
                     "timedOut": wait && !matched,
                     "titlesWithheldUntilCaptureConsent": true,
@@ -6265,7 +6309,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn window_wait_filters_before_limiting_and_waits_for_the_requested_process() {
+    async fn window_inventory_pages_filtered_results_and_waits_for_the_requested_process() {
         let args: ObserveArgs = serde_json::from_value(serde_json::json!({
             "action":"wait_for_window", "process_id":7, "app_name":"editor", "max_results":1, "timeout_ms":200
         })).unwrap();
@@ -6277,7 +6321,7 @@ mod tests {
             window_class: "EditorWindow".into(),
             session_id: 1,
             app_name: "Editor".into(),
-            title: "Document".into(),
+            title: "年度预算 RÉSUMÉ 2026 - Editor".into(),
             x: 0,
             y: 0,
             width: 800,
@@ -6300,8 +6344,48 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(found, vec![target]);
+        assert_eq!(found.windows, vec![target.clone()]);
         assert_eq!(calls, 2);
+        let mut windows = vec![other];
+        windows.extend((0..151).map(|index| {
+            let mut window = target.clone();
+            window.id = 100 + index;
+            window
+        }));
+        for (offset, expected_count, expected_next) in
+            [(0, 100, Some(100)), (100, 51, None), (151, 0, None)]
+        {
+            let args: ObserveArgs = serde_json::from_value(serde_json::json!({
+                "action":"list_windows", "process_id":7, "app_name":"editor", "max_results":100, "offset":offset
+            })).unwrap();
+            let page =
+                matching_window_inventory(&args, false, || std::future::ready(Ok(windows.clone())))
+                    .await
+                    .unwrap();
+            assert_eq!(page.windows.len(), expected_count);
+            assert_eq!(page.total_matches, 151);
+            assert_eq!(
+                page.coverage()["nextOffset"],
+                serde_json::json!(expected_next)
+            );
+            assert_eq!(page.coverage()["hasMore"], expected_next.is_some());
+            if let Some(first) = page.windows.first() {
+                assert_eq!(
+                    first.id,
+                    100 + offset as u64,
+                    "filtering must precede pagination"
+                );
+            }
+        }
+        let args: ObserveArgs = serde_json::from_value(
+            serde_json::json!({"action":"wait_for_window","process_id":7,"offset":1}),
+        )
+        .unwrap();
+        assert!(matching_window_inventory(&args, true, || async {
+            panic!("wait cannot use an inventory cursor")
+        })
+        .await
+        .is_err());
     }
 
     #[tokio::test]
@@ -6317,7 +6401,7 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert!(found.is_empty());
+        assert!(found.windows.is_empty());
         let args: ObserveArgs =
             serde_json::from_value(serde_json::json!({"action":"wait_for_window"})).unwrap();
         assert!(matching_window_inventory(&args, true, || async {
