@@ -744,6 +744,12 @@ fn infer_regions(base_url: Option<&str>) -> Vec<String> {
     }
 }
 
+fn model_preset_matches_id(candidate: &ProviderModelPreset, normalized_model: &str) -> bool {
+    std::iter::once(&candidate.id)
+        .chain(candidate.aliases.iter())
+        .any(|id| normalize_model_id(id) == normalized_model)
+}
+
 pub fn model_capabilities_from_catalog(
     provider_type: ProviderType,
     model: &str,
@@ -764,7 +770,7 @@ pub fn model_capabilities_from_catalog(
             let model_preset = preset
                 .models
                 .iter()
-                .find(|candidate| normalize_model_id(&candidate.id) == model)?;
+                .find(|candidate| model_preset_matches_id(candidate, &model))?;
             Some(merge_capabilities(
                 preset.capabilities.as_ref(),
                 model_preset.capabilities.as_ref(),
@@ -787,7 +793,7 @@ pub fn model_limits_from_catalog(provider_type: ProviderType, model: &str) -> Op
                     preset
                         .models
                         .into_iter()
-                        .find(|candidate| normalize_model_id(&candidate.id) == normalized_model)
+                        .find(|candidate| model_preset_matches_id(candidate, &normalized_model))
                 })
                 .and_then(|model| {
                     (model.context_tokens.is_some() || model.max_output_tokens.is_some()).then_some(
@@ -1780,6 +1786,38 @@ mod tests {
         assert_eq!(
             model_supports_reasoning_from_catalog(ProviderType::LmStudio, "custom-reasoner"),
             None
+        );
+    }
+
+    #[test]
+    fn qwen_dated_alias_preserves_runtime_vision_reasoning_and_limits() {
+        for model in [
+            "qwen3.8-max-0902",
+            "qwen3.8-max-2026-09-02",
+            " QWEN3.8-MAX-2026-09-02 ",
+        ] {
+            let provider = ProviderType::AlibabaModelStudio;
+            assert_eq!(
+                model_supports_vision_from_catalog(provider, model),
+                Some(true),
+                "{model}"
+            );
+            assert_eq!(
+                model_supports_reasoning_from_catalog(provider, model),
+                Some(true),
+                "{model}"
+            );
+            assert!(crate::llm::model_declares_vision_support(&provider, model));
+            let limits = model_limits_from_catalog(provider, model).unwrap();
+            assert_eq!(limits.context_tokens, Some(1_000_000));
+            assert_eq!(limits.max_output_tokens, Some(131_072));
+        }
+        assert!(
+            model_capabilities_from_catalog(ProviderType::Qwen, "qwen3.8-max-2026-09-02").is_none()
+        );
+        assert!(
+            model_capabilities_from_catalog(ProviderType::OpenAi, "qwen3.8-max-2026-09-02")
+                .is_none()
         );
     }
 
