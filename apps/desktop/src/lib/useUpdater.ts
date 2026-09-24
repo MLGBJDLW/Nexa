@@ -3,12 +3,13 @@ import { Update as TauriUpdate, type Update as TauriUpdateInstance } from '@taur
 import { relaunch } from '@tauri-apps/plugin-process';
 import { useState, useEffect, useCallback } from 'react';
 
-export const UPDATE_SOURCES = ['github'] as const;
+export const UPDATE_SOURCES = ['github', 'ghfast', 'custom'] as const;
 export type UpdateSource = typeof UPDATE_SOURCES[number];
 
 interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date';
   source: UpdateSource;
+  customMirror: string;
   version?: string;
   notes?: string;
   progress?: number;
@@ -29,6 +30,7 @@ interface TauriUpdateMetadata {
 }
 
 const UPDATE_SOURCE_STORAGE_KEY = 'nexa-update-source';
+const UPDATE_MIRROR_STORAGE_KEY = 'nexa-update-custom-mirror';
 const DEFAULT_UPDATE_SOURCE: UpdateSource = 'github';
 const UPDATE_CHECK_TIMEOUT_MS = 90_000;
 const UPDATE_DOWNLOAD_TIMEOUT_MS = 600_000;
@@ -44,7 +46,7 @@ interface GitHubRelease {
 }
 
 function isUpdateSource(value: string | null): value is UpdateSource {
-  return value === 'github';
+  return UPDATE_SOURCES.includes(value as UpdateSource);
 }
 
 function readStoredUpdateSource(): UpdateSource {
@@ -66,9 +68,10 @@ function persistUpdateSource(source: UpdateSource) {
   }
 }
 
-async function checkUpdateFromSource(source: UpdateSource): Promise<TauriUpdateInstance | null> {
+async function checkUpdateFromSource(source: UpdateSource, customMirror: string): Promise<TauriUpdateInstance | null> {
   const metadata = await invoke<TauriUpdateMetadata | null>('check_update_from_source_cmd', {
     source,
+    customMirror: source === 'custom' ? customMirror : null,
     timeout: UPDATE_CHECK_TIMEOUT_MS,
   });
   return metadata ? new TauriUpdate(metadata) : null;
@@ -114,6 +117,7 @@ async function fetchGithubReleaseNotesBetween(
 
   const response = await fetch(GITHUB_RELEASES_API_URL, {
     headers: { Accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) {
     throw new Error(`GitHub releases request failed (${response.status})`);
@@ -162,8 +166,13 @@ async function resolveUpdateNotes(
 }
 
 let sharedSource = readStoredUpdateSource();
-let sharedState: UpdateState = { status: 'idle', source: sharedSource };
+let sharedCustomMirror = (() => {
+  try { return window.localStorage.getItem(UPDATE_MIRROR_STORAGE_KEY) ?? ''; } catch { return ''; }
+})();
+let sharedState: UpdateState = { status: 'idle', source: sharedSource, customMirror: sharedCustomMirror };
 let sharedUpdate: TauriUpdateInstance | null = null;
+let sourceRevision = 0;
+let checkRevision = 0;
 let autoCheckStarted = false;
 const listeners = new Set<(state: UpdateState) => void>();
 
@@ -189,58 +198,76 @@ export function useUpdater(checkOnMount = true) {
   const [state, setState] = useState<UpdateState>(sharedState);
 
   const setUpdateSource = useCallback((source: UpdateSource) => {
-    if (source === sharedSource) return;
+    if (source === sharedSource || sharedState.status === 'downloading') return;
+    sourceRevision += 1;
     sharedSource = source;
     persistUpdateSource(source);
+    void sharedUpdate?.close().catch(() => {});
     sharedUpdate = null;
-    setSharedState({ status: 'idle', source });
+    setSharedState({ status: 'idle', source, customMirror: sharedCustomMirror });
+  }, []);
+
+  const setCustomMirror = useCallback((value: string) => {
+    if (value === sharedCustomMirror || sharedState.status === 'downloading') return;
+    sharedCustomMirror = value;
+    sourceRevision += 1;
+    try { window.localStorage.setItem(UPDATE_MIRROR_STORAGE_KEY, value); } catch { /* session only */ }
+    void sharedUpdate?.close().catch(() => {});
+    sharedUpdate = null;
+    setSharedState({ status: 'idle', source: sharedSource, customMirror: value });
   }, []);
 
   const checkForUpdate = useCallback(async (sourceOverride?: UpdateSource) => {
     const source = sourceOverride ?? sharedSource;
-    setSharedState({ status: 'checking', source });
+    if (sharedState.status === 'downloading') return null;
+    const revision = sourceRevision;
+    const checkId = ++checkRevision;
+    const customMirror = sharedCustomMirror;
+    const stale = () => revision !== sourceRevision || checkId !== checkRevision;
+    setSharedState({ status: 'checking', source, customMirror });
     try {
-      const update = await checkUpdateFromSource(source);
+      const update = await checkUpdateFromSource(source, customMirror);
       const lastCheckedAt = new Date().toISOString();
-      if (source !== sharedSource) {
-        return update;
+      if (stale()) {
+        void update?.close().catch(() => {});
+        return null;
       }
       if (update) {
-        sharedUpdate = update;
         const notes = await resolveUpdateNotes(source, update);
-        if (source !== sharedSource) {
-          return update;
+        if (stale()) {
+          void update.close().catch(() => {});
+          return null;
         }
+        void sharedUpdate?.close().catch(() => {});
+        sharedUpdate = update;
         setSharedState({
           status: 'available',
           source,
+          customMirror,
           version: update.version,
           notes,
           lastCheckedAt,
         });
         return update;
       } else {
+        void sharedUpdate?.close().catch(() => {});
         sharedUpdate = null;
-        setSharedState({ status: 'up-to-date', source, lastCheckedAt });
+        setSharedState({ status: 'up-to-date', source, customMirror, lastCheckedAt });
         return null;
       }
     } catch (e) {
-      if (source !== sharedSource) {
+      if (stale()) {
         return null;
       }
-      const msg = e instanceof Error ? e.message : String(e);
-      // Graceful fallback: missing release manifest (404) → treat as up-to-date
-      if (/\b404\b|Not Found/i.test(msg)) {
-        sharedUpdate = null;
-        setSharedState({ status: 'up-to-date', source, lastCheckedAt: new Date().toISOString() });
-        return null;
-      }
-      setSharedState({ status: 'error', source, errorStage: 'check', lastCheckedAt: new Date().toISOString(), ...extractError(e) });
+      void sharedUpdate?.close().catch(() => {});
+      sharedUpdate = null;
+      setSharedState({ status: 'error', source, customMirror, errorStage: 'check', lastCheckedAt: new Date().toISOString(), ...extractError(e) });
       return null;
     }
   }, []);
 
   const downloadAndInstall = useCallback(async () => {
+    if (sharedState.status === 'downloading' || sharedState.status === 'checking') return;
     let update = sharedUpdate;
     const source = sharedSource;
     if (!update) {
@@ -248,7 +275,7 @@ export function useUpdater(checkOnMount = true) {
         update = await checkForUpdate(source);
         if (update) sharedUpdate = update;
       } catch (e) {
-        setSharedState({ status: 'error', source, errorStage: 'check', lastCheckedAt: new Date().toISOString(), ...extractError(e) });
+        setSharedState({ status: 'error', source, customMirror: sharedCustomMirror, errorStage: 'check', lastCheckedAt: new Date().toISOString(), ...extractError(e) });
         return;
       }
       if (!update) return;
@@ -285,7 +312,8 @@ export function useUpdater(checkOnMount = true) {
               }
               break;
             case 'Finished':
-              setSharedState(prev => ({ ...prev, status: 'ready', progress: 100 }));
+              // Download completion precedes signature verification/installation.
+              setSharedState(prev => ({ ...prev, progress: 100 }));
               break;
           }
         },
@@ -343,5 +371,5 @@ export function useUpdater(checkOnMount = true) {
     };
   }, [checkOnMount, checkForUpdate]);
 
-  return { ...state, setUpdateSource, checkForUpdate, downloadAndInstall, restart };
+  return { ...state, setUpdateSource, setCustomMirror, checkForUpdate, downloadAndInstall, restart };
 }

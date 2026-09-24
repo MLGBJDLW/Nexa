@@ -17,12 +17,15 @@
   "sourceDescription": "Choose where Nexa checks releases and downloads updater packages.",
   "sourceActive": "Active",
   "sourceGithub": "GitHub",
-  "sourceGithubDescription": "Official GitHub Releases with the existing proxy fallback.",
+  "sourceGithubDescription": "Official GitHub Releases.",
   "currentVersion": "Current version",
   "latestVersion": "Latest version",
   "status": "Status",
   "lastChecked": "Last checked {time}",
   "notChecked": "Not checked yet",
   "releaseNotes": "Release notes",
-  "details": "Details"
+  "details": "Details",
+  "sourceCustom": "Custom mirror",
+  "mirrorAddress": "Mirror base URL",
+  "mirrorHint": "Prefix proxy: the original GitHub URL is appended to this HTTPS address. Update signatures are still verified."
 }

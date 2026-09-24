@@ -17,12 +17,15 @@
   "sourceDescription": "Wählen Sie, wo Nexa Releases prüft und Update-Pakete herunterlädt.",
   "sourceActive": "Aktiv",
   "sourceGithub": "GitHub",
-  "sourceGithubDescription": "Offizielle GitHub Releases mit bestehendem Proxy-Fallback.",
+  "sourceGithubDescription": "Offizielle GitHub Releases.",
   "currentVersion": "Aktuelle Version",
   "latestVersion": "Neueste Version",
   "status": "Status",
   "lastChecked": "Zuletzt geprüft {time}",
   "notChecked": "Noch nicht geprüft",
   "releaseNotes": "Versionshinweise",
-  "details": "Details"
+  "details": "Details",
+  "sourceCustom": "Eigener Spiegelserver",
+  "mirrorAddress": "Spiegelserver-URL",
+  "mirrorHint": "Präfix-Proxy: Die GitHub-URL wird an diese HTTPS-Adresse angehängt. Signaturen werden weiterhin geprüft."
 }

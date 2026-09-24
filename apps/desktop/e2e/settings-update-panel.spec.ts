@@ -51,6 +51,7 @@ test.beforeEach(async ({ page }) => {
           updateCheckCount += 1;
           (window as unknown as { __updateCheckCount: number }).__updateCheckCount = updateCheckCount;
           (window as unknown as { __lastUpdateSource: string }).__lastUpdateSource = String(_args.source ?? "");
+          (window as unknown as { __lastUpdateMirror: string }).__lastUpdateMirror = String(_args.customMirror ?? "");
           if (localStorage.getItem("e2e-update-available") === "1") {
             return {
               rid: 1,
@@ -176,7 +177,7 @@ test("sidebar owns version and update controls without navigating away", async (
   await expect(page.getByTestId("sidebar-update-panel")).toBeVisible();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByText("Update source")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Official GitHub Releases/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("combobox", { name: "Update source" })).toHaveValue("github");
   await expect(page.getByText("Current version")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByText("v0.2.9")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" })).toBeVisible();
@@ -187,11 +188,11 @@ test('update panel stays compact and fits both wide and narrow windows', async (
   await page.getByTestId('sidebar-update-toggle').click();
   const panel = page.getByTestId('sidebar-update-panel');
   await expect(panel).toBeVisible();
-  const source = panel.getByRole('button', { name: /Official GitHub Releases/ });
+  const source = panel.getByRole('combobox', { name: 'Update source' });
   await expect(source).toBeVisible();
   const wide = await panel.boundingBox();
   expect(wide?.width).toBeLessThanOrEqual(560);
-  expect((await source.boundingBox())?.height).toBeLessThanOrEqual(78);
+  expect((await source.boundingBox())?.height).toBeLessThanOrEqual(36);
   await panel.screenshot({ path: testInfo.outputPath('update-compact.png') });
   await page.setViewportSize({ width: 680, height: 820 });
   await expect(panel.getByRole('button', { name: 'Check for Updates' })).toBeVisible();
@@ -245,7 +246,7 @@ test("unsupported stored update source falls back to GitHub", async ({ page }) =
   await page.getByRole("button", { name: "Appearance" }).click();
 
   await page.getByTestId("sidebar-update-toggle").click();
-  await expect(page.getByRole("button", { name: /Official GitHub Releases/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("combobox", { name: "Update source" })).toHaveValue("github");
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("nexa-update-source")))
     .toBe("legacy-mirror");
@@ -322,4 +323,23 @@ test("shell discovery saves WSL and compact sections work on a narrow window", a
   const overflow = await page.getByTestId('settings-page').evaluate(el => el.scrollWidth > el.clientWidth + 1);
   expect(overflow).toBe(false);
   await page.getByTestId('settings-page').screenshot({ path: testInfo.outputPath('settings-narrow.png') });
+});
+
+
+test('mirror sources persist and forward the custom prefix to the native updater', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByTestId('sidebar-update-toggle').click();
+  const panel = page.getByTestId('sidebar-update-panel');
+  const source = panel.getByRole('combobox', { name: 'Update source' });
+  await source.selectOption('ghfast');
+  await panel.getByRole('button', { name: 'Check for Updates' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastUpdateSource: string }).__lastUpdateSource)).toBe('ghfast');
+  await source.selectOption('custom');
+  await panel.getByRole('textbox', { name: 'Mirror base URL' }).fill('https://mirror.example/proxy');
+  await panel.getByRole('button', { name: 'Check for Updates' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastUpdateMirror: string }).__lastUpdateMirror)).toBe('https://mirror.example/proxy');
+  await page.reload();
+  await page.getByTestId('sidebar-update-toggle').click();
+  await expect(source).toHaveValue('custom');
+  await expect(panel.getByRole('textbox', { name: 'Mirror base URL' })).toHaveValue('https://mirror.example/proxy');
 });

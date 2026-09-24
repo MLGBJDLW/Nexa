@@ -1,11 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   AlertTriangle,
-  Check,
   CheckCircle,
   Download,
-  Github,
   Loader2,
   RefreshCw,
   XCircle,
@@ -49,24 +47,13 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
     lastCheckedAt,
     source,
     setUpdateSource,
+    customMirror,
+    setCustomMirror,
     checkForUpdate,
     downloadAndInstall,
     restart,
   } = updater;
   const sourceSwitchDisabled = status === 'checking' || status === 'downloading';
-  const updateSourceOptions: Array<{
-    id: UpdateSource;
-    icon: ReactNode;
-    label: string;
-    description: string;
-  }> = [
-    {
-      id: 'github',
-      icon: <Github size={16} />,
-      label: t('update.sourceGithub'),
-      description: t('update.sourceGithubDescription'),
-    },
-  ];
 
   const statusMeta = (() => {
     switch (status) {
@@ -142,55 +129,36 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-surface-1/60 p-3">
-        <div className="flex flex-col gap-1">
-          <p className="text-[11px] font-medium uppercase text-text-tertiary">{t('update.source')}</p>
-          <p className="text-xs text-text-tertiary">{t('update.sourceDescription')}</p>
-        </div>
-        <div className="mt-2 grid gap-2">
-          {updateSourceOptions.map((option) => {
-            const selected = option.id === source;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={selected}
-                disabled={sourceSwitchDisabled}
-                onClick={() => setUpdateSource(option.id)}
-                className={`
-                  flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left
-                  transition-colors disabled:cursor-not-allowed disabled:opacity-60
-                  ${selected
-                    ? 'border-accent/45 bg-accent/10 text-text-primary'
-                    : 'border-border bg-surface-2 text-text-secondary hover:border-border-hover hover:bg-surface-3 hover:text-text-primary'}
-                `}
-              >
-                <span
-                  className={`
-                    flex h-7 w-7 shrink-0 items-center justify-center rounded-md border
-                    ${selected ? 'border-accent/30 bg-accent/15 text-accent' : 'border-border bg-surface-1 text-text-tertiary'}
-                  `}
-                >
-                  {option.icon}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">{option.label}</span>
-                    {selected && (
-                      <Badge variant="accent" className="gap-1">
-                        <Check size={11} />
-                        {t('update.sourceActive')}
-                      </Badge>
-                    )}
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-text-tertiary">
-                    {option.description}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      <div className="min-w-0 space-y-2" data-testid="update-source-control">
+        <label className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+          <span>{t('update.source')}</span>
+          <select
+            aria-label={t('update.source')}
+            value={source}
+            disabled={sourceSwitchDisabled}
+            onChange={event => setUpdateSource(event.target.value as UpdateSource)}
+            className="h-8 min-w-0 max-w-full rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary disabled:opacity-60"
+          >
+            <option value="github">GitHub</option>
+            <option value="ghfast">ghfast</option>
+            <option value="custom">{t('update.sourceCustom')}</option>
+          </select>
+        </label>
+        {source === 'custom' && (
+          <label className="block space-y-1 text-xs text-text-secondary">
+            <span>{t('update.mirrorAddress')}</span>
+            <input
+              type="url"
+              aria-label={t('update.mirrorAddress')}
+              value={customMirror}
+              disabled={sourceSwitchDisabled}
+              placeholder="https://mirror.example.com"
+              onChange={event => setCustomMirror(event.target.value)}
+              className="h-8 w-full min-w-0 rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary"
+            />
+          </label>
+        )}
+        {source !== 'github' && <p className="text-[11px] text-text-tertiary">{t('update.mirrorHint')}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-2 @min-[28rem]/update:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)]">
