@@ -571,7 +571,7 @@ test('usage cache is scoped to conversation id and does not leak to another conv
   await expect(contextTrigger).not.toHaveAttribute('aria-label', /\d+% context used/);
 });
 
-test('context HUD keeps the conversation cache rate stable until the live turn is durable', async ({ page }) => {
+test('context HUD refreshes confirmed conversation cache usage before the live turn ends', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   const contextTrigger = page.getByTestId('chat-context-trigger');
   const contextDetails = page.getByTestId('chat-context-details');
@@ -597,14 +597,15 @@ test('context HUD keeps the conversation cache rate stable until the live turn i
 
   await expect(page.getByTestId('chat-stop')).toBeVisible();
   await page.waitForTimeout(150);
-  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('50.0%');
+  await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
   await expect(page.getByTestId('chat-stop')).toBeHidden();
   await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
   await contextTrigger.hover();
   await expect(page.getByTestId('chat-run-cache-hit')).toHaveText('40.0%');
 });
 
-test('conversation cache fallback keeps its own prompt denominator while a new prompt streams', async ({ page }) => {
+test('live conversation cache totals keep the aggregate prompt denominator without double counting', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   const cacheSummary = page.getByTestId('chat-run-cache-hit-summary');
 
@@ -618,7 +619,8 @@ test('conversation cache fallback keeps its own prompt denominator while a new p
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-stop')).toBeVisible();
   await page.waitForTimeout(150);
-  await expect(cacheSummary).toContainText('100.0%');
+  await expect(cacheSummary).toContainText('73.7%');
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
   await expect(page.getByTestId('chat-stop')).toBeHidden();
   await expect(cacheSummary).toContainText('73.7%');
 });

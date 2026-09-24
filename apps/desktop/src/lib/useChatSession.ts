@@ -1740,16 +1740,51 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const scopedRateLimited = activeId && !liveUsageSuppressed ? rateLimited : false;
   const scopedError = activeId ? chatError : null;
 
+  // Usage events are cumulative per run. Re-read the canonical conversation
+  // aggregate instead of adding the live counters to a possibly overlapping
+  // hydrated snapshot. Coalesce bursts and never overlap database requests.
+  const liveUsageRefreshRef = useRef(scopedLastUsage);
+  liveUsageRefreshRef.current = scopedLastUsage;
+  useEffect(() => {
+    if (!activeId || !activeIsStreaming || liveUsageSuppressed) return;
+    let cancelled = false;
+    let pending = false;
+    let refreshedUsage: typeof scopedLastUsage | undefined;
+    const refresh = async () => {
+      const observed = liveUsageRefreshRef.current;
+      if (cancelled || pending || document.hidden || observed === refreshedUsage) return;
+      pending = true;
+      try {
+        const snapshot = await api.getConversationUsageSnapshot(activeId);
+        if (!cancelled && activeIdRef.current === activeId) {
+          if (snapshot) setUsageSnapshot(snapshot);
+          refreshedUsage = observed;
+        }
+      } catch {
+        // Keep the last confirmed totals and retry on the next observation tick.
+      } finally {
+        pending = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 750);
+    const onVisible = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [activeId, activeIsStreaming, liveUsageSuppressed]);
+
   // Streaming usage describes the in-flight run. Once the run is durable,
   // prefer the backend conversation snapshot so cache and token totals remain
   // aggregated across completed turns instead of falling back to only the
   // latest run kept by the stream store.
   const isUsingLiveUsage = (shouldShowLivePreview || usageSnapshot == null) && scopedLastUsage != null;
   const usageForView = isUsingLiveUsage ? scopedLastUsage : usageSnapshot ?? scopedLastUsage;
-  // The context ring needs the in-flight run's latest prompt size, but a cache
-  // hit rate only becomes authoritative after that run is durable. Keep the
-  // current conversation's completed-run aggregate stable while streaming,
-  // then let completion hydration fold the new sample into the snapshot.
+  // The context ring uses the latest prompt; cache totals use the periodically
+  // refreshed durable aggregate, including confirmed steps of the active run.
   const cacheUsageForView = isUsingLiveUsage ? usageSnapshot : usageForView;
   const durableContextAuthority = !isUsingLiveUsage ? usageSnapshot?.contextAuthority : null;
   const usageContextWindow = durableContextAuthority
