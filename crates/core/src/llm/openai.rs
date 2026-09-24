@@ -935,17 +935,28 @@ fn build_request_body_with_config(
             // explicit even for headless/legacy configs whose three controls
             // are all absent; an explicit false above still wins.
             (reasoning_profile.id == "alibaba-qwen3.8-chat-v1"
+                || reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"
                 || (reasoning_profile.id == "openrouter-normalized-reasoning-v1"
                     && reasoning_profile.default_effort.is_some()))
             .then_some(true)
         });
     let effort_can_encode_disabled =
         reasoning_profile.mode_control == ThinkingModeControl::ProviderDefault;
-    let requested_effort = request.reasoning_effort.as_ref().or_else(|| {
-        (requested_reasoning_mode == Some(true) && request.thinking_budget.is_none())
-            .then_some(reasoning_profile.default_effort.as_ref())
-            .flatten()
-    });
+    let requested_effort = if reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"
+        && requested_reasoning_mode == Some(false)
+    {
+        // Omni disables thinking through the effort field itself. A saved
+        // effort or budget must not re-enable a request explicitly switched off.
+        Some(&ReasoningEffort::None)
+    } else {
+        request.reasoning_effort.as_ref().or_else(|| {
+            (requested_reasoning_mode == Some(true)
+                && (request.thinking_budget.is_none()
+                    || reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"))
+                .then_some(reasoning_profile.default_effort.as_ref())
+                .flatten()
+        })
+    };
     let wire_effort = (reasoning_supported
         && (requested_reasoning_mode != Some(false) || effort_can_encode_disabled))
         .then(|| reasoning_profile.wire_effort(requested_effort))
@@ -4289,6 +4300,84 @@ data: [DONE]
         assert_eq!(open_body["enable_thinking"], true);
         assert_eq!(open_body["thinking_budget"], 262_144);
         assert!(open_body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn qwen38_september_models_use_their_exact_payg_thinking_contracts() {
+        for endpoint in [
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            "https://workspace123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "https://workspace123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        ] {
+            let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+            for model in ["qwen3.8-max-0902", "qwen3.8-max-2026-09-02"] {
+                let mut request = endpoint_reasoning_request(model);
+                request.reasoning_effort = Some(ReasoningEffort::Max);
+                request.thinking_budget = Some(40_000);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(body["enable_thinking"], true, "{endpoint}/{model}");
+                assert_eq!(body["reasoning_effort"], "xhigh");
+                assert!(body.get("thinking_budget").is_none());
+                request.reasoning_enabled = Some(false);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(body["enable_thinking"], false);
+                assert!(body.get("reasoning_effort").is_none());
+            }
+
+            let mut request = endpoint_reasoning_request("qwen3.8-omni-flash");
+            let mut prior = Message::text(Role::Assistant, "answer");
+            prior.reasoning_content = Some("previous reasoning".to_string());
+            request.messages.push(prior);
+            for (effort, expected) in [
+                (None, "low"),
+                (Some(ReasoningEffort::Minimal), "low"),
+                (Some(ReasoningEffort::Medium), "medium"),
+                (Some(ReasoningEffort::Max), "xhigh"),
+                (Some(ReasoningEffort::None), "none"),
+            ] {
+                request.reasoning_effort = effort;
+                request.thinking_budget = Some(40_000);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(body["reasoning_effort"], expected, "{endpoint}");
+                assert!(body.get("enable_thinking").is_none());
+                assert!(body.get("thinking_budget").is_none());
+                if expected != "none" {
+                    assert_eq!(body["preserve_thinking"], true);
+                    assert_eq!(
+                        body["messages"][1]["reasoning_content"],
+                        "previous reasoning"
+                    );
+                } else {
+                    assert!(body.get("preserve_thinking").is_none());
+                    assert!(body["messages"][1].get("reasoning_content").is_none());
+                }
+            }
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::Max);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["reasoning_effort"], "none");
+        }
     }
 
     #[test]

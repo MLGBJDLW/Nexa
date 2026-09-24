@@ -224,9 +224,9 @@ pub fn load_provider_presets() -> Result<Vec<ProviderPreset>, serde_json::Error>
     serde_json::from_str(PROVIDER_PRESETS_JSON)
 }
 
-fn is_alibaba_beijing_workspace_endpoint(base_url: &str) -> bool {
+fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str> {
     let Ok(url) = reqwest::Url::parse(base_url) else {
-        return false;
+        return None;
     };
     if url.scheme() != "https"
         || url.port().is_some()
@@ -236,16 +236,21 @@ fn is_alibaba_beijing_workspace_endpoint(base_url: &str) -> bool {
         || url.fragment().is_some()
         || url.path().trim_end_matches('/') != "/compatible-mode/v1"
     {
-        return false;
+        return None;
     }
     let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
-    let suffix = ".cn-beijing.maas.aliyuncs.com";
-    let Some(workspace_id) = host.strip_suffix(suffix) else {
-        return false;
-    };
-    !workspace_id.is_empty()
-        && !workspace_id.contains('.')
-        && !matches!(workspace_id, "trial" | "token-plan")
+    [
+        (".cn-beijing.maas.aliyuncs.com", "alibaba-model-studio"),
+        (".ap-southeast-1.maas.aliyuncs.com", "qwen-cloud-intl"),
+    ]
+    .into_iter()
+    .find_map(|(suffix, preset_id)| {
+        let workspace_id = host.strip_suffix(suffix)?;
+        (!workspace_id.is_empty()
+            && !workspace_id.contains('.')
+            && !matches!(workspace_id, "trial" | "token-plan"))
+        .then_some(preset_id)
+    })
 }
 
 pub fn find_provider_preset(provider: &str, base_url: Option<&str>) -> Option<ProviderPreset> {
@@ -281,13 +286,13 @@ pub fn find_provider_preset(provider: &str, base_url: Option<&str>) -> Option<Pr
                 .find(|preset| preset.id == "moonshot")
                 .cloned();
         }
-        if lookup_provider == "alibaba_model_studio"
-            && is_alibaba_beijing_workspace_endpoint(&normalized_base_url)
-        {
-            return presets
-                .iter()
-                .find(|preset| preset.id == "alibaba-model-studio")
-                .cloned();
+        if lookup_provider == "alibaba_model_studio" {
+            if let Some(preset_id) = alibaba_workspace_preset_id(&normalized_base_url) {
+                return presets
+                    .iter()
+                    .find(|preset| preset.id == preset_id)
+                    .cloned();
+            }
         }
         // A provider label never authorizes projecting a trusted catalog onto
         // an unknown, user-edited, HTTP, or non-standard-port endpoint.
@@ -377,10 +382,11 @@ fn find_endpoint_model_preset(
 ) -> Option<ProviderModelPreset> {
     let normalized_model = normalize_endpoint_model_id(model);
     find_provider_preset(provider, base_url).and_then(|preset| {
-        preset
-            .models
-            .into_iter()
-            .find(|candidate| normalize_endpoint_model_id(&candidate.id) == normalized_model)
+        preset.models.into_iter().find(|candidate| {
+            std::iter::once(&candidate.id)
+                .chain(candidate.aliases.iter())
+                .any(|id| normalize_endpoint_model_id(id) == normalized_model)
+        })
     })
 }
 
@@ -626,7 +632,9 @@ fn build_descriptor_snapshot(
         .and_then(|catalog| catalog.endpoints.iter().find(|item| item.id == endpoint_id))
         .map(|endpoint| endpoint.region.as_str())
         .unwrap_or_else(|| {
-            if normalize_base_url(base_url).contains("dashscope-intl") {
+            if normalize_base_url(base_url).contains("dashscope-intl")
+                || normalize_base_url(base_url).contains(".ap-southeast-1.maas.aliyuncs.com")
+            {
                 "ap-southeast-1"
             } else if normalize_base_url(base_url).contains("dashscope")
                 || normalize_base_url(base_url).contains(".cn-beijing.maas.aliyuncs.com")
@@ -725,7 +733,9 @@ fn infer_regions(base_url: Option<&str>) -> Vec<String> {
     let is_z_ai_international = reqwest::Url::parse(&base_url).ok().is_some_and(|url| {
         url.scheme() == "https" && url.host_str().is_some_and(|host| host == "api.z.ai")
     });
-    if base_url.contains("dashscope-intl") || is_z_ai_international {
+    if base_url.contains(".ap-southeast-1.maas.aliyuncs.com") {
+        vec!["ap-southeast-1".to_string()]
+    } else if base_url.contains("dashscope-intl") || is_z_ai_international {
         vec!["international".to_string()]
     } else if base_url.contains("dashscope") || base_url.contains("maas.aliyuncs.com") {
         vec!["cn-beijing".to_string()]
@@ -1771,6 +1781,82 @@ mod tests {
             model_supports_reasoning_from_catalog(ProviderType::LmStudio, "custom-reasoner"),
             None
         );
+    }
+
+    #[test]
+    fn qwen38_september_catalog_preserves_region_alias_limits_and_modalities() {
+        use crate::model_catalog::ModelModality;
+        for (endpoint, preset_id, region) in [
+            (
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "alibaba-model-studio",
+                "cn-beijing",
+            ),
+            (
+                "https://workspace123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "alibaba-model-studio",
+                "cn-beijing",
+            ),
+            (
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "qwen-cloud-intl",
+                "ap-southeast-1",
+            ),
+            (
+                "https://workspace123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+                "qwen-cloud-intl",
+                "ap-southeast-1",
+            ),
+        ] {
+            let preset = find_provider_preset("alibaba_model_studio", Some(endpoint)).unwrap();
+            assert_eq!(preset.id, preset_id);
+            for id in ["qwen3.8-max-0902", "qwen3.8-max-2026-09-02"] {
+                let model =
+                    find_endpoint_model_preset("alibaba_model_studio", Some(endpoint), id).unwrap();
+                assert_eq!(model.id, "qwen3.8-max-0902");
+                assert_eq!(model.context_tokens, Some(1_000_000));
+                assert_eq!(model.max_output_tokens, Some(131_072));
+                assert_eq!(model.regions, [region]);
+                assert!(endpoint_model_catalog_limits_are_authoritative(
+                    "alibaba_model_studio",
+                    Some(endpoint),
+                    id
+                ));
+            }
+            let snapshot = build_effective_model_catalog(
+                "alibaba_model_studio",
+                Some(endpoint),
+                None,
+                None,
+                "2026-09-24T00:00:00Z",
+            );
+            let omni = snapshot
+                .descriptors
+                .iter()
+                .find(|model| model.id == "qwen3.8-omni-flash")
+                .unwrap();
+            assert_eq!(omni.regions, [region]);
+            assert_eq!(
+                omni.input_modalities,
+                [
+                    ModelModality::Text,
+                    ModelModality::Image,
+                    ModelModality::Audio,
+                    ModelModality::Video
+                ]
+            );
+            assert_eq!(omni.output_modalities, [ModelModality::Text]);
+            assert_eq!(omni.limits.context_tokens, Some(1_000_000));
+            assert_eq!(omni.endpoint_ids, [snapshot.endpoint_id]);
+        }
+        for endpoint in [
+            "https://trial.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            "https://workspace123.ap-southeast-1.maas.aliyuncs.com.evil.example/compatible-mode/v1",
+            "https://workspace123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1?other=1",
+        ] {
+            assert!(find_provider_preset("alibaba_model_studio", Some(endpoint)).is_none());
+        }
     }
 
     #[test]

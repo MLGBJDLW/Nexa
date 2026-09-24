@@ -11840,6 +11840,116 @@
         }
       },
       {
+        "id": "qwen3.8-max-0902",
+        "name": "Qwen3.8 Max (0902)",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-09-24",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "promptCache": true,
+          "batch": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "low",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "minTokens": 0,
+              "maxTokens": 262144,
+              "step": 1,
+              "allowZero": true
+            }
+          }
+        },
+        "aliases": [
+          "qwen3.8-max-2026-09-02"
+        ],
+        "releaseDate": "2026-09-02",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models"
+      },
+      {
+        "id": "qwen3.8-omni-flash",
+        "name": "Qwen3.8 Omni Flash",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": true,
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-09-24",
+        "releaseDate": "2026-09-17",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/qwen-omni",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "audioInput": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "low",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "qwen3.8-flash",
         "name": "Qwen3.8 Flash",
         "tagKey": "providers.tagFast",
@@ -12065,6 +12175,116 @@
               "maxTokens": 262144,
               "step": 1,
               "allowZero": true
+            }
+          }
+        }
+      },
+      {
+        "id": "qwen3.8-max-0902",
+        "name": "Qwen3.8 Max (0902)",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-09-24",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "promptCache": true,
+          "batch": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "low",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "minTokens": 0,
+              "maxTokens": 262144,
+              "step": 1,
+              "allowZero": true
+            }
+          }
+        },
+        "aliases": [
+          "qwen3.8-max-2026-09-02"
+        ],
+        "releaseDate": "2026-09-02",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models"
+      },
+      {
+        "id": "qwen3.8-omni-flash",
+        "name": "Qwen3.8 Omni Flash",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": true,
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-09-24",
+        "releaseDate": "2026-09-17",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/qwen-omni",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "audioInput": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "low",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
             }
           }
         }
