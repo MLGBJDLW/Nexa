@@ -562,6 +562,8 @@ export function ChatPage() {
   );
   const handleSourceSelectionChange = useCallback((ids: string[]) => {
     currentSourceIdsRef.current = ids;
+  }, []);
+  const handleSourcesUpdated = useCallback(() => {
     setGitSourceRevision(value => value + 1);
   }, []);
 
@@ -1781,6 +1783,7 @@ export function ChatPage() {
                           conversationId={chat.activeId}
                           initialSelectedIds={initialSourceIds}
                           onSelectionChange={handleSourceSelectionChange}
+                          onUpdate={handleSourcesUpdated}
                         />
                         <SystemPromptEditor
                           conversationId={chat.activeId}
