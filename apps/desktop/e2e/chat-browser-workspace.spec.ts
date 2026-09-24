@@ -997,3 +997,37 @@ test('shared Browser Workspace dialog recovery rejects stale conversation action
   await close.click();
   expect(await page.evaluate(() => (window as unknown as { __dialogCloseCalls: unknown[] }).__dialogCloseCalls)).toEqual([{ sessionId: 'browser-session-1', tabId: 'tab-1' }]);
 });
+
+
+test('browser action trail preserves viewport bounds and distinguishes unverified outcomes', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-browser-workspace');
+  await page.getByTestId('browser-workspace-toggle').click();
+  const surface = page.getByTestId('browser-native-surface');
+  await expect(surface).toBeVisible();
+  const before = await surface.boundingBox();
+  const emit = async (phase: string) => page.evaluate(value => {
+    (window as unknown as { __emitBrowserEvent__: (event: unknown) => void }).__emitBrowserEvent__({
+      kind: 'agentAction', payload: { sessionId: 'browser-session-1', tabId: 'tab-1', action: 'click', phase: value, callId: 'action-1' },
+    });
+  }, phase);
+  await emit('moving');
+  await expect(page.getByTestId('browser-action-trail')).toContainText('In progress');
+  await emit('observedUnchanged');
+  await expect(page.getByTestId('browser-action-trail')).toContainText('No page change');
+  await expect(page.getByTestId('browser-action-trail')).not.toContainText('Verified');
+  const after = await surface.boundingBox();
+  expect(after?.height).toBe(before?.height);
+  expect(after?.y).toBe(before?.y);
+  await emit('failed');
+  await expect(page.getByTestId('browser-action-trail')).toContainText('Needs review');
+  await page.getByTestId('browser-dock').screenshot({ path: testInfo.outputPath('browser-actions.png') });
+  await page.evaluate(() => {
+    (window as unknown as { __emitBrowserEvent__: (event: unknown) => void }).__emitBrowserEvent__({
+      kind: 'workspaceCollapsed', payload: { sessionId: 'browser-session-1', conversationId: 'conv-browser-workspace', minimumVisibilityRevision: 1000 },
+    });
+  });
+  await expect(page.getByTestId('browser-dock')).toHaveCount(0);
+  await page.getByTestId('browser-workspace-toggle').click();
+  await expect(surface).toBeVisible();
+  await expect(page.getByTestId('browser-action-trail')).toContainText('Needs review');
+});

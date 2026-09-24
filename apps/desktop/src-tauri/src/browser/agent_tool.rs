@@ -346,6 +346,8 @@ pub(super) fn browser_action_names() -> Vec<&'static str> {
         "create_session",
         "list_sessions",
         "list_tabs",
+        "show_workspace",
+        "hide_workspace",
         "open_tab",
         "activate_tab",
         "navigate",
@@ -377,7 +379,7 @@ impl Tool for NativeBrowserSessionTool {
     }
 
     fn description(&self) -> &str {
-        "Operate the user-visible Nexa Browser Workspace. The Agent and user share the same native WebView session, tabs, cookies, DOM, and control lease. Use observe before interactions; element refs are observation-scoped and rejected after user takeover or page changes."
+        "Operate the user-visible Nexa Browser Workspace. The Agent and user share the same native WebView session, tabs, cookies, DOM, and control lease. show_workspace expands the existing browser; hide_workspace collapses it while preserving tabs and revoking pending inputs. Use observe before interactions; element refs are observation-scoped and rejected after user takeover, collapse, or page changes."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -583,6 +585,24 @@ impl Tool for NativeBrowserSessionTool {
         };
         let resolved_session_id = self.resolve_session_id(requested_session_id, conversation_id)?;
         let session_id = resolved_session_id.as_str();
+        if matches!(action.as_str(), "show_workspace" | "hide_workspace") {
+            let token = browser_mutation_token(context.arguments);
+            let mut receipt = BrowserActionReceipt::start(&context, session_id, &token, &action)?;
+            let session = self
+                .state
+                .present_workspace(session_id, context.call_id, action == "show_workspace")
+                .await
+                .map_err(Self::invalid)?;
+            receipt.finish(
+                ActivityState::Completed,
+                serde_json::json!({
+                    "stage": "observed", "action": action, "browserSessionId": session_id,
+                    "visible": session.workspace_visible,
+                }),
+            )?;
+            return success(context.call_id, "Updated browser presentation; tabs are preserved. Observe again before further page interaction.",
+                serde_json::json!({ "kind": "browserPresentation", "session": session }));
+        }
         if action == "close_session" {
             let token = browser_mutation_token(context.arguments);
             let commit_tracker = BrowserActCommitTracker::default();

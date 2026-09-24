@@ -36,5 +36,21 @@
   "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels.",
   "dialogHandled": "Seitendialog beantwortet",
   "dialogDismissed": "Unerwarteter Dialog verworfen; Seite vor erneutem Versuch prüfen",
-  "dialogPaused": "Seite wegen wiederholter Dialoge angehalten. Tab schließen oder neu laden."
+  "dialogPaused": "Seite wegen wiederholter Dialoge angehalten. Tab schließen oder neu laden.",
+  "recentActions": "Letzte Browseraktionen",
+  "actionVerified": "Bestätigt",
+  "actionUnchanged": "Seite unverändert",
+  "actionInProgress": "In Bearbeitung",
+  "actionReview": "Prüfung nötig",
+  "actionClick": "Klicken",
+  "actionDoubleClick": "Doppelklick",
+  "actionMove": "Bewegen",
+  "actionHover": "Zeigen",
+  "actionDrag": "Ziehen",
+  "actionType": "Eingeben",
+  "actionSelect": "Auswählen",
+  "actionCheck": "Markieren",
+  "actionPress": "Taste",
+  "actionScroll": "Scrollen",
+  "actionUpload": "Hochladen"
 }

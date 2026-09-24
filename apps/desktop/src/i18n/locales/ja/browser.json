@@ -36,5 +36,21 @@
   "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels.",
   "dialogHandled": "ページのダイアログに応答しました",
   "dialogDismissed": "予期しないダイアログを閉じました。再試行前にページを確認してください",
-  "dialogPaused": "ダイアログが繰り返されたためページを一時停止しました。タブを閉じるか再読み込みしてください。"
+  "dialogPaused": "ダイアログが繰り返されたためページを一時停止しました。タブを閉じるか再読み込みしてください。",
+  "recentActions": "最近のブラウザー操作",
+  "actionVerified": "検証済み",
+  "actionUnchanged": "ページ変更なし",
+  "actionInProgress": "実行中",
+  "actionReview": "確認が必要",
+  "actionClick": "クリック",
+  "actionDoubleClick": "ダブルクリック",
+  "actionMove": "移動",
+  "actionHover": "ホバー",
+  "actionDrag": "ドラッグ",
+  "actionType": "入力",
+  "actionSelect": "選択",
+  "actionCheck": "チェック",
+  "actionPress": "キー",
+  "actionScroll": "スクロール",
+  "actionUpload": "アップロード"
 }

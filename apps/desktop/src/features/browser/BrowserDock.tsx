@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useTranslation } from '../../i18n';
+import { useTranslation, type TranslationKey } from '../../i18n';
 import * as api from '../../lib/api';
 import { formatUserError } from '../../lib/userError';
 import { OPEN_BROWSER_WORKSPACE_EVENT, registerBrowserOpener, type OpenNexaBrowserDetail } from './openNexaBrowser';
@@ -68,6 +68,12 @@ const MAX_WIDTH = 920;
 const DEFAULT_WIDTH = 620;
 const WIDTH_STORAGE_KEY = 'nexa-browser-dock-width';
 const MAX_BROWSER_TABS_PER_SESSION = 16;
+const ACTION_LABELS: Record<string, TranslationKey> = {
+  click: 'browser.actionClick', double_click: 'browser.actionDoubleClick',
+  move: 'browser.actionMove', hover: 'browser.actionHover', drag: 'browser.actionDrag',
+  type: 'browser.actionType', select: 'browser.actionSelect', set_checked: 'browser.actionCheck',
+  press: 'browser.actionPress', scroll: 'browser.actionScroll', upload_files: 'browser.actionUpload',
+};
 
 function nativeBrowserOccluded(): boolean {
   // Native child WebViews paint above the application's DOM, including the
@@ -125,6 +131,7 @@ export function BrowserDock({
   const [width, setWidth] = useState(storedWidth);
   const [pickMode, setPickMode] = useState<'element' | 'region' | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [recentActions, setRecentActions] = useState<Array<{ action: string; phase: string; tabId: string; callId?: string }>>([]);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const latestBoundsRef = useRef<api.BrowserBounds | null>(null);
   const pickTimerRef = useRef<number | null>(null);
@@ -552,6 +559,19 @@ export function BrowserDock({
         : '';
       const currentConversationId = conversationIdRef.current;
 
+      if (event.payload.kind === 'workspaceCollapsed') {
+        if (!currentConversationId || eventConversationId !== currentConversationId || eventSessionId !== sessionIdRef.current) return;
+        const revision = Number(payload.minimumVisibilityRevision);
+        if (!Number.isSafeInteger(revision) || revision < (visibilityRevisionBySessionRef.current.get(eventSessionId) ?? 0)) return;
+        recordMinimumVisibilityRevision(eventSessionId, revision);
+        onOpenChangeRef.current(false);
+        // Acknowledge even if already collapsed; the native tool only reports
+        // success after the presentation boundary has caught up.
+        void syncBounds(false, undefined, eventSessionId, currentConversationId).catch(() => undefined);
+        void refresh().catch(() => undefined);
+        return;
+      }
+
       if (event.payload.kind === 'sessionCreated' || event.payload.kind === 'workspaceVisibilityRequested') {
         if (!currentConversationId || eventConversationId !== currentConversationId) return;
         if (eventSessionId) {
@@ -570,6 +590,25 @@ export function BrowserDock({
         || !eventSessionId
         || currentSession.id !== eventSessionId
       ) return;
+
+      if (event.payload.kind === 'agentAction') {
+        const action = typeof payload.action === 'string' ? payload.action : '';
+        const phase = typeof payload.phase === 'string' ? payload.phase : '';
+        const tabId = typeof payload.tabId === 'string' ? payload.tabId : '';
+        const callId = typeof payload.callId === 'string' ? payload.callId : undefined;
+        if (action && currentSession.tabs.some(tab => tab.id === tabId)) {
+          setRecentActions(previous => {
+            const latest = previous[previous.length - 1];
+            const continuing = phase !== 'moving' && latest?.action === action && latest.tabId === tabId && latest.callId === callId;
+            return [...(continuing ? previous.slice(0, -1) : previous), { action, phase, tabId, callId }].slice(-6);
+          });
+        }
+        return;
+      }
+
+      if (event.payload.kind === 'controlChanged' && (payload.owner as { type?: string } | undefined)?.type !== 'agent') {
+        setRecentActions(previous => previous.map(entry => ['moving', 'committing'].includes(entry.phase) ? { ...entry, phase: 'interrupted' } : entry));
+      }
 
       if (event.payload.kind === 'scriptDialog') {
         const dialog = payload.dialog;
@@ -665,11 +704,18 @@ export function BrowserDock({
     reportError,
     reportScopeError,
     sessionScopeOwnsCurrent,
+    syncBounds,
   ]);
 
   useEffect(() => {
     setAddress(currentTab?.url ?? '');
   }, [currentTab?.id, currentTab?.url]);
+
+  useEffect(() => {
+    if (!open) setRecentActions(previous => previous.map(entry => (
+      ['moving', 'committing'].includes(entry.phase) ? { ...entry, phase: 'interrupted' } : entry
+    )));
+  }, [open]);
 
   useEffect(() => {
     const control = ownerType(session?.controlOwner);
@@ -692,6 +738,7 @@ export function BrowserDock({
     popupLimitWarnedSessionsRef.current.clear();
     setBusy(false);
     setLastError(null);
+    setRecentActions([]);
   }, [conversationId, session?.id]);
 
   useEffect(() => {
@@ -1125,6 +1172,14 @@ export function BrowserDock({
             <span className="ml-auto flex items-center gap-1 text-[9px] uppercase tracking-[.14em] text-text-tertiary"><Send size={10} /> {t('browser.sharedSession')}</span>
           </div>
         )}
+        <div className="mt-2 flex h-7 min-w-0 items-center gap-1 overflow-x-auto" aria-label={t('browser.recentActions')} data-testid="browser-action-trail">
+          {recentActions.length === 0 && <span className="text-[10px] text-text-tertiary">{t('browser.recentActions')}</span>}
+          {recentActions.map((entry, index) => <span key={index} className="flex shrink-0 items-center gap-1 rounded border border-border/50 bg-surface-2/70 px-1.5 py-1 text-[10px] text-text-secondary" title={`${entry.action} · ${entry.phase}`}>
+            {entry.phase === 'verified' ? '✓' : entry.phase === 'observedUnchanged' ? '○' : ['failed', 'interrupted'].includes(entry.phase) ? '!' : '…'}
+            {ACTION_LABELS[entry.action] ? t(ACTION_LABELS[entry.action]) : entry.action}
+            <span className="text-text-tertiary">{entry.phase === 'verified' ? t('browser.actionVerified') : entry.phase === 'observedUnchanged' ? t('browser.actionUnchanged') : ['failed', 'interrupted'].includes(entry.phase) ? t('browser.actionReview') : t('browser.actionInProgress')}</span>
+          </span>)}
+        </div>
       </header>
 
       <div ref={contentRef} className="relative min-h-0 flex-1 bg-[#071018]" data-testid="browser-native-surface">

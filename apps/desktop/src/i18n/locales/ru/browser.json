@@ -36,5 +36,21 @@
   "pickRegionHint": "Drag to attach page coordinates (pixels are not captured). Escape cancels.",
   "dialogHandled": "Ответ на диалог страницы отправлен",
   "dialogDismissed": "Неожиданный диалог закрыт; проверьте страницу перед повтором",
-  "dialogPaused": "Страница приостановлена из-за повторных диалогов. Закройте или обновите вкладку."
+  "dialogPaused": "Страница приостановлена из-за повторных диалогов. Закройте или обновите вкладку.",
+  "recentActions": "Недавние действия",
+  "actionVerified": "Проверено",
+  "actionUnchanged": "Страница без изменений",
+  "actionInProgress": "Выполняется",
+  "actionReview": "Нужна проверка",
+  "actionClick": "Щелчок",
+  "actionDoubleClick": "Двойной щелчок",
+  "actionMove": "Движение",
+  "actionHover": "Наведение",
+  "actionDrag": "Перетаскивание",
+  "actionType": "Ввод",
+  "actionSelect": "Выбор",
+  "actionCheck": "Отметка",
+  "actionPress": "Клавиша",
+  "actionScroll": "Прокрутка",
+  "actionUpload": "Загрузка"
 }
