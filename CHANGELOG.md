@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.14.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.14...nexa-monorepo-v0.14.15) (2026-09-24)
+
+
+### Features
+
+* **models:** adapt September Qwen PAYG models and reasoning ([8b397a1](https://github.com/MLGBJDLW/Nexa/commit/8b397a15d562b68f372e7ad6e6f63d5a22400697))
+* **tools:** make browser startup observable and sessions recoverable ([89a40df](https://github.com/MLGBJDLW/Nexa/commit/89a40df8b335a96ad1245c1e551fa4b86ff2b3de))
+
+
+### Bug Fixes
+
+* **ci:** execute native terminal regressions on Windows ([15256d9](https://github.com/MLGBJDLW/Nexa/commit/15256d9cbad7fcef842f6041f2dca5e25eedcbdd))
+* **context:** separate planning reserves from output capacity ([d1bf28c](https://github.com/MLGBJDLW/Nexa/commit/d1bf28c0a1812185feb30dc15511923010cc51e0))
+* **models:** resolve runtime capabilities through catalog aliases ([f5d2eb3](https://github.com/MLGBJDLW/Nexa/commit/f5d2eb3206bdc6d53c28f660409b503e9c39eaa6))
+* **runtime:** update Qwen, context budgets and interactive tools ([e0a74e8](https://github.com/MLGBJDLW/Nexa/commit/e0a74e804222f9b14e9cade88bd027ca4b5293ec))
+* **shell:** preserve productive waits and allow absolute executables ([616fd34](https://github.com/MLGBJDLW/Nexa/commit/616fd34e4a0b929646f084fc24b3c604ef9a0102))
+* **terminal:** repair PowerShell input, paste and one-click close ([07185b7](https://github.com/MLGBJDLW/Nexa/commit/07185b75d031fc1b2986f1d8ea30505e1900d0f8))
+
 ## [0.14.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.13...nexa-monorepo-v0.14.14) (2026-09-24)
 
 
