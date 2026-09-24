@@ -53,11 +53,11 @@ export function TaskBoard({
     [messages, taskEvents, taskRun?.artifacts, taskRun?.userMessageId, toolCalls],
   );
 
-  if (!plan && !goal && subtasks.length === 0 && git.repos.length === 0) {
+  if (!plan && !goal && subtasks.length === 0 && git.repos.length === 0 && !git.error) {
     return null;
   }
 
-  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && git.repos.length === 0) {
+  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && git.repos.length === 0 && !git.error) {
     return null;
   }
 

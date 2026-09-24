@@ -530,7 +530,7 @@ export function PlanProgressPanel({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 rotate-180 text-text-tertiary transition-transform" />
         </button>
 
-        {open && conversationId && git && git.repos.length > 0 && <GitWorkspaceDetails conversationId={conversationId} repos={git.repos} error={git.error} onRefresh={git.refresh} />}
+        {open && conversationId && git && (git.repos.length > 0 || git.error) && <GitWorkspaceDetails conversationId={conversationId} repos={git.repos} error={git.error} onRefresh={git.refresh} />}
         {plan && (
           <>
             <div className="mx-1 mt-1 h-1 rounded-full bg-surface-0">

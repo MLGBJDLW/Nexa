@@ -47,9 +47,10 @@ async fn output(cwd: &Path, args: &[&str]) -> Result<Option<String>, String> {
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE")
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x08000000);
@@ -59,19 +60,36 @@ async fn output(cwd: &Path, args: &[&str]) -> Result<Option<String>, String> {
         Err(error) => return Err(error.to_string()),
     };
     let stdout = child.stdout.take().ok_or("Git output pipe unavailable")?;
+    let stderr = child.stderr.take().ok_or("Git error pipe unavailable")?;
     let result = tokio::time::timeout(Duration::from_secs(5), async {
         let mut bytes = Vec::new();
-        stdout
-            .take(MAX_OUTPUT + 1)
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut error_bytes = Vec::new();
+        let mut stdout = stdout.take(MAX_OUTPUT + 1);
+        let mut stderr = stderr.take(32 * 1024);
+        tokio::try_join!(
+            stdout.read_to_end(&mut bytes),
+            stderr.read_to_end(&mut error_bytes)
+        )
+        .map_err(|e| e.to_string())?;
         if bytes.len() as u64 > MAX_OUTPUT {
             return Err("Git output exceeds the 2 MiB preview limit".into());
         }
         let status = child.wait().await.map_err(|e| e.to_string())?;
         if !status.success() {
-            return Ok(None);
+            let message = String::from_utf8_lossy(&error_bytes);
+            let repository_marker = cwd
+                .ancestors()
+                .any(|dir| dir.join(".git").symlink_metadata().is_ok());
+            if args.first() == Some(&"rev-parse")
+                && message.contains("not a git repository")
+                && !repository_marker
+            {
+                return Ok(None);
+            }
+            return Err(format!(
+                "Git command failed ({status}): {}",
+                message.chars().take(800).collect::<String>().trim()
+            ));
         }
         // Never turn an undecodable filename into a different actionable path.
         String::from_utf8(bytes)
@@ -235,5 +253,10 @@ mod tests {
             .contains("+hello"));
         assert!(diff(&scope, "outside.txt", true).await.is_err());
         assert!(diff(&scope, ":(glob)**", true).await.is_err());
+        std::fs::write(dir.path().join(".git/index"), "corrupt index").unwrap();
+        assert!(status(&scope)
+            .await
+            .unwrap_err()
+            .contains("Git command failed"));
     }
 }

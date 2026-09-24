@@ -39,7 +39,10 @@ pub async fn conversation_git_status_cmd(
 ) -> Result<Vec<ConversationGitStatus>, String> {
     let roots = sources(&state, conversation_id).await?;
     let results = stream::iter(roots.into_iter().map(|(source_id, root)| async move {
-        if !root.is_dir() {
+        let metadata = tokio::fs::metadata(&root)
+            .await
+            .map_err(|error| format!("Cannot read Git source {}: {error}", root.display()))?;
+        if !metadata.is_dir() {
             return Ok(None);
         }
         git_workspace::status(&root)

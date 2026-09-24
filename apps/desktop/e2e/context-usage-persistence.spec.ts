@@ -246,6 +246,7 @@ test.beforeEach(async ({ page }) => {
           localStorage.setItem('__conversation_usage_reads__', String(Number(localStorage.getItem('__conversation_usage_reads__') ?? 0) + 1));
           return durableUsageSnapshot(String(args.conversationId ?? ''));
         case 'conversation_git_status_cmd':
+          if (localStorage.getItem('__e2e_git_error__')) throw new Error('Git command failed: corrupt index');
           return args.conversationId === 'conv-e2e'
             ? JSON.parse(localStorage.getItem('__e2e_git_repos__') ?? '[]') : [];
         case 'conversation_git_diff_cmd':
@@ -800,4 +801,15 @@ test('live cache refresh queries only the active run after baseline hydration', 
   expect(await page.evaluate(() => Number(localStorage.getItem('__conversation_usage_reads__')))).toBe(reads.all);
   await expect(page.getByTestId('chat-stop')).toBeHidden();
   await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
+});
+
+
+test('Git capsule exposes repository errors and supports retry', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('__e2e_git_error__', '1'));
+  await page.goto('/chat/conv-e2e');
+  await page.getByTestId('task-board-collapsed').click();
+  await expect(page.getByTestId('git-workspace-details')).toContainText('corrupt index');
+  await page.evaluate(() => localStorage.removeItem('__e2e_git_error__'));
+  await page.getByRole('button', { name: 'Refresh Git status' }).click();
+  await expect(page.getByTestId('task-board')).toHaveCount(0);
 });
