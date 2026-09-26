@@ -899,6 +899,8 @@ impl AgentExecutor {
             effective_dynamic_tool_visibility && model_tool_registry.contains("tool_search"),
             layout,
         );
+        controller_state_sections_owned
+            .push(self.config.tool_approval_mode.prompt_guidance().into());
         if expose_model_task_plan {
             controller_state_sections_owned.push(orchestration_policy.prompt_section());
         }

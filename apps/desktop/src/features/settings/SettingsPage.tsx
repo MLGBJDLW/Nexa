@@ -372,8 +372,8 @@ export function SettingsPage() {
       } else {
         toast.error(t('settings.embeddingTestFail'));
       }
-    } catch {
-      toast.error(t('settings.embeddingTestFail'));
+    } catch (error) {
+      toast.error(`${t('settings.embeddingTestFail')}: ${String(error)}`);
     } finally {
       setTestLoading(false);
     }

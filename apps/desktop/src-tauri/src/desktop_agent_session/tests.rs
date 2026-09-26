@@ -216,8 +216,8 @@ fn root_tool_allowlist_only_narrows_the_assembled_registry() {
     assert_eq!(filtered.tool_names(), vec!["run_shell".to_string()]);
 }
 
-#[test]
-fn desktop_allow_all_never_bypasses_computer_or_screen_disclosure_approval() {
+#[tokio::test]
+async fn desktop_allow_all_applies_to_computer_browser_and_screen_disclosure() {
     let control = ApprovalRequest::new(
         "control",
         "computer_control",
@@ -260,26 +260,27 @@ fn desktop_allow_all_never_bypasses_computer_or_screen_disclosure_approval() {
     let mut reusable_window = capture.clone();
     reusable_window.target_kind = "desktop_window_task".into();
     assert!(requires_explicit_desktop_approval(&reusable_window));
-    assert_eq!(
-        desktop_approval_mode_decision(ToolApprovalMode::AllowAll, &reusable_window),
-        None
-    );
-    assert_eq!(
-        desktop_approval_mode_decision(ToolApprovalMode::AllowAll, &control),
-        None
-    );
-    assert_eq!(
-        desktop_approval_mode_decision(ToolApprovalMode::AllowAll, &capture),
-        None
-    );
-    assert_eq!(
-        desktop_approval_mode_decision(ToolApprovalMode::AllowAll, &browser),
-        None
-    );
-    assert_eq!(
-        desktop_approval_mode_decision(ToolApprovalMode::DenyAll, &control),
-        Some(ApprovalDecision::Deny)
-    );
+    for mode in [ToolApprovalMode::AllowAll, ToolApprovalMode::DenyAll] {
+        let pending = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+        let callback = build_desktop_approval_callback(DesktopApprovalCallbackInput {
+            db: Arc::new(Database::open_memory().unwrap()),
+            task_run_id: "full-access".into(),
+            approval_runtime: DesktopAgentApprovalRuntime {
+                pending: pending.clone(),
+                session_store: SessionApprovalStore::default(),
+                approval_mode: mode,
+            },
+            cancellation: CancellationToken::new(),
+        });
+        for request in [&control, &capture, &browser, &reusable_window] {
+            let result =
+                tokio::time::timeout(Duration::from_millis(100), callback(request.clone()))
+                    .await
+                    .expect("global mode must resolve without opening a dialog");
+            assert_eq!(Some(result), mode.short_circuit());
+            assert!(pending.lock().await.is_empty());
+        }
+    }
 }
 
 #[tokio::test]
@@ -293,7 +294,7 @@ async fn explicitly_granted_window_task_reuses_only_its_exact_permission() {
         approval_runtime: DesktopAgentApprovalRuntime {
             pending: pending.clone(),
             session_store: store.clone(),
-            approval_mode: ToolApprovalMode::AllowAll,
+            approval_mode: ToolApprovalMode::Ask,
         },
         cancellation: cancellation.clone(),
     });
@@ -978,7 +979,8 @@ fn context_policy_reaches_the_executor_and_matches_the_ui_budget() {
             .resolved_max_response_tokens(&config.model),
         preview.response_reserve
     );
-    assert_eq!(preview.trigger_tokens, Some(19_136));
+    assert_eq!(preview.response_reserve, 1024);
+    assert_eq!(preview.trigger_tokens, Some(39_270));
     // Restoring automatic overrides a legacy provider-wide context override.
     db.save_model_context_policy(
         &config.provider,

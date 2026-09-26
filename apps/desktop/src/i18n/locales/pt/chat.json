@@ -763,5 +763,8 @@
   "gitStaged": "Preparado",
   "gitWorking": "Trabalho",
   "gitTruncated": "São apresentados os primeiros 300 caminhos alterados.",
-  "gitNoDiff": "Sem diferenças."
+  "gitNoDiff": "Sem diferenças.",
+  "gitNoSources": "Vincule uma pasta de origem ou abra um terminal para esta conversa para consultar o Git.",
+  "gitNoRepository": "Nenhum repositório Git nas pastas vinculadas.",
+  "gitStatusFailed": "Não foi possível atualizar todo o estado do Git."
 }

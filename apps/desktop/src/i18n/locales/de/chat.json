@@ -763,5 +763,8 @@
   "gitStaged": "Vorgemerkt",
   "gitWorking": "Arbeitsbaum",
   "gitTruncated": "Die ersten 300 geänderten Pfade werden angezeigt.",
-  "gitNoDiff": "Keine Unterschiede."
+  "gitNoDiff": "Keine Unterschiede.",
+  "gitNoSources": "Verknüpfen Sie einen Quellordner oder öffnen Sie ein Terminal für diesen Chat, um Git zu prüfen.",
+  "gitNoRepository": "Kein Git-Repository in den verknüpften Ordnern.",
+  "gitStatusFailed": "Der Git-Status konnte nicht vollständig aktualisiert werden."
 }

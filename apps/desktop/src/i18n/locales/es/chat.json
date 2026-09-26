@@ -763,5 +763,8 @@
   "gitStaged": "Preparado",
   "gitWorking": "Trabajo",
   "gitTruncated": "Se muestran las primeras 300 rutas modificadas.",
-  "gitNoDiff": "Sin diferencias."
+  "gitNoDiff": "Sin diferencias.",
+  "gitNoSources": "Vincula una carpeta de origen o abre una terminal para este chat para consultar Git.",
+  "gitNoRepository": "No hay repositorios Git en las carpetas vinculadas.",
+  "gitStatusFailed": "No se pudo actualizar todo el estado de Git."
 }

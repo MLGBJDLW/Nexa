@@ -1033,5 +1033,7 @@
   "imageSourceAutoHint": "Codex chats use the signed-in subscription; API chats use the image API configured below. Unsupported subscriptions stop with a clear error.",
   "imageSourceSubscriptionHint": "Use the signed-in ChatGPT account. Codex manages the image model and output options.",
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
-  "imageSourceApiKeyHint": "Use the provider, model and API key configured below."
+  "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
+  "embeddingCustomModel": "Inserir um ID de modelo personalizado",
+  "embeddingStorageInfo": "Os vetores ficam no SQLite local. Alterar o endpoint, modelo ou dimensões seleciona outro espaço vetorial. Salve as configurações e reconstrua os embeddings."
 }

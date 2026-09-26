@@ -12,6 +12,7 @@ import { RemoteComposerOptions, defaultComposerSettings, type RemoteComposerSett
 import type { AgentRunEvent, ImageAttachment } from '../../types/conversation';
 import { enqueueStreamRunEvent, takeNextStreamRunEvent, takeAuthoritativeRunEventSuffix, type StreamEventOrderingState } from '../../lib/streaming/ordering';
 import { RemoteRunTimeline, type RemoteTimelineItem } from './RemoteRunTimeline';
+import { mergeRemoteHistory } from './remoteHistory';
 
 interface Connection {
   id: string;
@@ -233,16 +234,7 @@ export function RemoteChat({
       if (!valid() || runId !== expectedRun) return;
       const firstLoad = !historyLoaded;
       historyLoaded = true;
-      setMessages(current => {
-        const firstOrder = result.messages[0]?.sortOrder ?? Infinity;
-        const older = current.filter(message => message.sortOrder < firstOrder);
-        const latest = result.messages.map(message => {
-          const expanded = current.find(old => old.id === message.id);
-          return expanded && expanded.totalChars === message.totalChars && expanded.content.startsWith(message.content)
-            ? expanded : message;
-        });
-        return [...older, ...latest];
-      });
+      setMessages(current => mergeRemoteHistory(current, result.messages));
       if (firstLoad) setBeforeOrder(result.beforeOrder);
       // Only the canonical message for THIS run retires its live answer. A
       // previous assistant message or a temporarily missing final cannot do so.

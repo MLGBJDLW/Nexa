@@ -408,15 +408,6 @@ pub(crate) fn requires_explicit_desktop_approval(req: &ApprovalRequest) -> bool 
         || req.target_kind == "browser_action"
 }
 
-pub(crate) fn desktop_approval_mode_decision(
-    approval_mode: ToolApprovalMode,
-    req: &ApprovalRequest,
-) -> Option<ApprovalDecision> {
-    approval_mode.short_circuit().and_then(|decision| {
-        (!requires_explicit_desktop_approval(req) || !decision.is_allowed()).then_some(decision)
-    })
-}
-
 pub(crate) fn build_desktop_approval_callback(
     input: DesktopApprovalCallbackInput,
 ) -> ApprovalCallback {
@@ -437,6 +428,9 @@ pub(crate) fn build_desktop_approval_callback(
         let task_run_id = task_run_id.clone();
         let cancellation = cancellation.clone();
         Box::pin(async move {
+            if let Some(decision) = approval_mode.short_circuit() {
+                return decision;
+            }
             let permission_key = ToolPermissionKey::from_request(&req);
             let hard_confirmation = requires_explicit_desktop_approval(&req);
             let reusable_window_grant = req.target_kind == "desktop_window_task"
@@ -444,10 +438,6 @@ pub(crate) fn build_desktop_approval_callback(
                     req.tool_name.as_str(),
                     "computer_control" | "computer_observe"
                 );
-            if let Some(decision) = desktop_approval_mode_decision(approval_mode, &req) {
-                return decision;
-            }
-
             if let Ok(Some(policy)) = db.resolve_tool_permission_policy(&permission_key) {
                 if policy == "never" {
                     return ApprovalDecision::Deny;

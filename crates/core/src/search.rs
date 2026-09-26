@@ -713,17 +713,9 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
             let config = db.get_embedder_config()?;
             match config.provider.as_str() {
                 "local" | "api" => {
-                    // Determine model name for DB embedding lookup.
-                    let model_name = if config.provider == "local" {
-                        config.local_embedding_model().model_name().to_string()
-                    } else if config.api_model.is_empty() {
-                        "text-embedding-3-small".to_string()
-                    } else {
-                        config.api_model.clone()
-                    };
-
                     match create_embedder(&config) {
                         Ok(embedder) => {
+                            let model_name = embedder.vector_space_id();
                             // If create_embedder fell back to an empty TF-IDF
                             // (e.g. ONNX not downloaded), its dimensions will be 0.
                             if embedder.dimensions() == 0 {
@@ -742,7 +734,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                             vector_search_top_k(
                                                 db,
                                                 &query_vec,
-                                                &model_name,
+                                                model_name,
                                                 internal_limit,
                                                 None,
                                             )

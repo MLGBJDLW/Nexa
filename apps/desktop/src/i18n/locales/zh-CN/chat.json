@@ -763,5 +763,8 @@
   "gitStaged": "暂存区",
   "gitWorking": "工作区",
   "gitTruncated": "仅显示前 300 个变更路径。",
-  "gitNoDiff": "此处没有差异。"
+  "gitNoDiff": "此处没有差异。",
+  "gitNoSources": "关联来源文件夹或打开此会话的终端，即可检测 Git。",
+  "gitNoRepository": "关联文件夹中未检测到 Git 仓库。",
+  "gitStatusFailed": "Git 状态未能完整刷新。"
 }

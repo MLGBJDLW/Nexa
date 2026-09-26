@@ -1033,5 +1033,7 @@
   "imageSourceAutoHint": "Codex 订阅聊天自动使用订阅生图；API 聊天使用下方图片接口。不支持生图的订阅会明确提示。",
   "imageSourceSubscriptionHint": "使用已登录的 ChatGPT 账号，生图模型与输出选项由 Codex 管理。",
   "imageSourceSubscriptionNote": "请先在 AI 提供商中登录 Codex。生图使用订阅图片额度，失败时不会自动切换到 API Key。",
-  "imageSourceApiKeyHint": "使用下方配置的服务商、模型与 API Key。"
+  "imageSourceApiKeyHint": "使用下方配置的服务商、模型与 API Key。",
+  "embeddingCustomModel": "输入自定义模型 ID",
+  "embeddingStorageInfo": "向量保存在本地 SQLite 中。更改 API 端点、模型或维度会使用独立的向量空间。请先保存设置，再重建嵌入以使用新空间。"
 }

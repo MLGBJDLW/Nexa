@@ -763,5 +763,8 @@
   "gitStaged": "ステージ済み",
   "gitWorking": "作業ツリー",
   "gitTruncated": "変更されたパスを最初の 300 件まで表示します。",
-  "gitNoDiff": "差分はありません。"
+  "gitNoDiff": "差分はありません。",
+  "gitNoSources": "ソースフォルダーを関連付けるか、このチャットのターミナルを開いて Git を確認してください。",
+  "gitNoRepository": "関連付けられたフォルダーに Git リポジトリはありません。",
+  "gitStatusFailed": "Git の状態を完全に更新できませんでした。"
 }

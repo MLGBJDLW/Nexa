@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Copy, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../i18n';
-import { getGitDiff, type GitWorkspaceStatus } from '../../lib/gitWorkspace';
+import { getGitDiff, type GitWorkspaceSnapshot } from '../../lib/gitWorkspace';
 
-export function GitWorkspaceDetails({ conversationId, repos, error, onRefresh }: {
+export function GitWorkspaceDetails({ conversationId, repos, issues, checkedSources, loaded, error, onRefresh }: GitWorkspaceSnapshot & {
   conversationId: string;
-  repos: GitWorkspaceStatus[];
+  loaded: boolean;
   error: string | null;
   onRefresh: () => void;
 }) {
@@ -30,6 +30,8 @@ export function GitWorkspaceDetails({ conversationId, repos, error, onRefresh }:
       <button type="button" onClick={onRefresh} className="rounded p-1 hover:bg-surface-2" aria-label={t('chat.gitRefresh')}><RefreshCw size={13} /></button>
     </div>
     {error && <p role="status" className="break-words text-xs text-danger">{error}</p>}
+    {issues.map(issue => <p key={issue.sourceId} role="status" className="break-words text-xs text-warning" title={issue.root}>{issue.root}: {issue.message}</p>)}
+    {repos.length === 0 && !error && issues.length === 0 && <p role="status" className="py-2 text-xs text-text-tertiary">{!loaded ? t('common.loading') : checkedSources === 0 ? t('chat.gitNoSources') : t('chat.gitNoRepository')}</p>}
     {copyError && <p role="status" className="text-xs text-danger">{t('chat.gitCopyFailed')}</p>}
     <div className="max-h-64 overflow-auto">
       {repos.map(repo => <div key={repo.sourceId} className="mt-2 min-w-0">

@@ -91,6 +91,16 @@ without loading tool payload history. UI refreshes coalesce while one request
 is pending. Worker capsules merge durable and live identities, keep terminal
 states monotonic, and show compact task labels.
 
+The chat Git capsule reads the effective conversation/project source scope;
+unscoped chats use registered sources, matching file tools. The current linked
+terminal can also contribute its launch directory. It does not infer directories
+from assistant prose or a shell's later `cd` commands. Canonical duplicate scopes
+are scanned once, up to four at a time. A missing Git executable or inaccessible
+source is an explicit diagnostic and cannot hide healthy repositories. The UI
+coalesces refresh bursts and preserves unchanged repository objects so a poll
+does not restart an open diff request. Phone history merging indexes message IDs
+once and preserves expanded text and older pages.
+
 ## Run Event publication boundary
 
 The core runtime owns one Run Event outbox per Agent Run. It is the sole
@@ -140,6 +150,20 @@ unaffected. A clean worker event-stream closure is not a fatal event and cannot
 preempt successful executor finalization.
 
 ## Desktop and browser lifetime
+
+The shared `ToolApprovalMode` owns application approval decisions for API,
+subscription, delegated and remotely launched turns. `allow_all` skips Nexa
+approval callbacks and approval events for desktop control, capture and browser
+actions as well as ordinary tools. The same mode is projected into both native
+and upstream-owned model prompts. `ask` and `deny_all` retain their gates.
+Observation freshness, exact targets, plan mode, source boundaries, cancellation
+and operating-system permissions remain execution checks, independent of that
+approval decision. A mode is snapshotted when a turn starts.
+
+This separation follows the distinction between approval and monotonic guards
+in the [DeepSeek Harness tool pipeline](https://github.com/deepseek-ai/deepseek-harness/blob/477b4f420553e8a52c2fbccc464d7561b239c443/docs/tool-execution-pipeline.md).
+Nexa retains its existing outbox and persistence ownership; UI projections do
+not become a second execution authority.
 
 User-started sharing and model control use separate entry points. The native
 share picker can capture Nexa itself, but the model-control path continues to

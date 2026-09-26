@@ -116,7 +116,7 @@ pub fn run_source(
                 max_intra_threads: limits.max_intra_threads,
             },
         )?;
-        (embedder.model_name().to_string(), embedder)
+        (embedder.vector_space_id().to_string(), embedder)
     };
 
     let total_source_chunks = db.count_chunks_for_source(source_id)?;
@@ -196,7 +196,7 @@ pub fn rebuild_all(
                 max_intra_threads: limits.max_intra_threads,
             },
         )?;
-        (embedder.model_name().to_string(), embedder)
+        (embedder.vector_space_id().to_string(), embedder)
     };
 
     let deleted = db.delete_all_embeddings(&model)?;

@@ -1033,5 +1033,7 @@
   "imageSourceAutoHint": "Codex chats use the signed-in subscription; API chats use the image API configured below. Unsupported subscriptions stop with a clear error.",
   "imageSourceSubscriptionHint": "Use the signed-in ChatGPT account. Codex manages the image model and output options.",
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
-  "imageSourceApiKeyHint": "Use the provider, model and API key configured below."
+  "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
+  "embeddingCustomModel": "사용자 지정 모델 ID 입력",
+  "embeddingStorageInfo": "벡터는 로컬 SQLite에 저장됩니다. API 엔드포인트, 모델 또는 차원을 변경하면 별도의 벡터 공간을 사용합니다. 설정을 저장한 후 임베딩을 다시 구축하세요."
 }

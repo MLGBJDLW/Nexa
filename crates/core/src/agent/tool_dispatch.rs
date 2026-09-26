@@ -893,6 +893,23 @@ impl ToolDispatchRuntime<'_> {
                                     }));
                         let shell_requires_confirm = tc.name == "run_shell"
                             && self.config.shell_access_mode.requires_confirmation();
+                        // Full access controls authorization, not target validity.
+                        // Validate desktop observations even when no preview or
+                        // approval event will be emitted (including headless runs).
+                        if hard_confirmation
+                            && self.config.tool_approval_mode == ToolApprovalMode::AllowAll
+                        {
+                            if let Err(error) = self.tools.confirmation_message_in_context(
+                                &tc.name, parsed_args, conversation_id,
+                            ) {
+                                let failed = approval_context_failure(&tc.id, &tc.name, error);
+                                return FinishedToolExecution {
+                                    index, call: tc, timeout: tool_timeout,
+                                    outcome: ToolExecutionOutcome::Result(failed, ToolRunStatus::Failed),
+                                    elapsed: Duration::ZERO,
+                                };
+                            }
+                        }
                         if let Some(ref approval_cb) = self.approval_callback {
                             let baseline = if tool_requires_confirm || shell_requires_confirm {
                                 PolicyEffect::RequireApproval
@@ -935,10 +952,7 @@ impl ToolDispatchRuntime<'_> {
                                 let short_circuit = self
                                     .config
                                     .tool_approval_mode
-                                    .short_circuit()
-                                    .filter(|decision| {
-                                        !(hard_confirmation && decision.is_allowed())
-                                    });
+                                    .short_circuit();
                                 if let Some(decision) = short_circuit {
                                     if !decision.is_allowed() {
                                         let denied = crate::tools::ToolResult {
@@ -1149,10 +1163,7 @@ impl ToolDispatchRuntime<'_> {
                                 let short_circuit = self
                                     .config
                                     .tool_approval_mode
-                                    .short_circuit()
-                                    .filter(|decision| {
-                                        !(hard_confirmation && decision.is_allowed())
-                                    });
+                                    .short_circuit();
                                 if let Some(decision) = short_circuit {
                                     if !decision.is_allowed() {
                                         let declined = crate::tools::ToolResult {
