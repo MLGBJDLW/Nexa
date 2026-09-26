@@ -9,10 +9,15 @@ import '../../src/index.css';
 function Fixture() {
   const [config, setConfig] = useState<EmbedderConfig>({ provider: 'api', apiKey: '', apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'text-embedding-3-small', vectorDimensions: 1536, localModel: 'MultilingualMiniLM', modelPath: '' });
   const [tested, setTested] = useState<EmbedderConfig>();
+  const [rebuilding, setRebuilding] = useState(false);
   return <div className="mx-auto max-w-3xl p-6 text-text-primary">
     <EmbeddingConfigSection embedConfig={config} onConfigChange={setConfig} localModelReady={true}
-      testLoading={false} embedSaveLoading={false} rebuildEmbedLoading={false} embedRebuildProgress={null}
-      agentConfigs={[]} onMarkDirty={() => {}} onTestConnection={setTested} onSave={setTested} onRebuild={() => {}} />
+      testLoading={false} embedSaveLoading={false} rebuildEmbedLoading={rebuilding} embedRebuildProgress={null}
+      agentConfigs={[]} onMarkDirty={() => {}} onTestConnection={setTested} onSave={setTested} onRebuild={() => {
+        setRebuilding(true);
+        Object.assign(window, { embeddingReady: true });
+        setTimeout(() => setRebuilding(false), 200);
+      }} />
     <output data-testid="embedding-config">{JSON.stringify(config)}</output>
     <output data-testid="embedding-tested">{JSON.stringify(tested)}</output>
   </div>;

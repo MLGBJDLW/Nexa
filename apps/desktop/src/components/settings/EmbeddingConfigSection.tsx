@@ -1,5 +1,6 @@
 import { AlertTriangle, Brain, CheckCircle, KeyRound, Loader2, RefreshCw, Save, XCircle, Zap } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { NexaSelect } from '../ui/overlay';
 import { useTranslation } from '../../i18n';
 import {
@@ -55,6 +56,18 @@ export function EmbeddingConfigSection({
 }: EmbeddingConfigSectionProps) {
   const { t } = useTranslation();
   const [manualModel, setManualModel] = useState<boolean | null>(null);
+  const [indexStatus, setIndexStatus] = useState<{ totalChunks: number; indexedChunks: number; needsRebuild: boolean } | null>(null);
+  useEffect(() => {
+    setIndexStatus(null);
+    if (embedConfig?.provider !== 'api') return;
+    let disposed = false;
+    const timer = setTimeout(() => {
+      void invoke<typeof indexStatus>('get_embedding_index_status_cmd', { config: { ...embedConfig, apiKey: '' } })
+        .then(status => { if (!disposed) setIndexStatus(status); })
+        .catch(() => {});
+    }, 150);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [embedConfig?.provider, embedConfig?.apiBaseUrl, embedConfig?.apiModel, embedConfig?.vectorDimensions, embedSaveLoading, rebuildEmbedLoading]);
 
   const updateConfig = (patch: Partial<EmbedderConfig>) => {
     if (!embedConfig) return;
@@ -295,6 +308,10 @@ export function EmbeddingConfigSection({
           {/* Provider change warning + actions */}
           <div className="space-y-3 border-t border-border pt-4">
             <p className="text-xs leading-5 text-text-tertiary">{t('settings.embeddingStorageInfo')}</p>
+            {indexStatus && <p role="status" data-testid="embedding-index-status" className={`text-xs ${indexStatus.needsRebuild ? 'text-warning' : 'text-text-secondary'}`}>
+              {t('settings.embeddingIndexCoverage', { indexed: String(indexStatus.indexedChunks), total: String(indexStatus.totalChunks) })}
+              {indexStatus.needsRebuild && <> {t('settings.embeddingIndexRebuildRequired')}</>}
+            </p>}
             <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
               <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
               <p className="text-sm text-warning">{t('settings.embeddingProviderChangeWarning')}</p>

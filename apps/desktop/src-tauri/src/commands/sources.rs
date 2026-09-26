@@ -856,6 +856,19 @@ pub async fn get_embedder_config_cmd(
 }
 
 #[tauri::command]
+pub async fn get_embedding_index_status_cmd(
+    state: tauri::State<'_, AppState>,
+    config: EmbedderConfig,
+) -> Result<nexa_core::embed::EmbeddingIndexStatus, String> {
+    state
+        .db_executor
+        .read(move |db| db.embedding_index_status(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn save_embedder_config_cmd(
     state: tauri::State<'_, AppState>,
     config: EmbedderConfig,

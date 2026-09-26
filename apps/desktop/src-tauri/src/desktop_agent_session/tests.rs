@@ -979,8 +979,8 @@ fn context_policy_reaches_the_executor_and_matches_the_ui_budget() {
             .resolved_max_response_tokens(&config.model),
         preview.response_reserve
     );
-    assert_eq!(preview.response_reserve, 1024);
-    assert_eq!(preview.trigger_tokens, Some(39_270));
+    assert_eq!(preview.response_reserve, 16_384);
+    assert_eq!(preview.trigger_tokens, Some(29_286));
     // Restoring automatic overrides a legacy provider-wide context override.
     db.save_model_context_policy(
         &config.provider,

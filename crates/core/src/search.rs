@@ -725,6 +725,12 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                     config.provider
                                 );
                                 tfidf_vector_search(db, trimmed, internal_limit)
+                            } else if config.provider == "api"
+                                && !db.has_embeddings_for_space(model_name)?
+                            {
+                                // A new/migrated space has no useful vector query
+                                // yet. Preserve FTS results without a paid API call.
+                                Vec::new()
                             } else {
                                 match embedder.embed_query(trimmed) {
                                     Ok(query_vec) => {

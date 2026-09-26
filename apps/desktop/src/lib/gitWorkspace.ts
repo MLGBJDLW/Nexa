@@ -25,7 +25,11 @@ export function useGitWorkspace(conversationId: string | null | undefined, activ
   const [state, setState] = useState<{ id: string; snapshot: GitWorkspaceSnapshot; error: string | null } | null>(null);
   const pendingRef = useRef<Promise<unknown> | null>(null);
   const requestRef = useRef<() => void>(() => {});
-  const refresh = useCallback(() => requestRef.current(), []);
+  const [diffRevision, setDiffRevision] = useState(0);
+  const refresh = useCallback(() => {
+    setDiffRevision(value => value + 1);
+    requestRef.current();
+  }, []);
   useEffect(() => {
     if (!conversationId) return;
     let disposed = false;
@@ -81,7 +85,7 @@ export function useGitWorkspace(conversationId: string | null | undefined, activ
   }, [conversationId, active]);
   useEffect(refresh, [revision, refresh]);
   const current = state?.id === conversationId ? state : null;
-  return { ...(current?.snapshot ?? EMPTY_SNAPSHOT), error: current?.error ?? null, loaded: current !== null, refresh };
+  return { ...(current?.snapshot ?? EMPTY_SNAPSHOT), error: current?.error ?? null, loaded: current !== null, diffRevision, refresh };
 }
 
 export const getGitDiff = (conversationId: string, sourceId: string, path: string, staged: boolean) =>

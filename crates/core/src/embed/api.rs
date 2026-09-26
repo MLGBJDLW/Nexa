@@ -38,6 +38,49 @@ impl From<CoreError> for ApiFailure {
 }
 
 impl ApiEmbedder {
+    fn space_identity(
+        base_url: &str,
+        model: &str,
+        dimensions: usize,
+        style: EmbeddingApiStyle,
+    ) -> String {
+        let identity = json!(["api-v2", base_url, model, dimensions, style]);
+        format!(
+            "api-v2:{model}:{}",
+            blake3::hash(identity.to_string().as_bytes()).to_hex()
+        )
+    }
+
+    /// Resolve the same identity without an HTTP client or credentials. Used by
+    /// index readiness before a provider call or while editing unsaved settings.
+    pub fn configured_space_id(config: &super::EmbedderConfig) -> String {
+        let base = normalize_base_url(if config.api_base_url.is_empty() {
+            "https://api.openai.com/v1"
+        } else {
+            &config.api_base_url
+        });
+        let model = if config.api_model.is_empty() {
+            "text-embedding-3-small"
+        } else {
+            config.api_model.trim()
+        };
+        let dimensions = if config.vector_dimensions > 0 {
+            config.vector_dimensions as usize
+        } else {
+            find_embedding_model(&base, model)
+                .map(|model| model.dimensions)
+                .unwrap_or(1536)
+        };
+        Self::space_identity(
+            &base,
+            model,
+            dimensions,
+            find_embedding_provider(&base)
+                .map(|preset| preset.api_style)
+                .unwrap_or_default(),
+        )
+    }
+
     pub fn new(
         api_key: String,
         base_url: Option<String>,
@@ -104,7 +147,7 @@ impl ApiEmbedder {
         let request_dimensions = catalog_model
             .as_ref()
             .map(|model| model.supports_dimension_override)
-            .unwrap_or(preset.is_none());
+            .unwrap_or(true);
         let dimension_parameter = catalog_model
             .as_ref()
             .and_then(|model| model.dimension_parameter.clone());
@@ -117,11 +160,7 @@ impl ApiEmbedder {
             .clamp(1, 100);
         // Query/document task semantics are versioned together. Credentials are
         // excluded; endpoints and dimensions are not interchangeable vector spaces.
-        let identity = json!(["api-v2", base_url, model, dimensions, style]);
-        let space_id = format!(
-            "api-v2:{model}:{}",
-            blake3::hash(identity.to_string().as_bytes()).to_hex()
-        );
+        let space_id = Self::space_identity(&base_url, &model, dimensions, style);
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()
@@ -392,6 +431,8 @@ mod tests {
             .is_none());
         let code = client("https://api.mistral.ai/v1", "codestral-embed", 3072);
         assert_eq!(code.request(&["code"], false).1["output_dimension"], 3072);
+        let custom = client("https://api.voyageai.com/v1", "voyage-3.5", 512);
+        assert_eq!(custom.request(&["code"], false).1["output_dimension"], 512);
     }
 
     #[test]

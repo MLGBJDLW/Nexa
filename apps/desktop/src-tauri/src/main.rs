@@ -793,6 +793,7 @@ fn main() {
             commands::reorder_citations,
             // Embedder config
             commands::get_embedder_config_cmd,
+            commands::get_embedding_index_status_cmd,
             commands::save_embedder_config_cmd,
             commands::test_api_connection_cmd,
             commands::check_local_model_cmd,

@@ -1035,5 +1035,7 @@
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
   "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
   "embeddingCustomModel": "사용자 지정 모델 ID 입력",
-  "embeddingStorageInfo": "벡터는 로컬 SQLite에 저장됩니다. API 엔드포인트, 모델 또는 차원을 변경하면 별도의 벡터 공간을 사용합니다. 설정을 저장한 후 임베딩을 다시 구축하세요."
+  "embeddingStorageInfo": "벡터는 로컬 SQLite에 저장됩니다. API 엔드포인트, 모델 또는 차원을 변경하면 별도의 벡터 공간을 사용합니다. 설정을 저장한 후 임베딩을 다시 구축하세요.",
+  "embeddingIndexCoverage": "선택한 공간: {indexed}/{total}개 청크 인덱싱 완료.",
+  "embeddingIndexRebuildRequired": "전체 의미 검색을 사용하려면 임베딩을 다시 구축하세요. 이전 공간은 유지됩니다."
 }

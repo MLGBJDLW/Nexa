@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
     const fixture = {
       snapshot: { repos: [{ sourceId: 'repo', root: 'D:/workspace', branch: 'feature/working-tree', oid: 'abcdef012345', upstream: 'origin/master', ahead: 2, behind: 1, truncated: false,
         files: [{ path: 'src/中文 file.ts', index: 'M', worktree: '.' }] }], issues: [] as unknown[], checkedSources: 1 },
-      error: '', delay: 0, calls: 0, diffs: 0, active: 0, maxActive: 0,
+      error: '', delay: 0, calls: 0, diffs: 0, diff: '+verified change', active: 0, maxActive: 0,
     };
     Object.assign(window, { gitFixture: fixture, __TAURI_INTERNALS__: {
       invoke: async (command: string, args: Record<string, unknown>) => {
@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
             return result;
           } finally { fixture.active -= 1; }
         }
-        if (command === 'conversation_git_diff_cmd') { fixture.diffs += 1; return '+verified change'; }
+        if (command === 'conversation_git_diff_cmd') { fixture.diffs += 1; return fixture.diff; }
         return null;
       },
     } });
@@ -45,9 +45,14 @@ test('shows branch, tracking, partial failure and diff without redundant refresh
   await expect(page.getByTestId('git-workspace-details')).toContainText('Folder unavailable');
   expect(await page.evaluate(() => (window as any).gitFixture.calls)).toBe(2);
   expect(await page.evaluate(() => (window as any).gitFixture.diffs)).toBe(1);
+  await page.evaluate(() => { (window as any).gitFixture.diff = '+new edit with the same Git status'; });
   await page.getByRole('button', { name: 'Refresh Git status' }).click();
   await expect.poll(() => page.evaluate(() => (window as any).gitFixture.calls)).toBe(3);
-  expect(await page.evaluate(() => (window as any).gitFixture.diffs)).toBe(1);
+  await expect(page.getByTestId('git-diff-preview')).toContainText('+new edit with the same Git status');
+  expect(await page.evaluate(() => (window as any).gitFixture.diffs)).toBe(2);
+  await page.evaluate(() => { (window as any).gitFixture.diff = '+tool edit with the same Git status'; });
+  await page.getByRole('button', { name: 'Tool completed' }).click();
+  await expect(page.getByTestId('git-diff-preview')).toContainText('+tool edit with the same Git status');
   await page.getByTestId('task-board-expanded').screenshot({ path: testInfo.outputPath('git-partial-status.png') });
   await page.setViewportSize({ width: 390, height: 800 });
   await expect.poll(() => page.getByTestId('task-board-expanded').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);

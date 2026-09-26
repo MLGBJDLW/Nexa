@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test';
 import presets from '../../../shared/embedding-provider-presets.json' with { type: 'json' };
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('nexa-locale', 'en'));
+  await page.addInitScript(() => {
+    localStorage.setItem('nexa-locale', 'en');
+    Object.assign(window, { embeddingReady: false, __TAURI_INTERNALS__: { invoke: async (command: string) => command === 'get_embedding_index_status_cmd'
+      ? { totalChunks: 20, indexedChunks: (window as any).embeddingReady ? 20 : 0, legacyChunks: 20, needsRebuild: !(window as any).embeddingReady }
+      : null } });
+  });
   await page.goto('/e2e/fixtures/embedding-settings.html');
   await page.getByRole('button', { name: /Embedding Configuration/ }).click();
 });
@@ -44,4 +49,12 @@ test('keyless Ollama can test locally, while remote endpoints still require cred
   await expect(page.getByTestId('embedding-tested')).toContainText('qwen3-embedding:0.6b');
   await page.getByRole('textbox', { name: 'Base URL', exact: true }).fill('https://host.example/v1');
   await expect(page.getByRole('button', { name: 'Test Connection', exact: true })).toBeDisabled();
+});
+
+test('legacy indexes show an actionable rebuild state and refresh coverage after rebuilding', async ({ page }) => {
+  await expect(page.getByTestId('embedding-index-status')).toContainText('0/20');
+  await expect(page.getByTestId('embedding-index-status')).toContainText('Rebuild embeddings');
+  await page.getByRole('button', { name: 'Re-embed All', exact: true }).click();
+  await expect(page.getByTestId('embedding-index-status')).toContainText('20/20');
+  await expect(page.getByTestId('embedding-index-status')).not.toContainText('Rebuild embeddings');
 });

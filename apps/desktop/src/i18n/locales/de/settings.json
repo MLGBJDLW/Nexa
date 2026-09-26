@@ -1035,5 +1035,7 @@
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
   "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
   "embeddingCustomModel": "Eigene Modell-ID eingeben",
-  "embeddingStorageInfo": "Vektoren bleiben lokal in SQLite. Änderungen an API-Endpunkt, Modell oder Dimensionen wählen einen separaten Vektorraum. Speichern Sie die Einstellungen und erstellen Sie die Embeddings neu."
+  "embeddingStorageInfo": "Vektoren bleiben lokal in SQLite. Änderungen an API-Endpunkt, Modell oder Dimensionen wählen einen separaten Vektorraum. Speichern Sie die Einstellungen und erstellen Sie die Embeddings neu.",
+  "embeddingIndexCoverage": "Gewählter Vektorraum: {indexed}/{total} Textblöcke indexiert.",
+  "embeddingIndexRebuildRequired": "Erstellen Sie die Embeddings für die vollständige semantische Suche neu. Alte Vektorräume bleiben erhalten."
 }

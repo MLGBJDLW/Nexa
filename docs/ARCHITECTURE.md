@@ -98,7 +98,9 @@ from assistant prose or a shell's later `cd` commands. Canonical duplicate scope
 are scanned once, up to four at a time. A missing Git executable or inaccessible
 source is an explicit diagnostic and cannot hide healthy repositories. The UI
 coalesces refresh bursts and preserves unchanged repository objects so a poll
-does not restart an open diff request. Phone history merging indexes message IDs
+does not restart an open diff request. Manual refresh and completed tools still
+invalidate open diffs even when filenames and status letters are unchanged.
+Phone history merging indexes message IDs
 once and preserves expanded text and older pages.
 
 ## Run Event publication boundary

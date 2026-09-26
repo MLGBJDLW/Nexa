@@ -1035,5 +1035,7 @@
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
   "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
   "embeddingCustomModel": "Introducir un ID de modelo personalizado",
-  "embeddingStorageInfo": "Los vectores se guardan localmente en SQLite. Cambiar el endpoint, modelo o dimensiones selecciona otro espacio vectorial. Guarda los ajustes y reconstruye los embeddings."
+  "embeddingStorageInfo": "Los vectores se guardan localmente en SQLite. Cambiar el endpoint, modelo o dimensiones selecciona otro espacio vectorial. Guarda los ajustes y reconstruye los embeddings.",
+  "embeddingIndexCoverage": "Espacio seleccionado: {indexed}/{total} fragmentos indexados.",
+  "embeddingIndexRebuildRequired": "Reconstruye los embeddings para completar la búsqueda semántica. Se conservan los espacios anteriores."
 }

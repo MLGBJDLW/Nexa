@@ -3,9 +3,10 @@ import { Copy, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { getGitDiff, type GitWorkspaceSnapshot } from '../../lib/gitWorkspace';
 
-export function GitWorkspaceDetails({ conversationId, repos, issues, checkedSources, loaded, error, onRefresh }: GitWorkspaceSnapshot & {
+export function GitWorkspaceDetails({ conversationId, repos, issues, checkedSources, loaded, diffRevision, error, onRefresh }: GitWorkspaceSnapshot & {
   conversationId: string;
   loaded: boolean;
+  diffRevision: number;
   error: string | null;
   onRefresh: () => void;
 }) {
@@ -23,7 +24,7 @@ export function GitWorkspaceDetails({ conversationId, repos, issues, checkedSour
       .then(value => { if (!disposed) setDiff(value); })
       .catch(cause => { if (!disposed) setDiffError(String(cause)); });
     return () => { disposed = true; };
-  }, [conversationId, selection, repos]);
+  }, [conversationId, selection, repos, diffRevision]);
   return <section className="mx-1 mt-2 min-w-0 border-t border-border/50 pt-2" data-testid="git-workspace-details">
     <div className="flex items-center justify-between text-xs font-medium text-text-secondary">
       <span>Git</span>

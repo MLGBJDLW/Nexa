@@ -1035,5 +1035,7 @@
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
   "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
   "embeddingCustomModel": "Enter a custom model ID",
-  "embeddingStorageInfo": "Vectors stay in local SQLite storage. Changing the API endpoint, model or dimensions selects a separate vector space. Save the settings, then rebuild embeddings before using the new space."
+  "embeddingStorageInfo": "Vectors stay in local SQLite storage. Changing the API endpoint, model or dimensions selects a separate vector space. Save the settings, then rebuild embeddings before using the new space.",
+  "embeddingIndexCoverage": "Selected space: {indexed}/{total} chunks indexed.",
+  "embeddingIndexRebuildRequired": "Rebuild embeddings to enable complete semantic search in this space; older spaces are preserved."
 }

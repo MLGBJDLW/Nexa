@@ -45,7 +45,10 @@ the other model's vectors. Old spaces remain stored until their source is remove
 **Rebuild existing API embeddings once after upgrading from model-name-only
 indexes.** Their endpoint and preprocessing cannot be verified from the old rows,
 so the new runtime does not mix them into a verified vector space. Keyword search
-remains available. Changing the API endpoint, model or dimensions also requires
+remains available and search skips the embedding API when the selected space
+has no vectors. Settings shows indexed/total chunks for the selected space and
+an actionable rebuild status, refreshed after rebuilding. Changing the API
+endpoint, model or dimensions also requires
 building the selected space. Local ONNX/TF-IDF identities are unchanged.
 
 Roo Code is a useful reference for provider choice and indexing state, but its

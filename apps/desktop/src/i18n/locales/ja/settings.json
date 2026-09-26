@@ -1035,5 +1035,7 @@
   "imageSourceSubscriptionNote": "Sign in to Codex under AI Providers. Generation uses your subscription image allowance and never falls back to an API key.",
   "imageSourceApiKeyHint": "Use the provider, model and API key configured below.",
   "embeddingCustomModel": "カスタムモデル ID を入力",
-  "embeddingStorageInfo": "ベクトルはローカルの SQLite に保存されます。API エンドポイント、モデル、次元数を変更すると別のベクトル空間になります。設定を保存してから埋め込みを再構築してください。"
+  "embeddingStorageInfo": "ベクトルはローカルの SQLite に保存されます。API エンドポイント、モデル、次元数を変更すると別のベクトル空間になります。設定を保存してから埋め込みを再構築してください。",
+  "embeddingIndexCoverage": "選択した空間：{indexed}/{total} チャンクを索引済み。",
+  "embeddingIndexRebuildRequired": "完全な意味検索には埋め込みを再構築してください。以前の空間は保持されます。"
 }

@@ -53,6 +53,15 @@ impl EmbedderConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingIndexStatus {
+    pub total_chunks: usize,
+    pub indexed_chunks: usize,
+    pub legacy_chunks: usize,
+    pub needs_rebuild: bool,
+}
+
 /// Create the appropriate embedder based on an [`EmbedderConfig`].
 ///
 /// - `"local"` → [`OnnxEmbedder`] (downloads model on first use)
@@ -541,6 +550,44 @@ impl Database {
             }
             None => Ok(None),
         }
+    }
+
+    pub fn has_embeddings_for_space(&self, space: &str) -> Result<bool, CoreError> {
+        Ok(self.conn().query_row(
+            "SELECT EXISTS(SELECT 1 FROM embeddings WHERE model = ?1)",
+            [space],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn embedding_index_status(
+        &self,
+        config: &EmbedderConfig,
+    ) -> Result<EmbeddingIndexStatus, CoreError> {
+        let total_chunks = self.count_all_chunks()?;
+        let conn = self.conn();
+        let space = ApiEmbedder::configured_space_id(config);
+        let indexed_chunks: usize = conn.query_row(
+            "SELECT COUNT(*) FROM embeddings WHERE model = ?1",
+            [&space],
+            |row| row.get(0),
+        )?;
+        let legacy_model = if config.api_model.is_empty() {
+            "text-embedding-3-small"
+        } else {
+            config.api_model.trim()
+        };
+        let legacy_chunks = conn.query_row(
+            "SELECT COUNT(*) FROM embeddings WHERE model = ?1",
+            [legacy_model],
+            |row| row.get(0),
+        )?;
+        Ok(EmbeddingIndexStatus {
+            total_chunks,
+            indexed_chunks,
+            legacy_chunks,
+            needs_rebuild: indexed_chunks < total_chunks,
+        })
     }
 
     /// Retrieve all embeddings for a given model as `(chunk_id, vector)` pairs.
@@ -1555,6 +1602,102 @@ mod tests {
         };
         let _ = source_id;
         (db, doc_id, chunk_id)
+    }
+
+    #[test]
+    fn legacy_api_index_requires_rebuild_without_spending_a_query_request() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+        let (db, document, chunk) = setup_db_with_chunk();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let config = EmbedderConfig {
+            provider: "api".into(),
+            api_key: String::new(),
+            api_model: "same-name".into(),
+            api_base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            vector_dimensions: 2,
+            ..Default::default()
+        };
+        db.save_embedder_config(&config).unwrap();
+        db.store_embedding(&chunk, "same-name", &[-1., 0.]).unwrap();
+        let space = ApiEmbedder::configured_space_id(&config);
+        let actual = create_embedder(&config).unwrap();
+        assert_eq!(space, actual.vector_space_id());
+        let before = db.embedding_index_status(&config).unwrap();
+        assert_eq!(
+            (
+                before.total_chunks,
+                before.indexed_chunks,
+                before.legacy_chunks
+            ),
+            (1, 0, 1)
+        );
+        assert!(before.needs_rebuild);
+        let stop = Arc::new(AtomicBool::new(false));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (server_stop, server_calls) = (stop.clone(), calls.clone());
+        let server = std::thread::spawn(move || {
+            while !server_stop.load(Ordering::SeqCst) {
+                if let Ok((mut socket, _)) = listener.accept() {
+                    socket
+                        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                        .unwrap();
+                    let mut buffer = [0; 4096];
+                    let _ = socket.read(&mut buffer).unwrap();
+                    server_calls.fetch_add(1, Ordering::SeqCst);
+                    let body = r#"{"data":[{"index":0,"embedding":[1,0]}]}"#;
+                    write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+        });
+        let query = crate::models::SearchQuery {
+            text: "hello".into(),
+            filters: Default::default(),
+            limit: 10,
+            offset: 0,
+        };
+        let before_search = crate::search::hybrid_search(&db, &query).unwrap();
+        let before_calls = calls.load(Ordering::SeqCst);
+        let source: String = db
+            .conn()
+            .query_row(
+                "SELECT source_id FROM documents WHERE id = ?1",
+                [&document],
+                |row| row.get(0),
+            )
+            .unwrap();
+        crate::embedding_job::embed_source(&db, &source).unwrap();
+        let after_search = crate::search::hybrid_search(&db, &query).unwrap();
+        stop.store(true, Ordering::SeqCst);
+        server.join().unwrap();
+        assert_eq!(
+            before_calls, 0,
+            "legacy-only rows must not cause paid queries"
+        );
+        assert!(before_search.search_mode.starts_with("fts"));
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "one document batch, then one useful query"
+        );
+        assert!(!after_search.evidence_cards.is_empty());
+        assert!(after_search.search_mode.starts_with("hybrid"));
+        let ready = db.embedding_index_status(&config).unwrap();
+        assert_eq!((ready.indexed_chunks, ready.legacy_chunks), (1, 1));
+        assert!(!ready.needs_rebuild);
+        let other = EmbedderConfig {
+            api_base_url: "https://other.example/v1".into(),
+            ..config
+        };
+        assert!(db.embedding_index_status(&other).unwrap().needs_rebuild);
+        assert!(db
+            .get_all_embeddings(&ApiEmbedder::configured_space_id(&other))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

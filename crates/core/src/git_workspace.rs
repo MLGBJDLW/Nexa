@@ -345,7 +345,7 @@ mod tests {
             conversation_sources(&db, &conversation.id).unwrap().len(),
             2
         );
-        db.set_conversation_sources(&conversation.id, &[a.id.clone()])
+        db.set_conversation_sources(&conversation.id, std::slice::from_ref(&a.id))
             .unwrap();
         assert_eq!(
             conversation_sources(&db, &conversation.id).unwrap()[0].0,
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn parses_unicode_renames_and_branch_tracking() {
-        let raw = "# branch.head feature/demo\0# branch.oid abc\0# branch.upstream origin/main\0# branch.ab +2 -1\0? 中文 name.txt\02 R. N... 100644 100644 100644 a b R100 new name.txt\0old name.txt\0";
+        let raw = "# branch.head feature/demo\0# branch.oid abc\0# branch.upstream origin/main\0# branch.ab +2 -1\0? 中文 name.txt\x002 R. N... 100644 100644 100644 a b R100 new name.txt\0old name.txt\0";
         let parsed = parse_status("root".into(), raw);
         assert_eq!((parsed.ahead, parsed.behind), (2, 1));
         assert_eq!(parsed.files.len(), 2);
