@@ -2876,6 +2876,7 @@ Every answer that uses knowledge base search results.
     ),
     ("v131_live_records", "CREATE TABLE IF NOT EXISTS live_records (id TEXT PRIMARY KEY NOT NULL, owner TEXT NOT NULL, started_at TEXT NOT NULL, record_json TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_live_records_owner_started ON live_records(owner, started_at DESC);"),
     ("v132_context_history", include_str!("v132_context_history.sql")),
+    ("v133_vector_stores", include_str!("v133_vector_stores.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3137,6 +3138,23 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
             ensure_workflow_definition_revision_schema(conn, sql)?;
             if !already_applied {
                 conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
+            }
+            continue;
+        }
+
+        if *name == "v133_vector_stores" {
+            let mut statement = conn.prepare("PRAGMA table_info(embeddings)")?;
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if !columns.iter().any(|column| column == "revision") {
+                conn.execute_batch(
+                    "ALTER TABLE embeddings ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
+            conn.execute_batch(sql)?;
+            if !already_applied {
+                conn.execute("INSERT INTO _migrations(name) VALUES(?1)", [name])?;
             }
             continue;
         }

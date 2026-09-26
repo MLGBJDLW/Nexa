@@ -153,6 +153,13 @@ preempt successful executor finalization.
 
 ## Desktop and browser lifetime
 
+Optional [cloud vector mirrors](VECTOR_STORES.md) keep SQLite authoritative.
+Adapters own provider wire differences; a bounded background worker owns upload
+and deletion receipts, while local indexing owns vector revisions. Search
+validates remote candidates against local source scope and current revisions,
+and uses the local index when cloud retrieval is unavailable. These settings
+are desktop-owned and are not arbitrary commands exposed by the phone protocol.
+
 The shared `ToolApprovalMode` owns application approval decisions for API,
 subscription, delegated and remotely launched turns. `allow_all` skips Nexa
 approval callbacks and approval events for desktop control, capture and browser

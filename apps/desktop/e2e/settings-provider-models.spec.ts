@@ -74,6 +74,8 @@ test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific o
 async function selectNexaOption(trigger: Locator, value: string) {
   await trigger.click();
   await trigger.page().locator(`[role="option"][data-value=${JSON.stringify(value)}]`).click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toBeFocused();
 }
 
 async function expectNexaValue(trigger: Locator, value: string) {
@@ -941,7 +943,7 @@ test('settings persists the selected context management mode and keeps summary a
   await expect(mode).toHaveValue('summary');
   await mode.selectOption('history');
   await expect(page.getByTestId('context-management-settings')).toContainText('Avoids a summary-model call');
-  const panel = page.getByRole('heading', { name:'Appearance', exact:true }).locator('xpath=ancestor::section[1]');
+  const panel = page.getByRole('region', { name:'Advanced', exact:true });
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('history');
   await mode.selectOption('summary');
@@ -1611,7 +1613,7 @@ test("settings exposes image generation model config under AI providers", async 
   await expect(panel.locator("[data-nexa-select-trigger]")).toHaveCount(0);
 
   await panel.getByRole("button", { name: "Expand image generation settings" }).click();
-  await expect(panel.getByText("Image provider defaults for generate_image")).toBeVisible();
+  await expect(panel.getByText("Image generation source", { exact: true })).toBeVisible();
   const selects = panel.locator("[data-nexa-select-trigger]");
   await expectNexaValue(selects.nth(0), "qwen-dashscope-cn");
   await selectNexaOption(selects.nth(1), "qwen-image-2.0-pro");
@@ -1793,7 +1795,9 @@ test("settings never reuses a provider key for a user-edited endpoint", async ({
   await imagePanel.getByRole("button", { name: "Expand image generation settings" }).click();
   await baseUrlInput(imagePanel).fill("https://proxy.example.com/v1");
   await expect(imagePanel.getByText("Qwen CN API key")).toHaveCount(0);
-  await expect(imagePanel.getByRole("button", { name: "Save" })).toBeDisabled();
+  await imagePanel.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.imageGeneration))
+    .toMatchObject({ baseUrl: "https://proxy.example.com/v1", apiKey: "" });
 
   const ttsPanel = page.getByTestId("text-to-speech-settings-panel");
   await ttsPanel.locator("button").first().click();
@@ -2033,7 +2037,7 @@ test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", a
   await selectNexaOption(selects.nth(0), "alibaba-model-studio-cn");
   await selectNexaOption(selects.nth(1), "text-embedding-v4");
   await expectNexaValue(selects.nth(1), "text-embedding-v4");
-  await expect(section.getByRole("spinbutton")).toHaveValue("1024");
+  await expectNexaValue(section.getByRole('combobox', { name: 'Vector dimensions' }), '1024');
   await expect(section.getByTestId("shared-credential-notice")).toHaveAttribute("data-state", "reusing");
   await section.getByRole("button", { name: "Save Config" }).click();
   await expect.poll(() => page.evaluate(() => (
@@ -2047,7 +2051,8 @@ test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", a
   await selectNexaOption(selects.nth(1), "jina-embeddings-v5-text-small");
   await expectNexaValue(selects.nth(1), "jina-embeddings-v5-text-small");
   await expect(section.getByRole("spinbutton")).toHaveValue("1024");
-  await expect(section.getByRole("spinbutton")).toBeDisabled();
+  await expect(section.getByRole("spinbutton")).toBeEnabled();
+  await expect(section.getByRole("spinbutton")).toHaveAttribute('min', '32');
   await expect(section.locator('[title="Jina AI"] > span')).toHaveAttribute(
     "style",
     /provider-icons\/jina\.svg/,

@@ -366,6 +366,7 @@ jobs:
           e2e/browser-preview-rendering.spec.ts
           e2e/git-workspace.spec.ts
           e2e/embedding-settings.spec.ts
+          e2e/vector-store.spec.ts
 
       - name: Streaming scroll, questions, and desktop approval regressions
         working-directory: apps/desktop

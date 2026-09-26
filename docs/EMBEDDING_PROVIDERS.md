@@ -35,7 +35,9 @@ No model is downloaded or installed just by selecting a preset.
 
 Vectors stay in Nexa's local SQLite database. Selecting a cloud embedding service
 changes where text becomes vectors, not where the resulting index is stored.
-Nexa does not require Qdrant or silently reduce dimensions/quantize vectors.
+An independently configured [optional cloud mirror](VECTOR_STORES.md) supports
+several stores and local/cloud fusion. Nexa does not require Qdrant or silently
+reduce dimensions/quantize vectors.
 
 API indexes use a versioned identity of endpoint, model, dimensions and adapter
 preprocessing. Rotating the key does not change the identity. Query and indexing

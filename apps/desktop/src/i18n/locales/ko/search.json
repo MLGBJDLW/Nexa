@@ -79,5 +79,8 @@
   "recallPromptFileType": "가능한 파일 유형",
   "recallPromptInstruction": "추측하지 말고, 먼저 넓게 검색해 후보를 보여 준 뒤 범위를 좁히도록 도와주세요.",
   "embeddingWarning": "검색 품질이 제한되었습니다 — 임베딩 모델이 설치되지 않았습니다. 하이브리드 검색은 기본 텍스트 매칭으로 대체됩니다.",
-  "embeddingWarningAction": "지금 설치"
+  "embeddingWarningAction": "지금 설치",
+  "cloudVectors": "클라우드 벡터",
+  "vectorFusion": "로컬/클라우드 통합",
+  "localFallback": "로컬 대체"
 }

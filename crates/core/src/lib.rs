@@ -125,6 +125,7 @@ pub mod turn_file_changes;
 pub mod usage_analytics;
 pub mod usage_snapshot;
 pub mod user_extensions;
+pub mod vector_store;
 #[cfg(feature = "video")]
 pub mod video;
 pub mod video_provider_catalog;

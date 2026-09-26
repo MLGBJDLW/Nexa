@@ -79,5 +79,8 @@
   "recallPromptFileType": "可能的文件类型",
   "recallPromptInstruction": "请尽量广泛搜索，先给出候选匹配，再帮助我一步步缩小范围，而不是直接猜测。",
   "embeddingWarning": "搜索质量受限 — 嵌入模型未安装。混合搜索将降级为基础文本匹配。",
-  "embeddingWarningAction": "立即安装"
+  "embeddingWarningAction": "立即安装",
+  "cloudVectors": "云端向量",
+  "vectorFusion": "本地/云端融合",
+  "localFallback": "已回退本地"
 }

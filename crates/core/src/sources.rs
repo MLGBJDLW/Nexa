@@ -197,6 +197,7 @@ impl Database {
 
         let conn = self.conn();
         conn.execute("DELETE FROM sources WHERE id = ?1", params![id])?;
+        crate::vector_store::notify_sync();
         Ok(())
     }
 

@@ -79,5 +79,8 @@
   "recallPromptFileType": "Likely file type",
   "recallPromptInstruction": "Please search broadly, generate candidate matches, and help me narrow it down instead of guessing.",
   "embeddingWarning": "Search quality is limited — embedding model not installed. Hybrid search will fall back to basic text matching.",
-  "embeddingWarningAction": "Install Now"
+  "embeddingWarningAction": "Install Now",
+  "cloudVectors": "Cloud vectors",
+  "vectorFusion": "Local/cloud fusion",
+  "localFallback": "Local fallback"
 }

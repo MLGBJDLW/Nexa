@@ -79,5 +79,8 @@
   "recallPromptFileType": "可能性のあるファイル種別",
   "recallPromptInstruction": "推測せず、まず広く検索して候補を出し、その後で絞り込むのを手伝ってください。",
   "embeddingWarning": "検索品質が制限されています — 埋め込みモデルがインストールされていません。ハイブリッド検索は基本的なテキストマッチングにフォールバックします。",
-  "embeddingWarningAction": "今すぐインストール"
+  "embeddingWarningAction": "今すぐインストール",
+  "cloudVectors": "クラウドベクトル",
+  "vectorFusion": "ローカルとクラウドを融合",
+  "localFallback": "ローカルに復帰"
 }

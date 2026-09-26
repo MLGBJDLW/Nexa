@@ -11,7 +11,7 @@ use crate::db::Database;
 use crate::embed::{cosine_similarity, create_embedder, Embedder, TfIdfEmbedder};
 use crate::error::CoreError;
 use crate::graph_retrieval::{self, GraphDocumentHit, GraphRetrievalReport};
-use crate::models::{EvidenceCard, FileType, Highlight, SearchQuery};
+use crate::models::{EvidenceCard, FileType, Highlight, SearchFilters, SearchQuery};
 use crate::personalization;
 use crate::rag;
 
@@ -222,13 +222,19 @@ fn search_internal(
     }
 
     if let Some(ref from) = filters.date_from {
-        sql.push_str(&format!(" AND d.indexed_at >= ?{}", param_idx));
+        sql.push_str(&format!(
+            " AND julianday(d.indexed_at) >= julianday(?{})",
+            param_idx
+        ));
         param_values.push(Box::new(from.to_rfc3339()));
         param_idx += 1;
     }
 
     if let Some(ref to) = filters.date_to {
-        sql.push_str(&format!(" AND d.indexed_at <= ?{}", param_idx));
+        sql.push_str(&format!(
+            " AND julianday(d.indexed_at) <= julianday(?{})",
+            param_idx
+        ));
         param_values.push(Box::new(to.to_rfc3339()));
         param_idx += 1;
     }
@@ -343,12 +349,18 @@ fn search_internal(
                 }
             }
             if let Some(ref from) = filters.date_from {
-                count_sql.push_str(&format!(" AND d.indexed_at >= ?{}", cp_idx));
+                count_sql.push_str(&format!(
+                    " AND julianday(d.indexed_at) >= julianday(?{})",
+                    cp_idx
+                ));
                 count_params.push(Box::new(from.to_rfc3339()));
                 cp_idx += 1;
             }
             if let Some(ref to) = filters.date_to {
-                count_sql.push_str(&format!(" AND d.indexed_at <= ?{}", cp_idx));
+                count_sql.push_str(&format!(
+                    " AND julianday(d.indexed_at) <= julianday(?{})",
+                    cp_idx
+                ));
                 count_params.push(Box::new(to.to_rfc3339()));
                 let _ = cp_idx;
             }
@@ -396,6 +408,15 @@ fn finalize_search_result(
     limit: usize,
 ) -> Result<SearchResult, CoreError> {
     let graph_retrieval = apply_graph_retrieval(db, query, &mut cards, limit)?;
+    let allowed = scoped_chunk_ids(
+        db,
+        &cards
+            .iter()
+            .map(|card| card.chunk_id.to_string())
+            .collect::<Vec<_>>(),
+        &query.filters,
+    )?;
+    cards.retain(|card| allowed.contains(&card.chunk_id.to_string()));
 
     // Apply feedback-based re-ranking after graph expansion so graph-added
     // evidence benefits from the same user-feedback and freshness layers.
@@ -707,80 +728,94 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
     };
     let fts_result = search_internal(db, &fts_query, false)?;
 
+    let mut vector_mode = "hybrid";
     // Step 2: Vector search — use the configured embedder model.
-    let vec_results =
-        {
-            let config = db.get_embedder_config()?;
-            match config.provider.as_str() {
-                "local" | "api" => {
-                    match create_embedder(&config) {
-                        Ok(embedder) => {
-                            let model_name = embedder.vector_space_id();
-                            // If create_embedder fell back to an empty TF-IDF
-                            // (e.g. ONNX not downloaded), its dimensions will be 0.
-                            if embedder.dimensions() == 0 {
-                                tracing::warn!(
-                                    "Configured embedder ({}) returned empty dimensions, \
+    let vec_results = {
+        let config = db.get_embedder_config()?;
+        match config.provider.as_str() {
+            "local" | "api" => {
+                match create_embedder(&config) {
+                    Ok(embedder) => {
+                        let model_name = embedder.vector_space_id();
+                        // If create_embedder fell back to an empty TF-IDF
+                        // (e.g. ONNX not downloaded), its dimensions will be 0.
+                        if embedder.dimensions() == 0 {
+                            tracing::warn!(
+                                "Configured embedder ({}) returned empty dimensions, \
                                  falling back to TF-IDF state from DB",
-                                    config.provider
-                                );
-                                tfidf_vector_search(db, trimmed, internal_limit)
-                            } else if config.provider == "api"
-                                && !db.has_embeddings_for_space(model_name)?
-                            {
-                                // A new/migrated space has no useful vector query
-                                // yet. Preserve FTS results without a paid API call.
-                                Vec::new()
-                            } else {
-                                match embedder.embed_query(trimmed) {
-                                    Ok(query_vec) => {
-                                        if query_vec.iter().all(|&v| v == 0.0) {
-                                            Vec::new()
-                                        } else {
-                                            vector_search_top_k(
-                                                db,
-                                                &query_vec,
-                                                model_name,
-                                                internal_limit,
-                                                None,
-                                            )
-                                            .unwrap_or_else(|e| {
+                                config.provider
+                            );
+                            tfidf_vector_search_scoped(db, trimmed, internal_limit, &query.filters)
+                        } else if !db.has_embeddings_for_space(model_name)? {
+                            // A new/migrated space has no useful vector query
+                            // yet. Preserve FTS results without a paid API call.
+                            Vec::new()
+                        } else {
+                            match embedder.embed_query(trimmed) {
+                                Ok(query_vec) => {
+                                    if query_vec.iter().all(|&v| v == 0.0) {
+                                        Vec::new()
+                                    } else {
+                                        crate::vector_store::ranked_candidates(
+                                            db,
+                                            model_name,
+                                            &query_vec,
+                                            &query.filters,
+                                            internal_limit,
+                                        )
+                                        .map(|(hits, mode)| {
+                                            vector_mode = mode;
+                                            hits
+                                        })
+                                        .unwrap_or_else(
+                                            |e| {
                                                 tracing::warn!(
                                                     "Vector search with {} failed: {e}, \
                                                  trying TF-IDF fallback",
                                                     model_name
                                                 );
-                                                tfidf_vector_search(db, trimmed, internal_limit)
-                                            })
-                                        }
+                                                tfidf_vector_search_scoped(
+                                                    db,
+                                                    trimmed,
+                                                    internal_limit,
+                                                    &query.filters,
+                                                )
+                                            },
+                                        )
                                     }
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            "Failed to embed query with {}: {e}, \
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to embed query with {}: {e}, \
                                          trying TF-IDF fallback",
-                                            config.provider
-                                        );
-                                        tfidf_vector_search(db, trimmed, internal_limit)
-                                    }
+                                        config.provider
+                                    );
+                                    tfidf_vector_search_scoped(
+                                        db,
+                                        trimmed,
+                                        internal_limit,
+                                        &query.filters,
+                                    )
                                 }
                             }
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to create embedder ({}): {e}, \
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to create embedder ({}): {e}, \
                              trying TF-IDF fallback",
-                                config.provider
-                            );
-                            tfidf_vector_search(db, trimmed, internal_limit)
-                        }
+                            config.provider
+                        );
+                        tfidf_vector_search_scoped(db, trimmed, internal_limit, &query.filters)
                     }
                 }
-                _ => {
-                    // TF-IDF or unknown provider — use TF-IDF from DB state.
-                    tfidf_vector_search(db, trimmed, internal_limit)
-                }
             }
-        };
+            _ => {
+                // TF-IDF or unknown provider — use TF-IDF from DB state.
+                tfidf_vector_search_scoped(db, trimmed, internal_limit, &query.filters)
+            }
+        }
+    };
 
     // Fallback: no embeddings available → return pure FTS.
     if vec_results.is_empty() {
@@ -854,13 +889,31 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         cards.push(card);
     }
 
-    finalize_search_result(db, query, cards, merged.len(), start, "hybrid", user_limit)
+    finalize_search_result(
+        db,
+        query,
+        cards,
+        merged.len(),
+        start,
+        vector_mode,
+        user_limit,
+    )
 }
 
 /// Try TF-IDF vector search using saved embedder state from the DB.
 ///
 /// Returns an empty vec if no TF-IDF state exists (graceful degradation).
+#[cfg(test)]
 fn tfidf_vector_search(db: &Database, query_text: &str, limit: usize) -> Vec<(String, f32)> {
+    tfidf_vector_search_scoped(db, query_text, limit, &SearchFilters::default())
+}
+
+fn tfidf_vector_search_scoped(
+    db: &Database,
+    query_text: &str,
+    limit: usize,
+    filters: &SearchFilters,
+) -> Vec<(String, f32)> {
     match db.load_embedder_state("tfidf-v1") {
         Ok(Some((vocab, idf))) => {
             let embedder = TfIdfEmbedder::from_vocabulary(vocab, idf);
@@ -869,12 +922,11 @@ fn tfidf_vector_search(db: &Database, query_text: &str, limit: usize) -> Vec<(St
                     if query_vec.iter().all(|&v| v == 0.0) {
                         return Vec::new();
                     }
-                    vector_search_top_k(db, &query_vec, "tfidf-v1", limit, None).unwrap_or_else(
-                        |e| {
+                    vector_search_top_k_scoped(db, &query_vec, "tfidf-v1", limit, None, filters)
+                        .unwrap_or_else(|e| {
                             tracing::warn!("TF-IDF vector search failed: {e}");
                             Vec::new()
-                        },
-                    )
+                        })
                 }
                 Err(e) => {
                     tracing::warn!("TF-IDF query embedding failed: {e}");
@@ -904,6 +956,81 @@ pub fn vector_search_top_k(
     k: usize,
     min_sim: Option<f32>,
 ) -> Result<Vec<(String, f32)>, CoreError> {
+    vector_search_top_k_scoped(db, query_vec, model, k, min_sim, &SearchFilters::default())
+}
+
+fn append_vector_filters(
+    sql: &mut String,
+    values: &mut Vec<rusqlite::types::Value>,
+    filters: &SearchFilters,
+) {
+    let mut add_in = |column: &str, items: Vec<String>| {
+        if items.is_empty() {
+            return;
+        }
+        let placeholders = items
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", values.len() + i + 1))
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(" AND {column} IN ({placeholders})"));
+        values.extend(items.into_iter().map(rusqlite::types::Value::Text));
+    };
+    add_in(
+        "d.source_id",
+        filters.source_ids.iter().map(ToString::to_string).collect(),
+    );
+    add_in(
+        "d.mime_type",
+        filters
+            .file_types
+            .iter()
+            .flat_map(file_type_to_mimes)
+            .collect(),
+    );
+    for (operator, date) in [(">=", &filters.date_from), ("<=", &filters.date_to)] {
+        if let Some(date) = date {
+            values.push(date.to_rfc3339().into());
+            sql.push_str(&format!(
+                " AND julianday(d.indexed_at) {operator} julianday(?{})",
+                values.len()
+            ));
+        }
+    }
+}
+
+pub(crate) fn scoped_chunk_ids(
+    db: &Database,
+    ids: &[String],
+    filters: &SearchFilters,
+) -> Result<HashSet<String>, CoreError> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let placeholders = (1..=ids.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut sql = format!("SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.id IN ({placeholders})");
+    let mut values: Vec<rusqlite::types::Value> = ids.iter().cloned().map(Into::into).collect();
+    append_vector_filters(&mut sql, &mut values, filters);
+    let conn = db.conn();
+    let mut statement = conn.prepare(&sql)?;
+    let ids = statement
+        .query_map(rusqlite::params_from_iter(values), |row| row.get(0))?
+        .collect::<Result<HashSet<String>, _>>()?;
+    Ok(ids)
+}
+
+pub(crate) fn vector_search_top_k_scoped(
+    db: &Database,
+    query_vec: &[f32],
+    model: &str,
+    k: usize,
+    min_sim: Option<f32>,
+    filters: &SearchFilters,
+) -> Result<Vec<(String, f32)>, CoreError> {
     if k == 0 || query_vec.iter().all(|&v| v == 0.0) {
         return Ok(Vec::new());
     }
@@ -915,7 +1042,36 @@ pub fn vector_search_top_k(
 
     let mut offset = 0usize;
     loop {
-        let batch = db.get_embeddings_batched(model, BATCH_SIZE, offset)?;
+        let batch = if filters.source_ids.is_empty()
+            && filters.file_types.is_empty()
+            && filters.date_from.is_none()
+            && filters.date_to.is_none()
+        {
+            db.get_embeddings_batched(model, BATCH_SIZE, offset)?
+        } else {
+            let mut sql = "SELECT e.chunk_id, e.vector FROM embeddings e JOIN chunks c ON c.id=e.chunk_id JOIN documents d ON d.id=c.document_id WHERE e.model=?1".to_string();
+            let mut values: Vec<rusqlite::types::Value> = vec![model.to_string().into()];
+            append_vector_filters(&mut sql, &mut values, filters);
+            sql.push_str(&format!(
+                " ORDER BY e.rowid LIMIT ?{} OFFSET ?{}",
+                values.len() + 1,
+                values.len() + 2
+            ));
+            values.push((BATCH_SIZE as i64).into());
+            values.push((offset as i64).into());
+            let conn = db.conn();
+            let mut statement = conn.prepare(&sql)?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(values), |row| {
+                    let vector: Vec<u8> = row.get(1)?;
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        crate::embed::blob_to_vector(&vector),
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
         if batch.is_empty() {
             break;
         }
@@ -2268,6 +2424,43 @@ mod tests {
 
         // First result should be the rust-related chunk.
         assert_eq!(results[0].0, chunk_ids[0]);
+    }
+
+    #[test]
+    fn vector_candidates_are_filtered_before_ranking_and_hydration() {
+        let db = test_db();
+        let (allowed_source, allowed, forbidden, wrong_type) = {
+            let conn = db.conn();
+            let allowed_source = insert_source(&conn);
+            let forbidden_source = insert_source(&conn);
+            let a = insert_document(&conn, &allowed_source, "text/markdown");
+            let b = insert_document(&conn, &forbidden_source, "text/markdown");
+            let c = insert_document(&conn, &allowed_source, "application/pdf");
+            (
+                allowed_source,
+                insert_chunk(&conn, &a, "permitted"),
+                insert_chunk(&conn, &b, "private"),
+                insert_chunk(&conn, &c, "other type"),
+            )
+        };
+        db.store_embedding(&allowed, "fixture", &[0.8, 0.2])
+            .unwrap();
+        db.store_embedding(&forbidden, "fixture", &[1., 0.])
+            .unwrap();
+        db.store_embedding(&wrong_type, "fixture", &[1., 0.])
+            .unwrap();
+        let filters = SearchFilters {
+            source_ids: vec![Uuid::parse_str(&allowed_source).unwrap()],
+            file_types: vec![FileType::Markdown],
+            ..Default::default()
+        };
+        let results =
+            vector_search_top_k_scoped(&db, &[1., 0.], "fixture", 1, None, &filters).unwrap();
+        assert_eq!(results[0].0, allowed);
+        assert_eq!(
+            scoped_chunk_ids(&db, &[allowed.clone(), forbidden, wrong_type], &filters).unwrap(),
+            HashSet::from([allowed])
+        );
     }
 
     #[test]

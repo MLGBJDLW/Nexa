@@ -498,11 +498,13 @@ impl Database {
             "INSERT INTO embeddings (id, chunk_id, model, vector, dimensions)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(chunk_id, model) DO UPDATE SET
+                revision = embeddings.revision + 1,
                 vector = excluded.vector,
                 dimensions = excluded.dimensions,
                 created_at = datetime('now')",
             rusqlite::params![id, chunk_id, model, blob, vector.len() as i64],
         )?;
+        crate::vector_store::notify_sync();
         Ok(())
     }
 
@@ -523,6 +525,7 @@ impl Database {
                 "INSERT INTO embeddings (id, chunk_id, model, vector, dimensions)
                  VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(chunk_id, model) DO UPDATE SET
+                    revision = embeddings.revision + 1,
                     vector = excluded.vector,
                     dimensions = excluded.dimensions,
                     created_at = datetime('now')",
@@ -530,6 +533,7 @@ impl Database {
             )?;
         }
         tx.commit()?;
+        crate::vector_store::notify_sync();
         Ok(())
     }
 

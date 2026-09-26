@@ -79,5 +79,8 @@
   "recallPromptFileType": "可能的檔案類型",
   "recallPromptInstruction": "請盡量廣泛搜尋，先給出候選結果，再幫我一步步縮小範圍，而不是直接猜測。",
   "embeddingWarning": "搜尋品質受限 — 嵌入模型未安裝。混合搜尋將降級為基礎文字比對。",
-  "embeddingWarningAction": "立即安裝"
+  "embeddingWarningAction": "立即安裝",
+  "cloudVectors": "雲端向量",
+  "vectorFusion": "本機/雲端融合",
+  "localFallback": "已回退本機"
 }

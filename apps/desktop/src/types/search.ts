@@ -7,7 +7,7 @@ export interface SearchFilters {
   dateTo: string | null;
 }
 
-export type SearchMode = 'fts' | 'hybrid' | 'fts+graph' | 'hybrid+graph';
+export type SearchMode = 'fts' | 'fts+graph' | `hybrid${'' | '+cloud' | '+fusion' | '+local-fallback'}${'' | '+graph'}`;
 
 export interface GraphEntityHit {
   id: string;
