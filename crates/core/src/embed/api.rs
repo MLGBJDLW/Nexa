@@ -567,6 +567,7 @@ mod tests {
                     assert!(std::time::Instant::now() < deadline, "missing API request");
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 };
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                     .unwrap();

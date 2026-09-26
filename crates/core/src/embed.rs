@@ -1641,11 +1641,33 @@ mod tests {
         let server = std::thread::spawn(move || {
             while !server_stop.load(Ordering::SeqCst) {
                 if let Ok((mut socket, _)) = listener.accept() {
+                    // Windows inherits the listener's nonblocking flag.
+                    socket.set_nonblocking(false).unwrap();
                     socket
                         .set_read_timeout(Some(std::time::Duration::from_secs(3)))
                         .unwrap();
-                    let mut buffer = [0; 4096];
-                    let _ = socket.read(&mut buffer).unwrap();
+                    let mut received = Vec::new();
+                    loop {
+                        let mut buffer = [0; 4096];
+                        let read = socket.read(&mut buffer).unwrap();
+                        assert!(read > 0);
+                        received.extend_from_slice(&buffer[..read]);
+                        if let Some(end) = received.windows(4).position(|part| part == b"\r\n\r\n")
+                        {
+                            let headers = String::from_utf8_lossy(&received[..end]);
+                            let length: usize = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|value| value.trim().parse().unwrap())
+                                })
+                                .unwrap();
+                            if received.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
                     server_calls.fetch_add(1, Ordering::SeqCst);
                     let body = r#"{"data":[{"index":0,"embedding":[1,0]}]}"#;
                     write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
