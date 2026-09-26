@@ -42,7 +42,7 @@ pub struct VectorSyncReport {
     pub busy: bool,
 }
 
-const PENDING_JOIN:&str="FROM embeddings e JOIN chunks c ON c.id=e.chunk_id JOIN documents d ON d.id=c.document_id LEFT JOIN vector_store_receipts r ON r.store_id=?1 AND r.space_id=e.model AND r.chunk_id=e.chunk_id WHERE e.model=?2 AND (r.chunk_id IS NULL OR r.embedding_id!=e.id OR r.revision!=e.revision OR r.source_id!=d.source_id)";
+const PENDING_JOIN:&str="FROM embeddings e JOIN chunks c ON c.id=e.chunk_id JOIN documents d ON d.id=c.document_id LEFT JOIN vector_store_receipts r ON r.store_id=?1 AND r.space_id=e.model AND r.chunk_id=e.chunk_id WHERE e.model=?2 AND (r.chunk_id IS NULL OR r.acknowledged!=1 OR r.embedding_id!=e.id OR r.revision!=e.revision OR r.source_id!=d.source_id)";
 const DELETED_JOIN:&str="FROM vector_store_receipts r LEFT JOIN embeddings e ON e.model=r.space_id AND e.chunk_id=r.chunk_id WHERE r.store_id=?1 AND e.id IS NULL";
 
 impl Database {
@@ -123,16 +123,17 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
-    fn acknowledge_vectors(
+    fn record_vector_attempt(
         &self,
         store: &str,
         space: &str,
         records: &[VectorRecord],
+        acknowledged: bool,
     ) -> Result<(), CoreError> {
         let mut conn = self.conn();
         let transaction = conn.transaction()?;
         for r in records {
-            transaction.execute("INSERT INTO vector_store_receipts(store_id,space_id,chunk_id,source_id,embedding_id,revision) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(store_id,space_id,chunk_id) DO UPDATE SET source_id=excluded.source_id,embedding_id=excluded.embedding_id,revision=excluded.revision",rusqlite::params![store,space,r.chunk_id,r.source_id,r.embedding_id,r.revision])?;
+            transaction.execute("INSERT INTO vector_store_receipts(store_id,space_id,chunk_id,source_id,embedding_id,revision,acknowledged) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(store_id,space_id,chunk_id) DO UPDATE SET source_id=excluded.source_id,embedding_id=excluded.embedding_id,revision=excluded.revision,acknowledged=excluded.acknowledged",rusqlite::params![store,space,r.chunk_id,r.source_id,r.embedding_id,r.revision,acknowledged])?;
         }
         transaction.commit()?;
         Ok(())
@@ -145,11 +146,15 @@ pub fn sync_vectors(db: &Database, max_batches: usize) -> Result<VectorSyncRepor
     if CANCEL.load(Ordering::SeqCst) {
         return Ok(VectorSyncReport::default());
     }
-    let Ok(_guard) = SYNC_LOCK.try_lock() else {
-        return Ok(VectorSyncReport {
-            busy: true,
-            ..Default::default()
-        });
+    let _guard = match SYNC_LOCK.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return Ok(VectorSyncReport {
+                busy: true,
+                ..Default::default()
+            })
+        }
     };
     struct Running;
     impl Drop for Running {
@@ -166,6 +171,24 @@ pub fn sync_vectors(db: &Database, max_batches: usize) -> Result<VectorSyncRepor
     let current_space = embedding_space(&db.get_embedder_config()?).ok();
     let (space, dimensions) = current_space.clone().unwrap_or_else(|| (String::new(), 2));
     let store = config.store_id();
+    let expected = config.clone();
+    let expected_space = current_space.clone();
+    let guard_db = db.clone();
+    let request_guard: super::adapter::RequestGuard = std::sync::Arc::new(move || {
+        let latest = guard_db.vector_store_config()?;
+        if CANCEL.load(Ordering::SeqCst)
+            || latest.mode == VectorSearchMode::Local
+            || latest.store_id() != expected.store_id()
+            || latest.api_key != expected.api_key
+            || embedding_space(&guard_db.get_embedder_config()?).ok() != expected_space
+        {
+            return Err(CoreError::Cancelled(
+                "Cloud synchronization paused or settings changed".into(),
+            ));
+        }
+        Ok(())
+    });
+    let mut report = VectorSyncReport::default();
     let result = (|| {
         let owner = db.vector_store_owner()?;
         let remote = current_space
@@ -179,8 +202,8 @@ pub fn sync_vectors(db: &Database, max_batches: usize) -> Result<VectorSyncRepor
                     std::time::Duration::from_secs(20),
                 )
             })
-            .transpose()?;
-        let mut report = VectorSyncReport::default();
+            .transpose()?
+            .map(|remote| remote.with_request_guard(request_guard.clone()));
         let mut initialized = false;
         for _ in 0..max_batches {
             let latest = db.vector_store_config()?;
@@ -215,6 +238,7 @@ pub fn sync_vectors(db: &Database, max_batches: usize) -> Result<VectorSyncRepor
                         2,
                         std::time::Duration::from_secs(20),
                     )?;
+                    let old = old.with_request_guard(request_guard.clone());
                     old.delete(&ids)?;
                     let mut conn = db.conn();
                     let tx = conn.transaction()?;
@@ -233,17 +257,23 @@ pub fn sync_vectors(db: &Database, max_batches: usize) -> Result<VectorSyncRepor
                 initialized = true;
             }
             if !records.is_empty() {
+                db.record_vector_attempt(&store, &space, &records, false)?;
                 remote
                     .as_ref()
                     .expect("upload space exists")
                     .upsert(&records)?;
-                db.acknowledge_vectors(&store, &space, &records)?;
+                db.record_vector_attempt(&store, &space, &records, true)?;
                 report.uploaded += records.len();
             }
         }
-        Ok(report)
+        Ok::<(), CoreError>(())
     })();
-    let error = result.as_ref().err().map(ToString::to_string);
+    let cancelled = matches!(&result, Err(CoreError::Cancelled(_)));
+    let error = result
+        .as_ref()
+        .err()
+        .filter(|_| !cancelled)
+        .map(ToString::to_string);
     // Do not attach an old endpoint's error to newly selected settings.
     let latest = db.vector_store_config()?;
     if latest.store_id() == store && latest.api_key == config.api_key {
@@ -252,7 +282,11 @@ pub fn sync_vectors(db: &Database, max_batches: usize) -> Result<VectorSyncRepor
             [error],
         )?;
     }
-    result
+    if cancelled {
+        Ok(report)
+    } else {
+        result.map(|_| report)
+    }
 }
 
 /// One bounded worker, no overlapping ticks. Disabled/local mode never contacts

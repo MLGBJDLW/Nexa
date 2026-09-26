@@ -75,7 +75,10 @@ async function selectNexaOption(trigger: Locator, value: string) {
   await trigger.click();
   await trigger.page().locator(`[role="option"][data-value=${JSON.stringify(value)}]`).click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-  await expect(trigger).toBeFocused();
+  await expect(trigger.page().locator('[role="option"]:visible')).toHaveCount(0);
+  // Let the closing popup finish its deferred focus restoration before opening
+  // the next control. A containing dialog may legitimately choose another focus target.
+  await trigger.page().evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 async function expectNexaValue(trigger: Locator, value: string) {

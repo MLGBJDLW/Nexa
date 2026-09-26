@@ -13,5 +13,6 @@ CREATE TABLE IF NOT EXISTS vector_store_receipts (
     source_id TEXT NOT NULL,
     embedding_id TEXT NOT NULL,
     revision INTEGER NOT NULL,
+    acknowledged INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (store_id, space_id, chunk_id)
 );

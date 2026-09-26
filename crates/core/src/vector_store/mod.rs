@@ -83,6 +83,9 @@ pub(crate) fn cloud_candidates(
         ));
     }
     let config = db.vector_store_config()?;
+    if config.mode == VectorSearchMode::Local {
+        return Err(CoreError::Cancelled("Cloud retrieval is disabled".into()));
+    }
     let sources = if filters.source_ids.is_empty() {
         db.list_sources()?.into_iter().map(|s| s.id).collect()
     } else {
@@ -99,6 +102,20 @@ pub(crate) fn cloud_candidates(
         vector.len(),
         std::time::Duration::from_millis(1500),
     )?;
+    let guard_db = db.clone();
+    let expected = config.clone();
+    let remote = remote.with_request_guard(std::sync::Arc::new(move || {
+        let latest = guard_db.vector_store_config()?;
+        if latest.mode == VectorSearchMode::Local
+            || latest.store_id() != expected.store_id()
+            || latest.api_key != expected.api_key
+        {
+            return Err(CoreError::Cancelled(
+                "Cloud retrieval settings changed".into(),
+            ));
+        }
+        Ok(())
+    }));
     let hits = remote.query(vector, &sources, limit)?;
     let ids = hits
         .iter()

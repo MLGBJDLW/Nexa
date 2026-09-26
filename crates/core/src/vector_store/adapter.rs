@@ -2,6 +2,8 @@ use super::config::{VectorStoreConfig, VectorStoreProvider as Provider};
 use crate::error::CoreError;
 use serde_json::{json, Value};
 use std::io::Read;
+use std::sync::Arc;
+pub(super) type RequestGuard = Arc<dyn Fn() -> Result<(), CoreError> + Send + Sync>;
 
 pub(super) struct VectorRecord {
     pub chunk_id: String,
@@ -28,6 +30,7 @@ pub(super) struct RemoteStore {
     pub collection: String,
     pub dimensions: usize,
     client: reqwest::blocking::Client,
+    request_guard: Option<RequestGuard>,
 }
 
 impl RemoteStore {
@@ -65,7 +68,12 @@ impl RemoteStore {
             collection,
             dimensions,
             client,
+            request_guard: None,
         })
+    }
+    pub fn with_request_guard(mut self, guard: RequestGuard) -> Self {
+        self.request_guard = Some(guard);
+        self
     }
     pub fn point_id(&self, chunk: &str) -> String {
         let hash = blake3::hash(format!("{}\0{chunk}", self.space).as_bytes());
@@ -111,6 +119,9 @@ impl RemoteStore {
         };
         if let Some(body) = body {
             request = request.json(&body);
+        }
+        if let Some(guard) = &self.request_guard {
+            guard()?;
         }
         let response = request.send().map_err(|e| self.error(e.to_string()))?;
         let status = response.status();
@@ -171,6 +182,17 @@ impl RemoteStore {
         let listed = self.probe()?;
         let exists = match self.config.provider {
             Provider::Pinecone => {
+                if listed
+                    .get("metric")
+                    .filter(|v| !v.is_null())
+                    .is_some_and(|v| v != "cosine")
+                    || listed
+                        .get("vectorType")
+                        .filter(|v| !v.is_null())
+                        .is_some_and(|v| v != "dense")
+                {
+                    return Err(self.error("Pinecone requires a dense cosine index"));
+                }
                 if listed["dimension"].as_u64() != Some(self.dimensions as u64) {
                     return Err(self.error("Pinecone index dimension does not match. Configure an existing dense index with the selected embedding dimensions."));
                 }
@@ -382,11 +404,15 @@ impl RemoteStore {
                 return Err(self.error("Partial upsert"))
             }
             Provider::Dashvector => {
-                let output = result["output"]
-                    .as_array()
-                    .ok_or_else(|| self.error("Missing per-document upsert receipts"))?;
-                if output.len() != records.len()
-                    || output.iter().any(|v| v["code"].as_i64() != Some(0))
+                // The REST contract acknowledges the whole request with code=0
+                // and normally has no output field. Some deployments add item receipts.
+                if result
+                    .get("output")
+                    .and_then(Value::as_array)
+                    .is_some_and(|output| {
+                        output.len() != records.len()
+                            || output.iter().any(|v| v["code"].as_i64() != Some(0))
+                    })
                 {
                     return Err(self.error("Partial upsert"));
                 }

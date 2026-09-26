@@ -37,6 +37,11 @@ export function VectorStoreSection() {
     void invoke<VectorConfig | null>('get_vector_store_config_cmd').then(value => {
       if (!disposed) {setConfig(value ?? DEFAULT_CONFIG); setSaved(value ?? DEFAULT_CONFIG);}
     }).catch(cause => {if (!disposed) setError(String(cause));}).finally(() => {if (!disposed) setLoading(false);});
+    return () => {disposed = true;};
+  }, []);
+  useEffect(() => {
+    if (saved.mode === 'local') {setStatus(null); return;}
+    let disposed = false;
     let pending = false;
     const refresh = async () => {
       if (pending || disposed || document.hidden) return;
@@ -48,7 +53,7 @@ export function VectorStoreSection() {
     void refresh();
     const timer = setInterval(() => {void refresh();}, 3000);
     return () => {disposed = true; clearInterval(timer);};
-  }, []);
+  }, [saved]);
   const update = (patch: Partial<VectorConfig>) => {setConfig(value => ({...value, ...patch})); setNotice(''); setError('');};
   const action = async (kind: 'save' | 'test' | 'sync' | 'pause') => {
     setBusy(kind); setError(''); setNotice('');

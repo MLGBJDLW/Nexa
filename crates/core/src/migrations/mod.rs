@@ -3153,6 +3153,13 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
                 )?;
             }
             conn.execute_batch(sql)?;
+            let mut receipts = conn.prepare("PRAGMA table_info(vector_store_receipts)")?;
+            let columns = receipts
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if !columns.iter().any(|column| column == "acknowledged") {
+                conn.execute_batch("ALTER TABLE vector_store_receipts ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0;")?;
+            }
             if !already_applied {
                 conn.execute("INSERT INTO _migrations(name) VALUES(?1)", [name])?;
             }

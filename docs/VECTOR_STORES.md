@@ -32,8 +32,9 @@ It does not create a cloud account, cluster, subscription or paid instance.
 Collection names/namespaces combine the configured prefix with a hash of the
 local database owner and embedding space. Existing collection dimensions and
 metrics are checked before reuse where the data-plane API exposes them.
-Pinecone statistics expose dimensions but not metric; configure cosine when
-creating its index. Credentials are encrypted at rest, never reused from model
+Pinecone statistics validate dimensions and, when supplied, cosine metric and
+dense vector type; configure cosine when creating its index. Credentials are
+encrypted at rest, never reused from model
 providers, and HTTP redirects are not followed with service-specific key headers.
 
 Weaviate is deliberately not presented as universally compatible: its newer
@@ -52,8 +53,9 @@ worker wakes for changes and retries on a 60-second timer; successful large
 backlogs continue in bounded batches. It never holds a SQLite connection across
 HTTP, and adaptive batch sizes stay below common request-size limits.
 
-Receipts record the exact embedding ID and revision acknowledged by the remote
-service. Updates that happen during an upload remain pending. Partial success,
+The ledger records upload intent before HTTP and marks acknowledgement only
+after a confirmed response. It records the exact embedding ID and revision.
+Updates that happen during an upload remain pending. Partial success,
 transport failure and process restart cannot mark unconfirmed writes complete;
 stable point IDs make replayed writes idempotent. Settings shows local/synced
 counts, pending uploads/deletes, pause state and the latest error.
@@ -69,7 +71,8 @@ provider console. This is a mirror, not bidirectional document synchronization.
 
 ## Retrieval and fusion
 
-Cloud searches have a 1.5-second budget. Requests include the current namespace,
+Vector-store requests have a 1.5-second budget; query embedding follows its
+separate provider budget. Requests include the current namespace,
 space and permitted source IDs. Returned IDs are checked against current local
 chunks, source filters and embedding revisions before any content is hydrated.
 Stale, unknown or out-of-scope cloud hits cannot introduce document content.

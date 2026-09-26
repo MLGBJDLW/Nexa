@@ -19,11 +19,14 @@ struct RemoteState {
     requests: Vec<(String, Value)>,
     fail_upsert: bool,
     stale: bool,
+    metric: Option<String>,
 }
 struct MockStore {
     url: String,
     state: Arc<Mutex<RemoteState>>,
     stop: Arc<AtomicBool>,
+    block_probe: Arc<AtomicBool>,
+    probe_seen: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl MockStore {
@@ -33,6 +36,9 @@ impl MockStore {
         let url = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(RemoteState::default()));
         let stop = Arc::new(AtomicBool::new(false));
+        let block_probe = Arc::new(AtomicBool::new(false));
+        let probe_seen = Arc::new(AtomicBool::new(false));
+        let (server_block, server_seen) = (block_probe.clone(), probe_seen.clone());
         let (server_state, server_stop) = (state.clone(), stop.clone());
         let thread = std::thread::spawn(move || {
             while !server_stop.load(Ordering::SeqCst) {
@@ -71,8 +77,11 @@ impl MockStore {
                         }
                     }
                 };
-                let mut state = server_state.lock().unwrap();
-                state.requests.push((headers.clone(), body.clone()));
+                server_state
+                    .lock()
+                    .unwrap()
+                    .requests
+                    .push((headers.clone(), body.clone()));
                 let path = headers
                     .lines()
                     .next()
@@ -80,6 +89,14 @@ impl MockStore {
                     .split_whitespace()
                     .nth(1)
                     .unwrap();
+                if path == "/collections" && headers.starts_with("GET ") {
+                    server_seen.store(true, Ordering::SeqCst);
+                    while server_block.load(Ordering::SeqCst) && !server_stop.load(Ordering::SeqCst)
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                    }
+                }
+                let mut state = server_state.lock().unwrap();
                 let response = reply(provider, path, &headers, &body, &mut state).to_string();
                 write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).unwrap();
             }
@@ -88,6 +105,8 @@ impl MockStore {
             url,
             state,
             stop,
+            block_probe,
+            probe_seen,
             thread: Some(thread),
         }
     }
@@ -125,7 +144,9 @@ fn reply(
         (Qdrant, "/collections") => {
             return json!({"status":"ok","result":{"collections":list.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()}})
         }
-        (Pinecone, "/describe_index_stats") => return json!({"dimension":2,"namespaces":{}}),
+        (Pinecone, "/describe_index_stats") => {
+            return json!({"dimension":2,"metric":state.metric.as_deref().unwrap_or("cosine"),"vectorType":"dense","namespaces":{}})
+        }
         (Dashvector, "/v1/collections") if headers.starts_with("GET ") => {
             return json!({"code":0,"output":list})
         }
@@ -212,7 +233,7 @@ fn reply(
             Qdrant => json!({"status":"ok","result":{"status":"completed"}}),
             Pinecone => json!({"upsertedCount":rows.len()}),
             Dashvector => {
-                json!({"code":0,"output":rows.iter().map(|p|json!({"id":p["id"],"code":0})).collect::<Vec<_>>()})
+                json!({"request_id":"documented-rest-envelope","code":0,"message":"Success"})
             }
             Milvus => json!({"code":0,"data":{"upsertCount":rows.len()}}),
             Tencent => json!({"code":0,"affectedCount":rows.len()}),
@@ -396,6 +417,114 @@ fn fusion_does_not_double_count_the_same_vector_copy() {
     assert_eq!(result[0], ("a".into(), 1. / 60.));
 }
 
+fn configured_cloud(
+    provider: VectorStoreProvider,
+    url: &str,
+) -> (Database, String, VectorStoreConfig) {
+    let db = Database::open_memory().unwrap();
+    let embed = crate::embed::EmbedderConfig {
+        provider: "api".into(),
+        api_model: "text-embedding-3-small".into(),
+        vector_dimensions: 2,
+        ..Default::default()
+    };
+    db.save_embedder_config(&embed).unwrap();
+    let space = crate::embed::ApiEmbedder::configured_space_id(&embed);
+    let config = VectorStoreConfig {
+        provider,
+        mode: VectorSearchMode::Cloud,
+        endpoint: url.into(),
+        api_key: "vector-secret".into(),
+        ..Default::default()
+    };
+    db.save_vector_store_config(&config).unwrap();
+    (db, space, config)
+}
+
+#[test]
+fn ambiguous_first_upload_retains_deletion_intent_after_source_removal() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    for provider in [
+        VectorStoreProvider::Qdrant,
+        VectorStoreProvider::Pinecone,
+        VectorStoreProvider::Dashvector,
+        VectorStoreProvider::Milvus,
+        VectorStoreProvider::Tencent,
+    ] {
+        let server = MockStore::new(provider);
+        let (db, space, _) = configured_cloud(provider, &server.url);
+        let (source, _) = add_chunk(&db, &space);
+        server.state.lock().unwrap().fail_upsert = true;
+        assert!(sync_vectors(&db, 4).is_err());
+        assert_eq!(
+            server.state.lock().unwrap().points.len(),
+            1,
+            "server accepted the uncertain write"
+        );
+        let status = db.vector_sync_status().unwrap();
+        assert_eq!(status.uploaded_vectors, 0);
+        assert_eq!(status.pending_uploads, 1);
+        db.delete_source(&source).unwrap();
+        assert_eq!(db.vector_sync_status().unwrap().pending_deletes, 1);
+        assert_eq!(sync_vectors(&db, 4).unwrap().deleted, 1);
+        assert!(server.state.lock().unwrap().points.is_empty());
+    }
+}
+
+#[test]
+fn pause_or_configuration_change_during_probe_admits_no_later_network_request() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    for action in ["pause", "local", "rotate-key"] {
+        let server = MockStore::new(VectorStoreProvider::Qdrant);
+        let (db, space, mut config) = configured_cloud(VectorStoreProvider::Qdrant, &server.url);
+        let (_, chunk) = add_chunk(&db, &space);
+        server.block_probe.store(true, Ordering::SeqCst);
+        let worker_db = db.clone();
+        let worker = std::thread::spawn(move || sync_vectors(&worker_db, 4));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !server.probe_seen.load(Ordering::SeqCst) {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        if action == "pause" {
+            cancel_sync();
+        } else {
+            if action == "local" {
+                config.mode = VectorSearchMode::Local;
+            } else {
+                config.api_key = "rotated-key".into();
+            }
+            db.save_vector_store_config(&config).unwrap();
+        }
+        server.block_probe.store(false, Ordering::SeqCst);
+        assert_eq!(worker.join().unwrap().unwrap().uploaded, 0);
+        let state = server.state.lock().unwrap();
+        assert_eq!(
+            state.requests.len(),
+            1,
+            "{action}: only the already-sent probe may finish"
+        );
+        assert!(state.collection.is_none());
+        assert!(state.points.is_empty());
+        assert!(db.get_embedding(&chunk, &space).unwrap().is_some());
+        resume_sync();
+    }
+}
+
+#[test]
+fn pinecone_rejects_incompatible_metric_before_any_upload() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let server = MockStore::new(VectorStoreProvider::Pinecone);
+    let (db, space, _) = configured_cloud(VectorStoreProvider::Pinecone, &server.url);
+    add_chunk(&db, &space);
+    server.state.lock().unwrap().metric = Some("dotproduct".into());
+    assert!(sync_vectors(&db, 4)
+        .unwrap_err()
+        .to_string()
+        .contains("cosine"));
+    assert!(server.state.lock().unwrap().points.is_empty());
+}
+
 #[test]
 fn local_mode_never_contacts_cloud_and_failed_cloud_keeps_scoped_results() {
     let _guard = TEST_LOCK.lock().unwrap();
@@ -423,6 +552,7 @@ fn local_mode_never_contacts_cloud_and_failed_cloud_keeps_scoped_results() {
 
 #[test]
 fn cloud_config_and_space_isolation_survive_reopen() {
+    let _guard = TEST_LOCK.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("index.sqlite");
     let config = VectorStoreConfig {
