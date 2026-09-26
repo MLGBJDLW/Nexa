@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.14.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.15...nexa-monorepo-v0.14.16) (2026-09-26)
+
+
+### Features
+
+* **agent:** Improve Git status, full access and vector retrieval ([eacc2bb](https://github.com/MLGBJDLW/Nexa/commit/eacc2bb911954b591a2a75cb4f273dd3b94dc39b))
+* **agent:** Unify workspace status, full access and embedding providers ([8880c85](https://github.com/MLGBJDLW/Nexa/commit/8880c85113017788a533ca8ce556af4f5d5498a6))
+* **search:** Add optional cloud vector mirrors and scoped fusion ([d2be639](https://github.com/MLGBJDLW/Nexa/commit/d2be63988df1852e36343755a4348df84a161a9c))
+
+
+### Bug Fixes
+
+* **agent:** Preserve index recovery and live workspace consistency ([a2a5bbf](https://github.com/MLGBJDLW/Nexa/commit/a2a5bbfeac6619a202d41a6693fd517df5043a9e))
+* **search:** Persist cloud write intent and fence every request ([571f534](https://github.com/MLGBJDLW/Nexa/commit/571f53461636cee9e30c5369eb573eb409242921))
+* **search:** Preserve Gemini REST compatibility and pass Clippy ([cdec34a](https://github.com/MLGBJDLW/Nexa/commit/cdec34a823a710842a6907fc788f39d56043400f))
+
 ## [0.14.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.14...nexa-monorepo-v0.14.15) (2026-09-24)
 
 
