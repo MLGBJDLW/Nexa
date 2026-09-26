@@ -403,19 +403,18 @@ impl RemoteStore {
             Provider::Tencent if result["affectedCount"].as_u64() != Some(records.len() as u64) => {
                 return Err(self.error("Partial upsert"))
             }
-            Provider::Dashvector => {
-                // The REST contract acknowledges the whole request with code=0
-                // and normally has no output field. Some deployments add item receipts.
+            // The REST contract acknowledges the whole request with code=0
+            // and normally has no output field. Some deployments add item receipts.
+            Provider::Dashvector
                 if result
                     .get("output")
                     .and_then(Value::as_array)
                     .is_some_and(|output| {
                         output.len() != records.len()
                             || output.iter().any(|v| v["code"].as_i64() != Some(0))
-                    })
-                {
-                    return Err(self.error("Partial upsert"));
-                }
+                    }) =>
+            {
+                return Err(self.error("Partial upsert"));
             }
             _ => {}
         }

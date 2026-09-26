@@ -187,16 +187,31 @@ impl ApiEmbedder {
             ),
             EmbeddingApiStyle::Gemini => {
                 let model = format!("models/{}", self.model.trim_start_matches("models/"));
-                let requests: Vec<_> = texts.iter().map(|text| {
-                    let mut config = json!({"outputDimensionality": self.dimensions});
-                    let text = if self.model.starts_with("gemini-embedding-2") {
-                        if query { format!("task: search result | query: {text}") } else { format!("title: none | text: {text}") }
-                    } else {
-                        config["taskType"] = json!(if query { "RETRIEVAL_QUERY" } else { "RETRIEVAL_DOCUMENT" });
-                        text.to_string()
-                    };
-                    json!({"model": model, "content": {"parts": [{"text": text}]}, "embedContentConfig": config})
-                }).collect();
+                let requests: Vec<_> = texts
+                    .iter()
+                    .map(|text| {
+                        // Keep the original REST fields for older deployments.
+                        // They remain supported alongside the newer embedContentConfig.
+                        let mut request =
+                            json!({"model": model, "outputDimensionality": self.dimensions});
+                        let text = if self.model.starts_with("gemini-embedding-2") {
+                            if query {
+                                format!("task: search result | query: {text}")
+                            } else {
+                                format!("title: none | text: {text}")
+                            }
+                        } else {
+                            request["taskType"] = json!(if query {
+                                "RETRIEVAL_QUERY"
+                            } else {
+                                "RETRIEVAL_DOCUMENT"
+                            });
+                            text.to_string()
+                        };
+                        request["content"] = json!({"parts": [{"text": text}]});
+                        request
+                    })
+                    .collect();
                 (
                     format!("/{model}:batchEmbedContents"),
                     json!({"requests": requests}),
@@ -446,23 +461,15 @@ mod tests {
         assert!(url.ends_with("/models/gemini-embedding-001:batchEmbedContents"));
         assert_eq!(body["requests"].as_array().unwrap().len(), 2);
         assert_eq!(body["requests"][1]["content"]["parts"][0]["text"], "two");
-        assert_eq!(
-            body["requests"][0]["embedContentConfig"]["taskType"],
-            "RETRIEVAL_DOCUMENT"
-        );
-        assert_eq!(
-            body["requests"][0]["embedContentConfig"]["outputDimensionality"],
-            768
-        );
+        assert_eq!(body["requests"][0]["taskType"], "RETRIEVAL_DOCUMENT");
+        assert_eq!(body["requests"][0]["outputDimensionality"], 768);
         let gemini2 = client(
             "https://generativelanguage.googleapis.com/v1beta",
             "gemini-embedding-2",
             768,
         );
         let body = gemini2.request(&["find me"], true).1;
-        assert!(body["requests"][0]["embedContentConfig"]
-            .get("taskType")
-            .is_none());
+        assert!(body["requests"][0].get("taskType").is_none());
         assert_eq!(
             body["requests"][0]["content"]["parts"][0]["text"],
             "task: search result | query: find me"
@@ -628,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn real_http_supports_keyless_local_and_native_gemini_auth() {
+    fn real_http_supports_keyless_local_auth() {
         let (base, local) = server(vec![json!({"data":[{"index":0,"embedding":[1,2]}]})]);
         let c = ApiEmbedder::new(String::new(), Some(base), Some("local".into()), Some(2)).unwrap();
         assert_eq!(c.embed_query("query").unwrap(), vec![1., 2.]);
@@ -643,22 +650,76 @@ mod tests {
             None
         )
         .is_err());
-        let (base, native) = server(vec![json!({"embeddings":[{"values":vec![1.;128]}]})]);
-        let mut c = client(
-            "https://generativelanguage.googleapis.com/v1beta",
-            "gemini-embedding-001",
-            128,
-        );
-        c.base_url = base;
-        assert_eq!(c.embed_query("query").unwrap().len(), 128);
-        let requests = native.join().unwrap();
-        assert!(requests[0]
-            .0
-            .to_ascii_lowercase()
-            .contains("x-goog-api-key: test-key"));
-        assert!(!requests[0]
-            .0
-            .to_ascii_lowercase()
-            .contains("authorization:"));
+    }
+
+    #[test]
+    fn real_http_gemini_uses_compatible_rest_fields_for_query_and_batch() {
+        // The original EmbedContentRequest REST fields remain supported by
+        // Google's current schema. Reject newer envelopes to cover older API
+        // deployments as well: https://ai.google.dev/api/embeddings#EmbedContentRequest
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct RestEmbedRequest {
+            model: String,
+            content: Value,
+            output_dimensionality: usize,
+            task_type: Option<String>,
+        }
+
+        for model in ["gemini-embedding-001", "gemini-embedding-2"] {
+            let (base, native) = server(vec![
+                json!({"embeddings":[{"values":vec![1.;128]}]}),
+                json!({"embeddings":[{"values":vec![2.;128]}, {"values":vec![3.;128]}]}),
+            ]);
+            let mut c = client(
+                "https://generativelanguage.googleapis.com/v1beta",
+                model,
+                128,
+            );
+            c.base_url = base;
+            assert_eq!(c.embed_query("query").unwrap(), vec![1.; 128]);
+            assert_eq!(
+                c.embed_batch(&["one", "two"]).unwrap(),
+                vec![vec![2.; 128], vec![3.; 128]]
+            );
+            let requests = native.join().unwrap();
+            for (index, (header, body)) in requests.into_iter().enumerate() {
+                assert!(header.starts_with(&format!("POST /models/{model}:batchEmbedContents ")));
+                let header = header.to_ascii_lowercase();
+                assert!(header.contains("x-goog-api-key: test-key"));
+                assert!(!header.contains("authorization:"));
+                let batch: Vec<RestEmbedRequest> =
+                    serde_json::from_value(body["requests"].clone()).unwrap();
+                let texts = if index == 0 {
+                    vec!["query"]
+                } else {
+                    vec!["one", "two"]
+                };
+                assert_eq!(batch.len(), texts.len());
+                for (request, text) in batch.into_iter().zip(texts) {
+                    assert_eq!(request.model, format!("models/{model}"));
+                    assert_eq!(request.output_dimensionality, 128);
+                    let expected_text = if model == "gemini-embedding-2" {
+                        assert!(request.task_type.is_none());
+                        if index == 0 {
+                            format!("task: search result | query: {text}")
+                        } else {
+                            format!("title: none | text: {text}")
+                        }
+                    } else {
+                        assert_eq!(
+                            request.task_type.as_deref(),
+                            Some(if index == 0 {
+                                "RETRIEVAL_QUERY"
+                            } else {
+                                "RETRIEVAL_DOCUMENT"
+                            })
+                        );
+                        text.to_string()
+                    };
+                    assert_eq!(request.content["parts"][0]["text"], expected_text);
+                }
+            }
+        }
     }
 }
