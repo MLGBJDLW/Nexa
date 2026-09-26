@@ -763,5 +763,8 @@
   "gitStaged": "스테이징",
   "gitWorking": "작업 트리",
   "gitTruncated": "변경된 경로 중 처음 300개만 표시합니다.",
-  "gitNoDiff": "변경 사항이 없습니다."
+  "gitNoDiff": "변경 사항이 없습니다.",
+  "gitNoSources": "소스 폴더를 연결하거나 이 채팅의 터미널을 열어 Git을 확인하세요.",
+  "gitNoRepository": "연결된 폴더에 Git 저장소가 없습니다.",
+  "gitStatusFailed": "Git 상태를 완전히 새로 고치지 못했습니다."
 }

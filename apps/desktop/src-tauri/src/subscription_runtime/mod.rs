@@ -136,6 +136,7 @@ impl SubscriptionTurnRequest {
         // project instructions. Append native/runtime sections without wrapping
         // that entire kernel as a second conversation-level custom prompt.
         let mut system_prompt = self.config.system_prompt.clone();
+        sections.push(self.config.tool_approval_mode.prompt_guidance().into());
         sections.push(tools.routing_prompt().to_string());
         if nexa_core::shared_desktop::store()
             .latest(&self.conversation_id)

@@ -475,9 +475,11 @@ export function PlanProgressPanel({
             {counts.completed}/{counts.total}
           </span>
         )}
-        {git && git.repos.length > 0 && <span data-testid="git-workspace-summary" className="max-w-28 truncate text-[10px] text-text-tertiary" title={git.repos.map(repo => repo.branch).join(', ')}>
-          <GitBranch className="mr-1 inline h-3 w-3" />{git.repos.length > 1 ? git.repos.length : git.repos[0].branch} · {git.repos.reduce((sum, repo) => sum + repo.files.length, 0)}
+        {git && git.repos.length > 0 && <span data-testid="git-workspace-summary" className="inline-flex max-w-36 shrink-0 items-center gap-1 text-[10px] text-text-secondary" title={git.repos.map(repo => `${repo.branch} · ${repo.root}`).join('\n')}>
+          <GitBranch className="h-3 w-3 shrink-0 text-accent" /><span className="truncate">{git.repos.length > 1 ? git.repos.length : git.repos[0].branch === '(detached)' ? git.repos[0].oid.slice(0, 8) : git.repos[0].branch}</span>
+          <span className="shrink-0 tabular-nums">· {git.repos.reduce((sum, repo) => sum + repo.files.length, 0)}{git.repos.some(repo => repo.truncated) ? '+' : ''}</span>
         </span>}
+        {git && (git.error || git.issues.length > 0) && <AlertTriangle data-testid="git-workspace-error" className="h-3 w-3 shrink-0 text-warning" aria-label={t('chat.gitStatusFailed')} />}
         {subtaskCounts.running > 0 && (
           <span
             className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
@@ -530,7 +532,7 @@ export function PlanProgressPanel({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 rotate-180 text-text-tertiary transition-transform" />
         </button>
 
-        {open && conversationId && git && (git.repos.length > 0 || git.error) && <GitWorkspaceDetails conversationId={conversationId} repos={git.repos} error={git.error} onRefresh={git.refresh} />}
+        {open && conversationId && git && <GitWorkspaceDetails conversationId={conversationId} {...git} onRefresh={git.refresh} />}
         {plan && (
           <>
             <div className="mx-1 mt-1 h-1 rounded-full bg-surface-0">

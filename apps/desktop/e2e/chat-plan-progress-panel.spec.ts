@@ -834,7 +834,7 @@ test('floating plan capsule renders only the update_plan checklist', async ({ pa
 
   await collapsed.click();
   await expect(expanded).toBeVisible();
-  await expect(expanded.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+  await expect(expanded.getByRole('button', { expanded: true })).toHaveAttribute('aria-expanded', 'true');
   await expect(expanded).toContainText('Inspect context');
   await expect(expanded).toContainText('Apply change');
   await expect(expanded).toContainText('Verify result');
@@ -855,7 +855,7 @@ test('floating plan capsule renders only the update_plan checklist', async ({ pa
   await expect(subagentStatus).toContainText('Cancelled evidence branch');
   await expect(expanded).not.toContainText('Verification summary that should not render');
 
-  await expanded.getByRole('button').click();
+  await expanded.getByRole('button', { expanded: true }).click();
   await expect(collapsed).toBeVisible();
   await expect(collapsed).toHaveAttribute('aria-expanded', 'false');
   await expect(expanded).toBeHidden();

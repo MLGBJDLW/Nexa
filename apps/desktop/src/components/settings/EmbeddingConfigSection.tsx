@@ -1,10 +1,13 @@
 import { AlertTriangle, Brain, CheckCircle, KeyRound, Loader2, RefreshCw, Save, XCircle, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { NexaSelect } from '../ui/overlay';
 import { useTranslation } from '../../i18n';
 import {
   defaultEmbeddingModel,
   EMBEDDING_PROVIDER_PRESETS,
   findEmbeddingProviderPreset,
+  embeddingApiKeyRequired,
 } from '../../lib/embeddingProviderPresets';
 import { ProviderIcon } from '../../lib/providerIcons';
 import {
@@ -52,6 +55,19 @@ export function EmbeddingConfigSection({
   onRebuild,
 }: EmbeddingConfigSectionProps) {
   const { t } = useTranslation();
+  const [manualModel, setManualModel] = useState<boolean | null>(null);
+  const [indexStatus, setIndexStatus] = useState<{ totalChunks: number; indexedChunks: number; needsRebuild: boolean } | null>(null);
+  useEffect(() => {
+    setIndexStatus(null);
+    if (embedConfig?.provider !== 'api') return;
+    let disposed = false;
+    const timer = setTimeout(() => {
+      void invoke<typeof indexStatus>('get_embedding_index_status_cmd', { config: { ...embedConfig, apiKey: '' } })
+        .then(status => { if (!disposed) setIndexStatus(status); })
+        .catch(() => {});
+    }, 150);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [embedConfig?.provider, embedConfig?.apiBaseUrl, embedConfig?.apiModel, embedConfig?.vectorDimensions, embedSaveLoading, rebuildEmbedLoading]);
 
   const updateConfig = (patch: Partial<EmbedderConfig>) => {
     if (!embedConfig) return;
@@ -62,14 +78,15 @@ export function EmbeddingConfigSection({
   const activeApiPreset = embedConfig
     ? findEmbeddingProviderPreset(embedConfig.apiBaseUrl)
     : null;
-  const selectedModelDescriptor = activeApiPreset?.models.find(
+  const selectedModel = activeApiPreset?.models.find(
     (model) => model.id === embedConfig?.apiModel,
-  )?.descriptor;
+  );
+  const selectedModelDescriptor = selectedModel?.descriptor;
   const sharedKeySource = embedConfig && activeApiPreset
     ? findSharedProviderCredential(
         agentConfigs,
         activeApiPreset.provider,
-        activeApiPreset.baseUrl,
+        embedConfig.apiBaseUrl,
       )
     : null;
   const resolvedApiKey = embedConfig?.apiKey.trim() || sharedKeySource?.apiKey.trim() || '';
@@ -81,8 +98,9 @@ export function EmbeddingConfigSection({
     const preset = EMBEDDING_PROVIDER_PRESETS.find((candidate) => candidate.id === presetId);
     if (!preset || !embedConfig) return;
     const model = defaultEmbeddingModel(preset);
+    setManualModel(false);
     const preservesCredential = activeApiPreset &&
-      providerCredentialScope(activeApiPreset.provider, activeApiPreset.baseUrl) ===
+      providerCredentialScope(activeApiPreset.provider, embedConfig.apiBaseUrl) ===
         providerCredentialScope(preset.provider, preset.baseUrl);
     updateConfig({
       apiBaseUrl: preset.baseUrl,
@@ -176,6 +194,7 @@ export function EmbeddingConfigSection({
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
                 <NexaSelect
+                  aria-label={t('settings.provider')}
                   value={activeApiPreset?.id ?? 'custom'}
                   onChange={(event) => applyApiPreset(event.target.value)}
                   className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
@@ -202,6 +221,7 @@ export function EmbeddingConfigSection({
                   <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
                   <Input
                     type="password"
+                    aria-label={t('settings.embeddingApiKey')}
                     value={embedConfig.apiKey}
                     onChange={(e) => updateConfig({ apiKey: e.target.value })}
                     className="pl-9"
@@ -219,13 +239,18 @@ export function EmbeddingConfigSection({
                 <label className="text-sm font-medium text-text-primary">{t('settings.embeddingBaseUrl')}</label>
                 <Input
                   value={embedConfig.apiBaseUrl}
+                  aria-label={t('settings.embeddingBaseUrl')}
                   onChange={(e) => updateConfig({ apiBaseUrl: e.target.value })}
                   placeholder="https://api.openai.com/v1"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary">{t('settings.embeddingModel')}</label>
-                {activeApiPreset && activeApiPreset.models.length > 0 ? (
+                {activeApiPreset && activeApiPreset.models.length > 0 && <label className="flex items-center gap-2 text-xs text-text-secondary">
+                  <input type="checkbox" checked={manualModel ?? !selectedModel} onChange={event => setManualModel(event.target.checked)} />
+                  {t('settings.embeddingCustomModel')}
+                </label>}
+                {activeApiPreset && activeApiPreset.models.length > 0 && !(manualModel ?? !selectedModel) ? (
                   <CatalogModelPicker
                     value={embedConfig.apiModel}
                     onValueChange={applyApiModel}
@@ -234,6 +259,7 @@ export function EmbeddingConfigSection({
                   />
                 ) : (
                   <Input
+                    aria-label={t('settings.embeddingModel')}
                     value={embedConfig.apiModel}
                     onChange={(e) => updateConfig({ apiModel: e.target.value })}
                     placeholder="text-embedding-3-small"
@@ -243,13 +269,20 @@ export function EmbeddingConfigSection({
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary">{t('settings.embeddingDimensions')}</label>
-                <Input
+                {selectedModel?.allowedDimensions?.length ? <NexaSelect
+                  value={String(embedConfig.vectorDimensions)}
+                  onChange={event => updateConfig({ vectorDimensions: Number(event.target.value) })}
+                  className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm"
+                  aria-label={t('settings.embeddingDimensions')}
+                >{selectedModel.allowedDimensions.map(dimension => <option key={dimension} value={dimension}>{dimension}</option>)}</NexaSelect> : <Input
                   type="number"
-                  min={1}
+                  aria-label={t('settings.embeddingDimensions')}
+                  min={selectedModel?.minDimensions ?? 1}
                   value={embedConfig.vectorDimensions}
                   onChange={(event) => updateConfig({ vectorDimensions: Math.max(1, Number(event.target.value) || 1) })}
-                  disabled={Boolean(activeApiPreset && activeApiPreset.models.length > 0 && !activeApiPreset.models.find((model) => model.id === embedConfig.apiModel)?.supportsDimensionOverride)}
-                />
+                  disabled={Boolean(selectedModel && !selectedModel.supportsDimensionOverride)}
+                  max={selectedModel?.supportsDimensionOverride ? selectedModel.maxDimensions ?? selectedModel.dimensions : undefined}
+                />}
               </div>
               <Button
                 variant="secondary"
@@ -257,7 +290,7 @@ export function EmbeddingConfigSection({
                 icon={testLoading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
                 loading={testLoading}
                 onClick={() => onTestConnection(materializedConfig ?? undefined)}
-                disabled={!resolvedApiKey || !embedConfig.apiBaseUrl.trim()}
+                disabled={(!resolvedApiKey && embeddingApiKeyRequired(embedConfig.apiBaseUrl)) || !embedConfig.apiBaseUrl.trim() || !embedConfig.apiModel.trim()}
               >
                 {t('settings.embeddingTestConnection')}
               </Button>
@@ -274,6 +307,11 @@ export function EmbeddingConfigSection({
 
           {/* Provider change warning + actions */}
           <div className="space-y-3 border-t border-border pt-4">
+            <p className="text-xs leading-5 text-text-tertiary">{t('settings.embeddingStorageInfo')}</p>
+            {indexStatus && <p role="status" data-testid="embedding-index-status" className={`text-xs ${indexStatus.needsRebuild ? 'text-warning' : 'text-text-secondary'}`}>
+              {t('settings.embeddingIndexCoverage', { indexed: String(indexStatus.indexedChunks), total: String(indexStatus.totalChunks) })}
+              {indexStatus.needsRebuild && <> {t('settings.embeddingIndexRebuildRequired')}</>}
+            </p>}
             <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
               <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
               <p className="text-sm text-warning">{t('settings.embeddingProviderChangeWarning')}</p>

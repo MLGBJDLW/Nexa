@@ -640,7 +640,7 @@ fn build_candidate_with_legacy_name(
 ) -> Result<InstallCandidate, CoreError> {
     let (frontmatter, body) = parse_skill_file(&content)?;
     if let Err(error) = validate_canonical_skill_name(&frontmatter.name) {
-        if !accepted_legacy_display_name.is_some_and(|name| name == frontmatter.name) {
+        if accepted_legacy_display_name.is_none_or(|name| name != frontmatter.name) {
             return Err(error);
         }
     }

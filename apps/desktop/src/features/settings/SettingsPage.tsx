@@ -22,6 +22,7 @@ import { getModelStatus, invalidate as invalidateModelStatus } from '../../lib/m
 import type { IndexStats } from '../../types/index-stats';
 import type { PrivacyConfig, RedactRule } from '../../types/privacy';
 import type { EmbedderConfig } from '../../types/embedder';
+import { VectorStoreSection } from '../../components/settings/VectorStoreSection';
 import type { AgentConfig, AppConfig, SaveAgentConfigInput, UserMemory, AgentProceduralMemory } from '../../types/conversation';
 import type { OcrConfig } from '../../types/ocr';
 import type { VideoConfig, WhisperModel } from '../../types/video';
@@ -372,8 +373,8 @@ export function SettingsPage() {
       } else {
         toast.error(t('settings.embeddingTestFail'));
       }
-    } catch {
-      toast.error(t('settings.embeddingTestFail'));
+    } catch (error) {
+      toast.error(`${t('settings.embeddingTestFail')}: ${String(error)}`);
     } finally {
       setTestLoading(false);
     }
@@ -1801,6 +1802,7 @@ export function SettingsPage() {
           onSave={handleSaveEmbedConfig}
           onRebuild={handleRebuildEmbeddings}
         />
+        <VectorStoreSection />
       </>
       )}
 

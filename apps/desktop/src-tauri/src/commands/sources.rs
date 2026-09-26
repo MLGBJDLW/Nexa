@@ -856,6 +856,85 @@ pub async fn get_embedder_config_cmd(
 }
 
 #[tauri::command]
+pub async fn get_vector_store_config_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::vector_store::VectorStoreConfig, String> {
+    state
+        .db_executor
+        .read(|db| db.vector_store_config())
+        .await
+        .map(|r| r.value)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_vector_store_config_cmd(
+    state: tauri::State<'_, AppState>,
+    config: nexa_core::vector_store::VectorStoreConfig,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.save_vector_store_config(&config))
+        .await
+        .map(|r| r.value)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_vector_store_status_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::vector_store::VectorSyncStatus, String> {
+    state
+        .db_executor
+        .read(|db| db.vector_sync_status())
+        .await
+        .map(|r| r.value)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn test_vector_store_connection_cmd(
+    state: tauri::State<'_, AppState>,
+    config: nexa_core::vector_store::VectorStoreConfig,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || nexa_core::vector_store::test_connection(&db, &config))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sync_vector_store_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::vector_store::VectorSyncReport, String> {
+    nexa_core::vector_store::resume_sync();
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || nexa_core::vector_store::sync_vectors(&db, 4096))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cancel_vector_store_sync_cmd() {
+    nexa_core::vector_store::cancel_sync();
+}
+
+#[tauri::command]
+pub async fn get_embedding_index_status_cmd(
+    state: tauri::State<'_, AppState>,
+    config: EmbedderConfig,
+) -> Result<nexa_core::embed::EmbeddingIndexStatus, String> {
+    state
+        .db_executor
+        .read(move |db| db.embedding_index_status(&config))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn save_embedder_config_cmd(
     state: tauri::State<'_, AppState>,
     config: EmbedderConfig,

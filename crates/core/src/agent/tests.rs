@@ -5603,6 +5603,106 @@ impl Tool for ResourceLockedTool {
     }
 }
 
+// A harmless execution probe exercises the production dispatcher without
+// manipulating a real desktop. Observation validation has separate native tests.
+struct ApprovalProbeTool(&'static str, Arc<AtomicUsize>);
+
+#[async_trait]
+impl Tool for ApprovalProbeTool {
+    fn name(&self) -> &str {
+        self.0
+    }
+    fn description(&self) -> &str {
+        "Approval dispatch probe"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type":"object","properties":{"action":{"type":"string"}}})
+    }
+    fn requires_confirmation(&self, _: &serde_json::Value) -> bool {
+        true
+    }
+    async fn execute(
+        &self,
+        context: crate::tools::ToolExecutionContext<'_>,
+    ) -> Result<ToolResult, CoreError> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        Ok(ToolResult {
+            call_id: context.call_id.into(),
+            content: "executed".into(),
+            is_error: false,
+            artifacts: None,
+        })
+    }
+}
+
+#[tokio::test]
+async fn full_access_dispatches_desktop_tools_without_approval_events() {
+    for name in [
+        "computer_control",
+        "computer_observe",
+        "browser_session",
+        "terminal_session",
+    ] {
+        for callback in [false, true] {
+            let executed = Arc::new(AtomicUsize::new(0));
+            let mut tools = ToolRegistry::new();
+            tools.register(Box::new(ApprovalProbeTool(name, executed.clone())));
+            let provider = ApprovalRequiredProvider {
+                stream_calls: Arc::new(AtomicUsize::new(0)),
+                tool_name: name,
+                arguments: r#"{"action":"capture_window"}"#,
+            };
+            let mut executor = AgentExecutor::new(
+                Box::new(provider),
+                tools,
+                AgentConfig {
+                    model: Some("mock-model".into()),
+                    require_tool_confirmation: true,
+                    tool_approval_mode: ToolApprovalMode::AllowAll,
+                    ..AgentConfig::default()
+                },
+            );
+            if callback {
+                executor = executor
+                    .with_approval_callback(Arc::new(|_| panic!("full access must not prompt")));
+            }
+            let db = Database::open_memory().unwrap();
+            let (tx, mut rx) = mpsc::channel(128);
+            executor
+                .run(
+                    vec![],
+                    vec![ContentPart::Text {
+                        text: "execute".into(),
+                    }],
+                    &db,
+                    None,
+                    None,
+                    tx,
+                    0,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                executed.load(Ordering::SeqCst),
+                1,
+                "{name}, callback={callback}"
+            );
+            while let Ok(event) = rx.try_recv() {
+                assert!(
+                    !matches!(
+                        event,
+                        AgentEvent::ApprovalRequested { .. } | AgentEvent::ApprovalResolved { .. }
+                    ),
+                    "{name}: redundant approval event"
+                );
+                if let AgentEvent::ToolRunUpdated { run } = event {
+                    assert_ne!(run.status, ToolRunStatus::ApprovalPending);
+                }
+            }
+        }
+    }
+}
+
 struct ApprovalRequiredProvider {
     stream_calls: Arc<AtomicUsize>,
     tool_name: &'static str,

@@ -79,5 +79,8 @@
   "recallPromptFileType": "Vermuteter Dateityp",
   "recallPromptInstruction": "Bitte suche zuerst breit, zeige mögliche Treffer und hilf mir dann beim Eingrenzen, statt direkt zu raten.",
   "embeddingWarning": "Suchqualität eingeschränkt — Embedding-Modell nicht installiert. Die hybride Suche wird auf einfachen Textabgleich zurückfallen.",
-  "embeddingWarningAction": "Jetzt installieren"
+  "embeddingWarningAction": "Jetzt installieren",
+  "cloudVectors": "Cloud-Vektoren",
+  "vectorFusion": "Lokale/Cloud-Fusion",
+  "localFallback": "Lokaler Rückfall"
 }

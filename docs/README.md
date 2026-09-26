@@ -14,6 +14,8 @@ English is the canonical language for maintained technical documentation.
 | --- | --- |
 | [Knowledge and retrieval](KNOWLEDGE_AND_RETRIEVAL.md) | Add sources, retrieve evidence, use collections, or interpret the knowledge graph |
 | [Models and providers](PROVIDERS_AND_MODELS.md) | Configure API/local connections, select models, or understand capability and credential boundaries |
+| [Embedding providers and vector spaces](EMBEDDING_PROVIDERS.md) | Choose cloud/local embeddings, dimensions, and rebuild the matching local vector index |
+| [Optional cloud vector storage](VECTOR_STORES.md) | Configure Qdrant, Pinecone, DashVector, Milvus/Zilliz or Tencent, synchronization and local/cloud fusion |
 | [Subscription agents](SUBSCRIPTION_AGENTS.md) | Sign in to supported Copilot/Codex runtimes or understand their execution limits |
 | [Phone access](remote-access.md) | Pair a phone, select LAN/public routes, use remote chat, or diagnose a connection |
 | [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |

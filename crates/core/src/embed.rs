@@ -53,6 +53,15 @@ impl EmbedderConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingIndexStatus {
+    pub total_chunks: usize,
+    pub indexed_chunks: usize,
+    pub legacy_chunks: usize,
+    pub needs_rebuild: bool,
+}
+
 /// Create the appropriate embedder based on an [`EmbedderConfig`].
 ///
 /// - `"local"` → [`OnnxEmbedder`] (downloads model on first use)
@@ -213,6 +222,12 @@ pub fn download_local_model_for_with_progress(
 pub trait Embedder: Send + Sync {
     /// Human-readable model identifier (e.g. `"tfidf-v1"`).
     fn model_name(&self) -> &str;
+
+    /// Storage/search identity; distinct endpoints or preprocessing must not
+    /// share vectors merely because they advertise the same model name.
+    fn vector_space_id(&self) -> &str {
+        self.model_name()
+    }
 
     /// Dimensionality of the output vectors.
     fn dimensions(&self) -> usize;
@@ -483,11 +498,13 @@ impl Database {
             "INSERT INTO embeddings (id, chunk_id, model, vector, dimensions)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(chunk_id, model) DO UPDATE SET
+                revision = embeddings.revision + 1,
                 vector = excluded.vector,
                 dimensions = excluded.dimensions,
                 created_at = datetime('now')",
             rusqlite::params![id, chunk_id, model, blob, vector.len() as i64],
         )?;
+        crate::vector_store::notify_sync();
         Ok(())
     }
 
@@ -508,6 +525,7 @@ impl Database {
                 "INSERT INTO embeddings (id, chunk_id, model, vector, dimensions)
                  VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(chunk_id, model) DO UPDATE SET
+                    revision = embeddings.revision + 1,
                     vector = excluded.vector,
                     dimensions = excluded.dimensions,
                     created_at = datetime('now')",
@@ -515,6 +533,7 @@ impl Database {
             )?;
         }
         tx.commit()?;
+        crate::vector_store::notify_sync();
         Ok(())
     }
 
@@ -535,6 +554,44 @@ impl Database {
             }
             None => Ok(None),
         }
+    }
+
+    pub fn has_embeddings_for_space(&self, space: &str) -> Result<bool, CoreError> {
+        Ok(self.conn().query_row(
+            "SELECT EXISTS(SELECT 1 FROM embeddings WHERE model = ?1)",
+            [space],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn embedding_index_status(
+        &self,
+        config: &EmbedderConfig,
+    ) -> Result<EmbeddingIndexStatus, CoreError> {
+        let total_chunks = self.count_all_chunks()?;
+        let conn = self.conn();
+        let space = ApiEmbedder::configured_space_id(config);
+        let indexed_chunks: usize = conn.query_row(
+            "SELECT COUNT(*) FROM embeddings WHERE model = ?1",
+            [&space],
+            |row| row.get(0),
+        )?;
+        let legacy_model = if config.api_model.is_empty() {
+            "text-embedding-3-small"
+        } else {
+            config.api_model.trim()
+        };
+        let legacy_chunks = conn.query_row(
+            "SELECT COUNT(*) FROM embeddings WHERE model = ?1",
+            [legacy_model],
+            |row| row.get(0),
+        )?;
+        Ok(EmbeddingIndexStatus {
+            total_chunks,
+            indexed_chunks,
+            legacy_chunks,
+            needs_rebuild: indexed_chunks < total_chunks,
+        })
     }
 
     /// Retrieve all embeddings for a given model as `(chunk_id, vector)` pairs.
@@ -1299,238 +1356,9 @@ fn download_embedding_response(
     )))
 }
 
-// ── API Embedder (OpenAI-compatible) ─────────────────────────────────
-
-/// Maximum number of texts per API request to avoid payload limits.
-const API_BATCH_SIZE: usize = 100;
-
-/// Request body for the OpenAI-compatible embeddings endpoint.
-#[derive(Serialize)]
-struct ApiEmbeddingRequest<'a> {
-    input: &'a [&'a str],
-    model: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dimensions: Option<usize>,
-}
-
-/// A single embedding entry in the API response.
-#[derive(Deserialize)]
-struct ApiEmbeddingData {
-    embedding: Vec<f32>,
-    index: usize,
-}
-
-/// Top-level API response from the embeddings endpoint.
-#[derive(Deserialize)]
-struct ApiEmbeddingResponse {
-    data: Vec<ApiEmbeddingData>,
-}
-
-/// Error body returned by the API on non-2xx responses.
-#[derive(Deserialize)]
-struct ApiErrorResponse {
-    error: Option<ApiErrorDetail>,
-}
-
-#[derive(Deserialize)]
-struct ApiErrorDetail {
-    message: Option<String>,
-}
-
-/// Embedding client for OpenAI-compatible embedding APIs.
-///
-/// Supports any service that follows the `/v1/embeddings` JSON contract
-/// (OpenAI, Azure OpenAI, Ollama, LM Studio, etc.).
-pub struct ApiEmbedder {
-    client: reqwest::blocking::Client,
-    api_key: String,
-    base_url: String,
-    model: String,
-    dimensions: Option<usize>,
-    request_dimensions: bool,
-}
-
-impl ApiEmbedder {
-    /// Create a new API embedder.
-    ///
-    /// - `api_key` — Bearer token (must not be empty).
-    /// - `base_url` — API root, e.g. `https://api.openai.com/v1`. Defaults
-    ///   to OpenAI if `None`.
-    /// - `model` — Model identifier. Defaults to `text-embedding-3-small`.
-    /// - `dimensions` — Optional dimension override (OpenAI supports this
-    ///   for `text-embedding-3-*` models).
-    pub fn new(
-        api_key: String,
-        base_url: Option<String>,
-        model: Option<String>,
-        dimensions: Option<usize>,
-    ) -> Result<Self, CoreError> {
-        if api_key.trim().is_empty() {
-            return Err(CoreError::Embedding("API key is required".into()));
-        }
-
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| CoreError::Embedding(format!("HTTP client init: {e}")))?;
-
-        let base_url = base_url.unwrap_or_else(|| "https://api.openai.com/v1".into());
-        let model = model.unwrap_or_else(|| "text-embedding-3-small".into());
-        let catalog_model =
-            crate::embedding_provider_catalog::find_embedding_model(&base_url, &model);
-        let request_dimensions = catalog_model
-            .as_ref()
-            .map(|preset| preset.supports_dimension_override)
-            .unwrap_or(true);
-        let dimensions = dimensions.or_else(|| catalog_model.map(|preset| preset.dimensions));
-
-        Ok(Self {
-            client,
-            api_key,
-            base_url,
-            model,
-            dimensions,
-            request_dimensions,
-        })
-    }
-
-    /// Send a single batch (≤ `API_BATCH_SIZE`) to the API and return
-    /// embeddings sorted by the original input order.
-    fn call_api(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, CoreError> {
-        let url = format!("{}/embeddings", self.base_url.trim_end_matches('/'));
-
-        let body = ApiEmbeddingRequest {
-            input: texts,
-            model: &self.model,
-            dimensions: self.request_dimensions.then_some(self.dimensions).flatten(),
-        };
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .map_err(|e| CoreError::Embedding(format!("API request failed: {e}")))?;
-
-        let status = response.status();
-
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            tracing::warn!("Embedding API rate-limited (429). Consider reducing batch frequency.");
-        }
-
-        if !status.is_success() {
-            let err_text = response.text().unwrap_or_default();
-            let detail = serde_json::from_str::<ApiErrorResponse>(&err_text)
-                .ok()
-                .and_then(|r| r.error)
-                .and_then(|e| e.message)
-                .unwrap_or(err_text);
-            return Err(CoreError::Embedding(format!(
-                "API returned HTTP {status}: {detail}"
-            )));
-        }
-
-        let resp: ApiEmbeddingResponse = response
-            .json()
-            .map_err(|e| CoreError::Embedding(format!("API response parse: {e}")))?;
-
-        // Sort by index to guarantee input order.
-        let mut data = resp.data;
-        data.sort_by_key(|d| d.index);
-
-        Ok(data.into_iter().map(|d| d.embedding).collect())
-    }
-}
-
-impl ApiEmbedder {
-    /// Maximum number of retry attempts for transient API errors.
-    const MAX_RETRIES: u32 = 3;
-
-    /// Send a batch with retry + exponential backoff for transient errors.
-    fn call_api_with_retry(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, CoreError> {
-        let mut attempt = 0u32;
-        loop {
-            match self.call_api(texts) {
-                Ok(result) => return Ok(result),
-                Err(e) if attempt < Self::MAX_RETRIES && Self::is_retryable(&e) => {
-                    attempt += 1;
-                    let wait = std::time::Duration::from_millis(100 * 2u64.pow(attempt)); // 200ms, 400ms, 800ms
-                    tracing::warn!("Embed API retry {}/{}: {}", attempt, Self::MAX_RETRIES, e);
-                    std::thread::sleep(wait);
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    /// Check if an error is transient and worth retrying.
-    fn is_retryable(e: &CoreError) -> bool {
-        let msg = e.to_string();
-        msg.contains("429")
-            || msg.contains("500")
-            || msg.contains("502")
-            || msg.contains("503")
-            || msg.contains("timeout")
-            || msg.contains("connection")
-    }
-}
-
-impl Embedder for ApiEmbedder {
-    fn model_name(&self) -> &str {
-        &self.model
-    }
-
-    fn dimensions(&self) -> usize {
-        self.dimensions.unwrap_or(1536)
-    }
-
-    fn embed(&self, text: &str) -> Result<Vec<f32>, CoreError> {
-        let results = self.embed_batch(&[text])?;
-        results
-            .into_iter()
-            .next()
-            .ok_or_else(|| CoreError::Embedding("empty response from API".into()))
-    }
-
-    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, CoreError> {
-        if texts.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Split into chunks of API_BATCH_SIZE to avoid payload limits,
-        // with retry + exponential backoff on each sub-batch.
-        let mut all_embeddings = Vec::with_capacity(texts.len());
-        for chunk in texts.chunks(API_BATCH_SIZE) {
-            let mut batch_result = self.call_api_with_retry(chunk)?;
-            all_embeddings.append(&mut batch_result);
-        }
-
-        Ok(all_embeddings)
-    }
-}
-
-/// Test connectivity to an OpenAI-compatible embedding API.
-///
-/// Sends a single short text and returns `Ok(true)` if the API responds
-/// with a valid embedding. Any error is propagated as `CoreError`.
-pub fn test_api_connection(
-    api_key: &str,
-    base_url: &str,
-    model: &str,
-    dimensions: u32,
-) -> Result<bool, CoreError> {
-    let dimensions = (dimensions > 0).then_some(dimensions as usize);
-    let embedder = ApiEmbedder::new(
-        api_key.to_string(),
-        Some(base_url.to_string()),
-        Some(model.to_string()),
-        dimensions,
-    )?;
-    let result = embedder.embed("connection test")?;
-    Ok(!result.is_empty())
-}
+// Provider dialects share one validated API boundary and vector-space identity.
+mod api;
+pub use api::{test_api_connection, ApiEmbedder};
 
 // ── Tests ───────────────────────────────────────────────────────────
 
@@ -1778,6 +1606,124 @@ mod tests {
         };
         let _ = source_id;
         (db, doc_id, chunk_id)
+    }
+
+    #[test]
+    fn legacy_api_index_requires_rebuild_without_spending_a_query_request() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+        let (db, document, chunk) = setup_db_with_chunk();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let config = EmbedderConfig {
+            provider: "api".into(),
+            api_key: String::new(),
+            api_model: "same-name".into(),
+            api_base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            vector_dimensions: 2,
+            ..Default::default()
+        };
+        db.save_embedder_config(&config).unwrap();
+        db.store_embedding(&chunk, "same-name", &[-1., 0.]).unwrap();
+        let space = ApiEmbedder::configured_space_id(&config);
+        let actual = create_embedder(&config).unwrap();
+        assert_eq!(space, actual.vector_space_id());
+        let before = db.embedding_index_status(&config).unwrap();
+        assert_eq!(
+            (
+                before.total_chunks,
+                before.indexed_chunks,
+                before.legacy_chunks
+            ),
+            (1, 0, 1)
+        );
+        assert!(before.needs_rebuild);
+        let stop = Arc::new(AtomicBool::new(false));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (server_stop, server_calls) = (stop.clone(), calls.clone());
+        let server = std::thread::spawn(move || {
+            while !server_stop.load(Ordering::SeqCst) {
+                if let Ok((mut socket, _)) = listener.accept() {
+                    // Windows inherits the listener's nonblocking flag.
+                    socket.set_nonblocking(false).unwrap();
+                    socket
+                        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                        .unwrap();
+                    let mut received = Vec::new();
+                    loop {
+                        let mut buffer = [0; 4096];
+                        let read = socket.read(&mut buffer).unwrap();
+                        assert!(read > 0);
+                        received.extend_from_slice(&buffer[..read]);
+                        if let Some(end) = received.windows(4).position(|part| part == b"\r\n\r\n")
+                        {
+                            let headers = String::from_utf8_lossy(&received[..end]);
+                            let length: usize = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|value| value.trim().parse().unwrap())
+                                })
+                                .unwrap();
+                            if received.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    server_calls.fetch_add(1, Ordering::SeqCst);
+                    let body = r#"{"data":[{"index":0,"embedding":[1,0]}]}"#;
+                    write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+        });
+        let query = crate::models::SearchQuery {
+            text: "hello".into(),
+            filters: Default::default(),
+            limit: 10,
+            offset: 0,
+        };
+        let before_search = crate::search::hybrid_search(&db, &query).unwrap();
+        let before_calls = calls.load(Ordering::SeqCst);
+        let source: String = db
+            .conn()
+            .query_row(
+                "SELECT source_id FROM documents WHERE id = ?1",
+                [&document],
+                |row| row.get(0),
+            )
+            .unwrap();
+        crate::embedding_job::embed_source(&db, &source).unwrap();
+        let after_search = crate::search::hybrid_search(&db, &query).unwrap();
+        stop.store(true, Ordering::SeqCst);
+        server.join().unwrap();
+        assert_eq!(
+            before_calls, 0,
+            "legacy-only rows must not cause paid queries"
+        );
+        assert!(before_search.search_mode.starts_with("fts"));
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "one document batch, then one useful query"
+        );
+        assert!(!after_search.evidence_cards.is_empty());
+        assert!(after_search.search_mode.starts_with("hybrid"));
+        let ready = db.embedding_index_status(&config).unwrap();
+        assert_eq!((ready.indexed_chunks, ready.legacy_chunks), (1, 1));
+        assert!(!ready.needs_rebuild);
+        let other = EmbedderConfig {
+            api_base_url: "https://other.example/v1".into(),
+            ..config
+        };
+        assert!(db.embedding_index_status(&other).unwrap().needs_rebuild);
+        assert!(db
+            .get_all_embeddings(&ApiEmbedder::configured_space_id(&other))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -79,5 +79,8 @@
   "recallPromptFileType": "Tipo de arquivo provável",
   "recallPromptInstruction": "Pesquise de forma ampla, mostre possíveis correspondências e depois me ajude a afunilar, em vez de adivinhar diretamente.",
   "embeddingWarning": "Qualidade de busca limitada — modelo de embedding não instalado. A busca híbrida usará correspondência de texto básica.",
-  "embeddingWarningAction": "Instalar agora"
+  "embeddingWarningAction": "Instalar agora",
+  "cloudVectors": "Vetores na nuvem",
+  "vectorFusion": "Fusão local/nuvem",
+  "localFallback": "Alternativa local"
 }

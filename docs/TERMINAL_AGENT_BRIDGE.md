@@ -30,6 +30,10 @@ active agent registry:
 | `write` | Sends input to the live PTY; `submit` can append Enter | Yes |
 | `interrupt` | Sends Ctrl+C to the live PTY | Yes |
 
+The table describes Ask mode. Allow all skips Nexa's per-tool prompts; Deny all
+rejects operations that require approval. Conversation ownership and execution
+validation remain in force in every mode.
+
 When `sessionId` is omitted, the tool resolves the terminal linked to the
 current conversation. It cannot inspect an unrelated conversation's terminal.
 Output is stripped of common terminal control sequences and returned as

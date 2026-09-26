@@ -142,10 +142,10 @@ pub fn policy_snapshot(
         policy.context_window,
     );
     let mut agent = crate::agent::AgentConfig {
-        max_tokens: config
-            .max_tokens
-            .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0),
+        // Chat/Plan retired saved per-request output caps. The UI projection
+        // must use the same automatic reserve as the desktop executor, even
+        // when an older profile still contains a non-null legacy value.
+        max_tokens: None,
         provider_type: Some(crate::provider_registry::provider_type_for_parts(
             &config.provider,
             config.base_url.as_deref(),
@@ -214,11 +214,11 @@ mod tests {
         assert!(automatic.response_reserve_is_automatic);
 
         config.max_tokens = Some(120_000);
-        let explicit = policy_snapshot(&db, &config).unwrap();
-        assert_eq!(explicit.response_token_limit, 120_000);
-        assert_eq!(explicit.response_reserve, 120_000);
-        assert!(!explicit.response_reserve_is_automatic);
-        assert_eq!(explicit.trigger_tokens, Some(784_627));
+        let legacy = policy_snapshot(&db, &config).unwrap();
+        assert_eq!(legacy.response_token_limit, automatic.response_token_limit);
+        assert_eq!(legacy.response_reserve, automatic.response_reserve);
+        assert!(legacy.response_reserve_is_automatic);
+        assert_eq!(legacy.trigger_tokens, automatic.trigger_tokens);
     }
 
     #[test]

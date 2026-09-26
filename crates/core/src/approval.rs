@@ -591,6 +591,15 @@ pub enum ToolApprovalMode {
 }
 
 impl ToolApprovalMode {
+    /// Shared model-facing projection for native and upstream-owned agent loops.
+    pub fn prompt_guidance(self) -> &'static str {
+        match self {
+            Self::AllowAll => "Tool approval mode: allow_all (full access). The user has disabled Nexa's per-tool approval prompts, including computer, browser, screen capture, shell and connector tools. Execute work already authorized by the user without asking them to approve those tools again. This does not expand the task scope or disable plan mode, path restrictions, observation freshness, target validation, cancellation, or operating-system permissions. Ask only for genuinely missing task information or a new action outside the user's authorized scope.",
+            Self::Ask => "Tool approval mode: ask. Nexa handles required tool approvals at execution time. Do not duplicate that gate with a prose permission question for work the user already requested.",
+            Self::DenyAll => "Tool approval mode: deny_all. Tools requiring approval are denied without a prompt. Do not retry a denied action through another tool to evade this setting.",
+        }
+    }
+
     pub fn short_circuit(self) -> Option<ApprovalDecision> {
         match self {
             Self::Ask => None,

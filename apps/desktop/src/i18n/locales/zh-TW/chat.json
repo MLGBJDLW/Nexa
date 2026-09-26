@@ -763,5 +763,8 @@
   "gitStaged": "暫存區",
   "gitWorking": "工作區",
   "gitTruncated": "僅顯示前 300 個變更路徑。",
-  "gitNoDiff": "此處沒有差異。"
+  "gitNoDiff": "此處沒有差異。",
+  "gitNoSources": "關聯來源資料夾或開啟此對話的終端，即可偵測 Git。",
+  "gitNoRepository": "關聯資料夾中未偵測到 Git 儲存庫。",
+  "gitStatusFailed": "Git 狀態未能完整重新整理。"
 }

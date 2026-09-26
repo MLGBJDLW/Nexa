@@ -763,5 +763,8 @@
   "gitStaged": "Staged",
   "gitWorking": "Working",
   "gitTruncated": "Showing the first 300 changed paths.",
-  "gitNoDiff": "No changes in this diff."
+  "gitNoDiff": "No changes in this diff.",
+  "gitNoSources": "Link a source folder or open a terminal for this chat to inspect Git.",
+  "gitNoRepository": "No Git repository in the linked folders.",
+  "gitStatusFailed": "Git status could not be fully refreshed."
 }

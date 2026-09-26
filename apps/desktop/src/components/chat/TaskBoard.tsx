@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type {
   AgentTaskRun,
   AgentTaskRunEvent,
@@ -25,7 +25,7 @@ interface TaskBoardProps {
   goal?: ActiveGoalContext | null;
 }
 
-export function TaskBoard({
+export const TaskBoard = memo(function TaskBoard({
   conversationId,
   isStreaming = false,
   sourceRevision = '',
@@ -53,11 +53,12 @@ export function TaskBoard({
     [messages, taskEvents, taskRun?.artifacts, taskRun?.userMessageId, toolCalls],
   );
 
-  if (!plan && !goal && subtasks.length === 0 && git.repos.length === 0 && !git.error) {
+  const hasGitContext = git.checkedSources > 0 || git.issues.length > 0 || !!git.error;
+  if (!plan && !goal && subtasks.length === 0 && !hasGitContext) {
     return null;
   }
 
-  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && git.repos.length === 0 && !git.error) {
+  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && !hasGitContext) {
     return null;
   }
 
@@ -69,7 +70,7 @@ export function TaskBoard({
       <PlanProgressPanel key={conversationId} plan={plan?.routeKind === 'DirectResponse' ? null : plan} goal={goal} subtasks={subtasks} git={git} conversationId={conversationId} />
     </div>
   );
-}
+});
 
 function isUpdatePlanTool(toolName: string | null | undefined) {
   return toolName?.trim().toLowerCase() === 'update_plan';

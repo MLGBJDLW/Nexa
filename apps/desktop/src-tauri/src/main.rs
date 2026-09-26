@@ -614,6 +614,7 @@ fn main() {
                 }
             }
             let db = Arc::new(db);
+            tauri::async_runtime::spawn(nexa_core::vector_store::start_background_sync((*db).clone()));
             let db_executor = nexa_core::db_executor::DatabaseExecutor::new((*db).clone(), 64)
                 .expect("failed to initialize bounded database executor");
             let run_event_outboxes = nexa_core::run_event_outbox::AgentRunEventOutboxes::new(
@@ -793,6 +794,13 @@ fn main() {
             commands::reorder_citations,
             // Embedder config
             commands::get_embedder_config_cmd,
+            commands::get_embedding_index_status_cmd,
+            commands::get_vector_store_config_cmd,
+            commands::save_vector_store_config_cmd,
+            commands::get_vector_store_status_cmd,
+            commands::test_vector_store_connection_cmd,
+            commands::sync_vector_store_cmd,
+            commands::cancel_vector_store_sync_cmd,
             commands::save_embedder_config_cmd,
             commands::test_api_connection_cmd,
             commands::check_local_model_cmd,

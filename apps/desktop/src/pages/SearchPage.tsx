@@ -70,23 +70,19 @@ function searchModeLabel(
   mode: SearchMode,
   t: (key: TranslationKey, params?: Record<string, string | number>) => string,
 ): string {
-  switch (mode) {
-    case 'hybrid+graph':
-      return `${t('search.hybrid')} + ${t('search.graph')}`;
-    case 'fts+graph':
-      return `${t('search.fts')} + ${t('search.graph')}`;
-    case 'hybrid':
-      return t('search.hybrid');
-    case 'fts':
-      return t('search.fts');
-  }
+  const labels = [mode.startsWith('hybrid') ? t('search.hybrid') : t('search.fts')];
+  if (mode.includes('+cloud')) labels.push(t('search.cloudVectors'));
+  if (mode.includes('+fusion')) labels.push(t('search.vectorFusion'));
+  if (mode.includes('+local-fallback')) labels.push(t('search.localFallback'));
+  if (mode.endsWith('+graph')) labels.push(t('search.graph'));
+  return labels.join(' + ');
 }
 
 function searchModeVariant(mode: SearchMode): 'default' | 'info' | 'success' {
   if (mode.endsWith('+graph')) {
     return 'success';
   }
-  return mode === 'hybrid' ? 'info' : 'default';
+  return mode.startsWith('hybrid') ? 'info' : 'default';
 }
 
 function buildRecallPrompt(

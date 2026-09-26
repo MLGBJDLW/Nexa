@@ -763,5 +763,8 @@
   "gitStaged": "Index",
   "gitWorking": "Travail",
   "gitTruncated": "Affichage des 300 premiers chemins modifiés.",
-  "gitNoDiff": "Aucune différence."
+  "gitNoDiff": "Aucune différence.",
+  "gitNoSources": "Associez un dossier source ou ouvrez un terminal pour cette conversation afin de consulter Git.",
+  "gitNoRepository": "Aucun dépôt Git dans les dossiers associés.",
+  "gitStatusFailed": "Le statut Git n’a pas pu être entièrement actualisé."
 }
