@@ -462,6 +462,17 @@ test.beforeEach(async ({ page }) => {
             ? [{ id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", reasoningEfforts: ["low", "high"] }, { id: "gpt-5.4", name: "GPT-5.4", reasoningEfforts: [] }]
             : [{ id: "gpt-6", name: "GPT-6", reasoningEfforts: ["low", "high", "ultra"] }];
         }
+        case 'get_external_agent_launch_cmd':
+          return { executable: null, workingDirectory: '' };
+        case 'probe_external_agent_cmd': {
+          const delay = Number(localStorage.getItem('nexa-e2e-acp-probe-delay') ?? '0');
+          if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+          return [{ id: 'vendor/native-model', name: 'Native model', reasoningEfforts: [] }];
+        }
+        case 'save_external_agent_profile_cmd':
+          localStorage.setItem('nexa-e2e-acp-launch', JSON.stringify({ provider: (_args.config as { provider: string }).provider, launch: _args.launch }));
+          (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig = clone(_args.config);
+          return null;
         case "get_codex_account_snapshot_cmd": {
           const state = localStorage.getItem("nexa-e2e-codex-account") ?? "signed-in";
           const oneShotDelayMs = Number(
@@ -1414,6 +1425,7 @@ test("settings projects the Codex subscription account and usage without an API 
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.getByRole("button", { name: "ChatGPT / Codex", exact: false }).click();
 
   const account = page.getByTestId("codex-subscription-account");
@@ -1438,6 +1450,7 @@ test("settings completes the official Codex device-code launch and cancellation 
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.getByRole("button", { name: "ChatGPT / Codex", exact: false }).click();
 
   const account = page.getByTestId("codex-subscription-account");
@@ -1463,6 +1476,7 @@ test("settings discards a stale account refresh after login starts", async ({ pa
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.getByRole("button", { name: "ChatGPT / Codex", exact: false }).click();
 
   const account = page.getByTestId("codex-subscription-account");
@@ -1487,6 +1501,7 @@ test("settings verifies GitHub Copilot subscription models and quota through the
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.getByRole("button", { name: "GitHub Copilot", exact: false }).click();
 
   const account = page.getByTestId("copilot-subscription-account");
@@ -1507,6 +1522,7 @@ test("settings starts and cancels the official Copilot CLI browser login", async
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.getByRole("button", { name: "GitHub Copilot", exact: false }).click();
 
   const account = page.getByTestId("copilot-subscription-account");
@@ -2430,6 +2446,7 @@ for (const runtime of ["GitHub Copilot", "ChatGPT / Codex"]) {
     await page.goto("/settings");
     await page.getByRole("button", { name: "AI Providers" }).click();
     await page.getByRole("button", { name: "Add Provider" }).click();
+    await page.getByRole("tab", { name: "External agents", exact: true }).click();
     await page.getByRole("button", { name: runtime, exact: false }).click();
     const form = page.getByTestId("subscription-agent-form");
     const model = runtime === "GitHub Copilot" ? "claude-sonnet-4.6" : "gpt-6";
@@ -2453,6 +2470,7 @@ for (const provider of ["github_copilot", "openai_codex"]) {
       }, { provider, offline });
       await page.goto("/settings");
       await page.getByRole("button", { name: "AI Providers" }).click();
+      await page.getByRole("tab", { name: "External agents", exact: true }).click();
       await page.getByTitle("Edit").first().click();
       const form = page.getByTestId("subscription-agent-form");
       if (offline) await expect(form.getByRole("alert")).toContainText("catalog unavailable");
@@ -2470,6 +2488,7 @@ test("subscription catalog failure invalidates stale models and prevents saving"
   await page.goto("/settings");
   await page.getByRole("button", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.getByRole("button", { name: "GitHub Copilot", exact: false }).click();
   const form = page.getByTestId("subscription-agent-form");
   await expect(form.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
@@ -2477,6 +2496,46 @@ test("subscription catalog failure invalidates stale models and prevents saving"
   await form.getByRole("button", { name: "Refresh", exact: true }).last().click();
   await expect(form.getByRole("alert")).toContainText("catalog unavailable");
   await expect(form.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+});
+
+for (const [name, provider] of [['Gemini CLI', 'gemini_cli'], ['OpenCode', 'opencode'], ['Hermes Agent', 'hermes']]) {
+  test(`ACP external agent ${name} saves a verified launch separately from API credentials`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 680, height: 850 });
+    await page.goto('/settings');
+    await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+    await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+    await expect(page.locator(`[data-provider-preset-id="${provider === 'gemini_cli' ? 'gemini-cli' : provider}"]`)).toHaveCount(0);
+    await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+    await expect(page.locator('[data-provider-preset-id="openai"]')).toHaveCount(0);
+    await page.getByRole('button', { name: new RegExp(name) }).click();
+    const form = page.getByTestId('external-agent-form');
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await form.getByLabel('Working directory', { exact: true }).fill('D:\\工作区\\Example');
+    await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+    await expect(form.getByRole('status')).toContainText('Inference has not been tested');
+    await expect(form.getByRole('combobox')).toHaveValue('vendor/native-model');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('external-agent-settings-narrow.png') });
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ provider, launch: { executable: null, workingDirectory: 'D:\\工作区\\Example' } });
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ provider, model: 'vendor/native-model', apiKey: '', baseUrl: null });
+  });
+}
+
+test('ACP external agent launch edits discard stale connection probes', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('button', { name: /Gemini CLI/ }).click();
+  const form = page.getByTestId('external-agent-form');
+  await form.getByLabel('Working directory', { exact: true }).fill('D:\\first');
+  await page.evaluate(() => localStorage.setItem('nexa-e2e-acp-probe-delay', '700'));
+  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await form.getByLabel('Working directory', { exact: true }).fill('D:\\second');
+  await page.waitForTimeout(850);
+  await expect(form.getByRole('status')).toHaveCount(0);
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 });
 
 test("Qwen Audio and dynamically discovered OpenRouter image models are usable in settings", async ({ page }) => {

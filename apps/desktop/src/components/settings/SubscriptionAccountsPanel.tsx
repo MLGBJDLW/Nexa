@@ -330,10 +330,10 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
         </p>
       </div>
 
-      {runtime === 'codex' && <div className="rounded-lg border border-border bg-surface-2 p-4" data-testid="codex-subscription-account">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      {runtime === 'codex' && <div className="rounded-lg border border-border bg-surface-2 p-3" data-testid="codex-subscription-account">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-3 text-text-secondary">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-3 text-text-secondary">
               <TerminalSquare size={19} />
             </span>
             <div className="min-w-0">
@@ -508,10 +508,10 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
       </div>
 
       }
-      {runtime === 'copilot' && <div className="rounded-lg border border-border bg-surface-2 p-4" data-testid="copilot-subscription-account">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      {runtime === 'copilot' && <div className="rounded-lg border border-border bg-surface-2 p-3" data-testid="copilot-subscription-account">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-3 text-text-secondary">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-3 text-text-secondary">
               <Github size={19} />
             </span>
             <div className="min-w-0">

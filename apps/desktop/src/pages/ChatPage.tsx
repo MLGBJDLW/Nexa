@@ -2038,6 +2038,7 @@ export function ChatPage() {
                 <ProjectConversationStart projectId={initialProjectId} />
               )}
               <ChatInput
+              agentRuntime={selectedAgentConfig && findProviderPreset(selectedAgentConfig)?.runtime === 'acp' ? 'acp' : manualCompactionAvailable ? 'api' : 'subscription'}
               onSend={handleComposerSend}
               onStop={chat.stop}
               isStreaming={chat.isStreaming}

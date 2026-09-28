@@ -40,8 +40,7 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
         .map_err(|e| e.to_string())?
         .value;
     let subscription =
-        crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&config.provider)
-            .is_some();
+        crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider).is_some();
     let (mut models, discovery_succeeded) = if subscription {
         match list_subscription_models_cmd(app.state(), config.provider.clone()).await {
             Ok(models) => (

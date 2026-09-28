@@ -106,10 +106,8 @@ pub async fn connections(app: &AppHandle) -> Result<Vec<LiveConnection>, String>
                 .list_agent_configs()?
                 .iter()
                 .filter(|config| {
-                    crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(
-                        &config.provider,
-                    )
-                    .is_none()
+                    crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider)
+                        .is_none()
                 })
                 .map(connection)
                 .collect())
@@ -162,8 +160,7 @@ pub async fn start(
         .transpose()
         .map_err(|e| e.to_string())?
         .unwrap_or(saved);
-    if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&cfg.provider).is_some()
-    {
+    if crate::agent_runtime::AgentRuntimeKind::from_provider(&cfg.provider).is_some() {
         return Err("Live requires an API connection. You can hand the resulting record to a subscription agent in chat.".into());
     }
     let available = connection(&cfg);
@@ -460,8 +457,7 @@ pub async fn summarize(
         .transpose()
         .map_err(|e| e.to_string())?
         .unwrap_or(saved);
-    if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&cfg.provider).is_some()
-    {
+    if crate::agent_runtime::AgentRuntimeKind::from_provider(&cfg.provider).is_some() {
         return Err("Live summaries require an API connection. Continue in chat to use a subscription agent.".into());
     }
     let mut req = request(&cfg);

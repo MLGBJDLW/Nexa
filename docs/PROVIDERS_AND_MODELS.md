@@ -11,6 +11,7 @@ protocol, context limit, reasoning control, or credential route.
 | API provider | Add a provider in Settings, configure its base URL and credentials, save it, then select an available model in Chat |
 | Local model service | Configure the supported local endpoint and run that service on the computer; local inference still requires the service and model files |
 | Subscription agent | Add GitHub Copilot or ChatGPT / Codex, sign in through its official runtime, and save the provider; see [Subscription agents](SUBSCRIPTION_AGENTS.md) |
+| Installed ACP agent | Choose Gemini CLI, OpenCode or Hermes under External agents, set its executable/working directory and check its native model catalog; see [ACP agents](SUBSCRIPTION_AGENTS.md#installed-acp-agents) |
 
 Use the model picker and refresh/discovery actions to inspect current choices.
 If a custom endpoint does not support discovery, use its documented model ID.
@@ -101,7 +102,8 @@ route mid-sample. A failed or unavailable route should report its actual failure
 
 - [Model choices](../apps/desktop/src/features/models/modelChoices.ts) and
   [desktop model resolution](../apps/desktop/src-tauri/src/commands/model_choices.rs).
-- [Subscription execution](../apps/desktop/src-tauri/src/subscription_runtime).
+- [External agent execution](../apps/desktop/src-tauri/src/agent_runtime): official
+  subscription adapters and installed ACP agents; kept separate from API LLM adapters.
 - [Catalog audit](../scripts/model-catalog-audit.mjs): run root
   `npm run catalog:audit` and `npm run catalog:audit:test` after catalog changes.
 - [Provider settings browser coverage](../apps/desktop/e2e/settings-provider-models.spec.ts).

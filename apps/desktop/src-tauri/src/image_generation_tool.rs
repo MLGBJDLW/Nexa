@@ -5,7 +5,7 @@ use nexa_core::tools::image_generation_tool::{codex_subscription_image_result, G
 use nexa_core::tools::{Tool, ToolExecutionContext, ToolRegistry, ToolResult};
 use serde_json::{json, Value};
 
-use crate::subscription_runtime::SubscriptionRuntimeKind;
+use crate::agent_runtime::AgentRuntimeKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ImageRoute {
@@ -14,16 +14,17 @@ enum ImageRoute {
     UnsupportedSubscription,
 }
 
-fn image_route(source: ImageGenerationSource, chat: Option<SubscriptionRuntimeKind>) -> ImageRoute {
+fn image_route(source: ImageGenerationSource, chat: Option<AgentRuntimeKind>) -> ImageRoute {
     match (source, chat) {
         (ImageGenerationSource::ApiKey, _) | (ImageGenerationSource::Auto, None) => {
             ImageRoute::ApiKey
         }
         (ImageGenerationSource::Subscription, _)
-        | (ImageGenerationSource::Auto, Some(SubscriptionRuntimeKind::Codex)) => ImageRoute::Codex,
-        (ImageGenerationSource::Auto, Some(SubscriptionRuntimeKind::Copilot)) => {
-            ImageRoute::UnsupportedSubscription
-        }
+        | (ImageGenerationSource::Auto, Some(AgentRuntimeKind::Codex)) => ImageRoute::Codex,
+        (
+            ImageGenerationSource::Auto,
+            Some(AgentRuntimeKind::Copilot | AgentRuntimeKind::Acp(_)),
+        ) => ImageRoute::UnsupportedSubscription,
     }
 }
 
@@ -35,7 +36,7 @@ pub(crate) struct DesktopImageGenerationTool {
 pub(crate) fn install_desktop_image_tool(
     tools: ToolRegistry,
     source: ImageGenerationSource,
-    chat: Option<SubscriptionRuntimeKind>,
+    chat: Option<AgentRuntimeKind>,
     model: Option<String>,
 ) -> ToolRegistry {
     // Registration appends and lookup returns the first match. Replace the core
@@ -50,12 +51,12 @@ pub(crate) fn install_desktop_image_tool(
 impl DesktopImageGenerationTool {
     pub(crate) fn new(
         source: ImageGenerationSource,
-        chat: Option<SubscriptionRuntimeKind>,
+        chat: Option<AgentRuntimeKind>,
         model: Option<String>,
     ) -> Self {
         Self {
             route: image_route(source, chat),
-            model: if chat == Some(SubscriptionRuntimeKind::Codex) {
+            model: if chat == Some(AgentRuntimeKind::Codex) {
                 model
             } else {
                 None
@@ -93,7 +94,7 @@ impl Tool for DesktopImageGenerationTool {
                 let prompt = args["prompt"].as_str().map(str::trim).filter(|v| !v.is_empty()).ok_or_else(|| CoreError::InvalidInput("Image prompt cannot be empty".into()))?;
                 if prompt.chars().count() > 32_000 { return Err(CoreError::InvalidInput("Keep an image prompt under 32000 characters".into())); }
                 let token = context.cancel_token.cloned().unwrap_or_default();
-                let image = crate::subscription_runtime::codex::generate_subscription_image(prompt, self.model.as_deref(), &token).await?;
+                let image = crate::agent_runtime::codex::generate_subscription_image(prompt, self.model.as_deref(), &token).await?;
                 codex_subscription_image_result(context.call_id, prompt, &image.encoded, image.revised_prompt.as_deref(), args["filename"].as_str())
             }
         }
@@ -111,13 +112,13 @@ mod tests {
         for (source, chat, subscription) in [
             (
                 ImageGenerationSource::Auto,
-                Some(SubscriptionRuntimeKind::Codex),
+                Some(AgentRuntimeKind::Codex),
                 true,
             ),
             (ImageGenerationSource::Subscription, None, true),
             (
                 ImageGenerationSource::ApiKey,
-                Some(SubscriptionRuntimeKind::Codex),
+                Some(AgentRuntimeKind::Codex),
                 false,
             ),
         ] {
@@ -151,17 +152,11 @@ mod tests {
     #[test]
     fn image_source_choice_matches_chat_without_paid_fallback() {
         assert_eq!(
-            image_route(
-                ImageGenerationSource::Auto,
-                Some(SubscriptionRuntimeKind::Codex)
-            ),
+            image_route(ImageGenerationSource::Auto, Some(AgentRuntimeKind::Codex)),
             ImageRoute::Codex
         );
         assert_eq!(
-            image_route(
-                ImageGenerationSource::Auto,
-                Some(SubscriptionRuntimeKind::Copilot)
-            ),
+            image_route(ImageGenerationSource::Auto, Some(AgentRuntimeKind::Copilot)),
             ImageRoute::UnsupportedSubscription
         );
         assert_eq!(
@@ -173,10 +168,7 @@ mod tests {
             ImageRoute::Codex
         );
         assert_eq!(
-            image_route(
-                ImageGenerationSource::ApiKey,
-                Some(SubscriptionRuntimeKind::Codex)
-            ),
+            image_route(ImageGenerationSource::ApiKey, Some(AgentRuntimeKind::Codex)),
             ImageRoute::ApiKey
         );
     }

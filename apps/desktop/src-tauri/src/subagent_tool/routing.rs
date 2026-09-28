@@ -56,9 +56,7 @@ pub(super) fn resolve_subagent_route(
                 "agent_config_id and provider select different routes".into(),
             ));
         }
-        if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&selected.provider)
-            .is_some()
-        {
+        if crate::agent_runtime::AgentRuntimeKind::from_provider(&selected.provider).is_some() {
             return Err(CoreError::InvalidInput("This delegated executor requires an API provider configuration. Subscription accounts must use their official runtime and cannot be used as API credentials.".into()));
         }
         provider_config = crate::desktop_agent_session::desktop_provider_config(&selected);
@@ -174,7 +172,7 @@ impl Tool for SubagentModelsTool {
         context: nexa_core::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
         let routes: Vec<_> = context.db.list_agent_configs()?.into_iter().map(|config| {
-            let supported = crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&config.provider).is_none();
+            let supported = crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider).is_none();
             let mut models = if supported { nexa_core::provider_catalog::preset_model_ids(&config.provider, config.base_url.as_deref()) } else { Vec::new() };
             if supported && !models.contains(&config.model) { models.push(config.model.clone()); }
             serde_json::json!({

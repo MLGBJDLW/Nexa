@@ -1412,7 +1412,7 @@ pub async fn start_context_compaction_cmd(
 }
 
 fn ensure_manual_compaction_supported(provider: &str) -> Result<(), nexa_core::error::CoreError> {
-    if crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(provider).is_some() {
+    if crate::agent_runtime::AgentRuntimeKind::from_provider(provider).is_some() {
         return Err(nexa_core::error::CoreError::InvalidInput("Manual context compaction is unavailable for subscription conversations. Their official runtime manages context during each active turn.".into()));
     }
     Ok(())

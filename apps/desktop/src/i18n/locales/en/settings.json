@@ -1056,4 +1056,17 @@
   "vectorStorePaused": "Synchronization is paused until Sync now, Save, or restart.",
   "vectorStoreSync": "Sync now",
   "vectorStorePause": "Pause synchronization"
+  ,"llmConnectionKind": "Connection type"
+  ,"apiConnections": "API models"
+  ,"externalAgents": "External agents"
+  ,"apiConnectionsHint": "Connect an API or local model. Nexa manages tools and delegation."
+  ,"externalAgentsHint": "Use official accounts or installed agents. Each runtime manages its own models and login."
+  ,"externalAgentOwnership": "Install and sign in through the official CLI first. This agent runs its own tools and sends permission requests to Nexa."
+  ,"externalAgentSetup": "Installation and sign-in guide"
+  ,"externalAgentExecutable": "Executable path (optional)"
+  ,"externalAgentDirectory": "Working directory"
+  ,"externalAgentDirectoryHint": "Shared by profiles using this agent. Native tools can also access other directories."
+  ,"externalAgentConnected": "Session created and models loaded. Inference has not been tested."
+  ,"externalAgentProbe": "Check connection"
+  ,"externalAgentControls": "Tools and runtime settings are managed by the external agent."
 }

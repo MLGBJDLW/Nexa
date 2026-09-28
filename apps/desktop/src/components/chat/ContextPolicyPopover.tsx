@@ -1,3 +1,4 @@
+import { findProviderPreset } from '../../lib/providerPresets';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArchiveRestore, Check, ChevronDown, Gauge, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
 import { NexaPopover, NexaPopoverAnchor, NexaPopoverContent } from '../ui/overlay';
@@ -68,7 +69,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
   const trigger = Math.floor(promptBudget * percent / 100);
   const policy: api.ModelContextPolicy = { contextWindow: automatic ? null : Number(capacityText), autoCompactPercent: compactPercent };
   const dirty = snapshot && JSON.stringify(policy) !== JSON.stringify(snapshot.policy);
-  const managed = snapshot?.managedByProvider ?? ['github_copilot', 'openai_codex'].includes(config.provider);
+  const managed = snapshot?.managedByProvider ?? Boolean(findProviderPreset(config)?.runtime);
   const canSave = Boolean(snapshot && !managed && !invalid && !saving && !loading);
   const progress = capacity ? Math.min(100, Math.max(0, usedTokens / capacity * 100)) : 0;
   const triggerPosition = capacity ? trigger / capacity * 100 : 0;

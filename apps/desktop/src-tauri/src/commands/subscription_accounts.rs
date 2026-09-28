@@ -1017,6 +1017,13 @@ pub async fn list_subscription_models_cmd(
     state: State<'_, AppState>,
     provider: String,
 ) -> Result<Vec<CopilotModelSummary>, String> {
+    if nexa_core::external_agent::preset(&provider).is_some() {
+        let launch = state
+            .db
+            .external_agent_launch(&provider)
+            .map_err(|error| error.to_string())?;
+        return super::external_agents::probe_external_agent_cmd(provider, launch).await;
+    }
     match provider.as_str() {
         "github_copilot" => {
             if state.copilot_account_runtime.login_status().pending {

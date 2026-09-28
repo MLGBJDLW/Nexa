@@ -30,6 +30,8 @@ import { ImageGenerationSettingsPanel } from './ImageGenerationSettingsPanel';
 import { TextToSpeechSettingsPanel } from './TextToSpeechSettingsPanel';
 import { SpeechToTextSettingsPanel } from './SpeechToTextSettingsPanel';
 import { SubscriptionAgentConfigForm } from './SubscriptionAgentConfigForm';
+import { ExternalAgentConfigForm } from './ExternalAgentConfigForm';
+import type { ExternalAgentLaunch } from '../../lib/externalAgents';
 import { CollapsiblePanel, Section } from './SettingsSection';
 import {
   CapabilityRegistryPanel,
@@ -57,7 +59,7 @@ interface ProvidersSettingsTabProps {
   agentSaveLoading: boolean;
   appConfig: AppConfig | null;
   appConfigLoading: boolean;
-  onSaveAgent: (input: SaveAgentConfigInput) => Promise<void>;
+  onSaveAgent: (input: SaveAgentConfigInput, launch?: ExternalAgentLaunch) => Promise<void>;
   onAppConfigChange: (config: AppConfig) => void;
   onAppConfigSave: (config?: AppConfig) => void | Promise<void>;
   onMarkAppConfigDirty: () => void;
@@ -100,6 +102,8 @@ export function ProvidersSettingsTab({
 }: ProvidersSettingsTabProps) {
   const { t } = useTranslation();
   const [providerQuery, setProviderQuery] = useState('');
+  const [connectionKind, setConnectionKind] = useState<'api' | 'agents'>('api');
+  const displayConfigs = agentConfigs.filter(config => Boolean(findProviderPreset(config)?.runtime) === (connectionKind === 'agents'));
   const [registrySummary, setRegistrySummary] = useState<RegistrySummaryState>({
     loading: true,
     error: null,
@@ -146,6 +150,7 @@ export function ProvidersSettingsTab({
   const normalizedProviderQuery = normalizeProviderSearch(providerQuery);
   const providerPresetResults = useMemo(() => PROVIDER_PRESETS
     .filter((preset) => {
+      if (Boolean(preset.runtime) !== (connectionKind === 'agents')) return false;
       if (!normalizedProviderQuery) return true;
       return normalizeProviderSearch([
         preset.name,
@@ -157,12 +162,12 @@ export function ProvidersSettingsTab({
     })
     .sort((left, right) => (
       Number(configuredPresetIds.has(right.id)) - Number(configuredPresetIds.has(left.id))
-    )), [configuredPresetIds, normalizedProviderQuery]);
-  const showCustomProvider = !normalizedProviderQuery || normalizeProviderSearch([
+    )), [configuredPresetIds, normalizedProviderQuery, connectionKind]);
+  const showCustomProvider = connectionKind === 'api' && (!normalizedProviderQuery || normalizeProviderSearch([
     t('settings.customProvider'),
     t('settings.customProviderDesc'),
     'custom manual openai compatible',
-  ].join(' ')).includes(normalizedProviderQuery);
+  ].join(' ')).includes(normalizedProviderQuery));
 
   useEffect(() => {
     if (providerView !== 'list') return undefined;
@@ -200,7 +205,21 @@ export function ProvidersSettingsTab({
 
   return (
     <Section icon={<Bot size={20} />} title={t('settings.aiProviders')} delay={0.03}>
-      {providerView === 'form' && (editingConfig ? findProviderPreset(editingConfig) : selectedPreset)?.runtime ? (
+      {providerView !== 'form' && <div className="mb-3 min-w-0" data-testid="llm-connection-kinds">
+        <div role="tablist" aria-label={t('settings.llmConnectionKind')} className="inline-flex max-w-full gap-1 rounded-lg bg-surface-2 p-1">
+          {(['api', 'agents'] as const).map(kind => <button key={kind} role="tab" aria-selected={kind === connectionKind}
+            onClick={() => { setConnectionKind(kind); setProviderQuery(''); }}
+            className={`min-w-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${kind === connectionKind ? 'bg-surface-1 text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-primary'}`}>
+            {t(kind === 'api' ? 'settings.apiConnections' : 'settings.externalAgents')}
+          </button>)}
+        </div>
+        <p className="mt-2 text-xs leading-5 text-text-tertiary">{t(connectionKind === 'api' ? 'settings.apiConnectionsHint' : 'settings.externalAgentsHint')}</p>
+      </div>}
+      {providerView === 'form' && (editingConfig ? findProviderPreset(editingConfig) : selectedPreset)?.runtime === 'acp' ? (
+        <ExternalAgentConfigForm key={editingConfig?.id ?? selectedPreset?.id} config={editingConfig}
+          preset={(editingConfig ? findProviderPreset(editingConfig) : selectedPreset)!}
+          onSave={onSaveAgent} onCancel={showProviderList} isSaving={agentSaveLoading} onDirtyChange={onProviderFormDirtyChange} />
+      ) : providerView === 'form' && (editingConfig ? findProviderPreset(editingConfig) : selectedPreset)?.runtime ? (
         <SubscriptionAgentConfigForm
           key={editingConfig?.id ?? selectedPreset?.id}
           config={editingConfig}
@@ -265,7 +284,7 @@ export function ProvidersSettingsTab({
                   key={preset.id}
                   data-provider-preset-id={preset.id}
                   onClick={() => { onSelectedPresetChange(preset); onProviderViewChange('form'); }}
-                  className="flex min-w-0 items-start gap-2.5 overflow-hidden rounded-lg border border-border bg-surface-2 p-3 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50"
+                  className="flex min-w-0 items-start gap-2.5 overflow-hidden rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-left transition-colors duration-fast hover:border-accent hover:bg-surface-3/50"
                 >
                   <ProviderIcon provider={preset.provider} providerId={preset.id} baseUrl={preset.baseUrl} size="md" />
                   <div className="min-w-0 flex-1">
@@ -306,17 +325,17 @@ export function ProvidersSettingsTab({
       ) : (
         <div className="min-w-0 space-y-3">
           <div
-            className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/60 p-3 sm:flex-row sm:items-center sm:justify-between"
             data-provider-category="chat-reasoning"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
                 <Bot size={15} className="shrink-0 text-accent" />
-                <span>{t('settings.commonLlm')}</span>
+                <span>{t(connectionKind === 'agents' ? 'settings.externalAgents' : 'settings.commonLlm')}</span>
               </div>
               <p className="mt-1 text-xs leading-5 text-text-tertiary">
-                {t('settings.providerConfiguredSummary', { count: agentConfigs.length })}
-                {defaultAgent
+                {t('settings.providerConfiguredSummary', { count: displayConfigs.length })}
+                {defaultAgent && displayConfigs.some(config => config.id === defaultAgent.id)
                   ? ` · ${t('settings.providerDefaultSummary', {
                     name: defaultAgent.name,
                   })}`
@@ -335,7 +354,7 @@ export function ProvidersSettingsTab({
           </div>
 
           {/* Config list */}
-          {agentConfigs.length === 0 ? (
+          {displayConfigs.length === 0 ? (
             <div className="py-8 text-center">
               <Bot size={32} className="mx-auto mb-3 text-text-tertiary" />
               <p className="text-sm font-medium text-text-secondary">{t('settings.noProviders')}</p>
@@ -343,11 +362,11 @@ export function ProvidersSettingsTab({
             </div>
           ) : (
             <div className="min-w-0 space-y-3">
-              <div className="space-y-3">
-                  {agentConfigs.map((config) => (
+              <div className="space-y-1.5">
+                  {displayConfigs.map((config) => (
                     <div
                       key={config.id}
-                      className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2 p-4 transition-colors hover:bg-surface-3/50 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 transition-colors hover:bg-surface-3/50 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="flex min-w-0 items-start gap-3 sm:items-center">
                         <ProviderIcon
@@ -358,9 +377,6 @@ export function ProvidersSettingsTab({
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <p className="min-w-0 break-words text-sm font-medium text-text-primary">{config.name}</p>
-                            <Badge variant="success" className="text-[10px]">
-                              {t('settings.providerConfiguredStatus')}
-                            </Badge>
                             {config.isDefault && (
                               <Badge
                                 variant="warning"
@@ -370,12 +386,9 @@ export function ProvidersSettingsTab({
                                 {t('settings.providerDefaultStatus')}
                               </Badge>
                             )}
-                            <Badge variant="default" className="text-[10px] shrink-0">
-                              {providerLabels[config.provider] ?? config.provider}
-                            </Badge>
                           </div>
                           <p className="mt-1 break-all text-xs leading-5 text-text-tertiary" title={config.baseUrl ?? undefined}>
-                            {config.model}
+                            {findProviderPreset(config)?.name ?? providerLabels[config.provider] ?? config.provider} · {config.model}
                             {config.baseUrl ? ` · ${config.baseUrl}` : ''}
                           </p>
                         </div>
@@ -415,7 +428,7 @@ export function ProvidersSettingsTab({
             </div>
           )}
 
-          {appConfig && (
+          {appConfig && connectionKind === 'api' && (
             <>
               <div className="space-y-2" data-provider-category="image-generation">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">

@@ -1056,4 +1056,17 @@
   "vectorStorePaused": "同期は一時停止中です。同期、保存、再起動で再開します。",
   "vectorStoreSync": "今すぐ同期",
   "vectorStorePause": "同期を一時停止"
+  ,"llmConnectionKind": "接続の種類"
+  ,"apiConnections": "API モデル"
+  ,"externalAgents": "外部エージェント"
+  ,"apiConnectionsHint": "API またはローカルモデルに接続。Nexa がツールと委任を管理します。"
+  ,"externalAgentsHint": "公式アカウントやインストール済みエージェントを使用。各ランタイムがモデルとログインを管理します。"
+  ,"externalAgentOwnership": "先に公式 CLI をインストールしてログインしてください。エージェントは独自のツールを実行し、Nexa に権限を要求します。"
+  ,"externalAgentSetup": "インストールとログインのガイド"
+  ,"externalAgentExecutable": "実行ファイルのパス（任意）"
+  ,"externalAgentDirectory": "作業ディレクトリ"
+  ,"externalAgentDirectoryHint": "同じエージェントの設定で共有されます。ネイティブツールは他のディレクトリにもアクセスできます。"
+  ,"externalAgentConnected": "セッションを作成し、モデルを取得しました。推論は未検証です。"
+  ,"externalAgentProbe": "接続を確認"
+  ,"externalAgentControls": "ツールと実行設定は外部エージェントが管理します。"
 }

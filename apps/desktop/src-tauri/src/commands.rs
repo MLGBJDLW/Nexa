@@ -126,6 +126,7 @@ mod shared_desktop;
 pub use shared_desktop::*;
 mod monitor_capture;
 pub use monitor_capture::*;
+pub(crate) mod external_agents;
 mod media;
 mod media_generation;
 pub(crate) mod model_choices;

@@ -1054,6 +1054,11 @@ pub fn validate_agent_config_credential_contract(
         .unwrap_or_default()
         .to_ascii_lowercase();
     let key = input.api_key.trim();
+    if crate::external_agent::is_agent_runtime(&input.provider)
+        && (!key.is_empty() || !endpoint.is_empty())
+    {
+        return Err(CoreError::InvalidInput("External agent accounts cannot store an API key or HTTP endpoint. Configure credentials in the official runtime.".into()));
+    }
     let is_token_plan_endpoint = matches!(
         endpoint.as_str(),
         TOKEN_PLAN_CN_ENDPOINT | TOKEN_PLAN_GLOBAL_ENDPOINT
@@ -4794,6 +4799,26 @@ impl Database {
         &self,
         input: &SaveAgentConfigInput,
     ) -> Result<AgentConfig, CoreError> {
+        self.save_agent_config_with_external_launch(input, None)
+    }
+
+    pub fn save_external_agent_profile(
+        &self,
+        input: &SaveAgentConfigInput,
+        launch: &crate::external_agent::ExternalAgentLaunch,
+    ) -> Result<AgentConfig, CoreError> {
+        if crate::external_agent::preset(&input.provider).is_none() {
+            return Err(CoreError::InvalidInput("Unknown ACP agent.".into()));
+        }
+        launch.validate()?;
+        self.save_agent_config_with_external_launch(input, Some(launch))
+    }
+
+    fn save_agent_config_with_external_launch(
+        &self,
+        input: &SaveAgentConfigInput,
+        launch: Option<&crate::external_agent::ExternalAgentLaunch>,
+    ) -> Result<AgentConfig, CoreError> {
         validate_agent_config_credential_contract(input)?;
         validate_agent_config_numeric_overrides(input)?;
         let id = input.id.clone().unwrap_or_else(new_id);
@@ -4904,6 +4929,13 @@ impl Database {
                 &provider_streaming_json,
             ],
         )?;
+        if let Some(launch) = launch {
+            crate::external_agent::ensure_launch_storage(&transaction)?;
+            transaction.execute(
+                "INSERT INTO app_config (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
+                rusqlite::params![format!("external_agent:{}", input.provider), serde_json::to_string(launch)?],
+            )?;
+        }
         crate::settings_schema_v2::sync_legacy_agent_config_in_transaction(&transaction, &id)?;
         crate::capability_registry::sync_registry_in_transaction(&transaction)?;
         transaction.commit()?;

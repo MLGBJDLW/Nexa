@@ -81,6 +81,7 @@ interface ChatInputProps {
   disabled: boolean;
   conversationId?: string;
   projectId?: string | null;
+  agentRuntime?: 'api' | 'subscription' | 'acp';
   onEnsureConversation?: (beforeActivate?: (id: string) => void) => Promise<string>;
   agentId?: string;
   inputHistory?: string[];
@@ -358,6 +359,7 @@ export function ChatInput({
   disabled,
   conversationId,
   projectId,
+  agentRuntime = 'api',
   onEnsureConversation,
   agentId,
   inputHistory = [],
@@ -450,7 +452,8 @@ export function ChatInput({
   const inputLocked = disabled || loadedDraftKey !== draftKey;
   const sendLocked = inputLocked || isCompacting || visionDecisionRequired || sendPending;
   const attachmentLocked = inputLocked || isCompacting || isStreaming;
-  const effectivePlanModeEnabled = planModeEnabled ?? localPlanModeEnabled;
+  const nativeAgent = agentRuntime === 'acp';
+  const effectivePlanModeEnabled = !nativeAgent && (planModeEnabled ?? localPlanModeEnabled);
   const inputHistoryEntries = useMemo(
     () => normalizeInputHistory(inputHistory),
     [inputHistory],
@@ -1023,6 +1026,10 @@ export function ChatInput({
       toast.error(t("chat.compactMustBeAlone"));
       return;
     }
+    if (nativeAgent && slashResolution?.executionMode === "plan") {
+      toast.error(t('settings.externalAgentControls'));
+      return;
+    }
     if (slashResolution?.executionMode === "plan" && slashResolution.message.length === 0 && attachments.length === 0) {
       setPlanMode(true);
       clearDraft();
@@ -1058,15 +1065,15 @@ export function ChatInput({
     const userArtifacts = activeGoal && goalContextContent
       ? mergeGoalContextArtifact(baseUserArtifacts, activeGoal, goalContextContent)
       : baseUserArtifacts;
-    const sendOptions = {
+    const sendOptions: ChatInputSendOptions = {
       skillIds: slashResolution?.skillIds,
       userArtifacts,
       executionMode,
-      powerMode,
-      collaborationMode,
+      powerMode: nativeAgent ? 'standard' : powerMode,
+      collaborationMode: agentRuntime === 'api' ? collaborationMode : 'direct',
       moaPreset,
-      orchestrationProfile,
-      customOrchestration: orchestrationProfile === "custom" ? customOrchestration : null,
+      orchestrationProfile: nativeAgent ? 'balanced' : orchestrationProfile,
+      customOrchestration: !nativeAgent && orchestrationProfile === "custom" ? customOrchestration : null,
       visionTurnOverride,
     };
     if (executionMode === "plan") {
@@ -1089,7 +1096,7 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, onCompact, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1834,16 +1841,17 @@ export function ChatInput({
             data-testid="chat-composer-primary-controls"
             className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
           >
-            {modeSegment}
-            {workflowCatalogControl}
+            {!nativeAgent && modeSegment}
+            {!nativeAgent && workflowCatalogControl}
+            {nativeAgent && <span className="text-xs text-text-tertiary" title={t('settings.externalAgentControls')}>{t('settings.externalAgents')}</span>}
             {attachmentControl}
           </div>
           {contextIndicator}
         </div>
         {planModeBanner}
-        {nexusModeBanner}
-        {moaModeBanner}
-        {qualityProfileBanner}
+        {!nativeAgent && nexusModeBanner}
+        {agentRuntime === 'api' && moaModeBanner}
+        {!nativeAgent && qualityProfileBanner}
 
         <div
           data-testid="chat-composer-surface"
@@ -1991,7 +1999,7 @@ export function ChatInput({
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden">
             {sessionControls}
 
-            <label
+            {agentRuntime === 'api' && <label
               data-testid="chat-moa-control"
               className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs transition-colors ${
                 moaModeEnabled
@@ -2023,9 +2031,9 @@ export function ChatInput({
                 <option value="crossModelCodeReview">{t("chat.moaPreset.crossModelCodeReview")}</option>
                 <option value="custom">{t("chat.moaPreset.custom")}</option>
               </NexaSelect>
-            </label>
+            </label>}
 
-            <label
+            {!nativeAgent && <><label
               data-testid="chat-quality-control"
               className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs transition-colors ${
                 orchestrationProfile !== "balanced"
@@ -2083,7 +2091,7 @@ export function ChatInput({
               persistChatInputDraft(id, draft);
               sharedDraftTransferRef.current = { from: draftKey, to: id };
               if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
-            }) : undefined} />
+            }) : undefined} /></>}
             {conversationId && onCompact && (
               <button
                 type="button"

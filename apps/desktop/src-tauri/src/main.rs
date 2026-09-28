@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent_run_outbox;
+mod agent_runtime;
 mod agent_stream;
 mod agent_stream_bridge;
 mod agent_task_events;
@@ -18,7 +19,6 @@ mod preview_tool;
 mod remote;
 mod subagent_lifecycle;
 mod subagent_tool;
-mod subscription_runtime;
 mod terminal_agent_tool;
 mod tool_preview_journal;
 
@@ -1118,6 +1118,9 @@ fn main() {
             commands::start_realtime_transcription_cmd,
             commands::live_connections_cmd,
             commands::model_choices::model_choices_cmd,
+            commands::external_agents::get_external_agent_launch_cmd,
+            commands::external_agents::save_external_agent_profile_cmd,
+            commands::external_agents::probe_external_agent_cmd,
             commands::start_live_cmd,
             commands::begin_desktop_share_cmd,
             commands::list_desktop_monitors_cmd,

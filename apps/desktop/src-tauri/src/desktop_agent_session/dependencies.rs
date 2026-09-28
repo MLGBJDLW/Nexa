@@ -91,7 +91,7 @@ pub async fn build_desktop_agent_session_dependencies(
 ) -> DesktopAgentSessionDependencies {
     let DesktopAgentSessionDependencyRequest {
         preview_host,
-        subscription_runtime,
+        agent_runtime,
         db,
         mcp_manager,
         event_seq,
@@ -112,9 +112,13 @@ pub async fn build_desktop_agent_session_dependencies(
         terminal_state,
         browser_state,
     } = request;
-    let image_subscription = subscription_runtime;
+    let image_subscription = agent_runtime;
+    let native_tools = matches!(
+        agent_runtime,
+        Some(crate::agent_runtime::AgentRuntimeKind::Acp(_))
+    );
     let image_model = executor_config.model.clone();
-    let subscription_runtime = subscription_runtime.is_some();
+    let agent_runtime = agent_runtime.is_some();
     let image_source = db
         .load_app_config()
         .map(|config| config.image_generation.source)
@@ -147,6 +151,20 @@ pub async fn build_desktop_agent_session_dependencies(
         Vec::new()
     });
     let skill_select_ms = elapsed_ms(skill_select_started);
+
+    if native_tools {
+        // ACP processes own their tools. Building Nexa's MCP/delegation registry
+        // here would start unrelated services and advertise unusable tools.
+        return DesktopAgentSessionDependencies {
+            tools: ToolRegistry::new(),
+            selected_skills,
+            auto_loaded_skills,
+            metrics: DesktopAgentDependencyMetrics {
+                skill_select_ms,
+                ..Default::default()
+            },
+        };
+    }
 
     let tool_registry_started = Instant::now();
     let package_assembler = PackageRuntimeAssembler::database_builtin(db);
@@ -261,13 +279,13 @@ pub async fn build_desktop_agent_session_dependencies(
             Some(task_run_id.to_string()),
             Some(conversation_id.to_string()),
         );
-        if subscription_runtime {
+        if agent_runtime {
             runtime = runtime.require_explicit_route();
         }
         tools.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
         tools.register(Box::new(SubagentModelsTool));
         tools.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));
-        if !subscription_runtime {
+        if !agent_runtime {
             tools.register(Box::new(JudgeSubagentResultsTool::from_runtime(
                 runtime.clone(),
             )));

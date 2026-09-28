@@ -1056,4 +1056,17 @@
   "vectorStorePaused": "Synchronisation en pause jusqu’à une synchronisation, un enregistrement ou un redémarrage.",
   "vectorStoreSync": "Synchroniser",
   "vectorStorePause": "Suspendre la synchronisation"
+  ,"llmConnectionKind": "Type de connexion"
+  ,"apiConnections": "Modèles API"
+  ,"externalAgents": "Agents externes"
+  ,"apiConnectionsHint": "Connectez une API ou un modèle local. Nexa gère les outils et la délégation."
+  ,"externalAgentsHint": "Utilisez des comptes officiels ou des agents installés. Chaque moteur gère ses modèles et sa connexion."
+  ,"externalAgentOwnership": "Installez la CLI officielle et connectez-vous d’abord. Cet agent exécute ses propres outils et envoie ses demandes de permission à Nexa."
+  ,"externalAgentSetup": "Guide d’installation et de connexion"
+  ,"externalAgentExecutable": "Chemin de l’exécutable (facultatif)"
+  ,"externalAgentDirectory": "Répertoire de travail"
+  ,"externalAgentDirectoryHint": "Partagé par les profils de cet agent. Les outils natifs peuvent aussi accéder à d’autres répertoires."
+  ,"externalAgentConnected": "Session créée et modèles chargés. L’inférence n’a pas été testée."
+  ,"externalAgentProbe": "Vérifier la connexion"
+  ,"externalAgentControls": "Les outils et les paramètres d’exécution sont gérés par l’agent externe."
 }
