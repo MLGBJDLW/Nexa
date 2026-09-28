@@ -324,4 +324,13 @@ does not satisfy the release gate. Native interaction and long-duration resource
 acceptance remain separate evidence from CI and must not be claimed from a green
 build.
 
+Release notes use the previous version tag and an immutable candidate SHA as
+their range. Release PR maintenance refreshes a managed cumulative PR section
+in both the PR body and its changelog entry, preserving other authored text.
+Publication resolves the created tag rather than assuming the triggering push
+is still its target. Both updater manifests carry complete versioned changelog
+history without byte truncation. The desktop selects only versions newer than
+the installed version through the offered version for every update source;
+older manifests use paginated GitHub history with the target notes as fallback.
+
 See [README.md](./README.md) for the full documentation index.

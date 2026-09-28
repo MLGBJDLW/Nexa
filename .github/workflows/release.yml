@@ -30,7 +30,7 @@ jobs:
       tag_name: ${{ steps.resume.outputs.tag_name || steps.release.outputs.tag_name }}
       version: ${{ steps.resume.outputs.version || steps.release.outputs.version }}
       target_ref: ${{ steps.resume.outputs.tag_name || steps.release.outputs.tag_name }}
-      target_sha: ${{ steps.resume.outputs.target_sha || github.sha }}
+      target_sha: ${{ steps.resume.outputs.target_sha || steps.release_target.outputs.target_sha }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -42,6 +42,17 @@ jobs:
           # then create the release/tag when that release PR is merged.
           # Manual runs without release_tag are PR maintenance only.
           skip-github-release: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Resolve the created release to its immutable tag
+        id: release_target
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          target_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
 
       - name: Resolve existing draft release
         id: resume
@@ -116,6 +127,7 @@ jobs:
             exit 1
           fi
           echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "number=$(gh pr list --state open --head "$RELEASE_PR_BRANCH" --json number --jq '.[0].number')" >> "$GITHUB_OUTPUT"
 
       - name: Check out release PR metadata
         if: steps.release_pr.outputs.exists == 'true'
@@ -135,19 +147,24 @@ jobs:
         if: steps.release_pr.outputs.exists == 'true'
         env:
           RELEASE_PR_BRANCH: release-please--branches--master--components--nexa-monorepo
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_NUMBER: ${{ steps.release_pr.outputs.number }}
+          RELEASE_PR_BODY_FILE: ${{ runner.temp }}/release-pr-body.md
         shell: bash
         run: |
           set -euo pipefail
           node scripts/sync-workspace-lock-versions.mjs --write
-          if git diff --quiet -- Cargo.lock; then
+          node scripts/release-notes.mjs maintain
+          gh pr edit "$RELEASE_PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RELEASE_PR_BODY_FILE"
+          if git diff --quiet -- Cargo.lock CHANGELOG.md; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- Cargo.lock
-          git commit -m "chore(release): synchronize workspace lock versions"
+          git add -- Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): synchronize cumulative notes and workspace metadata"
           git push origin "HEAD:$RELEASE_PR_BRANCH"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
@@ -397,6 +414,13 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.target_sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
 
       - name: Verify release artifacts and generate updater manifest
         env:
@@ -415,8 +439,8 @@ jobs:
             exit 1
           fi
 
-          gh release view "$TAG" --json body -q .body --repo "$REPO" > /tmp/release-notes.md
-          NOTES=$(head -c 5000 /tmp/release-notes.md)
+          node scripts/release-notes.mjs publish
+          gh release edit "$TAG" --notes-file release-notes.md --repo "$REPO"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
@@ -496,10 +520,11 @@ jobs:
           # Generate latest.json only after all required platform artifacts are present.
           jq -n \
             --arg version "$VERSION" \
-            --arg notes "$NOTES" \
+            --rawfile notes release-notes.md \
+            --slurpfile history release-history.json \
             --arg pub_date "$PUB_DATE" \
             --argjson platforms "$PLATFORMS" \
-            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' > latest.json
+            '{version: $version, notes: $notes, releaseNotes: $history[0], pub_date: $pub_date, platforms: $platforms}' > latest.json
 
           MIRROR_BASE="${UPDATE_MIRROR_BASE:-https://mirror.ghproxy.com}"
           MIRROR_BASE="${MIRROR_BASE%/}"

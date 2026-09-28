@@ -58,7 +58,14 @@ test.beforeEach(async ({ page }) => {
               currentVersion: "0.10.0",
               version: "0.10.2",
               body: "Latest-only release note.",
-              rawJson: {},
+              rawJson: localStorage.getItem('e2e-release-history') === '1' ? {
+                releaseNotes: [
+                  { version: '0.10.3', body: 'Future release must stay hidden.' },
+                  { version: '0.10.2', body: 'Second bundled release note.' },
+                  { version: '0.10.1', body: 'First bundled release note.' },
+                  { version: '0.10.0', body: 'Installed release must stay hidden.' },
+                ],
+              } : {},
             };
           }
           return null;
@@ -271,6 +278,22 @@ test("release notes include every GitHub release between current and latest", as
   await expect(page.getByText("First ranged release note.")).toBeVisible();
   await expect(page.getByText("Second ranged release note.")).toBeVisible();
   await expect(page.getByText("Already installed release note.")).toHaveCount(0);
+});
+
+test('mirror updates show the complete installed-to-target release history without GitHub', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('e2e-update-available', '1');
+    localStorage.setItem('e2e-release-history', '1');
+    localStorage.setItem('nexa-update-source', 'ghfast');
+  });
+  await page.goto('/settings');
+  await page.getByTestId('sidebar-update-toggle').click();
+  await page.getByTestId('sidebar-update-panel').getByRole('button', { name: 'Check for Updates' }).click();
+  await page.getByText('Release notes').click();
+  await expect(page.getByText('First bundled release note.')).toBeVisible();
+  await expect(page.getByText('Second bundled release note.')).toBeVisible();
+  await expect(page.getByText('Installed release must stay hidden.')).toHaveCount(0);
+  await expect(page.getByText('Future release must stay hidden.')).toHaveCount(0);
 });
 
 test("layout performs the silent startup update check", async ({ page }) => {
