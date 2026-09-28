@@ -1,10 +1,17 @@
-import { compareReleaseVersions, resolveReleaseNotes } from '../src/lib/releaseNotes';
+import { compareReleaseVersions, formatReleaseNotesBetween, resolveReleaseNotes } from '../src/lib/releaseNotes';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
 async function main() {
+  const headings = formatReleaseNotesBetween([
+    { version: '1.1.0', body: '## [1.1.0](https://example.test/compare) (2026-09-28)\n\n### Fixes\nKeep this section.' },
+    { version: '1.2.0', body: '## v1.2.0\n\nTarget notes.' },
+    { version: '1.3.0', body: '## Changes\n\nAuthored section.' },
+  ], '1.0.0', '1.3.0')!;
+  assert(headings.match(/^## v1\./gm)?.length === 3, 'one version heading per release');
+  assert(!headings.includes('## [1.1.0]') && headings.includes('### Fixes') && headings.includes('## Changes'), 'version headings are removed while authored sections survive');
   assert(compareReleaseVersions('1.0.0-rc.10', '1.0.0-rc.2') > 0, 'numeric prerelease ordering');
   assert(compareReleaseVersions('1.0.0-alpha-z', '1.0.0-alpha-a') > 0, 'hyphens inside prerelease identifiers');
   assert(compareReleaseVersions('1.0.0', '1.0.0-rc.10') > 0, 'stable follows prerelease');

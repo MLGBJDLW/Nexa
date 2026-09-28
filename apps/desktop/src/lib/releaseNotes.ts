@@ -46,6 +46,17 @@ export function compareReleaseVersions(a: string, b: string): number {
   return 0;
 }
 
+function releaseBody(body: string, version: string): string {
+  const trimmed = body.trim();
+  const firstLine = trimmed.split('\n', 1)[0];
+  const heading = firstLine.match(/^#{1,2}\s+(?:\[([^\]]+)\](?:\([^)]*\))?|([^\s]+))(?:\s+.*)?$/);
+  // Legacy manifests and release bodies may already include their version.
+  // Remove only a matching leading version heading, never authored sections.
+  return heading && releaseVersion(heading[1] ?? heading[2]) === version
+    ? trimmed.slice(firstLine.length).trim()
+    : trimmed;
+}
+
 export function formatReleaseNotesBetween(entries: ReleaseNote[], current: string, target: string): string | undefined {
   const selected = new Map<string, ReleaseNote>();
   for (const entry of entries) {
@@ -59,7 +70,7 @@ export function formatReleaseNotesBetween(entries: ReleaseNote[], current: strin
   if (!selected.has(target)) return undefined;
   return [...selected.values()]
     .sort((a, b) => compareReleaseVersions(b.version, a.version))
-    .map(({ version, body }) => `## v${version}\n\n${body.trim() || '_No release notes provided._'}`)
+    .map(({ version, body }) => `## v${version}\n\n${releaseBody(body, version) || '_No release notes provided._'}`)
     .join('\n\n---\n\n');
 }
 

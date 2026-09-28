@@ -15,7 +15,7 @@ export function changelogEntries(markdown) {
     seen.add(version);
     const start = heading.index;
     const end = headings[index + 1]?.index ?? markdown.length;
-    return { version, start, end, body: markdown.slice(start, end).trim() };
+    return { version, start, end, body: markdown.slice(start, end).trim(), content: markdown.slice(start + heading[0].length, end).trim() };
   });
 }
 
@@ -43,7 +43,7 @@ export function updateVersionNotes(changelog, version, generated) {
 export function releaseHistory(changelog, version, currentBody) {
   const entries = changelogEntries(changelog);
   if (entries[0]?.version !== version) throw new Error(`Changelog head does not match release ${version}`);
-  return entries.map((entry, index) => ({ version: entry.version, body: index === 0 ? currentBody : entry.body }));
+  return entries.map((entry, index) => ({ version: entry.version, body: index === 0 ? currentBody : entry.content }));
 }
 
 function command(program, args, input) {

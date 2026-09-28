@@ -28,6 +28,7 @@ test('updater history contains complete unicode notes and every version, with ex
   const history = releaseHistory(original, '1.2.0', body);
   assert.equal(history[0].body, body);
   assert.equal(history[1].version, '1.1.0');
+  assert.equal(history[1].body, 'Older release.');
   assert.throws(() => releaseHistory(original, '9.9.9', body));
   assert.throws(() => changelogEntries(original + '\n## 1.2.0\nDuplicate'));
 });
