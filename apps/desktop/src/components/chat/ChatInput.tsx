@@ -80,6 +80,7 @@ interface ChatInputProps {
   isStreaming: boolean;
   disabled: boolean;
   conversationId?: string;
+  projectId?: string | null;
   onEnsureConversation?: (beforeActivate?: (id: string) => void) => Promise<string>;
   agentId?: string;
   inputHistory?: string[];
@@ -112,6 +113,9 @@ interface StoredChatDraftState {
 type SlashCommandTab = "all" | SlashCommandKind;
 
 const NEW_CONVERSATION_DRAFT_KEY = "__new__";
+function isNewConversationDraftKey(key: string) {
+  return key === NEW_CONVERSATION_DRAFT_KEY || key.startsWith(`${NEW_CONVERSATION_DRAFT_KEY}:`);
+}
 const CHAT_INPUT_DRAFT_STORAGE_KEY = "chat-input-drafts-v1";
 const CHAT_POWER_MODE_STORAGE_PREFIX = "chat-agent-power-mode-v1";
 const CHAT_NEXUS_ACKNOWLEDGED_STORAGE_KEY = "chat-nexus-mode-acknowledged-v1";
@@ -353,6 +357,7 @@ export function ChatInput({
   isStreaming,
   disabled,
   conversationId,
+  projectId,
   onEnsureConversation,
   agentId,
   inputHistory = [],
@@ -371,7 +376,9 @@ export function ChatInput({
 }: ChatInputProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
-  const draftKey = conversationId ?? NEW_CONVERSATION_DRAFT_KEY;
+  const draftKey = conversationId ?? (projectId
+    ? `${NEW_CONVERSATION_DRAFT_KEY}:${projectId}`
+    : NEW_CONVERSATION_DRAFT_KEY);
   const initialDraftRef = useRef<ChatDraftState | null>(null);
   if (initialDraftRef.current === null) {
     initialDraftRef.current = readChatInputDraft(draftKey);
@@ -440,7 +447,7 @@ export function ChatInput({
   // being built, then send as soon as compaction completes.
   const hasImageAttachments = attachments.some((attachment) => attachment.mediaType.startsWith('image/'));
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
-  const inputLocked = disabled;
+  const inputLocked = disabled || loadedDraftKey !== draftKey;
   const sendLocked = inputLocked || isCompacting || visionDecisionRequired || sendPending;
   const attachmentLocked = inputLocked || isCompacting || isStreaming;
   const effectivePlanModeEnabled = planModeEnabled ?? localPlanModeEnabled;
@@ -536,8 +543,8 @@ export function ChatInput({
     let storedMode = readStoredPowerMode(draftKey);
     if (
       storedMode === null
-      && previousKey === NEW_CONVERSATION_DRAFT_KEY
-      && draftKey !== NEW_CONVERSATION_DRAFT_KEY
+      && isNewConversationDraftKey(previousKey)
+      && !isNewConversationDraftKey(draftKey)
       && powerMode === "nexus"
     ) {
       storedMode = "nexus";
@@ -546,8 +553,8 @@ export function ChatInput({
     setPowerModeState(storedMode ?? "standard");
     let storedPolicy = readStoredOrchestrationPolicy(draftKey);
     if (
-      previousKey === NEW_CONVERSATION_DRAFT_KEY
-      && draftKey !== NEW_CONVERSATION_DRAFT_KEY
+      isNewConversationDraftKey(previousKey)
+      && !isNewConversationDraftKey(draftKey)
       && storedPolicy.collaborationMode === "direct"
       && storedPolicy.orchestrationProfile === "balanced"
       && (collaborationMode === "mixtureOfAgents" || orchestrationProfile !== "balanced")
@@ -616,8 +623,8 @@ export function ChatInput({
     if (
       sendInFlightRef.current
       && transfer?.to !== draftKey
-      && previousKey === NEW_CONVERSATION_DRAFT_KEY
-      && draftKey !== NEW_CONVERSATION_DRAFT_KEY
+      && isNewConversationDraftKey(previousKey)
+      && !isNewConversationDraftKey(draftKey)
     ) {
       // First-send persistence changes the route before the async launch has
       // settled. Carry the draft to the durable conversation key so a later

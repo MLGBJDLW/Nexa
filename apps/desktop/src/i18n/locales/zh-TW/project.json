@@ -90,5 +90,7 @@
   "workspaceEventArtifact": "已新增產物",
   "workspaceEventOpenQuestion": "開放問題",
   "workspaceEventSource": "已新增來源",
-  "workspaceProvenance": "來源詳情"
+  "workspaceProvenance": "來源詳情",
+  "newConversationTitle": "在專案中開啟新對話",
+  "newConversationHint": "傳送第一則訊息後，對話將儲存在「{name}」中。"
 }

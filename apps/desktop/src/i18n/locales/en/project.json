@@ -90,5 +90,7 @@
   "workspaceEventArtifact": "Artifact added",
   "workspaceEventOpenQuestion": "Open question",
   "workspaceEventSource": "Source added",
-  "workspaceProvenance": "Source details"
+  "workspaceProvenance": "Source details",
+  "newConversationTitle": "Start a new conversation",
+  "newConversationHint": "Your first message will create a conversation in {name}."
 }

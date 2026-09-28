@@ -11,6 +11,8 @@ import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatInput, ActiveExten
 import { ApprovalDialog } from '../components/chat/ApprovalDialog';
 import { DecisionTray } from '../components/chat/DecisionTray';
 import { ContextPolicyPopover } from '../components/chat/ContextPolicyPopover';
+import { useActiveProject } from '../components/chat/ProjectSwitcher';
+import { ProjectConversationStart } from '../components/chat/ProjectConversationStart';
 import {
   TerminalDock,
   TERMINAL_TOGGLE_EVENT,
@@ -533,6 +535,7 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { activeProjectId, setProject } = useActiveProject();
 
   const onConversationCreated = useCallback(
     (id: string) => navigate(`/chat/${id}`, { replace: true }),
@@ -545,9 +548,10 @@ export function ChatPage() {
   const initialCollectionContext = (
     (location.state as { collectionContext?: Conversation['collectionContext'] } | null)?.collectionContext
   ) ?? null;
-  const initialProjectId = typeof (location.state as ChatRouteState | null)?.projectId === 'string'
-    ? (location.state as ChatRouteState).projectId?.trim() || null
-    : null;
+  const requestedProjectId = (location.state as ChatRouteState | null)?.projectId;
+  const initialProjectId = requestedProjectId === undefined
+    ? activeProjectId
+    : typeof requestedProjectId === 'string' ? requestedProjectId.trim() || null : null;
 
   // Source scope forwarded from route state, applied when the first send
   // auto-creates a conversation.
@@ -584,6 +588,10 @@ export function ChatPage() {
     initialProjectId,
     activePersonaId,
   });
+  useEffect(() => {
+    if (chat.activeConversation) setProject(chat.activeConversation.projectId ?? null);
+    else if (!chat.activeId && requestedProjectId !== undefined) setProject(initialProjectId);
+  }, [chat.activeId, chat.activeConversation?.id, chat.activeConversation?.projectId, requestedProjectId, initialProjectId, setProject]);
   const interactionState = useSyncExternalStore(
     interactionStore.subscribe,
     interactionStore.getState,
@@ -1198,18 +1206,31 @@ export function ChatPage() {
       }
       projectId = null;
     }
+    const nextProjectId = projectId === undefined ? activeProjectId : projectId;
     // Keep an untouched New Chat as a local draft. useChatSession persists it
     // atomically on the first send, which prevents empty history entries while
     // retaining the project selected in the sidebar.
     setActivePersonaId('default');
+    setProject(nextProjectId);
+    currentSourceIdsRef.current = [];
     chat.createNewConversation();
     navigate('/chat', {
-      state: projectId ? { projectId } satisfies ChatRouteState : null,
+      state: { projectId: nextProjectId } satisfies ChatRouteState,
     });
   }, [
     chat.createNewConversation,
     navigate,
+    activeProjectId,
+    setProject,
   ]);
+
+  const handleProjectChange = useCallback((projectId: string | null) => {
+    const displayedProjectMatches = chat.activeId
+      ? chat.activeConversation != null && (chat.activeConversation.projectId ?? null) === projectId
+      : initialProjectId === projectId;
+    if (projectId === activeProjectId && displayedProjectMatches) return;
+    handleNewConversation(projectId);
+  }, [activeProjectId, chat.activeId, chat.activeConversation, initialProjectId, handleNewConversation]);
 
   const handleCheckpointBranch = useCallback((conversation: Conversation) => {
     chat.setConversations((prev) => [conversation, ...prev.filter((c) => c.id !== conversation.id)]);
@@ -1678,6 +1699,8 @@ export function ChatPage() {
           <ChatSidebar
             conversations={chat.conversations}
             activeId={chat.activeId}
+            activeProjectId={activeProjectId}
+            onProjectChange={handleProjectChange}
             runningConversationIds={chat.runningConversationIds}
             activeConversationArchived={isArchivedConversation}
             onSelect={handleSelectConversation}
@@ -2011,12 +2034,16 @@ export function ChatPage() {
                 ? { duration: 0 }
                 : { type: 'spring', stiffness: 220, damping: 28, mass: 0.9 }}
             >
+              {!chat.activeId && initialProjectId && (
+                <ProjectConversationStart projectId={initialProjectId} />
+              )}
               <ChatInput
               onSend={handleComposerSend}
               onStop={chat.stop}
               isStreaming={chat.isStreaming}
               disabled={!chat.agentConfig || chat.loadingMsgs}
               conversationId={chat.activeId ?? undefined}
+              projectId={initialProjectId}
               agentId={selectedAgentConfig?.id ?? chat.agentConfig?.id}
               onEnsureConversation={chat.ensureConversation}
               inputHistory={chatInputHistory}

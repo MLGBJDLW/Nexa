@@ -90,5 +90,7 @@
   "workspaceEventArtifact": "결과물 추가됨",
   "workspaceEventOpenQuestion": "열린 질문",
   "workspaceEventSource": "출처 추가됨",
-  "workspaceProvenance": "출처 세부 정보"
+  "workspaceProvenance": "출처 세부 정보",
+  "newConversationTitle": "프로젝트에서 새 대화 시작",
+  "newConversationHint": "첫 메시지를 보내면 {name}에 대화가 생성됩니다."
 }

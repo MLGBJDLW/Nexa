@@ -91,6 +91,13 @@ without loading tool payload history. UI refreshes coalesce while one request
 is pending. Worker capsules merge durable and live identities, keep terminal
 states monotonic, and show compact task labels.
 
+Chat owns project selection and conversation navigation together. Creating or
+switching to a different project opens its new-conversation landing state;
+opening a saved conversation restores its own project selection. New drafts
+are keyed by project, including their text and attachments, and remain local
+until the first send (or an explicit screen-sharing operation) creates the
+conversation. Browser history restores the route's project before another send.
+
 The chat Git capsule reads the effective conversation/project source scope;
 unscoped chats use registered sources, matching file tools. The current linked
 terminal can also contribute its launch directory. It does not infer directories

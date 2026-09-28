@@ -90,5 +90,7 @@
   "workspaceEventArtifact": "Artefakt hinzugefügt",
   "workspaceEventOpenQuestion": "Offene Frage",
   "workspaceEventSource": "Quelle hinzugefügt",
-  "workspaceProvenance": "Quelldetails"
+  "workspaceProvenance": "Quelldetails",
+  "newConversationTitle": "Eine neue Unterhaltung beginnen",
+  "newConversationHint": "Deine erste Nachricht erstellt eine Unterhaltung in {name}."
 }

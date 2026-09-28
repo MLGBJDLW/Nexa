@@ -90,5 +90,7 @@
   "workspaceEventArtifact": "Артефакт добавлен",
   "workspaceEventOpenQuestion": "Открытый вопрос",
   "workspaceEventSource": "Источник добавлен",
-  "workspaceProvenance": "Сведения об источнике"
+  "workspaceProvenance": "Сведения об источнике",
+  "newConversationTitle": "Начать новый разговор",
+  "newConversationHint": "Первое сообщение создаст разговор в проекте «{name}»."
 }

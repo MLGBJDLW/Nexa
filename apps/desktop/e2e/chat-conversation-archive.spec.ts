@@ -59,6 +59,11 @@ test.beforeEach(async ({ page }) => {
     ];
     let active = [activeConversation];
     let archived = [archivedConversation];
+    const projects = [{
+      id: 'project-legacy', name: 'Legacy project', description: '', icon: 'folder',
+      color: '#3b82f6', systemPrompt: 'Current live project prompt', sourceScope: null,
+      archived: false, createdAt: nowIso, updatedAt: nowIso,
+    }];
     const commands: string[] = [];
     const createConversationArgs: Array<Record<string, unknown>> = [];
 
@@ -214,18 +219,15 @@ test.beforeEach(async ({ page }) => {
             },
           ];
         case 'list_projects_cmd':
-          return [{
-            id: 'project-legacy',
-            name: 'Legacy project',
-            description: '',
-            icon: 'folder',
-            color: '#3b82f6',
-            systemPrompt: 'Current live project prompt',
-            sourceScope: null,
-            archived: false,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          }];
+          return clone(projects);
+        case 'get_project_cmd':
+          return clone(projects.find(project => project.id === args.id));
+        case 'create_project_cmd': {
+          const input = args.input as { name: string };
+          const project = { ...projects[0], id: `project-${projects.length}`, name: input.name };
+          projects.push(project);
+          return clone(project);
+        }
         case 'get_index_stats':
           return { totalDocuments: 0, totalChunks: 0, ftsRows: 0 };
         case 'get_privacy_config':
@@ -373,6 +375,54 @@ test('archive feedback remains an overlay and never participates in the app layo
   expect(notificationLayout.right).toBeGreaterThanOrEqual(0);
   expect(notificationLayout.bottom).toBeGreaterThanOrEqual(0);
   expect(after).toEqual(before);
+});
+
+test('creating a project opens its own new conversation and first send uses that project', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await page.getByRole('textbox', { name: 'Type a message...' }).fill('Draft for the legacy conversation');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  await page.getByPlaceholder('Enter project name...').fill('Fresh project');
+  await sidebar.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page.getByTestId('project-new-conversation')).toContainText('Fresh project');
+  await expect(page.getByRole('textbox', { name: 'Type a message...' })).toHaveValue('');
+  await expect(sidebar.getByTestId('conversation-item-conv-active')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('new-project-conversation.png') });
+  await page.setViewportSize({ width: 680, height: 820 });
+  await expect.poll(() => page.getByTestId('chat-workspace-surface').evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath('new-project-conversation-narrow.png') });
+  await page.getByRole('textbox', { name: 'Type a message...' }).fill('First task in the fresh project');
+  await page.getByRole('textbox', { name: 'Type a message...' }).press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__[0]?.projectId)).toBe('project-1');
+  await expect(page).toHaveURL(/\/chat\/conv-new$/);
+});
+
+test('project drafts remain separate and browser navigation restores the selected project', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  const input = page.getByTestId('chat-input-textarea');
+  await sidebar.getByRole('button', { name: 'New Chat', exact: true }).click();
+  await input.fill('Unsent legacy project draft');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  await page.getByPlaceholder('Enter project name...').fill('Fresh project');
+  await sidebar.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(input).toHaveValue('');
+  await input.fill('Unsent fresh project draft');
+  await sidebar.getByRole('button', { name: 'Fresh project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await expect(input).toHaveValue('Unsent legacy project draft');
+  await expect(page.getByTestId('project-new-conversation')).toContainText('Legacy project');
+  await page.goBack();
+  await expect(sidebar.getByRole('button', { name: 'Fresh project', exact: true })).toBeVisible();
+  await expect(input).toHaveValue('Unsent fresh project draft');
+  await page.goForward();
+  await expect(sidebar.getByRole('button', { name: 'Legacy project', exact: true })).toBeVisible();
+  await expect(input).toHaveValue('Unsent legacy project draft');
+  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(0);
 });
 
 test('new chat stays an unpersisted draft until the first send', async ({ page }) => {

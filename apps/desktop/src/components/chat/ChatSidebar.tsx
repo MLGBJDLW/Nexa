@@ -27,7 +27,7 @@ import { parseAppDate } from '../../lib/dateTime';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { EmptyState } from '../ui/EmptyState';
-import { ProjectSwitcher, useActiveProject } from './ProjectSwitcher';
+import { ProjectSwitcher } from './ProjectSwitcher';
 import type { Project } from '../../types/project';
 import * as api from '../../lib/api';
 import { ProjectIcon } from '../../lib/projectIcons';
@@ -44,6 +44,8 @@ import type { Conversation } from '../../types/conversation';
 interface ChatSidebarProps {
   conversations: Conversation[];
   activeId: string | null;
+  activeProjectId: string | null;
+  onProjectChange: (id: string | null) => void;
   runningConversationIds: ReadonlySet<string>;
   activeConversationArchived: boolean;
   onSelect: (id: string) => void;
@@ -438,6 +440,8 @@ function ConversationItem({
 function ChatSidebarComponent({
   conversations,
   activeId,
+  activeProjectId,
+  onProjectChange,
   runningConversationIds,
   activeConversationArchived,
   onSelect,
@@ -464,7 +468,6 @@ function ChatSidebarComponent({
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(getPinnedIds);
-  const { activeProjectId, setProject } = useActiveProject();
 
   // Project-related state for move-to-project context menu
   const [moveMenuConvId, setMoveMenuConvId] = useState<string | null>(null);
@@ -523,6 +526,11 @@ function ChatSidebarComponent({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [showArchived, setShowArchived] = useState(false);
+  useEffect(() => {
+    setSearchQuery('');
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, [activeProjectId]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archivedError, setArchivedError] = useState<string | null>(null);
@@ -878,8 +886,8 @@ function ChatSidebarComponent({
           <h2 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
             {t('chat.title')}
           </h2>
-          {conversations.length > 0 && (
-            <Badge className="!text-[10px] !px-1.5">{conversations.length}</Badge>
+          {projectFiltered.length > 0 && (
+            <Badge className="!text-[10px] !px-1.5">{projectFiltered.length}</Badge>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -929,7 +937,7 @@ function ChatSidebarComponent({
 
       {/* Project switcher */}
       <div className="px-2 py-1.5 border-b border-border">
-        <ProjectSwitcher activeProjectId={activeProjectId} onProjectChange={setProject} />
+        <ProjectSwitcher activeProjectId={activeProjectId} onProjectChange={onProjectChange} />
       </div>
 
       <div className="border-b border-border px-2 py-1.5">
@@ -951,7 +959,7 @@ function ChatSidebarComponent({
       </div>
 
       {/* Search bar */}
-      {conversations.length > 0 && (
+      {projectFiltered.length > 0 && (
         <div className="px-2 py-2 border-b border-border">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-tertiary pointer-events-none" />
@@ -980,7 +988,7 @@ function ChatSidebarComponent({
 
       {/* Conversation list */}
       <div className="flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5">
-        {conversations.length === 0 ? (
+        {projectFiltered.length === 0 ? (
           <EmptyState
             icon={<MessageCircle className="h-6 w-6" />}
             title={t('chat.noConversations')}
