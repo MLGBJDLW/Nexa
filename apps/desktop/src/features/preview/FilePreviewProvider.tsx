@@ -374,6 +374,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const dirty = Boolean(preview?.editable && draft !== (preview.content ?? ''));
   const dirtyRef = useRef(false);
   const loadGeneration = useRef(0);
+  const previewConversationId = useRef<string | null>(null);
   const agentPreviewRequest = useRef<string | null>(null);
   const htmlRequest = useRef<AbortController | null>(null);
   const textPreview = useRef<HTMLTextAreaElement>(null);
@@ -411,15 +412,20 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const loadFile = useCallback(
     async (
       path: string,
-      options: { preferredMode?: PreviewMode } = {},
+      options: { preferredMode?: PreviewMode; conversationId?: string | null } = {},
     ) => {
       const generation = ++loadGeneration.current;
+      // An explicit null is an unscoped request, not the currently visible chat.
+      const owner = options.conversationId === undefined
+        ? /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1] ?? null
+        : options.conversationId;
       setLoading(true);
       setError(null);
       setActivePath(path);
       try {
-        const next = await api.previewFile(path, /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1]);
+        const next = await api.previewFile(path, owner ?? undefined);
         if (generation !== loadGeneration.current) return null;
+        previewConversationId.current = owner;
         setPreview(next);
         setDraft(next.content ?? '');
         setTextSelection(null);
@@ -456,7 +462,10 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       return receipt;
     }
     setOpen(true);
-    const next = await loadFile(request.path, { preferredMode: request.line ? 'text' : 'preview' });
+    const next = await loadFile(request.path, {
+      preferredMode: request.line ? 'text' : 'preview',
+      conversationId: request.conversationId,
+    });
     if (!next || agentPreviewRequest.current !== request.requestId) throw new Error('The preview failed or was replaced by another request.');
     if (next.content == null && !isMediaPreview(next) && !next.structuredPreview && !next.renderedPreview?.pages.length) throw new Error('Nexa cannot preview this file. No external application was opened.');
     if (isMediaPreview(next)) await new Promise<void>((resolve, reject) => { mediaReady.current = { path: next.path, resolve, reject }; });
@@ -1003,7 +1012,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                       type="button"
                       onClick={() => {
                         if (preview) {
-                          void loadFile(preview.path, { preferredMode: mode });
+                          void loadFile(preview.path, { preferredMode: mode, conversationId: previewConversationId.current });
                         }
                       }}
                       className="inline-flex h-8 items-center justify-center rounded-md px-2 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary"
