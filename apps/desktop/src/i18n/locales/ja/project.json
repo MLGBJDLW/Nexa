@@ -92,5 +92,16 @@
   "workspaceEventSource": "ソース追加",
   "workspaceProvenance": "ソースの詳細",
   "newConversationTitle": "プロジェクトで新しい会話を始める",
-  "newConversationHint": "最初のメッセージを送信すると、「{name}」に会話が作成されます。"
+  "newConversationHint": "最初のメッセージを送信すると、「{name}」に会話が作成されます。",
+  "welcomeTitle": "{name} へようこそ",
+  "workspaceFolders": "ワークスペースのフォルダー",
+  "workspaceFoldersHint": "最初のフォルダーが既定の作業ディレクトリです。複数のリポジトリを使う場合は追加できます。後から設定することもできます。",
+  "primaryFolder": "メインフォルダー",
+  "additionalFolder": "追加フォルダー",
+  "chooseFolder": "フォルダーを選択",
+  "folderPlaceholder": "フォルダーのパスを選択または貼り付け",
+  "makePrimary": "メインに設定",
+  "addFolder": "フォルダーを追加",
+  "appearance": "外観",
+  "editProject": "プロジェクトを編集"
 }

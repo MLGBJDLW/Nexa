@@ -23,7 +23,7 @@ Nexa tool dispatcher, approval callback, activity database, cancellation token,
 browser observation fence, message persistence and ordered Run Event outbox as
 direct chat. Tools retain their actual names and schemas.
 
-Each Nexa turn creates one upstream session. The driver remains in the backend
+Copilot and Codex create one upstream session per Nexa turn; ACP can reuse a completed session. The driver remains in the backend
 when the renderer reloads; reconciliation reads the existing outbox instead of
 submitting another upstream turn. Nexa's bounded reference history is supplied
 as reference context, without replaying another provider's native tool records.
@@ -49,9 +49,11 @@ The External agents catalog also includes these explicit launch presets:
 | Hermes Agent | `hermes acp` | Install with the ACP extra and configure its native account |
 
 Select an existing working directory and optionally an absolute executable path.
-Launch preferences are stored separately from API credentials and shared by all
-profiles using that agent. The process cwd and ACP session cwd match this explicit
-directory; Nexa never inherits its own process cwd. On Windows the launcher can
+Launch preferences are stored separately from API credentials under the exact
+saved profile ID. Editing one profile cannot redirect another profile. A project's
+primary workspace folder overrides the profile's fallback directory. The process
+cwd and ACP session cwd always agree; Nexa never infers an ACP cwd from its own
+process directory. On Windows the launcher can
 resolve installed npm `.cmd` shims. Nexa neither installs nor signs in silently.
 
 **Check connection** runs `initialize` and `session/new` without a prompt. It
@@ -66,15 +68,22 @@ profile, and unavailable models never silently switch providers.
 ACP tools execute in the external process with its native configuration and
 permission policy. Nexa projects `tool_call` reports with `providerExecuted` and
 does not run them again. ACP permission requests use Nexa's approval UI, bind to
-their session and call, and select only a corresponding one-time option; a
-reusable Nexa decision is never promoted into an upstream `allow_always` grant.
+the profile, working directory and stable action arguments, and select only a
+corresponding one-time option. Transient RPC/session IDs do not invalidate a
+reusable Nexa decision, but incomplete action details remain invocation-specific.
+A reusable Nexa decision is never promoted into an upstream `allow_always` grant.
 Nexa does not advertise filesystem/terminal RPC services. This does not sandbox
 native tools or prevent them accessing paths outside the selected directory.
 
 Text/thinking, native tool lifecycle, context usage snapshots and final message
 IDs flow through the existing ordered outbox. A fresh session receives bounded
-reference history each Nexa turn. Live renderer reload reads that outbox without
-resending a prompt. User steering is queued until the current native prompt ends.
+reference history. Completed sessions are cached by conversation, profile and
+launch configuration, with at most four idle sessions and a five-minute idle TTL.
+A warm turn sends only new input and changed context. Transcript edits, route
+changes, changed cwd, cancellation, process death and uncertain outcomes require
+a fresh session; effectful prompts are never retried automatically. Startup and
+waiting stages project into a single compact composer status row. Live renderer
+reload reads the existing outbox without resending a prompt. User steering is queued until the current native prompt ends.
 Stop sends `session/cancel` and tears down the process tree; transport loss and
 incomplete/unknown stop reasons retain partial text without emitting success.
 Native tool reports must finish before a successful terminal event. Context
@@ -84,9 +93,11 @@ estimated from an API price table.
 Nexa's tools, subagent scheduler, screen sharing, MoA and strict read-only Plan
 policy are not exposed by this ACP adapter. The composer hides controls it cannot
 honor. Native agent tool/configuration capabilities remain owned by that agent.
-Image input requires the runtime's advertised capability. Session load/resume,
-native audio and interactive terminal login are not implemented; process loss
-never triggers an automatic replay of uncertain tool effects.
+Image input requires the runtime's advertised capability. Upstream persisted
+session/load, native audio and interactive terminal login are not implemented.
+Nexa's explicit checkpoint Resume can continue in a fresh native session after
+restart, carrying retained output and reconciliation instructions. It does not
+claim exact restoration of an interrupted native tool or replay it automatically.
 
 Protocol references: [Zed external agents](https://zed.dev/docs/ai/external-agents),
 [ACP v1](https://agentclientprotocol.com/protocol/v1/initialization),

@@ -92,5 +92,16 @@
   "workspaceEventSource": "Fonte adicionada",
   "workspaceProvenance": "Detalhes da fonte",
   "newConversationTitle": "Iniciar uma nova conversa",
-  "newConversationHint": "Sua primeira mensagem criará uma conversa em {name}."
+  "newConversationHint": "Sua primeira mensagem criará uma conversa em {name}.",
+  "welcomeTitle": "Boas-vindas a {name}",
+  "workspaceFolders": "Pastas do espaço de trabalho",
+  "workspaceFoldersHint": "A primeira pasta é o diretório de trabalho padrão. Adicione outras se o projeto abranger vários repositórios. Você pode configurar depois.",
+  "primaryFolder": "Pasta principal",
+  "additionalFolder": "Pasta adicional",
+  "chooseFolder": "Escolher pasta",
+  "folderPlaceholder": "Escolha ou cole um caminho de pasta",
+  "makePrimary": "Definir como principal",
+  "addFolder": "Adicionar pasta",
+  "appearance": "Aparência",
+  "editProject": "Editar projeto"
 }

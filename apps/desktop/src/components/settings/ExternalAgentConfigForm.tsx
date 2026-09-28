@@ -25,13 +25,13 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   const generation = useRef(0);
   useEffect(() => {
     const current = ++generation.current;
-    void getExternalAgentLaunch(preset.provider).then(value => {
+    void getExternalAgentLaunch(config?.id).then(value => {
       if (generation.current !== current) return;
       setLaunch(value); setInitialLaunch(value);
     }).catch(cause => { if (generation.current === current) setError(String(cause)); })
       .finally(() => { if (generation.current === current) setLoading(false); });
     return () => { generation.current += 1; };
-  }, [preset.provider]);
+  }, [config?.id]);
   const changeLaunch = (next: ExternalAgentLaunch) => {
     generation.current += 1;
     setLaunch(next); setVerified(false); setModels([]); setLoading(false); setError(null); onDirtyChange(true);

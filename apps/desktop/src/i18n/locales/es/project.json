@@ -92,5 +92,16 @@
   "workspaceEventSource": "Fuente añadida",
   "workspaceProvenance": "Detalles de la fuente",
   "newConversationTitle": "Iniciar una nueva conversación",
-  "newConversationHint": "Tu primer mensaje creará una conversación en {name}."
+  "newConversationHint": "Tu primer mensaje creará una conversación en {name}.",
+  "welcomeTitle": "Te damos la bienvenida a {name}",
+  "workspaceFolders": "Carpetas del espacio de trabajo",
+  "workspaceFoldersHint": "La primera carpeta es el directorio de trabajo predeterminado. Añade otras si el proyecto abarca varios repositorios. Puedes configurarlo más tarde.",
+  "primaryFolder": "Carpeta principal",
+  "additionalFolder": "Carpeta adicional",
+  "chooseFolder": "Elegir carpeta",
+  "folderPlaceholder": "Elige o pega una ruta de carpeta",
+  "makePrimary": "Establecer como principal",
+  "addFolder": "Añadir carpeta",
+  "appearance": "Apariencia",
+  "editProject": "Editar proyecto"
 }

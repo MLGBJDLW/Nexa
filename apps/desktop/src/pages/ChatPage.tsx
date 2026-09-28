@@ -13,6 +13,7 @@ import { DecisionTray } from '../components/chat/DecisionTray';
 import { ContextPolicyPopover } from '../components/chat/ContextPolicyPopover';
 import { useActiveProject } from '../components/chat/ProjectSwitcher';
 import { ProjectConversationStart } from '../components/chat/ProjectConversationStart';
+import { ExternalAgentProgress } from '../components/chat/ExternalAgentProgress';
 import {
   TerminalDock,
   TERMINAL_TOGGLE_EVENT,
@@ -61,6 +62,7 @@ interface ChatRouteState {
   initialMessage?: string;
   systemPrompt?: string;
   projectId?: string | null;
+  startConversation?: boolean;
   taskOrchestratorRunId?: string | null;
   resumeCheckpointId?: string | null;
 }
@@ -924,11 +926,29 @@ export function ChatPage() {
     [handleChatSend],
   );
 
+  const resumeOwner = useRef({ conversation: chat.activeId, run: chat.taskRun?.id, status: chat.taskRun?.status });
+  resumeOwner.current = { conversation: chat.activeId, run: chat.taskRun?.id, status: chat.taskRun?.status };
+  const resumeInFlight = useRef(false);
+  const [resumableRunId, setResumableRunId] = useState<string | null>(null);
+  useEffect(() => {
+    setResumableRunId(null);
+    const run = chat.taskRun;
+    if (!run || run.status !== 'paused' || chat.loadingMsgs || chat.isStreaming) return;
+    let current = true;
+    void api.getTaskResumePrompt(run.id).then(resume => {
+      if (current && resume.run.status === 'paused' && resume.run.id === run.id && resume.checkpoint.runId === run.id) setResumableRunId(run.id);
+    }).catch(() => { /* The task center remains available for recovery diagnostics. */ });
+    return () => { current = false; };
+  }, [chat.activeId, chat.taskRun?.id, chat.taskRun?.status, chat.loadingMsgs, chat.isStreaming]);
+
   const handleResumePaused = useCallback(async () => {
     const run = chat.taskRun;
-    if (!run || run.status !== 'paused') return;
+    if (!run || run.status !== 'paused' || resumeInFlight.current) return;
+    const conversation = chat.activeId;
+    resumeInFlight.current = true;
     try {
       const resume = await api.getTaskResumePrompt(run.id);
+      if (resumeOwner.current.conversation !== conversation || resumeOwner.current.run !== run.id || resumeOwner.current.status !== 'paused') return;
       if (resume.run.id !== run.id || resume.checkpoint.runId !== run.id) {
         throw new Error('Resume checkpoint does not belong to the active task');
       }
@@ -947,8 +967,10 @@ export function ChatPage() {
       );
     } catch (error) {
       toast.error(formatUserError(t('taskCenter.resumeError'), error));
+    } finally {
+      resumeInFlight.current = false;
     }
-  }, [chat.send, chat.taskRun, t]);
+  }, [chat.activeId, chat.send, chat.taskRun, t]);
 
   const handleClearGraphContext = useCallback(() => {
     clearGraphAgentContext();
@@ -1196,7 +1218,7 @@ export function ChatPage() {
     [chat.setActiveConversation, navigate],
   );
 
-  const handleNewConversation = useCallback((projectId?: string | null) => {
+  const handleNewConversation = useCallback((projectId?: string | null, welcome = false) => {
     // Defensive guard: if a React SyntheticEvent / DOM node leaks in as projectId
     // (e.g. onClick={handler} passes MouseEvent), drop it to avoid circular JSON.
     if (projectId != null && typeof projectId !== 'string') {
@@ -1215,7 +1237,7 @@ export function ChatPage() {
     currentSourceIdsRef.current = [];
     chat.createNewConversation();
     navigate('/chat', {
-      state: { projectId: nextProjectId } satisfies ChatRouteState,
+      state: { projectId: nextProjectId, startConversation: !welcome } satisfies ChatRouteState,
     });
   }, [
     chat.createNewConversation,
@@ -1229,7 +1251,7 @@ export function ChatPage() {
       ? chat.activeConversation != null && (chat.activeConversation.projectId ?? null) === projectId
       : initialProjectId === projectId;
     if (projectId === activeProjectId && displayedProjectMatches) return;
-    handleNewConversation(projectId);
+    handleNewConversation(projectId, true);
   }, [activeProjectId, chat.activeId, chat.activeConversation, initialProjectId, handleNewConversation]);
 
   const handleCheckpointBranch = useCallback((conversation: Conversation) => {
@@ -1911,7 +1933,6 @@ export function ChatPage() {
               onDeleteMessage={isArchivedConversation ? undefined : chat.deleteMessage}
               onEditAndResend={isArchivedConversation ? undefined : chat.editAndResend}
               onApprovePlan={isArchivedConversation ? undefined : handleApprovePlan}
-              onResumePaused={isArchivedConversation ? undefined : handleResumePaused}
               onQuestionSubmit={isArchivedConversation ? undefined : handleQuestionSubmit}
               loadingMsgs={chat.loadingMsgs}
               lastCached={chat.lastCached}
@@ -2034,13 +2055,15 @@ export function ChatPage() {
                 ? { duration: 0 }
                 : { type: 'spring', stiffness: 220, damping: 28, mass: 0.9 }}
             >
-              {!chat.activeId && initialProjectId && (
-                <ProjectConversationStart projectId={initialProjectId} />
-              )}
-              <ChatInput
+              {!chat.activeId && initialProjectId && !routeState?.startConversation ? (
+                <ProjectConversationStart projectId={initialProjectId} onStart={() => navigate('/chat', {
+                  replace: true, state: { ...routeState, projectId: initialProjectId, startConversation: true } satisfies ChatRouteState,
+                })} />
+              ) : <><ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
               agentRuntime={selectedAgentConfig && findProviderPreset(selectedAgentConfig)?.runtime === 'acp' ? 'acp' : manualCompactionAvailable ? 'api' : 'subscription'}
               onSend={handleComposerSend}
               onStop={chat.stop}
+              onResume={resumableRunId === chat.taskRun?.id && chat.taskRun?.status === 'paused' && !chat.isStreaming ? handleResumePaused : undefined}
               isStreaming={chat.isStreaming}
               disabled={!chat.agentConfig || chat.loadingMsgs}
               conversationId={chat.activeId ?? undefined}
@@ -2086,7 +2109,7 @@ export function ChatPage() {
               } : undefined}
               onBranchCheckpoint={handleCheckpointBranch}
               placement={centerComposer ? 'center' : 'bottom'}
-              />
+              /></>}
             </motion.div>
             )}
             {chat.activeId && !isArchivedConversation && (

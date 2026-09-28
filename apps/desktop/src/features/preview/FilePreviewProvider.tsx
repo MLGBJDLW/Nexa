@@ -418,7 +418,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setError(null);
       setActivePath(path);
       try {
-        const next = await api.previewFile(path);
+        const next = await api.previewFile(path, /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1]);
         if (generation !== loadGeneration.current) return null;
         setPreview(next);
         setDraft(next.content ?? '');
@@ -442,7 +442,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
         if (generation === loadGeneration.current) setLoading(false);
       }
     },
-    [labels.loadFailed],
+    [labels.loadFailed, location.pathname],
   );
 
   useAgentPreviewRequests(async (request: AgentPreviewRequest) => {

@@ -52,6 +52,7 @@ import {
 import { EmojiPicker } from "./EmojiPicker";
 import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
+import { Play } from 'lucide-react';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -77,6 +78,7 @@ interface ChatInputProps {
     options?: ChatInputSendOptions,
   ) => Promise<boolean>;
   onStop: () => void;
+  onResume?: () => Promise<void>;
   isStreaming: boolean;
   disabled: boolean;
   conversationId?: string;
@@ -355,6 +357,7 @@ function isCaretAtInputHistoryBoundary(
 export function ChatInput({
   onSend,
   onStop,
+  onResume,
   isStreaming,
   disabled,
   conversationId,
@@ -984,6 +987,12 @@ export function ChatInput({
   const handleSend = useCallback(async () => {
     if (sendLocked || sendInFlightRef.current) return;
     const trimmed = value.trim();
+    if (!isStreaming && onResume && !trimmed && attachments.length === 0 && !activeSlashCommand) {
+      sendInFlightRef.current = true;
+      setSendPending(true);
+      try { await onResume(); } finally { sendInFlightRef.current = false; setSendPending(false); }
+      return;
+    }
     if (!trimmed && attachments.length === 0 && !activeSlashCommand) return;
     if (isStreaming && (!trimmed || attachments.length > 0)) {
       toast.error(t("chat.attachmentWhileRunning"));
@@ -1096,7 +1105,7 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -2153,13 +2162,16 @@ export function ChatInput({
                 sendLocked ||
                 (isStreaming
                   ? !value.trim() || attachments.length > 0
-                  : !value.trim() && attachments.length === 0 && !activeSlashCommand)
+                  : !onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand)
               }
               data-testid="chat-send"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-text-primary/10 bg-text-primary text-surface-0 shadow-[0_8px_20px_rgba(0,0,0,0.22)] transition-[background-color,border-color,color,box-shadow,transform] duration-fast ease-out cursor-pointer hover:-translate-y-0.5 hover:bg-text-secondary hover:shadow-[0_10px_24px_rgba(0,0,0,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 disabled:pointer-events-none disabled:translate-y-0 disabled:border-border disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none"
-              aria-label={isStreaming ? t("chat.steeringMessage") : t("chat.send")}
+              title={!isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : undefined}
+              aria-label={isStreaming ? t("chat.steeringMessage") : onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : t("chat.send")}
             >
-              <ArrowUp className="h-4 w-4" strokeWidth={2.4} />
+              {sendPending ? <Loader2 className="h-4 w-4 animate-spin" /> : !isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand
+                ? <Play className="h-3.5 w-3.5" fill="currentColor" strokeWidth={1.8} />
+                : <ArrowUp className="h-4 w-4" strokeWidth={2.4} />}
             </button>
           </div>
         </div>

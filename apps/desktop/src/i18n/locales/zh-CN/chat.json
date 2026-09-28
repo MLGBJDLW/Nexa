@@ -766,5 +766,11 @@
   "gitNoDiff": "此处没有差异。",
   "gitNoSources": "关联来源文件夹或打开此会话的终端，即可检测 Git。",
   "gitNoRepository": "关联文件夹中未检测到 Git 仓库。",
-  "gitStatusFailed": "Git 状态未能完整刷新。"
+  "gitStatusFailed": "Git 状态未能完整刷新。",
+  "agentStarting": "正在启动 Agent",
+  "agentConnecting": "正在连接 Agent",
+  "agentPreparing": "正在准备会话",
+  "agentReusing": "正在复用 Agent 会话",
+  "agentWaiting": "正在等待响应",
+  "resumeTask": "继续任务"
 }

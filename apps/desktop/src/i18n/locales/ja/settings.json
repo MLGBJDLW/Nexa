@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "インストールとログインのガイド"
   ,"externalAgentExecutable": "実行ファイルのパス（任意）"
   ,"externalAgentDirectory": "作業ディレクトリ"
-  ,"externalAgentDirectoryHint": "同じエージェントの設定で共有されます。ネイティブツールは他のディレクトリにもアクセスできます。"
+  ,"externalAgentDirectoryHint": "プロジェクトのメインフォルダーを優先します。この代替フォルダーはこのプロファイルのみで使用します。"
   ,"externalAgentConnected": "セッションを作成し、モデルを取得しました。推論は未検証です。"
   ,"externalAgentProbe": "接続を確認"
   ,"externalAgentControls": "ツールと実行設定は外部エージェントが管理します。"

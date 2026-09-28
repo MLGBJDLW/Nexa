@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "安裝與登入指南"
   ,"externalAgentExecutable": "執行檔路徑（選填）"
   ,"externalAgentDirectory": "工作目錄"
-  ,"externalAgentDirectoryHint": "同一 Agent 的設定共用此目錄，原生工具也可能存取其他目錄。"
+  ,"externalAgentDirectoryHint": "優先使用專案主目錄；此備用目錄僅供目前設定使用。"
   ,"externalAgentConnected": "已建立工作階段並取得模型，尚未測試推論。"
   ,"externalAgentProbe": "檢查連線"
   ,"externalAgentControls": "工具與執行設定由外部 Agent 管理。"

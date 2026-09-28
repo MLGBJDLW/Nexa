@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "安装与登录指南"
   ,"externalAgentExecutable": "可执行文件路径（可选）"
   ,"externalAgentDirectory": "工作目录"
-  ,"externalAgentDirectoryHint": "同一 Agent 的配置共用此目录，原生工具也可能访问其他目录。"
+  ,"externalAgentDirectoryHint": "优先使用项目主目录；此备用目录仅用于当前配置。"
   ,"externalAgentConnected": "已建立会话并获取模型，尚未测试推理。"
   ,"externalAgentProbe": "检查连接"
   ,"externalAgentControls": "工具和运行设置由外部 Agent 管理。"

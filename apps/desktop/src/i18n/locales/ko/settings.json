@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "설치 및 로그인 안내"
   ,"externalAgentExecutable": "실행 파일 경로 (선택)"
   ,"externalAgentDirectory": "작업 디렉터리"
-  ,"externalAgentDirectoryHint": "같은 에이전트의 설정에서 공유합니다. 기본 도구는 다른 디렉터리에도 접근할 수 있습니다."
+  ,"externalAgentDirectoryHint": "프로젝트 기본 폴더가 우선합니다. 이 대체 폴더는 현재 프로필에서만 사용됩니다."
   ,"externalAgentConnected": "세션을 만들고 모델을 불러왔습니다. 추론은 아직 테스트하지 않았습니다."
   ,"externalAgentProbe": "연결 확인"
   ,"externalAgentControls": "도구와 실행 설정은 외부 에이전트가 관리합니다."

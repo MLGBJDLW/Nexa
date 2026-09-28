@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "Guía de instalación e inicio de sesión"
   ,"externalAgentExecutable": "Ruta del ejecutable (opcional)"
   ,"externalAgentDirectory": "Directorio de trabajo"
-  ,"externalAgentDirectoryHint": "Compartido por los perfiles de este agente. Las herramientas nativas también pueden acceder a otros directorios."
+  ,"externalAgentDirectoryHint": "La carpeta principal del proyecto tiene prioridad. Esta carpeta alternativa solo se usa en este perfil."
   ,"externalAgentConnected": "Sesión creada y modelos cargados. Aún no se ha probado la inferencia."
   ,"externalAgentProbe": "Comprobar conexión"
   ,"externalAgentControls": "El agente externo gestiona las herramientas y los ajustes de ejecución."

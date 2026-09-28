@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "Guia de instalação e login"
   ,"externalAgentExecutable": "Caminho do executável (opcional)"
   ,"externalAgentDirectory": "Diretório de trabalho"
-  ,"externalAgentDirectoryHint": "Compartilhado pelos perfis deste agente. As ferramentas nativas também podem acessar outros diretórios."
+  ,"externalAgentDirectoryHint": "A pasta principal do projeto tem prioridade. Esta pasta alternativa vale apenas para este perfil."
   ,"externalAgentConnected": "Sessão criada e modelos carregados. A inferência ainda não foi testada."
   ,"externalAgentProbe": "Verificar conexão"
   ,"externalAgentControls": "As ferramentas e configurações de execução são gerenciadas pelo agente externo."

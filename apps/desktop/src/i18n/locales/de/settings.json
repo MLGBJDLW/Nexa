@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "Installation und Anmeldung"
   ,"externalAgentExecutable": "Programmpfad (optional)"
   ,"externalAgentDirectory": "Arbeitsverzeichnis"
-  ,"externalAgentDirectoryHint": "Für Profile dieses Agenten gemeinsam. Native Werkzeuge können auch auf andere Verzeichnisse zugreifen."
+  ,"externalAgentDirectoryHint": "Der Hauptordner des Projekts hat Vorrang. Dieser Ersatzordner gilt nur für dieses Profil."
   ,"externalAgentConnected": "Sitzung erstellt und Modelle geladen. Inferenz wurde noch nicht getestet."
   ,"externalAgentProbe": "Verbindung prüfen"
   ,"externalAgentControls": "Werkzeuge und Laufzeiteinstellungen werden vom externen Agenten verwaltet."

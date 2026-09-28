@@ -766,5 +766,11 @@
   "gitNoDiff": "差分はありません。",
   "gitNoSources": "ソースフォルダーを関連付けるか、このチャットのターミナルを開いて Git を確認してください。",
   "gitNoRepository": "関連付けられたフォルダーに Git リポジトリはありません。",
-  "gitStatusFailed": "Git の状態を完全に更新できませんでした。"
+  "gitStatusFailed": "Git の状態を完全に更新できませんでした。",
+  "agentStarting": "エージェントを起動中",
+  "agentConnecting": "エージェントに接続中",
+  "agentPreparing": "セッションを準備中",
+  "agentReusing": "エージェントのセッションを再利用中",
+  "agentWaiting": "応答を待機中",
+  "resumeTask": "タスクを再開"
 }

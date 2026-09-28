@@ -92,5 +92,16 @@
   "workspaceEventSource": "Source added",
   "workspaceProvenance": "Source details",
   "newConversationTitle": "Start a new conversation",
-  "newConversationHint": "Your first message will create a conversation in {name}."
+  "newConversationHint": "Your first message will create a conversation in {name}.",
+  "welcomeTitle": "Welcome to {name}",
+  "workspaceFolders": "Workspace folders",
+  "workspaceFoldersHint": "The first folder is the default working directory. Add more folders when this project spans multiple repositories. You can set this later.",
+  "primaryFolder": "Primary folder",
+  "additionalFolder": "Additional folder",
+  "chooseFolder": "Choose folder",
+  "folderPlaceholder": "Choose or paste a folder path",
+  "makePrimary": "Make primary",
+  "addFolder": "Add folder",
+  "appearance": "Appearance",
+  "editProject": "Edit project"
 }

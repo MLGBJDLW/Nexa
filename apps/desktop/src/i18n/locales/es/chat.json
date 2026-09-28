@@ -766,5 +766,11 @@
   "gitNoDiff": "Sin diferencias.",
   "gitNoSources": "Vincula una carpeta de origen o abre una terminal para este chat para consultar Git.",
   "gitNoRepository": "No hay repositorios Git en las carpetas vinculadas.",
-  "gitStatusFailed": "No se pudo actualizar todo el estado de Git."
+  "gitStatusFailed": "No se pudo actualizar todo el estado de Git.",
+  "agentStarting": "Iniciando agente",
+  "agentConnecting": "Conectando al agente",
+  "agentPreparing": "Preparando sesión",
+  "agentReusing": "Reanudando sesión del agente",
+  "agentWaiting": "Esperando respuesta",
+  "resumeTask": "Reanudar tarea"
 }

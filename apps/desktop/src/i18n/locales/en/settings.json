@@ -1065,7 +1065,7 @@
   ,"externalAgentSetup": "Installation and sign-in guide"
   ,"externalAgentExecutable": "Executable path (optional)"
   ,"externalAgentDirectory": "Working directory"
-  ,"externalAgentDirectoryHint": "Shared by profiles using this agent. Native tools can also access other directories."
+  ,"externalAgentDirectoryHint": "The project’s primary folder takes priority. This fallback folder is used only by this profile."
   ,"externalAgentConnected": "Session created and models loaded. Inference has not been tested."
   ,"externalAgentProbe": "Check connection"
   ,"externalAgentControls": "Tools and runtime settings are managed by the external agent."

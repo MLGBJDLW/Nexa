@@ -472,7 +472,7 @@ test.beforeEach(async ({ page }) => {
         case 'save_external_agent_profile_cmd':
           localStorage.setItem('nexa-e2e-acp-launch', JSON.stringify({ provider: (_args.config as { provider: string }).provider, launch: _args.launch }));
           (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig = clone(_args.config);
-          return null;
+          return { ...(_args.config as Record<string, unknown>), id: 'external-profile' };
         case "get_codex_account_snapshot_cmd": {
           const state = localStorage.getItem("nexa-e2e-codex-account") ?? "signed-in";
           const oneShotDelayMs = Number(
@@ -2336,7 +2336,7 @@ test("custom wallpaper appearances cover every workspace surface without sacrifi
   surfaceAlphas.workflowPage = await backgroundAlpha(workflowSurface);
 
   await page.goto("/chat");
-  const chatSidebar = page.getByTestId("chat-history-sidebar").locator(":scope > div > div");
+  const chatSidebar = page.getByTestId("chat-history-sidebar").locator('[data-theme-surface="chrome"]').first();
   const chatContent = page.getByTestId("chat-reading-surface");
   const chatWorkspace = page.getByTestId("chat-workspace-surface");
   await expect(chatSidebar).toBeVisible();
