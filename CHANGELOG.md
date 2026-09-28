@@ -21,6 +21,16 @@
 * **release:** avoid duplicate version headings in update notes ([93ef648](https://github.com/MLGBJDLW/Nexa/commit/93ef6483339cc9b9df24a4a296b1fc39dd6ba0f7))
 * **release:** keep note tooling compatible with older draft candidates ([40822c4](https://github.com/MLGBJDLW/Nexa/commit/40822c4136b31f9d9be9078cb73e3a164480040d))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at a73e9010599b17c2dbc952eecbecd111706b1af7 -->
+
+### What's Changed
+* feat: refine chat workspaces, agent runtimes, and releases by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/429
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.16...nexa-monorepo-v0.14.17
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.15...nexa-monorepo-v0.14.16) (2026-09-26)
 
 
