@@ -13,7 +13,7 @@ use crate::error::CoreError;
 use crate::office_runtime;
 
 use super::path_utils::resolve_existing_directory_for_file_access;
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/office_artifact.json");
@@ -1098,10 +1098,8 @@ fn engine_arguments(args: &OfficeArtifactArgs) -> Result<(Vec<String>, String), 
 
 fn resolve_workspace(
     requested: &str,
-    db: &Database,
-    source_scope: &[String],
+    policy: &super::FileAccessPolicy,
 ) -> Result<PathBuf, CoreError> {
-    let policy = file_access_policy(db, source_scope)?;
     resolve_existing_directory_for_file_access(
         Path::new(requested),
         &policy.sources,
@@ -1337,17 +1335,17 @@ impl Tool for OfficeArtifactTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
             db,
-            source_scope,
             ..
         } = context;
         let args: OfficeArtifactArgs = serde_json::from_str(arguments).map_err(|error| {
             CoreError::InvalidInput(format!("Invalid office_artifact arguments: {error}"))
         })?;
-        let workspace = resolve_workspace(&args.workspace_root, db, source_scope)?;
+        let workspace = resolve_workspace(&args.workspace_root, &file_policy)?;
         if matches!(
             args.action,
             OfficeArtifactAction::LiveStatus
@@ -1512,7 +1510,11 @@ mod tests {
                 let args: OfficeArtifactArgs = serde_json::from_str(&normalized).unwrap();
                 assert_eq!(Path::new(&args.workspace_root), workspace);
                 assert_eq!(
-                    resolve_workspace(&args.workspace_root, &db, &[]).unwrap(),
+                    resolve_workspace(
+                        &args.workspace_root,
+                        &crate::tools::file_access_policy(&db, &[]).unwrap()
+                    )
+                    .unwrap(),
                     std::fs::canonicalize(&workspace).unwrap()
                 );
                 let (_, request_json) = engine_arguments(&args).unwrap();

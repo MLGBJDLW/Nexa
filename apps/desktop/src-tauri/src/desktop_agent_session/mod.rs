@@ -171,6 +171,7 @@ pub struct DesktopAgentTurnConfigRequest<'a> {
 }
 
 pub struct DesktopAgentTurnConfig {
+    pub workspace: Option<nexa_core::workspace::Workspace>,
     pub executor_config: AgentConfig,
     pub context_window_resolution: ResolvedContextWindow,
     pub source_scope_ids: Vec<String>,
@@ -265,6 +266,7 @@ pub struct DesktopAgentPostSuccessLearningRequest {
 }
 
 pub struct DesktopAgentSessionConfigInput<'a> {
+    pub workspace: Option<&'a nexa_core::workspace::Workspace>,
     pub db: &'a Database,
     pub conversation_id: &'a str,
     pub task_run_id: &'a str,
@@ -281,6 +283,7 @@ pub struct DesktopAgentSessionConfigInput<'a> {
 }
 
 pub struct DesktopAgentSessionDependencyRequest<'a> {
+    pub workspace: Option<nexa_core::workspace::Workspace>,
     pub preview_host: Arc<dyn nexa_core::tools::open_in_nexa_tool::NexaPreviewHost>,
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeKind>,
     pub db: &'a Database,
@@ -337,7 +340,10 @@ pub struct DesktopAgentStopFinalization<'a> {
 
 pub enum DesktopAgentBackend {
     Nexa(Box<dyn LlmProvider>),
-    Runtime(crate::agent_runtime::AgentRuntimeKind),
+    Runtime {
+        kind: crate::agent_runtime::AgentRuntimeKind,
+        external: Option<crate::agent_runtime::ExternalAgentBinding>,
+    },
 }
 
 pub struct DesktopAgentTurnRequest {

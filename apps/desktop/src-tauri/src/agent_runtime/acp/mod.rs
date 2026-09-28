@@ -1,6 +1,7 @@
 //! Native ACP agents own their tools and authentication. No API key is borrowed,
 //! no reported tool is executed twice, and uncertain prompts are never replayed.
 mod catalog;
+mod pool;
 mod projection;
 #[cfg(test)]
 mod tests;
@@ -15,6 +16,7 @@ use nexa_core::{
     external_agent::{preset, ExternalAgentLaunch},
     llm::Message,
 };
+pub(crate) use pool::shutdown;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use transport::{rpc_result, Wire};
@@ -47,14 +49,94 @@ pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Res
     if request.config.execution_mode == AgentExecutionMode::Plan {
         return Err(error("Nexa Plan mode is unavailable for native ACP agents. Use a direct API agent for a read-only plan."));
     }
-    let launch = request.db.external_agent_launch(provider)?;
-    let wire = Wire::start(
-        preset(provider).ok_or_else(|| error("Unknown external agent"))?,
-        &launch,
+    let binding = request
+        .external
+        .as_ref()
+        .ok_or_else(|| error("Select an external-agent profile before starting a turn"))?
+        .clone();
+    let key = json!([
+        provider,
+        binding.profile_id,
+        binding.launch,
+        request.conversation_id,
+        request.dependencies.tools.workspace(),
+        request.db.load_privacy_config()?
+    ])
+    .to_string();
+    let history = history_fingerprint(
+        &request.db,
+        &request.conversation_id,
+        Some(request.next_sort_order - 1),
     )?;
-    run_connected(provider, request, wire, &launch.working_directory).await
+    let db = request.db.clone();
+    let conversation = request.conversation_id.clone();
+    let mut connection = match pool::take(&key, &history) {
+        Some(connection) => {
+            stage(&request.events, "reusing").await?;
+            connection
+        }
+        None => {
+            stage(&request.events, "starting").await?;
+            let mut wire = Wire::start(
+                preset(provider).ok_or_else(|| error("Unknown external agent"))?,
+                &binding.launch,
+            )?;
+            stage(&request.events, "connecting").await?;
+            let session = tokio::select! {
+                _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while connecting".into())),
+                result = Session::connect(&mut wire, &binding.launch.working_directory) => result?,
+            };
+            pool::Connected {
+                wire,
+                session,
+                history: String::new(),
+                context: String::new(),
+            }
+        }
+    };
+    let answer = run_initialized(provider, request, &mut connection).await?;
+    // A changed/rewound transcript, different profile or workspace never reuses
+    // hidden upstream state. Only a completed, persisted turn is cached.
+    if let Ok(history) = history_fingerprint(&db, &conversation, None) {
+        connection.history = history;
+        pool::put(key, connection);
+    }
+    Ok(answer)
 }
 
+fn history_fingerprint(
+    db: &nexa_core::db::Database,
+    conversation: &str,
+    before: Option<i64>,
+) -> Result<String> {
+    let history = db
+        .get_messages(conversation)?
+        .into_iter()
+        .filter(|message| before.is_none_or(|before| message.sort_order < before))
+        .map(|message| {
+            json!([
+                message.id,
+                message.role,
+                message.content,
+                message.image_attachments
+            ])
+        })
+        .collect::<Vec<_>>();
+    Ok(blake3::hash(serde_json::to_vec(&history)?.as_slice()).to_string())
+}
+
+async fn stage(events: &tokio::sync::mpsc::Sender<AgentEvent>, value: &str) -> Result<()> {
+    events
+        .send(AgentEvent::ControllerStatus {
+            code: format!("external_agent_{value}"),
+            content: format!("External agent: {value}"),
+            tone: None,
+        })
+        .await
+        .map_err(error)
+}
+
+#[cfg(test)]
 async fn run_connected(
     provider: &str,
     request: AgentRuntimeTurnRequest,
@@ -66,23 +148,68 @@ async fn run_connected(
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while connecting".into())),
         result = Session::connect(&mut wire, cwd) => result?,
     };
+    let mut connection = pool::Connected {
+        wire,
+        session,
+        history: String::new(),
+        context: String::new(),
+    };
+    run_initialized(provider, request, &mut connection).await
+}
+
+async fn run_initialized(
+    provider: &str,
+    mut request: AgentRuntimeTurnRequest,
+    connection: &mut pool::Connected,
+) -> Result<Message> {
+    let cancellation = request.cancellation.clone();
     let model = request
         .config
         .model
         .as_deref()
         .unwrap_or(catalog::DEFAULT_MODEL);
+    stage(&request.events, "model").await?;
     tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while selecting model".into())),
-        result = session.select_model(&mut wire, model) => result?,
+        result = connection.session.select_model(&mut connection.wire, model) => result?,
     }
-    let mut turn = request.prepare(session.images)?;
+    request
+        .events
+        .send(AgentEvent::ControllerStatus {
+            code: "provider_connected".into(),
+            content: "External agent connected".into(),
+            tone: None,
+        })
+        .await
+        .map_err(error)?;
+    let context = json!([
+        request.config.system_prompt,
+        request.config.volatile_system_sections,
+        request
+            .dependencies
+            .selected_skills
+            .iter()
+            .chain(&request.dependencies.auto_loaded_skills)
+            .map(|skill| (&skill.id, &skill.content, skill.enabled))
+            .collect::<Vec<_>>()
+    ])
+    .to_string();
+    let warm = !connection.history.is_empty();
+    if warm {
+        request.history.clear();
+    }
+    let mut turn = request.prepare(connection.session.images)?;
+    if warm && connection.context == context {
+        turn.system_prompt.clear();
+    }
+    connection.context = context;
     let mut output = super::projection::Projection::default();
     let mut reports = projection::ToolReports::new(provider);
     let result = drive(
         provider,
         &mut turn,
-        &mut wire,
-        &session,
+        &mut connection.wire,
+        &connection.session,
         &mut output,
         &mut reports,
     )
@@ -97,6 +224,32 @@ async fn run_connected(
             Err(cause)
         }
     }
+}
+
+fn permission_target(scope: &str, session: &str, id: &str, call: &Value) -> String {
+    let mut action = json!({"scope":scope,"kind":call["kind"],"title":call["title"],"rawInput":call["rawInput"],"locations":call["locations"]});
+    if call.get("rawInput").is_none_or(Value::is_null) {
+        // Incomplete action details cannot safely support a reusable grant.
+        action["unidentifiedInvocation"] = json!([session, id]);
+    }
+    fn sort(value: &mut Value) {
+        match value {
+            Value::Object(map) => {
+                map.sort_keys();
+                for value in map.values_mut() {
+                    sort(value);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    sort(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    sort(&mut action);
+    blake3::hash(action.to_string().as_bytes()).to_string()
 }
 
 async fn permission(
@@ -141,11 +294,8 @@ async fn permission(
             .as_str()
             .unwrap_or("External agent requests permission"),
     );
-    let target = format!(
-        "{session}:{id}:{}",
-        blake3::hash(call.to_string().as_bytes())
-    );
-    let key = ToolPermissionKey::new(&request.tool_name, "external_agent_call", target);
+    let target = permission_target(&turn.permission_scope, session, id, call);
+    let key = ToolPermissionKey::new(&request.tool_name, "external_agent_action", target);
     request.permission_key = key.permission_key();
     request.target_kind = key.target_kind;
     request.target_value = key.target_value;
@@ -181,6 +331,7 @@ async fn drive(
     output: &mut super::projection::Projection,
     reports: &mut projection::ToolReports,
 ) -> Result<()> {
+    stage(&turn.events, "waiting").await?;
     let mut prompt = vec![
         json!({"type":"text","text":format!("{}\n\nCurrent user message:\n{}",turn.system_prompt,turn.prompt)}),
     ];
@@ -200,6 +351,7 @@ async fn drive(
     let mut span = 0u32;
     let mut steering = VecDeque::new();
     let mut steering_closed = false;
+    let mut waiting = true;
     let mut permissions: HashMap<String, (Value, Value)> = HashMap::new();
     loop {
         let message = tokio::select! {
@@ -273,6 +425,20 @@ async fn drive(
                 return Err(error("ACP update belongs to a different session"));
             }
             let update = &params["update"];
+            if waiting
+                && matches!(
+                    update["sessionUpdate"].as_str(),
+                    Some(
+                        "agent_message_chunk"
+                            | "agent_thought_chunk"
+                            | "tool_call"
+                            | "tool_call_update"
+                    )
+                )
+            {
+                stage(&turn.events, "active").await?;
+                waiting = false;
+            }
             match update["sessionUpdate"].as_str().unwrap_or_default() {
                 "agent_message_chunk" | "agent_thought_chunk" => {
                     if update["content"]["type"] != "text" {
@@ -404,6 +570,8 @@ async fn drive(
         segment += 1;
         answer_blocks.clear();
         span = 0;
+        stage(&turn.events, "waiting").await?;
+        waiting = true;
         prompt_id = wire
             .send(
                 "session/prompt",

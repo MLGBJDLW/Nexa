@@ -133,7 +133,8 @@ pub(crate) async fn fence_and_checkpoint_desktop_agent_turn(
     // Surviving OS workers publish Activity receipts, not new Run Events.
     event_outbox.flush().await?;
 
-    let action_receipts = match nexa_core::activity::ActivityRuntime::with_database(db.clone()) {
+    let mut action_receipts = match nexa_core::activity::ActivityRuntime::with_database(db.clone())
+    {
         Ok(runtime) => {
             desktop_evidence::preserve_pending_targets(db, &runtime, &task_run_id, &turn_id)
                 .await
@@ -147,6 +148,14 @@ pub(crate) async fn fence_and_checkpoint_desktop_agent_turn(
             vec!["activity_registry_unavailable".to_string()]
         }
     };
+    if db
+        .get_agent_task_run(&task_run_id)
+        .ok()
+        .and_then(|run| run.provider)
+        .is_some_and(|provider| nexa_core::external_agent::preset(&provider).is_some())
+    {
+        action_receipts.push("external_agent_interrupted".into());
+    }
     let checkpoint_reason = if action_receipts.is_empty() {
         "user_stop".to_string()
     } else {

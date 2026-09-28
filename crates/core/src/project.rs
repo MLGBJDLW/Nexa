@@ -21,6 +21,8 @@ pub struct Project {
     pub color: String,
     pub system_prompt: String,
     pub source_scope: Option<Vec<String>>,
+    #[serde(default)]
+    pub workspace_roots: Option<Vec<String>>,
     pub archived: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -36,6 +38,8 @@ pub struct CreateProjectInput {
     pub color: Option<String>,
     pub system_prompt: Option<String>,
     pub source_scope: Option<Vec<String>>,
+    #[serde(default)]
+    pub workspace_roots: Option<Vec<String>>,
 }
 
 /// Input for updating an existing project.
@@ -48,6 +52,8 @@ pub struct UpdateProjectInput {
     pub color: Option<String>,
     pub system_prompt: Option<String>,
     pub source_scope: Option<Vec<String>>,
+    #[serde(default)]
+    pub workspace_roots: Option<Vec<String>>,
     pub archived: Option<bool>,
 }
 
@@ -83,11 +89,21 @@ impl Database {
         let color = input.color.as_deref().unwrap_or("");
         let system_prompt = input.system_prompt.as_deref().unwrap_or("");
         let source_scope_json = serialize_source_scope(input.source_scope.as_deref())?;
+        let workspace = input
+            .workspace_roots
+            .as_deref()
+            .map(crate::workspace::Workspace::validate)
+            .transpose()?;
+        let workspace_json = serialize_source_scope(
+            workspace
+                .as_ref()
+                .map(|workspace| workspace.roots.as_slice()),
+        )?;
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO projects (id, name, description, icon, color, system_prompt, source_scope_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![&id, &input.name, description, icon, color, system_prompt, &source_scope_json],
+            "INSERT INTO projects (id, name, description, icon, color, system_prompt, source_scope_json, workspace_roots_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![&id, &input.name, description, icon, color, system_prompt, &source_scope_json, &workspace_json],
         )?;
         drop(conn);
         self.get_project(&id)
@@ -97,7 +113,7 @@ impl Database {
     pub fn list_projects(&self) -> Result<Vec<Project>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, icon, color, system_prompt, source_scope_json, archived, created_at, updated_at
+            "SELECT id, name, description, icon, color, system_prompt, source_scope_json, archived, created_at, updated_at, workspace_roots_json
              FROM projects WHERE archived = 0 ORDER BY name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -109,6 +125,7 @@ impl Database {
                 color: row.get(4)?,
                 system_prompt: row.get(5)?,
                 source_scope: parse_source_scope(row.get(6)?),
+                workspace_roots: parse_source_scope(row.get(10)?),
                 archived: row.get::<_, i32>(7)? != 0,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
@@ -125,7 +142,7 @@ impl Database {
     pub fn get_project(&self, id: &str) -> Result<Project, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, name, description, icon, color, system_prompt, source_scope_json, archived, created_at, updated_at
+            "SELECT id, name, description, icon, color, system_prompt, source_scope_json, archived, created_at, updated_at, workspace_roots_json
              FROM projects WHERE id = ?1",
             rusqlite::params![id],
             |row| {
@@ -137,6 +154,7 @@ impl Database {
                     color: row.get(4)?,
                     system_prompt: row.get(5)?,
                     source_scope: parse_source_scope(row.get(6)?),
+                workspace_roots: parse_source_scope(row.get(10)?),
                     archived: row.get::<_, i32>(7)? != 0,
                     created_at: row.get(8)?,
                     updated_at: row.get(9)?,
@@ -159,8 +177,13 @@ impl Database {
     ) -> Result<Project, CoreError> {
         // Verify existence first.
         let _ = self.get_project(id)?;
-
-        let conn = self.conn();
+        let workspace = input
+            .workspace_roots
+            .as_deref()
+            .map(crate::workspace::Workspace::validate)
+            .transpose()?;
+        let mut connection = self.conn();
+        let conn = connection.transaction()?;
         if let Some(name) = &input.name {
             conn.execute(
                 "UPDATE projects SET name = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -205,7 +228,12 @@ impl Database {
                 rusqlite::params![val, id],
             )?;
         }
-        drop(conn);
+        if let Some(workspace) = workspace {
+            conn.execute("UPDATE projects SET workspace_roots_json = ?1, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![serde_json::to_string(&workspace.roots)?, id])?;
+        }
+        conn.commit()?;
+        drop(connection);
         self.get_project(id)
     }
 
@@ -302,6 +330,7 @@ mod tests {
 
         // Create
         let input = CreateProjectInput {
+            workspace_roots: None,
             name: "Test Project".into(),
             description: Some("A test".into()),
             icon: Some("folder".into()),
@@ -321,6 +350,7 @@ mod tests {
 
         // Update
         let update = UpdateProjectInput {
+            workspace_roots: None,
             name: Some("Renamed".into()),
             description: None,
             icon: Some("rocket".into()),
@@ -346,6 +376,7 @@ mod tests {
 
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "P1".into(),
                 description: None,
                 icon: None,
@@ -388,6 +419,7 @@ mod tests {
 
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "P1".into(),
                 description: None,
                 icon: None,

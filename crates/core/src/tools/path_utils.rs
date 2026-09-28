@@ -3,6 +3,33 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::models::Source;
 
+pub(crate) trait AccessRoot {
+    fn root_path(&self) -> &str;
+    fn root_id(&self) -> &str;
+    fn relative_base(&self) -> Option<&str> {
+        None
+    }
+}
+impl AccessRoot for Source {
+    fn root_path(&self) -> &str {
+        &self.root_path
+    }
+    fn root_id(&self) -> &str {
+        &self.id
+    }
+}
+impl AccessRoot for super::FileAccessRoot {
+    fn root_path(&self) -> &str {
+        &self.root_path
+    }
+    fn root_id(&self) -> &str {
+        &self.id
+    }
+    fn relative_base(&self) -> Option<&str> {
+        self.workspace.then_some(self.root_path.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PathKind {
     Any,
@@ -83,7 +110,7 @@ fn validate_kind(
 pub(crate) fn resolve_path_from_base_in_sources(
     requested: &Path,
     base: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     kind: PathKind,
     allow_missing: bool,
 ) -> Result<PathBuf, String> {
@@ -102,7 +129,7 @@ pub(crate) fn resolve_path_from_base_in_sources(
     };
     let resolved = canonicalize_with_optional_missing(&candidate, allow_missing)?;
     let in_scope = sources.iter().any(|source| {
-        std::fs::canonicalize(Path::new(&source.root_path))
+        std::fs::canonicalize(Path::new(source.root_path()))
             .map(|root| resolved.starts_with(&root))
             .unwrap_or(false)
     });
@@ -120,14 +147,14 @@ pub(crate) fn resolve_path_from_base_in_sources(
 
 fn collect_matching_source_paths(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     kind: PathKind,
     allow_missing: bool,
 ) -> Vec<(String, PathBuf, PathBuf)> {
     let mut matches = Vec::new();
 
     for source in sources {
-        let Ok(root) = std::fs::canonicalize(Path::new(&source.root_path)) else {
+        let Ok(root) = std::fs::canonicalize(Path::new(source.root_path())) else {
             continue;
         };
 
@@ -143,7 +170,7 @@ fn collect_matching_source_paths(
         if validate_kind(&resolved, requested, kind, allow_missing).is_ok()
             && !matches.iter().any(|(_, _, existing)| existing == &resolved)
         {
-            matches.push((source.id.clone(), root, resolved));
+            matches.push((source.root_id().to_string(), root, resolved));
         }
     }
 
@@ -152,7 +179,7 @@ fn collect_matching_source_paths(
 
 pub(crate) fn resolve_path_in_sources(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     kind: PathKind,
     allow_missing: bool,
 ) -> Result<PathBuf, String> {
@@ -160,9 +187,21 @@ pub(crate) fn resolve_path_in_sources(
         return Err("Path must not be empty.".to_string());
     }
 
+    let absolute;
+    let requested = if !requested.is_absolute() {
+        if let Some(base) = sources.first().and_then(AccessRoot::relative_base) {
+            absolute = Path::new(base).join(requested);
+            absolute.as_path()
+        } else {
+            requested
+        }
+    } else {
+        requested
+    };
+
     if let Ok(resolved) = canonicalize_with_optional_missing(requested, allow_missing) {
         let in_scope = sources.iter().any(|source| {
-            std::fs::canonicalize(Path::new(&source.root_path))
+            std::fs::canonicalize(Path::new(source.root_path()))
                 .map(|root| resolved.starts_with(&root))
                 .unwrap_or(false)
         });
@@ -214,7 +253,7 @@ pub(crate) fn resolve_path_in_sources(
 
 pub(crate) fn resolve_path_for_file_access(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     kind: PathKind,
     allow_missing: bool,
     allow_unregistered_absolute_paths: bool,
@@ -234,21 +273,21 @@ pub(crate) fn resolve_path_for_file_access(
 
 pub(crate) fn resolve_existing_file_in_sources(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
 ) -> Result<PathBuf, String> {
     resolve_path_in_sources(requested, sources, PathKind::File, false)
 }
 
 pub(crate) fn resolve_existing_directory_in_sources(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
 ) -> Result<PathBuf, String> {
     resolve_path_in_sources(requested, sources, PathKind::Directory, false)
 }
 
 pub(crate) fn resolve_existing_file_for_file_access(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     allow_unregistered_absolute_paths: bool,
 ) -> Result<PathBuf, String> {
     resolve_path_for_file_access(
@@ -262,7 +301,7 @@ pub(crate) fn resolve_existing_file_for_file_access(
 
 pub(crate) fn resolve_existing_directory_for_file_access(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     allow_unregistered_absolute_paths: bool,
 ) -> Result<PathBuf, String> {
     resolve_path_for_file_access(
@@ -276,7 +315,7 @@ pub(crate) fn resolve_existing_directory_for_file_access(
 
 pub(crate) fn resolve_writable_file_for_file_access(
     requested: &Path,
-    sources: &[Source],
+    sources: &[impl AccessRoot],
     allow_unregistered_absolute_paths: bool,
 ) -> Result<PathBuf, String> {
     resolve_path_for_file_access(

@@ -397,10 +397,18 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 ));
             }
         }
-        let cwd = std::env::current_dir()
-            .map_err(protocol_error)?
-            .to_string_lossy()
-            .to_string();
+        let cwd = match request.dependencies.tools.workspace() {
+            Some(workspace) => workspace
+                .cwd()
+                .ok_or_else(|| {
+                    protocol_error("Choose a project workspace folder before starting Codex")
+                })?
+                .to_string(),
+            None => std::env::current_dir()
+                .map_err(protocol_error)?
+                .to_string_lossy()
+                .to_string(),
+        };
         let config = wire
             .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
             .await?;

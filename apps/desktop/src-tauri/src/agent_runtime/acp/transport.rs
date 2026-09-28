@@ -62,6 +62,10 @@ fn executable(preset: &ExternalAgentPreset, launch: &ExternalAgentLaunch) -> Res
 }
 
 impl Wire {
+    pub(super) fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None)) && !self.messages.is_closed()
+    }
+
     pub(super) fn start(
         preset: &ExternalAgentPreset,
         launch: &ExternalAgentLaunch,

@@ -383,6 +383,12 @@ pub async fn record_agent_frontend_paint_cmd(
 pub(super) async fn launch_desktop_agent_chat_turn(
     request: DesktopAgentChatLaunchRequest<'_>,
 ) -> Result<DesktopAgentChatLaunch, String> {
+    let _launch_admission = request
+        .agent_state
+        .sessions
+        .acquire_launch_admission()
+        .await
+        .map_err(|error| error.to_string())?;
     let launch_started = Instant::now();
     let DesktopAgentChatLaunchRequest {
         state,
@@ -1079,8 +1085,15 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     }
                 }
             };
-            let backend = if let Some(kind) = runtime_kind {
-                DesktopAgentBackend::Runtime(kind)
+            let mut backend = if let Some(kind) = runtime_kind {
+                let external = if matches!(kind, crate::agent_runtime::AgentRuntimeKind::Acp(_)) {
+                    let launch = db.external_agent_launch(&db_config.id).map_err(|error| error.to_string())?;
+                    Some(crate::agent_runtime::ExternalAgentBinding {
+                        profile_id: db_config.id.clone(),
+                        launch,
+                    })
+                } else { None };
+                DesktopAgentBackend::Runtime { kind, external }
             } else {
             let mut provider = create_provider(provider_config.clone()).map_err(|e| e.to_string())?;
             if let Some((primary_fallback_index, primary_model, fallbacks)) =
@@ -1226,6 +1239,12 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             ) {
                 warn!("Failed to persist context resolution for {task_run_id}: {error}");
             }
+            let workspace = desktop_turn_config.workspace;
+            if let DesktopAgentBackend::Runtime { external: Some(binding), .. } = &mut backend {
+                if let Some(workspace) = &workspace {
+                    binding.launch.working_directory = workspace.cwd().ok_or_else(|| "Choose a project workspace folder before starting an external agent".to_string())?.to_string();
+                }
+            }
             let source_scope_ids = desktop_turn_config.source_scope_ids;
             let pinned_skill_ids = desktop_turn_config.pinned_skill_ids;
             let context_pack = desktop_turn_config.context_pack;
@@ -1250,6 +1269,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
 
             let session_dependencies =
                 build_desktop_agent_session_dependencies(DesktopAgentSessionDependencyRequest {
+                    workspace: workspace.clone(),
                     preview_host: Arc::new(crate::preview_tool::NativeNexaPreviewHost::new(handle.clone())),
                     agent_runtime: runtime_kind,
                     db: &db,
@@ -1308,6 +1328,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             let request_build_started = Instant::now();
             let runtime_session_config =
                 build_desktop_agent_session_config(DesktopAgentSessionConfigInput {
+                    workspace: workspace.as_ref(),
                     db: db.as_ref(),
                     conversation_id: &conv_id,
                     task_run_id: &task_run_id,

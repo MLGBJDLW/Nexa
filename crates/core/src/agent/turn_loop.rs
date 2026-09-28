@@ -652,7 +652,11 @@ impl AgentExecutor {
                     .unwrap_or_default(),
                 None => Vec::new(),
             });
-        let has_sources = !source_scope.is_empty();
+        let has_sources = !source_scope.is_empty()
+            || self
+                .tools
+                .workspace()
+                .is_some_and(|workspace| !workspace.roots.is_empty());
         let route_plan = route_user_turn(
             &user_query_text_for_tools,
             &self.config.system_prompt,
@@ -733,6 +737,7 @@ impl AgentExecutor {
                 db,
                 &source_scope,
                 turn_id,
+                self.tools.workspace(),
             )?)
         } else {
             None

@@ -245,6 +245,22 @@ impl AgentRunEventOutboxes {
     /// projections in place. Every other active run is closed through its Run
     /// Event outbox, and its turn converges only after the terminal barrier.
     pub async fn recover_after_restart(&self) -> Result<AgentRunStartupRecovery, CoreError> {
+        self.recover_restart(false).await
+    }
+
+    /// Desktop chat may resume an interrupted, nonterminal run after explicit
+    /// user action. Scheduled work and required user-input barriers keep their
+    /// existing recovery policy. Never resurrect an already terminal run.
+    pub async fn recover_after_restart_with_checkpoints(
+        &self,
+    ) -> Result<AgentRunStartupRecovery, CoreError> {
+        self.recover_restart(true).await
+    }
+
+    async fn recover_restart(
+        &self,
+        checkpoint_chat: bool,
+    ) -> Result<AgentRunStartupRecovery, CoreError> {
         let plan = self
             .inner
             .database
@@ -257,6 +273,29 @@ impl AgentRunEventOutboxes {
             let outbox = self
                 .open(&interrupted.conversation_id, &interrupted.run_id)
                 .await?;
+            if checkpoint_chat {
+                let run_id = interrupted.run_id.clone();
+                let can_checkpoint = self.inner.database.read(move |db| {
+                    let run = db.get_agent_task_run(&run_id)?;
+                    let conn = db.conn();
+                    let scheduled: bool = conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM workflow_automation_runs WHERE task_run_id = ?1)",
+                        [&run_id], |row| row.get(0))?;
+                    Ok(!scheduled && matches!(run.status.as_str(), "queued" | "running" | "waiting_approval")
+                        && !Database::agent_run_has_unresolved_interactions_on_connection(&conn, &run_id)?)
+                }).await?.value;
+                if can_checkpoint {
+                    outbox
+                        .pause_with_checkpoint(
+                            &interrupted.turn_id,
+                            "user_stop_requires_action_reconciliation:app_restart_interrupted",
+                        )
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))?;
+                    recovery.restored_suspensions += 1;
+                    continue;
+                }
+            }
             let submitted = match outbox.submit(AgentRunEvent::terminal_status(
                 &interrupted.run_id,
                 Some(&interrupted.turn_id),
@@ -1787,6 +1826,33 @@ mod tests {
         assert!(!cancellation.is_cancelled());
         assert!(!*terminal_submitted.lock().expect("terminal lock"));
         assert_eq!(outbox.accepted_high_water.load(Ordering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn desktop_restart_creates_one_resumable_checkpoint_without_replaying_work() {
+        let database = Database::open_memory().unwrap();
+        let (_conversation, turn, run) = create_started_run(&database);
+        let executor = DatabaseExecutor::new(database.clone(), 8).unwrap();
+        let outboxes = AgentRunEventOutboxes::new(executor, Arc::new(CaptureDelivery::default()));
+        let recovered = outboxes
+            .recover_after_restart_with_checkpoints()
+            .await
+            .unwrap();
+        assert_eq!(recovered.restored_suspensions, 1);
+        assert_eq!(recovered.cancelled_runs, 0);
+        assert_eq!(database.get_agent_task_run(&run).unwrap().status, "paused");
+        let checkpoint = database.build_task_resume_prompt(&run).unwrap();
+        assert!(checkpoint.prompt.contains("app_restart_interrupted"));
+        assert!(checkpoint.prompt.contains("Never redispatch"));
+        assert_eq!(checkpoint.run.turn_id, turn);
+        outboxes
+            .recover_after_restart_with_checkpoints()
+            .await
+            .unwrap();
+        assert_eq!(
+            database.list_task_resume_checkpoints(&run).unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]

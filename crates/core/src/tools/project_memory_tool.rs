@@ -324,6 +324,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Novel".to_string(),
                 description: None,
                 icon: None,

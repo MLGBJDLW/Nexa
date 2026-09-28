@@ -18,7 +18,7 @@ use super::diff_stats::diff_stats_from_diff;
 use super::document_utils::{edit_guidance_for_path, generated_document_mime};
 use super::editable_text::EditableText;
 use super::text_match::{find_text_matches, TextMatch};
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/edit_file.json");
@@ -386,11 +386,11 @@ impl Tool for EditFileTool {
             .map(tokio_util::sync::CancellationToken::child_token)
             .unwrap_or_default();
         let _cancel_mutation_on_drop = mutation_cancel.clone().drop_guard();
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
             db,
-            source_scope,
             conversation_id,
             ..
         } = context;
@@ -399,10 +399,9 @@ impl Tool for EditFileTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
-        let source_scope = source_scope.to_vec();
         let conversation_id = conversation_id.map(str::to_string);
         tokio::task::spawn_blocking(move || {
-            let file_policy = file_access_policy(&db, &source_scope)?;
+
             let requested = PathBuf::from(&args.path);
             if file_policy.sources.is_empty()
                 && !(file_policy.allow_unregistered_absolute_paths && requested.is_absolute())

@@ -143,6 +143,7 @@ pub mod workflow_catalog;
 pub mod workflow_execution;
 pub mod workflow_ir;
 pub mod workflow_scheduler;
+pub mod workspace;
 
 #[cfg(test)]
 mod architecture_fitness;

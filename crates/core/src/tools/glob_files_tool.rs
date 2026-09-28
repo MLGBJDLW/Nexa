@@ -14,7 +14,7 @@ use serde_json::json;
 use crate::error::CoreError;
 
 use super::path_utils::{resolve_path_for_file_access, PathKind};
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/glob_files.json");
@@ -75,19 +75,14 @@ impl Tool for GlobFilesTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
-            call_id,
-            arguments,
-            db,
-            source_scope,
-            ..
+            call_id, arguments, ..
         } = context;
         let args: GlobFilesArgs = serde_json::from_str(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid glob_files arguments: {e}")))?;
 
-        let db = db.clone();
         let call_id = call_id.to_string();
-        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let patterns = normalize_patterns(&args)?;
             let matcher = build_globset(&patterns)?;
@@ -95,7 +90,7 @@ impl Tool for GlobFilesTool {
                 .max_results
                 .unwrap_or(DEFAULT_MAX_RESULTS)
                 .min(MAX_RESULTS);
-            let file_policy = file_access_policy(&db, &source_scope)?;
+
             let roots = resolve_glob_roots(&args, &file_policy)?;
             if roots.is_empty() {
                 return Ok(ToolResult {

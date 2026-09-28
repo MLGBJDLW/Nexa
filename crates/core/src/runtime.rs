@@ -90,6 +90,8 @@ impl ActiveAgentTurn {
 pub struct AgentSessionManager {
     active: tokio::sync::Mutex<HashMap<String, ActiveAgentTurn>>,
     run_lifecycle_locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
+    shutting_down: AtomicBool,
+    launch_admission: tokio::sync::RwLock<()>,
 }
 
 impl AgentSessionManager {
@@ -124,11 +126,64 @@ impl AgentSessionManager {
     pub async fn register(&self, turn: ActiveAgentTurn) {
         let session_id = turn.handle.session_id.clone();
         let mut active = self.active.lock().await;
+        if self.shutting_down.load(Ordering::SeqCst) {
+            drop(active);
+            turn.cancel();
+            turn.abort();
+            let _ = turn.task.await;
+            // A launch already admitted while the host began shutting down
+            // still gets a durable, conservative resumable boundary.
+            if !turn.event_outbox.is_closed_for_submission() {
+                let _ = turn
+                    .event_outbox
+                    .pause_with_checkpoint(
+                        &turn.handle.turn_id,
+                        "user_stop_requires_action_reconciliation:host_exit_race",
+                    )
+                    .await;
+            }
+            return;
+        }
         if let Some(previous) = active.remove(&session_id) {
             previous.cancel();
             previous.abort();
         }
         active.insert(session_id, turn);
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::SeqCst)
+    }
+
+    /// Shared during launch through registration. Shutdown waits for already
+    /// admitted launches, then prevents a producer entering after the drain.
+    pub async fn acquire_launch_admission(
+        &self,
+    ) -> Result<tokio::sync::RwLockReadGuard<'_, ()>, CoreError> {
+        let admission = self.launch_admission.read().await;
+        if self.is_shutting_down() {
+            return Err(CoreError::Cancelled(
+                "The application is shutting down".into(),
+            ));
+        }
+        Ok(admission)
+    }
+
+    pub async fn drain_for_shutdown(&self) -> Vec<ActiveAgentTurn> {
+        let _admission = self.launch_admission.write().await;
+        self.shutting_down.store(true, Ordering::SeqCst);
+        let turns = self
+            .active
+            .lock()
+            .await
+            .drain()
+            .map(|(_, turn)| turn)
+            .collect::<Vec<_>>();
+        for turn in &turns {
+            turn.cancel();
+            turn.abort();
+        }
+        turns
     }
 
     pub async fn steer(
@@ -863,6 +918,24 @@ fn new_runtime_id() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn shutdown_waits_for_admitted_launches_and_rejects_late_launches() {
+        let sessions = Arc::new(AgentSessionManager::new());
+        let admitted = sessions.acquire_launch_admission().await.unwrap();
+        let pending = sessions.clone();
+        let mut shutdown = tokio::spawn(async move { pending.drain_for_shutdown().await.len() });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), &mut shutdown)
+                .await
+                .is_err()
+        );
+        assert!(!sessions.is_shutting_down());
+        drop(admitted);
+        assert_eq!(shutdown.await.unwrap(), 0);
+        assert!(sessions.is_shutting_down());
+        assert!(sessions.acquire_launch_admission().await.is_err());
+    }
+
     use super::*;
     use crate::agent::AgentEvent;
     use crate::agent_run::{

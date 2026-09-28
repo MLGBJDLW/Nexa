@@ -177,6 +177,7 @@ pub(super) fn fixture(
     let (_steer, steering) = mpsc::unbounded_channel();
     let request = AgentRuntimeTurnRequest {
         kind,
+        external: None,
         config: AgentConfig {
             model: Some(model.into()),
             max_iterations: 3,

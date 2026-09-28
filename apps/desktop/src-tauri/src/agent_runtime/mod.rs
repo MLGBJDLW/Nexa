@@ -1,5 +1,5 @@
 //! Externally owned agent loops share Nexa's durable run lifecycle.
-//! Each Nexa turn owns one upstream session. Renderer reload never launches it.
+//! Renderer reload never launches a turn. ACP reuses completed sessions only.
 
 pub(crate) mod acp;
 pub(crate) mod codex;
@@ -42,6 +42,7 @@ impl AgentRuntimeKind {
 
 pub(crate) struct AgentRuntimeTurnRequest {
     pub kind: AgentRuntimeKind,
+    pub external: Option<ExternalAgentBinding>,
     pub config: AgentConfig,
     pub dependencies: DesktopAgentSessionDependencies,
     pub db: Arc<Database>,
@@ -57,6 +58,12 @@ pub(crate) struct AgentRuntimeTurnRequest {
     pub visual_interpreter: ToolVisualInterpreter,
 }
 
+#[derive(Clone)]
+pub(crate) struct ExternalAgentBinding {
+    pub profile_id: String,
+    pub launch: nexa_core::external_agent::ExternalAgentLaunch,
+}
+
 struct PreparedTurn {
     transcript: transcript::Transcript,
     config: AgentConfig,
@@ -68,10 +75,21 @@ struct PreparedTurn {
     steering: mpsc::UnboundedReceiver<AgentSteeringMessage>,
     privacy: nexa_core::privacy::PrivacyConfig,
     approval: ApprovalCallback,
+    permission_scope: String,
 }
 
 impl AgentRuntimeTurnRequest {
     fn prepare(self, native_vision: bool) -> Result<PreparedTurn, CoreError> {
+        let workspace = self.dependencies.tools.workspace().cloned();
+        let permission_scope = self
+            .external
+            .as_ref()
+            .map(|binding| {
+                serde_json::json!({
+            "profileId":binding.profile_id,"workingDirectory":binding.launch.working_directory,"workspace":workspace
+        }).to_string()
+            })
+            .unwrap_or_else(|| self.conversation_id.clone());
         let cancellation = self.cancellation.child_token();
         let user_text = self
             .user_parts
@@ -184,6 +202,7 @@ impl AgentRuntimeTurnRequest {
             steering: self.steering,
             privacy,
             approval: self.approval,
+            permission_scope,
         })
     }
 }

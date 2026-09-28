@@ -1,6 +1,6 @@
 use super::{
-    file_access_policy, path_utils::resolve_existing_file_for_file_access, Tool, ToolCategory,
-    ToolDef, ToolExecutionContext, ToolResult,
+    path_utils::resolve_existing_file_for_file_access, Tool, ToolCategory, ToolDef,
+    ToolExecutionContext, ToolResult,
 };
 use crate::error::CoreError;
 use async_trait::async_trait;
@@ -87,10 +87,8 @@ impl Tool for OpenInNexaTool {
             ));
         }
         let host=self.host.as_ref().ok_or_else(||CoreError::InvalidInput("This runtime has no Nexa preview surface. Do not silently fall back to an external application.".into()))?;
-        let db = context.db.clone();
-        let scope = context.source_scope.to_vec();
+        let policy = super::file_access_policy_for_context(&context)?;
         let (canonical, resource_paths) = tokio::task::spawn_blocking(move || {
-            let policy = file_access_policy(&db, &scope)?;
             let resolve = |path: &str| {
                 resolve_existing_file_for_file_access(
                     &PathBuf::from(path),

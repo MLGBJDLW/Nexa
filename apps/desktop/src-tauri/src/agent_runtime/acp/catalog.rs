@@ -151,7 +151,7 @@ impl Session {
         Self::parse(&value, images)
     }
 
-    pub(super) async fn select_model(&self, wire: &mut Wire, model: &str) -> Result<()> {
+    pub(super) async fn select_model(&mut self, wire: &mut Wire, model: &str) -> Result<()> {
         if !self.models.iter().any(|item| item.id == model) {
             return Err(error("The selected external-agent model is no longer available. Refresh the model list and select an available model."));
         }
@@ -182,6 +182,7 @@ impl Session {
             )
             .await?;
         }
+        self.current_model = Some(model.to_string());
         Ok(())
     }
 }

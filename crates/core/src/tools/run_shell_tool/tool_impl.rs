@@ -19,7 +19,7 @@ use super::super::run_shell_contract::{
     expected_format as run_shell_expected_format, invalid_arguments_message,
     tool_description as run_shell_tool_description, DEFAULT_TIMEOUT_SECS, TOOL_NAME,
 };
-use super::super::{scoped_sources, tool_contract_error_result, Tool, ToolCategory, ToolResult};
+use super::super::{tool_contract_error_result, Tool, ToolCategory, ToolResult};
 use super::environment::{apply_isolated_process_sandbox, LocalRunShellExecutionEnvironment};
 use super::file_tracking::execute_tracked_native;
 use super::native_fs::is_native_filesystem_program;
@@ -2202,6 +2202,13 @@ impl Tool for RunShellTool {
         let file_change_scope = crate::turn_file_changes::FileChangeScope::from_context(&context);
         let process_owner = process_conversation_id(&context).map(str::to_owned);
         let native_cancel = context.cancel_token.cloned().unwrap_or_default();
+        let workspace = context.workspace.cloned();
+        let mut file_policy = crate::tools::file_access_policy_for_context(&context)?;
+        if workspace.is_none() && !context.source_scope.is_empty() {
+            file_policy
+                .sources
+                .retain(|root| context.source_scope.contains(&root.id));
+        }
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
@@ -2309,13 +2316,13 @@ impl Tool for RunShellTool {
             .map(|cwd| cwd.trim().to_string())
             .filter(|cwd| !cwd.is_empty());
         let args_input = normalized_args.clone();
-        let db_clone = db.clone();
-        let scope_clone = source_scope.to_vec();
         let program = canonical_program.clone();
         let cwd_result: Result<PathBuf, String> = tokio::task::spawn_blocking(move || {
-            let sources = scoped_sources(&db_clone, &scope_clone)
-                .map_err(|e| format!("failed to load sources: {e}"))?;
-            let cwd_input = cwd_input.unwrap_or_else(|| {
+            let sources = file_policy.sources;
+            let cwd_input = cwd_input.map(|cwd| {
+                workspace.as_ref().map(|workspace| workspace.resolve_relative(Path::new(&cwd)))
+                    .transpose().map(|path| path.map_or(cwd, |path| path.to_string_lossy().into_owned()))
+            }).transpose().map_err(|error| error.to_string())?.unwrap_or_else(|| {
                 sources
                     .first()
                     .map(|source| source.root_path.clone())

@@ -1718,6 +1718,7 @@ mod tests {
         let db = Database::open_memory().expect("open memory db");
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Product".to_string(),
                 description: None,
                 icon: None,
@@ -1760,6 +1761,7 @@ mod tests {
         let db = Database::open_memory().expect("open memory db");
         let project_a = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Project A".to_string(),
                 description: None,
                 icon: None,
@@ -1770,6 +1772,7 @@ mod tests {
             .expect("create project a");
         let project_b = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Project B".to_string(),
                 description: None,
                 icon: None,
@@ -1829,6 +1832,7 @@ mod tests {
         let db = Database::open_memory().expect("open memory db");
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Product".to_string(),
                 description: None,
                 icon: None,
@@ -2180,6 +2184,7 @@ mod tests {
         let db = Database::open_memory().expect("open memory db");
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Novel".to_string(),
                 description: None,
                 icon: None,

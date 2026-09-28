@@ -14,10 +14,7 @@ use serde_json::json;
 use crate::error::CoreError;
 
 use super::path_utils::{resolve_path_for_file_access, PathKind};
-use super::{
-    file_access_policy, scope_is_active, Tool, ToolCategory, ToolDef, ToolOutput, ToolResult,
-    TrustBoundary,
-};
+use super::{scope_is_active, Tool, ToolCategory, ToolDef, ToolOutput, ToolResult, TrustBoundary};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/code_intelligence.json");
@@ -118,10 +115,10 @@ impl Tool for CodeIntelligenceTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
-            db,
             source_scope,
             ..
         } = context;
@@ -136,7 +133,6 @@ impl Tool for CodeIntelligenceTool {
             ));
         }
 
-        let db = db.clone();
         let call_id = call_id.to_string();
         let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
@@ -144,7 +140,7 @@ impl Tool for CodeIntelligenceTool {
                 .max_results
                 .unwrap_or(DEFAULT_MAX_RESULTS)
                 .clamp(1, MAX_RESULTS);
-            let file_policy = file_access_policy(&db, &source_scope)?;
+
             let roots = resolve_search_roots(args.path.as_deref(), &file_policy)?;
             if roots.is_empty() {
                 return Ok(ToolResult::from_output(

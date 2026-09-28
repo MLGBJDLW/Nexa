@@ -535,10 +535,11 @@ async fn stop_fences_execution_and_resolves_approval_before_checkpoint() {
         .starts_with("user_stop_requires_action_reconciliation:"));
     assert!(checkpoint
         .resume_prompt
-        .contains("SAFETY FENCE: interactive action receipt"));
+        .contains("SAFETY FENCE: action receipt"));
     assert!(checkpoint
         .resume_prompt
-        .contains("Never redispatch the prior action"));
+        .contains("Never redispatch"));
+    assert!(checkpoint.resume_prompt.contains("tool result is absent"));
 }
 
 #[test]
@@ -1038,6 +1039,7 @@ fn project_workspace_instructions_are_live_and_episodes_are_evidence() {
     let db = Database::open_memory().expect("open memory db");
     let project = db
         .create_project(&CreateProjectInput {
+            workspace_roots: None,
             name: "Workspace".to_string(),
             description: Some("Ship an auditable runtime".to_string()),
             icon: None,
@@ -1118,6 +1120,7 @@ fn project_workspace_instructions_are_live_and_episodes_are_evidence() {
     db.update_project(
         &project.id,
         &UpdateProjectInput {
+            workspace_roots: None,
             name: None,
             description: None,
             icon: None,

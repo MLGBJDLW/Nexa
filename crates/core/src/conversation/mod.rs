@@ -4933,7 +4933,7 @@ impl Database {
             crate::external_agent::ensure_launch_storage(&transaction)?;
             transaction.execute(
                 "INSERT INTO app_config (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
-                rusqlite::params![format!("external_agent:{}", input.provider), serde_json::to_string(launch)?],
+                rusqlite::params![format!("external_agent_profile:{id}"), serde_json::to_string(launch)?],
             )?;
         }
         crate::settings_schema_v2::sync_legacy_agent_config_in_transaction(&transaction, &id)?;
@@ -5867,6 +5867,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Prompt ownership".into(),
                 description: None,
                 icon: None,
@@ -6148,6 +6149,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let launch_project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Launch project".to_string(),
                 description: None,
                 icon: None,
@@ -6158,6 +6160,7 @@ mod tests {
             .unwrap();
         let destination_project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Destination project".to_string(),
                 description: None,
                 icon: None,
@@ -6654,6 +6657,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Launch plan".into(),
                 description: None,
                 icon: None,
@@ -7464,6 +7468,7 @@ mod tests {
             .unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Scoped".into(),
                 description: None,
                 icon: None,

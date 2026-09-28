@@ -1312,7 +1312,11 @@ fn recovery_metadata(reason: &str) -> (AgentRunEventKind, AgentRunPhase, String,
 
 fn controller_status_phase(code: &str) -> AgentRunPhase {
     match code {
-        "route_selected" => AgentRunPhase::Routing,
+        "route_selected"
+        | "external_agent_starting"
+        | "external_agent_connecting"
+        | "external_agent_reusing" => AgentRunPhase::Routing,
+        "external_agent_model" => AgentRunPhase::Planning,
         "prefetch_started" | "prefetch_completed" => AgentRunPhase::Planning,
         "awaiting_user_input" => AgentRunPhase::AwaitingUserInput,
         _ => AgentRunPhase::Responding,

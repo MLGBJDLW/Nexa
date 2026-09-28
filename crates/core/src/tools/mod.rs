@@ -324,6 +324,7 @@ pub struct ToolInvocation {
 }
 
 pub struct ToolExecutionContext<'a> {
+    pub workspace: Option<&'a crate::workspace::Workspace>,
     pub file_change_owner: Option<crate::turn_file_changes::FileChangeOwner>,
     pub call_id: &'a str,
     pub arguments: &'a str,
@@ -349,6 +350,7 @@ impl<'a> ToolExecutionContext<'a> {
     ) -> Self {
         Self {
             call_id,
+            workspace: None,
             arguments,
             db,
             source_scope,
@@ -581,8 +583,33 @@ pub(crate) fn scoped_sources(
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileAccessPolicy {
-    pub sources: Vec<Source>,
+    pub sources: Vec<FileAccessRoot>,
     pub allow_unregistered_absolute_paths: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FileAccessRoot {
+    pub id: String,
+    pub root_path: String,
+    workspace: bool,
+}
+
+pub(crate) fn file_access_policy_for_context(
+    context: &ToolExecutionContext<'_>,
+) -> Result<FileAccessPolicy, CoreError> {
+    let mut policy = file_access_policy(context.db, context.source_scope)?;
+    if let Some(workspace) = context.workspace {
+        policy.sources = workspace
+            .roots
+            .iter()
+            .map(|root| FileAccessRoot {
+                id: root.clone(),
+                root_path: root.clone(),
+                workspace: true,
+            })
+            .collect();
+    }
+    Ok(policy)
 }
 
 pub(crate) fn file_access_policy(
@@ -599,7 +626,14 @@ pub(crate) fn file_access_policy(
     };
 
     Ok(FileAccessPolicy {
-        sources,
+        sources: sources
+            .into_iter()
+            .map(|source| FileAccessRoot {
+                id: source.id,
+                root_path: source.root_path,
+                workspace: false,
+            })
+            .collect(),
         allow_unregistered_absolute_paths: matches!(
             config.shell_access_mode,
             ShellAccessMode::Open
@@ -609,11 +643,10 @@ pub(crate) fn file_access_policy(
 
 /// Preview actions use the same path policy as native agent file tools.
 pub fn resolve_agent_file_path(
-    db: &Database,
-    source_scope: &[String],
+    context: &ToolExecutionContext<'_>,
     path: &std::path::Path,
 ) -> Result<std::path::PathBuf, CoreError> {
-    let policy = file_access_policy(db, source_scope)?;
+    let policy = file_access_policy_for_context(context)?;
     path_utils::resolve_existing_file_for_file_access(
         path,
         &policy.sources,
@@ -624,11 +657,10 @@ pub fn resolve_agent_file_path(
 
 /// Resolve a new download through the same policy as create_file.
 pub fn resolve_agent_writable_file_path(
-    db: &Database,
-    source_scope: &[String],
+    context: &ToolExecutionContext<'_>,
     path: &std::path::Path,
 ) -> Result<std::path::PathBuf, CoreError> {
-    let policy = file_access_policy(db, source_scope)?;
+    let policy = file_access_policy_for_context(context)?;
     path_utils::resolve_writable_file_for_file_access(
         path,
         &policy.sources,
@@ -815,6 +847,7 @@ pub trait Tool: Send + Sync {
 pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
     file_change_owner: Option<crate::turn_file_changes::FileChangeOwner>,
+    workspace: Option<crate::workspace::Workspace>,
 }
 
 fn stable_tool_definitions(mut definitions: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
@@ -825,6 +858,14 @@ fn stable_tool_definitions(mut definitions: Vec<ToolDefinition>) -> Vec<ToolDefi
 const RESIDENT_DISCOVERY_TOOL_NAMES: &[&str] = &["tool_search"];
 
 impl ToolRegistry {
+    pub fn with_workspace(mut self, workspace: Option<crate::workspace::Workspace>) -> Self {
+        self.workspace = workspace;
+        self
+    }
+
+    pub fn workspace(&self) -> Option<&crate::workspace::Workspace> {
+        self.workspace.as_ref()
+    }
     /// Create an empty registry.
     pub fn new() -> Self {
         Self::default()
@@ -879,6 +920,7 @@ impl ToolRegistry {
         let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
+            workspace: self.workspace.clone(),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -894,6 +936,7 @@ impl ToolRegistry {
         let blocked: HashSet<&str> = blocked_names.iter().copied().collect();
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
+            workspace: self.workspace.clone(),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -912,6 +955,7 @@ impl ToolRegistry {
     pub fn plan_mode_filtered(&self) -> ToolRegistry {
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
+            workspace: self.workspace.clone(),
             ..ToolRegistry::new()
         };
         let empty_args = serde_json::json!({});
@@ -1118,6 +1162,7 @@ impl ToolRegistry {
         let file_changes = crate::turn_file_changes::FileChangeScope::from_context(&scope_context);
         let result = tool
             .execute(ToolExecutionContext {
+                workspace: ctx.workspace.or(self.workspace.as_ref()),
                 file_change_owner: ctx
                     .file_change_owner
                     .clone()

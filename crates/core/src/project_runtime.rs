@@ -1202,6 +1202,7 @@ mod tests {
     fn project_conversation(db: &Database) -> (String, String) {
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Apollo".into(),
                 description: Some("Ship a safe workspace runtime".into()),
                 icon: None,
@@ -1423,6 +1424,7 @@ mod tests {
             .unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Sources".into(),
                 description: None,
                 icon: None,
@@ -1501,6 +1503,7 @@ mod tests {
         let (launch_project_id, conversation_id) = project_conversation(&db);
         let destination = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Destination".into(),
                 description: None,
                 icon: None,
@@ -1538,6 +1541,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let destination = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Destination".into(),
                 description: None,
                 icon: None,

@@ -39,6 +39,7 @@ impl AgentExecutor {
             .execute(
                 "query_knowledge_graph",
                 crate::tools::ToolExecutionContext {
+                    workspace: None,
                     file_change_owner: None,
                     call_id: &pre_graph_id,
                     arguments: &graph_args.to_string(),
@@ -98,6 +99,7 @@ impl AgentExecutor {
             .execute(
                 "search_knowledge_base",
                 crate::tools::ToolExecutionContext {
+                    workspace: None,
                     file_change_owner: None,
                     call_id: &pre_search_id,
                     arguments: &search_args.to_string(),

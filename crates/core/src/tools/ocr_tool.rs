@@ -12,7 +12,7 @@ use crate::error::CoreError;
 use crate::{media, privacy};
 
 use super::path_utils::resolve_existing_file_for_file_access;
-use super::{ensure_source_in_scope, file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{ensure_source_in_scope, Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/extract_image_text.json");
@@ -59,6 +59,7 @@ impl Tool for ExtractImageTextTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
@@ -78,7 +79,7 @@ impl Tool for ExtractImageTextTool {
                 .max_chars
                 .unwrap_or(DEFAULT_MAX_CHARS)
                 .clamp(500, MAX_CHARS_LIMIT);
-            let target = resolve_image_target(&db, &source_scope, &args)?;
+            let target = resolve_image_target(&db, &source_scope, &args, &file_policy)?;
 
             if !media::is_supported_image(&target.media_type) {
                 return Ok(ToolResult {
@@ -204,6 +205,7 @@ fn resolve_image_target(
     db: &Database,
     source_scope: &[String],
     args: &ExtractImageTextArgs,
+    file_policy: &super::FileAccessPolicy,
 ) -> Result<ImageTarget, CoreError> {
     let path = args
         .path
@@ -225,7 +227,6 @@ fn resolve_image_target(
         )),
         (Some(path), None) => {
             let requested = PathBuf::from(path);
-            let file_policy = file_access_policy(db, source_scope)?;
             if file_policy.sources.is_empty()
                 && !(file_policy.allow_unregistered_absolute_paths && requested.is_absolute())
             {

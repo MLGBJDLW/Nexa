@@ -16,6 +16,38 @@ fn wire(mode: &str) -> Wire {
     wire_with_marker(mode, "")
 }
 
+#[test]
+fn reusable_permission_identity_ignores_invocation_ids_but_binds_profile_and_action() {
+    let a = json!({"toolCallId":"first","title":"Read file","kind":"read","rawInput":{"path":"file.txt","range":{"start":1,"end":9}}});
+    let b: Value = serde_json::from_str(r#"{"rawInput":{"range":{"end":9,"start":1},"path":"file.txt"},"kind":"read","title":"Read file","toolCallId":"second"}"#).unwrap();
+    let key = permission_target("profile-a:directory-a", "session-a", "first", &a);
+    assert_eq!(
+        key,
+        permission_target("profile-a:directory-a", "session-b", "second", &b)
+    );
+    assert_ne!(
+        key,
+        permission_target("profile-b:directory-b", "session-a", "first", &a)
+    );
+    let mut changed = a.clone();
+    changed["rawInput"]["path"] = json!("different.txt");
+    assert_ne!(
+        key,
+        permission_target("profile-a:directory-a", "session-a", "first", &changed)
+    );
+    let store = nexa_core::approval::SessionApprovalStore::new();
+    store.set(&key, ApprovalDecision::AllowSession);
+    assert_eq!(
+        store.get(&permission_target(
+            "profile-a:directory-a",
+            "session-b",
+            "second",
+            &b
+        )),
+        Some(ApprovalDecision::AllowSession)
+    );
+}
+
 fn wire_with_marker(mode: &str, marker: &str) -> Wire {
     let mut command =
         tokio::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
@@ -27,6 +59,91 @@ fn wire_with_marker(mode: &str, marker: &str) -> Wire {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     Wire::spawn(command).unwrap()
+}
+
+#[tokio::test]
+async fn completed_session_reuses_connection_without_resending_history_or_model_setup() {
+    use nexa_core::llm::Role;
+    let directory = tempfile::tempdir().unwrap();
+    let log = directory.path().join("protocol.jsonl");
+    let mut wire = wire_with_marker("record", log.to_str().unwrap());
+    let session = Session::connect(&mut wire, "C:/workspace").await.unwrap();
+    let mut connection = pool::Connected {
+        wire,
+        session,
+        history: String::new(),
+        context: String::new(),
+    };
+    let (mut first, _rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("gemini_cli"),
+        "vendor/模型",
+    );
+    first
+        .history
+        .push(Message::text(Role::User, "OLD_HISTORY_SENTINEL"));
+    let db = first.db.clone();
+    let conversation = first.conversation_id.clone();
+    run_initialized("gemini_cli", first, &mut connection)
+        .await
+        .unwrap();
+    connection.history = history_fingerprint(&db, &conversation, None).unwrap();
+    let key = uuid::Uuid::new_v4().to_string();
+    let fingerprint = connection.history.clone();
+    pool::put(key.clone(), connection);
+    assert!(pool::take(&format!("{key}:other-profile-or-workspace"), &fingerprint).is_none());
+    let mut connection =
+        pool::take(&key, &fingerprint).expect("completed connection remains reusable");
+    let (mut next, _next_rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("gemini_cli"),
+        "vendor/模型",
+    );
+    let mut user = db.get_messages(&conversation).unwrap()[0].clone();
+    user.id = uuid::Uuid::new_v4().to_string();
+    user.sort_order = 2;
+    user.content = "SECOND_PROMPT_SENTINEL".into();
+    db.add_message(&user).unwrap();
+    next.turn_id = db
+        .create_conversation_turn(&conversation, &user.id, None)
+        .unwrap()
+        .id;
+    next.conversation_id = conversation.clone();
+    next.db = db.clone();
+    next.next_sort_order = 3;
+    next.history = vec![Message::text(Role::User, "OLD_HISTORY_SENTINEL")];
+    next.user_parts = vec![nexa_core::llm::ContentPart::Text { text: user.content }];
+    assert_eq!(
+        history_fingerprint(&db, &conversation, Some(2)).unwrap(),
+        fingerprint
+    );
+    run_initialized("gemini_cli", next, &mut connection)
+        .await
+        .unwrap();
+    let frames = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    for method in ["initialize", "session/new", "session/set_config_option"] {
+        assert_eq!(
+            frames
+                .iter()
+                .filter(|frame| frame["method"] == method)
+                .count(),
+            1,
+            "{method}"
+        );
+    }
+    let prompts = frames
+        .iter()
+        .filter(|frame| frame["method"] == "session/prompt")
+        .collect::<Vec<_>>();
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[0].to_string().contains("OLD_HISTORY_SENTINEL"));
+    assert!(!prompts[1].to_string().contains("OLD_HISTORY_SENTINEL"));
+    assert!(prompts[1].to_string().contains("SECOND_PROMPT_SENTINEL"));
+    pool::put(key.clone(), connection);
+    assert!(pool::take(&key, "transcript-was-rewound").is_none());
+    assert!(pool::take(&key, &fingerprint).is_none());
 }
 
 #[tokio::test]
@@ -241,7 +358,7 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
         working_directory: directory.path().to_string_lossy().into_owned(),
     };
     let mut wire = Wire::start(&preset, &launch).unwrap();
-    let session = Session::connect(&mut wire, &launch.working_directory)
+    let mut session = Session::connect(&mut wire, &launch.working_directory)
         .await
         .unwrap();
     session

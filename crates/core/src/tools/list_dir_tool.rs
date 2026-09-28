@@ -14,7 +14,7 @@ use serde_json::json;
 use crate::error::CoreError;
 
 use super::path_utils::resolve_existing_directory_for_file_access;
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/list_dir.json");
@@ -69,22 +69,17 @@ impl Tool for ListDirTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
-            call_id,
-            arguments,
-            db,
-            source_scope,
-            ..
+            call_id, arguments, ..
         } = context;
         let args: ListDirArgs = serde_json::from_str(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid list_dir arguments: {e}")))?;
 
-        let db = db.clone();
         let call_id = call_id.to_string();
-        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let requested = Path::new(&args.path);
-            let file_policy = file_access_policy(&db, &source_scope)?;
+
             if file_policy.sources.is_empty()
                 && !(file_policy.allow_unregistered_absolute_paths && requested.is_absolute())
             {

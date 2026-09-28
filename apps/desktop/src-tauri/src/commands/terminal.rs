@@ -105,8 +105,32 @@ pub fn terminal_start_session_cmd(
     app_state: State<'_, super::AppState>,
     input: TerminalStartInput,
 ) -> Result<TerminalSessionInfo, String> {
-    let cwd = resolve_terminal_cwd(input.cwd)?;
     let conversation_id = normalize_conversation_id(input.conversation_id);
+    let workspace = conversation_id
+        .as_deref()
+        .map(|id| app_state.db.conversation_workspace(id))
+        .transpose()
+        .map_err(|error| error.to_string())?
+        .flatten();
+    let cwd = match (input.cwd.filter(|cwd| !cwd.trim().is_empty()), workspace) {
+        (Some(cwd), Some(workspace)) => Some(
+            workspace
+                .resolve_relative(std::path::Path::new(&cwd))
+                .map_err(|error| error.to_string())?
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        (None, Some(workspace)) => Some(
+            workspace
+                .cwd()
+                .ok_or_else(|| {
+                    "Choose a project workspace folder before opening a terminal".to_string()
+                })?
+                .to_string(),
+        ),
+        (cwd, None) => cwd,
+    };
+    let cwd = resolve_terminal_cwd(cwd)?;
     let size = PtySize {
         rows: input.rows.unwrap_or(24).clamp(5, 200),
         cols: input.cols.unwrap_or(80).clamp(20, 400),

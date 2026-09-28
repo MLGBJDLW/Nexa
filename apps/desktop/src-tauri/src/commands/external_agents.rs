@@ -5,11 +5,11 @@ use nexa_core::external_agent::ExternalAgentLaunch;
 #[tauri::command]
 pub async fn get_external_agent_launch_cmd(
     state: tauri::State<'_, AppState>,
-    provider: String,
+    agent_config_id: String,
 ) -> Result<ExternalAgentLaunch, String> {
     state
         .db_executor
-        .read(move |db| db.external_agent_launch(&provider))
+        .read(move |db| db.external_agent_launch(&agent_config_id))
         .await
         .map(|result| result.value)
         .map_err(|error| error.to_string())
