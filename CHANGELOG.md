@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.17](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.16...nexa-monorepo-v0.14.17) (2026-09-28)
+
+
+### Features
+
+* **agents:** add ACP runtimes and split API connections ([bb4b9ae](https://github.com/MLGBJDLW/Nexa/commit/bb4b9aec62d622df9cf20eaf79321cf57366c8cf))
+* refine chat workspaces, agent runtimes, and releases ([a73e901](https://github.com/MLGBJDLW/Nexa/commit/a73e9010599b17c2dbc952eecbecd111706b1af7))
+* **runtime:** bind workspaces and recover interrupted agents ([12d8287](https://github.com/MLGBJDLW/Nexa/commit/12d828770a8bb6c78761c72f9fed9c5ffeaa4e60))
+* **ui:** refine project setup and add checkpoint resume ([8b43b30](https://github.com/MLGBJDLW/Nexa/commit/8b43b30432133d2ab8bb48978c259760ee2f3504))
+
+
+### Bug Fixes
+
+* **agents:** preserve inherited defaults and isolate delegation failures ([f307353](https://github.com/MLGBJDLW/Nexa/commit/f307353eb5e0946f22af311202de5f4c2ff4aa2d))
+* **chat:** commit draft ownership before accepting input ([7be621e](https://github.com/MLGBJDLW/Nexa/commit/7be621eebbdd3539dbec675502648d5f5961040c))
+* **chat:** start project conversations in their own draft ([e954019](https://github.com/MLGBJDLW/Nexa/commit/e9540191314e21a498b6ffbd3370723a5f31a225))
+* **preview:** retain the requesting workspace on reload ([80ff26d](https://github.com/MLGBJDLW/Nexa/commit/80ff26da9aa8c6c10269a274b10cfa0594b9ead8))
+* **release:** accumulate PR notes and bundle cross-version history ([380dba0](https://github.com/MLGBJDLW/Nexa/commit/380dba075035c49f58c86ac63262547a5e52e090))
+* **release:** avoid duplicate version headings in update notes ([93ef648](https://github.com/MLGBJDLW/Nexa/commit/93ef6483339cc9b9df24a4a296b1fc39dd6ba0f7))
+* **release:** keep note tooling compatible with older draft candidates ([40822c4](https://github.com/MLGBJDLW/Nexa/commit/40822c4136b31f9d9be9078cb73e3a164480040d))
+
 ## [0.14.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.15...nexa-monorepo-v0.14.16) (2026-09-26)
 
 
