@@ -1,7 +1,8 @@
-# Subscription agents
+# External agents and subscriptions
 
-Add **GitHub Copilot** or **ChatGPT / Codex** from Settings → AI Providers →
-Add Provider. Sign in through the official runtime and save the provider.
+Settings → AI Providers separates **API models** from **External agents**.
+Add **GitHub Copilot** or **ChatGPT / Codex** from External agents → Add Provider.
+Sign in through the official runtime and save the provider.
 Choose the model and reasoning level in Chat. The saved provider and its currently available models
 then appear in the Chat model picker. Reasoning levels come from that account's
 model catalog. Signing in does not automatically create a provider.
@@ -13,27 +14,96 @@ runtime feature or account plan.
 
 ## Execution ownership
 
-`DesktopAgentBackend` selects either Nexa's direct API executor or an official
-subscription runtime. A subscription is not an OpenAI-compatible API endpoint.
+`DesktopAgentBackend` selects Nexa's direct API executor in `core::llm` or an
+externally owned loop in desktop `agent_runtime`. The latter contains separate
+Copilot, Codex and ACP adapters. An external agent is not an HTTP model endpoint;
+it can use a subscription, its own API connection, or a local model.
 Copilot's SDK and Codex's app-server own their model loops. They use the same
 Nexa tool dispatcher, approval callback, activity database, cancellation token,
 browser observation fence, message persistence and ordered Run Event outbox as
 direct chat. Tools retain their actual names and schemas.
 
-Each Nexa turn creates one upstream session. The driver remains in the backend
+Copilot and Codex create one upstream session per Nexa turn; ACP can reuse a completed session. The driver remains in the backend
 when the renderer reloads; reconciliation reads the existing outbox instead of
 submitting another upstream turn. Nexa's bounded reference history is supplied
 as reference context, without replaying another provider's native tool records.
 Historical skill mentions are outside new user input. The upstream runtime owns
 compression within its session; Nexa remains the owner of cross-turn history.
 
-Tool callback IDs are idempotent within the live session. Reusing an ID with
+Copilot/Codex tool callback IDs are idempotent within the live session. Reusing an ID with
 different arguments fails the run. Tool effects are serialized through the
 shared dispatcher; invalid schema and denied actions produce structured errors
 without an effect. The configured tool budget also applies to external callbacks
 (256 calls when no explicit limit is configured). Renderer reload never replays
 callbacks. Process loss terminates the turn; it does not transparently resend
 an uncertain action.
+
+## Installed ACP agents
+
+The External agents catalog also includes these explicit launch presets:
+
+| Agent | Command | Preparation |
+| --- | --- | --- |
+| Gemini CLI | `gemini --acp` | Install the official CLI and complete its login |
+| OpenCode | `opencode acp` | Install and configure its native providers/account |
+| Hermes Agent | `hermes acp` | Install with the ACP extra and configure its native account |
+
+Select an existing working directory and optionally an absolute executable path.
+Launch preferences are stored separately from API credentials under the exact
+saved profile ID. Editing one profile cannot redirect another profile. A project's
+primary workspace folder overrides the profile's fallback directory. The process
+cwd and ACP session cwd always agree; Nexa never infers an ACP cwd from its own
+process directory. On Windows the launcher can
+resolve installed npm `.cmd` shims. Nexa neither installs nor signs in silently.
+
+**Check connection** runs `initialize` and `session/new` without a prompt. It
+loads the real catalog, not a hard-coded cloud model list. Success means the
+session was created; it does not prove an account has quota or can infer.
+Config-options model selection is preferred when advertised; legacy
+`models`/`session/set_model` remains supported. Model IDs are opaque and an
+unconfirmed change fails before submission. A runtime without model discovery
+can expose only its own default. API keys/endpoints cannot be saved on a runtime
+profile, and unavailable models never silently switch providers.
+
+ACP tools execute in the external process with its native configuration and
+permission policy. Nexa projects `tool_call` reports with `providerExecuted` and
+does not run them again. ACP permission requests use Nexa's approval UI, bind to
+the profile, working directory and stable action arguments, and select only a
+corresponding one-time option. Transient RPC/session IDs do not invalidate a
+reusable Nexa decision, but incomplete action details remain invocation-specific.
+A reusable Nexa decision is never promoted into an upstream `allow_always` grant.
+Nexa does not advertise filesystem/terminal RPC services. This does not sandbox
+native tools or prevent them accessing paths outside the selected directory.
+
+Text/thinking, native tool lifecycle, context usage snapshots and final message
+IDs flow through the existing ordered outbox. A fresh session receives bounded
+reference history. Completed sessions are cached by conversation, profile and
+launch configuration, with at most four idle sessions and a five-minute idle TTL.
+A warm turn sends only new input and changed context. Transcript edits, route
+changes, changed cwd, cancellation, process death and uncertain outcomes require
+a fresh session; effectful prompts are never retried automatically. Startup and
+waiting stages project into a single compact composer status row. Live renderer
+reload reads the existing outbox without resending a prompt. User steering is queued until the current native prompt ends.
+Stop sends `session/cancel` and tears down the process tree; transport loss and
+incomplete/unknown stop reasons retain partial text without emitting success.
+Native tool reports must finish before a successful terminal event. Context
+usage is not added as billable usage; missing native token/cost data is not
+estimated from an API price table.
+
+Nexa's tools, subagent scheduler, screen sharing, MoA and strict read-only Plan
+policy are not exposed by this ACP adapter. The composer hides controls it cannot
+honor. Native agent tool/configuration capabilities remain owned by that agent.
+Image input requires the runtime's advertised capability. Upstream persisted
+session/load, native audio and interactive terminal login are not implemented.
+Nexa's explicit checkpoint Resume can continue in a fresh native session after
+restart, carrying retained output and reconciliation instructions. It does not
+claim exact restoration of an interrupted native tool or replay it automatically.
+
+Protocol references: [Zed external agents](https://zed.dev/docs/ai/external-agents),
+[ACP v1](https://agentclientprotocol.com/protocol/v1/initialization),
+[Gemini authentication](https://geminicli.com/docs/get-started/authentication/),
+[OpenCode ACP](https://opencode.ai/docs/acp/),
+[Hermes ACP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/acp.md).
 
 Malformed historical activity records or event journals are isolated by their
 database key. Their original rows remain available for repair, and their IDs
@@ -117,7 +187,7 @@ fresh tool nonce reaches the streamed answer, executes once, persists once, and
 emits one terminal event through the real forwarder/outbox, and closes the turn
 with the exact final assistant ID before delivery. They are not run by ordinary CI.
 
-Implementation: [subscription drivers](../apps/desktop/src-tauri/src/subscription_runtime),
+Implementation: [subscription drivers](../apps/desktop/src-tauri/src/agent_runtime),
 [account enrollment](../apps/desktop/src-tauri/src/commands/subscription_accounts.rs),
 and [external tool session](../crates/core/src/agent/external_tools.rs).
 The latter owns callback idempotency and the subscription callback budget;

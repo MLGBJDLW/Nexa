@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use crate::app_settings::ShellAccessMode;
-use crate::models::Source;
 
 use super::super::path_utils::{resolve_path_from_base_in_sources, PathKind};
 use super::super::run_shell_contract::{
@@ -296,7 +295,7 @@ pub(super) fn validate_scoped_args(
     program: &str,
     args: &[String],
     cwd: &Path,
-    sources: &[Source],
+    sources: &[impl super::super::path_utils::AccessRoot],
 ) -> Result<(), String> {
     if !mode.is_restricted() {
         return Ok(());

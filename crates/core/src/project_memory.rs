@@ -475,6 +475,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Novel".to_string(),
                 description: None,
                 icon: None,
@@ -546,6 +547,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Product".to_string(),
                 description: None,
                 icon: None,
@@ -601,6 +603,7 @@ mod tests {
         let db = Database::open_memory().unwrap();
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Research".to_string(),
                 description: None,
                 icon: None,

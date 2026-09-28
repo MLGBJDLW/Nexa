@@ -947,16 +947,33 @@ pub async fn preview_file_cmd(
     state: tauri::State<'_, AppState>,
     app_handle: AppHandle,
     path: String,
+    conversation_id: Option<String>,
 ) -> Result<FilePreview, String> {
     let db = state.db.clone();
     let data_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
-    let preview =
-        tokio::task::spawn_blocking(move || build_file_preview(&db, &path, Some(&data_dir)))
-            .await
-            .map_err(|e| e.to_string())??;
+    let preview = tokio::task::spawn_blocking(move || {
+        let mut preview = build_file_preview(&db, &path, Some(&data_dir))?;
+        if let Some(conversation) = conversation_id.as_deref() {
+            let workspace = db
+                .conversation_workspace(conversation)
+                .map_err(|error| error.to_string())?;
+            let scope = db
+                .get_effective_conversation_source_scope(conversation)
+                .map_err(|error| error.to_string())?;
+            let mut context =
+                nexa_core::tools::ToolExecutionContext::new("preview", "", &db, &scope);
+            context.workspace = workspace.as_ref();
+            preview.agent_edit_allowed =
+                nexa_core::tools::resolve_agent_file_path(&context, Path::new(&preview.path))
+                    .is_ok();
+        }
+        Ok::<_, String>(preview)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     if matches!(preview.kind.as_str(), "image" | "audio" | "video") {
         app_handle
             .asset_protocol_scope()

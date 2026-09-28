@@ -652,7 +652,11 @@ impl AgentExecutor {
                     .unwrap_or_default(),
                 None => Vec::new(),
             });
-        let has_sources = !source_scope.is_empty();
+        let has_sources = !source_scope.is_empty()
+            || self
+                .tools
+                .workspace()
+                .is_some_and(|workspace| !workspace.roots.is_empty());
         let route_plan = route_user_turn(
             &user_query_text_for_tools,
             &self.config.system_prompt,
@@ -733,6 +737,7 @@ impl AgentExecutor {
                 db,
                 &source_scope,
                 turn_id,
+                self.tools.workspace(),
             )?)
         } else {
             None
@@ -2064,7 +2069,6 @@ impl AgentExecutor {
                     OutputRecoveryFailure::ContentFiltered => "The provider blocked the response before producing a final answer. Its reasoning was kept separate; revise the request and try again.".to_string(),
                     OutputRecoveryFailure::OutputLimit => "The provider repeatedly reached its per-request output limit without producing new answer or verified tool progress. Nexa stopped the stalled recovery; the configured tool-round budget was not the cause.".to_string(),
                     OutputRecoveryFailure::EmptyTerminal => "The provider repeatedly finished without producing a final answer in the answer channel. Its reasoning was kept separate; retry the response or choose another model.".to_string(),
-                    OutputRecoveryFailure::MalformedToolCall => "The provider reported a malformed tool call without a recoverable committed envelope. Nexa executed no draft call; retry with a different model or provider route.".to_string(),
                     OutputRecoveryFailure::ProtocolIncomplete => "The provider ended without the terminal protocol required by this route. Nexa executed no draft tool call; verify the endpoint dialect or choose another provider route.".to_string(),
                     OutputRecoveryFailure::UnsupportedTerminal(raw) => format!("The provider returned an unsupported terminal reason ('{raw}'). Nexa treated it conservatively and executed no draft tool call; update this endpoint's compatibility profile or choose another route."),
                 };
@@ -2095,7 +2099,7 @@ impl AgentExecutor {
             let protocol_guard_calls = tool_calls.clone();
             let verified_tool_calls = match VerifiedToolCallBatch::seal(
                 tool_calls,
-                tool_call_assembly_rejected,
+                tool_call_assembly_rejected || tool_round_rejection_cause.is_some(),
                 step_finish_reason_kind
                     .as_ref()
                     .is_some_and(FinishReason::allows_completed_client_tools)

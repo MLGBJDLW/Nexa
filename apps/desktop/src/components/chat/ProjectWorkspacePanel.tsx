@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, FolderKanban, ListChecks, Network, Plus, RefreshCw, Save } from 'lucide-react';
+import { CalendarDays, Check, FolderKanban, FolderOpen, Pencil, ListChecks, Network, Plus, RefreshCw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '../../lib/api';
 import type { Project } from '../../types/project';
@@ -13,6 +13,7 @@ interface ProjectWorkspacePanelProps {
   projectId: string | null;
   open: boolean;
   onClose: () => void;
+  onManageFolders?: (project: Project) => void;
 }
 
 type WorkspaceTab = 'overview' | 'state' | 'knowledge' | 'timeline';
@@ -42,7 +43,7 @@ const REVIEW_STATE_KEYS: Record<api.ProjectEvent['reviewState'], TranslationKey>
   rejected: 'project.workspaceReviewRejected',
 };
 
-export function ProjectWorkspacePanel({ projectId, open, onClose }: ProjectWorkspacePanelProps) {
+export function ProjectWorkspacePanel({ projectId, open, onClose, onManageFolders }: ProjectWorkspacePanelProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
   const [project, setProject] = useState<Project | null>(null);
@@ -183,6 +184,16 @@ export function ProjectWorkspacePanel({ projectId, open, onClose }: ProjectWorks
 
         {activeTab === 'overview' && (
           <div className="space-y-4">
+            {project && onManageFolders && <button type="button" data-testid="project-workspace-folders"
+              onClick={() => onManageFolders(project)}
+              className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-0/60 px-3 py-2.5 text-left transition-colors hover:border-border-hover">
+              <FolderOpen size={17} className="shrink-0 text-text-secondary" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium text-text-secondary">{t('project.workspaceFolders')}</span>
+                <span className="mt-0.5 block truncate text-xs text-text-tertiary" title={project.workspaceRoots?.join('\n')}>{project.workspaceRoots?.[0] ?? t('project.chooseFolder')}</span>
+              </span>
+              <Pencil size={13} className="shrink-0 text-text-tertiary" />
+            </button>}
             <div className="grid grid-cols-2 gap-2">
               <WorkspaceMetric label={t('project.workspaceEpisodes')} value={workspace?.episodes.length ?? 0} />
               <WorkspaceMetric label={t('project.workspaceEvents')} value={workspace?.events.length ?? 0} />

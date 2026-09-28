@@ -79,7 +79,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`search_playbooks`](../crates/core/prompts/tools/search_playbooks.json) | Search existing playbooks by topic or keyword |
 | [`search_sessions`](../crates/core/prompts/tools/search_sessions.json) | Search prior conversation messages across local sessions |
 | [`spawn_subagent_batch`](../crates/core/prompts/tools/spawn_subagent_batch.json) | Spawn a batch of short-lived subagents for parallel fan-out research, critique, comparison, or templated workflows |
-| [`spawn_subagent`](../crates/core/prompts/tools/spawn_subagent.json) | Start a short-lived subagent and immediately return its stable agent id |
+| [`spawn_subagent`](../crates/core/prompts/tools/spawn_subagent.json) | Start an isolated subagent and immediately return its stable agent id |
 | [`submit_feedback`](../crates/core/prompts/tools/submit_feedback.json) | Submit feedback (upvote, downvote, or pin) on a search result chunk to improve future search relevance |
 | [`summarize_document`](../crates/core/prompts/tools/summarize_document.json) | Retrieve all indexed chunks of a document in order, suitable for full-document summarization |
 | [`synthesize_speech`](../crates/core/prompts/tools/synthesize_speech.json) | Turn text into a spoken-audio preview using the cloud TTS provider configured in Settings |

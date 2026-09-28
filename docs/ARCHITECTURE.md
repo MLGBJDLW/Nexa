@@ -91,9 +91,28 @@ without loading tool payload history. UI refreshes coalesce while one request
 is pending. Worker capsules merge durable and live identities, keep terminal
 states monotonic, and show compact task labels.
 
-The chat Git capsule reads the effective conversation/project source scope;
-unscoped chats use registered sources, matching file tools. The current linked
-terminal can also contribute its launch directory. It does not infer directories
+Chat owns project selection and conversation navigation together. Creating or
+switching to a different project opens a greeting and New Chat action; the
+composer appears only after that action;
+opening a saved conversation restores its own project selection. New drafts
+are keyed by project, including their text and attachments, and remain local
+until the first send (or an explicit screen-sharing operation) creates the
+conversation. Browser history restores the route's project before another send.
+
+Projects own an ordered list of workspace root folders; the first is the default
+working directory. This is separate from indexed knowledge source scope. Project
+updates validate all roots before atomically persisting them. Each desktop turn
+captures a workspace in its tool registry; filtered and delegated registries keep
+that snapshot. Code Ultra selects its repository from these roots and supplies
+its owned isolated workspace to the dispatcher. File paths, Shell cwd, project manifests, browser file transfers,
+new terminals, Git and native agents use that authority. Empty configured roots
+never fall back to unrelated sources. Older unconfigured projects keep their
+legacy behavior until workspace folders are chosen. Explicit Open filesystem
+permissions remain separate from the default working directory.
+
+The chat Git capsule reads project workspace roots when configured, and otherwise
+the effective source scope. The current linked terminal can contribute its launch
+directory without displacing an explicit primary root. It does not infer directories
 from assistant prose or a shell's later `cd` commands. Canonical duplicate scopes
 are scanned once, up to four at a time. A missing Git executable or inaccessible
 source is an explicit diagnostic and cannot hide healthy repositories. The UI
@@ -102,6 +121,17 @@ does not restart an open diff request. Manual refresh and completed tools still
 invalidate open diffs even when filenames and status letters are unchanged.
 Phone history merging indexes message IDs
 once and preserves expanded text and older pages.
+
+Normal desktop exit cancels and fences active producers, drains their outboxes,
+and writes resumable checkpoints before shutting down. A shared launch gate
+lets admitted launches finish registration before shutdown drains them, then
+rejects new launches. Startup can checkpoint
+interrupted nonterminal chat runs with an action-reconciliation obligation; it
+never revives a true terminal or auto-answers a required user interaction.
+Scheduled workflow recovery keeps its existing policy. The send button becomes
+Resume only for the latest verified paused checkpoint and an empty draft. Typed
+input retains ordinary Send. Resume uses the durable checkpoint's idempotency key
+and checks conversation ownership again after async lookup.
 
 ## Run Event publication boundary
 
@@ -323,5 +353,16 @@ retain their existing scope classification; a successful package build alone
 does not satisfy the release gate. Native interaction and long-duration resource
 acceptance remain separate evidence from CI and must not be claimed from a green
 build.
+
+Release notes use the previous version tag and an immutable candidate SHA as
+their range. Release PR maintenance refreshes a managed cumulative PR section
+in both the PR body and its changelog entry, preserving other authored text.
+Publication resolves the created tag rather than assuming the triggering push
+is still its target. Both updater manifests carry complete versioned changelog
+history without byte truncation. The desktop selects only versions newer than
+the installed version through the offered version for every update source;
+older manifests use paginated GitHub history with the target notes as fallback.
+Resumed older drafts run the workflow revision's release tooling against the
+immutable candidate metadata, so a missing historical helper cannot block them.
 
 See [README.md](./README.md) for the full documentation index.

@@ -133,7 +133,6 @@ pub(super) enum OutputRecoveryFailure {
     ContentFiltered,
     OutputLimit,
     EmptyTerminal,
-    MalformedToolCall,
     ProtocolIncomplete,
     UnsupportedTerminal(String),
 }
@@ -413,13 +412,11 @@ impl OutputRecovery {
         }
 
         if matches!(finish_reason, Some(FinishReason::MalformedToolCall)) {
-            return if has_tool_calls {
-                OutputRecoveryDecision::RejectToolRound {
-                    cause: ToolRoundRejectionCause::MalformedToolCall,
-                    committed_progress: false,
-                }
-            } else {
-                OutputRecoveryDecision::Reject(OutputRecoveryFailure::MalformedToolCall)
+            // Some providers reject the draft before emitting any call fields.
+            // Both forms must use the same bounded protocol recovery path.
+            return OutputRecoveryDecision::RejectToolRound {
+                cause: ToolRoundRejectionCause::MalformedToolCall,
+                committed_progress: false,
             };
         }
 
@@ -1233,7 +1230,10 @@ mod tests {
         let mut malformed = OutputRecovery::default();
         assert_eq!(
             malformed.observe(Some(&FinishReason::MalformedToolCall), "partial", false),
-            OutputRecoveryDecision::Reject(OutputRecoveryFailure::MalformedToolCall)
+            OutputRecoveryDecision::RejectToolRound {
+                cause: ToolRoundRejectionCause::MalformedToolCall,
+                committed_progress: false,
+            }
         );
 
         let mut unknown = OutputRecovery::default();

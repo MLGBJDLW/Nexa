@@ -43,6 +43,7 @@ import { OcrSettingsSection } from '../../components/settings/OcrSettingsSection
 import { ProvidersSettingsTab, type ProviderView } from '../../components/settings/ProvidersSettingsTab';
 import { VideoSettingsSection } from '../../components/settings/VideoSettingsSection';
 import type { ProviderPreset } from '../../lib/providerPresets';
+import { saveExternalAgentProfile, type ExternalAgentLaunch } from '../../lib/externalAgents';
 import { useDeveloperMode } from '../../lib/developerMode';
 import { useVoiceInputRuntime, withWhisperModel } from '../voice';
 
@@ -1565,10 +1566,11 @@ export function SettingsPage() {
     }
   }, [activeTab, loadAgentConfigs]);
 
-  const handleSaveAgent = async (input: SaveAgentConfigInput) => {
+  const handleSaveAgent = async (input: SaveAgentConfigInput, launch?: ExternalAgentLaunch) => {
     setAgentSaveLoading(true);
     try {
-      await api.saveAgentConfig(input);
+      if (launch) await saveExternalAgentProfile(input, launch);
+      else await api.saveAgentConfig(input);
       toast.success(t('settings.providerSaved'));
       setProviderFormDirty(false);
       setProviderView('list');

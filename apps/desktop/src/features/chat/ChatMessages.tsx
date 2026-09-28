@@ -2378,6 +2378,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         )}
 
       {isStreaming &&
+        !traceEvents.some(event => event.kind === 'status' && event.code?.startsWith('external_agent_')) &&
         !streamText &&
         streamRounds.length === 0 &&
         visibleTraceEvents.length === 0 &&

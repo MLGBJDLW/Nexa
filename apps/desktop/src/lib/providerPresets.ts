@@ -1,5 +1,6 @@
 import providerPresets from "../../../../shared/provider-presets.json";
 import subscriptionPresets from "../../../../shared/subscription-runtime-presets.json";
+import externalAgentPresets from "../../../../shared/external-agent-presets.json";
 import type { ProviderStreamingConfig } from '../types/conversation';
 import type {
   ProviderCapabilities,
@@ -27,7 +28,10 @@ export type {
 } from './providerTypes';
 
 export interface ProviderPreset {
-  runtime?: 'copilot' | 'codex';
+  runtime?: 'copilot' | 'codex' | 'acp';
+  command?: string;
+  args?: string[];
+  docsUrl?: string;
   id: string;
   name: string;
   provider: string;
@@ -55,7 +59,7 @@ export function isRemovedProviderModel(presetId: string, modelId: string): boole
   return Boolean(removedProviderModel(presetId, modelId));
 }
 
-export const PROVIDER_PRESETS: ProviderPreset[] = ([...providerPresets, ...subscriptionPresets] as RawProviderPreset[]).map((preset) => ({
+export const PROVIDER_PRESETS: ProviderPreset[] = ([...providerPresets, ...subscriptionPresets, ...externalAgentPresets] as RawProviderPreset[]).map((preset) => ({
   ...preset,
   models: attachModelDescriptors(preset.models.filter(model => model.status !== 'removed'), {
     surface: 'text',

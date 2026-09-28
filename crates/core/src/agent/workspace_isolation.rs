@@ -263,13 +263,19 @@ pub(super) struct WorkspaceIsolationRuntime {
     finalized: bool,
 }
 
-impl WorkspaceIsolationRuntime {
-    pub(super) fn prepare(
-        db: &Database,
-        source_scope: &[String],
-        owner_turn_id: Option<&str>,
-    ) -> Result<Self, CoreError> {
-        let candidates = if source_scope.is_empty() {
+fn isolation_roots(
+    db: &Database,
+    source_scope: &[String],
+    workspace: Option<&crate::workspace::Workspace>,
+) -> Result<Vec<PathBuf>, CoreError> {
+    let mut roots = if let Some(workspace) = workspace {
+        workspace
+            .roots
+            .iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+    } else {
+        let sources = if source_scope.is_empty() {
             db.list_sources()?
         } else {
             source_scope
@@ -277,16 +283,28 @@ impl WorkspaceIsolationRuntime {
                 .map(|id| db.get_source(id))
                 .collect::<Result<Vec<_>, _>>()?
         };
-        let mut roots = candidates
+        sources
             .into_iter()
             .map(|source| PathBuf::from(source.root_path))
-            .filter(|root| root.is_dir())
-            .collect::<Vec<_>>();
-        roots.sort();
-        roots.dedup();
+            .collect()
+    };
+    roots.retain(|root| root.is_dir());
+    roots.sort();
+    roots.dedup();
+    Ok(roots)
+}
+
+impl WorkspaceIsolationRuntime {
+    pub(super) fn prepare(
+        db: &Database,
+        source_scope: &[String],
+        owner_turn_id: Option<&str>,
+        workspace: Option<&crate::workspace::Workspace>,
+    ) -> Result<Self, CoreError> {
+        let roots = isolation_roots(db, source_scope, workspace)?;
         if roots.len() != 1 {
             return Err(CoreError::InvalidInput(format!(
-                "Code Ultra write isolation requires exactly one local source root; found {}. Link one clean Git repository or choose another profile.",
+                "Code Ultra write isolation requires exactly one local workspace root; found {}. Choose one clean Git repository or another profile.",
                 roots.len()
             )));
         }
@@ -1069,6 +1087,37 @@ fn remove_worktree(repo_root: &Path, worktree_root: &Path) -> Result<(), CoreErr
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn isolation_uses_explicit_workspace_instead_of_unrelated_indexed_sources() {
+        let db = Database::open_memory().unwrap();
+        let indexed = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: indexed.path().to_string_lossy().into_owned(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        let workspace =
+            crate::workspace::Workspace::validate(&[project.path().to_string_lossy().into_owned()])
+                .unwrap();
+        let roots =
+            isolation_roots(&db, std::slice::from_ref(&source.id), Some(&workspace)).unwrap();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(
+            std::fs::canonicalize(&roots[0]).unwrap(),
+            std::fs::canonicalize(project.path()).unwrap()
+        );
+        let empty = crate::workspace::Workspace { roots: vec![] };
+        assert!(isolation_roots(&db, &[], Some(&empty)).unwrap().is_empty());
+        assert_eq!(
+            isolation_roots(&db, &[], None).unwrap(),
+            vec![indexed.path().to_path_buf()]
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -1135,7 +1184,7 @@ mod tests {
             })
             .unwrap();
         let mut isolation =
-            WorkspaceIsolationRuntime::prepare(&db, std::slice::from_ref(&source.id), None)
+            WorkspaceIsolationRuntime::prepare(&db, std::slice::from_ref(&source.id), None, None)
                 .unwrap();
         std::fs::write(
             isolation.isolated_source_root.join("tracked.txt"),
@@ -1181,7 +1230,7 @@ mod tests {
             })
             .unwrap();
         let isolation =
-            WorkspaceIsolationRuntime::prepare(&db, std::slice::from_ref(&source.id), None)
+            WorkspaceIsolationRuntime::prepare(&db, std::slice::from_ref(&source.id), None, None)
                 .unwrap();
         let worktree_root = isolation.isolated_worktree_root.clone();
         let isolated_source_id = isolation.isolated_source_id.clone().unwrap();
@@ -1288,6 +1337,7 @@ mod tests {
             &db,
             std::slice::from_ref(&source.id),
             Some(&turn.id),
+            None,
         )
         .unwrap();
         let worktree_root = isolation.isolated_worktree_root.clone();
@@ -1302,6 +1352,7 @@ mod tests {
             &db,
             std::slice::from_ref(&source.id),
             Some(&turn.id),
+            None,
         )
         .unwrap();
         assert_eq!(resumed.isolated_worktree_root, worktree_root);
@@ -1343,7 +1394,7 @@ mod tests {
             })
             .unwrap();
         let mut isolation =
-            WorkspaceIsolationRuntime::prepare(&db, std::slice::from_ref(&source.id), None)
+            WorkspaceIsolationRuntime::prepare(&db, std::slice::from_ref(&source.id), None, None)
                 .unwrap();
         let isolated_source_id = isolation.source_id().unwrap().to_string();
         assert!(isolation.route_path("../escape.txt").is_err());

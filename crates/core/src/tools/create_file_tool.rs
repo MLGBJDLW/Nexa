@@ -20,7 +20,7 @@ use super::document_utils::{edit_guidance_for_path, generated_document_mime};
 use super::path_utils::{
     has_path_traversal as has_path_traversal_impl, resolve_writable_file_for_file_access,
 };
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/create_file.json");
@@ -98,7 +98,7 @@ fn normalized_mode(args: &CreateFileArgs) -> Result<FileWriteMode, String> {
 /// directory, canonicalizes it, then reconstructs the full path.
 pub(crate) fn resolve_and_validate(
     requested: &Path,
-    sources: &[crate::models::Source],
+    sources: &[impl super::path_utils::AccessRoot],
     allow_unregistered_absolute_paths: bool,
 ) -> Result<PathBuf, String> {
     resolve_writable_file_for_file_access(requested, sources, allow_unregistered_absolute_paths)
@@ -181,11 +181,11 @@ impl Tool for CreateFileTool {
             .map(tokio_util::sync::CancellationToken::child_token)
             .unwrap_or_default();
         let _cancel_mutation_on_drop = mutation_cancel.clone().drop_guard();
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
             db,
-            source_scope,
             conversation_id,
             ..
         } = context;
@@ -211,10 +211,9 @@ impl Tool for CreateFileTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
-        let source_scope = source_scope.to_vec();
         let conversation_id = conversation_id.map(str::to_string);
         tokio::task::spawn_blocking(move || {
-            let file_policy = file_access_policy(&db, &source_scope)?;
+
             let requested = PathBuf::from(&args.path);
             if file_policy.sources.is_empty()
                 && !(file_policy.allow_unregistered_absolute_paths && requested.is_absolute())

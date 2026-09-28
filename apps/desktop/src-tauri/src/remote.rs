@@ -436,10 +436,10 @@ impl RemoteHost for DesktopHost {
         use RemoteCommand::*;
         match command {
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
-            FilePreview { path } => value(commands::preview_file_cmd(app.state(), app.clone(), path).await?),
+            FilePreview { path } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None).await?),
             FileData { path } => {
                 // Resolve through the same source/path rules as the desktop preview.
-                let preview = commands::preview_file_cmd(app.state(), app.clone(), path).await?;
+                let preview = commands::preview_file_cmd(app.state(), app.clone(), path, None).await?;
                 let file = tokio::fs::File::open(&preview.path).await.map_err(|e| e.to_string())?;
                 let mut bytes = Vec::new();
                 use tokio::io::AsyncReadExt;

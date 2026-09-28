@@ -4,6 +4,7 @@ declare global {
   interface Window {
     __lastAgentPrompt?: string;
     __lastSourceIds?: string[];
+    __previewCalls?: Array<{ path: string; conversationId?: string | null }>;
   }
 }
 
@@ -43,6 +44,7 @@ test.beforeEach(async ({ page }) => {
 
     window.__lastAgentPrompt = undefined;
     window.__lastSourceIds = undefined;
+    window.__previewCalls = [];
 
     const defaultAgentConfig = {
       id: 'cfg-agent-edit',
@@ -118,8 +120,8 @@ test.beforeEach(async ({ page }) => {
     let browserLoading = false;
     const htmlOpens: unknown[] = [];
     Object.assign(window, { __htmlOpens: htmlOpens, __holdBrowserLoad: () => { browserLoading = true; }, __finishBrowserLoad: () => { browserLoading = false; } });
-    const emitPreview = (requestId: string, path: string, line: number | null = null, resourcePaths: string[] = []) => {
-      const payload = { requestId, path, line, resourcePaths, conversationId: 'conv-agent-edit', callId: requestId };
+    const emitPreview = (requestId: string, path: string, line: number | null = null, resourcePaths: string[] = [], conversationId: string | null = 'conv-agent-edit') => {
+      const payload = { requestId, path, line, resourcePaths, conversationId, callId: requestId };
       previewPending.push(payload);
       for (const [id, listener] of listeners) if (listener.event === 'preview:open') callbackMap.get(listener.handlerId)?.({ event: 'preview:open', id, payload });
     };
@@ -220,6 +222,7 @@ test.beforeEach(async ({ page }) => {
         case 'plugin:dialog|open':
           return localStorage.getItem('e2e-picked-file');
         case 'preview_file_cmd':
+          window.__previewCalls!.push({ path: String(args.path), conversationId: args.conversationId as string | null | undefined });
           if (localStorage.getItem('e2e-delay-preview') === '1') await new Promise<void>(resolve => { delayedPreview = resolve; });
           if (String(args.path).endsWith('image.svg')) return { path: String(args.path),displayName:'image.svg',sourceId:null,agentEditAllowed:true,sourceName:'Temporary',extension:'.svg',mimeType:'image/svg+xml',kind:'image',content:null,editable:false,sizeBytes:90,hash:'metadata:image',lineCount:0,truncated:false,warning:null };
           if (String(args.path ?? '').endsWith('index.html')) {
@@ -629,6 +632,27 @@ test('opens an agent-requested preview once and acknowledges the actual line sel
   await expect.poll(()=>page.evaluate(()=>(window as unknown as {__previewAcks:unknown[]}).__previewAcks.length)).toBe(1);
   expect(await page.evaluate(()=>(window as unknown as {__externalOpens:()=>number}).__externalOpens())).toBe(0);
 });
+
+for (const owner of ['conv-background', null]) {
+test(`agent-requested preview preserves ${owner ?? 'unscoped'} ownership through reload`, async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  await expect(page.getByRole('button', { name: /agent-edit\.md/i })).toBeVisible();
+  await page.evaluate(conversationId => {
+    const emit = (window as unknown as { __emitAgentPreview: (id: string, path: string, line: number, resources: string[], owner: string | null) => void }).__emitAgentPreview;
+    emit('background-scope', 'D:\\Vault\\notes\\agent-edit.md', 4, [], conversationId);
+  }, owner);
+  await expect(page.getByTestId('file-preview-text-view')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__previewCalls)).toEqual([
+    { path: 'D:\\Vault\\notes\\agent-edit.md', conversationId: owner },
+  ]);
+  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__previewCalls)).toEqual([
+    { path: 'D:\\Vault\\notes\\agent-edit.md', conversationId: owner },
+    { path: 'D:\\Vault\\notes\\agent-edit.md', conversationId: owner },
+  ]);
+  await expect(page).toHaveURL(/\/chat\/conv-agent-edit$/);
+});
+}
 
 test('blocks agent navigation when the preview contains unsaved edits',async({page})=>{
   await page.goto('/chat/conv-agent-edit');

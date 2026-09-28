@@ -90,5 +90,18 @@
   "workspaceEventArtifact": "Livrable ajouté",
   "workspaceEventOpenQuestion": "Question ouverte",
   "workspaceEventSource": "Source ajoutée",
-  "workspaceProvenance": "Détails de la source"
+  "workspaceProvenance": "Détails de la source",
+  "newConversationTitle": "Démarrer une nouvelle conversation",
+  "newConversationHint": "Votre premier message créera une conversation dans {name}.",
+  "welcomeTitle": "Bienvenue dans {name}",
+  "workspaceFolders": "Dossiers de l’espace de travail",
+  "workspaceFoldersHint": "Le premier dossier est le répertoire de travail par défaut. Ajoutez des dossiers pour les projets à plusieurs dépôts. Ce réglage peut attendre.",
+  "primaryFolder": "Dossier principal",
+  "additionalFolder": "Dossier supplémentaire",
+  "chooseFolder": "Choisir un dossier",
+  "folderPlaceholder": "Choisir ou coller un chemin de dossier",
+  "makePrimary": "Définir comme principal",
+  "addFolder": "Ajouter un dossier",
+  "appearance": "Apparence",
+  "editProject": "Modifier le projet"
 }

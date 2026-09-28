@@ -54,3 +54,18 @@ test('account change rejects late results and never restores the old account cat
   resolvers[0](models); await rejected;
   assert.equal(cache.getSubscriptionCatalogs().github_copilot.models.length, 0);
 });
+
+test('ACP profiles keep independent catalogs and invalidate only the edited launch', async () => {
+  const requests = [];
+  const cache = harness(async (_command, args) => { requests.push(args); return [{ id: args.agentConfigId, name: args.agentConfigId, reasoningEfforts: [] }]; });
+  await cache.loadSubscriptionModels('hermes', false, 'project-a');
+  await cache.loadSubscriptionModels('hermes', false, 'project-b');
+  const a = cache.runtimeCatalogKey('hermes', 'project-a');
+  const b = cache.runtimeCatalogKey('hermes', 'project-b');
+  assert.equal(cache.getSubscriptionCatalogs()[a].models[0].id, 'project-a');
+  assert.equal(cache.getSubscriptionCatalogs()[b].models[0].id, 'project-b');
+  cache.invalidateSubscriptionModels(a);
+  await cache.loadSubscriptionModels('hermes', false, 'project-b');
+  assert.equal(requests.length, 2);
+  assert.equal(cache.getSubscriptionCatalogs()[b].models[0].id, 'project-b');
+});

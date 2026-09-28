@@ -52,6 +52,7 @@ import {
 import { EmojiPicker } from "./EmojiPicker";
 import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
+import { Play } from 'lucide-react';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -77,9 +78,12 @@ interface ChatInputProps {
     options?: ChatInputSendOptions,
   ) => Promise<boolean>;
   onStop: () => void;
+  onResume?: () => Promise<void>;
   isStreaming: boolean;
   disabled: boolean;
   conversationId?: string;
+  projectId?: string | null;
+  agentRuntime?: 'api' | 'subscription' | 'acp';
   onEnsureConversation?: (beforeActivate?: (id: string) => void) => Promise<string>;
   agentId?: string;
   inputHistory?: string[];
@@ -112,6 +116,9 @@ interface StoredChatDraftState {
 type SlashCommandTab = "all" | SlashCommandKind;
 
 const NEW_CONVERSATION_DRAFT_KEY = "__new__";
+function isNewConversationDraftKey(key: string) {
+  return key === NEW_CONVERSATION_DRAFT_KEY || key.startsWith(`${NEW_CONVERSATION_DRAFT_KEY}:`);
+}
 const CHAT_INPUT_DRAFT_STORAGE_KEY = "chat-input-drafts-v1";
 const CHAT_POWER_MODE_STORAGE_PREFIX = "chat-agent-power-mode-v1";
 const CHAT_NEXUS_ACKNOWLEDGED_STORAGE_KEY = "chat-nexus-mode-acknowledged-v1";
@@ -350,9 +357,12 @@ function isCaretAtInputHistoryBoundary(
 export function ChatInput({
   onSend,
   onStop,
+  onResume,
   isStreaming,
   disabled,
   conversationId,
+  projectId,
+  agentRuntime = 'api',
   onEnsureConversation,
   agentId,
   inputHistory = [],
@@ -371,7 +381,9 @@ export function ChatInput({
 }: ChatInputProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
-  const draftKey = conversationId ?? NEW_CONVERSATION_DRAFT_KEY;
+  const draftKey = conversationId ?? (projectId
+    ? `${NEW_CONVERSATION_DRAFT_KEY}:${projectId}`
+    : NEW_CONVERSATION_DRAFT_KEY);
   const initialDraftRef = useRef<ChatDraftState | null>(null);
   if (initialDraftRef.current === null) {
     initialDraftRef.current = readChatInputDraft(draftKey);
@@ -440,10 +452,11 @@ export function ChatInput({
   // being built, then send as soon as compaction completes.
   const hasImageAttachments = attachments.some((attachment) => attachment.mediaType.startsWith('image/'));
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
-  const inputLocked = disabled;
+  const inputLocked = disabled || loadedDraftKey !== draftKey;
   const sendLocked = inputLocked || isCompacting || visionDecisionRequired || sendPending;
   const attachmentLocked = inputLocked || isCompacting || isStreaming;
-  const effectivePlanModeEnabled = planModeEnabled ?? localPlanModeEnabled;
+  const nativeAgent = agentRuntime === 'acp';
+  const effectivePlanModeEnabled = !nativeAgent && (planModeEnabled ?? localPlanModeEnabled);
   const inputHistoryEntries = useMemo(
     () => normalizeInputHistory(inputHistory),
     [inputHistory],
@@ -536,8 +549,8 @@ export function ChatInput({
     let storedMode = readStoredPowerMode(draftKey);
     if (
       storedMode === null
-      && previousKey === NEW_CONVERSATION_DRAFT_KEY
-      && draftKey !== NEW_CONVERSATION_DRAFT_KEY
+      && isNewConversationDraftKey(previousKey)
+      && !isNewConversationDraftKey(draftKey)
       && powerMode === "nexus"
     ) {
       storedMode = "nexus";
@@ -546,8 +559,8 @@ export function ChatInput({
     setPowerModeState(storedMode ?? "standard");
     let storedPolicy = readStoredOrchestrationPolicy(draftKey);
     if (
-      previousKey === NEW_CONVERSATION_DRAFT_KEY
-      && draftKey !== NEW_CONVERSATION_DRAFT_KEY
+      isNewConversationDraftKey(previousKey)
+      && !isNewConversationDraftKey(draftKey)
       && storedPolicy.collaborationMode === "direct"
       && storedPolicy.orchestrationProfile === "balanced"
       && (collaborationMode === "mixtureOfAgents" || orchestrationProfile !== "balanced")
@@ -616,8 +629,8 @@ export function ChatInput({
     if (
       sendInFlightRef.current
       && transfer?.to !== draftKey
-      && previousKey === NEW_CONVERSATION_DRAFT_KEY
-      && draftKey !== NEW_CONVERSATION_DRAFT_KEY
+      && isNewConversationDraftKey(previousKey)
+      && !isNewConversationDraftKey(draftKey)
     ) {
       // First-send persistence changes the route before the async launch has
       // settled. Carry the draft to the durable conversation key so a later
@@ -974,6 +987,12 @@ export function ChatInput({
   const handleSend = useCallback(async () => {
     if (sendLocked || sendInFlightRef.current) return;
     const trimmed = value.trim();
+    if (!isStreaming && onResume && !trimmed && attachments.length === 0 && !activeSlashCommand) {
+      sendInFlightRef.current = true;
+      setSendPending(true);
+      try { await onResume(); } finally { sendInFlightRef.current = false; setSendPending(false); }
+      return;
+    }
     if (!trimmed && attachments.length === 0 && !activeSlashCommand) return;
     if (isStreaming && (!trimmed || attachments.length > 0)) {
       toast.error(t("chat.attachmentWhileRunning"));
@@ -1016,6 +1035,10 @@ export function ChatInput({
       toast.error(t("chat.compactMustBeAlone"));
       return;
     }
+    if (nativeAgent && slashResolution?.executionMode === "plan") {
+      toast.error(t('settings.externalAgentControls'));
+      return;
+    }
     if (slashResolution?.executionMode === "plan" && slashResolution.message.length === 0 && attachments.length === 0) {
       setPlanMode(true);
       clearDraft();
@@ -1051,15 +1074,15 @@ export function ChatInput({
     const userArtifacts = activeGoal && goalContextContent
       ? mergeGoalContextArtifact(baseUserArtifacts, activeGoal, goalContextContent)
       : baseUserArtifacts;
-    const sendOptions = {
+    const sendOptions: ChatInputSendOptions = {
       skillIds: slashResolution?.skillIds,
       userArtifacts,
       executionMode,
-      powerMode,
-      collaborationMode,
+      powerMode: nativeAgent ? 'standard' : powerMode,
+      collaborationMode: agentRuntime === 'api' ? collaborationMode : 'direct',
       moaPreset,
-      orchestrationProfile,
-      customOrchestration: orchestrationProfile === "custom" ? customOrchestration : null,
+      orchestrationProfile: nativeAgent ? 'balanced' : orchestrationProfile,
+      customOrchestration: !nativeAgent && orchestrationProfile === "custom" ? customOrchestration : null,
       visionTurnOverride,
     };
     if (executionMode === "plan") {
@@ -1082,7 +1105,7 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, onCompact, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1827,16 +1850,17 @@ export function ChatInput({
             data-testid="chat-composer-primary-controls"
             className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
           >
-            {modeSegment}
-            {workflowCatalogControl}
+            {!nativeAgent && modeSegment}
+            {!nativeAgent && workflowCatalogControl}
+            {nativeAgent && <span className="text-xs text-text-tertiary" title={t('settings.externalAgentControls')}>{t('settings.externalAgents')}</span>}
             {attachmentControl}
           </div>
           {contextIndicator}
         </div>
         {planModeBanner}
-        {nexusModeBanner}
-        {moaModeBanner}
-        {qualityProfileBanner}
+        {!nativeAgent && nexusModeBanner}
+        {agentRuntime === 'api' && moaModeBanner}
+        {!nativeAgent && qualityProfileBanner}
 
         <div
           data-testid="chat-composer-surface"
@@ -1957,6 +1981,7 @@ export function ChatInput({
         <NexaPopoverAnchor asChild>
         <textarea
           data-testid="chat-input-textarea"
+          data-draft-key={draftKey}
           ref={textareaRef}
           value={value}
           onChange={(e) => {
@@ -1984,7 +2009,7 @@ export function ChatInput({
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden">
             {sessionControls}
 
-            <label
+            {agentRuntime === 'api' && <label
               data-testid="chat-moa-control"
               className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs transition-colors ${
                 moaModeEnabled
@@ -2016,9 +2041,9 @@ export function ChatInput({
                 <option value="crossModelCodeReview">{t("chat.moaPreset.crossModelCodeReview")}</option>
                 <option value="custom">{t("chat.moaPreset.custom")}</option>
               </NexaSelect>
-            </label>
+            </label>}
 
-            <label
+            {!nativeAgent && <><label
               data-testid="chat-quality-control"
               className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs transition-colors ${
                 orchestrationProfile !== "balanced"
@@ -2076,7 +2101,7 @@ export function ChatInput({
               persistChatInputDraft(id, draft);
               sharedDraftTransferRef.current = { from: draftKey, to: id };
               if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
-            }) : undefined} />
+            }) : undefined} /></>}
             {conversationId && onCompact && (
               <button
                 type="button"
@@ -2138,13 +2163,16 @@ export function ChatInput({
                 sendLocked ||
                 (isStreaming
                   ? !value.trim() || attachments.length > 0
-                  : !value.trim() && attachments.length === 0 && !activeSlashCommand)
+                  : !onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand)
               }
               data-testid="chat-send"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-text-primary/10 bg-text-primary text-surface-0 shadow-[0_8px_20px_rgba(0,0,0,0.22)] transition-[background-color,border-color,color,box-shadow,transform] duration-fast ease-out cursor-pointer hover:-translate-y-0.5 hover:bg-text-secondary hover:shadow-[0_10px_24px_rgba(0,0,0,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 disabled:pointer-events-none disabled:translate-y-0 disabled:border-border disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none"
-              aria-label={isStreaming ? t("chat.steeringMessage") : t("chat.send")}
+              title={!isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : undefined}
+              aria-label={isStreaming ? t("chat.steeringMessage") : onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : t("chat.send")}
             >
-              <ArrowUp className="h-4 w-4" strokeWidth={2.4} />
+              {sendPending ? <Loader2 className="h-4 w-4 animate-spin" /> : !isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand
+                ? <Play className="h-3.5 w-3.5" fill="currentColor" strokeWidth={1.8} />
+                : <ArrowUp className="h-4 w-4" strokeWidth={2.4} />}
             </button>
           </div>
         </div>

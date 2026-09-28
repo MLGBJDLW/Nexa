@@ -34,7 +34,7 @@ import {
 } from '../../lib/modelCatalog';
 import type { AgentConfig } from '../../types/conversation';
 import { useOverlayRoot } from '../ui/overlay';
-import { getSubscriptionCatalogs, loadSubscriptionModels, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
+import { getSubscriptionCatalogs, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
 import { catalogModelsForSnapshot, loadProviderModelCatalog } from '../../lib/providerModelCatalog';
 
 export interface AgentModelSelection {
@@ -212,24 +212,30 @@ export function AgentModelPicker({
   const [query, setQuery] = useState('');
   const [budgetDraft, setBudgetDraft] = useState('');
   const subscriptionCatalogs = useSyncExternalStore(subscribeSubscriptionCatalogs, getSubscriptionCatalogs);
-  const subscriptionProviderKey = [...new Set(agentConfigs.filter(config => findPresetForConfig(config)?.runtime).map(config => config.provider))].sort().join(',');
+  const subscriptionProviderKey = JSON.stringify(agentConfigs.filter(config => findPresetForConfig(config)?.runtime)
+    .map(config => ({ provider: config.provider, agentConfigId: findPresetForConfig(config)?.runtime === 'acp' ? config.id : undefined })));
   useEffect(() => {
     // Warm configured runtimes before opening either picker. Reopening only
     // revalidates expired data; subscribers share the same in-flight request.
-    for (const provider of subscriptionProviderKey.split(',').filter(Boolean)) {
-      void loadSubscriptionModels(provider).catch(() => {});
+    for (const { provider, agentConfigId } of JSON.parse(subscriptionProviderKey) as { provider: string; agentConfigId?: string }[]) {
+      // ACP discovery starts a local process. Defer it until the user opens
+      // the picker; never launch every installed agent on app startup.
+      if (!open && findProviderPreset({ provider })?.runtime === 'acp') continue;
+      void loadSubscriptionModels(provider, false, agentConfigId).catch(() => {});
     }
   }, [open, subscriptionProviderKey]);
   const subscriptionModels = useMemo(() => Object.fromEntries(Object.entries(subscriptionCatalogs)
     .filter(([, state]) => state.models !== null)
-    .map(([provider, state]) => [provider, state.models!.map(model => {
+    .map(([catalogKey, state]) => [catalogKey, state.models!.map(model => {
+          const provider = state.provider;
           const effortLevels = model.reasoningEfforts.filter((effort): effort is ReasoningEffortLevel => effort in REASONING_EFFORT_LABEL_KEYS);
           const nativeModel = {
             id: model.id, name: model.name, source: 'discovered' as const, status: 'active' as const, productReadiness: 'known' as const,
             capabilities: { reasoning: effortLevels.length ? { mode: effortLevels.includes('none') ? 'optional' as const : 'always' as const, effortLevels } : null },
           };
           return { ...nativeModel, descriptor: projectModelDescriptor(nativeModel, {
-            surface: 'text', providerId: provider, endpointId: modelEndpointId('text', provider), region: 'global', apiStyle: 'subscription_runtime',
+            surface: 'text', providerId: provider, endpointId: modelEndpointId('text', provider), region: 'global',
+            apiStyle: findProviderPreset({ provider })?.runtime === 'acp' ? 'external_agent_acp' : 'subscription_runtime',
           }) };
         })])), [subscriptionCatalogs]);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -241,8 +247,9 @@ export function AgentModelPicker({
     () =>
       agentConfigs.map((config) => {
         const originalPreset = findPresetForConfig(config);
-        let preset = originalPreset?.runtime && subscriptionModels[config.provider]
-          ? { ...originalPreset, models: subscriptionModels[config.provider] }
+        const catalogKey = runtimeCatalogKey(config.provider, originalPreset?.runtime === 'acp' ? config.id : undefined);
+        let preset = originalPreset?.runtime && subscriptionModels[catalogKey]
+          ? { ...originalPreset, models: subscriptionModels[catalogKey] }
           : originalPreset;
         if (!originalPreset?.runtime) {
           const cached = loadProviderModelCatalog(config.provider, config.baseUrl, config.apiKey ?? '');
@@ -304,7 +311,7 @@ export function AgentModelPicker({
     ) ??
       (pickerStep === 'reasoning' ? null : activeProviderModelRows[0] ?? searchModelRows[0]) ??
       null;
-  const activeCatalog = activeProviderRow?.preset?.runtime ? subscriptionCatalogs[activeProviderRow.config.provider] : null;
+  const activeCatalog = activeProviderRow?.preset?.runtime ? subscriptionCatalogs[runtimeCatalogKey(activeProviderRow.config.provider, activeProviderRow.preset.runtime === 'acp' ? activeProviderRow.config.id : undefined)] : null;
 
   const selectedModelRow = selectedConfig
     ? allModelRows.find(
@@ -526,7 +533,7 @@ export function AgentModelPicker({
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep !== 'reasoning' ? 'rotate-180' : ''}`} />
       </button>
 
-      <button
+      {findPresetForConfig(selected)?.runtime !== 'acp' && <button
         ref={reasoningTriggerRef}
         type="button"
         data-testid="agent-reasoning-picker-trigger"
@@ -569,7 +576,7 @@ export function AgentModelPicker({
           </span>
         </span>
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep === 'reasoning' ? 'rotate-180' : ''}`} />
-      </button>
+      </button>}
 
       {createPortal(
         <AnimatePresence>
@@ -676,7 +683,7 @@ export function AgentModelPicker({
                   <button type="button" data-testid="agent-model-catalog-refresh" disabled={activeCatalog?.loading}
                     title={t('settings.refreshModelCatalog')} aria-label={t('settings.refreshModelCatalog')}
                     className="rounded p-1 hover:bg-surface-2 disabled:opacity-40"
-                    onClick={() => void loadSubscriptionModels(activeProviderRow.config.provider, true).catch(() => {})}>
+                    onClick={() => void loadSubscriptionModels(activeProviderRow.config.provider, true, activeProviderRow.preset?.runtime === 'acp' ? activeProviderRow.config.id : undefined).catch(() => {})}>
                     <RefreshCw className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -684,7 +691,11 @@ export function AgentModelPicker({
               <div className={`${pickerStep === 'reasoning' ? 'max-h-[19rem]' : 'h-[19rem]'} min-w-0 overflow-hidden`}>
                 {!isSearching && pickerStep === 'providers' && (
                   <div className="h-full overflow-y-auto p-1.5">
-                    {providerRows.map((row) => {
+                    {(['api', 'agents'] as const).map(kind => <div key={kind}>
+                    {providerRows.some(row => Boolean(row.preset?.runtime) === (kind === 'agents')) && <div className="px-2 pb-1 pt-2 text-[10px] font-medium text-text-tertiary">
+                      {t(kind === 'api' ? 'settings.apiConnections' : 'settings.externalAgents')}
+                    </div>}
+                    {providerRows.filter(row => Boolean(row.preset?.runtime) === (kind === 'agents')).map((row) => {
                       const active = row.config.id === activeConfigId;
                       return (
                         <button
@@ -725,6 +736,7 @@ export function AgentModelPicker({
                         </button>
                       );
                     })}
+                    </div>)}
                   </div>
                 )}
 

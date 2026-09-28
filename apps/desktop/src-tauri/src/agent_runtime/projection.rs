@@ -208,7 +208,7 @@ impl Projection {
         if self.answer.trim().is_empty() {
             return Ok(None);
         }
-        let message = turn.tools.persist_answer(&self.answer).await?;
+        let message = turn.transcript.persist_answer(&self.answer).await?;
         for id in std::mem::take(&mut self.answer_block_ids) {
             self.mark_persisted(&id);
         }
@@ -227,7 +227,7 @@ impl Projection {
         turn: &PreparedTurn,
     ) -> Result<(), CoreError> {
         while let Some((id, text)) = self.async_messages.front() {
-            turn.tools.persist_answer(text).await?;
+            turn.transcript.persist_answer(text).await?;
             let id = id.clone();
             self.async_messages.pop_front();
             self.mark_persisted(&id);
@@ -246,7 +246,7 @@ impl Projection {
             .collect::<Vec<_>>()
             .join("\n\n");
         if !text.is_empty() {
-            turn.tools.persist_answer(&text).await?;
+            turn.transcript.persist_answer(&text).await?;
         }
         Ok(())
     }
@@ -281,7 +281,7 @@ mod tests {
     #[tokio::test]
     async fn completed_response_precedes_steering_and_is_not_duplicated_on_failure() {
         let (request, mut rx, _, _) =
-            super::super::tests::fixture(super::super::SubscriptionRuntimeKind::Copilot, "test");
+            super::super::tests::fixture(super::super::AgentRuntimeKind::Copilot, "test");
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
@@ -300,7 +300,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        turn.tools
+        turn.transcript
             .persist_steering(&nexa_core::agent::AgentSteeringMessage::text("follow up"))
             .await
             .unwrap();
@@ -337,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn retry_cleanup_remains_effective_when_frontend_delivery_is_closed() {
         let (request, rx, _, _) =
-            super::super::tests::fixture(super::super::SubscriptionRuntimeKind::Copilot, "test");
+            super::super::tests::fixture(super::super::AgentRuntimeKind::Copilot, "test");
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
@@ -412,7 +412,7 @@ mod tests {
     #[tokio::test]
     async fn disconnected_answer_deltas_survive_reload_without_reasoning_or_duplicate_questions() {
         let (request, mut rx, _, _) =
-            super::super::tests::fixture(super::super::SubscriptionRuntimeKind::Codex, "test");
+            super::super::tests::fixture(super::super::AgentRuntimeKind::Codex, "test");
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();

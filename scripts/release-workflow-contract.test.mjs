@@ -56,6 +56,14 @@ test('native terminal input regression executes on Windows instead of matching z
   assert.doesNotMatch(linuxJob, /native_powershell_input_and_paste_keep_protocol_bytes/u);
 });
 
+test('both desktop platforms execute delegation lifecycle and real HTTP fan-out regressions', () => {
+  for (const job of ['linux_desktop', 'windows-check']) {
+    const section = ciWorkflow.split(`  ${job}:`)[1].split(/\n  [a-z][\w-]*:/)[0];
+    assert.match(section, /subagent_tool::tests::/);
+    assert.match(section, /subagent_lifecycle::tests::/);
+  }
+});
+
 test('manual dispatch can resume an existing draft release without creating a new tag', () => {
   assert.match(releaseWorkflow, /^      release_tag:\s*$/m);
   assert.match(
@@ -103,6 +111,21 @@ test('release PR maintenance synchronizes lock metadata before dispatching CI', 
   assert.match(releaseWorkflow, /node scripts\/sync-workspace-lock-versions\.mjs --write/);
   assert.match(releaseWorkflow, /git add -- Cargo\.lock/);
   assert.match(releaseWorkflow, /steps\.sync_lock\.outputs\.changed/);
+});
+
+test('release notes accumulate the full candidate range and ship complete history for every update source', () => {
+  assert.match(releaseWorkflow, /node scripts\/release-notes\.mjs maintain/);
+  assert.match(releaseWorkflow, /git add -- Cargo\.lock CHANGELOG\.md/);
+  assert.match(releaseWorkflow, /--body-file "\$RELEASE_PR_BODY_FILE"/);
+  assert.match(releaseWorkflow, /steps\.release_target\.outputs\.target_sha/);
+  assert.doesNotMatch(releaseWorkflow, /target_sha:.*github\.sha/);
+  const publishJob = releaseWorkflow.split('  publish:')[1];
+  assert.match(publishJob, /ref: \$\{\{ needs\.release-please\.outputs\.target_sha \}\}/);
+  assert.match(publishJob, /path: \.release-tooling/);
+  assert.match(publishJob, /node \.release-tooling\/scripts\/release-notes\.mjs publish/);
+  assert.match(publishJob, /--rawfile notes release-notes\.md/);
+  assert.match(publishJob, /releaseNotes: \$history\[0\]/);
+  assert.doesNotMatch(publishJob, /head -c 5000/);
 });
 
 test('ordinary pushes do not repeat CI; release candidates reuse full CI', () => {

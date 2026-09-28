@@ -120,9 +120,21 @@ pub fn build_desktop_agent_turn_config(
     let source_scope_ids = db
         .get_effective_conversation_source_scope(&conversation.id)
         .unwrap_or_default();
-    let source_scope_section =
+    let mut source_scope_section =
         nexa_core::conversation::build_source_scope_prompt_section(db, &source_scope_ids)
             .unwrap_or_default();
+    let workspace = db
+        .conversation_workspace(&conversation.id)
+        .unwrap_or_else(|error| {
+            warn!(
+                "Could not resolve project workspace; refusing ambient filesystem scope: {error}"
+            );
+            Some(nexa_core::workspace::Workspace { roots: vec![] })
+        });
+    if let Some(workspace) = &workspace {
+        source_scope_section.push_str("\n\n");
+        source_scope_section.push_str(&workspace.prompt());
+    }
     let collection_context_section =
         nexa_core::conversation::build_collection_context_prompt_section(
             conversation.collection_context.as_ref(),
@@ -615,6 +627,7 @@ pub fn build_desktop_agent_turn_config(
     };
 
     DesktopAgentTurnConfig {
+        workspace,
         executor_config,
         context_window_resolution,
         source_scope_ids,
@@ -671,7 +684,9 @@ pub fn build_desktop_agent_session_config(
         source_scope: nexa_core::runtime::RuntimeSourceScope {
             source_ids: input.source_scope_ids.to_vec(),
             collection_id: None,
-            working_directory: None,
+            working_directory: input
+                .workspace
+                .and_then(|workspace| workspace.cwd().map(str::to_string)),
         },
         approval_mode: input.app_cfg.tool_approval_mode,
         shell_access_mode: input.app_cfg.shell_access_mode,

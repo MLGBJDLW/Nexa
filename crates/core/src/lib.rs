@@ -48,6 +48,7 @@ pub mod event_claim_graph;
 pub mod evidence_verifier;
 pub mod evolution;
 pub mod execution_environment;
+pub mod external_agent;
 pub mod feedback;
 pub mod file_checkpoint;
 pub mod file_mutation;
@@ -66,6 +67,7 @@ pub mod lint;
 pub mod live_analysis;
 pub mod llm;
 pub mod managed_assets;
+pub mod managed_process;
 pub mod mcp;
 pub mod media;
 pub mod media_generation;
@@ -141,6 +143,7 @@ pub mod workflow_catalog;
 pub mod workflow_execution;
 pub mod workflow_ir;
 pub mod workflow_scheduler;
+pub mod workspace;
 
 #[cfg(test)]
 mod architecture_fitness;

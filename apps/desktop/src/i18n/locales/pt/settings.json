@@ -1056,4 +1056,17 @@
   "vectorStorePaused": "Sincronização pausada até sincronizar, salvar ou reiniciar.",
   "vectorStoreSync": "Sincronizar agora",
   "vectorStorePause": "Pausar sincronização"
+  ,"llmConnectionKind": "Tipo de conexão"
+  ,"apiConnections": "Modelos API"
+  ,"externalAgents": "Agentes externos"
+  ,"apiConnectionsHint": "Conecte uma API ou modelo local. Nexa gerencia ferramentas e delegação."
+  ,"externalAgentsHint": "Use contas oficiais ou agentes instalados. Cada ambiente gerencia seus modelos e login."
+  ,"externalAgentOwnership": "Instale a CLI oficial e faça login primeiro. Este agente executa suas ferramentas e envia pedidos de permissão ao Nexa."
+  ,"externalAgentSetup": "Guia de instalação e login"
+  ,"externalAgentExecutable": "Caminho do executável (opcional)"
+  ,"externalAgentDirectory": "Diretório de trabalho"
+  ,"externalAgentDirectoryHint": "A pasta principal do projeto tem prioridade. Esta pasta alternativa vale apenas para este perfil."
+  ,"externalAgentConnected": "Sessão criada e modelos carregados. A inferência ainda não foi testada."
+  ,"externalAgentProbe": "Verificar conexão"
+  ,"externalAgentControls": "As ferramentas e configurações de execução são gerenciadas pelo agente externo."
 }

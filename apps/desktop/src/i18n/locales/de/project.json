@@ -90,5 +90,18 @@
   "workspaceEventArtifact": "Artefakt hinzugefügt",
   "workspaceEventOpenQuestion": "Offene Frage",
   "workspaceEventSource": "Quelle hinzugefügt",
-  "workspaceProvenance": "Quelldetails"
+  "workspaceProvenance": "Quelldetails",
+  "newConversationTitle": "Eine neue Unterhaltung beginnen",
+  "newConversationHint": "Deine erste Nachricht erstellt eine Unterhaltung in {name}.",
+  "welcomeTitle": "Willkommen bei {name}",
+  "workspaceFolders": "Arbeitsbereichsordner",
+  "workspaceFoldersHint": "Der erste Ordner ist das Standardarbeitsverzeichnis. Weitere Ordner können ergänzt werden. Diese Einstellung ist auch später möglich.",
+  "primaryFolder": "Hauptordner",
+  "additionalFolder": "Zusätzlicher Ordner",
+  "chooseFolder": "Ordner auswählen",
+  "folderPlaceholder": "Ordnerpfad auswählen oder einfügen",
+  "makePrimary": "Als Hauptordner festlegen",
+  "addFolder": "Ordner hinzufügen",
+  "appearance": "Darstellung",
+  "editProject": "Projekt bearbeiten"
 }

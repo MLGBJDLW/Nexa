@@ -21,12 +21,8 @@ pub(super) fn prepare_upload(
     let mut seen = HashSet::new();
     let mut total = 0_u64;
     for path in requested {
-        let path = nexa_core::tools::resolve_agent_file_path(
-            context.db,
-            context.source_scope,
-            Path::new(path),
-        )
-        .map_err(|error| error.to_string())?;
+        let path = nexa_core::tools::resolve_agent_file_path(context, Path::new(path))
+            .map_err(|error| error.to_string())?;
         if !seen.insert(path.clone()) {
             return Err("upload_files contains a duplicate file".into());
         }

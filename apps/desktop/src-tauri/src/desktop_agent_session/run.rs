@@ -68,9 +68,10 @@ pub async fn run_desktop_agent_turn(request: DesktopAgentTurnRequest) -> Desktop
                 )
                 .await
         }),
-        DesktopAgentBackend::Subscription(kind) => Box::pin(crate::subscription_runtime::run(
-            crate::subscription_runtime::SubscriptionTurnRequest {
+        DesktopAgentBackend::Runtime { kind, external } => Box::pin(crate::agent_runtime::run(
+            crate::agent_runtime::AgentRuntimeTurnRequest {
                 kind,
+                external,
                 config: executor_config,
                 dependencies,
                 db,

@@ -766,5 +766,11 @@
   "gitNoDiff": "Keine Unterschiede.",
   "gitNoSources": "Verknüpfen Sie einen Quellordner oder öffnen Sie ein Terminal für diesen Chat, um Git zu prüfen.",
   "gitNoRepository": "Kein Git-Repository in den verknüpften Ordnern.",
-  "gitStatusFailed": "Der Git-Status konnte nicht vollständig aktualisiert werden."
+  "gitStatusFailed": "Der Git-Status konnte nicht vollständig aktualisiert werden.",
+  "agentStarting": "Agent wird gestartet",
+  "agentConnecting": "Verbindung zum Agent",
+  "agentPreparing": "Sitzung wird vorbereitet",
+  "agentReusing": "Agent-Sitzung wird fortgesetzt",
+  "agentWaiting": "Antwort wird erwartet",
+  "resumeTask": "Aufgabe fortsetzen"
 }

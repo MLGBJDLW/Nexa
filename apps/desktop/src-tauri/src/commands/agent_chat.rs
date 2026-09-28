@@ -383,6 +383,12 @@ pub async fn record_agent_frontend_paint_cmd(
 pub(super) async fn launch_desktop_agent_chat_turn(
     request: DesktopAgentChatLaunchRequest<'_>,
 ) -> Result<DesktopAgentChatLaunch, String> {
+    let _launch_admission = request
+        .agent_state
+        .sessions
+        .acquire_launch_admission()
+        .await
+        .map_err(|error| error.to_string())?;
     let launch_started = Instant::now();
     let DesktopAgentChatLaunchRequest {
         state,
@@ -995,11 +1001,16 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 task_id: Some(task_run_id.clone()),
             };
             let mut effective_db_config = db_config.clone();
-            let subscription_kind = crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(&db_config.provider);
-            if subscription_kind.is_some() && (collaboration_mode.is_moa() || force_workspace_isolation) {
+            let runtime_kind = crate::agent_runtime::AgentRuntimeKind::from_provider(&db_config.provider);
+            if matches!(runtime_kind, Some(crate::agent_runtime::AgentRuntimeKind::Acp(_)))
+                && (root_allowed_tools.is_some() || execution_mode.is_plan())
+            {
+                return Err("Native ACP agents cannot enforce Nexa's tool allowlist or read-only Plan policy. Select a direct API agent for this workflow.".into());
+            }
+            if runtime_kind.is_some() && (collaboration_mode.is_moa() || force_workspace_isolation) {
                 return Err("Subscription agents use their official runtime directly. Select a direct chat without Mixture of Agents or scheduled workspace isolation.".to_string());
             }
-            let registry_resolution = if subscription_kind.is_none() && capability_registry_may_select_text_route(
+            let registry_resolution = if runtime_kind.is_none() && capability_registry_may_select_text_route(
                 agent_config_override_is_authoritative,
             ) {
                 db.resolve_or_pin_task_runtime_capability(
@@ -1066,16 +1077,23 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 }
                 None => {
                     let provider_config = db_config_to_provider_config(&db_config, None);
-                    let egress_id = if subscription_kind.is_some() { format!("subscription:{}", db_config.provider) } else { provider_config_egress_id(&provider_config) };
+                    let egress_id = if runtime_kind.is_some() { format!("subscription:{}", db_config.provider) } else { provider_config_egress_id(&provider_config) };
                     let primary_routes_local = provider_config_is_local(&provider_config);
                     {
-                        let native = subscription_kind.is_some() || nexa_core::llm::model_declares_vision_support(&provider_config.provider_type, &db_config.model);
+                        let native = runtime_kind.is_some() || nexa_core::llm::model_declares_vision_support(&provider_config.provider_type, &db_config.model);
                         (provider_config, None, egress_id, primary_routes_local, native)
                     }
                 }
             };
-            let backend = if let Some(kind) = subscription_kind {
-                DesktopAgentBackend::Subscription(kind)
+            let mut backend = if let Some(kind) = runtime_kind {
+                let external = if matches!(kind, crate::agent_runtime::AgentRuntimeKind::Acp(_)) {
+                    let launch = db.external_agent_launch(&db_config.id).map_err(|error| error.to_string())?;
+                    Some(crate::agent_runtime::ExternalAgentBinding {
+                        profile_id: db_config.id.clone(),
+                        launch,
+                    })
+                } else { None };
+                DesktopAgentBackend::Runtime { kind, external }
             } else {
             let mut provider = create_provider(provider_config.clone()).map_err(|e| e.to_string())?;
             if let Some((primary_fallback_index, primary_model, fallbacks)) =
@@ -1221,6 +1239,12 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             ) {
                 warn!("Failed to persist context resolution for {task_run_id}: {error}");
             }
+            let workspace = desktop_turn_config.workspace;
+            if let DesktopAgentBackend::Runtime { external: Some(binding), .. } = &mut backend {
+                if let Some(workspace) = &workspace {
+                    binding.launch.working_directory = workspace.cwd().ok_or_else(|| "Choose a project workspace folder before starting an external agent".to_string())?.to_string();
+                }
+            }
             let source_scope_ids = desktop_turn_config.source_scope_ids;
             let pinned_skill_ids = desktop_turn_config.pinned_skill_ids;
             let context_pack = desktop_turn_config.context_pack;
@@ -1230,7 +1254,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 executor_config.request_kind =
                     nexa_core::agent::AgentRequestKind::ScheduledIsolatedPatch;
             }
-            let summarization_provider = if subscription_kind.is_some() { None } else { match resolve_desktop_summarization_provider_config(
+            let summarization_provider = if runtime_kind.is_some() { None } else { match resolve_desktop_summarization_provider_config(
                 db.as_ref(),
                 &effective_db_config,
             )? {
@@ -1245,8 +1269,9 @@ pub(super) async fn launch_desktop_agent_chat_turn(
 
             let session_dependencies =
                 build_desktop_agent_session_dependencies(DesktopAgentSessionDependencyRequest {
+                    workspace: workspace.clone(),
                     preview_host: Arc::new(crate::preview_tool::NativeNexaPreviewHost::new(handle.clone())),
-                    subscription_runtime: subscription_kind,
+                    agent_runtime: runtime_kind,
                     db: &db,
                     mcp_manager: &mcp_manager,
                     event_seq: &stream_event_seq_for_task,
@@ -1303,6 +1328,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             let request_build_started = Instant::now();
             let runtime_session_config =
                 build_desktop_agent_session_config(DesktopAgentSessionConfigInput {
+                    workspace: workspace.as_ref(),
                     db: db.as_ref(),
                     conversation_id: &conv_id,
                     task_run_id: &task_run_id,
@@ -1552,7 +1578,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
         .await;
 
         if matches!(result, Some(Ok(_)))
-            && crate::subscription_runtime::SubscriptionRuntimeKind::from_provider(
+            && crate::agent_runtime::AgentRuntimeKind::from_provider(
                 &db_config_for_post_success.provider,
             )
             .is_none()

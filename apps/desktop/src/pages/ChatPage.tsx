@@ -11,6 +11,9 @@ import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatInput, ActiveExten
 import { ApprovalDialog } from '../components/chat/ApprovalDialog';
 import { DecisionTray } from '../components/chat/DecisionTray';
 import { ContextPolicyPopover } from '../components/chat/ContextPolicyPopover';
+import { useActiveProject } from '../components/chat/ProjectSwitcher';
+import { ProjectConversationStart } from '../components/chat/ProjectConversationStart';
+import { ExternalAgentProgress } from '../components/chat/ExternalAgentProgress';
 import {
   TerminalDock,
   TERMINAL_TOGGLE_EVENT,
@@ -59,6 +62,7 @@ interface ChatRouteState {
   initialMessage?: string;
   systemPrompt?: string;
   projectId?: string | null;
+  startConversation?: boolean;
   taskOrchestratorRunId?: string | null;
   resumeCheckpointId?: string | null;
 }
@@ -533,6 +537,7 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { activeProjectId, setProject } = useActiveProject();
 
   const onConversationCreated = useCallback(
     (id: string) => navigate(`/chat/${id}`, { replace: true }),
@@ -545,9 +550,10 @@ export function ChatPage() {
   const initialCollectionContext = (
     (location.state as { collectionContext?: Conversation['collectionContext'] } | null)?.collectionContext
   ) ?? null;
-  const initialProjectId = typeof (location.state as ChatRouteState | null)?.projectId === 'string'
-    ? (location.state as ChatRouteState).projectId?.trim() || null
-    : null;
+  const requestedProjectId = (location.state as ChatRouteState | null)?.projectId;
+  const initialProjectId = requestedProjectId === undefined
+    ? activeProjectId
+    : typeof requestedProjectId === 'string' ? requestedProjectId.trim() || null : null;
 
   // Source scope forwarded from route state, applied when the first send
   // auto-creates a conversation.
@@ -584,6 +590,10 @@ export function ChatPage() {
     initialProjectId,
     activePersonaId,
   });
+  useEffect(() => {
+    if (chat.activeConversation) setProject(chat.activeConversation.projectId ?? null);
+    else if (!chat.activeId && requestedProjectId !== undefined) setProject(initialProjectId);
+  }, [chat.activeId, chat.activeConversation?.id, chat.activeConversation?.projectId, requestedProjectId, initialProjectId, setProject]);
   const interactionState = useSyncExternalStore(
     interactionStore.subscribe,
     interactionStore.getState,
@@ -916,11 +926,29 @@ export function ChatPage() {
     [handleChatSend],
   );
 
+  const resumeOwner = useRef({ conversation: chat.activeId, run: chat.taskRun?.id, status: chat.taskRun?.status });
+  resumeOwner.current = { conversation: chat.activeId, run: chat.taskRun?.id, status: chat.taskRun?.status };
+  const resumeInFlight = useRef(false);
+  const [resumableRunId, setResumableRunId] = useState<string | null>(null);
+  useEffect(() => {
+    setResumableRunId(null);
+    const run = chat.taskRun;
+    if (!run || run.status !== 'paused' || chat.loadingMsgs || chat.isStreaming) return;
+    let current = true;
+    void api.getTaskResumePrompt(run.id).then(resume => {
+      if (current && resume.run.status === 'paused' && resume.run.id === run.id && resume.checkpoint.runId === run.id) setResumableRunId(run.id);
+    }).catch(() => { /* The task center remains available for recovery diagnostics. */ });
+    return () => { current = false; };
+  }, [chat.activeId, chat.taskRun?.id, chat.taskRun?.status, chat.loadingMsgs, chat.isStreaming]);
+
   const handleResumePaused = useCallback(async () => {
     const run = chat.taskRun;
-    if (!run || run.status !== 'paused') return;
+    if (!run || run.status !== 'paused' || resumeInFlight.current) return;
+    const conversation = chat.activeId;
+    resumeInFlight.current = true;
     try {
       const resume = await api.getTaskResumePrompt(run.id);
+      if (resumeOwner.current.conversation !== conversation || resumeOwner.current.run !== run.id || resumeOwner.current.status !== 'paused') return;
       if (resume.run.id !== run.id || resume.checkpoint.runId !== run.id) {
         throw new Error('Resume checkpoint does not belong to the active task');
       }
@@ -939,8 +967,10 @@ export function ChatPage() {
       );
     } catch (error) {
       toast.error(formatUserError(t('taskCenter.resumeError'), error));
+    } finally {
+      resumeInFlight.current = false;
     }
-  }, [chat.send, chat.taskRun, t]);
+  }, [chat.activeId, chat.send, chat.taskRun, t]);
 
   const handleClearGraphContext = useCallback(() => {
     clearGraphAgentContext();
@@ -1183,12 +1213,12 @@ export function ChatPage() {
   const handleSelectConversation = useCallback(
     (id: string) => {
       chat.setActiveConversation(id);
-      navigate(`/chat/${id}`);
+      navigate(`/chat/${id}`, { flushSync: true });
     },
     [chat.setActiveConversation, navigate],
   );
 
-  const handleNewConversation = useCallback((projectId?: string | null) => {
+  const handleNewConversation = useCallback((projectId?: string | null, welcome = false) => {
     // Defensive guard: if a React SyntheticEvent / DOM node leaks in as projectId
     // (e.g. onClick={handler} passes MouseEvent), drop it to avoid circular JSON.
     if (projectId != null && typeof projectId !== 'string') {
@@ -1198,22 +1228,38 @@ export function ChatPage() {
       }
       projectId = null;
     }
+    const nextProjectId = projectId === undefined ? activeProjectId : projectId;
     // Keep an untouched New Chat as a local draft. useChatSession persists it
     // atomically on the first send, which prevents empty history entries while
     // retaining the project selected in the sidebar.
     setActivePersonaId('default');
+    setProject(nextProjectId);
+    currentSourceIdsRef.current = [];
     chat.createNewConversation();
     navigate('/chat', {
-      state: projectId ? { projectId } satisfies ChatRouteState : null,
+      // Commit the draft owner before the next input event can reach the old
+      // composer. Deferred navigation otherwise saves new text to the old chat.
+      flushSync: true,
+      state: { projectId: nextProjectId, startConversation: !welcome } satisfies ChatRouteState,
     });
   }, [
     chat.createNewConversation,
     navigate,
+    activeProjectId,
+    setProject,
   ]);
+
+  const handleProjectChange = useCallback((projectId: string | null) => {
+    const displayedProjectMatches = chat.activeId
+      ? chat.activeConversation != null && (chat.activeConversation.projectId ?? null) === projectId
+      : initialProjectId === projectId;
+    if (projectId === activeProjectId && displayedProjectMatches) return;
+    handleNewConversation(projectId, true);
+  }, [activeProjectId, chat.activeId, chat.activeConversation, initialProjectId, handleNewConversation]);
 
   const handleCheckpointBranch = useCallback((conversation: Conversation) => {
     chat.setConversations((prev) => [conversation, ...prev.filter((c) => c.id !== conversation.id)]);
-    navigate(`/chat/${conversation.id}`);
+    navigate(`/chat/${conversation.id}`, { flushSync: true });
   }, [chat.setConversations, navigate]);
 
   const handleDeleteConversation = useCallback(
@@ -1678,6 +1724,8 @@ export function ChatPage() {
           <ChatSidebar
             conversations={chat.conversations}
             activeId={chat.activeId}
+            activeProjectId={activeProjectId}
+            onProjectChange={handleProjectChange}
             runningConversationIds={chat.runningConversationIds}
             activeConversationArchived={isArchivedConversation}
             onSelect={handleSelectConversation}
@@ -1888,7 +1936,6 @@ export function ChatPage() {
               onDeleteMessage={isArchivedConversation ? undefined : chat.deleteMessage}
               onEditAndResend={isArchivedConversation ? undefined : chat.editAndResend}
               onApprovePlan={isArchivedConversation ? undefined : handleApprovePlan}
-              onResumePaused={isArchivedConversation ? undefined : handleResumePaused}
               onQuestionSubmit={isArchivedConversation ? undefined : handleQuestionSubmit}
               loadingMsgs={chat.loadingMsgs}
               lastCached={chat.lastCached}
@@ -2011,12 +2058,19 @@ export function ChatPage() {
                 ? { duration: 0 }
                 : { type: 'spring', stiffness: 220, damping: 28, mass: 0.9 }}
             >
-              <ChatInput
+              {!chat.activeId && initialProjectId && !routeState?.startConversation ? (
+                <ProjectConversationStart projectId={initialProjectId} onStart={() => navigate('/chat', {
+                  replace: true, flushSync: true, state: { ...routeState, projectId: initialProjectId, startConversation: true } satisfies ChatRouteState,
+                })} />
+              ) : <><ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
+              agentRuntime={selectedAgentConfig && findProviderPreset(selectedAgentConfig)?.runtime === 'acp' ? 'acp' : manualCompactionAvailable ? 'api' : 'subscription'}
               onSend={handleComposerSend}
               onStop={chat.stop}
+              onResume={resumableRunId === chat.taskRun?.id && chat.taskRun?.status === 'paused' && !chat.isStreaming ? handleResumePaused : undefined}
               isStreaming={chat.isStreaming}
               disabled={!chat.agentConfig || chat.loadingMsgs}
               conversationId={chat.activeId ?? undefined}
+              projectId={initialProjectId}
               agentId={selectedAgentConfig?.id ?? chat.agentConfig?.id}
               onEnsureConversation={chat.ensureConversation}
               inputHistory={chatInputHistory}
@@ -2058,7 +2112,7 @@ export function ChatPage() {
               } : undefined}
               onBranchCheckpoint={handleCheckpointBranch}
               placement={centerComposer ? 'center' : 'bottom'}
-              />
+              /></>}
             </motion.div>
             )}
             {chat.activeId && !isArchivedConversation && (

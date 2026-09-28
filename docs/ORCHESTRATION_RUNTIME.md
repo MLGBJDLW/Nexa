@@ -419,6 +419,23 @@ preserve the selected reasoning controls. Generic tool timers do not time out
 delegated workers or adjudication; explicit task deadlines, parent cancellation,
 transport liveness, concurrency, and repeated-tool protection remain active.
 
+Automatic concurrency admits four workers. Settings preserve absent budgets as
+automatic/unlimited when creating or editing a provider, and an explicit V2
+configuration owns null values instead of falling back to stale legacy limits.
+An API worker inherits the parent's endpoint, account, model and reasoning
+unless a route/model policy is explicitly selected. Routine delegation omits
+hard task deadlines; bounded lifecycle waits do not terminate the worker.
+Reservations remain planning estimates and are released at settlement. Failed
+requests without reported usage are marked incomplete and cannot debit their
+estimated reservation as actual usage or exhaust a sibling's admission budget.
+
+Responses history compilation lives in `llm/openai/responses_input.rs`, separate
+from delegation scheduling. It preserves each native assistant output group,
+including interleaved reasoning and parallel calls, then requires all matching
+outputs before a later response or message. Duplicate and orphan outputs still
+fail validation. Malformed tool terminals without call fields enter the same
+bounded, non-executing protocol recovery as malformed argument drafts.
+
 Runtime artifacts record the requested and effective model policy, capacity,
 capacity authority, handoff budget, output limit, and preflight result. The UI
 projects those artifacts. Batch cards prefer the authoritative post-batch token

@@ -6,10 +6,22 @@ import {
 } from '../src/lib/subagentArtifacts';
 import type { ActivityEvent } from '../src/types/conversation';
 import type { ToolCallEvent } from '../src/lib/streaming/protocol';
+import { subagentDefaults } from '../src/lib/subagentDefaults';
+import type { AgentConfig } from '../src/types/conversation';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+const autoLimits = subagentDefaults();
+assert(autoLimits.maxParallel === 4, 'automatic fan-out supports four workers');
+assert(autoLimits.maxCallsPerTurn === null && autoLimits.tokenBudget === null,
+  'opening a form must not invent lifetime budgets');
+const legacyLimits = { subagentMaxParallel: 2, subagentMaxCallsPerTurn: 6, subagentTokenBudget: 12032 } as AgentConfig;
+assert(subagentDefaults(legacyLimits).tokenBudget === 12032, 'explicit legacy budgets remain authoritative');
+const v2AutoLimits = subagentDefaults({ ...legacyLimits, delegationLimitsV2: { maxParallel: null, maxCallsPerTurn: null, totalActualTokensSoftLimit: null } });
+assert(v2AutoLimits.maxParallel === 4 && v2AutoLimits.maxCallsPerTurn === null && v2AutoLimits.tokenBudget === null,
+  'V2 automatic settings must not resurrect stale legacy limits');
 
 function event(
   seq: number,

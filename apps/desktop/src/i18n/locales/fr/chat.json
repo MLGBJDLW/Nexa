@@ -766,5 +766,11 @@
   "gitNoDiff": "Aucune différence.",
   "gitNoSources": "Associez un dossier source ou ouvrez un terminal pour cette conversation afin de consulter Git.",
   "gitNoRepository": "Aucun dépôt Git dans les dossiers associés.",
-  "gitStatusFailed": "Le statut Git n’a pas pu être entièrement actualisé."
+  "gitStatusFailed": "Le statut Git n’a pas pu être entièrement actualisé.",
+  "agentStarting": "Démarrage de l’agent",
+  "agentConnecting": "Connexion à l’agent",
+  "agentPreparing": "Préparation de la session",
+  "agentReusing": "Reprise de la session de l’agent",
+  "agentWaiting": "En attente de réponse",
+  "resumeTask": "Reprendre la tâche"
 }

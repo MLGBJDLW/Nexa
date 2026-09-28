@@ -14,7 +14,7 @@ use crate::privacy;
 
 use super::document_utils::read_supported_file_content;
 use super::path_utils::resolve_existing_file_for_file_access;
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/read_file.json");
@@ -63,11 +63,11 @@ impl Tool for FileTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
             db,
-            source_scope,
             ..
         } = context;
         let args: FileArgs = serde_json::from_str(arguments)
@@ -75,11 +75,10 @@ impl Tool for FileTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
-        let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
             let requested = PathBuf::from(&args.path);
 
-            let file_policy = file_access_policy(&db, &source_scope)?;
+
             if file_policy.sources.is_empty()
                 && !(file_policy.allow_unregistered_absolute_paths && requested.is_absolute())
             {

@@ -104,14 +104,16 @@ impl DelegationLimitsV2 {
         } else {
             DEFAULT_FIRST_TOKEN_DEADLINE_MS
         };
-        let max_parallel = configured
-            .and_then(|limits| limits.max_parallel)
-            .or(config.subagent_max_parallel)
-            .unwrap_or(3)
-            .clamp(1, 12);
-        let max_calls_per_turn = configured
-            .and_then(|limits| limits.max_calls_per_turn)
-            .or(config.subagent_max_calls_per_turn);
+        let max_parallel = match configured {
+            Some(limits) => limits.max_parallel,
+            None => config.subagent_max_parallel,
+        }
+        .unwrap_or(4)
+        .clamp(1, 12);
+        let max_calls_per_turn = match configured {
+            Some(limits) => limits.max_calls_per_turn,
+            None => config.subagent_max_calls_per_turn,
+        };
         let dedicated_lanes = config
             .subagent_verification_reserve_percent
             .unwrap_or_default()

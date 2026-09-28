@@ -30,7 +30,6 @@ pub(super) struct PreparedSubagentWorker {
     pub(super) applied_skill_refs: Vec<AppliedSkillRef>,
     pub(super) tools: ToolRegistry,
     pub(super) request_text: String,
-    pub(super) initial_output_credit: u32,
     pub(super) reserved_tokens: u32,
     pub(super) context_snapshot_artifact: serde_json::Value,
     pub(super) effective_model_budgets: serde_json::Value,
@@ -162,10 +161,12 @@ pub(super) async fn prepare_subagent_worker(
             error.to_string(),
         )
     })?;
-    let provider_id = provider.name().to_string();
     let effective_provider_type = config
         .provider_type
         .unwrap_or(provider_config.provider_type);
+    // The adapter name is "openai" for many compatible vendors. Artifacts
+    // must identify the selected provider, not that shared wire adapter.
+    let provider_id = provider_catalog_key(effective_provider_type).to_string();
     let catalog_limits = effective_model
         .as_deref()
         .filter(|_| catalog_authoritative)
@@ -440,7 +441,6 @@ pub(super) async fn prepare_subagent_worker(
         applied_skill_refs,
         tools,
         request_text,
-        initial_output_credit,
         reserved_tokens,
         context_snapshot_artifact,
         effective_model_budgets,
@@ -657,7 +657,6 @@ pub(super) struct SubagentExecutionInput<'a> {
     pub(super) run_deadline_ms: Option<u64>,
     pub(super) context_messages: Vec<Message>,
     pub(super) effective_source_scope: Vec<String>,
-    pub(super) initial_output_credit: u32,
     pub(super) reserved_tokens: u32,
     pub(super) provider: Box<dyn LlmProvider>,
     pub(super) tools: ToolRegistry,
@@ -687,7 +686,6 @@ pub(super) async fn execute_subagent_worker(
         run_deadline_ms,
         context_messages,
         effective_source_scope,
-        initial_output_credit,
         reserved_tokens,
         provider,
         tools,
@@ -778,8 +776,7 @@ pub(super) async fn execute_subagent_worker(
         run_deadline_ms,
     )
     .await;
-    let mut capture = match tokio::time::timeout(Duration::from_millis(500), &mut event_task).await
-    {
+    let capture = match tokio::time::timeout(Duration::from_millis(500), &mut event_task).await {
         Ok(Ok(capture)) => capture,
         Ok(Err(error)) => {
             warn!("Subagent event collector failed for {call_label}: {error}");
@@ -792,10 +789,9 @@ pub(super) async fn execute_subagent_worker(
             EventCapture::default()
         }
     };
-    if final_result.is_err() && capture.usage_total.total_tokens == 0 {
-        capture.usage_total.prompt_tokens = reserved_tokens.saturating_sub(initial_output_credit);
-        capture.usage_total.total_tokens = reserved_tokens;
-    }
+    // Reservations plan concurrency; they are not evidence of billed usage.
+    // A local protocol rejection or failed request may report no usage at all.
+    // Charging the reservation here poisoned every subsequent worker admission.
     runtime
         .budget
         .finish_call(reserved_tokens, &capture.usage_total, estimated_cost_micros)
@@ -811,6 +807,7 @@ pub(super) async fn execute_subagent_worker(
                 "error": &error_text,
                 "emittedError": capture.error_message,
                 "usageTotal": capture.usage_total,
+                "usageIncomplete": capture.usage_total.total_tokens == 0,
                 "toolEvents": capture.tool_events,
             });
             subtask.finish(

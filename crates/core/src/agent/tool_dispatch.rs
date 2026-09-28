@@ -675,6 +675,17 @@ impl ToolDispatchRuntime<'_> {
             pending_action_reconciliation,
             workspace_isolation,
         } = ctx;
+        let isolation_workspace = if workspace_isolation {
+            Some(crate::workspace::Workspace {
+                roots: source_scope
+                    .iter()
+                    .map(|id| db.get_source(id).map(|source| source.root_path))
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        } else {
+            None
+        };
+        let execution_workspace = isolation_workspace.as_ref();
         let scoped_registry = workspace_isolation.then(|| {
             let names = self
                 .tools
@@ -682,7 +693,9 @@ impl ToolDispatchRuntime<'_> {
                 .into_iter()
                 .filter(|name| !super::workspace_isolation::is_unscoped_isolation_tool(name))
                 .collect::<Vec<_>>();
-            self.tools.filtered(&names)
+            self.tools
+                .filtered(&names)
+                .with_workspace(isolation_workspace.clone())
         });
         let discovery_tools = scoped_registry.as_ref().unwrap_or(self.tools);
 
@@ -1262,6 +1275,7 @@ impl ToolDispatchRuntime<'_> {
                             let exec_fut = self.tools.execute(
                                 &tc.name,
                                 crate::tools::ToolExecutionContext {
+                                    workspace: execution_workspace,
                                     file_change_owner: None,
                                     call_id: &tc.id,
                                     arguments: &tc.arguments,

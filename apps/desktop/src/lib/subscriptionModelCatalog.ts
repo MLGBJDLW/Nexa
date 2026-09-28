@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { CopilotModelSummary } from './api';
 
 export interface SubscriptionCatalogState {
+  provider: string;
   models: CopilotModelSummary[] | null;
   loading: boolean;
   error: string | null;
@@ -47,35 +48,40 @@ export function invalidateSubscriptionModels(provider: string): void {
   listeners.forEach(listener => listener());
 }
 
-export function loadSubscriptionModels(provider: string, force = false): Promise<CopilotModelSummary[]> {
-  const running = pending.get(provider);
+export function runtimeCatalogKey(provider: string, agentConfigId?: string): string {
+  return agentConfigId ? JSON.stringify([provider, agentConfigId]) : provider;
+}
+
+export function loadSubscriptionModels(provider: string, force = false, agentConfigId?: string): Promise<CopilotModelSummary[]> {
+  const key = runtimeCatalogKey(provider, agentConfigId);
+  const running = pending.get(key);
   if (running) return running;
-  const cached = snapshots[provider];
+  const cached = snapshots[key];
   const age = Date.now() - (cached?.updatedAt ?? 0);
   if (!force && cached && age < (cached.error ? RETRY_DELAY_MS : TTL_MS)) {
     return cached.error ? Promise.reject(new Error(cached.error)) : Promise.resolve(cached.models ?? []);
   }
-  const generation = generations.get(provider) ?? 0;
+  const generation = generations.get(key) ?? 0;
   let timer: ReturnType<typeof setTimeout>;
   const request = Promise.race([
-    invoke<CopilotModelSummary[]>('list_subscription_models_cmd', { provider }),
+    invoke<CopilotModelSummary[]>('list_subscription_models_cmd', { provider, ...(agentConfigId ? { agentConfigId } : {}) }),
     new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error('Model catalog request timed out. Please retry.')), REQUEST_TIMEOUT_MS);
     }),
   ]).then(models => {
-    if ((generations.get(provider) ?? 0) !== generation) throw new Error('Subscription account changed. Refresh models.');
-    publish(provider, { models, loading: false, error: null, updatedAt: Date.now() });
+    if ((generations.get(key) ?? 0) !== generation) throw new Error('Subscription account changed. Refresh models.');
+    publish(key, { provider, models, loading: false, error: null, updatedAt: Date.now() });
     return models;
   }).catch(error => {
-    if ((generations.get(provider) ?? 0) === generation) {
-      publish(provider, { models: cached?.models ?? null, loading: false, error: String(error), updatedAt: Date.now() });
+    if ((generations.get(key) ?? 0) === generation) {
+      publish(key, { provider, models: cached?.models ?? null, loading: false, error: String(error), updatedAt: Date.now() });
     }
     throw error;
   }).finally(() => {
     clearTimeout(timer);
-    if (pending.get(provider) === request) pending.delete(provider);
+    if (pending.get(key) === request) pending.delete(key);
   });
-  pending.set(provider, request);
-  publish(provider, { models: cached?.models ?? null, loading: true, error: null, updatedAt: cached?.updatedAt ?? 0 });
+  pending.set(key, request);
+  publish(key, { provider, models: cached?.models ?? null, loading: true, error: null, updatedAt: cached?.updatedAt ?? 0 });
   return request;
 }

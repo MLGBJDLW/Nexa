@@ -1056,4 +1056,17 @@
   "vectorStorePaused": "同步已暫停；點擊立即同步、儲存設定或重新啟動後恢復。",
   "vectorStoreSync": "立即同步",
   "vectorStorePause": "暫停同步"
+  ,"llmConnectionKind": "連線類型"
+  ,"apiConnections": "API 模型"
+  ,"externalAgents": "外部 Agent"
+  ,"apiConnectionsHint": "連接 API 或本機模型，由 Nexa 管理工具與任務委派。"
+  ,"externalAgentsHint": "接入官方帳戶或已安裝的 Agent，各執行環境管理自己的模型與登入。"
+  ,"externalAgentOwnership": "請先安裝官方 CLI 並完成登入。此 Agent 使用自己的工具，並向 Nexa 傳送權限請求。"
+  ,"externalAgentSetup": "安裝與登入指南"
+  ,"externalAgentExecutable": "執行檔路徑（選填）"
+  ,"externalAgentDirectory": "工作目錄"
+  ,"externalAgentDirectoryHint": "優先使用專案主目錄；此備用目錄僅供目前設定使用。"
+  ,"externalAgentConnected": "已建立工作階段並取得模型，尚未測試推論。"
+  ,"externalAgentProbe": "檢查連線"
+  ,"externalAgentControls": "工具與執行設定由外部 Agent 管理。"
 }

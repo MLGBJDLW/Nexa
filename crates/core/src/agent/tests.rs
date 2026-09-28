@@ -9225,6 +9225,112 @@ async fn answer_only_budget_rejects_provider_tool_calls_at_the_dispatch_boundary
 }
 
 #[tokio::test]
+async fn repeated_malformed_terminals_without_calls_stop_at_the_protocol_guard() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let executor = AgentExecutor::new(
+        Box::new(ThoughtOnlyProvider {
+            stream_calls: calls.clone(),
+            finish_reason: FinishReason::MalformedToolCall,
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            model: Some("mock-model".into()),
+            ..Default::default()
+        },
+    );
+    let db = Database::open_memory().unwrap();
+    let (tx, _rx) = mpsc::channel(512);
+    let error = executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "inspect safely".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("provider_tool_protocol_stalled"),
+        "{error}"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
+async fn malformed_terminal_without_call_replans_without_persisting_a_draft() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(RecordingTool {
+        executions: executions.clone(),
+    }));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let executor = AgentExecutor::new(
+        Box::new(CapturingScriptedProvider {
+            stream_calls: calls.clone(),
+            requests: requests.clone(),
+            first_chunks: vec![StreamChunk {
+                delta: "discard this malformed draft".into(),
+                tool_call_delta: None,
+                finish_reason: Some(FinishReason::MalformedToolCall),
+                usage: None,
+                thinking_delta: None,
+            }],
+            final_answer: "recovered answer",
+        }),
+        registry,
+        AgentConfig {
+            model: Some("mock-model".into()),
+            ..Default::default()
+        },
+    );
+    let db = Database::open_memory().unwrap();
+    let (tx, mut rx) = mpsc::channel(128);
+    let answer = executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "inspect safely".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .expect("a rejected empty tool draft is recoverable");
+    assert_eq!(answer.text_content(), "recovered answer");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    let requests = requests.lock().unwrap();
+    assert!(requests[1]
+        .iter()
+        .all(|(role, content)| *role != Role::Tool
+            && !content.contains("discard this malformed draft")));
+    assert!(requests[1]
+        .iter()
+        .any(|(_, content)| content.contains("using the exposed tool schema")));
+    let mut visible = String::new();
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            AgentEvent::TextDelta { delta } => visible.push_str(&delta),
+            AgentEvent::StreamReset {
+                discard_sample: true,
+                ..
+            } => visible.clear(),
+            _ => {}
+        }
+    }
+    assert_eq!(visible, "recovered answer");
+}
+
+#[tokio::test]
 async fn malformed_tool_call_is_quarantined_before_replan_and_persistence() {
     let executions = Arc::new(AtomicUsize::new(0));
     let mut registry = ToolRegistry::new();

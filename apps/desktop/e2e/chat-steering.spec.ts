@@ -96,6 +96,7 @@ test.beforeEach(async ({ page }) => {
     let postCommitRetryFailed = false;
     const diagnostics = {
       chatCalls: 0,
+      resumeRequests: [] as Array<Record<string, unknown>>,
       stopCalls: 0,
       chatMessages: [] as string[],
       retryFromMessageIds: [] as Array<string | null>,
@@ -130,6 +131,8 @@ test.beforeEach(async ({ page }) => {
         }
       }
     };
+
+    (window as any).__EMIT_AGENT_PROGRESS__ = emitEvent;
 
     const defaultAgentConfig = {
       id: 'cfg-steering',
@@ -261,6 +264,11 @@ test.beforeEach(async ({ page }) => {
           return [clone(conversation), clone(messages)];
         case 'get_conversation_turns_cmd':
           return [];
+        case 'get_task_resume_prompt_cmd':
+          await new Promise(resolve => setTimeout(resolve, 40));
+          return { run: { id: 'task-paused-hydration', conversationId: 'conv-steering', status: 'paused' },
+            checkpoint: { id: 'checkpoint-paused-hydration', runId: 'task-paused-hydration' },
+            prompt: 'Resume this Nexa task from a durable checkpoint. Verify interrupted actions before continuing.' };
         case 'get_agent_task_runs_cmd':
           if (pausedHydrationMode()) {
             return [{
@@ -478,6 +486,7 @@ test.beforeEach(async ({ page }) => {
               ? args.request
               : args
           ) as Record<string, unknown>;
+          if (request.resumeCheckpointId) diagnostics.resumeRequests.push(clone(request));
           const conversationId = String(request.conversationId ?? '');
           const message = String(request.message ?? '');
           diagnostics.chatMessages.push(message);
@@ -497,6 +506,7 @@ test.beforeEach(async ({ page }) => {
             throw new Error('Retry executor setup failed after the durable suffix changed.');
           }
           appendUserMessage(conversationId, message);
+          if (localStorage.getItem('e2e-external-progress') === '1') return null;
 
           setTimeout(() => {
             emitEvent('agent://run-event', {
@@ -788,14 +798,31 @@ test('generates the initial empty chat title once and keeps it stable on later t
   await expect(page.getByText('Focused edge case analysis', { exact: true })).toBeVisible();
 });
 
-test('hydrates a paused run with its durable partial output after reload', async ({ page }) => {
+test('reload preserves partial output and resumes with the send button without a typed continuation', async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     localStorage.setItem('e2e-paused-hydration', '1');
   });
   await page.goto('/chat/conv-steering');
 
   await expect(page.getByText('Partial durable answer before pause')).toBeVisible();
-  await expect(page.getByTestId('chat-paused-resume')).toBeVisible();
+  const send = page.getByTestId('chat-send');
+  await expect(send).toHaveAccessibleName('Resume task');
+  await expect(send).toBeEnabled();
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('An unsent draft');
+  await expect(send).toHaveAccessibleName('Send');
+  await input.clear();
+  await expect(send).toHaveAccessibleName('Resume task');
+  await page.reload();
+  await expect(send).toHaveAccessibleName('Resume task');
+  await page.screenshot({ path: testInfo.outputPath('resume-send-button.png') });
+  await input.press('Enter');
+  await input.press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as any).__STEERING_E2E__.resumeRequests.length)).toBe(1);
+  const request = await page.evaluate(() => (window as any).__STEERING_E2E__.resumeRequests[0]);
+  expect(request.resumeCheckpointId).toBe('checkpoint-paused-hydration');
+  expect(request.idempotencyKey).toBe('task-resume:checkpoint-paused-hydration');
+  expect(request.message).toContain('durable checkpoint');
 });
 
 test('keeps short user message bubbles close to their text width', async ({ page }) => {
@@ -866,4 +893,30 @@ test('sends steering while an agent stream is running without stopping it', asyn
   await page.reload();
   await expect(page.getByText('focus on edge cases instead')).toHaveCount(1);
   expect((await page.getByText('focus on edge cases instead').boundingBox())!.y).toBeLessThan((await page.getByText('Adjusted answer after steering.').boundingBox())!.y);
+});
+
+
+test('ACP external agent progress replaces one compact status and keeps cancellation available', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('e2e-external-progress', '1'));
+  await page.goto('/chat/conv-steering');
+  await page.getByTestId('chat-input-textarea').fill('Inspect the workspace');
+  await page.getByTestId('chat-send').click();
+  const progress = page.getByTestId('external-agent-progress');
+  for (const [stage, label] of [['starting', 'Starting agent'], ['connecting', 'Connecting to agent'], ['model', 'Preparing session'], ['waiting', 'Waiting for response']]) {
+    await page.evaluate(code => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+      conversationId: 'conv-steering', type: 'controllerStatus', code: `external_agent_${code}`, content: `External agent: ${code}`,
+    }), stage);
+    await expect(progress).toHaveCount(1);
+    await expect(progress).toContainText(label);
+    await expect(page.getByTestId('chat-stop')).toBeEnabled();
+  }
+  await page.setViewportSize({ width: 760, height: 700 });
+  await expect.poll(async () => (await page.getByTestId('chat-history-sidebar').boundingBox())?.width ?? 0).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('external-agent-startup.png') });
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_active', content: 'External agent: active',
+  }));
+  await expect(progress).toHaveCount(0);
+  await page.getByTestId('chat-stop').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__STEERING_E2E__.stopCalls)).toBe(1);
 });

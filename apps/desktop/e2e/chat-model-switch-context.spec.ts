@@ -77,6 +77,7 @@ test.beforeEach(async ({ page }) => {
     ];
     configs.push({ ...configs[0], id: 'cfg-subscription', name: 'My Copilot plan', provider: 'github_copilot', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-codex', name: 'My Codex plan', provider: 'openai_codex', model: 'unavailable-old-model', isDefault: false });
+    configs.push({ ...configs[0], id: 'cfg-acp', name: 'My Gemini CLI', provider: 'gemini_cli', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-glm', name: 'GLM gateway', model: 'glm-4.7', isDefault: false });
     const savedAgentConfigInputs: Array<Record<string, unknown>> = [];
     (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> }).__savedAgentConfigInputs = savedAgentConfigInputs;
@@ -515,6 +516,29 @@ test('subscription compact command is rejected without starting an API summarize
   await page.locator('textarea').press('Enter');
   await expect(page.getByText('Manual compaction is unavailable for this conversation.', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('e2e-compact-started'))).toBeNull();
+});
+
+test('ACP external agent model selector hides unsupported runtime controls and uses its native route', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 680, height: 850 });
+  await page.goto('/chat/conv-model-switch');
+  const picker = page.getByTestId('agent-model-picker-trigger');
+  await picker.click();
+  await expect(page.getByTestId('agent-model-picker-menu')).toContainText('API models');
+  await expect(page.getByTestId('agent-model-picker-menu')).toContainText('External agents');
+  await page.getByTestId('agent-model-provider-cfg-acp').click();
+  await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
+  await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
+  await expect(picker).toHaveAttribute('title', 'gemini_cli / gpt-native');
+  await expect(page.getByTestId('agent-reasoning-picker-trigger')).toHaveCount(0);
+  await expect(page.getByTestId('chat-moa-control')).toHaveCount(0);
+  await expect(page.getByTestId('chat-quality-control')).toHaveCount(0);
+  await expect(page.getByTestId('chat-nexus-mode')).toHaveCount(0);
+  await expect(page.getByTestId('chat-compact')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('external-agent-composer-narrow.png') });
+  await page.locator('textarea').fill('Please inspect the current project');
+  await page.locator('textarea').press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: unknown }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-acp', collaborationMode: 'direct', powerMode: 'standard' });
 });
 
 for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['openai_codex', 'cfg-codex']]) {

@@ -90,5 +90,18 @@
   "workspaceEventArtifact": "已添加产物",
   "workspaceEventOpenQuestion": "开放问题",
   "workspaceEventSource": "已添加来源",
-  "workspaceProvenance": "来源详情"
+  "workspaceProvenance": "来源详情",
+  "newConversationTitle": "在项目中开启新对话",
+  "newConversationHint": "发送第一条消息后，对话将保存在「{name}」中。",
+  "welcomeTitle": "欢迎来到「{name}」",
+  "workspaceFolders": "工作区文件夹",
+  "workspaceFoldersHint": "首个文件夹是默认执行目录。项目涉及多个仓库时，可以添加其他根目录；也可稍后设置。",
+  "primaryFolder": "主目录",
+  "additionalFolder": "附加目录",
+  "chooseFolder": "选择文件夹",
+  "folderPlaceholder": "选择或粘贴文件夹路径",
+  "makePrimary": "设为主目录",
+  "addFolder": "添加文件夹",
+  "appearance": "外观",
+  "editProject": "编辑项目"
 }

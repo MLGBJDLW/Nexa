@@ -90,5 +90,18 @@
   "workspaceEventArtifact": "已新增產物",
   "workspaceEventOpenQuestion": "開放問題",
   "workspaceEventSource": "已新增來源",
-  "workspaceProvenance": "來源詳情"
+  "workspaceProvenance": "來源詳情",
+  "newConversationTitle": "在專案中開啟新對話",
+  "newConversationHint": "傳送第一則訊息後，對話將儲存在「{name}」中。",
+  "welcomeTitle": "歡迎來到「{name}」",
+  "workspaceFolders": "工作區資料夾",
+  "workspaceFoldersHint": "第一個資料夾是預設執行目錄。專案涉及多個儲存庫時，可新增其他根目錄；也可稍後設定。",
+  "primaryFolder": "主目錄",
+  "additionalFolder": "附加目錄",
+  "chooseFolder": "選擇資料夾",
+  "folderPlaceholder": "選擇或貼上資料夾路徑",
+  "makePrimary": "設為主目錄",
+  "addFolder": "新增資料夾",
+  "appearance": "外觀",
+  "editProject": "編輯專案"
 }

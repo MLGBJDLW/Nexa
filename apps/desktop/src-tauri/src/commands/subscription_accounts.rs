@@ -1016,7 +1016,25 @@ pub async fn get_copilot_account_snapshot_cmd(
 pub async fn list_subscription_models_cmd(
     state: State<'_, AppState>,
     provider: String,
+    agent_config_id: Option<String>,
 ) -> Result<Vec<CopilotModelSummary>, String> {
+    if nexa_core::external_agent::preset(&provider).is_some() {
+        let id = agent_config_id.ok_or_else(|| {
+            "Select an external-agent profile to discover its models.".to_string()
+        })?;
+        let config = state
+            .db
+            .get_agent_config(&id)
+            .map_err(|error| error.to_string())?;
+        if config.provider != provider {
+            return Err("The profile belongs to a different external agent.".into());
+        }
+        let launch = state
+            .db
+            .external_agent_launch(&id)
+            .map_err(|error| error.to_string())?;
+        return super::external_agents::probe_external_agent_cmd(provider, launch).await;
+    }
     match provider.as_str() {
         "github_copilot" => {
             if state.copilot_account_runtime.login_status().pending {

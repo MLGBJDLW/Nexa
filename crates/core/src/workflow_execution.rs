@@ -850,6 +850,7 @@ mod tests {
             .expect("source");
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "Scheduled project".into(),
                 description: None,
                 icon: None,

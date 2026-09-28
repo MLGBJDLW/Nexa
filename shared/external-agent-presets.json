@@ -1,0 +1,20 @@
+[
+  {
+    "id": "gemini-cli", "name": "Gemini CLI", "provider": "gemini_cli",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "✦", "description": "Use the installed Gemini CLI through Agent Client Protocol.",
+    "command": "gemini", "args": ["--acp"], "docsUrl": "https://geminicli.com/docs/get-started/authentication/"
+  },
+  {
+    "id": "opencode", "name": "OpenCode", "provider": "opencode",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "◇", "description": "Use OpenCode with its own providers, accounts and tools.",
+    "command": "opencode", "args": ["acp"], "docsUrl": "https://opencode.ai/docs/acp/"
+  },
+  {
+    "id": "hermes", "name": "Hermes Agent", "provider": "hermes",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "⚕", "description": "Use an installed Hermes Agent with its ACP extra enabled.",
+    "command": "hermes", "args": ["acp"], "docsUrl": "https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/"
+  }
+]

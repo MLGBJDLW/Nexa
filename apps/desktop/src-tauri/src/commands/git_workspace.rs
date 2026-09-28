@@ -10,6 +10,11 @@ async fn sources(
     let session = terminal
         .active_session(&conversation_id)?
         .filter(|session| session.conversation_id.as_deref() == Some(&conversation_id));
+    let project_workspace = state
+        .db
+        .conversation_workspace(&conversation_id)
+        .map_err(|error| error.to_string())?
+        .is_some();
     let mut roots = state
         .db_executor
         .read(move |db| git_workspace::conversation_sources(db, &conversation_id))
@@ -20,7 +25,7 @@ async fn sources(
     // infer a path from model text or the desktop application's own cwd.
     if let Some(session) = session {
         roots.insert(
-            0,
+            if project_workspace { roots.len() } else { 0 },
             (
                 format!("terminal:{}", session.id),
                 PathBuf::from(session.cwd),

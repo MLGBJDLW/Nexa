@@ -89,11 +89,11 @@
             "timeout_secs": {
               "type": "integer",
               "minimum": 1,
-              "description": "Optional worker deadline in seconds, bounded by the configured delegation run deadline."
+              "description": "Optional hard execution deadline in seconds. Omit unless the task has an explicit time limit; short waits belong in wait_subagent and do not stop the worker. The parent run deadline still applies."
             },
             "agent_config_id": {
               "type": "string",
-              "description": "Saved provider/account configuration ID from list_subagent_models. Omit to inherit the parent route."
+              "description": "Saved provider/account configuration ID from list_subagent_models. For API parents, omit routing fields to inherit the current endpoint, account, model and reasoning settings; do not discover or pick an alternate route unless requested. Subscription parents must select an API route explicitly."
             },
             "provider": {
               "type": "string",
@@ -101,7 +101,7 @@
             },
             "model": {
               "type": "string",
-              "description": "Explicit model on the selected route. Omit to inherit its default. This overrides model_policy."
+              "description": "Explicit model on the selected route. Omit to keep the current parent model, or the selected account default when changing routes. This overrides model_policy."
             },
             "reasoning_effort": {
               "type": "string",

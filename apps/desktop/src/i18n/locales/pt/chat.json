@@ -766,5 +766,11 @@
   "gitNoDiff": "Sem diferenças.",
   "gitNoSources": "Vincule uma pasta de origem ou abra um terminal para esta conversa para consultar o Git.",
   "gitNoRepository": "Nenhum repositório Git nas pastas vinculadas.",
-  "gitStatusFailed": "Não foi possível atualizar todo o estado do Git."
+  "gitStatusFailed": "Não foi possível atualizar todo o estado do Git.",
+  "agentStarting": "Iniciando agente",
+  "agentConnecting": "Conectando ao agente",
+  "agentPreparing": "Preparando sessão",
+  "agentReusing": "Retomando sessão do agente",
+  "agentWaiting": "Aguardando resposta",
+  "resumeTask": "Retomar tarefa"
 }

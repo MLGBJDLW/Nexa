@@ -187,7 +187,7 @@ pub fn policy_snapshot(
         prompt_budget,
         trigger_tokens: prompt_budget
             .map(|budget| (u64::from(budget) * u64::from(policy.compact_percent()) / 100) as u32),
-        managed_by_provider: matches!(config.provider.as_str(), "github_copilot" | "openai_codex"),
+        managed_by_provider: crate::external_agent::is_agent_runtime(&config.provider),
         policy,
     })
 }

@@ -59,6 +59,11 @@ test.beforeEach(async ({ page }) => {
     ];
     let active = [activeConversation];
     let archived = [archivedConversation];
+    const projects = [{
+      id: 'project-legacy', name: 'Legacy project', description: '', icon: 'folder',
+      color: '#3b82f6', systemPrompt: 'Current live project prompt', sourceScope: null,
+      archived: false, createdAt: nowIso, updatedAt: nowIso,
+    }];
     const commands: string[] = [];
     const createConversationArgs: Array<Record<string, unknown>> = [];
 
@@ -214,18 +219,23 @@ test.beforeEach(async ({ page }) => {
             },
           ];
         case 'list_projects_cmd':
-          return [{
-            id: 'project-legacy',
-            name: 'Legacy project',
-            description: '',
-            icon: 'folder',
-            color: '#3b82f6',
-            systemPrompt: 'Current live project prompt',
-            sourceScope: null,
-            archived: false,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          }];
+          return clone(projects);
+        case 'get_project_cmd':
+          return clone(projects.find(project => project.id === args.id));
+        case 'update_project_cmd': {
+          const input = args.input as Record<string, unknown>;
+          const index = projects.findIndex(project => project.id === args.id);
+          projects[index] = { ...projects[index], ...input };
+          (window as any).__PROJECT_UPDATE_INPUT__ = clone(input);
+          return clone(projects[index]);
+        }
+        case 'create_project_cmd': {
+          const input = args.input as { name: string; workspaceRoots?: string[] };
+          (window as any).__PROJECT_CREATE_INPUT__ = clone(input);
+          const project = { ...projects[0], ...input, id: `project-${projects.length}` };
+          projects.push(project);
+          return clone(project);
+        }
         case 'get_index_stats':
           return { totalDocuments: 0, totalChunks: 0, ftsRows: 0 };
         case 'get_privacy_config':
@@ -290,7 +300,7 @@ test('conversation actions offer archive and delete with reversible archive', as
   await expect(page.getByTestId('conversation-item-conv-active')).toBeVisible();
 });
 
-test('conversation quick actions remain individually clickable', async ({ page }) => {
+test('conversation quick actions remain individually clickable', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active');
   const item = page.getByTestId('conversation-item-conv-active');
 
@@ -302,6 +312,7 @@ test('conversation quick actions remain individually clickable', async ({ page }
     containsNestedButton: true,
   });
   await expect(item.getByTestId('conversation-select-conv-active')).toHaveAttribute('type', 'button');
+  await page.screenshot({ path: testInfo.outputPath('compact-conversation-sidebar.png') });
 
   await item.hover();
   const pin = item.getByRole('button', { name: 'Pinned' });
@@ -372,6 +383,83 @@ test('archive feedback remains an overlay and never participates in the app layo
   expect(notificationLayout.right).toBeGreaterThanOrEqual(0);
   expect(notificationLayout.bottom).toBeGreaterThanOrEqual(0);
   expect(after).toEqual(before);
+});
+
+test('creating a project opens its own new conversation and first send uses that project', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await page.getByRole('textbox', { name: 'Type a message...' }).fill('Draft for the legacy conversation');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  await page.getByPlaceholder('Enter project name...').fill('Fresh project');
+  await page.getByLabel('Primary folder', { exact: true }).fill('D:\\work\\fresh-project');
+  const editor = page.getByRole('dialog');
+  await expect(editor).toBeVisible();
+  const bounds = await editor.boundingBox();
+  expect(bounds!.width).toBeGreaterThan(550);
+  await page.screenshot({ path: testInfo.outputPath('new-project-editor.png') });
+  await page.setViewportSize({ width: 760, height: 700 });
+  await expect(page.getByTestId('project-save')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('new-project-editor-narrow.png') });
+  await page.getByTestId('project-save').click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page.getByTestId('project-new-conversation')).toContainText('Fresh project');
+  expect(await page.evaluate(() => (window as any).__PROJECT_CREATE_INPUT__.workspaceRoots)).toEqual(['D:\\work\\fresh-project']);
+  await expect(page.getByRole('textbox', { name: 'Type a message...' })).toHaveCount(0);
+  await expect(page.getByTestId('chat-input-toolbar')).toHaveCount(0);
+  await expect(sidebar.getByTestId('conversation-item-conv-active')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('new-project-conversation.png') });
+  await page.setViewportSize({ width: 680, height: 820 });
+  await expect.poll(() => page.getByTestId('chat-workspace-surface').evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath('new-project-conversation-narrow.png') });
+  await page.getByTestId('project-start-chat').click();
+  await expect(page.getByTestId('project-new-conversation')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Type a message...' })).toHaveValue('');
+  await page.getByRole('textbox', { name: 'Type a message...' }).fill('First task in the fresh project');
+  await page.getByRole('textbox', { name: 'Type a message...' }).press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__[0]?.projectId)).toBe('project-1');
+  await expect(page).toHaveURL(/\/chat\/conv-new$/);
+});
+
+test('new chat cannot accept input under the previous conversation draft owner', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  await expect(page.getByTestId('chat-input-textarea')).toBeEnabled();
+  const owner = await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat', exact: true })
+    .evaluate(button => {
+      button.click();
+      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="chat-input-textarea"]');
+      return { key: input?.dataset.draftKey, canType: input != null && !input.disabled };
+    });
+  expect(owner.canType && owner.key !== '__new__:project-legacy').toBe(false);
+});
+
+test('project drafts remain separate and browser navigation restores the selected project', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  const input = page.getByTestId('chat-input-textarea');
+  await sidebar.getByRole('button', { name: 'New Chat', exact: true }).click();
+  await input.fill('Unsent legacy project draft');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  await page.getByPlaceholder('Enter project name...').fill('Fresh project');
+  await page.getByTestId('project-save').click();
+  await page.getByTestId('project-start-chat').click();
+  await expect(input).toHaveValue('');
+  await input.fill('Unsent fresh project draft');
+  await sidebar.getByRole('button', { name: 'Fresh project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await expect(page.getByTestId('project-new-conversation')).toContainText('Legacy project');
+  await expect(input).toHaveCount(0);
+  await page.getByTestId('project-start-chat').click();
+  await expect(input).toHaveValue('Unsent legacy project draft');
+  await page.goBack();
+  await expect(sidebar.getByRole('button', { name: 'Fresh project', exact: true })).toBeVisible();
+  await expect(input).toHaveValue('Unsent fresh project draft');
+  await page.goForward();
+  await expect(sidebar.getByRole('button', { name: 'Legacy project', exact: true })).toBeVisible();
+  await expect(input).toHaveValue('Unsent legacy project draft');
+  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(0);
 });
 
 test('new chat stays an unpersisted draft until the first send', async ({ page }) => {
@@ -586,4 +674,27 @@ test('typing shortcuts do not toggle the conversation sidebar', async ({ page })
   await expect(sidebar).toHaveAttribute('data-collapsed', 'false');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('chat-sidebar-collapsed')))
     .toBeNull();
+});
+
+
+test('project workspace exposes its folders and explicitly saves a new primary root', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  await page.getByPlaceholder('Enter project name...').fill('Folder project');
+  await page.getByLabel('Primary folder', { exact: true }).fill('D:/work/primary');
+  await page.getByTestId('project-save').click();
+  await sidebar.getByRole('button', { name: 'Folder project', exact: true }).click();
+  await page.getByTestId('project-workspace-open').click();
+  await expect(page.getByTestId('project-workspace-folders')).toContainText('D:/work/primary');
+  await page.getByTestId('project-workspace-folders').click();
+  await expect(page.getByLabel('Primary folder', { exact: true })).toHaveValue('D:/work/primary');
+  await page.getByRole('button', { name: 'Add folder', exact: true }).click();
+  await page.getByLabel('Additional folder', { exact: true }).fill('D:/work/shared');
+  await page.getByRole('button', { name: 'Make primary', exact: true }).click();
+  await expect(page.getByLabel('Primary folder', { exact: true })).toHaveValue('D:/work/shared');
+  await page.getByTestId('project-save').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__PROJECT_UPDATE_INPUT__?.workspaceRoots))
+    .toEqual(['D:/work/shared', 'D:/work/primary']);
 });

@@ -36,7 +36,13 @@ impl Tool for CatalogOnlyTool {
 #[test]
 fn saved_subscription_configs_keep_the_native_route_and_reasoning_level() {
     let db = Database::open_memory().unwrap();
-    for provider in ["github_copilot", "openai_codex"] {
+    for provider in [
+        "github_copilot",
+        "openai_codex",
+        "gemini_cli",
+        "opencode",
+        "hermes",
+    ] {
         let input = serde_json::from_value(serde_json::json!({"name":provider,"provider":provider,"apiKey":"","model":"gpt-native-test","isDefault":true,"reasoningEffort":"ultra"})).unwrap();
         let saved = db.save_agent_config(&input).unwrap();
         let loaded = db.get_agent_config(&saved.id).unwrap();
@@ -45,13 +51,13 @@ fn saved_subscription_configs_keep_the_native_route_and_reasoning_level() {
         assert_eq!(loaded.reasoning_effort.as_deref(), Some("ultra"));
         assert!(loaded.api_key.is_empty());
         assert!(loaded.base_url.is_none());
-        assert!(SubscriptionRuntimeKind::from_provider(&loaded.provider).is_some());
+        assert!(AgentRuntimeKind::from_provider(&loaded.provider).is_some());
     }
 }
 
 #[test]
 fn subscription_prompt_preserves_one_kernel_and_the_active_routing_guidance() {
-    let (mut request, _rx, _, _) = fixture(SubscriptionRuntimeKind::Copilot, "native-model");
+    let (mut request, _rx, _, _) = fixture(AgentRuntimeKind::Copilot, "native-model");
     request.config.system_prompt =
         nexa_core::agent::build_system_prompt(Some("Project instruction sentinel"), &[]);
     request.user_parts = vec![ContentPart::Text {
@@ -78,7 +84,7 @@ fn subscription_prompt_preserves_one_kernel_and_the_active_routing_guidance() {
 
 #[test]
 fn subscription_input_and_history_obey_the_saved_privacy_policy() {
-    let (mut request, _rx, _, _) = fixture(SubscriptionRuntimeKind::Codex, "test");
+    let (mut request, _rx, _, _) = fixture(AgentRuntimeKind::Codex, "test");
     let mut privacy = request.db.load_privacy_config().unwrap();
     privacy.enabled = true;
     privacy.redact_patterns = vec![nexa_core::privacy::RedactRule {
@@ -122,10 +128,10 @@ impl Tool for NonceTool {
 }
 
 pub(super) fn fixture(
-    kind: SubscriptionRuntimeKind,
+    kind: AgentRuntimeKind,
     model: &str,
 ) -> (
-    SubscriptionTurnRequest,
+    AgentRuntimeTurnRequest,
     mpsc::Receiver<AgentEvent>,
     Arc<AtomicUsize>,
     String,
@@ -169,8 +175,9 @@ pub(super) fn fixture(
     }));
     let (events, rx) = mpsc::channel(512);
     let (_steer, steering) = mpsc::unbounded_channel();
-    let request = SubscriptionTurnRequest {
+    let request = AgentRuntimeTurnRequest {
         kind,
+        external: None,
         config: AgentConfig {
             model: Some(model.into()),
             max_iterations: 3,
@@ -223,7 +230,7 @@ impl nexa_core::run_event_outbox::AgentRunEventDelivery for DurableProbeDelivery
     fn deliver_task_run_snapshot(&self, _: &str, _: nexa_core::conversation::AgentTaskRun) {}
 }
 
-pub(super) async fn run_live(kind: SubscriptionRuntimeKind, model: &str) {
+pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
     let (mut request, mut rx, calls, nonce) = fixture(kind, model);
     let assembler =
         nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&request.db).unwrap();
@@ -325,7 +332,7 @@ pub(super) async fn run_live(kind: SubscriptionRuntimeKind, model: &str) {
     assert_eq!(done, 1);
     assert!(deltas > 0);
     let history = db.get_messages(&conversation).unwrap();
-    if matches!(kind, SubscriptionRuntimeKind::Copilot) {
+    if matches!(kind, AgentRuntimeKind::Copilot) {
         let steering_index = history
             .iter()
             .position(|message| message.content == correction)

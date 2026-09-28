@@ -6,6 +6,7 @@ export interface Project {
   color: string;
   systemPrompt: string;
   sourceScope: string[] | null;
+  workspaceRoots?: string[] | null;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -18,9 +19,11 @@ export interface CreateProjectInput {
   color?: string | null;
   systemPrompt?: string | null;
   sourceScope?: string[] | null;
+  workspaceRoots?: string[] | null;
 }
 
 export interface UpdateProjectInput {
+  workspaceRoots?: string[] | null;
   name?: string | null;
   description?: string | null;
   icon?: string | null;

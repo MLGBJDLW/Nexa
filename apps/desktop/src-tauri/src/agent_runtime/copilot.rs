@@ -106,7 +106,7 @@ impl github_copilot_sdk::tool::ToolHandler for ToolBridge {
     }
 }
 
-pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, CoreError> {
+pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
     let cancellation = request.cancellation.clone();
     let model_id = request
         .config
@@ -140,11 +140,12 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
     let mut turn = request.prepare(native_vision)?;
     let (fatal_tx, mut fatal_rx) = mpsc::channel(1);
     let bridge = Arc::new(ToolBridge {
-        tools: turn.tools.clone(),
+        tools: turn.transcript.nexa_tools().clone(),
         fatal: fatal_tx,
     });
     let tools = turn
-        .tools
+        .transcript
+        .nexa_tools()
         .definitions()
         .into_iter()
         .map(|definition| {
@@ -247,7 +248,7 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
                             let attachments = message.parts.iter().filter_map(|part| match part { ContentPart::Image {media_type,data} => Some(Attachment::Blob{data:data.clone(),mime_type:media_type.clone(),display_name:None}),_=>None }).collect::<Vec<_>>();
                             if !native_vision && !attachments.is_empty() { return Err(protocol_error("the selected Copilot model does not accept steering images")); }
                             projection.persist_completed_answer(&turn).await?;
-                            turn.tools.persist_steering(&message).await?;
+                            turn.transcript.persist_steering(&message).await?;
                             if turn.cancellation.is_cancelled() { return Err(CoreError::Cancelled("Stopped by user".into())); }
                             turn.events.send(AgentEvent::Steering { content:message.content.clone() }).await.map_err(protocol_error)?;
                             session.send(MessageOptions::new(redact_user_text(&message.content,&turn.privacy)).with_attachments(attachments)).await.map_err(protocol_error)?;
@@ -262,7 +263,7 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
         projection.persist_partial(&turn).await?;
         for message in steering {
             if message.recovery_control.is_none() {
-                turn.tools.persist_steering(&message).await?;
+                turn.transcript.persist_steering(&message).await?;
             }
         }
         let _ = tokio::time::timeout(Duration::from_secs(5), session.abort()).await;
@@ -515,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn split_response_is_ordered_corrected_and_checkpointed_without_duplicate_chunks() {
         let (request, mut rx, _, _) =
-            super::super::tests::fixture(SubscriptionRuntimeKind::Copilot, "test");
+            super::super::tests::fixture(AgentRuntimeKind::Copilot, "test");
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
@@ -540,7 +541,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        turn.tools
+        turn.transcript
             .persist_steering(&AgentSteeringMessage::text("follow up"))
             .await
             .unwrap();
@@ -630,7 +631,7 @@ mod tests {
     #[tokio::test]
     async fn failed_retry_discards_completed_and_delta_only_blocks_but_preserves_prior_response() {
         let (request, mut rx, _, _) =
-            super::super::tests::fixture(SubscriptionRuntimeKind::Copilot, "test");
+            super::super::tests::fixture(AgentRuntimeKind::Copilot, "test");
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
@@ -655,7 +656,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        turn.tools
+        turn.transcript
             .persist_steering(&AgentSteeringMessage::text("follow up"))
             .await
             .unwrap();
@@ -746,6 +747,6 @@ mod tests {
             .id
             .clone();
         client.stop().await.unwrap();
-        super::super::tests::run_live(SubscriptionRuntimeKind::Copilot, &model).await;
+        super::super::tests::run_live(AgentRuntimeKind::Copilot, &model).await;
     }
 }

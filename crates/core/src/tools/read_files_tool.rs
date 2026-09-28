@@ -21,7 +21,7 @@ use crate::privacy::{self, PrivacyConfig};
 
 use super::document_utils::read_supported_file_content;
 use super::path_utils::resolve_existing_file_for_file_access;
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/read_files.json");
@@ -75,11 +75,11 @@ impl Tool for ReadFilesTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
             db,
-            source_scope,
             ..
         } = context;
         let args: ReadFilesArgs = serde_json::from_str(arguments)
@@ -103,7 +103,7 @@ impl Tool for ReadFilesTool {
             .max(1);
 
         // Resolve sources + privacy config once, outside the per-file tasks.
-        let file_policy = file_access_policy(db, source_scope)?;
+
         let privacy_config = db.load_privacy_config().unwrap_or_default();
 
         // If there are no sources in scope every path is inaccessible —
@@ -179,7 +179,7 @@ impl Tool for ReadFilesTool {
 /// (always starts at line 1) and returns a Result rather than a `ToolResult`.
 fn read_single_file(
     raw_path: &str,
-    sources: &[crate::models::Source],
+    sources: &[impl super::path_utils::AccessRoot],
     allow_unregistered_absolute_paths: bool,
     privacy_config: &PrivacyConfig,
     max_lines: usize,

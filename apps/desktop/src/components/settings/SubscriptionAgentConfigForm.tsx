@@ -5,6 +5,7 @@ import type { ProviderPreset } from '../../lib/providerPresets';
 import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import { SubscriptionAccountsPanel } from './SubscriptionAccountsPanel';
 import { Button } from '../ui/Button';
+import { runtimeAgentConfig } from '../../lib/runtimeAgentConfig';
 
 export function SubscriptionAgentConfigForm({ preset, config, onSave, onCancel, isSaving, onDirtyChange }: {
   preset: ProviderPreset; config?: AgentConfig; onSave: (input: SaveAgentConfigInput) => Promise<void>;
@@ -39,25 +40,10 @@ export function SubscriptionAgentConfigForm({ preset, config, onSave, onCancel, 
   const save = async () => {
     if (!canSave) return;
     setError(null);
-    try { await onSave({
-      id: config?.id ?? null, name: name.trim(), provider: preset.provider, apiKey: '', baseUrl: null, model,
-      modelId: model, providerEndpointId: null, temperature: null, maxTokens: null, contextWindow: null,
-      isDefault: config?.isDefault ?? false,
-      reasoningEnabled: preservesSavedSelection ? config?.reasoningEnabled ?? null : null,
-      thinkingBudget: preservesSavedSelection ? config?.thinkingBudget ?? null : null,
-      reasoningEffort: preservesSavedSelection ? config?.reasoningEffort ?? null : null,
-      maxIterations: config?.maxIterations ?? null, summarizationModel: null, summarizationProvider: null,
-      imageGenerationModel: null, subagentAllowedTools: config?.subagentAllowedTools ?? null,
-      subagentAllowedSkillIds: config?.subagentAllowedSkillIds,
-      subagentMaxParallel: config?.subagentMaxParallel,
-      subagentMaxCallsPerTurn: config?.subagentMaxCallsPerTurn,
-      subagentTokenBudget: config?.subagentTokenBudget,
-      delegationLimitsV2: config?.delegationLimitsV2,
-      providerStreaming: config?.providerStreaming,
-    }); } catch (error) { setError(String(error)); }
+    try { await onSave(runtimeAgentConfig(preset.provider, name, model, config)); } catch (error) { setError(String(error)); }
   };
   return <div className="space-y-4" data-testid="subscription-agent-form">
-    <SubscriptionAccountsPanel runtime={preset.runtime!} />
+    <SubscriptionAccountsPanel runtime={preset.runtime === 'codex' ? 'codex' : 'copilot'} />
     <label className="block text-sm text-text-secondary">{t('settings.providerName')}
       <input className="mt-1 w-full rounded-md border border-border bg-surface-2 p-2 text-text-primary" value={name}
         onChange={event => { setName(event.target.value); onDirtyChange(true); }} />

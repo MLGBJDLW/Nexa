@@ -9,11 +9,12 @@ use regex::RegexBuilder;
 use serde::Deserialize;
 use serde_json::json;
 
+#[cfg(test)]
 use crate::db::Database;
 use crate::error::CoreError;
 
 use super::path_utils::{resolve_path_for_file_access, PathKind};
-use super::{file_access_policy, Tool, ToolCategory, ToolDef, ToolResult};
+use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
 static GREP_DEF: OnceLock<ToolDef> = OnceLock::new();
@@ -170,14 +171,11 @@ impl Tool for SearchFilesTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
-            call_id,
-            arguments,
-            db,
-            source_scope,
-            ..
+            call_id, arguments, ..
         } = context;
-        execute_search_files("search_files", call_id, arguments, db, source_scope).await
+        execute_search_files("search_files", call_id, arguments, file_policy).await
     }
 }
 
@@ -205,14 +203,11 @@ impl Tool for GrepFilesTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
-            call_id,
-            arguments,
-            db,
-            source_scope,
-            ..
+            call_id, arguments, ..
         } = context;
-        execute_search_files("grep_files", call_id, arguments, db, source_scope).await
+        execute_search_files("grep_files", call_id, arguments, file_policy).await
     }
 }
 
@@ -220,15 +215,12 @@ async fn execute_search_files(
     tool_name: &'static str,
     call_id: &str,
     arguments: &str,
-    db: &Database,
-    source_scope: &[String],
+    file_policy: super::FileAccessPolicy,
 ) -> Result<ToolResult, CoreError> {
     let args: SearchFilesArgs = serde_json::from_str(arguments)
         .map_err(|e| CoreError::InvalidInput(format!("Invalid {tool_name} arguments: {e}")))?;
 
-    let db = db.clone();
     let call_id = call_id.to_string();
-    let source_scope = source_scope.to_vec();
     tokio::task::spawn_blocking(move || {
         let matcher = Matcher::new(tool_name, &args.query, args.regex, args.case_sensitive)
             .map_err(CoreError::InvalidInput)?;
@@ -241,7 +233,7 @@ async fn execute_search_files(
         let include_set = build_globset(&args.include_globs)?;
         let exclude_set = build_globset(&args.exclude_globs)?;
 
-        let file_policy = file_access_policy(&db, &source_scope)?;
+
         let roots = resolve_search_roots(&args, &file_policy)?;
         if roots.is_empty() {
             return Ok(ToolResult {

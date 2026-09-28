@@ -363,7 +363,7 @@ fn user_input(text: &str, images: &[(String, String)]) -> Vec<Value> {
     input
 }
 
-pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, CoreError> {
+pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
     let cancellation = request.cancellation.clone();
     let model_id = request
         .config
@@ -397,10 +397,18 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
                 ));
             }
         }
-        let cwd = std::env::current_dir()
-            .map_err(protocol_error)?
-            .to_string_lossy()
-            .to_string();
+        let cwd = match request.dependencies.tools.workspace() {
+            Some(workspace) => workspace
+                .cwd()
+                .ok_or_else(|| {
+                    protocol_error("Choose a project workspace folder before starting Codex")
+                })?
+                .to_string(),
+            None => std::env::current_dir()
+                .map_err(protocol_error)?
+                .to_string_lossy()
+                .to_string(),
+        };
         let config = wire
             .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
             .await?;
@@ -411,7 +419,7 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
         drop(config);
         drop(skills);
         let turn = request.prepare(native_vision)?;
-        let tools = turn.tools.definitions().into_iter().map(|tool| json!({"type":"function","name":tool.name,"description":tool.description,"inputSchema":tool.parameters})).collect::<Vec<_>>();
+        let tools = turn.transcript.nexa_tools().definitions().into_iter().map(|tool| json!({"type":"function","name":tool.name,"description":tool.description,"inputSchema":tool.parameters})).collect::<Vec<_>>();
         let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":turn.system_prompt,"dynamicTools":tools,"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
         if response["model"].as_str() != Some(&model_id)
             || response["modelProvider"] != "openai"
@@ -454,7 +462,7 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
                 if let Some(message) = steering_queue.pop_front() {
                     let images = message.parts.iter().filter_map(|part| match part { ContentPart::Image {media_type,data}=>Some((media_type.clone(),data.clone())),_=>None }).collect::<Vec<_>>();
                     projection.persist_completed_answer(&turn).await?;
-                    turn.tools.persist_steering(&message).await?;
+                    turn.transcript.persist_steering(&message).await?;
                     if turn.cancellation.is_cancelled() { return Err(CoreError::Cancelled("Stopped by user".into())); }
                     let id = wire.send("turn/steer",json!({"threadId":thread_id,"expectedTurnId":turn_id,"input":user_input(&redact_user_text(&message.content,&turn.privacy),&images)})).await?;
                     replies.insert(id,message.content);
@@ -507,7 +515,7 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
                             "item/tool/call" => {
                                 if params["turnId"].as_str() != Some(&turn_id) || pending.len() >= 16 { wire.reject(&message).await?; return Err(protocol_error("invalid Codex tool dispatch boundary")); }
                                 let call = ToolCallRequest {id:required_string(params,"callId")?,name:required_string(params,"tool")?,arguments:params["arguments"].to_string(),thought_signature:None};
-                                let tools = turn.tools.clone(); let id = message["id"].clone();
+                                let tools = turn.transcript.nexa_tools().clone(); let id = message["id"].clone();
                                 projection.clear_answer();
                                 pending.push(async move { (id,tools.execute(call).await) });
                             }
@@ -537,7 +545,7 @@ pub(super) async fn run(request: SubscriptionTurnRequest) -> Result<Message, Cor
     if result.is_err() {
         projection.persist_partial(&turn).await?;
         for message in steering_queue {
-            turn.tools.persist_steering(&message).await?;
+            turn.transcript.persist_steering(&message).await?;
         }
         let _ = tokio::time::timeout(
             Duration::from_secs(1),
@@ -707,7 +715,7 @@ mod tests {
     #[tokio::test]
     async fn async_ui_does_not_block_the_protocol_reader_behind_a_tool() {
         let (mut request, _rx, _, _) =
-            super::super::tests::fixture(SubscriptionRuntimeKind::Codex, "test");
+            super::super::tests::fixture(AgentRuntimeKind::Codex, "test");
         let started = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
         request.dependencies.tools.register(Box::new(PauseTool {
@@ -717,7 +725,7 @@ mod tests {
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
-        let tools = turn.tools.clone();
+        let tools = turn.transcript.nexa_tools().clone();
         let worker = tokio::spawn(async move {
             tools
                 .execute(ToolCallRequest {
@@ -757,8 +765,7 @@ mod tests {
     }
     #[tokio::test]
     async fn async_question_is_durable_and_never_becomes_final_answer() {
-        let (request, mut rx, _, _) =
-            super::super::tests::fixture(SubscriptionRuntimeKind::Codex, "test");
+        let (request, mut rx, _, _) = super::super::tests::fixture(AgentRuntimeKind::Codex, "test");
         let db = request.db.clone();
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
@@ -807,7 +814,7 @@ mod tests {
             .unwrap()
             .to_string();
         drop(wire);
-        super::super::tests::run_live(SubscriptionRuntimeKind::Codex, &model).await;
+        super::super::tests::run_live(AgentRuntimeKind::Codex, &model).await;
     }
     #[tokio::test]
     #[ignore = "requires the user's official Codex CLI and login; no model inference"]

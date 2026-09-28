@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent_run_outbox;
+mod agent_runtime;
 mod agent_stream;
 mod agent_stream_bridge;
 mod agent_task_events;
@@ -18,7 +19,6 @@ mod preview_tool;
 mod remote;
 mod subagent_lifecycle;
 mod subagent_tool;
-mod subscription_runtime;
 mod terminal_agent_tool;
 mod tool_preview_journal;
 
@@ -234,7 +234,51 @@ fn main_window_close_action(behavior: WindowCloseBehavior) -> MainWindowCloseAct
 }
 
 fn request_application_exit(app: &tauri::AppHandle) {
-    app.exit(0);
+    static EXIT_STARTED: AtomicBool = AtomicBool::new(false);
+    if EXIT_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(scheduler) = app.try_state::<TaskOrchestratorSchedulerState>() {
+            commands::shutdown_task_orchestrator_scheduler(&scheduler);
+        }
+        if let (Some(state), Some(agents), Some(approvals)) = (
+            app.try_state::<AppState>(),
+            app.try_state::<AgentState>(),
+            app.try_state::<ApprovalState>(),
+        ) {
+            let mut stops = tokio::task::JoinSet::new();
+            let flush = async {
+                for turn in agents.sessions.drain_for_shutdown().await {
+                    if turn.event_outbox.is_closed_for_submission() {
+                        continue;
+                    }
+                    let db = state.db.clone();
+                    let pending = approvals.pending.clone();
+                    stops.spawn(async move {
+                        desktop_agent_session::fence_and_checkpoint_desktop_agent_turn(
+                            turn, &db, &pending,
+                        )
+                        .await
+                    });
+                }
+                while let Some(result) = stops.join_next().await {
+                    if !matches!(result, Ok(Ok(()))) {
+                        log::warn!("Could not preserve an exit checkpoint: {result:?}");
+                    }
+                }
+            };
+            if tokio::time::timeout(std::time::Duration::from_secs(10), flush)
+                .await
+                .is_err()
+            {
+                log::warn!("Exit checkpoint deadline reached; remaining runs will be reconciled at startup");
+            }
+        }
+        agent_runtime::acp::shutdown();
+        app.exit(0);
+    });
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -624,7 +668,7 @@ fn main() {
                 )),
             );
             let agent_run_recovery = tauri::async_runtime::block_on(
-                run_event_outboxes.recover_after_restart(),
+                run_event_outboxes.recover_after_restart_with_checkpoints(),
             )?;
             if agent_run_recovery.restored_suspensions > 0
                 || agent_run_recovery.repaired_terminals > 0
@@ -1118,6 +1162,9 @@ fn main() {
             commands::start_realtime_transcription_cmd,
             commands::live_connections_cmd,
             commands::model_choices::model_choices_cmd,
+            commands::external_agents::get_external_agent_launch_cmd,
+            commands::external_agents::save_external_agent_profile_cmd,
+            commands::external_agents::probe_external_agent_cmd,
             commands::start_live_cmd,
             commands::begin_desktop_share_cmd,
             commands::list_desktop_monitors_cmd,

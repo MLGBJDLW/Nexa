@@ -985,8 +985,7 @@ impl Tool for NativeBrowserSessionTool {
                             ));
                         }
                         nexa_core::tools::resolve_agent_writable_file_path(
-                            context.db,
-                            context.source_scope,
+                            &context,
                             std::path::Path::new(path),
                         )
                     })

@@ -62,6 +62,14 @@ pub fn conversation_sources(
     db: &crate::db::Database,
     conversation_id: &str,
 ) -> Result<Vec<(String, PathBuf)>, crate::error::CoreError> {
+    if let Some(workspace) = db.conversation_workspace(conversation_id)? {
+        return Ok(workspace
+            .roots
+            .into_iter()
+            .enumerate()
+            .map(|(index, root)| (format!("workspace:{index}"), PathBuf::from(root)))
+            .collect());
+    }
     let ids = db.get_effective_conversation_source_scope(conversation_id)?;
     let sources = if ids.is_empty() {
         db.list_sources()?
@@ -353,6 +361,7 @@ mod tests {
         );
         let project = db
             .create_project(&CreateProjectInput {
+                workspace_roots: None,
                 name: "scoped".into(),
                 description: None,
                 icon: None,

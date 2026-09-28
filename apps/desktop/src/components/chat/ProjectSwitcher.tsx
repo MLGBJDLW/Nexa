@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Brain, Database, FolderKanban, FolderOpen, Plus, ChevronDown, Check, Pencil, Save, Trash2, X } from 'lucide-react';
+import { Brain, Database, FolderKanban, FolderOpen, Plus, ChevronDown, Check, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
 import type { Project, CreateProjectInput, UpdateProjectInput } from '../../types/project';
@@ -15,6 +15,10 @@ import {
 } from '../../lib/projectIcons';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
+import { Modal } from '../ui/Modal';
+import { Button } from '../ui/Button';
+import { WorkspaceRootsPicker } from './WorkspaceRootsPicker';
+import { formatUserError } from '../../lib/userError';
 import { ProjectWorkspacePanel } from './ProjectWorkspacePanel';
 
 const PROJECT_STORAGE_KEY = 'active-project-id';
@@ -60,6 +64,9 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
   const [newIcon, setNewIcon] = useState(PROJECT_ICON_OPTIONS[0].id);
   const [newColor, setNewColor] = useState(DEFAULT_PROJECT_COLOR);
   const [newSourceScope, setNewSourceScope] = useState<string[]>([]);
+  const [newRoots, setNewRoots] = useState<string[]>([]);
+  const [editRoots, setEditRoots] = useState<string[]>([]);
+  const [editWorkspaceChanged, setEditWorkspaceChanged] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editIcon, setEditIcon] = useState(PROJECT_ICON_OPTIONS[0].id);
@@ -125,6 +132,7 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
         icon: newIcon,
         color: newColor,
         sourceScope: newSourceScope.length > 0 ? newSourceScope : null,
+        workspaceRoots: newRoots.map(root => root.trim()).filter(Boolean),
       };
       const created = await api.createProject(input);
       setNewName('');
@@ -136,8 +144,8 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
       onProjectChange(created.id);
       toast.success(t('project.created'));
       setOpen(false);
-    } catch {
-      toast.error(t('common.error'));
+    } catch (error) {
+      toast.error(formatUserError(t('common.error'), error));
     } finally {
       setProjectBusy(false);
     }
@@ -150,6 +158,9 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
     setEditIcon(getProjectIconOption(project.icon).id);
     setEditColor(normalizeProjectColor(project.color));
     setEditSourceScope(project.sourceScope ?? []);
+    setEditRoots(project.workspaceRoots ?? []);
+    setEditWorkspaceChanged(false);
+    setOpen(false);
   };
 
   const cancelEditProject = () => {
@@ -168,6 +179,7 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
       icon: editIcon,
       color: editColor,
       sourceScope: editSourceScope.length > 0 ? editSourceScope : [],
+      workspaceRoots: editWorkspaceChanged ? editRoots.map(root => root.trim()).filter(Boolean) : undefined,
     };
     setProjectBusy(true);
     try {
@@ -175,8 +187,8 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
       setProjects((prev) => prev.map((item) => item.id === updated.id ? updated : item));
       cancelEditProject();
       toast.success(t('common.success'));
-    } catch {
-      toast.error(t('common.error'));
+    } catch (error) {
+      toast.error(formatUserError(t('common.error'), error));
     } finally {
       setProjectBusy(false);
     }
@@ -194,8 +206,8 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
       setDeleteTarget(null);
       setEditingProjectId(null);
       toast.success(t('project.deleted'));
-    } catch {
-      toast.error(t('common.error'));
+    } catch (error) {
+      toast.error(formatUserError(t('common.error'), error));
     } finally {
       setProjectBusy(false);
     }
@@ -324,48 +336,6 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
   };
 
   const renderProjectRow = (project: Project) => {
-    const editing = editingProjectId === project.id;
-
-    if (editing) {
-      return (
-        <div key={project.id} className="space-y-2 border-t border-border/60 px-3 py-2 first:border-t-0">
-          <input
-            autoFocus
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleUpdateProject(project);
-              if (e.key === 'Escape') cancelEditProject();
-            }}
-            className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-xs text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
-          />
-          {renderIconPicker(editIcon, setEditIcon)}
-          {renderColorPicker(editColor, setEditColor)}
-          {renderSourceScopePicker(editSourceScope, setEditSourceScope)}
-          <div className="flex justify-end gap-1">
-            <button
-              type="button"
-              onClick={cancelEditProject}
-              className="rounded p-1.5 text-text-tertiary hover:bg-surface-3 hover:text-text-primary"
-              aria-label={t('common.cancel')}
-              title={t('common.cancel')}
-            >
-              <X size={13} />
-            </button>
-            <button
-              type="button"
-              disabled={projectBusy || !editName.trim()}
-              onClick={() => void handleUpdateProject(project)}
-              className="rounded p-1.5 text-accent hover:bg-accent/10 disabled:opacity-40"
-              aria-label={t('common.save')}
-              title={t('common.save')}
-            >
-              <Save size={13} />
-            </button>
-          </div>
-        </div>
-      );
-    }
 
     return (
       <div key={project.id} className="group flex items-center gap-1 px-1">
@@ -443,6 +413,7 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
                 setShowWorkspacePanel(true);
                 setOpen(false);
               }}
+              data-testid="project-workspace-open"
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
             >
               <FolderKanban className="h-3 w-3 shrink-0" />
@@ -463,71 +434,62 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
             </button>
           )}
 
-          {creating ? (
-            <div className="space-y-2 px-3 py-2">
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleCreate();
-                if (e.key === 'Escape') {
-                    setCreating(false);
-                    setNewName('');
-                    setNewIcon(PROJECT_ICON_OPTIONS[0].id);
-                    setNewColor(DEFAULT_PROJECT_COLOR);
-                    setNewSourceScope([]);
-                  }
-                }}
-                placeholder={t('project.namePlaceholder')}
-                className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-xs text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
-              />
-              {renderIconPicker(newIcon, setNewIcon)}
-              {renderColorPicker(newColor, setNewColor)}
-              {renderSourceScopePicker(newSourceScope, setNewSourceScope)}
-              <div className="flex justify-end gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreating(false);
-                    setNewName('');
-                    setNewIcon(PROJECT_ICON_OPTIONS[0].id);
-                    setNewColor(DEFAULT_PROJECT_COLOR);
-                    setNewSourceScope([]);
-                  }}
-                  className="rounded p-1.5 text-text-tertiary hover:bg-surface-3 hover:text-text-primary"
-                  aria-label={t('common.cancel')}
-                  title={t('common.cancel')}
-                >
-                  <X size={13} />
-                </button>
-                <button
-                  type="button"
-                  disabled={projectBusy || !newName.trim()}
-                  onClick={() => void handleCreate()}
-                  className="rounded p-1.5 text-accent hover:bg-accent/10 disabled:opacity-40"
-                  aria-label={t('common.save')}
-                  title={t('common.save')}
-                >
-                  <Save size={13} />
-                </button>
-              </div>
-            </div>
-          ) : (
             <button
               onClick={() => {
                 setEditingProjectId(null);
                 setNewSourceScope([]);
+                setNewRoots([]);
+                setNewName('');
                 setCreating(true);
+                setOpen(false);
               }}
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-accent transition-colors hover:bg-surface-3 hover:text-accent-hover"
             >
               <Plus className="h-3 w-3 shrink-0" />
               <span>{t('project.createNew')}</span>
             </button>
-          )}
         </div>
       )}
+
+      <Modal
+        open={creating || editingProjectId !== null}
+        onClose={() => { if (!projectBusy) { setCreating(false); cancelEditProject(); } }}
+        title={creating ? t('project.createNew') : t('project.editProject')}
+        surfaceClassName="bg-surface-1 !w-[min(92vw,40rem)] !rounded-2xl"
+        footer={<div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => { setCreating(false); cancelEditProject(); }} disabled={projectBusy}>{t('common.cancel')}</Button>
+          <Button disabled={projectBusy || !(creating ? newName : editName).trim()} onClick={() => {
+            if (creating) void handleCreate();
+            else { const project = projects.find(item => item.id === editingProjectId); if (project) void handleUpdateProject(project); }
+          }} data-testid="project-save">{t('common.save')}</Button>
+        </div>}
+      >
+        <div className="space-y-6 p-1 sm:p-2" data-testid="project-editor">
+          <div className="flex items-center gap-3">
+            <ProjectIcon icon={creating ? newIcon : editIcon} color={creating ? newColor : editColor} className="h-12 w-12 shrink-0 rounded-xl" size={24} />
+            <input autoFocus onKeyDown={event => {
+              if (event.key !== 'Enter' || projectBusy) return;
+              event.preventDefault();
+              if (creating) void handleCreate();
+              else { const project = projects.find(item => item.id === editingProjectId); if (project) void handleUpdateProject(project); }
+            }} value={creating ? newName : editName} onChange={event => (creating ? setNewName : setEditName)(event.target.value)} placeholder={t('project.namePlaceholder')} aria-label={t('project.namePlaceholder')} className="min-w-0 flex-1 border-b border-border/70 bg-transparent py-2 text-lg font-medium text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent" />
+          </div>
+          <WorkspaceRootsPicker roots={creating ? newRoots : editRoots} onChange={creating ? setNewRoots : roots => { setEditRoots(roots); setEditWorkspaceChanged(true); }} />
+          <div className="space-y-3 border-t border-border/60 pt-4">
+            <details>
+              <summary className="cursor-pointer text-xs text-text-tertiary hover:text-text-primary">{t('project.appearance')}</summary>
+              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {renderIconPicker(creating ? newIcon : editIcon, creating ? setNewIcon : setEditIcon)}
+                {renderColorPicker(creating ? newColor : editColor, creating ? setNewColor : setEditColor)}
+              </div>
+            </details>
+            {sources.length > 0 && <details>
+              <summary className="cursor-pointer text-xs text-text-tertiary hover:text-text-primary">{t('project.sources')}</summary>
+              <div className="mt-3">{renderSourceScopePicker(creating ? newSourceScope : editSourceScope, creating ? setNewSourceScope : setEditSourceScope)}</div>
+            </details>}
+          </div>
+        </div>
+      </Modal>
 
       <ProjectMemoryPanel
         projectId={activeProjectId}
@@ -538,6 +500,7 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
         projectId={activeProjectId}
         open={showWorkspacePanel}
         onClose={() => setShowWorkspacePanel(false)}
+        onManageFolders={project => { setShowWorkspacePanel(false); startEditProject(project); }}
       />
       <ConfirmDialog
         open={!!deleteTarget}

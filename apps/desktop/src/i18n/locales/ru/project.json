@@ -90,5 +90,18 @@
   "workspaceEventArtifact": "Артефакт добавлен",
   "workspaceEventOpenQuestion": "Открытый вопрос",
   "workspaceEventSource": "Источник добавлен",
-  "workspaceProvenance": "Сведения об источнике"
+  "workspaceProvenance": "Сведения об источнике",
+  "newConversationTitle": "Начать новый разговор",
+  "newConversationHint": "Первое сообщение создаст разговор в проекте «{name}».",
+  "welcomeTitle": "Добро пожаловать в {name}",
+  "workspaceFolders": "Папки рабочего пространства",
+  "workspaceFoldersHint": "Первая папка — рабочий каталог по умолчанию. Добавьте другие папки для проекта с несколькими репозиториями. Можно настроить позже.",
+  "primaryFolder": "Основная папка",
+  "additionalFolder": "Дополнительная папка",
+  "chooseFolder": "Выбрать папку",
+  "folderPlaceholder": "Выберите или вставьте путь к папке",
+  "makePrimary": "Сделать основной",
+  "addFolder": "Добавить папку",
+  "appearance": "Оформление",
+  "editProject": "Изменить проект"
 }

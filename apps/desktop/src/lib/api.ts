@@ -842,9 +842,10 @@ export interface WorkflowCatalogTemplate {
   tasks: WorkflowCatalogTask[];
 }
 
-export const previewFile = (path: string) =>
+export const previewFile = (path: string, conversationId?: string) =>
   invoke<FilePreview>('preview_file_cmd', {
     path,
+    conversationId: conversationId ?? null,
   });
 
 export const saveTextFile = (

@@ -1056,4 +1056,17 @@
   "vectorStorePaused": "동기화가 일시 중지되었습니다. 동기화, 저장 또는 재시작으로 재개합니다.",
   "vectorStoreSync": "지금 동기화",
   "vectorStorePause": "동기화 일시 중지"
+  ,"llmConnectionKind": "연결 유형"
+  ,"apiConnections": "API 모델"
+  ,"externalAgents": "외부 에이전트"
+  ,"apiConnectionsHint": "API 또는 로컬 모델에 연결합니다. Nexa가 도구와 위임을 관리합니다."
+  ,"externalAgentsHint": "공식 계정이나 설치된 에이전트를 사용합니다. 각 런타임이 모델과 로그인을 관리합니다."
+  ,"externalAgentOwnership": "먼저 공식 CLI를 설치하고 로그인하세요. 에이전트가 자체 도구를 실행하고 Nexa에 권한을 요청합니다."
+  ,"externalAgentSetup": "설치 및 로그인 안내"
+  ,"externalAgentExecutable": "실행 파일 경로 (선택)"
+  ,"externalAgentDirectory": "작업 디렉터리"
+  ,"externalAgentDirectoryHint": "프로젝트 기본 폴더가 우선합니다. 이 대체 폴더는 현재 프로필에서만 사용됩니다."
+  ,"externalAgentConnected": "세션을 만들고 모델을 불러왔습니다. 추론은 아직 테스트하지 않았습니다."
+  ,"externalAgentProbe": "연결 확인"
+  ,"externalAgentControls": "도구와 실행 설정은 외부 에이전트가 관리합니다."
 }

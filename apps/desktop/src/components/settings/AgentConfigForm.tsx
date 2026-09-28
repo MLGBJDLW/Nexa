@@ -61,6 +61,7 @@ import {
   normalizeThinkingBudget,
 } from "../../lib/reasoningControls";
 import { CatalogModelPicker } from "./CatalogModelPicker";
+import { subagentDefaults } from "../../lib/subagentDefaults";
 
 interface AgentConfigFormProps {
   config?: AgentConfig;
@@ -221,19 +222,15 @@ export function AgentConfigForm({
     string[]
   >(config?.subagentAllowedSkillIds ?? []);
   const [subagentMaxParallel, setSubagentMaxParallel] = useState<number | null>(
-    config?.delegationLimitsV2?.maxParallel ?? config?.subagentMaxParallel ?? 3,
+    subagentDefaults(config).maxParallel,
   );
   const [subagentMaxCallsPerTurn, setSubagentMaxCallsPerTurn] = useState<
     number | null
   >(
-    config?.delegationLimitsV2?.maxCallsPerTurn
-      ?? config?.subagentMaxCallsPerTurn
-      ?? 6,
+    subagentDefaults(config).maxCallsPerTurn,
   );
   const [subagentTokenBudget, setSubagentTokenBudget] = useState<number | null>(
-    config?.delegationLimitsV2?.totalActualTokensSoftLimit
-      ?? config?.subagentTokenBudget
-      ?? 32000,
+    subagentDefaults(config).tokenBudget,
   );
   const [subagentInputContextLimit, setSubagentInputContextLimit] = useState<number | null>(
     config?.delegationLimitsV2?.inputContextLimit ?? null,
@@ -324,16 +321,9 @@ export function AgentConfigForm({
     imageGenerationModel: null,
     subagentAllowedTools: config?.subagentAllowedTools?.map(canonicalSubagentToolName) ?? null,
     subagentAllowedSkillIds: config?.subagentAllowedSkillIds ?? null,
-    subagentMaxParallel:
-      config?.delegationLimitsV2?.maxParallel ?? config?.subagentMaxParallel ?? 3,
-    subagentMaxCallsPerTurn:
-      config?.delegationLimitsV2?.maxCallsPerTurn
-      ?? config?.subagentMaxCallsPerTurn
-      ?? 6,
-    subagentTokenBudget:
-      config?.delegationLimitsV2?.totalActualTokensSoftLimit
-      ?? config?.subagentTokenBudget
-      ?? 32000,
+    subagentMaxParallel: subagentDefaults(config).maxParallel,
+    subagentMaxCallsPerTurn: subagentDefaults(config).maxCallsPerTurn,
+    subagentTokenBudget: subagentDefaults(config).tokenBudget,
     delegationLimitsV2: {
       inputContextLimit: config?.delegationLimitsV2?.inputContextLimit ?? null,
       handoffContextTokensPerWorker:
@@ -346,18 +336,11 @@ export function AgentConfigForm({
         config?.delegationLimitsV2?.maxOutputTokensPerWorker ?? null,
       maxActualTokensPerWorker:
         config?.delegationLimitsV2?.maxActualTokensPerWorker ?? null,
-      totalActualTokensSoftLimit:
-        config?.delegationLimitsV2?.totalActualTokensSoftLimit
-        ?? config?.subagentTokenBudget
-        ?? 32000,
+      totalActualTokensSoftLimit: subagentDefaults(config).tokenBudget,
       totalCostSoftLimitMicros:
         config?.delegationLimitsV2?.totalCostSoftLimitMicros ?? null,
-      maxParallel:
-        config?.delegationLimitsV2?.maxParallel ?? config?.subagentMaxParallel ?? 3,
-      maxCallsPerTurn:
-        config?.delegationLimitsV2?.maxCallsPerTurn
-        ?? config?.subagentMaxCallsPerTurn
-        ?? 6,
+      maxParallel: subagentDefaults(config).maxParallel,
+      maxCallsPerTurn: subagentDefaults(config).maxCallsPerTurn,
       queueDeadlineMs: config?.delegationLimitsV2?.queueDeadlineMs ?? null,
       connectDeadlineMs: config?.delegationLimitsV2?.connectDeadlineMs ?? null,
       firstTokenDeadlineMs:

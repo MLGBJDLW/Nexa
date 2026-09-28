@@ -752,6 +752,7 @@ mod tests {
 
     fn project(db: &Database) -> String {
         db.create_project(&CreateProjectInput {
+            workspace_roots: None,
             name: "Narrative".into(),
             description: None,
             icon: None,

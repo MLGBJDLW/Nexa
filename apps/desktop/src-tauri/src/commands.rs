@@ -126,6 +126,7 @@ mod shared_desktop;
 pub use shared_desktop::*;
 mod monitor_capture;
 pub use monitor_capture::*;
+pub(crate) mod external_agents;
 mod media;
 mod media_generation;
 pub(crate) mod model_choices;
@@ -1225,6 +1226,7 @@ mod tests {
         let loaded_skills = vec![test_skill("skill-b")];
 
         let config = build_desktop_agent_session_config(DesktopAgentSessionConfigInput {
+            workspace: None,
             db: &db,
             conversation_id: "conversation-1",
             task_run_id: "task-run-1",
@@ -1774,6 +1776,7 @@ mod tests {
         let db_config = test_agent_config();
         let app_cfg = AppConfig::default();
         let config = build_desktop_agent_session_config(DesktopAgentSessionConfigInput {
+            workspace: None,
             db: &db,
             conversation_id: "conversation-1",
             task_run_id: "task-run-1",

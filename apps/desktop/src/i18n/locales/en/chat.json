@@ -766,5 +766,11 @@
   "gitNoDiff": "No changes in this diff.",
   "gitNoSources": "Link a source folder or open a terminal for this chat to inspect Git.",
   "gitNoRepository": "No Git repository in the linked folders.",
-  "gitStatusFailed": "Git status could not be fully refreshed."
+  "gitStatusFailed": "Git status could not be fully refreshed.",
+  "agentStarting": "Starting agent",
+  "agentConnecting": "Connecting to agent",
+  "agentPreparing": "Preparing session",
+  "agentReusing": "Resuming agent session",
+  "agentWaiting": "Waiting for response",
+  "resumeTask": "Resume task"
 }

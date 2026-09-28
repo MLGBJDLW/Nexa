@@ -203,19 +203,23 @@ impl Tool for ProjectTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
-            db,
             source_scope,
             ..
         } = context;
         let args: ProjectToolArgs = serde_json::from_str(arguments)
             .map_err(|e| CoreError::InvalidInput(format!("Invalid project_tool arguments: {e}")))?;
         match args.action {
-            ProjectToolAction::List => list_project_tools(call_id, db, source_scope),
-            ProjectToolAction::Describe => describe_project_tool(call_id, db, source_scope, &args),
-            ProjectToolAction::Run => run_project_tool(call_id, db, source_scope, args).await,
+            ProjectToolAction::List => list_project_tools(call_id, source_scope, &file_policy),
+            ProjectToolAction::Describe => {
+                describe_project_tool(call_id, source_scope, &args, &file_policy)
+            }
+            ProjectToolAction::Run => {
+                run_project_tool(call_id, source_scope, args, &file_policy).await
+            }
         }
     }
 }
@@ -256,7 +260,14 @@ pub fn list_project_tool_catalog(
     db: &Database,
     source_scope: &[String],
 ) -> Result<ProjectToolCatalog, CoreError> {
-    let (records, errors) = discover_project_tools(db, source_scope)?;
+    let file_policy = file_access_policy(db, source_scope)?;
+    catalog_from_policy(&file_policy)
+}
+
+fn catalog_from_policy(
+    file_policy: &super::FileAccessPolicy,
+) -> Result<ProjectToolCatalog, CoreError> {
+    let (records, errors) = discover_project_tools(file_policy)?;
     Ok(ProjectToolCatalog {
         kind: "projectToolCatalog",
         manifest_dirs: MANIFEST_DIRS.to_vec(),
@@ -267,10 +278,10 @@ pub fn list_project_tool_catalog(
 
 fn list_project_tools(
     call_id: &str,
-    db: &Database,
     source_scope: &[String],
+    file_policy: &super::FileAccessPolicy,
 ) -> Result<ToolResult, CoreError> {
-    let catalog = list_project_tool_catalog(db, source_scope)?;
+    let catalog = catalog_from_policy(file_policy)?;
     let output = ToolOutput {
         llm_content: format_project_tool_catalog(&catalog),
         display_content: format_project_tool_catalog(&catalog),
@@ -286,12 +297,12 @@ fn list_project_tools(
 
 fn describe_project_tool(
     call_id: &str,
-    db: &Database,
     source_scope: &[String],
     args: &ProjectToolArgs,
+    file_policy: &super::FileAccessPolicy,
 ) -> Result<ToolResult, CoreError> {
     let name = required_tool_name(args)?;
-    let record = find_unique_project_tool(db, source_scope, name)?;
+    let record = find_unique_project_tool(file_policy, name)?;
     let manifest_name = record.manifest.name.clone();
     let description = record.manifest.description.clone();
     let parameters = record.manifest.parameters.clone();
@@ -346,12 +357,12 @@ fn describe_project_tool(
 
 async fn run_project_tool(
     call_id: &str,
-    db: &Database,
     source_scope: &[String],
     args: ProjectToolArgs,
+    file_policy: &super::FileAccessPolicy,
 ) -> Result<ToolResult, CoreError> {
     let name = required_tool_name(&args)?;
-    let record = find_unique_project_tool(db, source_scope, name)?;
+    let record = find_unique_project_tool(file_policy, name)?;
     let requested_hash = required_manifest_hash(&args)?;
     if !manifest_hash_matches(&record.manifest_hash, requested_hash) {
         return Err(CoreError::InvalidInput(format!(
@@ -472,14 +483,12 @@ fn short_hash(hash: &str) -> &str {
 }
 
 fn discover_project_tools(
-    db: &Database,
-    source_scope: &[String],
+    file_policy: &super::FileAccessPolicy,
 ) -> Result<(Vec<ProjectToolRecord>, Vec<ProjectToolManifestError>), CoreError> {
-    let file_policy = file_access_policy(db, source_scope)?;
     let mut records = Vec::new();
     let mut errors = Vec::new();
 
-    for source in file_policy.sources {
+    for source in &file_policy.sources {
         let Ok(source_root) = std::fs::canonicalize(&source.root_path) else {
             continue;
         };
@@ -528,11 +537,10 @@ fn discover_project_tools(
 }
 
 fn find_unique_project_tool(
-    db: &Database,
-    source_scope: &[String],
+    file_policy: &super::FileAccessPolicy,
     name: &str,
 ) -> Result<ProjectToolRecord, CoreError> {
-    let (records, _) = discover_project_tools(db, source_scope)?;
+    let (records, _) = discover_project_tools(file_policy)?;
     let matches = records
         .into_iter()
         .filter(|record| record.manifest.name == name)
