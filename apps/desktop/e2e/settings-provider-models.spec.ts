@@ -1167,6 +1167,24 @@ test("provider catalog prioritizes configured entries and reflows at 320px", asy
   expect(gridSize.scrollWidth).toBeLessThanOrEqual(gridSize.clientWidth);
 });
 
+test("editing a provider preserves automatic subagent budgets", async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByTitle('Edit').first().click();
+  const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
+  await form.locator('input').first().fill('Renamed provider');
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({
+    subagentMaxCallsPerTurn: null,
+    subagentTokenBudget: null,
+    delegationLimitsV2: {
+      maxCallsPerTurn: null,
+      totalActualTokensSoftLimit: null,
+      runDeadlineMs: null,
+    },
+  });
+});
+
 test("subagent tool inheritance remains distinct from an explicit empty allowlist", async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers' }).click();

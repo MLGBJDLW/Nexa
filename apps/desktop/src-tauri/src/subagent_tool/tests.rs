@@ -164,6 +164,27 @@ fn explicit_empty_delegated_tools_remain_empty_and_long_lists_are_preserved() {
 }
 
 #[tokio::test]
+async fn omitted_worker_route_preserves_parent_model_reasoning_and_provider_identity() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.provider_config.provider_type = ProviderType::DeepSeek;
+    runtime.base_config.model = Some("deepseek-flash".into());
+    runtime.base_config.reasoning_effort = Some(ReasoningEffort::Max);
+    runtime.base_config.reasoning_enabled = Some(true);
+    runtime.base_config.summarization_model = Some("deepseek-v4-pro".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args =
+        serde_json::from_value(serde_json::json!({"task":"Verify", "role_id":"verifier"})).unwrap();
+    let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "inherit", None)
+        .await
+        .unwrap();
+    assert_eq!(worker.effective_model.as_deref(), Some("deepseek-flash"));
+    assert_eq!(worker.config.reasoning_effort, Some(ReasoningEffort::Max));
+    assert_eq!(worker.preflight.provider_id, "deep_seek");
+    assert_eq!(worker.run_deadline_ms, None);
+}
+
+#[tokio::test]
 async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_together() {
     let db = Database::open_memory().unwrap();
     let selected = db.save_agent_config(&serde_json::from_value(serde_json::json!({
@@ -385,40 +406,125 @@ fn batch_worker_preserves_explicit_route_and_large_execution_budget() {
     assert_eq!(args.timeout_secs, Some(900));
 }
 
+async fn read_worker_request(socket: &mut tokio::net::TcpStream) -> (String, serde_json::Value) {
+    use tokio::io::AsyncReadExt;
+    let mut bytes = Vec::new();
+    let result = loop {
+        let mut buffer = [0u8; 4096];
+        let count = socket.read(&mut buffer).await.unwrap();
+        assert!(count > 0);
+        bytes.extend_from_slice(&buffer[..count]);
+        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            let headers = String::from_utf8_lossy(&bytes[..end]).into_owned();
+            let length: usize = headers
+                .lines()
+                .find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().unwrap())
+                })
+                .unwrap();
+            if bytes.len() >= end + 4 + length {
+                break (
+                    headers,
+                    serde_json::from_slice::<serde_json::Value>(&bytes[end + 4..end + 4 + length])
+                        .unwrap(),
+                );
+            }
+        }
+    };
+    result
+}
+
+#[tokio::test]
+async fn four_default_workers_inherit_the_parent_route_and_failed_requests_do_not_spend_reservations(
+) {
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let mut sockets = Vec::new();
+        // Hold responses until all four workers actually reach the endpoint.
+        for _ in 0..4 {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (headers, body) = read_worker_request(&mut socket).await;
+            assert!(headers
+                .to_ascii_lowercase()
+                .contains("authorization: bearer parent-test-key"));
+            assert_eq!(body["model"], "parent-model");
+            sockets.push(socket);
+        }
+        for (index, mut socket) in sockets.into_iter().enumerate() {
+            let (status, content_type, body) = if index == 0 {
+                (
+                    "400 Bad Request",
+                    "application/json",
+                    r#"{"error":{"message":"invalid request fixture"}}"#,
+                )
+            } else {
+                ("200 OK", "text/event-stream", concat!(
+                    "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"worker complete\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2,\"total_tokens\":10}}\n\n",
+                    "data: [DONE]\n\n"))
+            };
+            socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.provider_config.base_url = Some(format!("http://{address}/v1"));
+    runtime.provider_config.api_key = Some("parent-test-key".into());
+    runtime.base_config.model = Some("parent-model".into());
+    runtime.base_config.subagent_token_budget = Some(256);
+    runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+    runtime.set_tool_registry(ToolRegistry::new());
+    let workers = (0..4).map(|index| {
+        let args =
+            serde_json::from_value(serde_json::json!({"task":"Inspect", "allowed_tools":[]}))
+                .unwrap();
+        run_subagent_once(
+            runtime.clone(),
+            db.clone(),
+            vec![],
+            format!("worker-{index}"),
+            None,
+            args,
+            None,
+            None,
+            None,
+        )
+    });
+    let outcomes =
+        tokio::time::timeout(Duration::from_secs(15), futures::future::join_all(workers))
+            .await
+            .expect("all four inherited workers must reach the endpoint concurrently");
+    server.await.unwrap();
+    assert_eq!(
+        outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+        3,
+        "a failed sibling must not cancel successful workers"
+    );
+    let snapshot = runtime.budget.snapshot().await;
+    assert_eq!(snapshot.calls_started, 4);
+    assert_eq!(snapshot.tokens_reserved, 0);
+    assert_eq!(
+        snapshot.tokens_spent, 30,
+        "only the three reported usage records can spend the budget"
+    );
+    let _permit = runtime
+        .budget
+        .begin_call("next-worker", 100, false, &CancellationToken::new())
+        .await
+        .expect("pre-transport/protocol failures must not poison the next admission");
+}
+
 #[tokio::test]
 async fn worker_inference_reaches_the_selected_endpoint_with_its_own_model_and_key() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
-        let mut bytes = Vec::new();
-        let (headers, body) = loop {
-            let mut buffer = [0u8; 4096];
-            let count = socket.read(&mut buffer).await.unwrap();
-            assert!(count > 0);
-            bytes.extend_from_slice(&buffer[..count]);
-            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-                let headers = String::from_utf8_lossy(&bytes[..end]).into_owned();
-                let length: usize = headers
-                    .lines()
-                    .find_map(|line| {
-                        let (key, value) = line.split_once(':')?;
-                        key.eq_ignore_ascii_case("content-length")
-                            .then(|| value.trim().parse().unwrap())
-                    })
-                    .unwrap();
-                if bytes.len() >= end + 4 + length {
-                    break (
-                        headers,
-                        serde_json::from_slice::<serde_json::Value>(
-                            &bytes[end + 4..end + 4 + length],
-                        )
-                        .unwrap(),
-                    );
-                }
-            }
-        };
+        let (headers, body) = read_worker_request(&mut socket).await;
         let payload = concat!(
             "data: {\"id\":\"child-response\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"route verified\"},\"finish_reason\":null}]}\n\n",
             "data: {\"id\":\"child-response\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2,\"total_tokens\":10}}\n\n",
@@ -563,6 +669,22 @@ fn test_normalize_spawn_args_preserves_explicit_timeout() {
 
     assert_eq!(args.timeout_secs, Some(999));
     assert_eq!(args.task_id.as_deref(), Some("worker-1"));
+}
+
+#[test]
+fn v2_auto_budgets_do_not_resurrect_legacy_caps() {
+    let config = AgentConfig {
+        subagent_max_parallel: Some(1),
+        subagent_max_calls_per_turn: Some(6),
+        subagent_token_budget: Some(12032),
+        delegation_limits_v2: Some(Default::default()),
+        ..Default::default()
+    };
+    let limits = DelegationLimitsV2::resolve(&config);
+    assert_eq!(limits.max_parallel, 4);
+    assert_eq!(limits.max_calls_per_turn, None);
+    assert_eq!(limits.total_actual_tokens_soft_limit, None);
+    assert_eq!(limits.run_deadline_ms, None);
 }
 
 #[test]
@@ -1120,7 +1242,7 @@ async fn test_nexus_preserves_tokens_and_a_call_for_verification() {
     budget.release_reservation(300).await;
     let snapshot = budget.snapshot().await;
     assert_eq!(snapshot.verification_reserve_tokens, 0);
-    assert_eq!(snapshot.exploration_lane_slots, 1);
+    assert_eq!(snapshot.exploration_lane_slots, 2);
     assert_eq!(snapshot.verification_lane_slots, 1);
     assert_eq!(snapshot.judge_lane_slots, 1);
     assert_eq!(snapshot.calls_started, 2);
