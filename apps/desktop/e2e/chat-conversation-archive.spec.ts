@@ -290,7 +290,7 @@ test('conversation actions offer archive and delete with reversible archive', as
   await expect(page.getByTestId('conversation-item-conv-active')).toBeVisible();
 });
 
-test('conversation quick actions remain individually clickable', async ({ page }) => {
+test('conversation quick actions remain individually clickable', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active');
   const item = page.getByTestId('conversation-item-conv-active');
 
@@ -302,6 +302,7 @@ test('conversation quick actions remain individually clickable', async ({ page }
     containsNestedButton: true,
   });
   await expect(item.getByTestId('conversation-select-conv-active')).toHaveAttribute('type', 'button');
+  await page.screenshot({ path: testInfo.outputPath('compact-conversation-sidebar.png') });
 
   await item.hover();
   const pin = item.getByRole('button', { name: 'Pinned' });

@@ -230,7 +230,7 @@ function ConversationItem({
       data-testid={`conversation-item-${conv.id}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`group relative flex items-center gap-2 rounded-md px-2.5 py-2
+      className={`group relative flex min-h-8 items-center gap-2 rounded-lg px-2.5 py-1.5
         transition-colors duration-fast ease-out text-sm
         ${isActive
           ? 'bg-accent-subtle text-accent-hover'
@@ -295,14 +295,13 @@ function ConversationItem({
             focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-offset-2
             focus-visible:ring-offset-surface-1 cursor-pointer"
         >
-          <span className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium" title={conv.title || t('chat.newConversation')}>
               {conv.title || t('chat.newConversation')}
-            </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <Badge className="!text-[10px] !px-1.5">{conv.model}</Badge>
-              <span className="text-[10px] text-text-tertiary">{relativeTime(conv.updatedAt, t)}</span>
-            </div>
+            </span>
+            {!hovered && !actionsOpen && (
+              <span className="shrink-0 text-[10px] text-text-tertiary">{relativeTime(conv.updatedAt, t)}</span>
+            )}
           </span>
 
           {hasPendingQuestion && !isSelectMode && (
@@ -811,7 +810,7 @@ function ChatSidebarComponent({
                     onSelectArchived(conversation.id);
                   }
                 }}
-                className={`group relative flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-sm
+                className={`group relative flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm
                   transition-colors ${activeId === conversation.id
                     ? 'bg-accent-subtle text-accent-hover'
                     : 'text-text-secondary hover:bg-surface-2'
@@ -825,7 +824,6 @@ function ChatSidebarComponent({
                     {conversation.title || t('chat.newConversation')}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5">
-                    <Badge className="!px-1.5 !text-[10px]">{conversation.model}</Badge>
                     <span className="text-[10px] text-text-tertiary">
                       {t('chat.archivedAt', {
                         time: relativeTime(conversation.archivedAt || conversation.updatedAt, t),
@@ -875,7 +873,7 @@ function ChatSidebarComponent({
   return (
     <div className="flex flex-col h-full min-h-0 bg-surface-1 border-r border-border" data-theme-surface="chrome">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-3 border-b border-border">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-1.5">
           <h2 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
             {t('chat.title')}
@@ -1000,8 +998,8 @@ function ChatSidebarComponent({
             const startIdx = runningIndex;
             runningIndex += groupItems.length;
             return (
-              <div key={group.key} className="mb-2">
-                <div className="flex items-center gap-1.5 px-2 pt-2 pb-1">
+              <div key={group.key} className="mb-1">
+                <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-1">
                   {group.key === 'pinned' && (
                     <Star className="h-3 w-3 text-warning fill-warning" />
                   )}
