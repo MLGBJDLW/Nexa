@@ -50,23 +50,26 @@ function command(program, args, input) {
   return execFileSync(program, args, { encoding: 'utf8', input, maxBuffer: 16 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 }
 
-export function run(mode, env = process.env) {
+export function run(mode, env = process.env, dependencies = {}) {
+  const execute = dependencies.command ?? command;
+  const read = dependencies.readFile ?? readFileSync;
+  const write = dependencies.writeFile ?? writeFileSync;
   const repository = env.GITHUB_REPOSITORY;
   if (!repository || !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY is required');
-  const changelog = readFileSync('CHANGELOG.md', 'utf8');
-  const version = JSON.parse(readFileSync('.release-please-manifest.json', 'utf8'))['.'];
+  const changelog = read('CHANGELOG.md', 'utf8');
+  const version = JSON.parse(read('.release-please-manifest.json', 'utf8'))['.'];
   const entries = changelogEntries(changelog);
   if (entries[0]?.version !== version || !entries[1]) throw new Error('Release changelog range is unresolved');
   const tag = `nexa-monorepo-v${version}`;
   const previousTag = `nexa-monorepo-v${entries[1].version}`;
   const targetSha = mode === 'maintain'
-    ? command('git', ['merge-base', 'HEAD', 'origin/master'])
+    ? execute('git', ['merge-base', 'HEAD', 'origin/master'])
     : env.TARGET_SHA;
   if (!/^[a-f0-9]{40}$/.test(targetSha ?? '')) throw new Error('Immutable target SHA is required');
-  command('git', ['merge-base', '--is-ancestor', previousTag, targetSha]);
+  execute('git', ['merge-base', '--is-ancestor', previousTag, targetSha]);
   if (mode === 'publish') {
-    if (env.RELEASE_TAG !== tag || command('git', ['rev-parse', 'HEAD']) !== targetSha
-        || command('git', ['rev-parse', `${tag}^{commit}`]) !== targetSha) {
+    if (env.RELEASE_TAG !== tag || execute('git', ['rev-parse', 'HEAD']) !== targetSha
+        || execute('git', ['rev-parse', `${tag}^{commit}`]) !== targetSha) {
       throw new Error('Notes, version and build must resolve to the same immutable release');
     }
   } else if (mode !== 'maintain') {
@@ -74,22 +77,22 @@ export function run(mode, env = process.env) {
   }
   // This endpoint generates text without creating/publishing a release:
   // https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release
-  const generated = JSON.parse(command('gh', ['api', '--method', 'POST',
+  const generated = JSON.parse(execute('gh', ['api', '--method', 'POST',
     `repos/${repository}/releases/generate-notes`, '--input', '-'], JSON.stringify({
     tag_name: tag, previous_tag_name: previousTag, target_commitish: targetSha,
   }))).body;
   if (typeof generated !== 'string') throw new Error('Missing generated release-note body');
   if (mode === 'maintain') {
     if (!/^\d+$/.test(env.RELEASE_PR_NUMBER ?? '')) throw new Error('Release PR number is required');
-    const pr = JSON.parse(command('gh', ['pr', 'view', env.RELEASE_PR_NUMBER, '--repo', repository, '--json', 'body']));
-    writeFileSync('CHANGELOG.md', updateVersionNotes(changelog, version, generated));
-    writeFileSync(env.RELEASE_PR_BODY_FILE, withMergedPullRequests(pr.body, generated));
+    const pr = JSON.parse(execute('gh', ['pr', 'view', env.RELEASE_PR_NUMBER, '--repo', repository, '--json', 'body']));
+    write('CHANGELOG.md', updateVersionNotes(changelog, version, generated));
+    write(env.RELEASE_PR_BODY_FILE, withMergedPullRequests(pr.body, generated));
   } else {
-    const release = JSON.parse(command('gh', ['release', 'view', tag, '--repo', repository, '--json', 'body,isDraft']));
+    const release = JSON.parse(execute('gh', ['release', 'view', tag, '--repo', repository, '--json', 'body,isDraft']));
     if (!release.isDraft) throw new Error('Release notes can only be prepared for a draft');
     const body = withMergedPullRequests(release.body, generated);
-    writeFileSync('release-notes.md', body);
-    writeFileSync('release-history.json', JSON.stringify(releaseHistory(changelog, version, body), null, 2) + '\n');
+    write('release-notes.md', body);
+    write('release-history.json', JSON.stringify(releaseHistory(changelog, version, body), null, 2) + '\n');
   }
 }
 

@@ -332,5 +332,7 @@ is still its target. Both updater manifests carry complete versioned changelog
 history without byte truncation. The desktop selects only versions newer than
 the installed version through the offered version for every update source;
 older manifests use paginated GitHub history with the target notes as fallback.
+Resumed older drafts run the workflow revision's release tooling against the
+immutable candidate metadata, so a missing historical helper cannot block them.
 
 See [README.md](./README.md) for the full documentation index.

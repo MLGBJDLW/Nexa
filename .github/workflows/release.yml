@@ -418,6 +418,16 @@ jobs:
           ref: ${{ needs.release-please.outputs.target_sha }}
           fetch-depth: 0
 
+      # A resumed draft may predate the release-note helper. Run the trusted
+      # workflow's tooling against the candidate checkout, never its source
+      # code or changelog against the moving default branch.
+      - name: Check out release tooling for older draft compatibility
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tooling
+          persist-credentials: false
+
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -439,7 +449,7 @@ jobs:
             exit 1
           fi
 
-          node scripts/release-notes.mjs publish
+          node .release-tooling/scripts/release-notes.mjs publish
           gh release edit "$TAG" --notes-file release-notes.md --repo "$REPO"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 

@@ -121,7 +121,8 @@ test('release notes accumulate the full candidate range and ship complete histor
   assert.doesNotMatch(releaseWorkflow, /target_sha:.*github\.sha/);
   const publishJob = releaseWorkflow.split('  publish:')[1];
   assert.match(publishJob, /ref: \$\{\{ needs\.release-please\.outputs\.target_sha \}\}/);
-  assert.match(publishJob, /node scripts\/release-notes\.mjs publish/);
+  assert.match(publishJob, /path: \.release-tooling/);
+  assert.match(publishJob, /node \.release-tooling\/scripts\/release-notes\.mjs publish/);
   assert.match(publishJob, /--rawfile notes release-notes\.md/);
   assert.match(publishJob, /releaseNotes: \$history\[0\]/);
   assert.doesNotMatch(publishJob, /head -c 5000/);
