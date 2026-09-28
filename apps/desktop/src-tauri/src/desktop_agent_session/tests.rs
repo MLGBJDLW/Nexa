@@ -536,9 +536,7 @@ async fn stop_fences_execution_and_resolves_approval_before_checkpoint() {
     assert!(checkpoint
         .resume_prompt
         .contains("SAFETY FENCE: action receipt"));
-    assert!(checkpoint
-        .resume_prompt
-        .contains("Never redispatch"));
+    assert!(checkpoint.resume_prompt.contains("Never redispatch"));
     assert!(checkpoint.resume_prompt.contains("tool result is absent"));
 }
 
