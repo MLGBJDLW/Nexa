@@ -1213,7 +1213,7 @@ export function ChatPage() {
   const handleSelectConversation = useCallback(
     (id: string) => {
       chat.setActiveConversation(id);
-      navigate(`/chat/${id}`);
+      navigate(`/chat/${id}`, { flushSync: true });
     },
     [chat.setActiveConversation, navigate],
   );
@@ -1237,6 +1237,9 @@ export function ChatPage() {
     currentSourceIdsRef.current = [];
     chat.createNewConversation();
     navigate('/chat', {
+      // Commit the draft owner before the next input event can reach the old
+      // composer. Deferred navigation otherwise saves new text to the old chat.
+      flushSync: true,
       state: { projectId: nextProjectId, startConversation: !welcome } satisfies ChatRouteState,
     });
   }, [
@@ -1256,7 +1259,7 @@ export function ChatPage() {
 
   const handleCheckpointBranch = useCallback((conversation: Conversation) => {
     chat.setConversations((prev) => [conversation, ...prev.filter((c) => c.id !== conversation.id)]);
-    navigate(`/chat/${conversation.id}`);
+    navigate(`/chat/${conversation.id}`, { flushSync: true });
   }, [chat.setConversations, navigate]);
 
   const handleDeleteConversation = useCallback(
@@ -2057,7 +2060,7 @@ export function ChatPage() {
             >
               {!chat.activeId && initialProjectId && !routeState?.startConversation ? (
                 <ProjectConversationStart projectId={initialProjectId} onStart={() => navigate('/chat', {
-                  replace: true, state: { ...routeState, projectId: initialProjectId, startConversation: true } satisfies ChatRouteState,
+                  replace: true, flushSync: true, state: { ...routeState, projectId: initialProjectId, startConversation: true } satisfies ChatRouteState,
                 })} />
               ) : <><ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
               agentRuntime={selectedAgentConfig && findProviderPreset(selectedAgentConfig)?.runtime === 'acp' ? 'acp' : manualCompactionAvailable ? 'api' : 'subscription'}

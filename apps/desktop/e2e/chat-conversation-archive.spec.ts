@@ -422,6 +422,18 @@ test('creating a project opens its own new conversation and first send uses that
   await expect(page).toHaveURL(/\/chat\/conv-new$/);
 });
 
+test('new chat cannot accept input under the previous conversation draft owner', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  await expect(page.getByTestId('chat-input-textarea')).toBeEnabled();
+  const owner = await page.getByTestId('chat-history-sidebar').getByRole('button', { name: 'New Chat', exact: true })
+    .evaluate(button => {
+      button.click();
+      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="chat-input-textarea"]');
+      return { key: input?.dataset.draftKey, canType: input != null && !input.disabled };
+    });
+  expect(owner.canType && owner.key !== '__new__:project-legacy').toBe(false);
+});
+
 test('project drafts remain separate and browser navigation restores the selected project', async ({ page }) => {
   await page.goto('/chat/conv-active');
   const sidebar = page.getByTestId('chat-history-sidebar');

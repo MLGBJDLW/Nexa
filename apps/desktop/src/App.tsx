@@ -6,11 +6,11 @@ import {
   Navigate,
   Outlet,
   Route,
-  RouterProvider,
   useLocation,
   useNavigate,
   useRouteError,
 } from "react-router";
+import { RouterProvider } from "react-router/dom";
 import { listen } from "@tauri-apps/api/event";
 import { motion, MotionConfig, useReducedMotion } from "framer-motion";
 import { I18nProvider, useTranslation } from "./i18n";

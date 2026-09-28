@@ -1981,6 +1981,7 @@ export function ChatInput({
         <NexaPopoverAnchor asChild>
         <textarea
           data-testid="chat-input-textarea"
+          data-draft-key={draftKey}
           ref={textareaRef}
           value={value}
           onChange={(e) => {
