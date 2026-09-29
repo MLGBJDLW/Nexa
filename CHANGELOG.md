@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.18](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.17...nexa-monorepo-v0.14.18) (2026-09-29)
+
+
+### Features
+
+* **agents:** modernize runtime, speech and Claude Sonnet 5.5 support ([eb7bd07](https://github.com/MLGBJDLW/Nexa/commit/eb7bd07c07662c6de16bac4502f27fd549ec03b3))
+* **models:** adapt Claude Sonnet 5.5 native and OpenRouter contracts ([ed4318b](https://github.com/MLGBJDLW/Nexa/commit/ed4318b64b7fc6b6d624013c8275c067542edecb))
+* **speech:** verify provider catalogs and enforce supported request contracts ([2505121](https://github.com/MLGBJDLW/Nexa/commit/2505121b07a028599148c98ccc93f965bfbfbcb9))
+
+
+### Bug Fixes
+
+* **models:** initialize subscription reasoning mode metadata ([2b4ad56](https://github.com/MLGBJDLW/Nexa/commit/2b4ad569c160e71ff8fd3c4b99061c5501aad43d))
+* **projects:** portal dialogs above themed sidebar surfaces ([aabe227](https://github.com/MLGBJDLW/Nexa/commit/aabe2271a3c40c0cc86a522aa4ecaf8a4a290f70))
+
 ## [0.14.17](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.16...nexa-monorepo-v0.14.17) (2026-09-28)
 
 
