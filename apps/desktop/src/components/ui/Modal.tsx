@@ -3,6 +3,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { getSoftDropdownMotion, INSTANT_TRANSITION } from '../../lib/uiMotion';
+import { OverlayPortal } from './overlay/OverlayPortal';
 
 const FOCUSABLE_SELECTOR = [
   'button:not([disabled])',
@@ -37,6 +38,8 @@ export function Modal({ open, onClose, title, children, footer, surfaceClassName
   const shouldReduceMotion = useReducedMotion();
   const contentRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -59,8 +62,9 @@ export function Modal({ open, onClose, title, children, footer, surfaceClassName
     const animationFrame = window.requestAnimationFrame(focusInitialElement);
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -110,51 +114,54 @@ export function Modal({ open, onClose, title, children, footer, surfaceClassName
         });
       }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
-    <AnimatePresence>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <motion.div
-            initial={shouldReduceMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.15 }}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={onClose}
-            aria-hidden="true"
-          />
-          <motion.div
-            ref={contentRef}
-            {...getSoftDropdownMotion(!!shouldReduceMotion, 8)}
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
-            tabIndex={-1}
-            className={`relative z-10 flex max-h-[88vh] w-[min(92vw,32rem)] flex-col overflow-hidden rounded-lg border border-border shadow-lg ${surfaceClassName ?? 'bg-surface-2'}`}
-          >
-            <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
-              <button
-                onClick={onClose}
-                className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-surface-3 transition-colors"
-                aria-label={t('common.close')}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="min-h-0 overflow-y-auto px-5 py-4">
-              {children}
-            </div>
-            {footer && (
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-5 py-3 border-t border-border bg-surface-1">
-                {footer}
+    <OverlayPortal>
+      <AnimatePresence>
+        {open && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3" data-testid="modal-viewport">
+            <motion.div
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.15 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={onClose}
+              aria-hidden="true"
+            />
+            <motion.div
+              ref={contentRef}
+              {...getSoftDropdownMotion(!!shouldReduceMotion, 8)}
+              role="dialog"
+              aria-modal="true"
+              aria-label={title}
+              data-theme-surface="overlay"
+              tabIndex={-1}
+              className={`relative z-10 flex max-h-[min(88dvh,calc(100dvh-1.5rem))] w-[min(92vw,32rem)] max-w-full flex-col overflow-hidden rounded-lg border border-border shadow-lg ${surfaceClassName ?? 'bg-surface-2'}`}
+            >
+              <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-border">
+                <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
+                <button
+                  onClick={onClose}
+                  className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-surface-3 transition-colors"
+                  aria-label={t('common.close')}
+                >
+                  <X size={16} />
+                </button>
               </div>
-            )}
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+              <div className="min-h-0 overflow-y-auto px-5 py-4">
+                {children}
+              </div>
+              {footer && (
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-5 py-3 border-t border-border bg-surface-1">
+                  {footer}
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </OverlayPortal>
   );
 }

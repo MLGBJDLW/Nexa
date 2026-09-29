@@ -192,6 +192,7 @@ test.beforeEach(async ({ page }) => {
         case 'list_skills_cmd':
         case 'list_mcp_servers_cmd':
         case 'list_checkpoints_cmd':
+        case 'list_project_memories_cmd':
           return [];
         case 'list_personas_cmd':
           return [
@@ -383,6 +384,91 @@ test('archive feedback remains an overlay and never participates in the app layo
   expect(notificationLayout.right).toBeGreaterThanOrEqual(0);
   expect(notificationLayout.bottom).toBeGreaterThanOrEqual(0);
   expect(after).toEqual(before);
+});
+
+test('project editor stays above the glass sidebar and covers the viewport', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    const plugin = {
+      manifestVersion: 2, kind: 'theme-resource', id: 'project-glass', name: 'Project Glass',
+      theme: {
+        baseTheme: 'light', mode: 'light',
+        colors: {
+          surface0: '#fff8f5', surface1: '#fff5f4', surface2: '#f9e8e8',
+          surface3: '#efdada', surface4: '#e6cdcd', textPrimary: '#35252c',
+          textSecondary: '#60424d', textTertiary: '#865c6b', accent: '#ce7292',
+        },
+        effects: { surfaceOpacity: 0.37, glassBlur: 23 },
+        typography: {}, motion: {}, brand: {}, content: {}, components: {},
+        background: {
+          kind: 'gradient', value: 'linear-gradient(135deg, #dec2cd, #f4e8da)',
+          opacity: 1, dim: 0.1, overlayColor: '#372932',
+        },
+      },
+    };
+    localStorage.setItem('nexa-theme-resource-plugins-v2', JSON.stringify([plugin]));
+    localStorage.setItem('nexa-active-theme-v1', plugin.id);
+  });
+  await page.goto('/chat/conv-active');
+  await expect(page.locator('html')).toHaveAttribute('data-theme-backdrop', 'true');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  const editor = page.getByRole('dialog');
+  await expect(editor).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('project-glass-wide.png') });
+  const bounds = await editor.boundingBox();
+  expect(bounds!.width).toBeGreaterThan(550);
+  expect(Math.abs(bounds!.x + bounds!.width / 2 - page.viewportSize()!.width / 2)).toBeLessThan(2);
+  await expect(page.getByPlaceholder('Enter project name...')).toBeFocused();
+  await expect(page.getByTestId('modal-viewport')).toHaveCSS('width', '1360px');
+  await expect(page.getByTestId('modal-viewport')).toHaveCSS('height', '900px');
+  await page.getByPlaceholder('Enter project name...').pressSequentially('Glass project');
+  await expect(page.getByPlaceholder('Enter project name...')).toHaveValue('Glass project');
+  await page.getByLabel('Primary folder', { exact: true }).fill('D:/work/glass-project');
+  for (const viewport of [{ width: 760, height: 700 }, { width: 580, height: 460 }]) {
+    await page.setViewportSize(viewport);
+    const rect = await editor.boundingBox();
+    expect(rect!.x).toBeGreaterThanOrEqual(8);
+    expect(rect!.y).toBeGreaterThanOrEqual(8);
+    expect(rect!.x + rect!.width).toBeLessThanOrEqual(viewport.width - 8);
+    expect(rect!.y + rect!.height).toBeLessThanOrEqual(viewport.height - 8);
+    await expect(page.getByTestId('project-save')).toBeInViewport();
+    expect(await page.getByTestId('project-save').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+  }
+  await page.screenshot({ path: testInfo.outputPath('project-glass-compact.png') });
+  await page.getByTestId('project-save').click();
+  await expect(editor).toBeHidden();
+  await expect(page.getByTestId('project-new-conversation')).toContainText('Glass project');
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const assertCentered = async () => {
+    await expect(editor).toBeVisible();
+    const box = await editor.boundingBox();
+    expect(Math.abs(box!.x + box!.width / 2 - 680)).toBeLessThan(2);
+    await expect(page.getByTestId('modal-viewport')).toHaveCSS('width', '1360px');
+  };
+  await sidebar.getByRole('button', { name: 'Glass project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Edit', exact: true }).last().click();
+  await assertCentered();
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
+  await sidebar.getByRole('button', { name: 'Glass project', exact: true }).click();
+  await sidebar.getByTestId('project-workspace-open').click();
+  await assertCentered();
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
+  await sidebar.getByRole('button', { name: 'Glass project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Project memory', exact: true }).click();
+  await assertCentered();
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
+  await sidebar.getByRole('button', { name: 'Glass project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Delete Project', exact: true }).last().click();
+  await assertCentered();
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(editor).toBeHidden();
 });
 
 test('creating a project opens its own new conversation and first send uses that project', async ({ page }, testInfo) => {
