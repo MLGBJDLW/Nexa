@@ -52,5 +52,7 @@
   "actionCheck": "チェック",
   "actionPress": "キー",
   "actionScroll": "スクロール",
-  "actionUpload": "アップロード"
+  "actionUpload": "アップロード",
+  "actionWait": "待機",
+  "actionPending": "条件未達成"
 }

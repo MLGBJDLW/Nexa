@@ -52,5 +52,7 @@
   "actionCheck": "Cocher",
   "actionPress": "Touche",
   "actionScroll": "Défiler",
-  "actionUpload": "Téléverser"
+  "actionUpload": "Téléverser",
+  "actionWait": "Attendre",
+  "actionPending": "Toujours en attente"
 }

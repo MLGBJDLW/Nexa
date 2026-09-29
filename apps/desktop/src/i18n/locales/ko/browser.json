@@ -52,5 +52,7 @@
   "actionCheck": "체크",
   "actionPress": "키",
   "actionScroll": "스크롤",
-  "actionUpload": "업로드"
+  "actionUpload": "업로드",
+  "actionWait": "대기",
+  "actionPending": "조건 미충족"
 }

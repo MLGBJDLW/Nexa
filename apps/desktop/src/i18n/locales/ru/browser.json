@@ -52,5 +52,7 @@
   "actionCheck": "Отметка",
   "actionPress": "Клавиша",
   "actionScroll": "Прокрутка",
-  "actionUpload": "Загрузка"
+  "actionUpload": "Загрузка",
+  "actionWait": "Ожидание",
+  "actionPending": "Условие ещё не выполнено"
 }

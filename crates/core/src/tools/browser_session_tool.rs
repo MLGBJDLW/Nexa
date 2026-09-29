@@ -14,7 +14,10 @@ use headless_chrome::protocol::cdp::Fetch::{
 use headless_chrome::protocol::cdp::{Network, Page};
 use serde::{Deserialize, Serialize};
 
-use crate::activity::{ActivityEventKind, ActivitySpec, ActivityState, ActivitySurface};
+use crate::activity::{
+    ActivityEventKind, ActivityRecord, ActivityRuntime, ActivitySpec, ActivityState,
+    ActivitySurface,
+};
 use crate::browser_runtime::{BrowserObservationCoverage, BrowserObservationOptions};
 use crate::error::CoreError;
 
@@ -655,73 +658,68 @@ fn validated_observation(
     Ok(Arc::clone(&browser_tab.tab))
 }
 
-fn check_condition(session: &BrowserSession, tab_id: &str, condition: &serde_json::Value) -> bool {
-    let Some(browser_tab) = session.tabs.get(tab_id) else {
-        return false;
-    };
+fn check_condition(
+    session: &BrowserSession,
+    tab_id: &str,
+    condition: &serde_json::Value,
+) -> Result<bool, String> {
+    let browser_tab = session
+        .tabs
+        .get(tab_id)
+        .ok_or_else(|| "The browser wait target tab was closed".to_string())?;
     let kind = condition
         .get("type")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
+    let field = |name: &str| {
+        condition
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("Browser wait condition requires {name}"))
+    };
+    let boolean = |expression: &str| -> Result<bool, String> {
+        evaluate_json(&browser_tab.tab, expression)?
+            .as_bool()
+            .ok_or_else(|| "Browser condition did not return a boolean result".to_string())
+    };
     match kind {
-        "page_loaded" => browser_tab
-            .tab
-            .evaluate("document.readyState === 'complete'", false)
-            .ok()
-            .and_then(|result| result.value)
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false),
-        "text_present" => condition
-            .get("text")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|text| {
-                let text = serde_json::to_string(text).unwrap_or_default();
-                browser_tab
-                    .tab
-                    .evaluate(
-                        &format!("document.body && document.body.innerText.includes({text})"),
-                        false,
-                    )
-                    .ok()
-                    .and_then(|result| result.value)
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false)
-            }),
-        "url_matches" => condition
-            .get("pattern")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|pattern| browser_tab.tab.get_url().contains(pattern)),
-        "selector_visible" | "selector_hidden" => condition
-            .get("selector")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|selector| {
-                let selector = serde_json::to_string(selector).unwrap_or_default();
-                let visible = browser_tab
-                    .tab
-                    .evaluate(
-                        &format!("(()=>{{const e=document.querySelector({selector});if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden'}})()"),
-                        false,
-                    )
-                    .ok()
-                    .and_then(|result| result.value)
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false);
-                if kind == "selector_hidden" { !visible } else { visible }
-            }),
-        "console_error" => browser_tab.diagnostics.lock().ok().is_some_and(|log| {
+        "page_loaded" => boolean("document.readyState === 'complete'"),
+        "text_present" => {
+            let text = serde_json::to_string(field("text")?).map_err(|error| error.to_string())?;
+            boolean(&format!(
+                "Boolean(document.body && document.body.innerText.includes({text}))"
+            ))
+        }
+        "url_matches" => Ok(browser_tab.tab.get_url().contains(field("pattern")?)),
+        "selector_visible" | "selector_hidden" => {
+            let selector =
+                serde_json::to_string(field("selector")?).map_err(|error| error.to_string())?;
+            let visible = boolean(&format!("(()=>{{const e=document.querySelector({selector});if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden'}})()"))?;
+            Ok(if kind == "selector_hidden" {
+                !visible
+            } else {
+                visible
+            })
+        }
+        "console_error" => {
+            let log = browser_tab
+                .diagnostics
+                .lock()
+                .map_err(|_| "Browser diagnostics unavailable".to_string())?;
             let after_cursor = condition
                 .get("afterCursor")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0);
-            log.entries.iter().any(|(seq, entry)| {
-                *seq > after_cursor &&
-                matches!(
-                    entry.get("kind").and_then(serde_json::Value::as_str),
-                    Some("pageError" | "httpError" | "networkFailure")
-                )
-            })
-        }),
-        _ => false,
+            Ok(log.entries.iter().any(|(seq, entry)| {
+                *seq > after_cursor
+                    && matches!(
+                        entry.get("kind").and_then(serde_json::Value::as_str),
+                        Some("pageError" | "httpError" | "networkFailure")
+                    )
+            }))
+        }
+        _ => Err("Unknown browser wait condition type".into()),
     }
 }
 
@@ -732,6 +730,119 @@ async fn blocking<T: Send + 'static>(
         .await
         .map_err(|error| CoreError::Internal(format!("browser worker failed: {error}")))?
         .map_err(invalid)
+}
+
+fn browser_wait_is_active(runtime: &ActivityRuntime, activity_id: &str) -> bool {
+    runtime.get(activity_id).is_some_and(|record| {
+        !record.state.is_terminal() && record.state != ActivityState::Cancelling
+    })
+}
+
+fn start_browser_wait_activity(
+    runtime: &ActivityRuntime,
+    session_id: &str,
+    conversation_id: Option<&str>,
+    turn_id: Option<&str>,
+) -> Result<ActivityRecord, CoreError> {
+    // Provider call IDs can repeat in the same turn and across conversations.
+    // Keep the host-generated ActivitySpec identity for this actual invocation.
+    let mut spec =
+        ActivitySpec::new(ActivitySurface::Browser, "browser_session").with_session_id(session_id);
+    if let Some(conversation_id) = conversation_id {
+        spec = spec.with_conversation_id(conversation_id);
+    }
+    if let Some(turn_id) = turn_id {
+        spec = spec.with_turn_id(turn_id);
+    }
+    runtime.start(spec)
+}
+
+/// The journal owns a detached wait's lifetime. Cancellation is checked before
+/// dispatch, again after a queued worker gets its session, and before publishing.
+/// An already executing read can finish, but cannot revive a terminal Activity.
+async fn run_browser_activity_wait<P, Fut, C>(
+    runtime: &ActivityRuntime,
+    activity_id: &str,
+    condition: &serde_json::Value,
+    timeout: Duration,
+    closing: C,
+    mut probe: P,
+) -> Result<(), CoreError>
+where
+    C: Fn() -> bool,
+    P: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<bool, String>>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if !browser_wait_is_active(runtime, activity_id) {
+            return Ok(());
+        }
+        if closing() {
+            runtime.transition(
+                activity_id,
+                ActivityState::Cancelled,
+                serde_json::json!({"reason":"session_closed"}),
+            )?;
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            runtime.transition(
+                activity_id,
+                ActivityState::TimedOut,
+                serde_json::json!({"reason":"condition_timeout","condition":condition}),
+            )?;
+            return Ok(());
+        }
+        let outcome = tokio::time::timeout_at(deadline, probe()).await;
+        if !browser_wait_is_active(runtime, activity_id) {
+            return Ok(());
+        }
+        if closing() {
+            runtime.transition(
+                activity_id,
+                ActivityState::Cancelled,
+                serde_json::json!({"reason":"session_closed"}),
+            )?;
+            return Ok(());
+        }
+        match outcome {
+            Ok(Ok(true)) => {
+                runtime.append(
+                    activity_id,
+                    ActivityEventKind::BrowserObservation,
+                    serde_json::json!({"condition":condition,"matched":true}),
+                )?;
+                runtime.transition(
+                    activity_id,
+                    ActivityState::Completed,
+                    serde_json::json!({"condition":condition}),
+                )?;
+                return Ok(());
+            }
+            Ok(Err(error)) => {
+                runtime.transition(
+                    activity_id,
+                    ActivityState::Failed,
+                    serde_json::json!({"reason":"condition_probe_failed","error":error}),
+                )?;
+                return Ok(());
+            }
+            Err(_) => {
+                runtime.transition(
+                    activity_id,
+                    ActivityState::TimedOut,
+                    serde_json::json!({"reason":"condition_timeout","condition":condition}),
+                )?;
+                return Ok(());
+            }
+            Ok(Ok(false)) => {}
+        }
+        tokio::time::sleep_until(
+            deadline.min(tokio::time::Instant::now() + Duration::from_millis(100)),
+        )
+        .await;
+    }
 }
 
 #[derive(Clone, Default)]
@@ -860,6 +971,7 @@ impl Tool for BrowserSessionTool {
             call_id,
             arguments,
             conversation_id,
+            turn_id,
             activity_runtime,
             ..
         } = context;
@@ -1187,63 +1299,49 @@ impl Tool for BrowserSessionTool {
             let runtime = activity_runtime.ok_or_else(|| {
                 CoreError::Internal("Activity Runtime is unavailable".to_string())
             })?;
-            let mut spec = ActivitySpec::new(ActivitySurface::Browser, "browser_session")
-                .with_activity_id(call_id)
-                .with_session_id(&session_id);
-            if let Some(conversation_id) = conversation_id {
-                spec = spec.with_conversation_id(conversation_id);
-            }
-            let record = runtime.start(spec)?;
+            let record =
+                start_browser_wait_activity(runtime, &session_id, conversation_id, turn_id)?;
             let runtime_for_task = runtime.clone();
             let session_for_task = Arc::clone(&session);
-            let activity_id = call_id.to_string();
+            let activity_id = record.activity_id.clone();
             let tab_id_for_task = tab_id.clone();
             let timeout =
                 Duration::from_millis(args.timeout_ms.unwrap_or(15_000).clamp(1, MAX_WAIT_MS));
             tokio::spawn(async move {
-                let started = Instant::now();
-                loop {
-                    if session_for_task.closing.load(Ordering::Acquire) {
-                        let _ = runtime_for_task.transition(
-                            &activity_id,
-                            ActivityState::Cancelled,
-                            serde_json::json!({ "reason": "session_closed" }),
-                        );
-                        return;
-                    }
-                    let session_for_check = Arc::clone(&session_for_task);
-                    let condition_for_check = condition.clone();
-                    let tab_id_for_check = tab_id_for_task.clone();
-                    let matched = tokio::task::spawn_blocking(move || {
-                        session_for_check.lock().ok().is_some_and(|session| {
-                            check_condition(&session, &tab_id_for_check, &condition_for_check)
-                        })
-                    })
-                    .await
-                    .unwrap_or(false);
-                    if matched {
-                        let _ = runtime_for_task.append(
-                            &activity_id,
-                            ActivityEventKind::BrowserObservation,
-                            serde_json::json!({ "condition": condition, "matched": true }),
-                        );
-                        let _ = runtime_for_task.transition(
-                            &activity_id,
-                            ActivityState::Completed,
-                            serde_json::json!({ "condition": condition }),
-                        );
-                        return;
-                    }
-                    if started.elapsed() >= timeout {
-                        let _ = runtime_for_task.transition(&activity_id, ActivityState::Failed, serde_json::json!({ "reason": "condition_timeout", "condition": condition }));
-                        return;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                let result = run_browser_activity_wait(
+                    &runtime_for_task,
+                    &activity_id,
+                    &condition,
+                    timeout,
+                    || session_for_task.closing.load(Ordering::Acquire),
+                    || {
+                        let session_for_check = Arc::clone(&session_for_task);
+                        let condition_for_check = condition.clone();
+                        let tab_id_for_check = tab_id_for_task.clone();
+                        let runtime_for_check = runtime_for_task.clone();
+                        let activity_for_check = activity_id.clone();
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                let session = session_for_check.lock()?;
+                                if !browser_wait_is_active(&runtime_for_check, &activity_for_check)
+                                {
+                                    return Ok(false);
+                                }
+                                check_condition(&session, &tab_id_for_check, &condition_for_check)
+                            })
+                            .await
+                            .map_err(|error| format!("Browser condition worker failed: {error}"))?
+                        }
+                    },
+                )
+                .await;
+                if let Err(error) = result {
+                    tracing::debug!(%activity_id, %error, "Browser wait stopped while its activity changed");
                 }
             });
             let observation = runtime
                 .observe(
-                    call_id,
+                    &record.activity_id,
                     record.last_event_seq,
                     Duration::from_millis(OBSERVE_QUANTUM_MS),
                 )
@@ -1447,6 +1545,314 @@ fn required_string<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn returned_wait_activity_id(result: &ToolResult) -> String {
+        result.artifacts.as_ref().unwrap()["activity"]["record"]["activityId"]
+            .as_str()
+            .expect("public browserActivity contains its host identity")
+            .to_string()
+    }
+
+    #[test]
+    fn browser_activity_wait_registration_is_unique_and_scope_preserving() {
+        let runtime = ActivityRuntime::new();
+        let first =
+            start_browser_wait_activity(&runtime, "session", Some("owner"), Some("turn")).unwrap();
+        let second =
+            start_browser_wait_activity(&runtime, "session", Some("owner"), Some("turn")).unwrap();
+        let other = start_browser_wait_activity(
+            &runtime,
+            "other-session",
+            Some("other-owner"),
+            Some("other-turn"),
+        )
+        .unwrap();
+        assert_ne!(first.activity_id, second.activity_id);
+        assert_ne!(first.activity_id, other.activity_id);
+        assert_eq!(second.session_id.as_deref(), Some("session"));
+        assert_eq!(second.conversation_id.as_deref(), Some("owner"));
+        assert_eq!(second.turn_id.as_deref(), Some("turn"));
+        assert_eq!(other.conversation_id.as_deref(), Some("other-owner"));
+        runtime
+            .transition(
+                &first.activity_id,
+                ActivityState::Cancelled,
+                serde_json::json!({}),
+            )
+            .unwrap();
+        assert!(!runtime
+            .get(&second.activity_id)
+            .unwrap()
+            .state
+            .is_terminal());
+        assert!(!runtime.get(&other.activity_id).unwrap().state.is_terminal());
+    }
+
+    #[tokio::test]
+    async fn browser_activity_wait_preserves_external_terminal_during_a_probe() {
+        for state in [
+            ActivityState::Cancelled,
+            ActivityState::Superseded,
+            ActivityState::Orphaned,
+        ] {
+            let db = crate::db::Database::open_memory().unwrap();
+            let runtime = ActivityRuntime::with_database(db).unwrap();
+            runtime
+                .start(
+                    ActivitySpec::new(ActivitySurface::Browser, "browser_session")
+                        .with_activity_id("wait"),
+                )
+                .unwrap();
+            let probes = AtomicUsize::new(0);
+            run_browser_activity_wait(
+                &runtime,
+                "wait",
+                &serde_json::json!({"type":"page_loaded"}),
+                Duration::from_secs(1),
+                || false,
+                || async {
+                    probes.fetch_add(1, Ordering::SeqCst);
+                    runtime
+                        .transition(
+                            "wait",
+                            state,
+                            serde_json::json!({"reason":"external_owner"}),
+                        )
+                        .unwrap();
+                    Ok(true)
+                },
+            )
+            .await
+            .unwrap();
+            let observation = runtime.observe("wait", 2, Duration::ZERO).await.unwrap();
+            assert_eq!(observation.record.state, state);
+            assert_eq!(
+                observation.cursor, 2,
+                "matched probe must not publish after terminal invalidation"
+            );
+            assert!(observation.events.is_empty());
+            run_browser_activity_wait(
+                &runtime,
+                "wait",
+                &serde_json::json!({"type":"page_loaded"}),
+                Duration::from_secs(1),
+                || false,
+                || async {
+                    probes.fetch_add(1, Ordering::SeqCst);
+                    Ok(true)
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                probes.load(Ordering::SeqCst),
+                1,
+                "terminal waits cannot restart probing"
+            );
+            assert!(runtime
+                .start(
+                    ActivitySpec::new(ActivitySurface::Browser, "browser_session")
+                        .with_activity_id("wait")
+                )
+                .is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn browser_activity_wait_bounds_a_stalled_probe_and_preserves_closure() {
+        let runtime = ActivityRuntime::new();
+        for id in ["stalled", "closed"] {
+            runtime
+                .start(
+                    ActivitySpec::new(ActivitySurface::Browser, "browser_session")
+                        .with_activity_id(id),
+                )
+                .unwrap();
+        }
+        run_browser_activity_wait(
+            &runtime,
+            "stalled",
+            &serde_json::json!({"type":"page_loaded"}),
+            Duration::from_millis(20),
+            || false,
+            || std::future::pending::<Result<bool, String>>(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime.get("stalled").unwrap().state,
+            ActivityState::TimedOut
+        );
+        run_browser_activity_wait(
+            &runtime,
+            "closed",
+            &serde_json::json!({"type":"page_loaded"}),
+            Duration::from_secs(1),
+            || true,
+            || std::future::pending::<Result<bool, String>>(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime.get("closed").unwrap().state,
+            ActivityState::Cancelled
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an installed Chromium browser"]
+    async fn browser_activity_cancellation_stops_queued_and_running_native_probes() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
+        let tool = BrowserSessionTool::default();
+        let created = tool
+            .execute(
+                ToolExecutionContext::new(
+                    "create-cancel-fixture",
+                    r#"{"action":"create_session"}"#,
+                    &db,
+                    &[],
+                )
+                .with_conversation_id(Some("cancel-owner")),
+            )
+            .await
+            .unwrap();
+        let data = created.artifacts.unwrap();
+        let session_id = data["sessionId"].as_str().unwrap();
+        let tab_id = data["tabId"].as_str().unwrap();
+        let resource = session_by_id(&tool.sessions, session_id, Some("cancel-owner")).unwrap();
+        let tab = Arc::clone(&resource.lock().unwrap().tabs[tab_id].tab);
+        tab.evaluate("window.waitProbeCount=0; Object.defineProperty(document,'readyState',{configurable:true,get(){window.waitProbeCount++;return 'loading';}})", false).unwrap();
+        let args = serde_json::json!({"action":"wait_for","sessionId":session_id,
+            "tabId":tab_id,"condition":{"type":"page_loaded"},"timeoutMs":20000})
+        .to_string();
+
+        let held_resource = Arc::clone(&resource);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let held = std::thread::spawn(move || {
+            let _session = held_resource.lock().unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let queued_result = tool
+            .execute(
+                ToolExecutionContext::new("call_0", &args, &db, &[])
+                    .with_conversation_id(Some("cancel-owner"))
+                    .with_turn_id(Some("same-turn"))
+                    .with_activity_runtime(&runtime),
+            )
+            .await
+            .unwrap();
+        let queued_activity_id = returned_wait_activity_id(&queued_result);
+        assert_eq!(queued_result.call_id, "call_0");
+        let cancelled = runtime
+            .transition(
+                &queued_activity_id,
+                ActivityState::Cancelled,
+                serde_json::json!({"reason":"user_stop"}),
+            )
+            .unwrap();
+        release_tx.send(()).unwrap();
+        held.join().unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert_eq!(
+            evaluate_json(&tab, "window.waitProbeCount").unwrap(),
+            serde_json::json!(0)
+        );
+        let receipt = runtime
+            .observe(&queued_activity_id, cancelled.seq, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(receipt.record.state, ActivityState::Cancelled);
+        assert!(receipt.events.is_empty());
+        let running_result = tool
+            .execute(
+                ToolExecutionContext::new("call_0", &args, &db, &[])
+                    .with_conversation_id(Some("cancel-owner"))
+                    .with_turn_id(Some("same-turn"))
+                    .with_activity_runtime(&runtime),
+            )
+            .await
+            .unwrap();
+        let running_activity_id = returned_wait_activity_id(&running_result);
+        assert_eq!(running_result.call_id, "call_0");
+        assert_ne!(
+            queued_activity_id, running_activity_id,
+            "a repeated provider call ID starts a distinct valid host operation"
+        );
+        assert!(runtime.get("call_0").is_none());
+        assert!(runtime
+            .transition(
+                &queued_activity_id,
+                ActivityState::Cancelled,
+                serde_json::json!({"reason":"late_old_cancel"})
+            )
+            .is_err());
+        assert!(
+            !runtime
+                .get(&running_activity_id)
+                .unwrap()
+                .state
+                .is_terminal(),
+            "an old activity's cancellation must not cancel the repeated call's new activity"
+        );
+        assert_eq!(
+            runtime
+                .get(&running_activity_id)
+                .unwrap()
+                .turn_id
+                .as_deref(),
+            Some("same-turn")
+        );
+        runtime
+            .transition(
+                &running_activity_id,
+                ActivityState::Cancelled,
+                serde_json::json!({"reason":"user_stop"}),
+            )
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let after_cancel = evaluate_json(&tab, "window.waitProbeCount").unwrap();
+        assert!(
+            after_cancel.as_u64().unwrap() > 0,
+            "the running wait actually queried Chromium"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert_eq!(
+            evaluate_json(&tab, "window.waitProbeCount").unwrap(),
+            after_cancel
+        );
+        tab.evaluate(
+            "document.querySelector=()=>{throw new Error('fixture inspection failed')}",
+            false,
+        )
+        .unwrap();
+        let broken_condition = serde_json::json!({"action":"wait_for","sessionId":session_id,
+            "tabId":tab_id,"condition":{"type":"selector_hidden","selector":"button"},"timeoutMs":1000}).to_string();
+        let failed_result = tool
+            .execute(
+                ToolExecutionContext::new("failed-inspection", &broken_condition, &db, &[])
+                    .with_conversation_id(Some("cancel-owner"))
+                    .with_activity_runtime(&runtime),
+            )
+            .await
+            .unwrap();
+        let failed_activity_id = returned_wait_activity_id(&failed_result);
+        assert_eq!(
+            runtime.get(&failed_activity_id).unwrap().state,
+            ActivityState::Failed,
+            "a CDP inspection error cannot prove that a selector is hidden"
+        );
+        let args = serde_json::json!({"action":"close_session","sessionId":session_id}).to_string();
+        tool.execute(
+            ToolExecutionContext::new("close-cancel-fixture", &args, &db, &[])
+                .with_conversation_id(Some("cancel-owner")),
+        )
+        .await
+        .unwrap();
+    }
 
     #[test]
     fn session_discovery_only_returns_current_owner_and_live_resources() {

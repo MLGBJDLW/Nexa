@@ -34,6 +34,7 @@ import { useTranslation, type TranslationKey } from '../../i18n';
 import * as api from '../../lib/api';
 import { formatUserError } from '../../lib/userError';
 import { OPEN_BROWSER_WORKSPACE_EVENT, registerBrowserOpener, type OpenNexaBrowserDetail } from './openNexaBrowser';
+import { browserActionInProgress, emptyBrowserActionProjection, interruptBrowserActions, projectBrowserAction } from './actionProjection';
 
 export interface BrowserDockStatus {
   tabCount: number;
@@ -73,6 +74,7 @@ const ACTION_LABELS: Record<string, TranslationKey> = {
   move: 'browser.actionMove', hover: 'browser.actionHover', drag: 'browser.actionDrag',
   type: 'browser.actionType', select: 'browser.actionSelect', set_checked: 'browser.actionCheck',
   press: 'browser.actionPress', scroll: 'browser.actionScroll', upload_files: 'browser.actionUpload',
+  wait_for: 'browser.actionWait',
 };
 
 function nativeBrowserOccluded(): boolean {
@@ -131,7 +133,8 @@ export function BrowserDock({
   const [width, setWidth] = useState(storedWidth);
   const [pickMode, setPickMode] = useState<'element' | 'region' | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [recentActions, setRecentActions] = useState<Array<{ action: string; phase: string; tabId: string; callId?: string }>>([]);
+  const [actionProjection, setActionProjection] = useState(emptyBrowserActionProjection);
+  const recentActions = actionProjection.entries;
   const contentRef = useRef<HTMLDivElement | null>(null);
   const latestBoundsRef = useRef<api.BrowserBounds | null>(null);
   const pickTimerRef = useRef<number | null>(null);
@@ -564,6 +567,7 @@ export function BrowserDock({
         const revision = Number(payload.minimumVisibilityRevision);
         if (!Number.isSafeInteger(revision) || revision < (visibilityRevisionBySessionRef.current.get(eventSessionId) ?? 0)) return;
         recordMinimumVisibilityRevision(eventSessionId, revision);
+        setActionProjection(previous => interruptBrowserActions(previous, event.payload.sequence));
         onOpenChangeRef.current(false);
         // Acknowledge even if already collapsed; the native tool only reports
         // success after the presentation boundary has caught up.
@@ -593,21 +597,15 @@ export function BrowserDock({
 
       if (event.payload.kind === 'agentAction') {
         const action = typeof payload.action === 'string' ? payload.action : '';
-        const phase = typeof payload.phase === 'string' ? payload.phase : '';
         const tabId = typeof payload.tabId === 'string' ? payload.tabId : '';
-        const callId = typeof payload.callId === 'string' ? payload.callId : undefined;
         if (action && currentSession.tabs.some(tab => tab.id === tabId)) {
-          setRecentActions(previous => {
-            const latest = previous[previous.length - 1];
-            const continuing = phase !== 'moving' && latest?.action === action && latest.tabId === tabId && latest.callId === callId;
-            return [...(continuing ? previous.slice(0, -1) : previous), { action, phase, tabId, callId }].slice(-6);
-          });
+          setActionProjection(previous => projectBrowserAction(previous, payload, event.payload.sequence));
         }
         return;
       }
 
       if (event.payload.kind === 'controlChanged' && (payload.owner as { type?: string } | undefined)?.type !== 'agent') {
-        setRecentActions(previous => previous.map(entry => ['moving', 'committing'].includes(entry.phase) ? { ...entry, phase: 'interrupted' } : entry));
+        setActionProjection(previous => interruptBrowserActions(previous, event.payload.sequence));
       }
 
       if (event.payload.kind === 'scriptDialog') {
@@ -712,9 +710,7 @@ export function BrowserDock({
   }, [currentTab?.id, currentTab?.url]);
 
   useEffect(() => {
-    if (!open) setRecentActions(previous => previous.map(entry => (
-      ['moving', 'committing'].includes(entry.phase) ? { ...entry, phase: 'interrupted' } : entry
-    )));
+    if (!open) setActionProjection(previous => interruptBrowserActions(previous));
   }, [open]);
 
   useEffect(() => {
@@ -738,7 +734,7 @@ export function BrowserDock({
     popupLimitWarnedSessionsRef.current.clear();
     setBusy(false);
     setLastError(null);
-    setRecentActions([]);
+    setActionProjection(emptyBrowserActionProjection());
   }, [conversationId, session?.id]);
 
   useEffect(() => {
@@ -1172,12 +1168,12 @@ export function BrowserDock({
             <span className="ml-auto flex items-center gap-1 text-[9px] uppercase tracking-[.14em] text-text-tertiary"><Send size={10} /> {t('browser.sharedSession')}</span>
           </div>
         )}
-        <div className="mt-2 flex h-7 min-w-0 items-center gap-1 overflow-x-auto" aria-label={t('browser.recentActions')} data-testid="browser-action-trail">
+        <div className="mt-2 flex h-7 min-w-0 items-center gap-1 overflow-x-auto" aria-label={t('browser.recentActions')} aria-live="polite" data-testid="browser-action-trail">
           {recentActions.length === 0 && <span className="text-[10px] text-text-tertiary">{t('browser.recentActions')}</span>}
-          {recentActions.map((entry, index) => <span key={index} className="flex shrink-0 items-center gap-1 rounded border border-border/50 bg-surface-2/70 px-1.5 py-1 text-[10px] text-text-secondary" title={`${entry.action} · ${entry.phase}`}>
-            {entry.phase === 'verified' ? '✓' : entry.phase === 'observedUnchanged' ? '○' : ['failed', 'interrupted'].includes(entry.phase) ? '!' : '…'}
+          {recentActions.map(entry => <span key={`${entry.tabId}:${entry.operationId}`} className="flex shrink-0 items-center gap-1 rounded border border-border/50 bg-surface-2/70 px-1.5 py-1 text-[10px] text-text-secondary" title={`${entry.action} · ${entry.phase}`}>
+            {entry.phase === 'verified' ? '✓' : ['observedUnchanged', 'observedPending'].includes(entry.phase) ? '○' : browserActionInProgress(entry.phase) ? '…' : '!'}
             {ACTION_LABELS[entry.action] ? t(ACTION_LABELS[entry.action]) : entry.action}
-            <span className="text-text-tertiary">{entry.phase === 'verified' ? t('browser.actionVerified') : entry.phase === 'observedUnchanged' ? t('browser.actionUnchanged') : ['failed', 'interrupted'].includes(entry.phase) ? t('browser.actionReview') : t('browser.actionInProgress')}</span>
+            <span className="text-text-tertiary">{entry.phase === 'verified' ? t('browser.actionVerified') : entry.phase === 'observedUnchanged' ? t('browser.actionUnchanged') : entry.phase === 'observedPending' ? t('browser.actionPending') : browserActionInProgress(entry.phase) ? t('browser.actionInProgress') : t('browser.actionReview')}</span>
           </span>)}
         </div>
       </header>

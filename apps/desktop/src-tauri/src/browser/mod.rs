@@ -5,6 +5,7 @@ mod downloads;
 mod file_upload;
 pub mod local_html;
 mod network_proxy;
+mod operation_progress;
 pub mod policy;
 mod scripts;
 pub mod state;

@@ -52,5 +52,7 @@
   "actionCheck": "Marcar",
   "actionPress": "Tecla",
   "actionScroll": "Rolar",
-  "actionUpload": "Enviar"
+  "actionUpload": "Enviar",
+  "actionWait": "Aguardar",
+  "actionPending": "Ainda pendente"
 }

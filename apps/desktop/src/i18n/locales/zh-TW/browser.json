@@ -52,5 +52,7 @@
   "actionCheck": "勾選",
   "actionPress": "按鍵",
   "actionScroll": "捲動",
-  "actionUpload": "上傳"
+  "actionUpload": "上傳",
+  "actionWait": "等待",
+  "actionPending": "條件尚未滿足"
 }

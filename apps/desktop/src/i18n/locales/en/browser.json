@@ -52,5 +52,7 @@
   "actionCheck": "Check",
   "actionPress": "Key",
   "actionScroll": "Scroll",
-  "actionUpload": "Upload"
+  "actionUpload": "Upload",
+  "actionWait": "Wait",
+  "actionPending": "Still pending"
 }

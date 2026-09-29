@@ -539,6 +539,7 @@ export interface BrowserCreateInput {
 export interface BrowserEvent {
   kind: string;
   payload: Record<string, unknown>;
+  sequence?: number;
 }
 
 export interface BrowserElementArtifact {

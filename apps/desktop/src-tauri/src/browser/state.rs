@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -11,14 +11,16 @@ use nexa_core::browser_runtime::{
     BrowserFrameLimitations, BrowserObservation as CoreBrowserObservation,
     BrowserObservationCoverage, BrowserObservationOptions, BrowserScreenshot,
     BrowserSession as CoreBrowserSession, BrowserTab as CoreBrowserTab,
+    BROWSER_FINAL_OBSERVATION_TIMEOUT,
 };
 use nexa_core::tools::run_shell_tool::{managed_loopback_permits, ManagedLoopbackPermit};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Webview};
 use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
 use super::network_proxy::BrowserNetworkProxy;
+use super::operation_progress::{BrowserOperationPhase, BrowserOperationProgress};
 use super::policy::{
     classify_agent_action, form_navigation_approval_key, managed_permit_matches_url,
     normalize_browser_url, normalize_browser_url_candidate, validate_agent_network_url_with_permit,
@@ -35,7 +37,7 @@ pub const BROWSER_EVENT: &str = "browser:event";
 const MAX_OBSERVATIONS: usize = 64;
 const MAX_BROWSER_TABS_PER_SESSION: usize = 16;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BrowserPageSnapshot {
     url: String,
@@ -287,6 +289,7 @@ struct BrowserRuntimeState {
 
 #[derive(Clone)]
 pub struct BrowserState {
+    event_sequence: Arc<AtomicU64>,
     app: AppHandle,
     profile_root: Arc<PathBuf>,
     inner: Arc<Mutex<BrowserRuntimeState>>,
@@ -363,6 +366,7 @@ impl Drop for InitializingSessionGuard {
 impl BrowserState {
     pub fn new(app: AppHandle, profile_root: PathBuf) -> Self {
         Self {
+            event_sequence: Arc::new(AtomicU64::new(0)),
             app,
             profile_root: Arc::new(profile_root),
             inner: Arc::new(Mutex::new(BrowserRuntimeState {
@@ -374,9 +378,10 @@ impl BrowserState {
     }
 
     pub fn emit(&self, kind: &str, payload: serde_json::Value) {
+        let sequence = self.event_sequence.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.app.emit(
             BROWSER_EVENT,
-            serde_json::json!({ "kind": kind, "payload": payload }),
+            serde_json::json!({ "kind": kind, "payload": payload, "sequence": sequence }),
         );
     }
 
@@ -1866,6 +1871,44 @@ impl BrowserState {
         call_id: &str,
         options: &BrowserObservationOptions,
     ) -> Result<BrowserObservationPayload, String> {
+        observe_across_navigation(
+            || self.observe_once(session_id, tab_id, call_id, options),
+            || self.agent_lease_generation(session_id, tab_id, call_id),
+            BROWSER_FINAL_OBSERVATION_TIMEOUT,
+        )
+        .await
+    }
+
+    /// Internal condition probes carry no screenshot or consumable observation
+    /// token. They use the same target, network policy and control lease checks
+    /// as a full observation; only the final evidence becomes model-actionable.
+    pub(super) async fn probe_condition(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        call_id: &str,
+        options: &BrowserObservationOptions,
+    ) -> Result<serde_json::Value, String> {
+        observe_across_navigation(
+            || async {
+                let (_, _, snapshot) = self
+                    .read_page_snapshot(session_id, tab_id, call_id, options)
+                    .await?;
+                serde_json::to_value(snapshot).map_err(|error| error.to_string())
+            },
+            || self.agent_lease_generation(session_id, tab_id, call_id),
+            BROWSER_FINAL_OBSERVATION_TIMEOUT,
+        )
+        .await
+    }
+
+    async fn read_page_snapshot(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        call_id: &str,
+        options: &BrowserObservationOptions,
+    ) -> Result<(Webview, u64, BrowserPageSnapshot), String> {
         options.validate()?;
         {
             let runtime = self
@@ -1881,21 +1924,6 @@ impl BrowserState {
                 return Err("Page paused after repeated dialogs. Close or reload the tab before observing again.".into());
             }
         }
-        observe_across_navigation(
-            || self.observe_once(session_id, tab_id, call_id, options),
-            || self.agent_lease_generation(session_id, tab_id, call_id),
-            Duration::from_secs(20),
-        )
-        .await
-    }
-
-    async fn observe_once(
-        &self,
-        session_id: &str,
-        tab_id: &str,
-        call_id: &str,
-        options: &BrowserObservationOptions,
-    ) -> Result<BrowserObservationPayload, String> {
         self.acquire_agent_control(session_id, call_id)?;
         self.wait_until_workspace_visible(session_id, tab_id)
             .await?;
@@ -1908,7 +1936,7 @@ impl BrowserState {
         self.prepare_agent_network_access(session_id, tab_id, &current_url)
             .await?;
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + BROWSER_FINAL_OBSERVATION_TIMEOUT;
         let observe_expression = format!(
             "window.__NEXA_BROWSER_RUNTIME__?.observe({})",
             serde_json::to_string(options).map_err(|error| error.to_string())?
@@ -1936,6 +1964,24 @@ impl BrowserState {
             .await?;
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         self.require_visible_focused_host_window()?;
+        if webview.url().map_err(|error| error.to_string())? != snapshot_url {
+            return Err("stale observation: page navigated during observation".into());
+        }
+        Ok((webview, lease_generation, snapshot))
+    }
+
+    async fn observe_once(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        call_id: &str,
+        options: &BrowserObservationOptions,
+    ) -> Result<BrowserObservationPayload, String> {
+        let (webview, lease_generation, snapshot) = self
+            .read_page_snapshot(session_id, tab_id, call_id, options)
+            .await?;
+        let snapshot_url = Url::parse(&snapshot.url)
+            .map_err(|_| "Browser observation returned an invalid URL".to_string())?;
         let (capture_plan, surface_flight) = self.capture_context(session_id, tab_id)?;
         let capture = capture_webview_image(&webview, capture_plan, surface_flight).await?;
         self.require_visible_focused_host_window()?;
@@ -1948,6 +1994,10 @@ impl BrowserState {
             image_bytes: capture.image_bytes,
         };
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
+        let observe_expression = format!(
+            "window.__NEXA_BROWSER_RUNTIME__?.observe({})",
+            serde_json::to_string(options).map_err(|error| error.to_string())?
+        );
         let confirmation: BrowserPageSnapshot =
             serde_json::from_value(eval_json(&webview, &observe_expression).await.map_err(
                 |error| format!("Could not confirm browser visual observation: {error}"),
@@ -2045,26 +2095,26 @@ impl BrowserState {
     }
 
     pub async fn act(&self, request: BrowserActRequest<'_>) -> Result<BrowserActOutcome, String> {
-        let (session_id, tab_id, action, call_id) = (
+        let emit = |payload| self.emit("agentAction", payload);
+        let mut progress = BrowserOperationProgress::new(
             request.session_id,
             request.tab_id,
-            request.action,
             request.call_id,
+            request.action,
+            &emit,
         );
-        let result = self.act_inner(request).await;
+        let result = self.act_inner(request, &mut progress).await;
         if result.is_err() {
-            self.emit(
-                "agentAction",
-                serde_json::json!({
-                    "sessionId": session_id, "tabId": tab_id, "action": action,
-                    "callId": call_id, "phase": "failed",
-                }),
-            );
+            progress.update(BrowserOperationPhase::Failed, serde_json::json!({}));
         }
         result
     }
 
-    async fn act_inner(&self, request: BrowserActRequest<'_>) -> Result<BrowserActOutcome, String> {
+    async fn act_inner(
+        &self,
+        request: BrowserActRequest<'_>,
+        progress: &mut BrowserOperationProgress<'_>,
+    ) -> Result<BrowserActOutcome, String> {
         self.require_visible_focused_host_window()?;
         let current_url = self
             .webview(request.session_id, request.tab_id)?
@@ -2205,14 +2255,9 @@ impl BrowserState {
         let preview_expression = format!(
             "(() => {{ const bridge = window.__NEXA_BROWSER_RUNTIME__; if (!bridge) throw new Error('Browser interaction runtime is unavailable'); return bridge.previewAction({action_input}); }})()"
         );
-        self.emit(
-            "agentAction",
+        progress.update(
+            BrowserOperationPhase::Moving,
             serde_json::json!({
-                "sessionId": request.session_id,
-                "tabId": request.tab_id,
-                "action": request.action,
-                "callId": request.call_id,
-                "phase": "moving",
                 "targetRef": request.target_ref,
                 "endRef": request.end_ref,
             }),
@@ -2248,14 +2293,9 @@ impl BrowserState {
             let prepare_expression = format!(
                 "(() => {{ const bridge = window.__NEXA_BROWSER_RUNTIME__; if (!bridge) throw new Error('Browser interaction runtime is unavailable'); return bridge.prepareNativePointer({action_input}); }})()"
             );
-            self.emit(
-                "agentAction",
+            progress.update(
+                BrowserOperationPhase::Committing,
                 serde_json::json!({
-                    "sessionId": request.session_id,
-                    "tabId": request.tab_id,
-                    "action": request.action,
-                "callId": request.call_id,
-                    "phase": "committing",
                     "targetRef": request.target_ref,
                 }),
             );
@@ -2324,14 +2364,13 @@ impl BrowserState {
                     &observation.options,
                 )
                 .await?;
-            self.emit(
-                "agentAction",
+            progress.update(
+                if effect_observed {
+                    BrowserOperationPhase::Verified
+                } else {
+                    BrowserOperationPhase::ObservedUnchanged
+                },
                 serde_json::json!({
-                    "sessionId": request.session_id,
-                    "tabId": request.tab_id,
-                    "action": request.action,
-                "callId": request.call_id,
-                    "phase": if effect_observed { "verified" } else { "observedUnchanged" },
                     "effectObserved": effect_observed,
                     "observationId": fresh_observation.observation_id,
                 }),
@@ -2362,14 +2401,9 @@ impl BrowserState {
         let expression = format!(
             "(() => {{ const bridge = window.__NEXA_BROWSER_RUNTIME__; if (!bridge) throw new Error('Browser interaction runtime is unavailable'); return bridge.act({action_input}); }})()"
         );
-        self.emit(
-            "agentAction",
+        progress.update(
+            BrowserOperationPhase::Committing,
             serde_json::json!({
-                "sessionId": request.session_id,
-                "tabId": request.tab_id,
-                "action": request.action,
-                "callId": request.call_id,
-                "phase": "committing",
                 "targetRef": request.target_ref,
                 "endRef": request.end_ref,
             }),
@@ -2420,14 +2454,13 @@ impl BrowserState {
                 .await?;
             verify_requested_form_state(&request, &fresh_observation)?;
             drop(navigation_permit_guard);
-            self.emit(
-                "agentAction",
+            progress.update(
+                if effect_observed {
+                    BrowserOperationPhase::Verified
+                } else {
+                    BrowserOperationPhase::ObservedUnchanged
+                },
                 serde_json::json!({
-                    "sessionId": request.session_id,
-                    "tabId": request.tab_id,
-                    "action": request.action,
-                "callId": request.call_id,
-                    "phase": if effect_observed { "verified" } else { "observedUnchanged" },
                     "effectObserved": effect_observed,
                     "observationId": fresh_observation.observation_id,
                 }),
@@ -2488,14 +2521,13 @@ impl BrowserState {
             .await?;
         verify_requested_form_state(&request, &fresh_observation)?;
         drop(navigation_permit_guard);
-        self.emit(
-            "agentAction",
+        progress.update(
+            if effect_observed {
+                BrowserOperationPhase::Verified
+            } else {
+                BrowserOperationPhase::ObservedUnchanged
+            },
             serde_json::json!({
-                "sessionId": request.session_id,
-                "tabId": request.tab_id,
-                "action": request.action,
-                "callId": request.call_id,
-                "phase": if effect_observed { "verified" } else { "observedUnchanged" },
                 "effectObserved": effect_observed,
                 "observationId": fresh_observation.observation_id,
             }),
