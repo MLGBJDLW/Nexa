@@ -4,13 +4,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import * as api from '../../lib/api';
 import { finalAnswerToSpeechText } from '../../lib/autoSpeech';
 import { classifyMediaError, mediaErrorMessage, playableMediaType, type SpeechPlaybackErrorCode } from './speechPlaybackRuntime';
+import { requestSpeechPlayback } from './speechPlaybackRequest';
 
 export type SpeechPlaybackState =
   | { status: 'idle' }
   | { status: 'synthesizing'; messageId: string }
   | { status: 'playing'; messageId: string }
   | { status: 'paused'; messageId: string }
-  | { status: 'error'; messageId: string; code: SpeechPlaybackErrorCode; error: string };
+  | { status: 'error'; messageId: string; code: SpeechPlaybackErrorCode; error: string; inputLimit?: { model: string; actual: number; limit: number } };
 
 interface SpeechRequest { messageId: string; text: string }
 interface SpeechPlaybackContextValue {
@@ -56,7 +57,17 @@ export function SpeechPlaybackProvider({ children }: { children: ReactNode }) {
     requestRef.current = { messageId, text: markdown };
     setState({ status: 'synthesizing', messageId });
     try {
-      const preview = await api.synthesizeSpeechPreview(text);
+      const result = await requestSpeechPlayback(text, {
+        loadConfig: async () => (await api.getAppConfig()).textToSpeech,
+        synthesize: api.synthesizeSpeechPreview,
+        isCurrent: () => generation === generationRef.current,
+      });
+      if (result.kind === 'cancelled' || generation !== generationRef.current) return;
+      if (result.kind === 'input_limit') {
+        setState({ status: 'error', messageId, code: 'input_limit', error: mediaErrorMessage('input_limit'), inputLimit: result });
+        return;
+      }
+      const { preview } = result;
       if (generation !== generationRef.current) return;
       const audio = document.createElement('audio');
       const support = audio.canPlayType(preview.mediaType);

@@ -49,6 +49,9 @@ export function MessageActions({ text, showFeedback, chunkIds = [], queryText = 
   const speechState = messageId && speech.state.status !== 'idle' && speech.state.messageId === messageId
     ? speech.state
     : null;
+  const speechError = speechState?.status === 'error'
+    ? speechState.inputLimit ? t('chat.speechInputLimit', speechState.inputLimit) : speechState.error
+    : null;
 
   const handleCopy = useCallback(async () => {
     try {
@@ -133,9 +136,9 @@ export function MessageActions({ text, showFeedback, chunkIds = [], queryText = 
             : speechState?.status === 'paused'
               ? 'Resume speech'
               : speechState?.status === 'error'
-                ? `${speechState.error} Retry`
+                ? `${speechError} Retry`
                 : 'Read this reply'}
-          aria-label={speechState?.status === 'playing' ? 'Pause speech' : speechState?.status === 'paused' ? 'Resume speech' : 'Read this reply'}
+          aria-label={speechState?.status === 'playing' ? 'Pause speech' : speechState?.status === 'paused' ? 'Resume speech' : speechError ?? 'Read this reply'}
           className={`${actionBtn} ${speechState?.status === 'playing' ? 'text-accent' : ''} ${speechState?.status === 'error' ? 'text-danger' : ''}`}
         >
           {speechState?.status === 'synthesizing' ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

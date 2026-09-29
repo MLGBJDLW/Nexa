@@ -55,6 +55,8 @@ export interface SttProviderPreset {
   description: string;
   transcription: SttRuntimeCapabilities;
   models: SttCatalogItem[];
+  lastVerifiedAt: string;
+  documentationUrls: string[];
 }
 
 type RawSttProviderPreset = Omit<SttProviderPreset, 'models'> & { models: LegacyCatalogModel[] };
@@ -72,7 +74,10 @@ export const STT_PROVIDER_PRESETS: SttProviderPreset[] =
   }));
 
 export function defaultSttItem(items: SttCatalogItem[]): SttCatalogItem | null {
-  return selectImplicitDefault(items);
+  const eligible = items.filter(({ descriptor }) => descriptor.lifecycle === 'active'
+    && descriptor.access === 'public' && descriptor.availableToCredential !== false);
+  return selectImplicitDefault(items)
+    ?? eligible.find((item) => item.recommended) ?? eligible[0] ?? null;
 }
 
 /** Resolve the catalog entry that backs a saved speech-to-text configuration. */

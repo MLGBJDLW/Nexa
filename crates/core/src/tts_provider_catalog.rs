@@ -1,6 +1,7 @@
 //! Shared text-to-speech provider/model preset catalog and live voice discovery.
 
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
@@ -26,6 +27,12 @@ pub struct TtsProviderPreset {
     pub models: Vec<TtsCatalogItem>,
     pub voices: Vec<TtsCatalogItem>,
     pub output_formats: Vec<String>,
+    #[serde(default)]
+    pub speed_range: Option<[f32; 2]>,
+    #[serde(default)]
+    pub last_verified_at: String,
+    #[serde(default)]
+    pub documentation_urls: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -49,6 +56,8 @@ pub struct TtsCatalogItem {
     pub description: Option<String>,
     #[serde(default)]
     pub preview_url: Option<String>,
+    #[serde(default)]
+    pub max_input_characters: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,6 +99,145 @@ pub fn load_tts_provider_presets() -> Result<Vec<TtsProviderPreset>, serde_json:
     serde_json::from_str(TTS_PROVIDER_PRESETS_JSON)
 }
 
+fn cached_tts_provider_presets() -> Result<&'static [TtsProviderPreset], CoreError> {
+    static PRESETS: OnceLock<Result<Vec<TtsProviderPreset>, String>> = OnceLock::new();
+    PRESETS
+        .get_or_init(|| load_tts_provider_presets().map_err(|error| error.to_string()))
+        .as_ref()
+        .map(Vec::as_slice)
+        .map_err(|error| CoreError::Parse(format!("Invalid speech catalog: {error}")))
+}
+
+pub fn tts_api_base_url(config: &TextToSpeechConfig) -> String {
+    config
+        .base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| match config.api_style.as_str() {
+            "elevenlabs_speech" => "https://api.elevenlabs.io/v1".to_string(),
+            "minimax_speech" => "https://api.minimax.io/v1".to_string(),
+            "azure_speech" => {
+                "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1".to_string()
+            }
+            "dashscope_speech" => {
+                "https://dashscope.aliyuncs.com/api/v1/services/audio/tts".to_string()
+            }
+            _ => "https://api.openai.com/v1".to_string(),
+        })
+}
+
+pub fn tts_catalog_preset_for_endpoint(
+    config: &TextToSpeechConfig,
+) -> Option<&'static TtsProviderPreset> {
+    cached_tts_provider_presets().ok()?.iter().find(|preset| {
+        if preset.provider != config.provider || preset.api_style != config.api_style {
+            return false;
+        }
+        if preset.local {
+            return true;
+        }
+        let base = tts_api_base_url(config);
+        if !preset.base_url.is_empty()
+            && base.trim_end_matches('/') == preset.base_url.trim_end_matches('/')
+        {
+            return true;
+        }
+        if preset.api_style != "dashscope_speech" {
+            return false;
+        }
+        let Ok(url) = reqwest::Url::parse(&base) else {
+            return false;
+        };
+        let host = url.host_str().unwrap_or_default();
+        let official = host == "dashscope.aliyuncs.com"
+            || host == "dashscope-intl.aliyuncs.com"
+            || [
+                ".cn-beijing.maas.aliyuncs.com",
+                ".ap-southeast-1.maas.aliyuncs.com",
+            ]
+            .iter()
+            .any(|suffix| {
+                host.strip_suffix(suffix).is_some_and(|workspace| {
+                    !workspace.is_empty()
+                        && workspace
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                })
+            });
+        official
+            && matches!(url.scheme(), "https" | "wss")
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && matches!(
+                url.path().trim_end_matches('/'),
+                "/api-ws/v1/inference"
+                    | "/api/v1/services/audio/tts"
+                    | "/api/v1/services/audio/tts/SpeechSynthesizer"
+            )
+    })
+}
+
+/// Curated constraints apply to known model IDs only. Private models and voices
+/// stay editable; a known system voice cannot cross a documented model boundary.
+pub fn validate_tts_selection(
+    config: &TextToSpeechConfig,
+    model: &str,
+    voice: &str,
+    text: &str,
+) -> Result<(), CoreError> {
+    let Some(preset) = tts_catalog_preset_for_endpoint(config) else {
+        return Ok(());
+    };
+    let Some(selected_model) = preset.models.iter().find(|item| item.id == model.trim()) else {
+        return Ok(());
+    };
+    if let Some(limit) = selected_model.max_input_characters {
+        if text.chars().count() > limit {
+            return Err(CoreError::InvalidInput(format!(
+                "Nexa limits speech requests with {model} to {limit} characters. Split the text into shorter passages."
+            )));
+        }
+    }
+    if !preset
+        .output_formats
+        .iter()
+        .any(|format| format == config.output_format.trim())
+    {
+        return Err(CoreError::InvalidInput(format!(
+            "{} does not support '{}' audio in Nexa. Select {}.",
+            preset.name,
+            config.output_format,
+            preset.output_formats.join(", ")
+        )));
+    }
+    if preset
+        .voices
+        .iter()
+        .any(|item| item.id == voice.trim() && !catalog_item_matches_model(item, model))
+    {
+        return Err(CoreError::InvalidInput(format!(
+            "Voice '{voice}' is not compatible with {model}. Select a voice for that model in Speech settings."
+        )));
+    }
+    Ok(())
+}
+
+pub fn tts_request_speed(config: &TextToSpeechConfig, requested: f32) -> f32 {
+    let [min, max] = tts_catalog_preset_for_endpoint(config)
+        .and_then(|preset| preset.speed_range)
+        .unwrap_or([0.5, 2.0]);
+    if requested.is_finite() {
+        requested.clamp(min, max)
+    } else {
+        1.0
+    }
+}
+
 pub fn supports_dynamic_tts_voice_catalog(api_style: &str) -> bool {
     matches!(
         api_style.trim(),
@@ -102,7 +250,7 @@ pub fn build_tts_voice_catalog(
     discovered: Option<Vec<TtsVoiceCatalogEntry>>,
     refreshed_at: impl Into<String>,
 ) -> TtsVoiceCatalogSnapshot {
-    let presets = load_tts_provider_presets().unwrap_or_default();
+    let presets = cached_tts_provider_presets().unwrap_or_default();
     let curated = presets
         .iter()
         .find(|preset| preset.provider == config.provider && preset.api_style == config.api_style)
@@ -559,7 +707,7 @@ fn configured_base_url(config: &TextToSpeechConfig, fallback: &str) -> String {
 }
 
 fn normalize_voice_id(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
+    value.trim().to_string()
 }
 
 fn voice_matches_model(voice: &TtsVoiceCatalogEntry, model: &str) -> bool {
@@ -567,7 +715,7 @@ fn voice_matches_model(voice: &TtsVoiceCatalogEntry, model: &str) -> bool {
         || voice
             .model_ids
             .iter()
-            .any(|candidate| candidate.eq_ignore_ascii_case(model.trim()))
+            .any(|candidate| candidate == model.trim())
 }
 
 fn catalog_item_matches_model(voice: &TtsCatalogItem, model: &str) -> bool {
@@ -575,7 +723,7 @@ fn catalog_item_matches_model(voice: &TtsCatalogItem, model: &str) -> bool {
         || voice
             .model_ids
             .iter()
-            .any(|candidate| candidate.eq_ignore_ascii_case(model.trim()))
+            .any(|candidate| candidate == model.trim())
 }
 
 #[cfg(test)]
@@ -585,8 +733,9 @@ mod tests {
     #[test]
     fn shared_catalog_has_fast_defaults_and_voices() {
         let presets = load_tts_provider_presets().expect("valid tts provider catalog");
-        assert_eq!(presets.len(), 9);
         for preset in presets {
+            assert!(!preset.documentation_urls.is_empty());
+            assert!(!preset.last_verified_at.is_empty());
             assert!(preset.models.iter().any(|model| model.recommended));
             if preset.api_style == "dashscope_audio_generation" {
                 // TTS Next describes the voice in text_prompt instead of a voice ID.
@@ -654,5 +803,113 @@ mod tests {
             .any(|voice| voice.id == "male-qn-qingse"));
         assert!(supports_dynamic_tts_voice_catalog("minimax_speech"));
         assert!(!supports_dynamic_tts_voice_catalog("openai_speech"));
+    }
+
+    #[test]
+    fn documented_voice_model_boundaries_reject_system_mismatches_preserve_private_voices() {
+        let mut config = TextToSpeechConfig {
+            provider: "qwen".into(),
+            api_style: "dashscope_speech".into(),
+            model: "qwen-audio-3.0-tts-plus".into(),
+            output_format: "mp3".into(),
+            base_url: Some("https://dashscope.aliyuncs.com/api-ws/v1/inference".into()),
+            ..Default::default()
+        };
+        let plus = build_tts_voice_catalog(&config, None, "2026-09-29");
+        assert!(plus.voices.iter().any(|voice| voice.id == "longanlingxin"));
+        assert!(!plus.voices.iter().any(|voice| voice.id == "longanfengyue"));
+        assert!(!plus
+            .voices
+            .iter()
+            .any(|voice| voice.id == "longanhuan_v3.6"));
+        assert!(
+            validate_tts_selection(&config, &config.model, "longanhuan_v3.6", "Hello.").is_err()
+        );
+        assert!(
+            validate_tts_selection(&config, &config.model, "private-account-voice", "Hello.")
+                .is_ok()
+        );
+        config.model = "cosyvoice-v3.5-flash".into();
+        assert!(build_tts_voice_catalog(&config, None, "2026-09-29")
+            .voices
+            .is_empty());
+        config.model = "cosyvoice-v3-flash".into();
+        assert!(build_tts_voice_catalog(&config, None, "2026-09-29")
+            .voices
+            .iter()
+            .any(|voice| voice.id == "longanyang"));
+        config = TextToSpeechConfig {
+            model: "tts-1".into(),
+            ..Default::default()
+        };
+        assert!(validate_tts_selection(&config, &config.model, "marin", "Hello.").is_err());
+        assert!(validate_tts_selection(&config, &config.model, "coral", "Hello.").is_ok());
+    }
+
+    #[test]
+    fn voice_ids_remain_case_sensitive_and_limits_are_provider_specific() {
+        assert_ne!(
+            normalize_voice_id("PrivateVoice"),
+            normalize_voice_id("privatevoice")
+        );
+        let config = TextToSpeechConfig {
+            provider: "groq".into(),
+            base_url: Some("https://api.groq.com/openai/v1".into()),
+            model: "canopylabs/orpheus-v1-english".into(),
+            ..Default::default()
+        };
+        assert!(
+            validate_tts_selection(&config, &config.model, "hannah", &"中".repeat(201)).is_err()
+        );
+        assert!(
+            validate_tts_selection(&config, &config.model, "hannah", &"中".repeat(200)).is_ok()
+        );
+        assert_eq!(tts_request_speed(&config, 1.8), 1.8);
+        let eleven = TextToSpeechConfig {
+            provider: "elevenlabs".into(),
+            api_style: "elevenlabs_speech".into(),
+            base_url: Some("https://api.elevenlabs.io/v1".into()),
+            ..Default::default()
+        };
+        assert_eq!(tts_request_speed(&eleven, 2.0), 1.2);
+        assert_eq!(tts_request_speed(&eleven, f32::NAN), 1.0);
+        let custom = TextToSpeechConfig {
+            base_url: Some("https://tenant.example/v1".into()),
+            ..config
+        };
+        assert!(validate_tts_selection(
+            &custom,
+            &custom.model,
+            "not-a-groq-voice",
+            &"中".repeat(201)
+        )
+        .is_ok());
+        assert_eq!(tts_request_speed(&custom, 1.8), 1.8);
+    }
+
+    #[test]
+    fn empty_and_equivalent_urls_use_the_same_synthesis_constraints() {
+        for base in [
+            None,
+            Some(""),
+            Some("  "),
+            Some("https://api.openai.com/v1/"),
+        ] {
+            let config = TextToSpeechConfig {
+                base_url: base.map(str::to_string),
+                model: "tts-1".into(),
+                ..Default::default()
+            };
+            assert_eq!(
+                tts_catalog_preset_for_endpoint(&config).unwrap().id,
+                "openai"
+            );
+            assert!(validate_tts_selection(&config, "tts-1", "marin", "Hello").is_err());
+        }
+        let custom = TextToSpeechConfig {
+            base_url: Some("https://api.openai.com.evil.example/v1".into()),
+            ..Default::default()
+        };
+        assert!(tts_catalog_preset_for_endpoint(&custom).is_none());
     }
 }

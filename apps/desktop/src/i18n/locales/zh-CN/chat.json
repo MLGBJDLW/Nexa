@@ -772,5 +772,6 @@
   "agentPreparing": "正在准备会话",
   "agentReusing": "正在复用 Agent 会话",
   "agentWaiting": "正在等待响应",
-  "resumeTask": "继续任务"
+  "resumeTask": "继续任务",
+  "speechInputLimit": "回复有 {actual} 个字符，超过 Nexa 使用 {model} 时的单次朗读上限（{limit} 个）。请在语音设置中换用上限更高的模型，或朗读较短的回复。"
 }

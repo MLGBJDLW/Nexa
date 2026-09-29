@@ -4,6 +4,7 @@ export type SpeechPlaybackErrorCode =
   | 'unsupported_format'
   | 'autoplay_blocked'
   | 'provider'
+  | 'input_limit'
   | 'playback';
 
 export interface SpeechCacheIdentity {
@@ -39,6 +40,7 @@ export function mediaErrorMessage(code: SpeechPlaybackErrorCode): string {
     case 'unsupported_format': return 'This system does not support the generated audio format.';
     case 'autoplay_blocked': return 'Playback was blocked. Press play again to allow audio.';
     case 'provider': return 'The speech provider could not generate this reply.';
+    case 'input_limit': return "This reply exceeds Nexa's single-request speech limit.";
     default: return 'The reply could not be played.';
   }
 }

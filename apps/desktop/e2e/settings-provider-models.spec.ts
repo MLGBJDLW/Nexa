@@ -1790,6 +1790,35 @@ test("settings promotes low-latency speech providers with their own logos", asyn
   await expectNexaValue(sttModel, "FunAudioLLM/SenseVoiceSmall");
 });
 
+test("speech preset defaults and model changes retain valid voice choices", async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  const tts = page.getByTestId('text-to-speech-settings-panel');
+  await tts.locator('button').first().click();
+  const selects = tts.locator('[data-nexa-select-trigger]');
+  await selectNexaOption(selects.nth(0), 'groq');
+  await expectNexaValue(selects.nth(1), 'canopylabs/orpheus-v1-english');
+  await expect(tts.getByTestId('tts-voice-input')).toHaveValue('hannah');
+  await selectNexaOption(selects.nth(1), 'canopylabs/orpheus-arabic-saudi');
+  await expect(tts.getByTestId('tts-voice-input')).toHaveValue('abdullah');
+  await selectNexaOption(selects.nth(0), 'dashscope-cosyvoice');
+  await expectNexaValue(selects.nth(1), 'qwen-audio-3.0-tts-flash');
+  await selectNexaOption(selects.nth(1), 'qwen-audio-3.0-tts-plus');
+  await expect(tts.getByTestId('tts-voice-input')).toHaveValue('longanlingxin');
+  await expect(tts.getByTestId('tts-voice-catalog')).not.toContainText('longanhuan_v3.6');
+  await selectNexaOption(selects.nth(1), 'cosyvoice-v3.5-flash');
+  await expect(tts.getByTestId('tts-voice-input')).toHaveValue('');
+  await expect(tts.getByRole('button', { name: 'Preview voice' })).toBeDisabled();
+  await tts.getByTestId('tts-voice-input').fill('my-private-voice');
+  await selectNexaOption(selects.nth(1), 'cosyvoice-v3.5-plus');
+  await expect(tts.getByTestId('tts-voice-input')).toHaveValue('my-private-voice');
+  const stt = page.getByTestId('speech-to-text-settings-panel');
+  await stt.locator('button').first().click();
+  await selectNexaOption(stt.getByTestId('stt-provider-select'), 'openai');
+  await expectNexaValue(stt.locator('[data-nexa-select-trigger]').nth(1), 'gpt-transcribe');
+  await expect(stt.getByText('After recording', { exact: true })).toBeVisible();
+});
+
 test("settings discards a stale voice preview after synthesis settings change", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "AI Providers" }).click();

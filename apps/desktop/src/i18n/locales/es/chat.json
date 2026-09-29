@@ -772,5 +772,6 @@
   "agentPreparing": "Preparando sesión",
   "agentReusing": "Reanudando sesión del agente",
   "agentWaiting": "Esperando respuesta",
-  "resumeTask": "Reanudar tarea"
+  "resumeTask": "Reanudar tarea",
+  "speechInputLimit": "Esta respuesta tiene {actual} caracteres y supera el límite de Nexa de {limit} por solicitud de voz con {model}. Elige un modelo con un límite mayor en los ajustes de voz o una respuesta más corta."
 }

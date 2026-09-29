@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{SinkExt, StreamExt};
+use nexa_core::speech_to_text::transcription_language_hints as language_hints;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -58,7 +59,9 @@ impl RealtimeDialect {
             "openai_realtime_transcription" if config.model.trim() == "gpt-live-transcribe" => {
                 Ok(Self::OpenAi)
             }
-            "dashscope_realtime_asr" if config.model.trim() == "qwen3-asr-flash-realtime" => {
+            "dashscope_realtime_asr"
+                if nexa_core::dashscope_speech::is_realtime_asr_model(&config.model) =>
+            {
                 Ok(Self::DashScope)
             }
             "dashscope_streaming_asr"
@@ -169,18 +172,6 @@ fn build_realtime_endpoint(base_url: &str, model: &str) -> Result<String, String
     url.set_query(None);
     url.query_pairs_mut().append_pair("model", model.trim());
     Ok(url.to_string())
-}
-
-fn language_hints(language: Option<&str>) -> Vec<String> {
-    language
-        .unwrap_or_default()
-        .split(|character: char| {
-            character == ',' || character == ';' || character == '/' || character.is_whitespace()
-        })
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("auto"))
-        .map(ToOwned::to_owned)
-        .collect()
 }
 
 fn build_session_update(
@@ -1334,6 +1325,13 @@ mod tests {
             RealtimeDialect::from_config(&config),
             Ok(RealtimeDialect::DashScope)
         );
+        config.model = "qwen3-asr-flash-realtime-2026-02-10".into();
+        assert_eq!(
+            RealtimeDialect::from_config(&config),
+            Ok(RealtimeDialect::DashScope)
+        );
+        config.model = "qwen3-asr-flash-realtime-2099-01-01".into();
+        assert!(RealtimeDialect::from_config(&config).is_err());
     }
 
     #[test]

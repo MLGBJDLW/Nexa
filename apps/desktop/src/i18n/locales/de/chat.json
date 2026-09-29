@@ -772,5 +772,6 @@
   "agentPreparing": "Sitzung wird vorbereitet",
   "agentReusing": "Agent-Sitzung wird fortgesetzt",
   "agentWaiting": "Antwort wird erwartet",
-  "resumeTask": "Aufgabe fortsetzen"
+  "resumeTask": "Aufgabe fortsetzen",
+  "speechInputLimit": "Diese Antwort enthält {actual} Zeichen und überschreitet Nexas Limit von {limit} Zeichen pro Sprachanfrage mit {model}. Wählen Sie in den Spracheinstellungen ein Modell mit höherem Limit oder eine kürzere Antwort."
 }

@@ -772,5 +772,6 @@
   "agentPreparing": "Preparing session",
   "agentReusing": "Resuming agent session",
   "agentWaiting": "Waiting for response",
-  "resumeTask": "Resume task"
+  "resumeTask": "Resume task",
+  "speechInputLimit": "This reply has {actual} characters, exceeding Nexa's {limit}-character limit per speech request with {model}. Choose a model with a larger limit in Speech settings or read a shorter reply."
 }

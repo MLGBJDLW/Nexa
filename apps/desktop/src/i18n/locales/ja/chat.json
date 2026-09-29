@@ -772,5 +772,6 @@
   "agentPreparing": "セッションを準備中",
   "agentReusing": "エージェントのセッションを再利用中",
   "agentWaiting": "応答を待機中",
-  "resumeTask": "タスクを再開"
+  "resumeTask": "タスクを再開",
+  "speechInputLimit": "この返信は {actual} 文字で、Nexa で {model} を使う場合の1回の読み上げ上限（{limit} 文字）を超えています。音声設定で上限の大きいモデルを選ぶか、短い返信を読み上げてください。"
 }

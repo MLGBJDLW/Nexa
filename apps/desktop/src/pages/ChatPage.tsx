@@ -629,7 +629,7 @@ export function ChatPage() {
   }, [chat.taskRun?.status, chat.taskRun?.updatedAt]);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [autoSpeechSaving, setAutoSpeechSaving] = useState(false);
-  const { speakMessage, stop: stopSpeech } = useSpeechPlayback();
+  const { state: speechPlaybackState, speakMessage, stop: stopSpeech } = useSpeechPlayback();
   const finalSpeechCandidateRef = useRef<{ conversationId: string; text: string } | null>(null);
   const autoSpeechRunRef = useRef<{
     conversationId: string;
@@ -637,6 +637,17 @@ export function ChatPage() {
     existingAssistantIds: Set<string>;
   } | null>(null);
   const autoSpeechEnabled = appConfig?.textToSpeech?.autoSpeakFinalAnswers === true;
+  useEffect(() => {
+    if (speechPlaybackState.status === 'error'
+      && speechPlaybackState.inputLimit
+      && speechPlaybackState.messageId === `auto:${chat.activeId}`) {
+      const toastId = `speech-input-limit:${chat.activeId}`;
+      toast.error(t('chat.speechInputLimit', speechPlaybackState.inputLimit), {
+        id: toastId,
+      });
+      return () => { toast.dismiss(toastId); };
+    }
+  }, [chat.activeId, speechPlaybackState, t]);
 
   useEffect(() => {
     let cancelled = false;

@@ -772,5 +772,6 @@
   "agentPreparing": "세션 준비 중",
   "agentReusing": "에이전트 세션 재사용 중",
   "agentWaiting": "응답 대기 중",
-  "resumeTask": "작업 재개"
+  "resumeTask": "작업 재개",
+  "speechInputLimit": "이 답변은 {actual}자로 Nexa에서 {model}을 사용할 때의 요청당 음성 변환 제한인 {limit}자를 초과합니다. 음성 설정에서 제한이 더 큰 모델을 선택하거나 더 짧은 답변을 읽어 주세요."
 }

@@ -309,7 +309,7 @@ impl SpeechToTextConfig {
                         .is_some_and(|value| !value.trim().is_empty())
             }
             "dashscope_realtime_asr" => {
-                self.model.trim() == "qwen3-asr-flash-realtime"
+                crate::dashscope_speech::is_realtime_asr_model(&self.model)
                     && !self.api_key.trim().is_empty()
                     && self
                         .base_url
@@ -1010,7 +1010,7 @@ fn default_stt_base_url_option() -> Option<String> {
     None
 }
 fn default_stt_model() -> String {
-    "whisper-1".to_string()
+    "whisper-local".to_string()
 }
 fn default_stt_sherpa_model_family() -> String {
     "sense_voice".to_string()
@@ -1496,6 +1496,7 @@ mod tests {
     fn speech_to_text_configuration_covers_local_cloud_realtime_and_sherpa() {
         let local = SpeechToTextConfig::default();
         assert_eq!(local.api_style, "local_whisper");
+        assert_eq!(local.model, "whisper-local");
         assert!(local.is_configured());
 
         let mut cloud = SpeechToTextConfig {
@@ -1525,6 +1526,11 @@ mod tests {
             ..SpeechToTextConfig::default()
         };
         assert!(dashscope_realtime.is_configured());
+        assert!(SpeechToTextConfig {
+            model: "qwen3-asr-flash-realtime-2026-02-10".into(),
+            ..dashscope_realtime.clone()
+        }
+        .is_configured());
         assert!(!SpeechToTextConfig {
             model: "qwen3-asr-flash".to_string(),
             ..dashscope_realtime

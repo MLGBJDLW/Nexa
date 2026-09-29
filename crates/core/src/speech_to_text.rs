@@ -275,26 +275,99 @@ fn pcm16_wav_header(
     Ok(header)
 }
 
+/// The multipart dialect is model-specific, even on /audio/transcriptions.
+/// Private compatible servers retain the legacy fields unless the caller
+/// selected a provider with a verified alternative request contract.
+fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, String)> {
+    let model = config.model.trim();
+    let mut fields = vec![("model", model.to_string())];
+    let gpt_transcribe = config.provider == "open_ai"
+        && model == "gpt-transcribe"
+        && is_official_transcription_endpoint(config, "api.openai.com");
+    if config.provider == "siliconflow"
+        && is_official_transcription_endpoint(config, "api.siliconflow.cn")
+    {
+        return fields;
+    }
+    // GPT Transcribe defaults to JSON; do not assume that its supported
+    // response_format set is identical to the older GPT-4o models.
+    if !gpt_transcribe {
+        fields.push(("response_format", "json".to_string()));
+    }
+    if let Some(language) = config
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("auto"))
+    {
+        if gpt_transcribe {
+            for hint in transcription_language_hints(Some(language)) {
+                fields.push(("languages[]", hint));
+            }
+        } else {
+            fields.push(("language", language.to_string()));
+        }
+    }
+    fields
+}
+
+fn is_official_transcription_endpoint(config: &SpeechToTextConfig, host: &str) -> bool {
+    let Some(base) = config.base_url.as_deref() else {
+        return false;
+    };
+    let Ok(url) = reqwest::Url::parse(base.trim()) else {
+        return false;
+    };
+    config.api_style == "openai_transcription"
+        && url.scheme() == "https"
+        && url.host_str() == Some(host)
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(
+            url.path().trim_end_matches('/'),
+            "/v1" | "/v1/audio/transcriptions"
+        )
+}
+
+pub fn transcription_language_hints(language: Option<&str>) -> Vec<String> {
+    let mut hints = Vec::new();
+    for hint in language
+        .unwrap_or_default()
+        .split(|character: char| {
+            character == ',' || character == ';' || character == '/' || character.is_whitespace()
+        })
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("auto"))
+    {
+        if !hints.iter().any(|existing| existing == hint) {
+            hints.push(hint.to_string());
+        }
+    }
+    hints
+}
+
 async fn transcribe_openai_compatible_wav(
     audio_data: Vec<u8>,
     config: &SpeechToTextConfig,
 ) -> Result<String, CoreError> {
     let endpoint = transcription_endpoint(config.base_url.as_deref().unwrap_or_default());
+    transcribe_openai_compatible_wav_at_endpoint(audio_data, config, &endpoint).await
+}
+
+async fn transcribe_openai_compatible_wav_at_endpoint(
+    audio_data: Vec<u8>,
+    config: &SpeechToTextConfig,
+    endpoint: &str,
+) -> Result<String, CoreError> {
     let file = reqwest::multipart::Part::bytes(audio_data)
         .file_name("voice.wav")
         .mime_str("audio/wav")
         .map_err(|error| CoreError::InvalidInput(format!("Invalid audio MIME type: {error}")))?;
-    let mut form = reqwest::multipart::Form::new()
-        .part("file", file)
-        .text("model", config.model.trim().to_string())
-        .text("response_format", "json".to_string());
-    if let Some(language) = config
-        .language
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
-        form = form.text("language", language.to_string());
+    let mut form = reqwest::multipart::Form::new().part("file", file);
+    for (name, value) in transcription_form_fields(config) {
+        form = form.text(name, value);
     }
 
     let response = async_client()
@@ -473,21 +546,21 @@ fn transcribe_openai_compatible_wav_blocking(
     config: &SpeechToTextConfig,
 ) -> Result<String, CoreError> {
     let endpoint = transcription_endpoint(config.base_url.as_deref().unwrap_or_default());
+    transcribe_openai_compatible_wav_blocking_at_endpoint(audio_data, config, &endpoint)
+}
+
+fn transcribe_openai_compatible_wav_blocking_at_endpoint(
+    audio_data: &[u8],
+    config: &SpeechToTextConfig,
+    endpoint: &str,
+) -> Result<String, CoreError> {
     let file = reqwest::blocking::multipart::Part::bytes(audio_data.to_vec())
         .file_name("media-chunk.wav")
         .mime_str("audio/wav")
         .map_err(|error| CoreError::InvalidInput(format!("Invalid audio MIME type: {error}")))?;
-    let mut form = reqwest::blocking::multipart::Form::new()
-        .part("file", file)
-        .text("model", config.model.trim().to_string())
-        .text("response_format", "json".to_string());
-    if let Some(language) = config
-        .language
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        form = form.text("language", language.to_string());
+    let mut form = reqwest::blocking::multipart::Form::new().part("file", file);
+    for (name, value) in transcription_form_fields(config) {
+        form = form.text(name, value);
     }
     let response = blocking_client()
         .post(endpoint)
@@ -707,3 +780,7 @@ mod tests {
 #[cfg(test)]
 #[path = "speech_to_text_dashscope_tests.rs"]
 mod dashscope_tests;
+
+#[cfg(test)]
+#[path = "speech_to_text_provider_tests.rs"]
+mod provider_tests;

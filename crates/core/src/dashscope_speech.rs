@@ -54,6 +54,13 @@ pub fn is_streaming_asr_model(model: &str) -> bool {
     )
 }
 
+pub fn is_realtime_asr_model(model: &str) -> bool {
+    matches!(
+        model.trim(),
+        "qwen3-asr-flash-realtime" | "qwen3-asr-flash-realtime-2026-02-10"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

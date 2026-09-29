@@ -8,10 +8,12 @@
     "local": true,
     "baseUrl": "",
     "description": "Existing private Candle Whisper transcription. Works offline but is slower to initialize on CPU.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "localOffline", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "localOffline", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "whisper-local", "name": "Model selected under Video & Audio", "source": "curated", "productReadiness": "known", "recommended": true }
-    ]
+      {"id": "whisper-local", "name": "Model selected under Video & Audio", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://github.com/huggingface/candle/blob/main/candle-examples/examples/whisper/main.rs"]
   },
   {
     "id": "openai",
@@ -20,13 +22,16 @@
     "apiStyle": "openai_transcription",
     "requiresApiKey": true,
     "baseUrl": "https://api.openai.com/v1",
-    "description": "Hosted GPT-4o transcription with strong multilingual accuracy and fast short-form dictation.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "description": "GPT Transcribe for completed recordings. Older GPT-4o and Whisper API models remain supported until their scheduled shutdown on 2027-02-26; live microphone deltas use the separate Live preset.",
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "gpt-4o-mini-transcribe", "name": "GPT-4o Mini Transcribe (Fast)", "source": "curated", "productReadiness": "known", "recommended": true },
-      { "id": "gpt-4o-transcribe", "name": "GPT-4o Transcribe" },
-      { "id": "whisper-1", "name": "Whisper-1" }
-    ]
+      {"id": "gpt-transcribe", "name": "GPT Transcribe", "recommended": true, "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
+      {"id": "gpt-4o-mini-transcribe", "name": "GPT-4o Mini Transcribe (Deprecated)", "source": "official", "productReadiness": "known", "recommended": false, "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "lastVerifiedAt": "2026-09-29"},
+      {"id": "gpt-4o-transcribe", "name": "GPT-4o Transcribe (Deprecated)", "recommended": false, "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
+      {"id": "whisper-1", "name": "Whisper-1 (Deprecated)", "recommended": false, "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://developers.openai.com/api/docs/guides/speech-to-text", "https://developers.openai.com/api/docs/deprecations"]
   },
   {
     "id": "openai-live",
@@ -36,10 +41,12 @@
     "requiresApiKey": true,
     "baseUrl": "https://api.openai.com/v1",
     "description": "Streams 24 kHz PCM microphone audio over a Realtime session and returns transcript deltas while you speak.",
-    "transcription": { "audioInput": "chunkStream", "transcriptDelivery": "interimAndFinal", "interimSemantics": "appendDelta", "finalization": "clientCommit", "transport": "websocket", "sampleRateHz": 24000, "engineStreamingCapable": true },
+    "transcription": {"audioInput": "chunkStream", "transcriptDelivery": "interimAndFinal", "interimSemantics": "appendDelta", "finalization": "clientCommit", "transport": "websocket", "sampleRateHz": 24000, "engineStreamingCapable": true},
     "models": [
-      { "id": "gpt-live-transcribe", "name": "GPT Live Transcribe", "source": "curated", "productReadiness": "known", "recommended": true }
-    ]
+      {"id": "gpt-live-transcribe", "name": "GPT Live Transcribe", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://developers.openai.com/api/docs/guides/realtime-transcription"]
   },
   {
     "id": "groq",
@@ -49,11 +56,13 @@
     "requiresApiKey": true,
     "baseUrl": "https://api.groq.com/openai/v1",
     "description": "OpenAI-compatible, very low-latency multilingual Whisper inference.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "whisper-large-v3-turbo", "name": "Whisper Large V3 Turbo (Fast)", "source": "curated", "productReadiness": "known", "recommended": true },
-      { "id": "whisper-large-v3", "name": "Whisper Large V3 (Accurate)" }
-    ]
+      {"id": "whisper-large-v3-turbo", "name": "Whisper Large V3 Turbo (Fast)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
+      {"id": "whisper-large-v3", "name": "Whisper Large V3 (Accurate)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://console.groq.com/docs/speech-to-text"]
   },
   {
     "id": "alibaba-qwen-audio-streaming",
@@ -63,37 +72,14 @@
     "requiresApiKey": true,
     "baseUrl": "https://dashscope.aliyuncs.com/api-ws/v1/inference",
     "description": "Live multilingual Qwen Audio recognition with sentence snapshots and task completion.",
-    "transcription": {
-      "audioInput": "chunkStream",
-      "transcriptDelivery": "interimAndFinal",
-      "interimSemantics": "replaceSnapshot",
-      "finalization": "taskFinish",
-      "transport": "websocket",
-      "sampleRateHz": 16000,
-      "engineStreamingCapable": true
-    },
+    "transcription": {"audioInput": "chunkStream", "transcriptDelivery": "interimAndFinal", "interimSemantics": "replaceSnapshot", "finalization": "taskFinish", "transport": "websocket", "sampleRateHz": 16000, "engineStreamingCapable": true},
     "models": [
-      {
-        "id": "qwen-audio-3.1-asr-flash-streaming",
-        "name": "Qwen Audio 3.1 ASR Flash Streaming",
-        "source": "curated",
-        "productReadiness": "product_ready",
-        "recommended": true
-      },
-      {
-        "id": "qwen-audio-3.0-asr-flash-streaming",
-        "name": "Qwen Audio 3.0 ASR Flash Streaming",
-        "source": "curated",
-        "productReadiness": "known",
-        "recommended": false
-      },
-      {
-        "id": "qwen-audio-3.1-asr-flash-message",
-        "name": "Qwen Audio 3.1 ASR Flash Message",
-        "source": "curated",
-        "productReadiness": "known"
-      }
-    ]
+      {"id": "qwen-audio-3.1-asr-flash-streaming", "name": "Qwen Audio 3.1 ASR Flash Streaming", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
+      {"id": "qwen-audio-3.0-asr-flash-streaming", "name": "Qwen Audio 3.0 ASR Flash Streaming", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-09-29"},
+      {"id": "qwen-audio-3.1-asr-flash-message", "name": "Qwen Audio 3.1 ASR Flash Message", "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://help.aliyun.com/en/model-studio/real-time-speech-recognition-user-guide", "https://help.aliyun.com/en/model-studio/qwen-audio-3-1-asr-flash-message"]
   },
   {
     "id": "alibaba-qwen-audio",
@@ -103,31 +89,13 @@
     "requiresApiKey": true,
     "baseUrl": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
     "description": "Qwen Audio recording transcription over HTTP. Managed recordings are split into bounded audio segments.",
-    "transcription": {
-      "audioInput": "completeFile",
-      "transcriptDelivery": "finalOnly",
-      "interimSemantics": "none",
-      "finalization": "endOfFile",
-      "transport": "httpJson",
-      "sampleRateHz": 16000,
-      "engineStreamingCapable": true
-    },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpJson", "sampleRateHz": 16000, "engineStreamingCapable": true},
     "models": [
-      {
-        "id": "qwen-audio-3.1-asr-flash",
-        "name": "Qwen Audio 3.1 ASR Flash",
-        "source": "curated",
-        "productReadiness": "product_ready",
-        "recommended": true
-      },
-      {
-        "id": "qwen-audio-3.0-asr-flash",
-        "name": "Qwen Audio 3.0 ASR Flash",
-        "source": "curated",
-        "productReadiness": "known",
-        "recommended": false
-      }
-    ]
+      {"id": "qwen-audio-3.1-asr-flash", "name": "Qwen Audio 3.1 ASR Flash", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
+      {"id": "qwen-audio-3.0-asr-flash", "name": "Qwen Audio 3.0 ASR Flash", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://docs.modelstudio.console.alibabacloud.com/en/model-studio/asr-model"]
   },
   {
     "id": "alibaba-qwen-asr",
@@ -137,10 +105,13 @@
     "requiresApiKey": true,
     "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "description": "Final-only Qwen3-ASR-Flash recognition through Alibaba Cloud Model Studio. This HTTP model waits for a complete recording; choose Qwen Realtime for live text.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpJson", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpJson", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "qwen3-asr-flash", "name": "Qwen3 ASR Flash", "source": "curated", "productReadiness": "known", "recommended": true }
-    ]
+      {"id": "qwen3-asr-flash", "name": "Qwen3 ASR Flash", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
+      {"id": "qwen3-asr-flash-2026-02-10", "name": "Qwen3 ASR Flash (2026-02-10)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://docs.modelstudio.console.alibabacloud.com/en/model-studio/asr-model"]
   },
   {
     "id": "alibaba-qwen-realtime",
@@ -150,10 +121,13 @@
     "requiresApiKey": true,
     "baseUrl": "https://dashscope.aliyuncs.com/api-ws/v1",
     "description": "Native WebSocket transcription with replaceable live hypotheses while you speak. Uses 16 kHz mono PCM and a final session handshake.",
-    "transcription": { "audioInput": "chunkStream", "transcriptDelivery": "interimAndFinal", "interimSemantics": "replaceSnapshot", "finalization": "sessionFinish", "transport": "websocket", "sampleRateHz": 16000, "engineStreamingCapable": true },
+    "transcription": {"audioInput": "chunkStream", "transcriptDelivery": "interimAndFinal", "interimSemantics": "replaceSnapshot", "finalization": "sessionFinish", "transport": "websocket", "sampleRateHz": 16000, "engineStreamingCapable": true},
     "models": [
-      { "id": "qwen3-asr-flash-realtime", "name": "Qwen3 ASR Flash Realtime", "source": "curated", "productReadiness": "known", "recommended": true }
-    ]
+      {"id": "qwen3-asr-flash-realtime", "name": "Qwen3 ASR Flash Realtime", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
+      {"id": "qwen3-asr-flash-realtime-2026-02-10", "name": "Qwen3 ASR Flash Realtime (2026-02-10)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://help.aliyun.com/en/model-studio/real-time-speech-recognition-user-guide"]
   },
   {
     "id": "siliconflow",
@@ -163,11 +137,13 @@
     "requiresApiKey": true,
     "baseUrl": "https://api.siliconflow.cn/v1",
     "description": "OpenAI-compatible hosted transcription in China using SenseVoice or TeleSpeech ASR.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "FunAudioLLM/SenseVoiceSmall", "name": "SenseVoice Small", "source": "curated", "productReadiness": "known", "recommended": true },
-      { "id": "TeleAI/TeleSpeechASR", "name": "TeleSpeech ASR" }
-    ]
+      {"id": "FunAudioLLM/SenseVoiceSmall", "name": "SenseVoice Small", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
+      {"id": "TeleAI/TeleSpeechASR", "name": "TeleSpeech ASR", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://docs.siliconflow.cn/docs/api/audio-transcriptions-post"]
   },
   {
     "id": "sherpa-sense-voice",
@@ -179,10 +155,12 @@
     "baseUrl": "",
     "sherpaModelFamily": "sense_voice",
     "description": "Fast offline Chinese, English, Japanese, Korean, and Cantonese recognition with inverse text normalization.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "localOffline", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "localOffline", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "sense_voice", "name": "SenseVoice", "source": "curated", "productReadiness": "known", "recommended": true }
-    ]
+      {"id": "sense_voice", "name": "SenseVoice", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://github.com/k2-fsa/sherpa-onnx"]
   },
   {
     "id": "sherpa-zipformer",
@@ -194,10 +172,12 @@
     "baseUrl": "",
     "sherpaModelFamily": "zipformer",
     "description": "Zipformer models support online decoding, but Nexa's current external CLI integration is final-only. Live local partials require a managed OnlineRecognizer runtime.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "localOffline", "sampleRateHz": 16000, "engineStreamingCapable": true },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "localOffline", "sampleRateHz": 16000, "engineStreamingCapable": true},
     "models": [
-      { "id": "zipformer", "name": "Streaming Zipformer", "source": "curated", "productReadiness": "known", "recommended": true }
-    ]
+      {"id": "zipformer", "name": "Streaming Zipformer", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://github.com/k2-fsa/sherpa-onnx"]
   },
   {
     "id": "custom-openai",
@@ -207,9 +187,11 @@
     "requiresApiKey": true,
     "baseUrl": "",
     "description": "Any compatible /audio/transcriptions endpoint with an editable base URL and model ID.",
-    "transcription": { "audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false },
+    "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
-      { "id": "whisper-1", "name": "Custom model", "source": "curated", "productReadiness": "known", "recommended": false }
-    ]
+      {"id": "whisper-1", "name": "Custom model", "source": "curated", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-09-29"}
+    ],
+    "lastVerifiedAt": "2026-09-29",
+    "documentationUrls": ["https://developers.openai.com/api/docs/guides/speech-to-text"]
   }
 ]
