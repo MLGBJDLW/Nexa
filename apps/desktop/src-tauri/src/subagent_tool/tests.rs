@@ -861,11 +861,14 @@ async fn running_worker_owns_settlement_after_its_result_collector_is_aborted() 
     runtime.set_tool_registry(ToolRegistry::new());
     let registration = register_test_worker(&runtime, "independent-worker");
     let activity = registration.events.activity_runtime();
+    // Schema/registry migration is fixture setup, not the worker startup or
+    // cancellation behavior under test. Do not run it inside the timed task.
+    let db = Database::open_memory().unwrap();
     let worker_runtime = runtime.clone();
-    let collector = tokio::spawn(async move {
+    let mut collector = tokio::spawn(async move {
         run_registered_subagent_isolated(
             worker_runtime,
-            Database::open_memory().unwrap(),
+            db,
             vec![],
             "independent-worker".into(),
             None,
@@ -878,10 +881,38 @@ async fn running_worker_owns_settlement_after_its_result_collector_is_aborted() 
         )
         .await
     });
-    tokio::time::timeout(Duration::from_secs(10), seen_rx)
-        .await
-        .unwrap()
-        .unwrap();
+    // Cold provider/thread initialization competes with the full desktop test
+    // suite. Give setup its own allowance, but report an actual worker failure
+    // immediately instead of hiding it behind the request-observation timeout.
+    let startup = tokio::select! {
+        biased;
+        outcome = &mut collector => Err(format!(
+            "Worker exited before the fixture accepted its request: {outcome:?}"
+        )),
+        observed = tokio::time::timeout(Duration::from_secs(30), seen_rx) => match observed {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(format!("Request fixture closed before startup: {error}")),
+            Err(error) => Err(format!(
+                "Worker setup did not reach the fixture in 30s: {error}; lifecycle: {:?}",
+                runtime.lifecycle.snapshot("independent-worker"),
+            )),
+        },
+    };
+    if let Err(error) = startup {
+        runtime.cancel_token.cancel();
+        collector.abort();
+        server.abort();
+        panic!("{error}");
+    }
+    assert_eq!(
+        runtime
+            .lifecycle
+            .snapshot("independent-worker")
+            .unwrap()
+            .status,
+        SubagentLifecycleStatus::Running,
+        "the targeted abort must occur after worker startup"
+    );
     collector.abort();
     assert!(collector.await.unwrap_err().is_cancelled());
     release_tx.send(()).unwrap();
