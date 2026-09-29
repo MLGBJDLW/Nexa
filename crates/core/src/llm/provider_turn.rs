@@ -378,54 +378,116 @@ fn anthropic_paused_turn_blocks_are_replayable(blocks: &[serde_json::Value]) -> 
             block
                 .get("type")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|block_type| {
-                    block_type == "server_tool_use" || block_type.ends_with("_tool_result")
-                })
+                .is_some_and(|kind| kind == "server_tool_use" || kind.ends_with("_tool_result"))
         })
-        && blocks.iter().all(|block| {
-            let Some(block_type) = block.get("type").and_then(serde_json::Value::as_str) else {
-                return false;
-            };
-            match block_type {
-                "text" => block
-                    .get("text")
+        && blocks
+            .iter()
+            .all(|block| anthropic_content_block_is_replayable(block, false))
+}
+
+fn anthropic_content_block_is_replayable(
+    block: &serde_json::Value,
+    allow_client_tools: bool,
+) -> bool {
+    let Some(block_type) = block.get("type").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    match block_type {
+        "text" => block
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .is_some(),
+        "thinking" => {
+            block
+                .get("thinking")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+                && block
+                    .get("signature")
                     .and_then(serde_json::Value::as_str)
-                    .is_some(),
-                "thinking" => {
-                    block
-                        .get("thinking")
-                        .and_then(serde_json::Value::as_str)
-                        .is_some()
-                        && block
-                            .get("signature")
-                            .and_then(serde_json::Value::as_str)
-                            .is_some_and(|value| !value.trim().is_empty())
-                }
-                "redacted_thinking" => block
-                    .get("data")
+                    .is_some_and(|value| !value.trim().is_empty())
+        }
+        "redacted_thinking" => block
+            .get("data")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty()),
+        "tool_use" if allow_client_tools => {
+            block
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+                && block
+                    .get("name")
                     .and_then(serde_json::Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty()),
-                "server_tool_use" => {
-                    block
-                        .get("id")
-                        .and_then(serde_json::Value::as_str)
-                        .is_some_and(|value| !value.trim().is_empty())
-                        && block
-                            .get("name")
-                            .and_then(serde_json::Value::as_str)
-                            .is_some_and(|value| !value.trim().is_empty())
-                        && block.get("input").is_some()
-                }
-                result_type if result_type.ends_with("_tool_result") => {
-                    block
-                        .get("tool_use_id")
-                        .and_then(serde_json::Value::as_str)
-                        .is_some_and(|value| !value.trim().is_empty())
-                        && block.get("content").is_some()
-                }
-                _ => false,
-            }
-        })
+                    .is_some_and(|value| !value.is_empty())
+                && block.get("input").is_some_and(serde_json::Value::is_object)
+        }
+        "server_tool_use" => {
+            block
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+                && block
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|value| !value.trim().is_empty())
+                && block.get("input").is_some()
+        }
+        result_type if result_type.ends_with("_tool_result") => {
+            block
+                .get("tool_use_id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+                && block.get("content").is_some()
+        }
+        _ => false,
+    }
+}
+
+/// A complete native assistant turn, with the input prefix to which its
+/// thinking was bound. Text/tool ordering is part of the replay contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicAssistantReplay {
+    pub content: Vec<serde_json::Value>,
+    pub request_prefix: String,
+    pub paused: bool,
+}
+
+impl AnthropicAssistantReplay {
+    fn is_present(&self) -> bool {
+        if self.request_prefix.is_empty() || self.content.is_empty() {
+            return false;
+        }
+        if self.paused {
+            return anthropic_paused_turn_blocks_are_replayable(&self.content);
+        }
+        self.content
+            .iter()
+            .all(|block| anthropic_content_block_is_replayable(block, true))
+    }
+
+    fn authorizes_tool_calls(&self, calls: &[ToolCallRequest]) -> bool {
+        if !self.is_present() || (self.paused && !calls.is_empty()) {
+            return false;
+        }
+        let native: Vec<_> = self
+            .content
+            .iter()
+            .filter(|block| block["type"] == "tool_use")
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        native.len() == calls.len()
+            && native.iter().zip(calls).all(|(block, call)| {
+                seen.insert(call.id.as_str())
+                    && block["id"] == call.id
+                    && block["name"] == call.name
+                    && serde_json::from_str::<serde_json::Value>(&call.arguments)
+                        .ok()
+                        .as_ref()
+                        == block.get("input")
+            })
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -438,6 +500,7 @@ pub enum ProviderReplayPayload {
     /// Provider-owned tool-use/result blocks must be replayed verbatim to
     /// resume the same hosted-tool turn rather than starting a new one.
     AnthropicPausedTurnBlocks(Vec<serde_json::Value>),
+    AnthropicAssistantBlocks(AnthropicAssistantReplay),
     OpenAiResponseItems(ResponsesReplayPayload),
     GeminiThoughtSignatures(GeminiThoughtSignatureSet),
     OpenAiCompatibleReasoningContent {
@@ -458,6 +521,7 @@ impl ProviderReplayPayload {
             Self::AnthropicPausedTurnBlocks(blocks) => {
                 anthropic_paused_turn_blocks_are_replayable(blocks)
             }
+            Self::AnthropicAssistantBlocks(payload) => payload.is_present(),
             Self::OpenRouterReasoningDetails(details) => !details.is_empty(),
             Self::DeepSeekResponseItems(payload) => {
                 payload.is_structurally_complete(false) || payload.is_output_continuation(false)
@@ -483,7 +547,9 @@ impl ProviderReplayPayload {
     }
 
     pub fn resumes_provider_pause(&self) -> bool {
-        matches!(self, Self::AnthropicPausedTurnBlocks(_)) && self.is_present()
+        (matches!(self, Self::AnthropicPausedTurnBlocks(_))
+            || matches!(self, Self::AnthropicAssistantBlocks(payload) if payload.paused))
+            && self.is_present()
     }
 
     /// Stable identity for opaque provider state used by progress-aware
@@ -504,6 +570,7 @@ impl ProviderReplayPayload {
             }
             Self::OpenAiResponseItems(payload) => payload.authorizes_tool_calls(tool_calls, true),
             Self::AnthropicPausedTurnBlocks(_) => tool_calls.is_empty() && self.is_present(),
+            Self::AnthropicAssistantBlocks(payload) => payload.authorizes_tool_calls(tool_calls),
             Self::GeminiThoughtSignatures(payload) => payload.authorizes_tool_calls(
                 tool_calls,
                 route
@@ -605,6 +672,7 @@ pub enum ProviderReplayItem {
     DeepSeekResponseItem(serde_json::Value),
     AnthropicThinkingBlock(AnthropicThinkingBlock),
     AnthropicPausedTurnBlock(serde_json::Value),
+    AnthropicAssistantBlock(serde_json::Value),
     OpenAiResponseItem(serde_json::Value),
     GeminiContentPart(serde_json::Value),
     OpenAiCompatibleReasoningContent {
@@ -629,6 +697,12 @@ impl ProviderReplayItem {
                 .iter()
                 .cloned()
                 .map(Self::AnthropicPausedTurnBlock)
+                .collect(),
+            ProviderReplayPayload::AnthropicAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .cloned()
+                .map(Self::AnthropicAssistantBlock)
                 .collect(),
             ProviderReplayPayload::DeepSeekResponseItems(payload) => payload
                 .items
@@ -787,6 +861,12 @@ impl ProviderTurnEnvelope {
             crate::tool_argument_projection::is_sensitive_computer_control_name(&call.name)
         });
         let payload_sensitive = match &self.replay_payload {
+            ProviderReplayPayload::AnthropicAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .filter(|block| block["type"] == "tool_use")
+                .filter_map(|block| block["name"].as_str())
+                .any(crate::tool_argument_projection::is_sensitive_computer_control_name),
             ProviderReplayPayload::DeepSeekResponseItems(payload)
             | ProviderReplayPayload::OpenAiResponseItems(payload) => {
                 payload.items.iter().any(|item| {
@@ -821,6 +901,17 @@ impl ProviderTurnEnvelope {
             )
         });
         let payload_sensitive = match &self.replay_payload {
+            ProviderReplayPayload::AnthropicAssistantBlocks(payload) => {
+                payload.content.iter().any(|block| {
+                    block["type"] == "tool_use"
+                        && block["name"].as_str().is_some_and(|name| {
+                            crate::tool_argument_projection::tool_arguments_contain_sensitive_input(
+                                name,
+                                block.get("input").unwrap_or(&serde_json::Value::Null),
+                            )
+                        })
+                })
+            }
             ProviderReplayPayload::DeepSeekResponseItems(payload)
             | ProviderReplayPayload::OpenAiResponseItems(payload) => {
                 payload.items.iter().any(|item| {

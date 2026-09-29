@@ -48,6 +48,34 @@ an independent model inventory.
 For output continuation, accepted-route replay, context management, and explicit
 worker budgets, see [Orchestration runtime](ORCHESTRATION_RUNTIME.md).
 
+## Claude Sonnet 5.5
+
+Verified on September 29, 2026: Anthropic `claude-sonnet-5-5` and OpenRouter
+`anthropic/claude-sonnet-5.5` have a 1M context window, a 128K output ceiling,
+and five effort levels: low, medium, high, xhigh, max (API default: high).
+OpenRouter's `~anthropic/claude-sonnet-latest` currently resolves to 5.5.
+These catalog facts do not assert availability for a particular credential.
+
+The native API uses adaptive thinking. Turning off **up-front thinking** selects
+`between_tools`, which still returns signed progress between tool calls; it is
+not a fully disabled thinking mode. Nexa uses high or a supported lower effort
+for this mode and does not send removed manual-budget fields. OpenRouter exposes
+always-on reasoning through its normalized effort contract. Subscription and ACP
+agents continue to obtain model availability from their own runtimes.
+
+Native assistant blocks, including empty signed thinking, retain their original
+order in backend replay state. Adaptive requests opt into dropping thinking
+invalidated by a changed prompt. For `between_tools`, which does not accept that
+option, Nexa checks saved prompt fingerprints and removes affected thinking from
+the first changed prefix onward, preserving text and completed tool exchanges.
+The fingerprints are computed in a linear pass and exclude only protocol cache
+hints. Sensitive interaction turns keep the existing non-replayable persistence
+boundary. OpenRouter reasoning details remain gateway-native.
+
+Sources: [Anthropic overview](https://platform.claude.com/docs/en/models/sonnet-5-5/overview),
+[migration guide](https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide),
+and [OpenRouter model](https://openrouter.ai/anthropic/claude-sonnet-5.5).
+
 ## Model retirement
 
 Confirmed retirements are endpoint-scoped tombstones in the shared catalog.

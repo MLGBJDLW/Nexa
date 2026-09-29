@@ -1345,6 +1345,47 @@ test("settings uses the MiniMax logo for its OpenAI-compatible preset", async ({
   await expect(minimaxGlyph).not.toHaveAttribute("style", /provider-icons\/openai\.svg/);
 });
 
+test("Claude Sonnet 5.5 settings persist native thinking modes and isolate OpenRouter controls", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByTitle('Edit').first().click();
+  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
+  await selectNexaOption(model, 'claude-sonnet-5-5');
+  const upfront = page.getByRole('checkbox', { name: 'Enable up-front thinking' });
+  await expect(upfront).toBeChecked();
+  const effort = page.locator('label').filter({ hasText: 'Reasoning Effort' })
+    .locator('xpath=..').locator('[data-nexa-select-trigger]');
+  await expectNexaValue(effort, 'high');
+  await expectNexaOptions(effort, ['Low', 'Medium', 'High', 'Extra High', 'Max']);
+  await expectNexaOptionCount(effort, 5);
+  await expect(page.locator('label').filter({ hasText: 'Thinking Budget' })).toHaveCount(0);
+  await selectNexaOption(effort, 'max');
+  await upfront.uncheck();
+  await expect(page.getByText('Between-tool thinking only', { exact: true })).toBeVisible();
+  const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({
+    model: 'claude-sonnet-5-5', reasoningEnabled: false, thinkingBudget: null, reasoningEffort: null,
+  });
+
+  await page.getByRole('button', { name: 'Add Provider' }).click();
+  await page.getByRole('button', { name: /^OpenRouter/ }).click();
+  await selectNexaOption(model, 'anthropic/claude-sonnet-5.5');
+  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
+  const always = page.getByRole('checkbox', { name: 'Reasoning is always on for this model.' });
+  await expect(always).toBeChecked();
+  await expect(always).toBeDisabled();
+  // A valid effort from the previous model is retained until explicitly changed.
+  await selectNexaOption(effort, 'high');
+  await expectNexaValue(effort, 'high');
+  await expectNexaOptionCount(effort, 5);
+  await selectNexaOption(model, '~anthropic/claude-sonnet-latest');
+  await expect(always).toBeDisabled();
+  await expectNexaOptionCount(effort, 5);
+  await expect(page.getByRole('checkbox', { name: 'Enable up-front thinking' })).toHaveCount(0);
+});
+
 test("settings exposes Meta Model API with Muse Spark 1.3 as its verified default", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "AI Providers" }).click();

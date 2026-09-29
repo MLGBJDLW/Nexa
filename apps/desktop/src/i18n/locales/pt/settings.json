@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "Sessão criada e modelos carregados. A inferência ainda não foi testada."
   ,"externalAgentProbe": "Verificar conexão"
   ,"externalAgentControls": "As ferramentas e configurações de execução são gerenciadas pelo agente externo."
+  ,"reasoningBetweenTools": "Pensar apenas entre chamadas de ferramentas"
+  ,"enableUpfrontThinking": "Ativar raciocínio prévio"
 }

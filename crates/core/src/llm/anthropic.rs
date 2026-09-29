@@ -24,6 +24,9 @@ use crate::conversation::memory::estimate_tokens;
 use crate::error::CoreError;
 use std::sync::Arc;
 
+#[path = "anthropic_sonnet55.rs"]
+mod sonnet55;
+
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
@@ -100,6 +103,8 @@ struct AnthropicRequest {
 struct AnthropicMessage {
     role: String,
     content: AnthropicContent,
+    #[serde(skip)]
+    replay_prefix: Option<String>,
 }
 
 /// Anthropic content can be a plain string or an array of content blocks.
@@ -397,8 +402,16 @@ fn replayable_anthropic_thinking_blocks(
         .unwrap_or_default()
 }
 
-fn replayable_anthropic_paused_turn_blocks(message: &Message) -> Option<Vec<serde_json::Value>> {
+fn replayable_anthropic_native_blocks(message: &Message) -> Option<Vec<serde_json::Value>> {
     let envelope = message.provider_turn()?;
+    if let super::provider_turn::ProviderReplayPayload::AnthropicAssistantBlocks(payload) =
+        &envelope.replay_payload
+    {
+        return envelope
+            .replay_payload
+            .is_present()
+            .then(|| payload.content.clone());
+    }
     let super::provider_turn::ProviderReplayPayload::AnthropicPausedTurnBlocks(blocks) =
         &envelope.replay_payload
     else {
@@ -441,6 +454,7 @@ fn convert_messages(
                         let mut message = AnthropicMessage {
                             role: "user".to_string(),
                             content: AnthropicContent::Text(text),
+                            replay_prefix: None,
                         };
                         if cache_boundary {
                             add_cache_control_to_message_content(&mut message);
@@ -474,6 +488,7 @@ fn convert_messages(
                     let mut message = AnthropicMessage {
                         role: "user".to_string(),
                         content: AnthropicContent::Blocks(blocks),
+                        replay_prefix: None,
                     };
                     if cache_boundary {
                         add_cache_control_to_message_content(&mut message);
@@ -483,6 +498,7 @@ fn convert_messages(
                     let mut message = AnthropicMessage {
                         role: "user".to_string(),
                         content: AnthropicContent::Text(msg.text_content()),
+                        replay_prefix: None,
                     };
                     if cache_boundary {
                         add_cache_control_to_message_content(&mut message);
@@ -491,10 +507,14 @@ fn convert_messages(
                 }
             }
             Role::Assistant => {
-                if let Some(blocks) = replayable_anthropic_paused_turn_blocks(msg) {
+                if let Some(blocks) = replayable_anthropic_native_blocks(msg) {
                     out.push(AnthropicMessage {
                         role: "assistant".to_string(),
                         content: AnthropicContent::RawBlocks(blocks),
+                        replay_prefix: msg.provider_turn().and_then(|turn| match &turn.replay_payload {
+                            super::provider_turn::ProviderReplayPayload::AnthropicAssistantBlocks(payload) => Some(payload.request_prefix.clone()),
+                            _ => None,
+                        }),
                     });
                 } else if let Some(ref calls) = msg.tool_calls {
                     // Build content blocks: text (if any) + tool_use blocks.
@@ -532,11 +552,13 @@ fn convert_messages(
                     out.push(AnthropicMessage {
                         role: "assistant".to_string(),
                         content: AnthropicContent::Blocks(blocks),
+                        replay_prefix: None,
                     });
                 } else {
                     out.push(AnthropicMessage {
                         role: "assistant".to_string(),
                         content: AnthropicContent::Text(msg.text_content()),
+                        replay_prefix: None,
                     });
                 }
             }
@@ -565,6 +587,7 @@ fn convert_messages(
                 if !appended {
                     out.push(AnthropicMessage {
                         role: "user".to_string(),
+                        replay_prefix: None,
                         content: AnthropicContent::Blocks(vec![
                             AnthropicContentBlock::ToolResult {
                                 tool_use_id: msg.name.clone().unwrap_or_default(),
@@ -717,6 +740,7 @@ fn uses_adaptive_thinking(model: &str) -> bool {
             | "claude-opus-5"
             | "claude-opus-5-5"
             | "claude-sonnet-5"
+            | "claude-sonnet-5-5"
             | "claude-opus-4-8"
             | "claude-opus-4-7"
     )
@@ -725,12 +749,14 @@ fn uses_adaptive_thinking(model: &str) -> bool {
 fn requires_thinking_binding_controls(model: &str) -> bool {
     matches!(
         model.trim().to_ascii_lowercase().as_str(),
-        "claude-fable-5-1" | "claude-mythos-5-1" | "claude-opus-5-5"
+        "claude-fable-5-1" | "claude-mythos-5-1" | "claude-opus-5-5" | "claude-sonnet-5-5"
     )
 }
 
 fn anthropic_beta_headers(model: &str) -> &'static str {
-    if requires_thinking_binding_controls(model) {
+    if sonnet55::is_model(model) {
+        "prompt-caching-2024-07-31,thinking-binding-controls-2026-08-01,thinking-display-updates-2026-08-18"
+    } else if requires_thinking_binding_controls(model) {
         "prompt-caching-2024-07-31,thinking-binding-controls-2026-08-01"
     } else {
         "prompt-caching-2024-07-31"
@@ -770,51 +796,73 @@ fn build_request_body(
     };
     // NOTE: Anthropic's API returns a clear error for models that don't support
     // thinking, so budget-based thinking is not model-gated (unlike Gemini).
-    let (thinking, output_config, temperature, effective_max_tokens) = if uses_adaptive {
-        let effort = if request.model == "claude-opus-5-5" && request.reasoning_effort.is_none() {
-            Some("medium".to_string())
-        } else {
-            anthropic_reasoning_effort(request.reasoning_effort.as_ref())
-        }
-        .or_else(|| always_thinking.then(|| "low".to_string()));
-        if let Some(effort) = effort {
+    let (thinking, output_config, temperature, effective_max_tokens) =
+        if sonnet55::between_tools(request) {
             (
                 Some(AnthropicThinking {
-                    r#type: "adaptive".to_string(),
+                    r#type: "between_tools".into(),
                     budget_tokens: None,
-                    // Nexa may compact history or update the tool surface. Let
-                    // Anthropic discard only invalidated thinking blocks while
-                    // retaining the messages and completed tool results.
-                    block_binding: binding_controls
-                        .then(|| serde_json::json!({"prefix_mismatch_behavior":"drop_block"})),
-                    display: (request.model == "claude-opus-5-5").then_some("summarized"),
+                    block_binding: None,
+                    display: None,
                 }),
-                Some(AnthropicOutputConfig { effort }),
+                Some(AnthropicOutputConfig {
+                    effort: anthropic_reasoning_effort(request.reasoning_effort.as_ref())
+                        .filter(|effort| matches!(effort.as_str(), "low" | "medium" | "high"))
+                        .unwrap_or_else(|| "high".into()),
+                }),
                 None,
                 request.max_tokens,
             )
+        } else if uses_adaptive {
+            let effort =
+                if request.model == "claude-opus-5-5" && request.reasoning_effort.is_none() {
+                    Some("medium".to_string())
+                } else {
+                    anthropic_reasoning_effort(request.reasoning_effort.as_ref())
+                }
+                .or_else(|| always_thinking.then(|| "low".to_string()));
+            if let Some(effort) = effort {
+                (
+                    Some(AnthropicThinking {
+                        r#type: "adaptive".to_string(),
+                        budget_tokens: None,
+                        // Nexa may compact history or update the tool surface. Let
+                        // Anthropic discard only invalidated thinking blocks while
+                        // retaining the messages and completed tool results.
+                        block_binding: binding_controls
+                            .then(|| serde_json::json!({"prefix_mismatch_behavior":"drop_block"})),
+                        display: if sonnet55::is_model(&request.model) {
+                            Some("updates")
+                        } else {
+                            (request.model == "claude-opus-5-5").then_some("summarized")
+                        },
+                    }),
+                    Some(AnthropicOutputConfig { effort }),
+                    None,
+                    request.max_tokens,
+                )
+            } else {
+                (None, None, temperature, request.max_tokens)
+            }
+        } else if let Some(budget) = request.thinking_budget {
+            // Anthropic requires budget_tokens >= 1024. Honor the selected sample
+            // capacity instead of silently adding another fixed output allowance.
+            let budget = budget.max(1024);
+            let effective_max = request.max_tokens;
+            (
+                Some(AnthropicThinking {
+                    r#type: "enabled".to_string(),
+                    budget_tokens: Some(budget),
+                    block_binding: None,
+                    display: None,
+                }),
+                None,
+                None, // Anthropic requires temperature unset when thinking is enabled
+                effective_max,
+            )
         } else {
             (None, None, temperature, request.max_tokens)
-        }
-    } else if let Some(budget) = request.thinking_budget {
-        // Anthropic requires budget_tokens >= 1024. Honor the selected sample
-        // capacity instead of silently adding another fixed output allowance.
-        let budget = budget.max(1024);
-        let effective_max = request.max_tokens;
-        (
-            Some(AnthropicThinking {
-                r#type: "enabled".to_string(),
-                budget_tokens: Some(budget),
-                block_binding: None,
-                display: None,
-            }),
-            None,
-            None, // Anthropic requires temperature unset when thinking is enabled
-            effective_max,
-        )
-    } else {
-        (None, None, temperature, request.max_tokens)
-    };
+        };
 
     let anthropic_tools = request.tools.as_ref().map(|t| convert_tools(t, true));
     let tool_cache_breakpoints = anthropic_tools
@@ -834,7 +882,7 @@ fn build_request_body(
         _ => None,
     };
 
-    AnthropicRequest {
+    let mut body = AnthropicRequest {
         model: request.model.clone(),
         max_tokens: effective_max_tokens,
         system,
@@ -846,7 +894,9 @@ fn build_request_body(
         stream: if stream { Some(true) } else { None },
         thinking,
         output_config,
-    }
+    };
+    sonnet55::reconcile_between_tools(&mut body);
+    body
 }
 
 // ---------------------------------------------------------------------------
@@ -934,6 +984,7 @@ async fn parse_anthropic_stream(
     tx: mpsc::Sender<Result<AnthropicParsedStreamItem, CoreError>>,
     search_mode: super::native_search::SearchExecutionMode,
     stream_idle_timeout: Duration,
+    request_prefix: Option<String>,
 ) -> Result<(), CoreError> {
     let mut byte_stream = response.bytes_stream();
     let mut buffer = String::new();
@@ -954,6 +1005,7 @@ async fn parse_anthropic_stream(
     let mut tool_input_deltas = HashMap::<usize, String>::new();
     let mut pending_server_searches = HashMap::<String, serde_json::Value>::new();
     let mut seen_citation_urls = HashSet::<String>::new();
+    let mut synthesized_search_fallback = false;
 
     while let Some(chunk_result) = next_stream_item_with_idle_timeout(
         &mut byte_stream,
@@ -1248,6 +1300,7 @@ async fn parse_anthropic_stream(
                             .as_ref()
                             .is_some_and(FinishReason::allows_completed_client_tools)
                     {
+                        synthesized_search_fallback = true;
                         for (id, input) in drain_server_search_fallbacks(
                             &mut pending_server_searches,
                             search_mode,
@@ -1306,9 +1359,14 @@ async fn parse_anthropic_stream(
                             provider_raw: None,
                         }
                     });
-                    if let Some(replay) = anthropic_pause_replay_payload(
+                    if let Some(replay) = sonnet55::replay_payload(
                         finish.as_ref(),
                         replay_content_blocks.values().cloned().collect(),
+                        if synthesized_search_fallback {
+                            None
+                        } else {
+                            request_prefix.as_deref()
+                        },
                     ) {
                         if tx
                             .send(Ok(AnthropicParsedStreamItem::Replay(replay)))
@@ -2270,7 +2328,8 @@ impl LlmProvider for AnthropicProvider {
         );
         let mut snapshot =
             super::provider_turn::RouteSnapshot::from_profile_for_request(&profile, request);
-        if request.reasoning_enabled != Some(true)
+        if !sonnet55::is_model(&request.model)
+            && request.reasoning_enabled != Some(true)
             && request.reasoning_effort.is_none()
             && request.thinking_budget.is_none()
         {
@@ -2454,8 +2513,13 @@ impl LlmProvider for AnthropicProvider {
         };
         let citation_appendix = super::native_search::render_citation_appendix(&evidence);
 
+        let prefix = if should_drain_search_fallbacks {
+            None
+        } else {
+            sonnet55::request_prefix(&body)
+        };
         let provider_replay =
-            anthropic_pause_replay_payload(Some(&finish_reason), raw_content_blocks);
+            sonnet55::replay_payload(Some(&finish_reason), raw_content_blocks, prefix.as_deref());
 
         let estimated_thinking = if !thinking_parts.is_empty() {
             let thinking_text = thinking_parts.join("");
@@ -2507,6 +2571,7 @@ impl LlmProvider for AnthropicProvider {
         let (system, messages) = convert_messages(&request.messages);
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, true);
+        let request_prefix = sonnet55::request_prefix(&body);
         let body_bytes = serialized_json_body(&body, "Anthropic stream request")?;
 
         info!("Anthropic stream request to {url}, model={}", request.model);
@@ -2542,7 +2607,7 @@ impl LlmProvider for AnthropicProvider {
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_anthropic_stream(response, parser_tx, search_mode, stream_idle_timeout) => result,
+                result = parse_anthropic_stream(response, parser_tx, search_mode, stream_idle_timeout, request_prefix) => result,
             };
             if let Err(e) = result {
                 transport.record_transport_failure(&e);

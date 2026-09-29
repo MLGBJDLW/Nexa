@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "Sitzung erstellt und Modelle geladen. Inferenz wurde noch nicht getestet."
   ,"externalAgentProbe": "Verbindung prüfen"
   ,"externalAgentControls": "Werkzeuge und Laufzeiteinstellungen werden vom externen Agenten verwaltet."
+  ,"reasoningBetweenTools": "Nur zwischen Werkzeugaufrufen denken"
+  ,"enableUpfrontThinking": "Denken vor der Antwort aktivieren"
 }

@@ -81,6 +81,8 @@ pub struct ThinkingBudgetCapability {
 pub struct ReasoningCapability {
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled_mode: Option<String>,
     #[serde(default)]
     pub effort_levels: Vec<String>,
     #[serde(default)]

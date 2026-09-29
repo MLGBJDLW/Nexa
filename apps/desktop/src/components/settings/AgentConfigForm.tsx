@@ -59,6 +59,8 @@ import {
   defaultThinkingBudget,
   normalizeReasoningEffort,
   normalizeThinkingBudget,
+  reasoningOnLabelKey,
+  reasoningOffLabelKey,
 } from "../../lib/reasoningControls";
 import { CatalogModelPicker } from "./CatalogModelPicker";
 import { subagentDefaults } from "../../lib/subagentDefaults";
@@ -619,6 +621,12 @@ export function AgentConfigForm({
     }
 
     if (reasoningAlwaysOn && reasoningEnabled !== true) {
+      setReasoningEnabled(true);
+      return;
+    }
+
+    // Sonnet 5.5 defaults to adaptive thinking even when no override was saved.
+    if (reasoningCapability?.disabledMode === 'between_tools' && reasoningEnabled === null) {
       setReasoningEnabled(true);
       return;
     }
@@ -1226,9 +1234,12 @@ export function AgentConfigForm({
             className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
           />
           <span className="text-sm text-text-primary">
-            {t(reasoningAlwaysOn ? "settings.reasoningAlwaysOn" : "settings.enableReasoning")}
+            {t(reasoningAlwaysOn ? "settings.reasoningAlwaysOn" : reasoningOnLabelKey(reasoningCapability))}
           </span>
         </label>
+        {reasoningCapability?.disabledMode === 'between_tools' && reasoningEnabled === false && (
+          <p className="text-xs text-text-tertiary">{t(reasoningOffLabelKey(reasoningCapability))}</p>
+        )}
         {!supportsReasoning && (
           <p className="text-xs text-text-tertiary">
             {t("settings.reasoningUnsupported")}

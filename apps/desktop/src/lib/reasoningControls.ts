@@ -3,6 +3,14 @@ import type {
   ReasoningEffortLevel,
 } from './providerPresets';
 
+export function reasoningOffLabelKey(capability: Pick<ReasoningCapability, 'disabledMode'> | null | undefined) {
+  return capability?.disabledMode === 'between_tools' ? 'settings.reasoningBetweenTools' : 'settings.reasoningNone';
+}
+
+export function reasoningOnLabelKey(capability: Pick<ReasoningCapability, 'disabledMode'> | null | undefined) {
+  return capability?.disabledMode === 'between_tools' ? 'settings.enableUpfrontThinking' : 'settings.enableReasoning';
+}
+
 export function defaultReasoningEffort(
   capability: ReasoningCapability | null,
 ): ReasoningEffortLevel | null {
