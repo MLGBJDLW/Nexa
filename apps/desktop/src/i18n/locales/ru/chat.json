@@ -604,6 +604,8 @@
   "mermaidFailed": "Could not render this Mermaid diagram. The source is shown below.",
   "subagentStatusRunning": "Running",
   "subagentStatusInterrupted": "Прервано перезапуском",
+  "subagentStatusUnverified": "Статус не подтверждён",
+  "subagentUnverifiedHint": "Основной запуск завершён. Агент может ещё работать; проверьте его результат.",
   "subagentStatusNeedsAttention": "Needs attention",
   "subagentStatusComplete": "Complete",
   "subagentInProgress": "Delegated work is in progress.",

@@ -604,6 +604,8 @@
   "mermaidFailed": "Could not render this Mermaid diagram. The source is shown below.",
   "subagentStatusRunning": "Running",
   "subagentStatusInterrupted": "Interrumpido por reinicio",
+  "subagentStatusUnverified": "Estado sin confirmar",
+  "subagentUnverifiedHint": "La ejecución principal ha terminado. Este agente puede seguir trabajando; confirma su resultado.",
   "subagentStatusNeedsAttention": "Needs attention",
   "subagentStatusComplete": "Complete",
   "subagentInProgress": "Delegated work is in progress.",

@@ -89,7 +89,17 @@ enum SubagentLifecycleAction {
 struct DelegationBatchState {
     expected_workers: usize,
     results: BTreeMap<usize, SubagentRunArtifact>,
+    completion_order: Vec<usize>,
     cancel_tokens: Vec<CancellationToken>,
+    changed: Arc<tokio::sync::Notify>,
+}
+
+struct DelegationBatchSnapshot {
+    expected_workers: usize,
+    completed_workers: usize,
+    cursor: u64,
+    reset: bool,
+    runs: Vec<SubagentRunArtifact>,
 }
 
 struct WorkerHandleOwner {
@@ -118,12 +128,10 @@ pub struct DelegationRuntime {
     skill_index: Arc<OnceLock<SkillIndexSnapshot>>,
     context_snapshots: Arc<StdMutex<HashMap<String, Arc<DelegationContextSnapshot>>>>,
     batches: Arc<StdMutex<HashMap<String, DelegationBatchState>>>,
-    batch_notify: Arc<tokio::sync::Notify>,
     lifecycle: SubagentLifecycleRuntime,
     worker_handles: Arc<WorkerHandleOwner>,
     budget: SubagentBudgetController,
     cancel_token: CancellationToken,
-    delegation_depth: u8,
     requires_explicit_route: bool,
 }
 
@@ -231,12 +239,10 @@ impl DelegationRuntime {
             skill_index: Arc::new(OnceLock::new()),
             context_snapshots: Arc::new(StdMutex::new(HashMap::new())),
             batches: Arc::new(StdMutex::new(HashMap::new())),
-            batch_notify: Arc::new(tokio::sync::Notify::new()),
             lifecycle,
             worker_handles,
             budget,
             cancel_token,
-            delegation_depth: 0,
             requires_explicit_route: false,
         }
     }
@@ -272,29 +278,6 @@ impl DelegationRuntime {
             })
     }
 
-    fn spawn_child_runtime(&self, cancel_token: CancellationToken) -> Self {
-        Self {
-            provider_config: self.provider_config.clone(),
-            base_config: self.base_config.clone(),
-            allowed_tools: self.allowed_tools.clone(),
-            allowed_skill_ids: self.allowed_skill_ids.clone(),
-            parent_task_run_id: self.parent_task_run_id.clone(),
-            parent_conversation_id: self.parent_conversation_id.clone(),
-            tool_registry: Arc::clone(&self.tool_registry),
-            sessions: Arc::clone(&self.sessions),
-            skill_index: Arc::clone(&self.skill_index),
-            context_snapshots: Arc::clone(&self.context_snapshots),
-            batches: Arc::clone(&self.batches),
-            batch_notify: Arc::clone(&self.batch_notify),
-            lifecycle: self.lifecycle.clone(),
-            worker_handles: Arc::clone(&self.worker_handles),
-            budget: self.budget.clone(),
-            cancel_token,
-            delegation_depth: self.delegation_depth.saturating_add(1),
-            requires_explicit_route: self.requires_explicit_route,
-        }
-    }
-
     fn scoped_to_worker(&self, cancel_token: CancellationToken) -> Self {
         Self {
             provider_config: self.provider_config.clone(),
@@ -308,19 +291,12 @@ impl DelegationRuntime {
             skill_index: Arc::clone(&self.skill_index),
             context_snapshots: Arc::clone(&self.context_snapshots),
             batches: Arc::clone(&self.batches),
-            batch_notify: Arc::clone(&self.batch_notify),
             lifecycle: self.lifecycle.clone(),
             worker_handles: Arc::clone(&self.worker_handles),
             budget: self.budget.clone(),
             cancel_token,
-            delegation_depth: self.delegation_depth,
             requires_explicit_route: self.requires_explicit_route,
         }
-    }
-
-    #[cfg(test)]
-    fn can_delegate_further(&self) -> bool {
-        self.delegation_depth < MAX_SUBAGENT_DELEGATION_DEPTH
     }
 
     fn get_session_snapshot(&self, task_id: &str) -> Option<SubagentSessionSnapshot> {
@@ -343,7 +319,9 @@ impl DelegationRuntime {
                 DelegationBatchState {
                     expected_workers,
                     results: BTreeMap::new(),
+                    completion_order: Vec::with_capacity(expected_workers),
                     cancel_tokens: Vec::with_capacity(expected_workers),
+                    changed: Arc::new(tokio::sync::Notify::new()),
                 },
             );
         }
@@ -358,23 +336,71 @@ impl DelegationRuntime {
     }
 
     fn record_batch_result(&self, batch_id: &str, index: usize, run: SubagentRunArtifact) {
-        if let Ok(mut batches) = self.batches.lock() {
+        let changed = if let Ok(mut batches) = self.batches.lock() {
             if let Some(batch) = batches.get_mut(batch_id) {
+                if batch.results.contains_key(&index) {
+                    return;
+                }
                 batch.results.insert(index, run);
+                batch.completion_order.push(index);
+                Some(Arc::clone(&batch.changed))
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some(changed) = changed {
+            changed.notify_waiters();
         }
-        self.batch_notify.notify_waiters();
     }
 
-    fn batch_snapshot(&self, batch_id: &str) -> Option<(usize, Vec<SubagentRunArtifact>)> {
+    fn batch_snapshot(
+        &self,
+        batch_id: &str,
+        after_seq: Option<u64>,
+    ) -> Option<DelegationBatchSnapshot> {
         self.batches.lock().ok().and_then(|batches| {
             batches.get(batch_id).map(|batch| {
-                (
-                    batch.expected_workers,
-                    batch.results.values().cloned().collect(),
-                )
+                let cursor = batch.completion_order.len() as u64;
+                let reset = after_seq.is_some_and(|after| after > cursor);
+                let after = if reset { 0 } else { after_seq.unwrap_or(0) };
+                // Cursor order follows completion, while response order follows
+                // original task index for deterministic synthesis.
+                let selected: BTreeSet<_> = batch
+                    .completion_order
+                    .iter()
+                    .skip(after as usize)
+                    .copied()
+                    .collect();
+                DelegationBatchSnapshot {
+                    expected_workers: batch.expected_workers,
+                    completed_workers: batch.results.len(),
+                    cursor,
+                    reset,
+                    runs: selected
+                        .into_iter()
+                        .filter_map(|index| batch.results.get(&index).cloned())
+                        .collect(),
+                }
             })
         })
+    }
+
+    fn batch_notification(&self, batch_id: &str) -> Option<Arc<tokio::sync::Notify>> {
+        self.batches
+            .lock()
+            .ok()?
+            .get(batch_id)
+            .map(|batch| Arc::clone(&batch.changed))
+    }
+
+    fn batch_progress(&self, batch_id: &str) -> Option<(usize, u64)> {
+        self.batches
+            .lock()
+            .ok()?
+            .get(batch_id)
+            .map(|batch| (batch.expected_workers, batch.completion_order.len() as u64))
     }
 
     fn cancel_batch(&self, batch_id: &str) -> bool {
@@ -529,6 +555,8 @@ struct ObserveSubagentBatchArgs {
     #[serde(default)]
     wait_ms: Option<u64>,
     #[serde(default)]
+    after_seq: Option<u64>,
+    #[serde(default)]
     cancel_remaining: bool,
 }
 
@@ -588,8 +616,14 @@ impl DelegationCompletionPolicy {
         }
     }
 
-    fn is_satisfied(&self, runs: &[SubagentRunArtifact], pending: usize) -> bool {
-        let successes = runs.iter().filter(|run| !run.is_error).count();
+    fn is_satisfied<'a>(
+        &self,
+        runs: impl IntoIterator<Item = &'a SubagentRunArtifact>,
+        pending: usize,
+    ) -> bool {
+        let (settled, successes) = runs.into_iter().fold((0, 0), |(settled, successes), run| {
+            (settled + 1, successes + usize::from(!run.is_error))
+        });
         match self {
             Self::All | Self::Deadline { .. } => pending == 0,
             Self::Quorum { required } => successes >= *required,
@@ -597,7 +631,7 @@ impl DelegationCompletionPolicy {
             // Return after the first settled result. The parent can then wait
             // for more evidence or cancel residual workers through the
             // observe_subagent_batch decision channel.
-            Self::ParentDecides => !runs.is_empty() || pending == 0,
+            Self::ParentDecides => settled > 0 || pending == 0,
         }
     }
 }
@@ -837,6 +871,11 @@ async fn acquire_batch_slot(
     queue_started: Instant,
     queue_deadline_ms: Option<u64>,
 ) -> Result<tokio::sync::OwnedSemaphorePermit, CoreError> {
+    if cancel_token.is_cancelled() {
+        return Err(CoreError::Agent(format!(
+            "Delegated execution '{call_label}' was cancelled while waiting for its batch slot."
+        )));
+    }
     let elapsed_ms = u64::try_from(queue_started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let remaining_ms = queue_deadline_ms.map(|limit| limit.saturating_sub(elapsed_ms));
     if remaining_ms == Some(0) {
@@ -857,6 +896,7 @@ async fn acquire_batch_slot(
     }
 
     tokio::select! {
+        biased;
         _ = cancel_token.cancelled() => Err(CoreError::Agent(format!(
             "Delegated execution '{call_label}' was cancelled while waiting for its batch slot."
         ))),

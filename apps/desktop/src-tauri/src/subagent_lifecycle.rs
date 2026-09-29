@@ -134,6 +134,9 @@ struct SubagentWorkerState {
     conversation_id: Option<String>,
     turn_id: Option<String>,
     task_run_id: Option<String>,
+    changed: Arc<Notify>,
+    settlement: Arc<Mutex<()>>,
+    terminal_persisted: bool,
 }
 
 impl SubagentWorkerState {
@@ -162,13 +165,13 @@ impl SubagentWorkerState {
             turn_id: self.turn_id.clone(),
             task_run_id: self.task_run_id.clone(),
             activity_runtime: self.activity_runtime.clone(),
+            changed: Arc::clone(&self.changed),
         }
     }
 }
 
 struct SubagentLifecycleInner {
     workers: Mutex<HashMap<String, SubagentWorkerState>>,
-    notify: Notify,
 }
 
 #[derive(Clone)]
@@ -181,7 +184,6 @@ impl Default for SubagentLifecycleRuntime {
         Self {
             inner: Arc::new(SubagentLifecycleInner {
                 workers: Mutex::new(HashMap::new()),
-                notify: Notify::new(),
             }),
         }
     }
@@ -197,8 +199,8 @@ impl SubagentLifecycleRuntime {
         };
         for worker in retired {
             worker.cancel_token.cancel();
+            worker.changed.notify_waiters();
         }
-        self.inner.notify.notify_waiters();
     }
 
     pub fn register(
@@ -230,6 +232,9 @@ impl SubagentLifecycleRuntime {
             conversation_id: request.conversation_id,
             turn_id: request.turn_id,
             task_run_id: request.task_run_id,
+            changed: Arc::new(Notify::new()),
+            settlement: Arc::new(Mutex::new(())),
+            terminal_persisted: false,
         };
         let events = state.bridge();
         let mut workers = self.workers()?;
@@ -240,7 +245,6 @@ impl SubagentLifecycleRuntime {
         }
         workers.insert(agent_id.clone(), state);
         drop(workers);
-        self.inner.notify.notify_waiters();
         Ok(SubagentWorkerRegistration {
             agent_id,
             cancel_token: request.cancel_token,
@@ -278,23 +282,55 @@ impl SubagentLifecycleRuntime {
         agent_id: &str,
         status: SubagentLifecycleStatus,
     ) -> Result<SubagentWorkerSnapshot, CoreError> {
-        let snapshot = {
+        if status.is_terminal() {
+            return Err(CoreError::InvalidInput(
+                "terminal subagent transitions require finish".into(),
+            ));
+        }
+        let (snapshot, changed) = {
             let mut workers = self.workers()?;
             let worker = workers
                 .get_mut(agent_id)
                 .ok_or_else(|| CoreError::NotFound(format!("Subagent {agent_id}")))?;
-            if worker.status.is_terminal() {
+            if worker.status.is_terminal()
+                || (worker.status == SubagentLifecycleStatus::Cancelling && !status.is_terminal())
+            {
                 return Ok(worker.snapshot());
+            }
+            if status == SubagentLifecycleStatus::Queued
+                && worker.status != SubagentLifecycleStatus::Queued
+            {
+                return Err(CoreError::InvalidInput(
+                    "a running subagent cannot return to the queue".into(),
+                ));
             }
             worker.status = status;
             worker.updated_at = Utc::now().to_rfc3339();
-            worker.snapshot()
+            (worker.snapshot(), Arc::clone(&worker.changed))
         };
-        self.inner.notify.notify_waiters();
+        changed.notify_waiters();
         Ok(snapshot)
     }
 
     pub async fn finish(
+        &self,
+        agent_id: &str,
+        status: SubagentLifecycleStatus,
+        result: Option<serde_json::Value>,
+        error_message: Option<String>,
+    ) -> Result<SubagentWorkerSnapshot, CoreError> {
+        let runtime = self.clone();
+        let agent_id = agent_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            runtime.finish_blocking(&agent_id, status, result, error_message)
+        })
+        .await
+        .map_err(|error| CoreError::Internal(format!("subagent settlement join: {error}")))?
+    }
+
+    /// Also used by worker ownership guards: dropping a queued task or a
+    /// receiver must not leave a non-terminal durable lifecycle behind.
+    pub(crate) fn finish_blocking(
         &self,
         agent_id: &str,
         status: SubagentLifecycleStatus,
@@ -306,33 +342,64 @@ impl SubagentLifecycleRuntime {
                 "subagent finish requires a terminal status".into(),
             ));
         }
-        let (snapshot, bridge) = {
-            let mut workers = self.workers()?;
+        let settlement = self
+            .workers()?
+            .get(agent_id)
+            .map(|worker| Arc::clone(&worker.settlement))
+            .ok_or_else(|| CoreError::NotFound(format!("Subagent {agent_id}")))?;
+        let _settling = settlement
+            .lock()
+            .map_err(|_| CoreError::Internal("subagent settlement lock poisoned".into()))?;
+        let bridge = {
+            let workers = self.workers()?;
             let worker = workers
-                .get_mut(agent_id)
+                .get(agent_id)
                 .ok_or_else(|| CoreError::NotFound(format!("Subagent {agent_id}")))?;
-            worker.status = status;
-            worker.result = result;
-            worker.error_message = error_message;
-            worker.updated_at = Utc::now().to_rfc3339();
-            (worker.snapshot(), worker.bridge())
+            // Terminal results are immutable. A delayed cancellation/error
+            // observer must never overwrite the worker's settled evidence.
+            if worker.status.is_terminal() && worker.terminal_persisted {
+                return Ok(worker.snapshot());
+            }
+            worker.bridge()
         };
-        self.inner.notify.notify_waiters();
         let event_kind = match status {
             SubagentLifecycleStatus::Completed => SubagentLifecycleEventKind::Completed,
             SubagentLifecycleStatus::Cancelled => SubagentLifecycleEventKind::Cancelled,
             _ => SubagentLifecycleEventKind::Failed,
         };
-        bridge
-            .finish(
-                event_kind,
-                serde_json::json!({
-                    "status": status,
-                    "result": &snapshot.result,
-                    "errorMessage": &snapshot.error_message,
-                }),
-            )
-            .await?;
+        let persisted = bridge.finish(
+            event_kind,
+            serde_json::json!({
+                "status": status,
+                "result": &result,
+                "errorMessage": &error_message,
+            }),
+        );
+        // Publish terminal state only after the durable transition. Failure
+        // still retires the handle, while the returned error reports the
+        // persistence problem instead of stranding a running worker.
+        let snapshot = {
+            let mut workers = self.workers()?;
+            let worker = workers
+                .get_mut(agent_id)
+                .ok_or_else(|| CoreError::NotFound(format!("Subagent {agent_id}")))?;
+            if let Err(error) = &persisted {
+                worker.status = SubagentLifecycleStatus::Failed;
+                worker.result = None;
+                worker.error_message =
+                    Some(format!("Subagent terminal persistence failed: {error}"));
+                worker.terminal_persisted = false;
+            } else {
+                worker.status = status;
+                worker.result = result;
+                worker.error_message = error_message;
+                worker.terminal_persisted = true;
+            }
+            worker.updated_at = Utc::now().to_rfc3339();
+            worker.snapshot()
+        };
+        bridge.changed.notify_waiters();
+        persisted?;
         Ok(snapshot)
     }
 
@@ -345,9 +412,9 @@ impl SubagentLifecycleRuntime {
         let worker = workers
             .get(agent_id)
             .ok_or_else(|| CoreError::NotFound(format!("Subagent {agent_id}")))?;
-        if worker.status.is_terminal() {
+        if worker.status.is_terminal() || worker.status == SubagentLifecycleStatus::Cancelling {
             return Err(CoreError::InvalidInput(format!(
-                "Subagent '{agent_id}' is already terminal"
+                "Subagent '{agent_id}' is stopping or already terminal"
             )));
         }
         worker
@@ -371,7 +438,7 @@ impl SubagentLifecycleRuntime {
             worker.cancel_token.cancel();
             worker.bridge()
         };
-        self.inner.notify.notify_waiters();
+        bridge.changed.notify_waiters();
         Ok(bridge)
     }
 
@@ -386,9 +453,11 @@ impl SubagentLifecycleRuntime {
                 "Subagent '{agent_id}' is still active; cancel or wait before closing it"
             )));
         }
-        workers.remove(agent_id);
+        let retired = workers.remove(agent_id);
         drop(workers);
-        self.inner.notify.notify_waiters();
+        if let Some(worker) = retired {
+            worker.changed.notify_waiters();
+        }
         Ok(snapshot)
     }
 
@@ -399,8 +468,9 @@ impl SubagentLifecycleRuntime {
         wait_up_to: Duration,
     ) -> Result<SubagentLifecycleObservation, CoreError> {
         let deadline = tokio::time::Instant::now() + wait_up_to;
+        let changed = self.worker_notification(agent_id)?;
         let activity_runtime = loop {
-            let notified = self.inner.notify.notified();
+            let notified = changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             let (worker, activity_runtime) = {
@@ -452,8 +522,9 @@ impl SubagentLifecycleRuntime {
         wait_up_to: Duration,
     ) -> Result<SubagentLifecycleWaitResult, CoreError> {
         let deadline = tokio::time::Instant::now() + wait_up_to;
+        let changed = self.worker_notification(agent_id)?;
         loop {
-            let notified = self.inner.notify.notified();
+            let notified = changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             let snapshot = self.snapshot(agent_id)?;
@@ -476,6 +547,13 @@ impl SubagentLifecycleRuntime {
         }
     }
 
+    fn worker_notification(&self, agent_id: &str) -> Result<Arc<Notify>, CoreError> {
+        self.workers()?
+            .get(agent_id)
+            .map(|worker| Arc::clone(&worker.changed))
+            .ok_or_else(|| CoreError::NotFound(format!("Subagent {agent_id}")))
+    }
+
     fn workers(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, HashMap<String, SubagentWorkerState>>, CoreError> {
@@ -496,6 +574,7 @@ pub struct SubagentEventBridge {
     turn_id: Option<String>,
     task_run_id: Option<String>,
     activity_runtime: ActivityRuntime,
+    changed: Arc<Notify>,
 }
 
 impl SubagentEventBridge {
@@ -540,6 +619,7 @@ impl SubagentEventBridge {
             serde_json::json!({ "status": "queued" }),
         )
         .await?;
+        self.changed.notify_waiters();
         Ok(())
     }
 
@@ -559,7 +639,7 @@ impl SubagentEventBridge {
         Ok(event)
     }
 
-    pub async fn finish(
+    fn finish(
         &self,
         kind: SubagentLifecycleEventKind,
         detail: serde_json::Value,
@@ -572,10 +652,7 @@ impl SubagentEventBridge {
         let payload = lifecycle_payload(kind, &self.agent_id, detail);
         let runtime = self.activity_runtime.clone();
         let activity_id = self.agent_id.clone();
-        let event =
-            tokio::task::spawn_blocking(move || runtime.transition(&activity_id, state, payload))
-                .await
-                .map_err(|error| CoreError::Internal(format!("subagent finish join: {error}")))??;
+        let event = runtime.transition(&activity_id, state, payload)?;
         Ok(event)
     }
 }
@@ -682,6 +759,101 @@ mod tests {
         assert_eq!(
             lifecycle.snapshot("agent-1").unwrap().status,
             SubagentLifecycleStatus::Cancelling
+        );
+    }
+
+    #[tokio::test]
+    async fn persistence_failure_cannot_publish_success_and_settlement_can_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join("lifecycle-fault.sqlite");
+        let database = nexa_core::db::Database::new(&database_path).unwrap();
+        let fault_connection = rusqlite::Connection::open(&database_path).unwrap();
+        let activity = ActivityRuntime::with_database(database.clone()).unwrap();
+        let lifecycle = SubagentLifecycleRuntime::default();
+        let registration = lifecycle.register(request(activity.clone())).unwrap();
+        registration.events.start().await.unwrap();
+        fault_connection.execute_batch("CREATE TRIGGER reject_terminal BEFORE INSERT ON activity_events BEGIN SELECT RAISE(FAIL, 'injected completion failure'); END;").unwrap();
+        assert!(lifecycle
+            .finish(
+                "agent-1",
+                SubagentLifecycleStatus::Completed,
+                Some(serde_json::json!({"answer":"verified"})),
+                None
+            )
+            .await
+            .is_err());
+        let failed = lifecycle.snapshot("agent-1").unwrap();
+        assert_eq!(failed.status, SubagentLifecycleStatus::Failed);
+        assert!(failed.result.is_none());
+        assert!(failed.error_message.unwrap().contains("persistence failed"));
+        assert!(!activity.get("agent-1").unwrap().state.is_terminal());
+        fault_connection
+            .execute_batch("DROP TRIGGER reject_terminal;")
+            .unwrap();
+        let completed = lifecycle
+            .finish(
+                "agent-1",
+                SubagentLifecycleStatus::Completed,
+                Some(serde_json::json!({"answer":"verified"})),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(completed.status, SubagentLifecycleStatus::Completed);
+        let duplicate = lifecycle
+            .finish(
+                "agent-1",
+                SubagentLifecycleStatus::Failed,
+                None,
+                Some("late failure".into()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(duplicate.status, SubagentLifecycleStatus::Completed);
+        assert_eq!(duplicate.result, completed.result);
+        let events = activity
+            .observe("agent-1", 0, Duration::ZERO)
+            .await
+            .unwrap()
+            .events;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.kind == ActivityEventKind::Completed)
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_workers_reject_input_and_never_return_to_running() {
+        let lifecycle = SubagentLifecycleRuntime::default();
+        let registration = lifecycle.register(request(ActivityRuntime::new())).unwrap();
+        registration.events.start().await.unwrap();
+        lifecycle.cancel("agent-1").unwrap();
+        assert_eq!(
+            lifecycle
+                .set_status("agent-1", SubagentLifecycleStatus::Running)
+                .unwrap()
+                .status,
+            SubagentLifecycleStatus::Cancelling
+        );
+        assert!(lifecycle.send_input("agent-1", "too late".into()).is_err());
+        assert!(lifecycle
+            .set_status("agent-1", SubagentLifecycleStatus::Completed)
+            .is_err());
+        lifecycle
+            .finish("agent-1", SubagentLifecycleStatus::Cancelled, None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            lifecycle
+                .wait("agent-1", Duration::ZERO)
+                .await
+                .unwrap()
+                .worker
+                .status,
+            SubagentLifecycleStatus::Cancelled
         );
     }
 

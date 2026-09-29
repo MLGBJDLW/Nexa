@@ -82,8 +82,8 @@ function getSubtaskCounts(subtasks: SubtaskRunArtifact[]) {
     total: subtasks.length,
     completed: subtasks.filter(subtask => subtask.status === 'completed').length,
     failed: subtasks.filter(subtask => subtask.status === 'failed').length,
-    running: subtasks.filter(subtask => subtask.status === 'running').length,
-    queued: subtasks.filter(subtask => subtask.status === 'queued').length,
+    running: subtasks.filter(subtask => subtask.status === 'running' && subtask.runtimeState !== 'unverified').length,
+    queued: subtasks.filter(subtask => subtask.status === 'queued' && subtask.runtimeState !== 'unverified').length,
     cancelled: subtasks.filter(subtask => subtask.status === 'cancelled').length,
   };
 }
@@ -187,7 +187,7 @@ function SubtaskRow({ subtask }: { subtask: SubtaskRunArtifact }) {
   if (subtask.status === 'completed') {
     icon = <CheckCircle2 className="h-3 w-3 text-success" />;
     tone = 'text-text-primary';
-  } else if (subtask.status === 'running') {
+  } else if (subtask.status === 'running' && subtask.runtimeState !== 'unverified') {
     icon = <Loader2 className="h-3 w-3 animate-spin text-accent" />;
     tone = 'text-text-primary';
   } else if (subtask.status === 'failed') {
@@ -196,13 +196,14 @@ function SubtaskRow({ subtask }: { subtask: SubtaskRunArtifact }) {
   }
 
   return (
-    <li className="flex items-start gap-1.5" data-testid="task-board-subtask" data-status={subtask.status}>
+    <li className="flex items-start gap-1.5" data-testid="task-board-subtask" data-status={subtask.runtimeState === 'unverified' ? 'unverified' : subtask.status}
+      title={subtask.runtimeState === 'unverified' ? t('chat.subagentUnverifiedHint') : undefined}>
       <span className="mt-0.5 shrink-0">{icon}</span>
       <div className="min-w-0 flex-1">
         <div className={`line-clamp-2 break-words text-xs ${tone}`}>{compactTaskLabel(subtask.label)}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-text-tertiary">
           {subtask.role && <span>{compactTaskLabel(subtask.role, 32)}</span>}
-          <span>{subtaskStatusLabel(subtask.status, t)}</span>
+          <span>{subtask.runtimeState === 'unverified' ? t('chat.subagentStatusUnverified') : subtaskStatusLabel(subtask.status, t)}</span>
           {subtask.tokenBudget != null && (
             <span>{t('chat.subtasksTokenBudget', { count: subtask.tokenBudget.toLocaleString() })}</span>
           )}

@@ -389,6 +389,16 @@ omitted, and no isolated worktree or process sandbox is created.
 
 ## Delegated context authority
 
+The 2026-09-29 lifecycle revision draws on three separately scoped primary
+references: [Claude Code's documented subagents](https://code.claude.com/docs/en/sub-agents)
+and [agent teams](https://code.claude.com/docs/en/agent-teams),
+[Codex's local runtime ownership](https://github.com/openai/codex/blob/a9118edae8b77bf23b7182fd071a7b6251898bed/codex-rs/core/src/agent/control/runtime.rs)
+and [pending-spawn guard](https://github.com/openai/codex/blob/a9118edae8b77bf23b7182fd071a7b6251898bed/codex-rs/core/src/agent/control/spawn_guard.rs),
+and [Hermes's public lifecycle contract](https://github.com/NousResearch/hermes-agent/blob/e85706cba780382ef91ba7a38a20ebe95207a795/agent/subagent_lifecycle.py).
+These inform capability inheritance, owned admission and observable settlement;
+they do not imply access to Claude's private internals or compatibility with
+another agent's protocol, persistence format, or cost characteristics.
+
 Every delegated worker owns an independent model conversation. The parent sends
 only the task baton, selected evidence, and the bounded handoff payload; it does
 not clone the parent's entire transcript into the worker. A worker returns a
@@ -440,11 +450,82 @@ Runtime artifacts record the requested and effective model policy, capacity,
 capacity authority, handoff budget, output limit, and preflight result. The UI
 projects those artifacts. Batch cards prefer the authoritative post-batch token
 and call budget over each worker's spawn-time preflight snapshot. Lifecycle
-controls are shown only while the parent owns a live in-memory handle; a stale
-persisted `running` artifact after restart is projected as interrupted. The UI
+controls are shown only with current parent-run authority. A saved nonterminal
+artifact without fresh authority is unverified: normal parent completion does
+not prove that a detached child stopped. Only explicit terminal or orphan
+evidence can establish that outcome. The UI
 may show progress summaries, current tools, elapsed time, evidence counts,
 usage, and terminal state, but it must not present private chain-of-thought as
 an operational status stream.
+
+## Worker admission, ownership and settlement
+
+Single and batch workers share one execution path. A worker registers as queued
+and publishes its activity before waiting on the role-aware scheduler. Only
+after both a global lane and any batch-local permit are available does it
+allocate its isolated thread, Tokio reactor, provider and context. Queue waits
+consume no call credit or estimated tokens. The scheduler validates budgets
+before queuing, after acquiring a slot, and again when committing after
+preflight. Cancellation wins ready-slot races and is checked again before
+provider execution. Lane-first ordering preserves reserved verifier capacity.
+
+The reservation owner refunds unstarted calls and releases estimated tokens on
+every early return or unwind. Actual provider usage is recorded at settlement;
+missing usage is not fabricated from an estimate. Worker execution remains
+isolated, but waiting work no longer requires an idle OS thread per task.
+Only configured budgets/deadlines remain enforceable; this refactor adds no
+new task-size, model, token, or wall-time ceiling.
+
+An ownership guard stays with the queued task and then transfers into the
+isolated worker. Aborting a queued collector terminalizes its activity; dropping
+an active result receiver cannot orphan its running worker or prevent terminal
+persistence. The guard retains parent runtime ownership until settlement. Parent
+cancellation remains a separate cooperative cancellation token, and closing a
+live handle remains disallowed.
+
+Activity state, causal event and event pruning commit in one SQLite transaction.
+Only after commit do in-memory state/cursors and subscriber notifications
+advance. Failed writes preserve the previous activity state and can be retried.
+Lifecycle settlement reports persistence failures as failures with no successful
+result; they cannot silently publish completion. Successfully persisted terminal
+results are immutable, while failed persistence remains retryable. Notifications
+are scoped per worker, and buffered output uses a timer only while there is a
+delta to flush. Long model requests do not wake idle collectors every 100 ms.
+
+The UI projects queued, running and cancelling phases separately. It deduplicates
+overlapping event replay by activity and sequence; late callbacks cannot revive
+a terminal worker or overwrite its accepted result. Current traces after parent
+completion and historical nonterminal snapshots retain their last-known phase
+but show an unverified-state hint, with no live spinner, active-worker count or
+stale lifecycle controls. They do not claim cancellation or a restart. Explicit
+terminal evidence still wins, and explicit orphan evidence can prove interruption.
+Tool cards and the task capsule receive parent liveness from the owning current
+trace, rather than treating the nonblocking spawn command's Done as worker Done.
+
+## Incremental batch observation
+
+`spawn_subagent_batch` returns a `batchId` and a `cursor` belonging to exactly the
+settled results included in that response. `observe_subagent_batch` accepts
+`afterSeq=cursor` and returns only later completions; its cursor follows
+completion order, while each response orders results by original task index.
+Repeated settlement of the same worker cannot replace evidence or advance the
+cursor. A caller can omit `afterSeq` to obtain the backward-compatible full
+snapshot; a future cursor returns `reset=true` and a complete current snapshot.
+
+With a cursor, the default wait is 30 seconds, bounded by 60 seconds and parent
+cancellation. It subscribes before checking state and wakes only on that batch's
+changes, avoiding lost notifications and repeated full-result polling. A timeout
+does not cancel workers. These cursors address the live, parent-owned batch;
+they do not recreate execution across application restart. Durable activity and
+subtask artifacts remain the recovery evidence, and unknown live handles remain
+explicitly unavailable. Child execution can outlive ordinary parent completion;
+the absence of fresh observation leaves its state unverified rather than cancelled.
+
+Workers remain leaves: their actual tool registry excludes delegation and
+interactive browser/desktop controls. The former unreachable child-runtime
+recreation path and depth counter were removed. Adding recursive teams or shared
+interactive control would require an explicit ownership/approval/surface-lease
+design; enabling a model-facing tool name alone cannot grant that authority.
 
 ## Gemini route authority
 

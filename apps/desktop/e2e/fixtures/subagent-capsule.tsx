@@ -45,7 +45,7 @@ function Fixture() {
       <button onClick={() => setStage(1)}>Close all workers</button>
       <button onClick={() => setStage(2)}>Reopen saved turn</button>
     </div>
-    <TaskBoard messages={messages} toolCalls={stage < 2 ? calls : []} />
+    <TaskBoard messages={messages} toolCalls={stage < 2 ? calls : []} isStreaming={stage < 2} />
   </div>;
 }
 

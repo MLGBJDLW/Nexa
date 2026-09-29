@@ -604,6 +604,8 @@
   "mermaidFailed": "Could not render this Mermaid diagram. The source is shown below.",
   "subagentStatusRunning": "Running",
   "subagentStatusInterrupted": "再起動により中断",
+  "subagentStatusUnverified": "状態の確認が必要",
+  "subagentUnverifiedHint": "親の実行は終了しました。サブエージェントは動作中の可能性があるため、結果を再確認してください。",
   "subagentStatusNeedsAttention": "Needs attention",
   "subagentStatusComplete": "Complete",
   "subagentInProgress": "Delegated work is in progress.",

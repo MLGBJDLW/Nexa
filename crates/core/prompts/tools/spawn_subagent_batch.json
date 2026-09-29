@@ -148,7 +148,7 @@
           "deadline",
           "parent_decides"
         ],
-        "description": "When the parent may continue: after all workers, a successful quorum, the first success, a deadline, or after the first settled result for an explicit parent decision. If workers remain, use observe_subagent_batch with the returned batchId to collect supplemental evidence or cancel them before final synthesis."
+        "description": "When the parent may continue: after all workers, a successful quorum, the first success, a deadline, or after the first settled result for an explicit parent decision. If workers remain, use observe_subagent_batch with the returned batchId and afterSeq set to the returned cursor to wait for only new evidence. Keep the latest cursor for subsequent waits; use waitMs=30000 rather than repeated immediate polling, or cancel residual workers before final synthesis."
       },
       "quorum": {
         "type": "integer",

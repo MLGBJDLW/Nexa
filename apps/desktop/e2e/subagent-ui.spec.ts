@@ -683,7 +683,7 @@ test('shows unlimited delegation budgets without losing the preflight report', a
   await expect(chatLog.getByTestId('subagent-preflight-budgets')).toContainText('Run deadline: ∞');
 });
 
-test('marks persisted lifecycle handles interrupted instead of presenting stale controls', async ({ page }) => {
+test('marks persisted nonterminal lifecycle state unverified without stale controls', async ({ page }) => {
   await page.goto('/chat/conv-subagent-controls');
 
   const thinkingToggle = page.getByRole('button', { name: /Thinking completed/ });
@@ -692,6 +692,7 @@ test('marks persisted lifecycle handles interrupted instead of presenting stale 
   }
   const chatLog = page.getByLabel('Chat messages');
   await chatLog.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
-  await expect(chatLog.getByText('Interrupted by restart')).toBeVisible();
+  await expect(chatLog.getByText('Status unverified')).toBeVisible();
+  await expect(chatLog.getByText(/worker may still be running/)).toBeVisible();
   await expect(chatLog.getByTestId('subagent-parent-controls')).toHaveCount(0);
 });

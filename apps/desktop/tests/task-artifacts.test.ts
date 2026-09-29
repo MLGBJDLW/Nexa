@@ -96,3 +96,9 @@ const batchClosed: ToolCallEvent = { ...closed, artifacts: { kind: 'subagent_clo
 const batchRuns = findLatestSubtaskArtifacts([], [batch, batchClosed]);
 assert(batchRuns.length === 1 && batchRuns[0].status === 'completed', 'batch labels and lifecycle IDs must describe one worker');
 console.log('ok - task capsule uses terminal worker state and compact task labels');
+
+const unverified = findLatestSubtaskArtifacts([], [spawn]);
+assert(unverified[0].status === 'running' && unverified[0].runtimeState === 'unverified', 'old nonterminal evidence is unverified, not newly running or cancelled');
+const liveCapsule = findLatestSubtaskArtifacts([], [spawn], undefined, [], true);
+assert(liveCapsule[0].runtimeState === 'live', 'active parent authority permits live capsule feedback');
+assert(findLatestSubtaskArtifacts([], [spawn, observed])[0].runtimeState === 'terminal', 'observed terminal state remains verified after parent ends');

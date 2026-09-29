@@ -604,6 +604,8 @@
   "mermaidFailed": "无法渲染这个 Mermaid 图表，源码如下。",
   "subagentStatusRunning": "运行中",
   "subagentStatusInterrupted": "因重启中断",
+  "subagentStatusUnverified": "状态待确认",
+  "subagentUnverifiedHint": "主运行已结束，子代理可能仍在运行，请重新确认结果。",
   "subagentStatusNeedsAttention": "需要注意",
   "subagentStatusComplete": "已完成",
   "subagentInProgress": "委派任务正在进行。",

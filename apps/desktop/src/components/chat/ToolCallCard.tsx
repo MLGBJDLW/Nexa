@@ -64,13 +64,10 @@ import {
 } from '../../lib/streaming/toolCardPresentation';
 import { extractPlanArtifact, extractVerificationArtifact } from '../../lib/taskArtifacts';
 import {
-  extractSubagentArtifact,
+  buildSubagentRun,
   extractSubagentBatchArtifact,
   extractSubagentJudgementArtifact,
-  parseSubagentArguments,
-  projectSubagentLifecycle,
   projectSubagentLifecycleRuns,
-  type SubagentRun,
   type SubagentBudgetSnapshot,
 } from '../../lib/subagentArtifacts';
 import { PlanPanel, VerificationPanel } from './TaskPanels';
@@ -291,6 +288,8 @@ interface ToolCallCardProps {
   durationMs?: number;
   progressNote?: string;
   activityEvents?: ActivityEvent[];
+  /** Live parent turn authority supplied by the owning timeline. */
+  parentRunActive?: boolean;
   content?: string;
   isError?: boolean;
   artifacts?: ArtifactPayload;
@@ -1346,73 +1345,6 @@ function trustVisibilityLabel(visibility: string | undefined, t: ReturnType<type
   }
 }
 
-function buildSubagentRun(
-  toolName: string,
-  args: string | undefined,
-  status: ToolCallCardStatus,
-  content: string | undefined,
-  isError: boolean | undefined,
-  artifacts: ArtifactPayload | undefined,
-  activityEvents: ActivityEvent[] | undefined,
-): SubagentRun | null {
-  if (toolName !== 'spawn_subagent') return null;
-  const initialArtifact = extractSubagentArtifact(artifacts);
-  const lifecycle = projectSubagentLifecycle(activityEvents);
-  const artifact = lifecycle.artifact ?? initialArtifact;
-  const parsedArgs = parseSubagentArguments(args);
-  const task = artifact?.task ?? parsedArgs?.task;
-  if (!task) return null;
-  const runStatus: 'running' | 'done' | 'error' | 'cancelled' = lifecycle.status
-    ?? (artifact?.status === 'running' || artifact?.status === 'queued'
-      ? 'running'
-      : isPendingToolCallStatus(status)
-      ? 'running'
-      : status === 'cancelled'
-        ? 'cancelled'
-      : status === 'done'
-        ? 'done'
-        : 'error');
-  const parentActive = isPendingToolCallStatus(status);
-  const interrupted = runStatus === 'running' && !parentActive;
-  return {
-    id: `${toolName}-${task}`,
-    status: interrupted ? 'cancelled' : runStatus,
-    runtimeState: interrupted ? 'interrupted' : runStatus === 'running' ? 'live' : 'terminal',
-    task,
-    roleId: artifact?.roleId ?? parsedArgs?.roleId ?? null,
-    roleName: artifact?.roleName ?? null,
-    role: artifact?.role ?? parsedArgs?.role ?? null,
-    modelPolicy: artifact?.modelPolicy ?? parsedArgs?.modelPolicy ?? null,
-    effectiveModel: artifact?.effectiveModel ?? artifact?.preflight?.effectiveModel ?? null,
-    modelRouteFallback: artifact?.modelRouteFallback ?? false,
-    expectedOutput: artifact?.expectedOutput ?? parsedArgs?.expectedOutput ?? null,
-    acceptanceCriteria: artifact?.acceptanceCriteria ?? parsedArgs?.acceptanceCriteria ?? null,
-    evidenceChunkIds: artifact?.evidenceChunkIds ?? parsedArgs?.evidenceChunkIds ?? null,
-    evidenceHandoff: artifact?.evidenceHandoff ?? null,
-    requestedSourceScope: artifact?.requestedSourceScope ?? parsedArgs?.sourceIds ?? null,
-    effectiveSourceScope: artifact?.effectiveSourceScope ?? null,
-    requestedAllowedTools: artifact?.requestedAllowedTools ?? parsedArgs?.allowedTools ?? null,
-    allowedSkills: artifact?.allowedSkills ?? null,
-    parallelGroup: artifact?.parallelGroup ?? parsedArgs?.parallelGroup ?? null,
-    deliverableStyle: artifact?.deliverableStyle ?? parsedArgs?.deliverableStyle ?? null,
-    returnSections: artifact?.returnSections ?? parsedArgs?.returnSections ?? null,
-    result: artifact?.result || lifecycle.streamedResult || undefined,
-    finishReason: artifact?.finishReason ?? null,
-    usageTotal: artifact?.usageTotal ?? null,
-    toolEvents: artifact?.toolEvents ?? [],
-    thinking: artifact?.thinking ?? (lifecycle.thinking.length > 0 ? lifecycle.thinking : null),
-    sourceScopeApplied: artifact?.sourceScopeApplied ?? false,
-    allowedTools: artifact?.allowedTools ?? null,
-    preflight: artifact?.preflight ?? null,
-    preflightFailure: artifact?.preflightFailure ?? null,
-    contextSnapshot: artifact?.contextSnapshot ?? null,
-    effectiveModelBudgets: artifact?.effectiveModelBudgets ?? null,
-    lifecycleTools: artifact?.lifecycleTools ?? null,
-    argumentsText: args,
-    isError: lifecycle.status === 'error' ? true : isError,
-    content: lifecycle.errorMessage ?? content,
-  };
-}
 
 function SubagentBudgetAfterBadge({ budget }: { budget: SubagentBudgetSnapshot }) {
   const { t } = useTranslation();
@@ -1564,6 +1496,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   durationMs,
   progressNote,
   activityEvents,
+  parentRunActive,
   content,
   isError,
   artifacts,
@@ -1635,26 +1568,27 @@ export const ToolCallCard = memo(function ToolCallCard({
     status,
   });
   const subagentRun = useMemo(
-    () => buildSubagentRun(
-      safeToolName,
-      args,
+    () => buildSubagentRun({
+      callId,
+      toolName: safeToolName,
+      arguments: args ?? '',
       status,
       content,
       isError,
       artifacts,
       activityEvents,
-    ),
-    [safeToolName, args, status, content, isError, artifacts, activityEvents],
+    }, parentRunActive),
+    [callId, safeToolName, args, status, content, isError, artifacts, activityEvents, parentRunActive],
   );
   const subagentBatch = useMemo(() => extractSubagentBatchArtifact(artifacts), [artifacts]);
   const visibleSubagentBatchRuns = useMemo(() => {
     if (safeToolName !== 'spawn_subagent_batch') return [];
     const lifecycleRuns = projectSubagentLifecycleRuns(activityEvents);
     const runs = lifecycleRuns.length > 0 ? lifecycleRuns : subagentBatch?.runs ?? [];
-    return runs.map(run => run.status === 'running' && !isPending
-      ? { ...run, status: 'cancelled' as const, runtimeState: 'interrupted' as const }
+    return runs.map(run => run.status === 'running' && !(parentRunActive ?? isPending)
+      ? { ...run, runtimeState: 'unverified' as const }
       : { ...run, runtimeState: run.status === 'running' ? 'live' as const : 'terminal' as const });
-  }, [activityEvents, isPending, safeToolName, subagentBatch]);
+  }, [activityEvents, isPending, parentRunActive, safeToolName, subagentBatch]);
   const subagentJudgement = useMemo(() => extractSubagentJudgementArtifact(artifacts), [artifacts]);
   const planArtifact = useMemo(() => extractPlanArtifact(artifacts), [artifacts]);
   const verificationArtifact = useMemo(() => extractVerificationArtifact(artifacts), [artifacts]);

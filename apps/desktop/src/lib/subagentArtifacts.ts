@@ -197,7 +197,8 @@ export interface SubagentRun {
   id: string;
   status: 'running' | 'done' | 'error' | 'cancelled';
   /** Whether the parent currently owns an in-memory lifecycle handle. */
-  runtimeState?: 'live' | 'terminal' | 'interrupted';
+  runtimeState?: 'live' | 'terminal' | 'interrupted' | 'unverified';
+  lifecyclePhase?: 'queued' | 'running' | 'cancelling' | null;
   task: string;
   roleId?: string | null;
   roleName?: string | null;
@@ -244,6 +245,7 @@ export interface SubagentLifecycleProjection {
   streamedResult: string;
   thinking: string[];
   errorMessage: string | null;
+  lifecyclePhase: SubagentRun['lifecyclePhase'];
 }
 
 function lifecycleEnvelope(event: ActivityEvent): Record<string, unknown> | null {
@@ -262,13 +264,30 @@ export function projectSubagentLifecycle(
   let streamedResult = '';
   const thinking: string[] = [];
   let errorMessage: string | null = null;
+  let lifecyclePhase: SubagentRun['lifecyclePhase'] = null;
+  const seen = new Set<string>();
 
-  for (const event of events ?? []) {
+  for (const event of [...(events ?? [])].sort((a, b) => a.seq - b.seq)) {
     const envelope = lifecycleEnvelope(event);
     if (!envelope) continue;
+    const eventKey = `${event.activityId}:${event.seq}`;
+    if (seen.has(eventKey)) continue;
+    seen.add(eventKey);
+    // Hydrated/pushed event overlap and delayed connection callbacks cannot
+    // duplicate output or revive a terminal worker.
+    if (status === 'done' || status === 'error' || status === 'cancelled') continue;
     const kind = typeof envelope.subagentEvent === 'string' ? envelope.subagentEvent : '';
     const detail = asRecord(envelope.detail);
-    if (kind === 'spawned' || kind === 'queued' || kind === 'connected') status = 'running';
+    if (kind === 'spawned' || kind === 'queued' || kind === 'connected') {
+      status = 'running';
+      if (lifecyclePhase !== 'cancelling') {
+        lifecyclePhase = kind === 'connected' ? 'running' : 'queued';
+      }
+    }
+    if (kind === 'progress' && (detail?.status === 'running' || detail?.status === 'cancelling')) {
+      status = 'running';
+      if (lifecyclePhase !== 'cancelling') lifecyclePhase = detail.status;
+    }
     if (kind === 'outputDelta') {
       const delta = typeof event.payload.data === 'string'
         ? event.payload.data
@@ -292,7 +311,8 @@ export function projectSubagentLifecycle(
       errorMessage = null;
     }
   }
-  return { status, artifact, streamedResult, thinking, errorMessage };
+  if (status !== 'running') lifecyclePhase = null;
+  return { status, artifact, streamedResult, thinking, errorMessage, lifecyclePhase };
 }
 
 /** Project each worker independently when a batch shares one parent tool call. */
@@ -329,6 +349,7 @@ export function projectSubagentLifecycleRuns(
         ...buildRunFromArtifact(projection.artifact, agentId),
         status: projection.status ?? 'done',
         runtimeState: projection.status === 'running' ? 'live' : 'terminal',
+        lifecyclePhase: projection.lifecyclePhase,
         result: projection.artifact.result || projection.streamedResult || undefined,
         thinking: projection.artifact.thinking
           ?? (projection.thinking.length > 0 ? projection.thinking : null),
@@ -342,6 +363,7 @@ export function projectSubagentLifecycleRuns(
       id: agentId,
       status: projection.status ?? 'running',
       runtimeState: projection.status === 'running' ? 'live' : 'terminal',
+      lifecyclePhase: projection.lifecyclePhase,
       task,
       roleId,
       role,
@@ -672,18 +694,22 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
   };
 }
 
+function subagentRunStatus(status: string | null | undefined): SubagentRun['status'] | null {
+  if (status === 'running' || status === 'queued' || status === 'cancelling') return 'running';
+  if (status === 'done' || status === 'completed') return 'done';
+  if (status === 'error' || status === 'failed') return 'error';
+  if (status === 'cancelled' || status === 'orphaned' || status === 'interrupted') return 'cancelled';
+  return null;
+}
+
 function buildRunFromArtifact(artifact: SubagentArtifact, id: string, content?: string): SubagentRun {
-  const persistedRunning = artifact.status === 'running' || artifact.status === 'queued';
+  const status = subagentRunStatus(artifact.status) ?? 'done';
+  const persistedRunning = status === 'running';
+  const interrupted = artifact.status === 'orphaned' || artifact.status === 'interrupted';
   return {
     id,
-    status: persistedRunning
-      ? 'cancelled'
-      : artifact.status === 'cancelled'
-        ? 'cancelled'
-        : artifact.status === 'error' || artifact.status === 'failed'
-        ? 'error'
-        : 'done',
-    runtimeState: persistedRunning ? 'interrupted' : 'terminal',
+    status,
+    runtimeState: persistedRunning ? 'unverified' : interrupted ? 'interrupted' : 'terminal',
     task: artifact.task,
     roleId: artifact.roleId ?? null,
     roleName: artifact.roleName ?? null,
@@ -728,7 +754,6 @@ export function extractSubagentBatchArtifact(value: unknown): SubagentBatchArtif
       if (!row) return;
       const artifact = extractSubagentArtifact({ kind: 'subagent_result', ...row });
       if (!artifact) return;
-      const status = typeof row.status === 'string' ? row.status : 'done';
       const run = buildRunFromArtifact(
         artifact,
         typeof row.id === 'string' ? row.id : `batch-run-${index}`,
@@ -736,11 +761,6 @@ export function extractSubagentBatchArtifact(value: unknown): SubagentBatchArtif
       );
       runs.push({
         ...run,
-        status: status === 'error'
-          ? 'error'
-          : status === 'cancelled'
-            ? 'cancelled'
-            : status === 'running' ? 'running' : 'done',
         isError: row.isError === true,
         content: typeof row.errorMessage === 'string' ? row.errorMessage : run.content,
       });
@@ -827,31 +847,35 @@ export function extractSubagentJudgementArtifact(value: unknown): SubagentJudgem
   };
 }
 
-function buildRunFromToolCall(toolCall: ToolCallEvent): SubagentRun | null {
+export function buildSubagentRun(
+  toolCall: Pick<ToolCallEvent, 'toolName' | 'arguments' | 'status' | 'content' | 'isError' | 'artifacts' | 'activityEvents'> & { callId?: string },
+  parentRunActive?: boolean,
+): SubagentRun | null {
   if (toolCall.toolName !== 'spawn_subagent') return null;
   const initialArtifact = extractSubagentArtifact(toolCall.artifacts);
   const lifecycle = projectSubagentLifecycle(toolCall.activityEvents);
   const artifact = lifecycle.artifact ?? initialArtifact;
   const parsedArgs = parseSubagentArguments(toolCall.arguments);
   const task = artifact?.task ?? parsedArgs?.task ?? 'Delegated task';
-  const parentActive = toolCall.status === 'starting'
+  const parentActive = parentRunActive ?? (toolCall.status === 'starting'
     || toolCall.status === 'preparing'
     || toolCall.status === 'approvalPending'
-    || toolCall.status === 'running';
-  const projectedStatus = lifecycle.status ?? (artifact?.status === 'running' || artifact?.status === 'queued'
-    ? 'running'
-    : parentActive
+    || toolCall.status === 'running');
+  const provenInterrupted = artifact?.status === 'orphaned' || artifact?.status === 'interrupted';
+  const projectedStatus = lifecycle.status ?? subagentRunStatus(artifact?.status) ?? (parentActive
       ? 'running'
       : toolCall.status === 'cancelled'
         ? 'cancelled'
         : toolCall.status === 'done'
           ? 'done'
           : 'error');
-  const interrupted = projectedStatus === 'running' && !parentActive;
+  const unverified = projectedStatus === 'running' && !parentActive;
   return {
-    id: artifact?.id ?? toolCall.callId,
-    status: interrupted ? 'cancelled' : projectedStatus,
-    runtimeState: interrupted ? 'interrupted' : projectedStatus === 'running' ? 'live' : 'terminal',
+    id: artifact?.id ?? toolCall.callId ?? `subagent-${task}`,
+    status: projectedStatus,
+    runtimeState: provenInterrupted ? 'interrupted' : unverified ? 'unverified' : projectedStatus === 'running' ? 'live' : 'terminal',
+    lifecyclePhase: lifecycle.lifecyclePhase
+      ?? (artifact?.status === 'queued' ? 'queued' : null),
     task,
     roleId: artifact?.roleId ?? parsedArgs?.roleId ?? null,
     roleName: artifact?.roleName ?? null,
@@ -898,12 +922,16 @@ export function findVisibleSubagentRuns(
   messages: ConversationMessage[],
   toolCalls: ToolCallEvent[],
   limit = 4,
+  parentRunActive = false,
 ): SubagentRun[] {
   const liveRuns = toolCalls.flatMap(toolCall => {
-    const direct = buildRunFromToolCall(toolCall);
+    const direct = buildSubagentRun(toolCall, parentRunActive);
     if (direct) return [direct];
     const lifecycleRuns = projectSubagentLifecycleRuns(toolCall.activityEvents);
-    if (lifecycleRuns.length > 0) return lifecycleRuns;
+    if (lifecycleRuns.length > 0) return lifecycleRuns.map(run => ({
+      ...run,
+      runtimeState: run.status === 'running' ? parentRunActive ? 'live' as const : 'unverified' as const : 'terminal' as const,
+    }));
     const batch = extractSubagentBatchArtifact(toolCall.artifacts);
     return batch?.runs ?? [];
   });

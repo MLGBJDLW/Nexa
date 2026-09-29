@@ -3,6 +3,7 @@ import {
   extractSubagentBatchArtifact,
   projectSubagentLifecycle,
   projectSubagentLifecycleRuns,
+  buildSubagentRun,
 } from '../src/lib/subagentArtifacts';
 import type { ActivityEvent } from '../src/types/conversation';
 import type { ToolCallEvent } from '../src/lib/streaming/protocol';
@@ -87,6 +88,34 @@ assert(projection.artifact?.preflight?.remainingTokenBudget === 48000, 'prefligh
 assert(projection.artifact?.preflight?.remainingCallBudget === 2, 'preflight call budget should survive lifecycle projection');
 assert(projection.artifact?.preflight?.runDeadlineMs === 60000, 'preflight deadline should survive lifecycle projection');
 
+const queued = projectSubagentLifecycle([
+  event(1, 'spawned', { task: 'Waiting for a lane' }),
+  event(2, 'queued', { status: 'queued' }),
+]);
+assert(queued.lifecyclePhase === 'queued', 'accepted workers stay visibly queued before admission');
+const admitted = projectSubagentLifecycle([
+  event(1, 'spawned', { task: 'Waiting for a lane' }),
+  event(2, 'queued', { status: 'queued' }),
+  event(3, 'progress', { status: 'running' }),
+]);
+assert(admitted.lifecyclePhase === 'running', 'scheduler admission exposes the running phase');
+const stopping = projectSubagentLifecycle([
+  event(1, 'queued', { status: 'queued' }),
+  event(2, 'progress', { status: 'cancelling' }),
+  event(3, 'connected', { providerConnected: true }),
+]);
+assert(stopping.lifecyclePhase === 'cancelling', 'late provider callbacks cannot clear cancellation');
+const replayed = projectSubagentLifecycle([
+  ...events,
+  events[2],
+  event(6, 'queued', { status: 'queued' }),
+  event(7, 'failed', { errorMessage: 'late callback' }),
+]);
+assert(replayed.streamedResult === projection.streamedResult, 'event replay must not duplicate output');
+assert(replayed.status === 'done', 'terminal evidence must not regress during replay');
+assert(replayed.artifact?.result === 'Verified result', 'first terminal evidence remains authoritative');
+assert(replayed.lifecyclePhase === null, 'terminal cards no longer project queue or cancellation phases');
+
 const cancelled = projectSubagentLifecycle([
   event(1, 'spawned', { task: 'Cancelled task' }, 'agent-cancelled'),
   event(2, 'cancelled', { status: 'cancelled' }, 'agent-cancelled'),
@@ -150,8 +179,23 @@ const runningToolCall: ToolCallEvent = {
   },
 };
 const [runningRun] = findVisibleSubagentRuns([], [runningToolCall]);
-assert(runningRun.status === 'cancelled', 'a persisted running artifact without an active parent must fail closed');
-assert(runningRun.runtimeState === 'interrupted', 'historical lifecycle handles must be labelled interrupted');
+assert(runningRun.status === 'running', 'a persisted snapshot retains its last known state');
+assert(runningRun.runtimeState === 'unverified', 'no live parent authority cannot prove cancellation or restart');
+const liveAccepted = buildSubagentRun({
+  ...runningToolCall,
+  artifacts: { ...runningToolCall.artifacts, status: 'queued' },
+}, true)!;
+assert(liveAccepted.status === 'running' && liveAccepted.runtimeState === 'live',
+  'a completed spawn command does not end a worker owned by an active parent turn');
+assert(liveAccepted.lifecyclePhase === 'queued', 'active parent preserves admission phase');
+const parentFinished = buildSubagentRun(runningToolCall, false)!;
+assert(parentFinished.runtimeState === 'unverified' && parentFinished.status === 'running',
+  'normal parent completion does not prove that a detached worker stopped');
+assert(buildSubagentRun(toolCall, false)?.status === 'done', 'authoritative terminal evidence wins after parent completion');
+assert(buildSubagentRun({ ...runningToolCall, artifacts: { ...runningToolCall.artifacts, status: 'cancelled' } }, false)?.status === 'cancelled',
+  'a completed spawn tool must not turn an explicitly cancelled worker into success');
+assert(buildSubagentRun({ ...runningToolCall, artifacts: { ...runningToolCall.artifacts, status: 'orphaned' } }, false)?.runtimeState === 'interrupted',
+  'only explicit orphan evidence can prove interruption');
 assert(runningRun.modelPolicy === 'fast', 'running artifact should retain the requested model route from tool arguments');
 assert(runningRun.lifecycleTools?.sendInput === 'send_subagent_input', 'advertised steer control should project');
 assert(runningRun.lifecycleTools?.cancel === 'cancel_subagent', 'advertised cancel control should project');

@@ -2,6 +2,34 @@ use super::*;
 use nexa_core::conversation::{ConversationMessage, CreateConversationInput};
 use nexa_core::llm::ProviderType;
 
+#[derive(Debug)]
+struct TestWorkerAdmission {
+    _slot: tokio::sync::OwnedSemaphorePermit,
+    reservation: crate::delegation_scheduler::WorkerBudgetReservation,
+}
+
+impl SubagentBudgetController {
+    // Tests exercise the same split admission and RAII owner as production;
+    // this helper only connects those public seams for started-call fixtures.
+    async fn begin_call(
+        &self,
+        label: &str,
+        tokens: u32,
+        verifier: bool,
+        cancel: &CancellationToken,
+    ) -> Result<TestWorkerAdmission, CoreError> {
+        let slot = self.acquire_worker_slot(label, verifier, cancel).await?;
+        let mut reservation = self
+            .commit_worker_call(label, tokens, verifier, cancel)
+            .await?;
+        reservation.mark_started();
+        Ok(TestWorkerAdmission {
+            _slot: slot,
+            reservation,
+        })
+    }
+}
+
 fn test_runtime() -> DelegationRuntime {
     DelegationRuntime::new(
         ProviderConfig {
@@ -108,9 +136,6 @@ fn global_lifecycle_does_not_keep_workers_after_their_parent_runtime_is_released
             cancel_token: CancellationToken::new(),
             activity_runtime: nexa_core::activity::ActivityRuntime::new(),
         })
-        .unwrap();
-    lifecycle
-        .set_status("retired-worker", SubagentLifecycleStatus::Completed)
         .unwrap();
     let active_worker_runtime = runtime.clone();
     drop(runtime);
@@ -645,6 +670,273 @@ async fn observe_batch_returns_after_one_new_supplemental_result() {
 }
 
 #[test]
+fn batch_cursor_tracks_completion_order_without_replaying_or_replacing_results() {
+    let runtime = test_runtime();
+    runtime.register_batch("cursor-batch", 3);
+    runtime.record_batch_result("cursor-batch", 2, observed_batch_run("third"));
+    let first = runtime.batch_snapshot("cursor-batch", Some(0)).unwrap();
+    assert_eq!(first.cursor, 1);
+    assert_eq!(first.runs[0].id, "third");
+    runtime.record_batch_result("cursor-batch", 0, observed_batch_run("first"));
+    runtime.record_batch_result("cursor-batch", 2, observed_batch_run("duplicate"));
+    let next = runtime
+        .batch_snapshot("cursor-batch", Some(first.cursor))
+        .unwrap();
+    assert_eq!(next.cursor, 2);
+    assert_eq!(next.completed_workers, 2);
+    assert_eq!(next.runs.len(), 1);
+    assert_eq!(next.runs[0].id, "first");
+    assert!(runtime
+        .batch_snapshot("cursor-batch", Some(2))
+        .unwrap()
+        .runs
+        .is_empty());
+    let reset = runtime.batch_snapshot("cursor-batch", Some(99)).unwrap();
+    assert!(reset.reset);
+    assert_eq!(
+        reset
+            .runs
+            .iter()
+            .map(|run| run.id.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "third"]
+    );
+    assert_eq!(
+        runtime
+            .batch_snapshot("cursor-batch", None)
+            .unwrap()
+            .runs
+            .len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn incremental_batch_wait_returns_only_new_evidence_and_is_parent_cancellable() {
+    let runtime = test_runtime();
+    runtime.register_batch("incremental", 3);
+    runtime.record_batch_result("incremental", 1, observed_batch_run("previous"));
+    let tool = ObserveSubagentBatchTool::from_runtime(runtime.clone());
+    let db = Database::open_memory().unwrap();
+    let arguments = r#"{"batchId":"incremental","afterSeq":1,"waitMs":60000}"#;
+    let sources = Vec::new();
+    let observe = tool.execute(nexa_core::tools::ToolExecutionContext::new(
+        "cursor-wait",
+        arguments,
+        &db,
+        &sources,
+    ));
+    let completion = async {
+        tokio::task::yield_now().await;
+        runtime.record_batch_result("incremental", 0, observed_batch_run("new"));
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(observe, completion)
+    })
+    .await
+    .unwrap();
+    let artifact = result.unwrap().artifacts.unwrap();
+    assert_eq!(artifact["cursor"], 2);
+    assert_eq!(artifact["runs"].as_array().unwrap().len(), 1);
+    assert_eq!(artifact["runs"][0]["id"], "new");
+    runtime.cancel_token.cancel();
+    let cancelled = tool
+        .execute(nexa_core::tools::ToolExecutionContext::new(
+            "cancelled-wait",
+            r#"{"batchId":"incremental","afterSeq":2,"waitMs":60000}"#,
+            &db,
+            &sources,
+        ))
+        .await
+        .unwrap()
+        .artifacts
+        .unwrap();
+    assert_eq!(cancelled["waitInterrupted"], true);
+    assert!(cancelled["runs"].as_array().unwrap().is_empty());
+}
+
+fn register_test_worker(
+    runtime: &DelegationRuntime,
+    id: &str,
+) -> crate::subagent_lifecycle::SubagentWorkerRegistration {
+    runtime
+        .register_worker(RegisterSubagentRequest {
+            agent_id: id.into(),
+            parent_call_id: "parent-call".into(),
+            task: "Inspect".into(),
+            role_id: None,
+            role: None,
+            conversation_id: None,
+            turn_id: None,
+            task_run_id: None,
+            cancel_token: runtime.cancel_token.child_token(),
+            activity_runtime: nexa_core::activity::ActivityRuntime::new(),
+        })
+        .unwrap()
+}
+
+#[tokio::test]
+async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spending() {
+    for abort_collector in [false, true] {
+        let mut runtime = test_runtime();
+        runtime.base_config.subagent_max_parallel = Some(1);
+        runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+        // An uninitialized registry would reject preflight, proving that a
+        // queued worker has not allocated its executor or entered preflight.
+        let occupied = runtime
+            .budget
+            .acquire_worker_slot("occupied", false, &runtime.cancel_token)
+            .await
+            .unwrap();
+        let registration = register_test_worker(&runtime, "queued-worker");
+        let activity = registration.events.activity_runtime();
+        let db = Database::open_memory().unwrap();
+        let worker_runtime = runtime.clone();
+        let collector = tokio::spawn(async move {
+            run_registered_subagent_isolated(
+                worker_runtime,
+                db,
+                vec![],
+                "queued-worker".into(),
+                None,
+                serde_json::from_value(serde_json::json!({"task":"Inspect"})).unwrap(),
+                None,
+                registration,
+            )
+            .await
+        });
+        runtime
+            .lifecycle
+            .observe("queued-worker", 0, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.lifecycle.snapshot("queued-worker").unwrap().status,
+            SubagentLifecycleStatus::Queued
+        );
+        if abort_collector {
+            collector.abort();
+            assert!(collector.await.unwrap_err().is_cancelled());
+        } else {
+            runtime.cancel_token.cancel();
+            assert!(collector.await.unwrap().is_err());
+        }
+        let terminal = runtime.lifecycle.snapshot("queued-worker").unwrap();
+        assert!(terminal.status.is_terminal());
+        assert!(activity.get("queued-worker").unwrap().state.is_terminal());
+        let budget = runtime.budget.snapshot().await;
+        assert_eq!(budget.calls_started, 0);
+        assert_eq!(budget.tokens_reserved, 0);
+        drop(occupied);
+        let replacement = runtime
+            .budget
+            .acquire_worker_slot("replacement", false, &CancellationToken::new())
+            .await
+            .unwrap();
+        drop(replacement);
+    }
+}
+
+#[tokio::test]
+async fn running_worker_owns_settlement_after_its_result_collector_is_aborted() {
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (seen_tx, seen_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_worker_request(&mut socket).await;
+        seen_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        let body = concat!(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"independently settled\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2,\"total_tokens\":10}}\n\n",
+            "data: [DONE]\n\n");
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    });
+    let mut runtime = test_runtime();
+    runtime.provider_config.base_url = Some(format!("http://{address}/v1"));
+    runtime.provider_config.api_key = Some("test-key".into());
+    runtime.base_config.model = Some("fixture-model".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let registration = register_test_worker(&runtime, "independent-worker");
+    let activity = registration.events.activity_runtime();
+    let worker_runtime = runtime.clone();
+    let collector = tokio::spawn(async move {
+        run_registered_subagent_isolated(
+            worker_runtime,
+            Database::open_memory().unwrap(),
+            vec![],
+            "independent-worker".into(),
+            None,
+            serde_json::from_value(
+                serde_json::json!({"task":"Inspect","allowed_tools":[],"max_iterations":0}),
+            )
+            .unwrap(),
+            None,
+            registration,
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(10), seen_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    collector.abort();
+    assert!(collector.await.unwrap_err().is_cancelled());
+    release_tx.send(()).unwrap();
+    let terminal = runtime
+        .lifecycle
+        .wait("independent-worker", Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert_eq!(terminal.worker.status, SubagentLifecycleStatus::Completed);
+    assert!(terminal.worker.result.unwrap()["result"]
+        .as_str()
+        .unwrap()
+        .contains("independently settled"));
+    // Lifecycle settlement persists on the worker runtime, independently of
+    // the dropped receiver. Observe the durable completion event as proof.
+    let events = activity
+        .observe("independent-worker", 0, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(events
+        .events
+        .iter()
+        .any(|event| event.payload["detail"]["subagentEvent"] == "completed"));
+    server.await.unwrap();
+    assert_eq!(runtime.budget.snapshot().await.tokens_reserved, 0);
+}
+
+#[tokio::test]
+async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_estimates() {
+    let scheduler = SubagentBudgetController::new(&AgentConfig::default());
+    let cancellation = CancellationToken::new();
+    let reservation = scheduler
+        .commit_worker_call("setup", 123, true, &cancellation)
+        .await
+        .unwrap();
+    assert_eq!(scheduler.snapshot().await.calls_started, 1);
+    drop(reservation);
+    assert_eq!(scheduler.snapshot().await.calls_started, 0);
+    assert_eq!(scheduler.snapshot().await.tokens_reserved, 0);
+    let mut started = scheduler
+        .commit_worker_call("provider", 456, false, &cancellation)
+        .await
+        .unwrap();
+    started.mark_started();
+    drop(started);
+    assert_eq!(scheduler.snapshot().await.calls_started, 1);
+    assert_eq!(scheduler.snapshot().await.tokens_reserved, 0);
+    cancellation.cancel();
+    assert!(scheduler
+        .acquire_worker_slot("already-cancelled", false, &cancellation)
+        .await
+        .is_err());
+}
+
+#[test]
 fn test_normalize_spawn_args_preserves_explicit_timeout() {
     let args = normalize_spawn_args(SpawnSubagentArgs {
         task: "Investigate".into(),
@@ -745,20 +1037,17 @@ async fn default_delegation_keeps_running_past_former_call_and_token_limits() {
     let budget = SubagentBudgetController::new(&AgentConfig::default());
     let cancel = CancellationToken::new();
     for _ in 0..40 {
-        let permit = budget
+        let mut permit = budget
             .begin_call("worker", 16_000, false, &cancel)
             .await
             .unwrap();
-        budget
-            .finish_call(
-                16_000,
-                &Usage {
-                    total_tokens: 16_000,
-                    ..Default::default()
-                },
-                None,
-            )
-            .await;
+        permit.reservation.settle(
+            &Usage {
+                total_tokens: 16_000,
+                ..Default::default()
+            },
+            None,
+        );
         drop(permit);
     }
     let snapshot = budget.snapshot().await;
@@ -1132,12 +1421,18 @@ fn test_workflow_template_expands_role_based_tasks() {
 }
 
 #[test]
-fn test_child_runtime_blocks_recursive_delegation() {
+fn worker_registry_blocks_recursion_even_when_requested_explicitly() {
     let runtime = test_runtime();
-    assert!(runtime.can_delegate_further());
-
-    let child = runtime.spawn_child_runtime(CancellationToken::new());
-    assert!(!child.can_delegate_further());
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
+    registry.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));
+    runtime.set_tool_registry(registry);
+    let tools = build_subagent_executor_tools(
+        &runtime,
+        &["spawn_subagent".into(), "spawn_subagent_batch".into()],
+    )
+    .unwrap();
+    assert!(tools.tool_names().is_empty());
 }
 
 #[tokio::test]
@@ -1164,8 +1459,6 @@ async fn test_budget_reservations_are_soft_for_parallel_fanout() {
     drop(second);
 
     drop(permit);
-    budget.release_reservation(220).await;
-    budget.release_reservation(50).await;
     assert_eq!(budget.snapshot().await.tokens_reserved, 0);
 }
 
@@ -1209,7 +1502,6 @@ async fn test_cancelled_worker_queue_releases_budget_reservation() {
     assert_eq!(snapshot.tokens_reserved, 200);
 
     drop(active_permit);
-    budget.release_reservation(200).await;
 }
 
 #[tokio::test]
@@ -1238,8 +1530,6 @@ async fn test_nexus_preserves_tokens_and_a_call_for_verification() {
 
     drop(verifier);
     drop(worker);
-    budget.release_reservation(700).await;
-    budget.release_reservation(300).await;
     let snapshot = budget.snapshot().await;
     assert_eq!(snapshot.verification_reserve_tokens, 0);
     assert_eq!(snapshot.exploration_lane_slots, 2);
@@ -1276,9 +1566,7 @@ async fn test_nexus_verifier_cannot_consume_the_reserved_judge_call() {
         .expect("judge keeps its reserved call admission");
 
     drop((worker, verifier, judge));
-    for _ in 0..3 {
-        budget.release_reservation(100).await;
-    }
+    budget.finish_call(100, &Usage::default(), None).await;
     assert_eq!(budget.snapshot().await.calls_started, 3);
 }
 
@@ -1328,7 +1616,6 @@ async fn test_worker_queue_has_an_independent_deadline() {
     assert!(error.to_string().contains("queue deadline"));
     assert_eq!(budget.snapshot().await.calls_started, 1);
     drop(active);
-    budget.release_reservation(100).await;
 }
 
 #[test]
@@ -1406,16 +1693,15 @@ async fn batch_queue_failure_rolls_back_unstarted_call_and_token_credit() {
     let budget = SubagentBudgetController::new(&config);
     let cancel = CancellationToken::new();
     let permit = budget
-        .begin_call("queued", 100, false, &cancel)
+        .commit_worker_call("queued", 100, false, &cancel)
         .await
         .unwrap();
 
-    budget.rollback_unstarted_worker(100, false).await;
+    drop(permit);
     let snapshot = budget.snapshot().await;
 
     assert_eq!(snapshot.calls_started, 0);
     assert_eq!(snapshot.tokens_reserved, 0);
-    drop(permit);
 }
 
 #[tokio::test]
@@ -1559,7 +1845,7 @@ async fn token_soft_limit_blocks_new_calls_while_residual_workers_are_running() 
     };
     let budget = SubagentBudgetController::new(&config);
     let cancel = CancellationToken::new();
-    let first = budget
+    let mut first = budget
         .begin_call("first", 100, false, &cancel)
         .await
         .unwrap();
@@ -1567,16 +1853,13 @@ async fn token_soft_limit_blocks_new_calls_while_residual_workers_are_running() 
         .begin_call("residual", 100, false, &cancel)
         .await
         .unwrap();
-    budget
-        .finish_call(
-            100,
-            &Usage {
-                total_tokens: 300,
-                ..Default::default()
-            },
-            None,
-        )
-        .await;
+    first.reservation.settle(
+        &Usage {
+            total_tokens: 300,
+            ..Default::default()
+        },
+        None,
+    );
     drop(first);
 
     let error = budget
@@ -1602,20 +1885,17 @@ async fn nexus_control_lanes_remain_admissible_after_exploration_soft_limit() {
     };
     let budget = SubagentBudgetController::new(&config);
     let cancel = CancellationToken::new();
-    let explorer = budget
+    let mut explorer = budget
         .begin_call("explorer", 100, false, &cancel)
         .await
         .unwrap();
-    budget
-        .finish_call(
-            100,
-            &Usage {
-                total_tokens: 300,
-                ..Default::default()
-            },
-            None,
-        )
-        .await;
+    explorer.reservation.settle(
+        &Usage {
+            total_tokens: 300,
+            ..Default::default()
+        },
+        None,
+    );
     drop(explorer);
 
     let verifier = budget

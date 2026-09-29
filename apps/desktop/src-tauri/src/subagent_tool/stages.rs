@@ -46,17 +46,6 @@ pub(super) async fn prepare_subagent_worker(
     call_label: &str,
     worker_id: Option<&str>,
 ) -> Result<PreparedSubagentWorker, CoreError> {
-    if runtime.delegation_depth >= MAX_SUBAGENT_DELEGATION_DEPTH {
-        return Err(subagent_preflight_failure(
-            SubagentPreflightStage::Policy,
-            "recursion_depth_exceeded",
-            false,
-            format!(
-                "Recursive delegated execution is blocked beyond depth {}.",
-                MAX_SUBAGENT_DELEGATION_DEPTH
-            ),
-        ));
-    }
     let worker_cancel_token = runtime.cancel_token.child_token();
     let role_profile = resolve_role_profile(args.role_id.as_deref(), args.role.as_deref())?;
     let requested_task_id = args.task_id.clone();
@@ -250,7 +239,7 @@ pub(super) async fn prepare_subagent_worker(
         handoff_token_budget = handoff_token_budget.max(1);
     }
     let context_snapshot = runtime.context_snapshot(
-        &db,
+        db,
         effective_model.as_deref().unwrap_or("default"),
         model_context_limit,
         handoff_token_budget,
@@ -284,9 +273,7 @@ pub(super) async fn prepare_subagent_worker(
         args.allowed_tools.as_deref(),
         role_profile,
     );
-    if runtime.delegation_depth.saturating_add(1) >= MAX_SUBAGENT_DELEGATION_DEPTH {
-        effective_allowed_tools.retain(|name| !is_subagent_tool_name(name));
-    }
+    effective_allowed_tools.retain(|name| !is_subagent_tool_name(name));
     // Interactive browser/computer control is parent-scoped until delegated
     // workers have a parent approval proxy and a surface capability lease.
     // `conversation_id=None` must never become a shared tenant key.
@@ -294,7 +281,7 @@ pub(super) async fn prepare_subagent_worker(
     let effective_source_scope =
         resolve_source_scope(&inherited_source_scope, args.source_ids.as_deref());
     let mut preflight = validate_subagent_preflight(
-        &args,
+        args,
         &effective_model_id,
         &provider_id,
         &baseline_allowed_tools,
@@ -303,7 +290,7 @@ pub(super) async fn prepare_subagent_worker(
         &effective_source_scope,
         &context_snapshot,
     )?;
-    let evidence_handoff = build_evidence_handoff(&db, args.evidence_chunk_ids.as_deref());
+    let evidence_handoff = build_evidence_handoff(db, args.evidence_chunk_ids.as_deref());
     let skill_select_started = Instant::now();
     let selected_skill_query = format!(
         "{}\n{}",
@@ -312,7 +299,7 @@ pub(super) async fn prepare_subagent_worker(
     );
     let skill_index = runtime
         .skill_index
-        .get_or_init(|| load_skill_index_snapshot(&db));
+        .get_or_init(|| load_skill_index_snapshot(db));
     let enabled_skills = nexa_core::skills::select_available_skills_from_pool(
         filter_enabled_skills(&skill_index.skills, runtime.allowed_skill_ids.as_deref()),
         &selected_skill_query,
@@ -321,19 +308,18 @@ pub(super) async fn prepare_subagent_worker(
     let skill_select_ms = instant_elapsed_ms(skill_select_started);
     let tool_registry_started = Instant::now();
     let tools =
-        build_subagent_executor_tools(&runtime, &effective_allowed_tools, &worker_cancel_token)
-            .map_err(|error| {
-                subagent_preflight_failure(
-                    SubagentPreflightStage::Policy,
-                    "tool_registry_construction_failed",
-                    false,
-                    error.to_string(),
-                )
-            })?;
+        build_subagent_executor_tools(runtime, &effective_allowed_tools).map_err(|error| {
+            subagent_preflight_failure(
+                SubagentPreflightStage::Policy,
+                "tool_registry_construction_failed",
+                false,
+                error.to_string(),
+            )
+        })?;
     let tool_registry_ms = instant_elapsed_ms(tool_registry_started);
     let request_build_started = Instant::now();
     let request_text = build_subagent_request(
-        &args,
+        args,
         role_profile,
         &effective_source_scope,
         &effective_allowed_tools,
@@ -342,7 +328,7 @@ pub(super) async fn prepare_subagent_worker(
         previous_session.as_ref(),
     );
     let request_build_ms = instant_elapsed_ms(request_build_started);
-    let initial_output_credit = initial_output_credit(role_profile, &args, &config);
+    let initial_output_credit = initial_output_credit(role_profile, args, &config);
     let inherited_skill_tokens = enabled_skills.iter().fold(0_u32, |total, skill| {
         total.saturating_add(estimate_tokens_for_model(
             &effective_model_id,
@@ -465,6 +451,7 @@ pub(super) struct AdmittedSubagentWorker {
     pub(super) subtask_run_id: Option<String>,
     pub(super) _lane_permit: tokio::sync::OwnedSemaphorePermit,
     pub(super) _batch_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    pub(super) reservation: crate::delegation_scheduler::WorkerBudgetReservation,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -473,7 +460,7 @@ pub(super) async fn admit_subagent_worker(
     db: &Database,
     call_label: &str,
     args: &SpawnSubagentArgs,
-    batch_slots: Option<Arc<tokio::sync::Semaphore>>,
+    execution_slots: WorkerExecutionSlots,
     launch_started: Instant,
     prepared: &PreparedSubagentWorker,
 ) -> Result<AdmittedSubagentWorker, CoreError> {
@@ -481,7 +468,6 @@ pub(super) async fn admit_subagent_worker(
     let reserved_tokens = prepared.reserved_tokens;
     let effective_model = &prepared.effective_model;
     let model_route_fallback = prepared.model_route_fallback;
-    let delegation_limits = &prepared.delegation_limits;
     let worker_cancel_token = &prepared.worker_cancel_token;
     let subtask_input = &prepared.subtask_input;
     let WorkerStageMetrics {
@@ -492,13 +478,13 @@ pub(super) async fn admit_subagent_worker(
         request_build_ms,
     } = prepared.metrics;
     let parent_task_run_id = runtime.parent_task_run_id.clone();
-    let role_label = subtask_role_label(&args, role_profile, "Subagent");
+    let role_label = subtask_role_label(args, role_profile, "Subagent");
     let mut subtask = SubtaskRecorder::create(
-        &db,
+        db,
         parent_task_run_id.as_deref(),
-        &call_label,
+        call_label,
         &role_label,
-        &subtask_input,
+        subtask_input,
         reserved_tokens,
         format!("Subagent queued: {call_label}"),
         serde_json::json!({
@@ -527,19 +513,18 @@ pub(super) async fn admit_subagent_worker(
         ("request_build_ms", Some(request_build_ms), None, "measured"),
     ]);
     let subtask_run_id = subtask.id().map(str::to_string);
-    let queue_started = Instant::now();
     let is_verification = role_profile.is_some_and(|profile| profile.id == "verifier");
-    let _permit = match runtime
+    let reservation = match runtime
         .budget
-        .begin_call(
-            &call_label,
+        .commit_worker_call(
+            call_label,
             reserved_tokens,
             is_verification,
-            &worker_cancel_token,
+            worker_cancel_token,
         )
         .await
     {
-        Ok(permit) => permit,
+        Ok(reservation) => reservation,
         Err(err) => {
             let err = subagent_admission_failure(&err);
             let output = serde_json::json!({
@@ -557,38 +542,6 @@ pub(super) async fn admit_subagent_worker(
             return Err(err);
         }
     };
-    // Acquire the batch-local cap only after the role-aware global scheduler
-    // has granted a lane. Explorers queued on their lane must never occupy
-    // generic batch slots and starve the dedicated verifier lane.
-    let _batch_permit = if let Some(batch_slots) = batch_slots {
-        match acquire_batch_slot(
-            batch_slots,
-            &worker_cancel_token,
-            &call_label,
-            queue_started,
-            delegation_limits.queue_deadline_ms,
-        )
-        .await
-        {
-            Ok(permit) => Some(permit),
-            Err(error) => {
-                let error = subagent_preflight_failure(
-                    SubagentPreflightStage::Timeout,
-                    "batch_queue_deadline_exceeded",
-                    true,
-                    error.to_string(),
-                );
-                runtime
-                    .budget
-                    .rollback_unstarted_worker(reserved_tokens, is_verification)
-                    .await;
-                subtask.finish("failed", None, Some(&error.to_string()), None);
-                return Err(error);
-            }
-        }
-    } else {
-        None
-    };
     if let Err(err) = subtask.mark_started(
         "running",
         format!("Subagent started: {call_label}"),
@@ -596,13 +549,9 @@ pub(super) async fn admit_subagent_worker(
             "subtaskRunId": &subtask_run_id,
             "callLabel": &call_label,
             "reservedTokens": reserved_tokens,
-            "queueWaitMs": u64::try_from(queue_started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            "queueWaitMs": execution_slots.queue_wait_ms,
         }),
     ) {
-        runtime
-            .budget
-            .rollback_unstarted_worker(reserved_tokens, is_verification)
-            .await;
         subtask.finish("failed", None, Some(&err.to_string()), None);
         return Err(err);
     }
@@ -617,8 +566,9 @@ pub(super) async fn admit_subagent_worker(
     Ok(AdmittedSubagentWorker {
         subtask,
         subtask_run_id,
-        _lane_permit: _permit,
-        _batch_permit,
+        _lane_permit: execution_slots.lane,
+        _batch_permit: execution_slots.batch,
+        reservation,
     })
 }
 
@@ -657,7 +607,6 @@ pub(super) struct SubagentExecutionInput<'a> {
     pub(super) run_deadline_ms: Option<u64>,
     pub(super) context_messages: Vec<Message>,
     pub(super) effective_source_scope: Vec<String>,
-    pub(super) reserved_tokens: u32,
     pub(super) provider: Box<dyn LlmProvider>,
     pub(super) tools: ToolRegistry,
     pub(super) config: AgentConfig,
@@ -670,6 +619,7 @@ pub(super) struct SubagentExecutionInput<'a> {
 pub(super) async fn execute_subagent_worker(
     input: SubagentExecutionInput<'_>,
     subtask: &mut SubtaskRecorder,
+    reservation: &mut crate::delegation_scheduler::WorkerBudgetReservation,
 ) -> Result<(Message, EventCapture), CoreError> {
     let SubagentExecutionInput {
         runtime,
@@ -686,7 +636,6 @@ pub(super) async fn execute_subagent_worker(
         run_deadline_ms,
         context_messages,
         effective_source_scope,
-        reserved_tokens,
         provider,
         tools,
         config,
@@ -768,6 +717,7 @@ pub(super) async fn execute_subagent_worker(
         tx,
         0,
     );
+    reservation.mark_started();
     let final_result = await_subagent_worker_completion(
         call_label,
         &worker_cancel_token,
@@ -792,10 +742,7 @@ pub(super) async fn execute_subagent_worker(
     // Reservations plan concurrency; they are not evidence of billed usage.
     // A local protocol rejection or failed request may report no usage at all.
     // Charging the reservation here poisoned every subsequent worker admission.
-    runtime
-        .budget
-        .finish_call(reserved_tokens, &capture.usage_total, estimated_cost_micros)
-        .await;
+    reservation.settle(&capture.usage_total, estimated_cost_micros);
     match final_result {
         Ok(message) => Ok((message, capture)),
         Err(err) => {

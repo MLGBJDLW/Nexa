@@ -1,5 +1,114 @@
 use super::*;
 
+pub(super) struct WorkerExecutionSlots {
+    pub(super) lane: tokio::sync::OwnedSemaphorePermit,
+    pub(super) batch: Option<tokio::sync::OwnedSemaphorePermit>,
+    pub(super) queue_wait_ms: u64,
+}
+
+struct WorkerLifecycleOwner {
+    runtime: DelegationRuntime,
+    agent_id: String,
+    cancellation: CancellationToken,
+    settled: bool,
+}
+
+impl WorkerLifecycleOwner {
+    async fn settle(
+        &mut self,
+        outcome: Result<&SubagentRunArtifact, &CoreError>,
+    ) -> Result<(), CoreError> {
+        settle_worker_lifecycle(
+            &self.runtime.lifecycle,
+            &self.agent_id,
+            &self.cancellation,
+            outcome,
+        )
+        .await?;
+        self.settled = true;
+        Ok(())
+    }
+}
+
+impl Drop for WorkerLifecycleOwner {
+    fn drop(&mut self) {
+        if self.settled {
+            return;
+        }
+        let status = if self.cancellation.is_cancelled() {
+            SubagentLifecycleStatus::Cancelled
+        } else {
+            SubagentLifecycleStatus::Failed
+        };
+        self.cancellation.cancel();
+        if let Err(error) = self.runtime.lifecycle.finish_blocking(
+            &self.agent_id,
+            status,
+            None,
+            Some("Worker execution ended before its result was settled".into()),
+        ) {
+            warn!(
+                "Failed to retire abandoned subagent {}: {error}",
+                self.agent_id
+            );
+        }
+    }
+}
+
+pub(super) async fn acquire_worker_execution_slots(
+    runtime: &DelegationRuntime,
+    call_label: &str,
+    args: &SpawnSubagentArgs,
+    batch_slots: Option<Arc<tokio::sync::Semaphore>>,
+) -> Result<WorkerExecutionSlots, CoreError> {
+    let started = Instant::now();
+    let profile = resolve_role_profile(args.role_id.as_deref(), args.role.as_deref())?;
+    let lane = runtime
+        .budget
+        .acquire_worker_slot(
+            call_label,
+            profile.is_some_and(|profile| profile.id == "verifier"),
+            &runtime.cancel_token,
+        )
+        .await
+        .map_err(|error| subagent_admission_failure(&error))?;
+    // Preserve lane-first ordering: queued explorers must not occupy the
+    // batch slots required by an independently reserved verifier lane.
+    let batch = match batch_slots {
+        Some(slots) => Some(
+            acquire_batch_slot(
+                slots,
+                &runtime.cancel_token,
+                call_label,
+                started,
+                runtime.budget.limits().await.queue_deadline_ms,
+            )
+            .await
+            .map_err(|error| subagent_admission_failure(&error))?,
+        ),
+        None => None,
+    };
+    ensure_worker_not_cancelled(&runtime.cancel_token, call_label)?;
+    Ok(WorkerExecutionSlots {
+        lane,
+        batch,
+        queue_wait_ms: instant_elapsed_ms(started),
+    })
+}
+
+fn ensure_worker_not_cancelled(
+    cancellation: &CancellationToken,
+    call_label: &str,
+) -> Result<(), CoreError> {
+    if cancellation.is_cancelled() {
+        Err(CoreError::Agent(format!(
+            "Delegated execution '{call_label}' was cancelled before starting."
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 pub(super) async fn await_subagent_worker_completion<T, F>(
     call_label: &str,
     cancel_token: &CancellationToken,
@@ -40,11 +149,16 @@ pub(super) async fn run_subagent_once(
     call_label: String,
     worker_id: Option<String>,
     args: SpawnSubagentArgs,
-    batch_slots: Option<Arc<tokio::sync::Semaphore>>,
+    execution_slots: Option<WorkerExecutionSlots>,
     steering_rx: Option<mpsc::UnboundedReceiver<AgentSteeringMessage>>,
     lifecycle_events: Option<SubagentEventBridge>,
 ) -> Result<SubagentRunArtifact, CoreError> {
     let launch_started = Instant::now();
+    let execution_slots = match execution_slots {
+        Some(slots) => slots,
+        None => acquire_worker_execution_slots(&runtime, &call_label, &args, None).await?,
+    };
+    ensure_worker_not_cancelled(&runtime.cancel_token, &call_label)?;
     let mut prepared = prepare_subagent_worker(
         &runtime,
         &db,
@@ -62,7 +176,7 @@ pub(super) async fn run_subagent_once(
         &db,
         &call_label,
         &args,
-        batch_slots,
+        execution_slots,
         launch_started,
         &prepared,
     )
@@ -73,7 +187,19 @@ pub(super) async fn run_subagent_once(
         subtask_run_id,
         _lane_permit,
         _batch_permit,
+        mut reservation,
     } = admitted;
+    if let Some(events) = lifecycle_events.as_ref() {
+        runtime
+            .lifecycle
+            .set_status(events.agent_id(), SubagentLifecycleStatus::Running)?;
+        emit_subagent_lifecycle_event(
+            Some(events),
+            SubagentLifecycleEventKind::Progress,
+            serde_json::json!({ "status": "running" }),
+        )
+        .await;
+    }
     let PreparedSubagentWorker {
         worker_cancel_token,
         role_profile,
@@ -96,7 +222,6 @@ pub(super) async fn run_subagent_once(
         applied_skill_refs,
         tools,
         request_text,
-        reserved_tokens,
         context_snapshot_artifact,
         effective_model_budgets,
         source_scope_applied,
@@ -120,7 +245,6 @@ pub(super) async fn run_subagent_once(
             run_deadline_ms,
             context_messages: context_snapshot.messages.as_ref().to_vec(),
             effective_source_scope: effective_source_scope.clone(),
-            reserved_tokens,
             provider,
             tools,
             config,
@@ -130,6 +254,7 @@ pub(super) async fn run_subagent_once(
             lifecycle_events,
         },
         &mut subtask,
+        &mut reservation,
     )
     .await?;
     let run = settle_subagent_artifact(
@@ -174,7 +299,7 @@ pub(super) async fn settle_worker_lifecycle(
     agent_id: &str,
     cancellation: &CancellationToken,
     outcome: Result<&SubagentRunArtifact, &CoreError>,
-) {
+) -> Result<(), CoreError> {
     let (status, result, error) = match outcome {
         Ok(run) => (
             SubagentLifecycleStatus::Completed,
@@ -191,43 +316,32 @@ pub(super) async fn settle_worker_lifecycle(
             Some(error.to_string()),
         ),
     };
-    if let Err(error) = lifecycle.finish(agent_id, status, result, error).await {
-        warn!("Failed to settle lifecycle for subagent {agent_id}: {error}");
-    }
+    lifecycle.finish(agent_id, status, result, error).await?;
+    Ok(())
 }
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn run_worker_with_lifecycle(
+async fn run_admitted_worker(
     runtime: DelegationRuntime,
     db: Database,
     inherited_source_scope: Vec<String>,
     call_label: String,
     worker_id: Option<String>,
     args: SpawnSubagentArgs,
-    batch_slots: Option<Arc<tokio::sync::Semaphore>>,
+    execution_slots: WorkerExecutionSlots,
     registration: crate::subagent_lifecycle::SubagentWorkerRegistration,
 ) -> Result<SubagentRunArtifact, CoreError> {
-    let lifecycle = runtime.lifecycle.clone();
-    let agent_id = registration.agent_id.clone();
-    let cancellation = registration.cancel_token.clone();
-    if let Err(error) = registration.events.start().await {
-        let _ = lifecycle.set_status(&agent_id, SubagentLifecycleStatus::Failed);
-        return Err(error);
-    }
-    lifecycle.set_status(&agent_id, SubagentLifecycleStatus::Running)?;
-    let outcome = run_subagent_once(
+    run_subagent_once(
         runtime.scoped_to_worker(registration.cancel_token),
         db,
         inherited_source_scope,
         call_label,
         worker_id,
         args,
-        batch_slots,
+        Some(execution_slots),
         Some(registration.steering_rx),
         Some(registration.events),
     )
-    .await;
-    settle_worker_lifecycle(&lifecycle, &agent_id, &cancellation, outcome.as_ref()).await;
-    outcome
+    .await
 }
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_registered_subagent_isolated(
@@ -240,29 +354,59 @@ pub(super) async fn run_registered_subagent_isolated(
     batch_slots: Option<Arc<tokio::sync::Semaphore>>,
     registration: crate::subagent_lifecycle::SubagentWorkerRegistration,
 ) -> Result<SubagentRunArtifact, CoreError> {
-    let isolated_runtime = isolated_subagent_runtime()?;
-    let (result_tx, result_rx) = oneshot::channel();
-    std::thread::Builder::new()
-        .name("nexa-subagent-worker".to_string())
-        .spawn(move || {
-            let result = isolated_runtime.block_on(run_worker_with_lifecycle(
-                runtime,
-                db,
-                inherited_source_scope,
-                call_label,
-                worker_id,
-                args,
-                batch_slots,
-                registration,
-            ));
-            let _ = result_tx.send(result);
-        })
-        .map_err(|error| {
-            CoreError::Internal(format!("Failed to start isolated subagent thread: {error}"))
-        })?;
-    result_rx.await.map_err(|_| {
-        CoreError::Agent("Isolated subagent thread exited without a result".to_string())
-    })?
+    let agent_id = registration.agent_id.clone();
+    let cancellation = registration.cancel_token.clone();
+    let runtime = runtime.scoped_to_worker(cancellation.clone());
+    let mut owner = Some(WorkerLifecycleOwner {
+        runtime: runtime.clone(),
+        agent_id,
+        cancellation: cancellation.clone(),
+        settled: false,
+    });
+    let outcome = async {
+        registration.events.start().await?;
+        let execution_slots =
+            acquire_worker_execution_slots(&runtime, &call_label, &args, batch_slots).await?;
+        ensure_worker_not_cancelled(&cancellation, &call_label)?;
+        // Provider/executor futures are kept on an isolated current-thread
+        // runtime. Only admitted workers allocate this thread and reactor.
+        let isolated_runtime = isolated_subagent_runtime()?;
+        let (result_tx, result_rx) = oneshot::channel();
+        let mut worker_owner = owner.take().expect("worker owner transferred only once");
+        std::thread::Builder::new()
+            .name("nexa-subagent-worker".to_string())
+            .spawn(move || {
+                let result = isolated_runtime.block_on(async move {
+                    let result = run_admitted_worker(
+                        runtime,
+                        db,
+                        inherited_source_scope,
+                        call_label,
+                        worker_id,
+                        args,
+                        execution_slots,
+                        registration,
+                    )
+                    .await;
+                    // The isolated worker owns settlement even when the parent
+                    // drops/aborts its collector or the result receiver closes.
+                    worker_owner.settle(result.as_ref()).await?;
+                    result
+                });
+                let _ = result_tx.send(result);
+            })
+            .map_err(|error| {
+                CoreError::Internal(format!("Failed to start isolated subagent thread: {error}"))
+            })?;
+        result_rx.await.map_err(|_| {
+            CoreError::Agent("Isolated subagent thread exited without a result".to_string())
+        })?
+    }
+    .await;
+    if let Some(owner) = owner.as_mut() {
+        owner.settle(outcome.as_ref()).await?;
+    }
+    outcome
 }
 pub(super) fn launch_detached_subagent(
     runtime: DelegationRuntime,
@@ -270,29 +414,24 @@ pub(super) fn launch_detached_subagent(
     inherited_source_scope: Vec<String>,
     args: SpawnSubagentArgs,
     registration: crate::subagent_lifecycle::SubagentWorkerRegistration,
-) -> Result<(), CoreError> {
-    let isolated_runtime = isolated_subagent_runtime()?;
+) {
     let agent_id = registration.agent_id.clone();
-    std::thread::Builder::new()
-        .name("nexa-subagent-worker".to_string())
-        .spawn(move || {
-            if let Err(error) = isolated_runtime.block_on(run_worker_with_lifecycle(
-                runtime,
-                db,
-                inherited_source_scope,
-                agent_id.clone(),
-                Some(agent_id.clone()),
-                args,
-                None,
-                registration,
-            )) {
-                warn!("Detached subagent {agent_id} failed: {error}");
-            }
-        })
-        .map_err(|error| {
-            CoreError::Internal(format!("Failed to start detached subagent thread: {error}"))
-        })?;
-    Ok(())
+    tokio::spawn(async move {
+        if let Err(error) = run_registered_subagent_isolated(
+            runtime,
+            db,
+            inherited_source_scope,
+            agent_id.clone(),
+            Some(agent_id.clone()),
+            args,
+            None,
+            registration,
+        )
+        .await
+        {
+            warn!("Detached subagent {agent_id} failed: {error}");
+        }
+    });
 }
 pub(super) fn failed_subagent_run_artifact(
     label: String,

@@ -155,6 +155,124 @@ fn storage_failures_still_prevent_an_ephemeral_runtime_from_being_reported_as_du
 }
 
 #[tokio::test]
+async fn failed_journal_writes_roll_back_state_sequence_and_notifications_then_retry() {
+    let db = Database::open_memory().unwrap();
+    let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
+    let mut notifications = runtime.subscribe();
+    let install_failure = || {
+        db.conn().execute_batch(
+        "CREATE TRIGGER reject_activity_event BEFORE INSERT ON activity_events BEGIN SELECT RAISE(FAIL, 'injected journal failure'); END;",
+    ).unwrap()
+    };
+    install_failure();
+    let spec = ActivitySpec::new(ActivitySurface::Process, "spawn_subagent")
+        .with_activity_id("atomic-worker");
+    assert!(runtime.start(spec.clone()).is_err());
+    assert!(runtime.get("atomic-worker").is_none());
+    assert_eq!(
+        db.conn()
+            .query_row("SELECT COUNT(*) FROM activity_records", [], |row| row
+                .get::<_, u64>(0))
+            .unwrap(),
+        0
+    );
+    assert!(notifications.try_recv().is_err());
+
+    db.conn()
+        .execute_batch("DROP TRIGGER reject_activity_event;")
+        .unwrap();
+    let original = runtime.start(spec).unwrap();
+    assert_eq!(notifications.try_recv().unwrap().seq, 1);
+    install_failure();
+    assert!(runtime
+        .append(
+            "atomic-worker",
+            ActivityEventKind::Progress,
+            serde_json::json!({"step": 1})
+        )
+        .is_err());
+    assert!(runtime
+        .transition(
+            "atomic-worker",
+            ActivityState::Completed,
+            serde_json::json!({"result": "done"})
+        )
+        .is_err());
+    assert_eq!(runtime.get("atomic-worker").unwrap(), original);
+    assert_eq!(
+        db.conn()
+            .query_row(
+                "SELECT record_json FROM activity_records WHERE activity_id = 'atomic-worker'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        serde_json::to_string(&original).unwrap()
+    );
+    assert_eq!(
+        db.conn()
+            .query_row(
+                "SELECT COUNT(*) FROM activity_events WHERE activity_id = 'atomic-worker'",
+                [],
+                |row| row.get::<_, u64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert!(runtime
+        .observe("atomic-worker", 1, Duration::ZERO)
+        .await
+        .unwrap()
+        .events
+        .is_empty());
+    assert!(notifications.try_recv().is_err());
+
+    db.conn()
+        .execute_batch("DROP TRIGGER reject_activity_event;")
+        .unwrap();
+    assert_eq!(
+        runtime
+            .append(
+                "atomic-worker",
+                ActivityEventKind::Progress,
+                serde_json::json!({"step": 1})
+            )
+            .unwrap()
+            .seq,
+        2
+    );
+    assert_eq!(
+        runtime
+            .transition(
+                "atomic-worker",
+                ActivityState::Completed,
+                serde_json::json!({"result": "done"})
+            )
+            .unwrap()
+            .seq,
+        3
+    );
+    assert_eq!(notifications.try_recv().unwrap().seq, 2);
+    assert_eq!(notifications.try_recv().unwrap().seq, 3);
+    let restored = ActivityRuntime::with_database(db).unwrap();
+    assert_eq!(
+        restored.get("atomic-worker").unwrap().state,
+        ActivityState::Completed
+    );
+    assert_eq!(
+        restored
+            .observe("atomic-worker", 0, Duration::ZERO)
+            .await
+            .unwrap()
+            .events
+            .iter()
+            .map(|event| event.seq)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+}
+
+#[tokio::test]
 async fn activity_journal_uses_strictly_increasing_incremental_cursors() {
     let runtime = ActivityRuntime::new();
     let activity = runtime

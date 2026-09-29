@@ -49,8 +49,9 @@ export const TaskBoard = memo(function TaskBoard({
       toolCalls,
       taskRun?.artifacts,
       taskEvents,
+      isStreaming,
     ),
-    [messages, taskEvents, taskRun?.artifacts, taskRun?.userMessageId, toolCalls],
+    [messages, taskEvents, taskRun?.artifacts, taskRun?.userMessageId, toolCalls, isStreaming],
   );
 
   const hasGitContext = git.checkedSources > 0 || git.issues.length > 0 || !!git.error;

@@ -204,9 +204,8 @@ pub(super) fn initial_output_credit(
 pub(super) fn build_subagent_executor_tools(
     runtime: &DelegationRuntime,
     allowed_tool_names: &[String],
-    worker_cancel_token: &CancellationToken,
 ) -> Result<ToolRegistry, CoreError> {
-    let filtered = runtime
+    Ok(runtime
         .get_tool_registry()?
         .filtered(allowed_tool_names)
         .without_names(SUBAGENT_INTERACTIVE_SURFACE_TOOLS)
@@ -220,49 +219,5 @@ pub(super) fn build_subagent_executor_tools(
             "send_subagent_input",
             "cancel_subagent",
             "close_subagent",
-        ]);
-    if runtime.delegation_depth.saturating_add(1) >= MAX_SUBAGENT_DELEGATION_DEPTH {
-        return Ok(filtered);
-    }
-    let child_runtime = runtime.spawn_child_runtime(worker_cancel_token.child_token());
-    let mut registry = filtered;
-    if allowed_tool_names
-        .iter()
-        .any(|name| name == "spawn_subagent")
-    {
-        registry.register(Box::new(SubagentTool::from_runtime(child_runtime.clone())));
-    }
-    if allowed_tool_names
-        .iter()
-        .any(|name| name == "observe_subagent_batch")
-    {
-        registry.register(Box::new(ObserveSubagentBatchTool::from_runtime(
-            child_runtime.clone(),
-        )));
-    }
-    if allowed_tool_names
-        .iter()
-        .any(|name| name == "spawn_subagent_batch")
-    {
-        registry.register(Box::new(SubagentBatchTool::from_runtime(
-            child_runtime.clone(),
-        )));
-    }
-    if allowed_tool_names
-        .iter()
-        .any(|name| name == "judge_subagent_results")
-    {
-        registry.register(Box::new(JudgeSubagentResultsTool::from_runtime(
-            child_runtime.clone(),
-        )));
-    }
-    for lifecycle_tool in SubagentLifecycleTool::all(child_runtime.clone()) {
-        if allowed_tool_names
-            .iter()
-            .any(|name| name == lifecycle_tool.name())
-        {
-            registry.register(Box::new(lifecycle_tool));
-        }
-    }
-    Ok(registry)
+        ]))
 }
