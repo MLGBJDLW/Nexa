@@ -26,7 +26,7 @@ function statusCopy(status: SubagentRun['status'], t: TranslateFn) {
       return {
         label: t('chat.subagentStatusRunning'),
         icon: null,
-        chipClassName: '',
+        chipClassName: 'border-accent/25 bg-accent/10 text-accent',
       };
     case 'error':
       return {
@@ -96,24 +96,31 @@ export function SubagentCard({
   defaultOpen,
 }: SubagentCardProps) {
   const { t } = useTranslation();
-  const autoOpen = defaultOpen ?? run.status === 'running';
+  const autoOpen = defaultOpen ?? (run.status === 'running' && run.runtimeState === 'live');
   const [expanded, setExpanded] = useState(autoOpen);
-  const isInterrupted = run.runtimeState === 'interrupted'
-    || (run.status === 'running' && run.runtimeState !== 'live');
-  const status = isInterrupted
+  const isInterrupted = run.runtimeState === 'interrupted';
+  const isUnverified = run.runtimeState === 'unverified'
+    || (run.status === 'running' && run.runtimeState !== 'live' && !isInterrupted);
+  const status = isUnverified
+    ? { label: t('chat.subagentStatusUnverified'), icon: Flag, chipClassName: 'border-warning/30 bg-warning/10 text-warning' }
+    : isInterrupted
     ? {
         label: t('chat.subagentStatusInterrupted'),
         icon: Flag,
         chipClassName: 'border-warning/30 bg-warning/10 text-warning',
       }
-    : statusCopy(run.status, t);
+    : run.status === 'running' && run.lifecyclePhase === 'queued'
+      ? { label: t('chat.compactPhaseQueued'), icon: null, chipClassName: 'border-border/60 bg-surface-1/70 text-text-muted' }
+      : run.status === 'running' && run.lifecyclePhase === 'cancelling'
+        ? { label: t('chat.compactPhaseCancelling'), icon: Flag, chipClassName: '' }
+        : statusCopy(run.status, t);
   const StatusIcon = status.icon;
 
   useEffect(() => {
-    if (run.status === 'running') {
+    if (run.status === 'running' && run.runtimeState === 'live') {
       setExpanded(true);
     }
-  }, [run.status]);
+  }, [run.status, run.runtimeState]);
 
   const startedTools = useMemo(
     () => run.toolEvents.filter(event => event.phase === 'start'),
@@ -176,12 +183,12 @@ export function SubagentCard({
                 {run.roleId}
               </span>
             )}
-            {StatusIcon && (
+            {(StatusIcon || (isRunning && run.lifecyclePhase === 'queued')) && (
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${status.chipClassName}`}
                 title={status.label}
               >
-                <StatusIcon className="h-2.5 w-2.5" aria-hidden="true" />
+                {StatusIcon && <StatusIcon className="h-2.5 w-2.5" aria-hidden="true" />}
                 {status.label}
               </span>
             )}
@@ -200,6 +207,7 @@ export function SubagentCard({
           </div>
 
           <div className={`mt-0.5 truncate text-text-primary ${compact ? 'text-[11px]' : 'text-xs'}`}>{run.task}</div>
+          {isUnverified && <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{t('chat.subagentUnverifiedHint')}</p>}
           {!isRunning && !expanded && (
             <div className={`mt-0.5 truncate text-text-tertiary ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{summaryText}</div>
           )}

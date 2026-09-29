@@ -58,29 +58,38 @@ impl SubagentEventPump {
         let mut last_delta_flush = Instant::now();
         let mut worker_token_limit_exceeded = false;
         loop {
-            let event =
-                match tokio::time::timeout(Duration::from_millis(100), event_rx.recv()).await {
-                    Ok(Some(event)) => event,
-                    Ok(None) => {
-                        flush_subagent_deltas(
-                            lifecycle_capture.as_ref(),
-                            &mut pending_thinking,
-                            &mut pending_output,
-                        )
-                        .await;
-                        break;
-                    }
-                    Err(_) => {
-                        flush_subagent_deltas(
-                            lifecycle_capture.as_ref(),
-                            &mut pending_thinking,
-                            &mut pending_output,
-                        )
-                        .await;
-                        last_delta_flush = Instant::now();
-                        continue;
-                    }
-                };
+            // Dormant workers sleep on their channel. A flush timer exists
+            // only while a delta is buffered, eliminating ten idle wakeups
+            // per second per worker during long provider/tool requests.
+            let next = if pending_thinking.is_empty() && pending_output.is_empty() {
+                Ok(event_rx.recv().await)
+            } else {
+                let remaining =
+                    Duration::from_millis(100).saturating_sub(last_delta_flush.elapsed());
+                tokio::time::timeout(remaining, event_rx.recv()).await
+            };
+            let event = match next {
+                Ok(Some(event)) => event,
+                Ok(None) => {
+                    flush_subagent_deltas(
+                        lifecycle_capture.as_ref(),
+                        &mut pending_thinking,
+                        &mut pending_output,
+                    )
+                    .await;
+                    break;
+                }
+                Err(_) => {
+                    flush_subagent_deltas(
+                        lifecycle_capture.as_ref(),
+                        &mut pending_thinking,
+                        &mut pending_output,
+                    )
+                    .await;
+                    last_delta_flush = Instant::now();
+                    continue;
+                }
+            };
             let provider_connected = matches!(
                 &event,
                 AgentEvent::ControllerStatus { code, .. } if code == "provider_connected"

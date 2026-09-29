@@ -890,7 +890,7 @@ export function ChatMessages(props: ChatMessagesProps) {
   );
 
   const renderTimelineSection = useCallback(
-    (section: TimelineSection): ThinkingSection | null => {
+    (section: TimelineSection, parentRunActive = false): ThinkingSection | null => {
       switch (section.kind) {
         case "thinking":
           return section.text.trim().length > 0 ? { text: section.text } : null;
@@ -937,6 +937,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                 durationMs={section.toolCall.durationMs}
                 progressNote={section.toolCall.progressNote}
                 activityEvents={section.toolCall.activityEvents}
+                parentRunActive={parentRunActive}
                 content={section.toolCall.content}
                 isError={section.toolCall.isError}
                 artifacts={section.toolCall.artifacts}
@@ -957,9 +958,9 @@ export function ChatMessages(props: ChatMessagesProps) {
   );
 
   const renderTimelineSections = useCallback(
-    (sections: TimelineSection[]): ThinkingSection[] =>
+    (sections: TimelineSection[], parentRunActive = false): ThinkingSection[] =>
       sections
-        .map(renderTimelineSection)
+        .map(section => renderTimelineSection(section, parentRunActive))
         .filter((section): section is ThinkingSection => Boolean(section)),
     [renderTimelineSection],
   );
@@ -969,6 +970,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       key: string,
       sections: TimelineSection[],
       isStreaming = false,
+      parentRunActive = isStreaming,
     ) => {
       if (sections.length === 0) return <Fragment key={key} />;
       const ordered: Array<
@@ -1047,7 +1049,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           {ordered.map((item, index) => item.kind === 'trace'
             ? renderThinkingTraceNode(
                 item.id,
-                renderTimelineSections(item.sections),
+                renderTimelineSections(item.sections, parentRunActive),
                 isStreaming && index === lastTraceIndex,
                 false,
               )
@@ -1066,7 +1068,7 @@ export function ChatMessages(props: ChatMessagesProps) {
               ) : (
                 <div key={item.id} className="mb-1 flex justify-start">
                   <div className="w-full min-w-0">
-                    {renderTimelineSections([item.section])[0]?.node}
+                    {renderTimelineSections([item.section], parentRunActive)[0]?.node}
                   </div>
                 </div>
               ))}
@@ -2286,6 +2288,7 @@ export function ChatMessages(props: ChatMessagesProps) {
             "current-turn-working-trace",
             collapsedLiveTrace.historySections,
             false,
+            isStreaming,
           )}
           {renderTraceReplyNode(
             collapsedLiveTrace.finalItem.id,
@@ -2311,6 +2314,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                   item.id,
                   item.sections,
                   item.isStreaming,
+                  isStreaming,
                 )
               : renderTraceReplyNode(
                   item.id,
@@ -2335,6 +2339,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                   `round-thinking-${round.id}`,
                   roundSections,
                   false,
+                  isStreaming,
                 )}
               {hasReply &&
                 renderTraceReplyNode(
@@ -2359,7 +2364,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           <div className="w-full min-w-0">
             <ThinkingBlock
               content=""
-              sections={renderTimelineSections(currentTimelineSections)}
+              sections={renderTimelineSections(currentTimelineSections, isStreaming)}
               isStreaming={currentTraceActive}
               defaultExpanded={currentTraceActive}
               collapseOnFinish

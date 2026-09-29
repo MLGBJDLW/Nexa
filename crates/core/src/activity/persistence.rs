@@ -7,9 +7,17 @@ use super::{ActivityEvent, ActivityRecord};
 use crate::db::Database;
 use crate::error::CoreError;
 
-pub(crate) fn persist_record(db: &Database, record: &ActivityRecord) -> Result<(), CoreError> {
+/// The materialized state and its causal event are one durability boundary.
+pub(crate) fn persist_transition(
+    db: &Database,
+    record: &ActivityRecord,
+    event: &ActivityEvent,
+) -> Result<(), CoreError> {
     let record_json = serde_json::to_string(record)?;
-    db.conn().execute(
+    let event_json = serde_json::to_string(event)?;
+    let mut connection = db.conn();
+    let transaction = connection.transaction()?;
+    transaction.execute(
         "INSERT INTO activity_records (
             activity_id, state, conversation_id, task_run_id, updated_at, record_json
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -28,14 +36,8 @@ pub(crate) fn persist_record(db: &Database, record: &ActivityRecord) -> Result<(
             record_json,
         ],
     )?;
-    Ok(())
-}
-
-pub(crate) fn persist_event(db: &Database, event: &ActivityEvent) -> Result<(), CoreError> {
-    let event_json = serde_json::to_string(event)?;
-    let conn = db.conn();
-    conn.execute(
-        "INSERT OR IGNORE INTO activity_events (
+    transaction.execute(
+        "INSERT INTO activity_events (
             activity_id, seq, kind, timestamp, event_json
          ) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
@@ -50,11 +52,12 @@ pub(crate) fn persist_event(db: &Database, event: &ActivityEvent) -> Result<(), 
         .seq
         .saturating_sub(DEFAULT_MAX_EVENTS_PER_ACTIVITY as u64);
     if oldest_retained_seq > 0 {
-        conn.execute(
+        transaction.execute(
             "DELETE FROM activity_events WHERE activity_id = ?1 AND seq <= ?2",
             params![event.activity_id, oldest_retained_seq as i64],
         )?;
     }
+    transaction.commit()?;
     Ok(())
 }
 

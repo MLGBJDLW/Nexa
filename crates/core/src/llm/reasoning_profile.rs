@@ -322,6 +322,13 @@ fn is_alibaba_model_studio_payg_endpoint(provider: ProviderType, base_url: Optio
             .is_some_and(|preset| preset.id == "alibaba-model-studio")
 }
 
+pub(crate) fn is_openrouter_sonnet55_model(model: &str) -> bool {
+    matches!(
+        model.trim().to_ascii_lowercase().as_str(),
+        "anthropic/claude-sonnet-5.5" | "~anthropic/claude-sonnet-latest"
+    )
+}
+
 pub fn resolve_reasoning_profile(
     provider: ProviderType,
     base_url: Option<&str>,
@@ -651,6 +658,14 @@ pub fn resolve_reasoning_profile(
         );
         value.effort_budget_exclusive = true;
         value.confidence = CapabilityConfidence::CuratedCompatibility;
+        if is_openrouter_sonnet55_model(&model) {
+            // OpenRouter owns its normalized adaptive contract. Preserve any
+            // opaque details it returns, without imposing native beta fields
+            // or manual thinking budgets on the gateway.
+            value.preserve_reasoning_history = true;
+            value.budget_field = ReasoningBudgetField::None;
+            value.omit_temperature_when_reasoning = true;
+        }
         if model == "moonshotai/kimi-k3" {
             value.preserve_reasoning_history = true;
             value.replay_policy = ReasoningReplayPolicy::RequiredOnToolCall;

@@ -783,6 +783,16 @@ references before dispatch. Its action receipt distinguishes pre-dispatch
 failure from an uncertain effect; after uncertain input, observe again before
 considering another action. The desktop adapter retains its native control leases
 and richer observation/action receipts.
+The standalone adapter's detached `wait_for` is owned by its Activity journal:
+terminal or cancelling state stops further probes, including a worker queued
+behind another session operation. A result completing after external cancellation
+cannot publish a new observation or completion. The polling deadline also bounds
+a stalled probe (`TimedOut`); an inaccessible/closed tab or failed CDP inspection
+is a failure, never proof that a selector is hidden. Each wait invocation gets
+its own host Activity ID with conversation, session and turn scope. A provider
+may reuse its raw `callId`; it remains the ToolResult correlation field. Follow
+the returned `browserActivity.activity.record.activityId` when observing or
+cancelling that operation. Existing terminal Activities remain immutable.
 
 
 Control the conversation-owned Nexa Browser Workspace. This is the canonical
@@ -818,6 +828,32 @@ an empty array clears a multiple-select. All requested options must exist and
 be enabled before selection changes. Unchanged selections emit no input/change
 events, and the refreshed observation must confirm the requested values.
 `page_loaded` requires the observed document's `readyState` to be `complete`.
+
+Desktop `wait_for` separates condition polling from actionable evidence. Polls
+read the page through the same session, target, network and control-lease checks,
+without capturing screenshots or allocating observation tokens. After a match or
+the polling deadline, one full visual observation is captured and the condition
+is checked again against that returned evidence. `conditionMatched` therefore
+describes the final observation, not an earlier transient page state. `timedOut`
+reports whether the polling budget elapsed; it can be false while the final
+condition is false if the page changed during confirmation. `timeoutMs` bounds
+polling (up to 60 seconds); final visual capture has its own 20-second limit.
+`waitDiagnostics` reports probe count, elapsed time and the single final visual
+observation request. Navigation retries within that request may recapture before
+returning one stable observation. Cancellation stops further probes and final
+capture scheduling; takeover or an invalid target fails the observation.
+The Browser Workspace action trail groups events by host `operationId` and tab.
+Each actual action or wait invocation gets a new host-generated identity, shared
+by its progress, final outcome and cancellation events. Provider `callId` remains
+correlation metadata and may repeat without suppressing a new operation. This
+presentation identity does not replace observation, receipt or control authority.
+Native
+events carry monotonic sequence numbers; a bounded retirement watermark rejects
+late events even after their call leaves the six-row history. It retains
+terminal outcomes across late progress events and distinguishes a pending
+condition from action failure. Collapsing the workspace or user takeover marks
+in-progress waits and actions interrupted without claiming that an input was
+undone.
 
 `observe` accepts `query` (accessible name, role or tag) and `offset` to recover
 controls outside the first 300 results. Visible controls have priority;
@@ -904,6 +940,15 @@ top-level windows. `capture_window` returns an ephemeral screenshot plus a
 bounded UI Automation projection; `capture_mode: "som"` overlays element IDs.
 `wait_for_change` polls a captured observation for a material perceptual
 change. Post-action verification also accounts for semantic changes.
+Its polling is scheduled asynchronously; cancelling a turn stops subsequent
+captures, and a capture still queued on the blocking pool is revoked before it
+starts. An OS capture already executing may finish through its existing cleanup
+gate, but cannot schedule another probe or publish an observation after the
+caller is gone. Pixel probes omit UI Automation enumeration; one final capture
+supplies the requested semantic evidence. `changed` and `difference` describe
+that final frame. `transientChangeObserved` records a change seen while polling
+even when the window reverted before the final capture. A transient animation
+does not prove the returned frame differs from the original target.
 Capture actions require explicit model-egress consent.
 UIA observations expose supported action patterns, current editable values,
 read-only state, toggle/selection state and expansion state when the provider

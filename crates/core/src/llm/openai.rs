@@ -1340,7 +1340,20 @@ fn build_responses_request_with_tools(
         // OpenRouter normalizes reasoning on its Responses endpoint. A token
         // budget and an effort are mutually exclusive; keep an explicit budget
         // when present, then fall back to the selected effort/mode.
-        if let Some(max_tokens) = request.thinking_budget {
+        if super::reasoning_profile::is_openrouter_sonnet55_model(&request.model) {
+            let profile = resolve_reasoning_profile(
+                ProviderType::OpenRouter,
+                None,
+                ReasoningApiStyle::OpenAiChatCompletions,
+                &request.model,
+            );
+            let effort = profile
+                .wire_effort(request.reasoning_effort.as_ref())
+                .or_else(|| profile.wire_effort(profile.default_effort.as_ref()));
+            if let Some(effort) = effort {
+                body["reasoning"] = serde_json::json!({"effort":effort});
+            }
+        } else if let Some(max_tokens) = request.thinking_budget {
             body["reasoning"] = serde_json::json!({ "max_tokens": max_tokens });
         } else if let Some(effort) = request.reasoning_effort.as_ref() {
             body["reasoning"] = serde_json::json!({ "effort": effort.to_string() });
@@ -6935,6 +6948,68 @@ data: [DONE]
         assert!(body.get("include").is_none());
         assert_eq!(body["reasoning"]["effort"], "high");
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn sonnet55_openrouter_preserves_details_without_native_fields_or_manual_budgets() {
+        let config = endpoint_config(ProviderType::OpenRouter, "https://openrouter.ai/api/v1");
+        for model in [
+            "anthropic/claude-sonnet-5.5",
+            "~anthropic/claude-sonnet-latest",
+        ] {
+            let mut request = endpoint_reasoning_request(model);
+            let mut history = Message::text(Role::Assistant, "Working");
+            let details = serde_json::json!([{"type":"reasoning.encrypted","data":"opaque","id":"reasoning-1","format":"anthropic-claude-v1","index":0}]);
+            let profile = resolve_reasoning_profile(
+                ProviderType::OpenRouter,
+                config.base_url.as_deref(),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            history.set_provider_turn(super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
+                "turn", "sample", super::super::provider_turn::RouteSnapshot::from_profile(&profile), "Working", None, None, vec![], true,
+                Some(super::super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails(details.as_array().unwrap().clone()))));
+            request.messages.push(history);
+            for effort in [
+                None,
+                Some(ReasoningEffort::None),
+                Some(ReasoningEffort::Low),
+                Some(ReasoningEffort::XHigh),
+                Some(ReasoningEffort::Max),
+            ] {
+                request.reasoning_effort = effort.clone();
+                request.reasoning_enabled = Some(false);
+                request.thinking_budget = Some(8192);
+                let value = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(value["messages"][1]["reasoning_details"], details);
+                assert!(value.get("temperature").is_none());
+                assert!(value.get("thinking").is_none());
+                assert!(value["reasoning"].get("max_tokens").is_none());
+                assert_ne!(value["reasoning"]["effort"], "none");
+                let responses = build_generic_responses_request(
+                    &request,
+                    super::super::native_search::NativeSearchDialect::OpenRouterServerTool,
+                )
+                .unwrap();
+                assert!(responses["reasoning"].get("max_tokens").is_none());
+                assert_ne!(responses["reasoning"]["effort"], "none");
+            }
+            let private = endpoint_config(ProviderType::OpenRouter, "https://private.example/v1");
+            let value = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&private),
+            ))
+            .unwrap();
+            assert!(value.get("reasoning").is_none());
+            assert_eq!(value["temperature"], 0.4_f32);
+            assert!(value["messages"][1].get("reasoning_details").is_none());
+        }
     }
 
     #[test]

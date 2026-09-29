@@ -604,6 +604,8 @@
   "mermaidFailed": "Could not render this Mermaid diagram. The source is shown below.",
   "subagentStatusRunning": "Running",
   "subagentStatusInterrupted": "재시작으로 중단됨",
+  "subagentStatusUnverified": "상태 확인 필요",
+  "subagentUnverifiedHint": "상위 실행이 종료되었습니다. 하위 에이전트가 아직 실행 중일 수 있으니 결과를 다시 확인하세요.",
   "subagentStatusNeedsAttention": "Needs attention",
   "subagentStatusComplete": "Complete",
   "subagentInProgress": "Delegated work is in progress.",
@@ -772,5 +774,6 @@
   "agentPreparing": "세션 준비 중",
   "agentReusing": "에이전트 세션 재사용 중",
   "agentWaiting": "응답 대기 중",
-  "resumeTask": "작업 재개"
+  "resumeTask": "작업 재개",
+  "speechInputLimit": "이 답변은 {actual}자로 Nexa에서 {model}을 사용할 때의 요청당 음성 변환 제한인 {limit}자를 초과합니다. 음성 설정에서 제한이 더 큰 모델을 선택하거나 더 짧은 답변을 읽어 주세요."
 }

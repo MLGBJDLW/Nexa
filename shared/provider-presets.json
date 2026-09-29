@@ -1001,6 +1001,47 @@
         }
       },
       {
+        "id": "anthropic/claude-sonnet-5.5",
+        "name": "Anthropic: Claude Sonnet 5.5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-09-29",
+        "documentationRef": "https://openrouter.ai/anthropic/claude-sonnet-5.5",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "tagKey": "providers.tagBestBalance",
+        "recommended": true,
+        "releaseDate": "2026-09-28"
+      },
+      {
         "id": "xiaomi/mimo-v2.6-pro-ultraspeed",
         "name": "Xiaomi: MiMo-V2.6-Pro-UltraSpeed",
         "source": "official",
@@ -3354,20 +3395,37 @@
         "capabilities": {
           "vision": true,
           "reasoning": {
+            "mode": "always",
             "effortLevels": [
-              "none",
-              "minimal",
               "low",
               "medium",
               "high",
-              "xhigh"
+              "xhigh",
+              "max"
             ],
-            "defaultEffort": "medium",
+            "defaultEffort": "high",
             "thinkingBudget": {
               "enabled": false
             }
           }
-        }
+        },
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-09-29",
+        "documentationRef": "https://openrouter.ai/~anthropic/claude-sonnet-latest",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true
       },
       {
         "id": "~openai/gpt-latest",
@@ -8615,7 +8673,7 @@
     "baseUrl": "https://api.anthropic.com/v1",
     "requiresApiKey": true,
     "icon": "🧠",
-    "description": "Claude Opus 5.5, Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5",
+    "description": "Claude Opus 5.5, Sonnet 5.5, Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5",
     "nativeWebSearch": {
       "dialect": "anthropicServerTool",
       "supportsDomains": true,
@@ -8678,6 +8736,57 @@
         ],
         "supportsTools": true,
         "supportsStructuredOutput": true
+      },
+      {
+        "id": "claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5",
+        "nativeWebSearch": {
+          "dialect": "anthropicServerTool",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagBestBalance",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "disabledMode": "between_tools",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-09-29",
+        "documentationRef": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "releaseDate": "2026-09-28"
       },
       {
         "id": "claude-opus-5",

@@ -604,6 +604,8 @@
   "mermaidFailed": "Could not render this Mermaid diagram. The source is shown below.",
   "subagentStatusRunning": "Running",
   "subagentStatusInterrupted": "Interrompido pela reinicialização",
+  "subagentStatusUnverified": "Estado não confirmado",
+  "subagentUnverifiedHint": "A execução principal terminou. Este agente pode continuar em execução; confirme o resultado.",
   "subagentStatusNeedsAttention": "Needs attention",
   "subagentStatusComplete": "Complete",
   "subagentInProgress": "Delegated work is in progress.",
@@ -772,5 +774,6 @@
   "agentPreparing": "Preparando sessão",
   "agentReusing": "Retomando sessão do agente",
   "agentWaiting": "Aguardando resposta",
-  "resumeTask": "Retomar tarefa"
+  "resumeTask": "Retomar tarefa",
+  "speechInputLimit": "Esta resposta tem {actual} caracteres e excede o limite do Nexa de {limit} por pedido de voz com {model}. Escolha um modelo com limite maior nas definições de voz ou uma resposta mais curta."
 }

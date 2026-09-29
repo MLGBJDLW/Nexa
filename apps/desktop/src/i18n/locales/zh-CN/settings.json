@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "已建立会话并获取模型，尚未测试推理。"
   ,"externalAgentProbe": "检查连接"
   ,"externalAgentControls": "工具和运行设置由外部 Agent 管理。"
+  ,"reasoningBetweenTools": "仅工具间思考"
+  ,"enableUpfrontThinking": "启用回答前思考"
 }

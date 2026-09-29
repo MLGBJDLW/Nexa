@@ -79,6 +79,7 @@ test.beforeEach(async ({ page }) => {
     configs.push({ ...configs[0], id: 'cfg-codex', name: 'My Codex plan', provider: 'openai_codex', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-acp', name: 'My Gemini CLI', provider: 'gemini_cli', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-glm', name: 'GLM gateway', model: 'glm-4.7', isDefault: false });
+    configs.push({ ...configs[0], id: 'cfg-sonnet', name: 'Anthropic', provider: 'anthropic', model: 'claude-sonnet-5-5', contextWindow: 1000000, isDefault: false });
     const savedAgentConfigInputs: Array<Record<string, unknown>> = [];
     (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> }).__savedAgentConfigInputs = savedAgentConfigInputs;
 
@@ -456,6 +457,33 @@ test('model selector and context usage follow the active chat model', async ({ p
         .__lastAgentChatArgs?.agentConfigId,
     ),
   ).toBe('cfg-large');
+});
+
+test('Claude Sonnet 5.5 model selector distinguishes default and between-tool thinking', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-model-switch');
+  const model = page.getByTestId('agent-model-picker-trigger');
+  const reasoning = page.getByTestId('agent-reasoning-picker-trigger');
+  await model.click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  await expect(reasoning).not.toContainText('Between-tool thinking only');
+  await reasoning.click();
+  const betweenTools = page.getByTestId('agent-model-reasoning-none');
+  await expect(betweenTools).toContainText('Between-tool thinking only');
+  await expect(betweenTools).not.toHaveClass(/bg-accent-subtle/);
+  await expect(page.getByTestId('agent-model-reasoning-max')).toBeVisible();
+  await page.getByTestId('agent-model-picker-menu').screenshot({ path: testInfo.outputPath('sonnet55-reasoning-modes.png') });
+  await betweenTools.click();
+  await expect(reasoning).toContainText('Between-tool thinking only');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({
+    model: 'claude-sonnet-5-5', reasoningEnabled: false, reasoningEffort: null, thinkingBudget: null,
+  });
+  await reasoning.click();
+  await page.getByTestId('agent-model-reasoning-max').click();
+  await expect(reasoning).toContainText('Max');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({
+    model: 'claude-sonnet-5-5', reasoningEnabled: true, reasoningEffort: 'max', thinkingBudget: null,
+  });
 });
 
 test('model selector saves model and reasoning changes to the agent config', async ({ page }) => {

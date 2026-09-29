@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::app_settings::TextToSpeechConfig;
 use crate::error::CoreError;
+use crate::tts_provider_catalog::tts_api_base_url as base_url;
 
 use super::{Tool, ToolCategory, ToolDef, ToolInputStreamingMode, ToolResult};
 
@@ -84,7 +85,11 @@ pub async fn synthesize_speech_preview(
 
     let model = selected(model_override, &config.model);
     let voice = selected(voice_override, &config.voice);
-    let speed = speed_override.unwrap_or(config.speed).clamp(0.5, 2.0);
+    crate::tts_provider_catalog::validate_tts_selection(config, &model, &voice, text)?;
+    let speed = crate::tts_provider_catalog::tts_request_speed(
+        config,
+        speed_override.unwrap_or(config.speed),
+    );
     let client = reqwest::Client::builder()
         .user_agent(crate::USER_AGENT)
         .timeout(Duration::from_secs(300))
@@ -248,16 +253,11 @@ async fn synthesize_openai(
 ) -> Result<GeneratedSpeech, CoreError> {
     let format = normalize_format(&config.output_format);
     let endpoint = format!("{}/audio/speech", base_url(config).trim_end_matches('/'));
+    let body = json!({"model": model, "input": text, "voice": voice, "response_format": format, "speed": speed});
     let response = client
         .post(endpoint)
         .bearer_auth(config.api_key.trim())
-        .json(&json!({
-            "model": model,
-            "input": text,
-            "voice": voice,
-            "response_format": format,
-            "speed": speed,
-        }))
+        .json(&body)
         .send()
         .await
         .map_err(|error| {
@@ -274,18 +274,21 @@ async fn synthesize_elevenlabs(
     voice: &str,
     speed: f32,
 ) -> Result<GeneratedSpeech, CoreError> {
+    let dialogue = model == "eleven_v4";
     let mut endpoint = Url::parse(&format!("{}/", base_url(config).trim_end_matches('/')))
         .map_err(|error| {
             CoreError::InvalidInput(format!("Invalid ElevenLabs base URL: {error}"))
         })?;
-    endpoint
-        .path_segments_mut()
-        .map_err(|_| {
-            CoreError::InvalidInput("ElevenLabs base URL cannot be used as an API root.".into())
-        })?
-        .pop_if_empty()
-        .push("text-to-speech")
-        .push(voice);
+    let mut segments = endpoint.path_segments_mut().map_err(|_| {
+        CoreError::InvalidInput("ElevenLabs base URL cannot be used as an API root.".into())
+    })?;
+    segments.pop_if_empty();
+    if dialogue {
+        segments.push("text-to-dialogue");
+    } else {
+        segments.push("text-to-speech").push(voice);
+    }
+    drop(segments);
     endpoint
         .query_pairs_mut()
         .append_pair("output_format", "mp3_44100_128");
@@ -293,11 +296,11 @@ async fn synthesize_elevenlabs(
         .post(endpoint)
         .header("xi-api-key", config.api_key.trim())
         .header(ACCEPT, "audio/mpeg")
-        .json(&json!({
-            "text": text,
-            "model_id": model,
-            "voice_settings": { "speed": speed },
-        }))
+        .json(&if dialogue {
+            json!({"model_id": model, "inputs": [{"text": text, "voice_id": voice}], "settings": {"speed": speed}})
+        } else {
+            json!({"text": text, "model_id": model, "voice_settings": { "speed": speed }})
+        })
         .send()
         .await
         .map_err(|error| {
@@ -315,6 +318,7 @@ async fn synthesize_minimax(
     speed: f32,
 ) -> Result<GeneratedSpeech, CoreError> {
     let endpoint = format!("{}/t2a_v2", base_url(config).trim_end_matches('/'));
+    let format = normalize_format(&config.output_format);
     let response = client
         .post(endpoint)
         .bearer_auth(config.api_key.trim())
@@ -322,9 +326,10 @@ async fn synthesize_minimax(
             "model": model,
             "text": text,
             "stream": false,
+            "output_format": "hex",
             "voice_setting": { "voice_id": voice, "speed": speed },
             "audio_setting": {
-                "format": "mp3",
+                "format": format,
                 "sample_rate": 32000,
                 "bitrate": 128000,
                 "channel": 1
@@ -343,6 +348,19 @@ async fn synthesize_minimax(
     }
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|error| CoreError::Llm(format!("MiniMax returned invalid JSON: {error}")))?;
+    if value
+        .pointer("/base_resp/status_code")
+        .and_then(Value::as_i64)
+        .is_some_and(|code| code != 0)
+    {
+        return Err(CoreError::Llm(format!(
+            "MiniMax speech failed: {}",
+            value
+                .pointer("/base_resp/status_msg")
+                .and_then(Value::as_str)
+                .unwrap_or("provider rejected the request")
+        )));
+    }
     let audio_hex = value
         .pointer("/data/audio")
         .and_then(Value::as_str)
@@ -351,7 +369,7 @@ async fn synthesize_minimax(
         })?;
     Ok(GeneratedSpeech {
         bytes: decode_hex(audio_hex)?,
-        media_type: "audio/mpeg".to_string(),
+        media_type: media_type_for_format(format).to_string(),
     })
 }
 
@@ -822,24 +840,6 @@ fn decode_hex_with_limit(value: &str, limit: usize) -> Result<Vec<u8>, CoreError
         .collect()
 }
 
-fn base_url(config: &TextToSpeechConfig) -> String {
-    config
-        .base_url
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| match config.api_style.as_str() {
-            "elevenlabs_speech" => "https://api.elevenlabs.io/v1".to_string(),
-            "minimax_speech" => "https://api.minimax.io/v1".to_string(),
-            "azure_speech" => {
-                "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1".to_string()
-            }
-            "dashscope_speech" => {
-                "https://dashscope.aliyuncs.com/api/v1/services/audio/tts".to_string()
-            }
-            _ => "https://api.openai.com/v1".to_string(),
-        })
-}
-
 fn normalize_format(value: &str) -> &str {
     match value.trim().to_ascii_lowercase().as_str() {
         "wav" => "wav",
@@ -953,3 +953,7 @@ mod tests {
 #[cfg(test)]
 #[path = "text_to_speech_dashscope_tests.rs"]
 mod dashscope_tests;
+
+#[cfg(test)]
+#[path = "text_to_speech_provider_tests.rs"]
+mod provider_tests;

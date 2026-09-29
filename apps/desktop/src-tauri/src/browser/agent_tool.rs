@@ -5,12 +5,14 @@ use serde::Deserialize;
 use nexa_core::activity::{
     ActivityEventKind, ActivityRuntime, ActivitySpec, ActivityState, ActivitySurface,
 };
+use nexa_core::browser_runtime::BROWSER_FINAL_OBSERVATION_TIMEOUT;
 use nexa_core::error::CoreError;
 use nexa_core::tools::{
     Tool, ToolCategory, ToolContractError, ToolExecutionContext, ToolOutput, ToolOutputAttachment,
     ToolResult, ToolSideEffect, TrustBoundary,
 };
 
+use super::operation_progress::{BrowserOperationPhase, BrowserOperationProgress};
 use super::policy::{BrowserActionRisk, NavigationActor};
 use super::state::{
     BrowserActCommitTracker, BrowserActFailure, BrowserActFailurePhase, BrowserActRequest,
@@ -442,7 +444,7 @@ impl Tool for NativeBrowserSessionTool {
                 "scrollX": { "type": "integer", "default": 0 },
                 "scrollY": { "type": "integer", "default": 0 },
                 "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, element_absent, element_checked, or element_enabled. Element conditions accept ref/targetRef, name, and role. State conditions require a boolean value; mixed/unknown checked states do not match false." },
-                "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "description": "Cancellable condition wait. A still-pending condition returns timedOut=true with the latest observation, not an execution error." }
+                "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "description": "Cancellable condition polling budget. One final visual observation has a separate 20-second limit. A pending condition returns conditionMatched=false with fresh evidence; timedOut reports whether the polling budget elapsed." }
             },
             "required": ["action"],
             "oneOf": action_variants,
@@ -1255,23 +1257,73 @@ impl Tool for NativeBrowserSessionTool {
                         .map(|value| value.chars().take(240).collect()),
                     offset: 0,
                 };
-                let (observation, matched) = wait_for_browser_condition(timeout, condition, || {
-                    self.state.observe_with_options(
-                        session_id,
-                        tab_id,
-                        context.call_id,
-                        &condition_options,
-                    )
-                })
-                .await
-                .map_err(Self::invalid)?;
-                let mut result = observation_result(context.call_id, observation)?;
+                let emit = |payload| self.state.emit("agentAction", payload);
+                let mut progress = BrowserOperationProgress::new(
+                    session_id,
+                    tab_id,
+                    context.call_id,
+                    "wait_for",
+                    &emit,
+                );
+                progress.update(BrowserOperationPhase::Waiting, serde_json::json!({}));
+                let outcome = wait_for_browser_condition(
+                    timeout,
+                    condition,
+                    || {
+                        self.state.probe_condition(
+                            session_id,
+                            tab_id,
+                            context.call_id,
+                            &condition_options,
+                        )
+                    },
+                    || {
+                        self.state.observe_with_options(
+                            session_id,
+                            tab_id,
+                            context.call_id,
+                            &condition_options,
+                        )
+                    },
+                )
+                .await;
+                let outcome = match outcome {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        progress.update(BrowserOperationPhase::Failed, serde_json::json!({}));
+                        return Err(Self::invalid(error));
+                    }
+                };
+                let mut result = match observation_result(context.call_id, outcome.observation) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        progress.update(BrowserOperationPhase::Failed, serde_json::json!({}));
+                        return Err(error);
+                    }
+                };
+                progress.update(
+                    if outcome.condition_matched {
+                        BrowserOperationPhase::Verified
+                    } else {
+                        BrowserOperationPhase::ObservedPending
+                    },
+                    serde_json::json!({}),
+                );
                 if let Some(artifacts) = result.artifacts.as_mut() {
-                    artifacts["conditionMatched"] = serde_json::json!(matched);
-                    artifacts["timedOut"] = serde_json::json!(!matched);
+                    artifacts["conditionMatched"] = serde_json::json!(outcome.condition_matched);
+                    artifacts["timedOut"] = serde_json::json!(outcome.timed_out);
+                    artifacts["waitDiagnostics"] = serde_json::json!({
+                        "probeCount": outcome.probe_count,
+                        "visualObservationCount": 1,
+                        "elapsedMs": outcome.elapsed_ms,
+                    });
                 }
-                result.content.push_str(if matched { "\nWait condition matched." } else {
-                    "\nWait budget elapsed; the condition is still pending. This is a successful observation, not a failed browser action. Inspect this tab's latest evidence before choosing another wait or action."
+                result.content.push_str(if outcome.condition_matched {
+                    "\nWait condition matched in the returned visual observation."
+                } else if outcome.timed_out {
+                    "\nWait budget elapsed; the condition is still pending in the returned observation. Inspect this tab's latest evidence before choosing another wait or action."
+                } else {
+                    "\nThe condition changed before visual confirmation and is no longer matched. Inspect the returned fresh observation before choosing another wait or action."
                 });
                 Ok(result)
             }
@@ -1535,14 +1587,26 @@ fn success(
     })
 }
 
-async fn wait_for_browser_condition<T, F, Fut>(
+#[derive(Debug)]
+struct BrowserWaitOutcome<T> {
+    observation: T,
+    condition_matched: bool,
+    timed_out: bool,
+    probe_count: u32,
+    elapsed_ms: u64,
+}
+
+async fn wait_for_browser_condition<T, P, PFut, F, Fut>(
     timeout: std::time::Duration,
     condition: &serde_json::Value,
-    mut observe: F,
-) -> Result<(T, bool), String>
+    mut probe: P,
+    observe: F,
+) -> Result<BrowserWaitOutcome<T>, String>
 where
     T: serde::Serialize,
-    F: FnMut() -> Fut,
+    P: FnMut() -> PFut,
+    PFut: std::future::Future<Output = Result<serde_json::Value, String>>,
+    F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, String>>,
 {
     let kind = condition
@@ -1569,34 +1633,40 @@ where
         return Err("Invalid browser wait condition: use a documented type and its required text, pattern, or boolean value".into());
     }
     let started = std::time::Instant::now();
-    let mut latest = None;
+    let mut probe_count = 0_u32;
+    let mut probe_matched = false;
     loop {
         let remaining = timeout.saturating_sub(started.elapsed());
         if remaining.is_zero() {
-            return latest
-                .map(|observation| (observation, false))
-                .ok_or_else(|| {
-                    "Browser did not produce an observation within the wait budget".into()
-                });
+            break;
         }
-        let observation = match tokio::time::timeout(remaining, observe()).await {
+        let value = match tokio::time::timeout(remaining, probe()).await {
             Ok(result) => result?,
-            Err(_) => {
-                return latest
-                    .map(|observation| (observation, false))
-                    .ok_or_else(|| {
-                        "Browser did not produce an observation within the wait budget".into()
-                    })
-            }
+            Err(_) => break,
         };
-        let value = serde_json::to_value(&observation).map_err(|error| error.to_string())?;
+        probe_count = probe_count.saturating_add(1);
         if condition_matches(&value, condition) {
-            return Ok((observation, true));
+            probe_matched = true;
+            break;
         }
-        latest = Some(observation);
         let remaining = timeout.saturating_sub(started.elapsed());
         tokio::time::sleep(remaining.min(std::time::Duration::from_millis(250))).await;
     }
+    // A probe is never an action token or completion proof. Capture once and
+    // re-evaluate against that same final evidence, even after a transient match.
+    let observation = tokio::time::timeout(BROWSER_FINAL_OBSERVATION_TIMEOUT, observe())
+        .await
+        .map_err(|_| {
+            "Browser final visual observation exceeded its 20-second limit".to_string()
+        })??;
+    let value = serde_json::to_value(&observation).map_err(|error| error.to_string())?;
+    Ok(BrowserWaitOutcome {
+        condition_matched: condition_matches(&value, condition),
+        observation,
+        timed_out: !probe_matched,
+        probe_count,
+        elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+    })
 }
 
 pub(super) fn observation_result(
@@ -1653,6 +1723,10 @@ fn browser_screenshot_attachment(
 
 #[cfg(test)]
 mod tests {
+    async fn unexpected_visual_capture() -> Result<serde_json::Value, String> {
+        panic!("cancelled or failed wait must not capture final evidence")
+    }
+
     #[test]
     fn absent_element_wait_requires_complete_inspection_coverage() {
         let condition = serde_json::json!({"type":"element_absent","name":"Pending export"});
@@ -1675,11 +1749,13 @@ mod tests {
     #[tokio::test]
     async fn pending_browser_condition_returns_evidence_without_a_tool_error() {
         let condition = serde_json::json!({"type":"text_present", "text":"Finished"});
-        let (observation, matched) = super::wait_for_browser_condition(std::time::Duration::from_millis(20), &condition,
+        let outcome = super::wait_for_browser_condition(std::time::Duration::from_millis(20), &condition,
+            || async { Ok(serde_json::json!({"text":"Compiling"})) },
             || async { Ok(serde_json::json!({"text":"Compiling", "url":"http://localhost/", "contentHash":"building"})) })
             .await.expect("a healthy page still loading is not an execution failure");
-        assert!(!matched);
-        assert_eq!(observation["text"], "Compiling");
+        assert!(!outcome.condition_matched);
+        assert!(outcome.timed_out);
+        assert_eq!(outcome.observation["text"], "Compiling");
     }
 
     #[tokio::test]
@@ -1688,6 +1764,7 @@ mod tests {
         let failed = super::wait_for_browser_condition(
             std::time::Duration::from_secs(1),
             &condition,
+            || async { Ok(serde_json::json!({"readyState":"complete"})) },
             || async { Err::<serde_json::Value, _>("capture unavailable".to_string()) },
         )
         .await;
@@ -1696,29 +1773,77 @@ mod tests {
             std::time::Duration::from_secs(60),
             &condition,
             || async { Ok(serde_json::json!({"readyState":"loading"})) },
+            unexpected_visual_capture,
         );
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(20), waiting)
                 .await
                 .is_err()
         );
-        let (_, matched) = super::wait_for_browser_condition(
+        let outcome = super::wait_for_browser_condition(
             std::time::Duration::from_secs(1),
             &condition,
+            || async { Ok(serde_json::json!({"readyState":"complete"})) },
             || async { Ok(serde_json::json!({"readyState":"complete"})) },
         )
         .await
         .unwrap();
-        assert!(matched);
+        assert!(outcome.condition_matched);
+        assert!(!outcome.timed_out);
         let malformed = super::wait_for_browser_condition(
             std::time::Duration::from_secs(30),
             &serde_json::json!({"type":"text_present"}),
+            || async { Err::<serde_json::Value, _>("unexpected probe".to_string()) },
             || async { Err::<serde_json::Value, _>("unexpected observation".to_string()) },
         )
         .await;
         assert!(malformed
             .unwrap_err()
             .contains("Invalid browser wait condition"));
+    }
+
+    #[tokio::test]
+    async fn browser_wait_polls_without_captures_and_rechecks_the_final_evidence() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let probes = AtomicUsize::new(0);
+        let captures = AtomicUsize::new(0);
+        let outcome = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(2),
+            &serde_json::json!({"type":"text_present", "text":"Finished"}),
+            || async {
+                let count = probes.fetch_add(1, Ordering::SeqCst);
+                Ok(serde_json::json!({"text": if count >= 2 { "Finished" } else { "Compiling" }}))
+            },
+            || async {
+                captures.fetch_add(1, Ordering::SeqCst);
+                Ok(serde_json::json!({"text":"Compiling again"}))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome.probe_count, 3);
+        assert_eq!(probes.load(Ordering::SeqCst), 3);
+        assert_eq!(captures.load(Ordering::SeqCst), 1);
+        assert!(
+            !outcome.condition_matched,
+            "a transient match is not final evidence"
+        );
+        assert!(
+            !outcome.timed_out,
+            "evidence changed before the budget expired"
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_wait_probe_errors_do_not_trigger_an_extra_capture() {
+        let result = super::wait_for_browser_condition(
+            std::time::Duration::from_secs(1),
+            &serde_json::json!({"type":"page_loaded"}),
+            || async { Err("browser control owner changed".to_string()) },
+            unexpected_visual_capture,
+        )
+        .await;
+        assert!(matches!(result, Err(message) if message.contains("control owner changed")));
     }
     use super::{
         browser_action_activity_id, browser_action_failure_result, browser_mutation_token,

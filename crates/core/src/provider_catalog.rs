@@ -38,6 +38,8 @@ pub struct ThinkingBudgetCapability {
 pub struct ReasoningCapability {
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled_mode: Option<String>,
     #[serde(default)]
     pub effort_levels: Vec<String>,
     #[serde(default)]
@@ -1122,6 +1124,7 @@ mod tests {
         assert!(ids.contains(&"claude-opus-5"));
         assert!(ids.contains(&"claude-mythos-5"));
         assert!(ids.contains(&"claude-sonnet-5"));
+        assert!(ids.contains(&"claude-sonnet-5-5"));
         assert!(ids.contains(&"claude-opus-4-8"));
         assert!(ids.contains(&"claude-opus-4-7"));
         assert!(ids.contains(&"claude-sonnet-4-6"));
@@ -1155,6 +1158,57 @@ mod tests {
                 .as_ref()
                 .map(|budget| budget.enabled),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn sonnet55_catalog_keeps_native_and_gateway_controls_distinct() {
+        for (provider, base, id, mode, disabled) in [
+            (
+                "anthropic",
+                "https://api.anthropic.com/v1",
+                "claude-sonnet-5-5",
+                "optional",
+                Some("between_tools"),
+            ),
+            (
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "anthropic/claude-sonnet-5.5",
+                "always",
+                None,
+            ),
+            (
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "~anthropic/claude-sonnet-latest",
+                "always",
+                None,
+            ),
+        ] {
+            let preset = find_provider_preset(provider, Some(base)).unwrap();
+            let model = preset.models.iter().find(|model| model.id == id).unwrap();
+            assert_eq!(model.context_tokens, Some(1_000_000));
+            assert_eq!(model.max_output_tokens, Some(128_000));
+            assert_eq!(model.supports_tools, Some(true));
+            let reasoning = model
+                .capabilities
+                .as_ref()
+                .unwrap()
+                .reasoning
+                .as_ref()
+                .unwrap();
+            assert_eq!(reasoning.mode.as_deref(), Some(mode));
+            assert_eq!(reasoning.disabled_mode.as_deref(), disabled);
+            assert_eq!(
+                reasoning.effort_levels,
+                ["low", "medium", "high", "xhigh", "max"]
+            );
+            assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
+            assert!(!reasoning.thinking_budget.as_ref().unwrap().enabled);
+        }
+        assert!(
+            find_provider_preset("openrouter", Some("https://private.example/api/v1")).is_none()
         );
     }
 

@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "세션을 만들고 모델을 불러왔습니다. 추론은 아직 테스트하지 않았습니다."
   ,"externalAgentProbe": "연결 확인"
   ,"externalAgentControls": "도구와 실행 설정은 외부 에이전트가 관리합니다."
+  ,"reasoningBetweenTools": "도구 호출 사이에서만 사고"
+  ,"enableUpfrontThinking": "응답 전 사고 활성화"
 }

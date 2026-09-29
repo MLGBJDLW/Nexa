@@ -604,6 +604,8 @@
   "mermaidFailed": "Could not render this Mermaid diagram. The source is shown below.",
   "subagentStatusRunning": "Running",
   "subagentStatusInterrupted": "Interrupted by restart",
+  "subagentStatusUnverified": "Status unverified",
+  "subagentUnverifiedHint": "The parent run has ended. This worker may still be running; confirm its result before relying on it.",
   "subagentStatusNeedsAttention": "Needs attention",
   "subagentStatusComplete": "Complete",
   "subagentInProgress": "Delegated work is in progress.",
@@ -772,5 +774,6 @@
   "agentPreparing": "Preparing session",
   "agentReusing": "Resuming agent session",
   "agentWaiting": "Waiting for response",
-  "resumeTask": "Resume task"
+  "resumeTask": "Resume task",
+  "speechInputLimit": "This reply has {actual} characters, exceeding Nexa's {limit}-character limit per speech request with {model}. Choose a model with a larger limit in Speech settings or read a shorter reply."
 }

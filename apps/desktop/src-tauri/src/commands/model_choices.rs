@@ -61,6 +61,7 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
                         reasoning: (!model.reasoning_efforts.is_empty()).then_some(
                             ReasoningCapability {
                                 mode: Some("optional".into()),
+                                disabled_mode: None,
                                 effort_levels: model.reasoning_efforts,
                                 default_effort: None,
                                 effort_budget_exclusive: true,

@@ -94,14 +94,16 @@ test.beforeEach(async ({ page }) => {
     const listeners = new Map<number, { event: string; handlerId: number }>();
     let callbackSeq = 1;
     let listenerSeq = 1;
+    let browserEventSequence = 0;
 
     const emitBrowserEvent = (payload: Record<string, unknown>) => {
+      const sequenced = { sequence: ++browserEventSequence, ...payload };
       for (const [listenerId, listener] of listeners.entries()) {
         if (listener.event !== 'browser:event') continue;
         callbackMap.get(listener.handlerId)?.({
           event: 'browser:event',
           id: listenerId,
-          payload,
+          payload: sequenced,
         });
       }
     };
@@ -691,6 +693,24 @@ test('suspends the native browser for stacked HTML dialogs until the final overl
   await expect.poll(latestVisible).toBe(true);
 });
 
+test('the project editor portal suspends the shared native browser until dismissed', async ({ page }) => {
+  await page.goto('/chat/conv-browser-workspace');
+  await page.getByTestId('browser-workspace-toggle').click();
+  const latestVisible = () => page.evaluate(() => (window as unknown as {
+    __browserDiagnostics__: { bounds: Array<{ sessionId: string; visible: boolean }> };
+  }).__browserDiagnostics__.bounds.filter(entry => entry.sessionId === 'browser-session-1').at(-1)?.visible);
+  await expect.poll(latestVisible).toBe(true);
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await sidebar.getByRole('button', { name: 'All Conversations', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByPlaceholder('Enter project name...')).toBeFocused();
+  await expect.poll(latestVisible).toBe(false);
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect.poll(latestVisible).toBe(true);
+});
+
 test('drops a deferred page pick when the active conversation changes', async ({ page }) => {
   await page.goto('/chat/conv-browser-workspace');
   await page.getByTestId('browser-workspace-toggle').click();
@@ -1005,11 +1025,11 @@ test('browser action trail preserves viewport bounds and distinguishes unverifie
   const surface = page.getByTestId('browser-native-surface');
   await expect(surface).toBeVisible();
   const before = await surface.boundingBox();
-  const emit = async (phase: string) => page.evaluate(value => {
+  const emit = async (phase: string, callId = 'action-1') => page.evaluate(value => {
     (window as unknown as { __emitBrowserEvent__: (event: unknown) => void }).__emitBrowserEvent__({
-      kind: 'agentAction', payload: { sessionId: 'browser-session-1', tabId: 'tab-1', action: 'click', phase: value, callId: 'action-1' },
+      kind: 'agentAction', payload: { sessionId: 'browser-session-1', tabId: 'tab-1', action: 'click', ...value },
     });
-  }, phase);
+  }, { phase, callId, operationId: `operation-${callId}` });
   await emit('moving');
   await expect(page.getByTestId('browser-action-trail')).toContainText('In progress');
   await emit('observedUnchanged');
@@ -1018,7 +1038,7 @@ test('browser action trail preserves viewport bounds and distinguishes unverifie
   const after = await surface.boundingBox();
   expect(after?.height).toBe(before?.height);
   expect(after?.y).toBe(before?.y);
-  await emit('failed');
+  await emit('failed', 'action-2');
   await expect(page.getByTestId('browser-action-trail')).toContainText('Needs review');
   await page.getByTestId('browser-dock').screenshot({ path: testInfo.outputPath('browser-actions.png') });
   await page.evaluate(() => {
@@ -1030,4 +1050,56 @@ test('browser action trail preserves viewport bounds and distinguishes unverifie
   await page.getByTestId('browser-workspace-toggle').click();
   await expect(surface).toBeVisible();
   await expect(page.getByTestId('browser-action-trail')).toContainText('Needs review');
+});
+
+test('browser waits share one stable trail entry and cannot revive after takeover', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-browser-workspace');
+  await page.getByTestId('browser-workspace-toggle').click();
+  const trail = page.getByTestId('browser-action-trail');
+  await expect(trail).toBeVisible();
+  const emit = async (callId: string, phase: string) => page.evaluate(value => {
+    (window as unknown as { __emitBrowserEvent__: (event: unknown) => void }).__emitBrowserEvent__({
+      kind: 'agentAction', payload: { sessionId: 'browser-session-1', tabId: 'tab-1', action: 'wait_for', ...value },
+    });
+  }, { callId, phase, operationId: `operation-${callId}` });
+  await emit('wait-1', 'waiting');
+  await emit('wait-2', 'waiting');
+  await emit('wait-1', 'observedPending');
+  await expect(trail).toContainText('Still pending');
+  await page.evaluate(() => {
+    (window as unknown as { __emitBrowserEvent__: (event: unknown) => void }).__emitBrowserEvent__({
+      kind: 'controlChanged', payload: { sessionId: 'browser-session-1', owner: { type: 'user' } },
+    });
+  });
+  await expect(trail).toContainText('Needs review');
+  await emit('wait-2', 'verified');
+  await emit('wait-1', 'waiting');
+  await expect(trail).not.toContainText('In progress');
+  await expect(trail).not.toContainText('Verified');
+  await expect(trail.locator(':scope > span')).toHaveCount(2);
+  await page.getByTestId('browser-dock').screenshot({ path: testInfo.outputPath('browser-wait-receipts.png') });
+});
+
+test('browser trail separates invocations when a provider repeats its call ID', async ({ page }) => {
+  await page.goto('/chat/conv-browser-workspace');
+  await page.getByTestId('browser-workspace-toggle').click();
+  const trail = page.getByTestId('browser-action-trail');
+  await expect(trail).toBeVisible();
+  const emit = async (operationId: string, phase: string) => page.evaluate(value => {
+    (window as unknown as { __emitBrowserEvent__: (event: unknown) => void }).__emitBrowserEvent__({
+      kind: 'agentAction', payload: { sessionId: 'browser-session-1', tabId: 'tab-1', callId: 'call_0', action: 'click', ...value },
+    });
+  }, { operationId, phase });
+  await emit('invocation-a', 'moving');
+  await emit('invocation-a', 'verified');
+  await emit('invocation-b', 'moving');
+  await expect(trail.locator(':scope > span')).toHaveCount(2);
+  await expect(trail.locator(':scope > span').nth(0)).toContainText('Verified');
+  await expect(trail.locator(':scope > span').nth(1)).toContainText('In progress');
+  await emit('invocation-a', 'failed');
+  await expect(trail).not.toContainText('Needs review');
+  await expect(trail.locator(':scope > span').nth(1)).toContainText('In progress');
+  await emit('invocation-b', 'observedUnchanged');
+  await expect(trail.locator(':scope > span').nth(1)).toContainText('No page change');
+  await expect(trail.locator(':scope > span')).toHaveCount(2);
 });

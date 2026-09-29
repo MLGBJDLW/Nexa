@@ -143,6 +143,7 @@ test.beforeEach(async ({ page }) => {
               outputFormat: 'wav',
               speed: 1,
               autoSpeakFinalAnswers: true,
+              ...JSON.parse(localStorage.getItem('nexa-e2e-tts-config') ?? '{}'),
             },
           };
         case 'synthesize_speech_preview_cmd':
@@ -287,7 +288,7 @@ test.beforeEach(async ({ page }) => {
             id: nextId('m-assistant-final'),
             conversationId,
             role: 'assistant',
-            content: 'Final answer: add the timeout guard from the second file.',
+            content: localStorage.getItem('nexa-e2e-final-text') ?? 'Final answer: add the timeout guard from the second file.',
             toolCallId: null,
             toolCalls: [],
             artifacts: null,
@@ -367,7 +368,7 @@ test.beforeEach(async ({ page }) => {
             emitEvent('agent://run-event', {
               conversationId,
               type: 'textDelta',
-              delta: 'Final answer: add the timeout guard from the second file.',
+              delta: finalAssistantMessage.content,
             });
             },
             () => {
@@ -420,6 +421,31 @@ test.beforeEach(async ({ page }) => {
       return Boolean(next);
     };
   });
+});
+
+test('read aloud reports the exact model limit without truncating or submitting a paid request', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('nexa-e2e-tts-config', JSON.stringify({
+      provider: 'groq', apiStyle: 'openai_speech', baseUrl: 'https://api.groq.com/openai/v1',
+      model: 'canopylabs/orpheus-v1-english', voice: 'hannah',
+    }));
+    localStorage.setItem('nexa-e2e-final-text', '🎧'.repeat(201));
+  });
+  await page.goto('/chat/conv-stream-rounds');
+  await expect(page.getByTestId('chat-auto-tts-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('chat-input-textarea').fill('Read this reply.');
+  await page.getByTestId('chat-send').click();
+  for (let step = 0; step < 8; step += 1) {
+    await page.evaluate(() => (window as unknown as { __EMIT_STREAM_STEP__: () => boolean }).__EMIT_STREAM_STEP__());
+  }
+  await expect(page.getByText('🎧'.repeat(201), { exact: true })).toBeVisible();
+  await expect(page.getByText(/201 characters.*200-character.*canopylabs\/orpheus-v1-english/)).toBeVisible();
+  await page.getByRole('button', { name: 'Read this reply', exact: true }).click();
+  const action = page.getByRole('button', { name: /201 characters.*200-character.*canopylabs\/orpheus-v1-english/ });
+  await expect(action).toBeVisible();
+  await expect(action).toHaveAttribute('title', /Speech settings/);
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __AUTO_SPEECH_TEXTS__: string[] }).__AUTO_SPEECH_TEXTS__)).toEqual([]);
 });
 
 test('preserves multiple thinking and tool rounds during a single streamed response', async ({ page }) => {

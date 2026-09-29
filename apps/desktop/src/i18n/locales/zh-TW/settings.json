@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "已建立工作階段並取得模型，尚未測試推論。"
   ,"externalAgentProbe": "檢查連線"
   ,"externalAgentControls": "工具與執行設定由外部 Agent 管理。"
+  ,"reasoningBetweenTools": "僅工具間思考"
+  ,"enableUpfrontThinking": "啟用回答前思考"
 }

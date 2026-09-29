@@ -52,5 +52,7 @@
   "actionCheck": "勾选",
   "actionPress": "按键",
   "actionScroll": "滚动",
-  "actionUpload": "上传"
+  "actionUpload": "上传",
+  "actionWait": "等待",
+  "actionPending": "条件尚未满足"
 }

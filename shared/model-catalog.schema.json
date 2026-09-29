@@ -49,6 +49,7 @@
       "additionalProperties": false,
       "properties": {
         "mode": { "enum": ["always", "optional"] },
+        "disabledMode": { "enum": ["between_tools"] },
         "effortLevels": { "type": "array", "items": { "type": "string" } },
         "defaultEffort": { "type": ["string", "null"] },
         "effortBudgetExclusive": { "type": "boolean" },

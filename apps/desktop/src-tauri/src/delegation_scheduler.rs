@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nexa_core::agent::AgentConfig;
@@ -6,7 +6,7 @@ use nexa_core::agent::CancellationToken;
 use nexa_core::error::CoreError;
 use nexa_core::llm::Usage;
 use serde::Serialize;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const DEFAULT_CONNECT_DEADLINE_MS: u64 = 15_000;
 const DEFAULT_FIRST_TOKEN_DEADLINE_MS: u64 = 45_000;
@@ -235,6 +235,53 @@ pub(crate) struct DelegationScheduler {
     state: Arc<Mutex<DelegationBudgetState>>,
 }
 
+/// A started provider call keeps its call credit; preflight/setup failures
+/// refund it. All paths release the estimate, including unwind/early return.
+#[derive(Debug)]
+pub(crate) struct WorkerBudgetReservation {
+    state: Arc<Mutex<DelegationBudgetState>>,
+    reserved_tokens: u32,
+    is_verification: bool,
+    started: bool,
+    settled: bool,
+}
+
+impl WorkerBudgetReservation {
+    pub(crate) fn mark_started(&mut self) {
+        self.started = true;
+    }
+
+    pub(crate) fn settle(&mut self, usage: &Usage, cost_micros: Option<u64>) {
+        if self.settled {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.tokens_reserved = state.tokens_reserved.saturating_sub(self.reserved_tokens);
+        state.tokens_spent = state.tokens_spent.saturating_add(usage.total_tokens);
+        state.cost_spent_micros = state
+            .cost_spent_micros
+            .saturating_add(cost_micros.unwrap_or(0));
+        self.settled = true;
+    }
+}
+
+impl Drop for WorkerBudgetReservation {
+    fn drop(&mut self) {
+        if self.settled {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.tokens_reserved = state.tokens_reserved.saturating_sub(self.reserved_tokens);
+        if !self.started {
+            state.calls_started = state.calls_started.saturating_sub(1);
+            if self.is_verification {
+                state.verification_calls_started =
+                    state.verification_calls_started.saturating_sub(1);
+            }
+        }
+    }
+}
+
 impl DelegationScheduler {
     pub(crate) fn new(config: &AgentConfig) -> Self {
         Self::with_limits(DelegationLimitsV2::resolve(config))
@@ -271,10 +318,11 @@ impl DelegationScheduler {
         Self::with_limits(limits)
     }
 
-    pub(crate) async fn begin_call(
+    /// Queue before allocating an isolated worker thread/provider. Admission
+    /// credit is committed only after that worker's preflight succeeds.
+    pub(crate) async fn acquire_worker_slot(
         &self,
         label: &str,
-        reserved_tokens: u32,
         is_verification: bool,
         cancel_token: &CancellationToken,
     ) -> Result<OwnedSemaphorePermit, CoreError> {
@@ -283,7 +331,30 @@ impl DelegationScheduler {
         } else {
             DelegationLane::Exploration
         };
-        self.admit(label, reserved_tokens, lane, cancel_token).await
+        self.acquire_slot(label, lane, cancel_token).await
+    }
+
+    pub(crate) async fn commit_worker_call(
+        &self,
+        label: &str,
+        reserved_tokens: u32,
+        is_verification: bool,
+        cancel_token: &CancellationToken,
+    ) -> Result<WorkerBudgetReservation, CoreError> {
+        let lane = if is_verification {
+            DelegationLane::Verification
+        } else {
+            DelegationLane::Exploration
+        };
+        self.commit_call(label, reserved_tokens, lane, cancel_token)
+            .await?;
+        Ok(WorkerBudgetReservation {
+            state: Arc::clone(&self.state),
+            reserved_tokens,
+            is_verification,
+            started: false,
+            settled: false,
+        })
     }
 
     pub(crate) async fn begin_judge_call(
@@ -303,15 +374,28 @@ impl DelegationScheduler {
         lane: DelegationLane,
         cancel_token: &CancellationToken,
     ) -> Result<OwnedSemaphorePermit, CoreError> {
+        let permit = self.acquire_slot(label, lane, cancel_token).await?;
+        self.commit_call(label, reserved_tokens, lane, cancel_token)
+            .await?;
+        Ok(permit)
+    }
+
+    async fn acquire_slot(
+        &self,
+        label: &str,
+        lane: DelegationLane,
+        cancel_token: &CancellationToken,
+    ) -> Result<OwnedSemaphorePermit, CoreError> {
         // Phase one: enqueue and wait for a concrete worker lane. No call or
         // token credit is consumed while this future is merely queued.
         let queue_deadline_ms = {
-            let state = self.state.lock().await;
+            let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
             Self::validate_admission(&state, label, lane)?;
             state.limits.queue_deadline_ms
         };
         let semaphore = self.semaphore_for(lane);
         let permit = tokio::select! {
+            biased;
             _ = cancel_token.cancelled() => Err(CoreError::Agent(format!(
                 "Delegated execution '{label}' was cancelled while waiting for a worker slot."
             ))),
@@ -330,9 +414,34 @@ impl DelegationScheduler {
             },
         }?;
 
+        if cancel_token.is_cancelled() {
+            return Err(CoreError::Agent(format!(
+                "Delegated execution '{label}' was cancelled before worker admission."
+            )));
+        }
+        Self::validate_admission(
+            &self.state.lock().unwrap_or_else(|error| error.into_inner()),
+            label,
+            lane,
+        )?;
+        Ok(permit)
+    }
+
+    async fn commit_call(
+        &self,
+        label: &str,
+        reserved_tokens: u32,
+        lane: DelegationLane,
+        cancel_token: &CancellationToken,
+    ) -> Result<(), CoreError> {
         // Phase two: once a slot exists, consume call admission and the small
         // role credit. Actual usage replaces this reservation at completion.
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if cancel_token.is_cancelled() {
+            return Err(CoreError::Agent(format!(
+                "Delegated execution '{label}' was cancelled before worker admission."
+            )));
+        }
         Self::validate_admission(&state, label, lane)?;
         state.calls_started += 1;
         if lane == DelegationLane::Verification {
@@ -342,7 +451,7 @@ impl DelegationScheduler {
         }
         state.tokens_reserved = state.tokens_reserved.saturating_add(reserved_tokens);
         drop(state);
-        Ok(permit)
+        Ok(())
     }
 
     fn validate_admission(
@@ -425,7 +534,7 @@ impl DelegationScheduler {
         usage: &Usage,
         estimated_cost_micros: Option<u64>,
     ) {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.tokens_reserved = state.tokens_reserved.saturating_sub(reserved_tokens);
         state.tokens_spent = state.tokens_spent.saturating_add(usage.total_tokens);
         state.cost_spent_micros = state
@@ -433,34 +542,15 @@ impl DelegationScheduler {
             .saturating_add(estimated_cost_micros.unwrap_or(0));
     }
 
-    #[cfg(test)]
-    pub(crate) async fn release_reservation(&self, reserved_tokens: u32) {
-        let mut state = self.state.lock().await;
-        state.tokens_reserved = state.tokens_reserved.saturating_sub(reserved_tokens);
-    }
-
-    pub(crate) async fn rollback_unstarted_worker(
-        &self,
-        reserved_tokens: u32,
-        is_verification: bool,
-    ) {
-        let mut state = self.state.lock().await;
-        state.calls_started = state.calls_started.saturating_sub(1);
-        if is_verification {
-            state.verification_calls_started = state.verification_calls_started.saturating_sub(1);
-        }
-        state.tokens_reserved = state.tokens_reserved.saturating_sub(reserved_tokens);
-    }
-
     pub(crate) async fn rollback_unstarted_judge(&self, reserved_tokens: u32) {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.calls_started = state.calls_started.saturating_sub(1);
         state.judge_calls_started = state.judge_calls_started.saturating_sub(1);
         state.tokens_reserved = state.tokens_reserved.saturating_sub(reserved_tokens);
     }
 
     pub(crate) async fn snapshot(&self) -> BudgetSnapshot {
-        let state = self.state.lock().await;
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let token_budget = state
             .limits
             .total_actual_tokens_soft_limit
@@ -492,6 +582,10 @@ impl DelegationScheduler {
     }
 
     pub(crate) async fn limits(&self) -> DelegationLimitsV2 {
-        self.state.lock().await.limits.clone()
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .limits
+            .clone()
     }
 }

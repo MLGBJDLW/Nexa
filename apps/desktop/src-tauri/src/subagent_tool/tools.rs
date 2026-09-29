@@ -45,22 +45,15 @@ impl Tool for SubagentTool {
             cancel_token: self.runtime.cancel_token.child_token(),
             activity_runtime: activity_runtime.cloned().unwrap_or_default(),
         })?;
-        if let Err(error) = launch_detached_subagent(
+        launch_detached_subagent(
             self.runtime.clone(),
             db.clone(),
             source_scope.to_vec(),
             args.clone(),
             registration,
-        ) {
-            let _ = self
-                .runtime
-                .lifecycle
-                .set_status(&agent_id, SubagentLifecycleStatus::Failed);
-            let _ = self.runtime.lifecycle.close(&agent_id);
-            return Err(error);
-        }
+        );
         let content = format!(
-            "Subagent {agent_id} spawned and is running. Use observe_subagent for incremental events, wait_subagent before consuming its final result, send_subagent_input to steer it, or cancel_subagent to stop it."
+            "Subagent {agent_id} accepted and queued for execution. Use observe_subagent for incremental events, wait_subagent before consuming its final result, send_subagent_input to steer it, or cancel_subagent to stop it."
         );
         Ok(ToolResult {
             call_id: call_id.to_string(),
@@ -70,7 +63,7 @@ impl Tool for SubagentTool {
                 "kind": "subagent_result",
                 "id": agent_id,
                 "sessionId": args.task_id,
-                "status": "running",
+                "status": "queued",
                 "task": args.task,
                 "roleId": args.role_id,
                 "role": args.role,
@@ -246,6 +239,8 @@ impl Tool for SubagentBatchTool {
             }));
             let lifecycle_for_join = runtime.lifecycle.clone();
             let lifecycle_agent_id_for_join = lifecycle_agent_id.clone();
+            let runtime_for_join = runtime.clone();
+            let batch_id_for_join = batch_id.clone();
             let worker_task = tokio::spawn(async move {
                 let label = worker_id
                     .clone()
@@ -278,22 +273,25 @@ impl Tool for SubagentBatchTool {
                         let error = CoreError::Agent(format!(
                             "Delegated worker task terminated unexpectedly: {join_error}"
                         ));
-                        settle_worker_lifecycle(
+                        let _ = settle_worker_lifecycle(
                             &lifecycle_for_join,
                             &lifecycle_agent_id_for_join,
                             &lifecycle_cancellation_for_join,
                             Err(&error),
                         )
                         .await;
-                        (
+                        let run = failed_subagent_run_artifact(
+                            detached_label,
+                            detached_fallback,
+                            detached_parallel_group,
+                            &error,
+                        );
+                        runtime_for_join.record_batch_result(
+                            &batch_id_for_join,
                             index,
-                            failed_subagent_run_artifact(
-                                detached_label,
-                                detached_fallback,
-                                detached_parallel_group,
-                                &error,
-                            ),
-                        )
+                            run.clone(),
+                        );
+                        (index, run)
                     }
                 }
             });
@@ -322,22 +320,15 @@ impl Tool for SubagentBatchTool {
                 break;
             };
             indexed_runs.push((index, run));
-            let completed_runs = indexed_runs
-                .iter()
-                .map(|(_, run)| run.clone())
-                .collect::<Vec<_>>();
-            if completion_policy.is_satisfied(&completed_runs, pending.len()) {
+            if completion_policy
+                .is_satisfied(indexed_runs.iter().map(|(_, run)| run), pending.len())
+            {
                 break;
             }
         }
         let policy_satisfied = policy_deadline_reached
-            || completion_policy.is_satisfied(
-                &indexed_runs
-                    .iter()
-                    .map(|(_, run)| run.clone())
-                    .collect::<Vec<_>>(),
-                pending.len(),
-            );
+            || completion_policy
+                .is_satisfied(indexed_runs.iter().map(|(_, run)| run), pending.len());
         let pending_at_policy_completion = pending.len();
         let continuing_workers = if !pending.is_empty() && !cancel_remaining {
             // Each entry owns a Tokio JoinHandle. Dropping the collector
@@ -363,11 +354,14 @@ impl Tool for SubagentBatchTool {
         }
         let unsettled_workers = if cancel_remaining { pending.len() } else { 0 };
         drop(pending);
-        indexed_runs.sort_by_key(|(index, _)| *index);
-        let runs = indexed_runs
-            .into_iter()
-            .map(|(_, run)| run)
-            .collect::<Vec<_>>();
+        // Publish one coherent result/cursor snapshot. Workers can settle
+        // between policy release and response assembly; never advance past a
+        // result which was not included in this acknowledgement.
+        let snapshot = runtime
+            .batch_snapshot(&batch_id, None)
+            .ok_or_else(|| CoreError::NotFound(format!("Delegated batch {batch_id}")))?;
+        let cursor = snapshot.cursor;
+        let runs = snapshot.runs;
         let budget_after = self.runtime.budget.snapshot().await;
         let completed_runs = runs.iter().filter(|run| !run.is_error).count();
         let failed_runs = runs.len().saturating_sub(completed_runs);
@@ -383,7 +377,7 @@ impl Tool for SubagentBatchTool {
                 "; completion policy released the parent with {pending_at_policy_completion} worker(s) still settling"
             ));
             content.push_str(&format!(
-                ". Call observe_subagent_batch with batchId '{batch_id}' before final synthesis to receive supplemental evidence, wait for more results, or cancel residual workers"
+                ". Call observe_subagent_batch with batchId '{batch_id}', afterSeq {cursor}, and waitMs 30000 before final synthesis to receive only new evidence, wait for more results, or cancel residual workers"
             ));
         }
         content.push_str(".\n\n");
@@ -399,6 +393,7 @@ impl Tool for SubagentBatchTool {
             artifacts: Some(serde_json::json!({
                 "kind": "subagent_batch_result",
                 "batchId": &batch_id,
+                "cursor": cursor,
                 "lifecycleWorkers": lifecycle_workers,
                 "batchGoal": batch_goal,
                 "workflowTemplate": workflow_template_id,
@@ -429,7 +424,7 @@ impl Tool for ObserveSubagentBatchTool {
         "observe_subagent_batch"
     }
     fn description(&self) -> &str {
-        "Observe supplemental results from a delegated batch after quorum, first-success, deadline, or parent-decides released the parent. Optionally wait for more results or cancel residual workers."
+        "Wait for supplemental batch results using batchId and afterSeq=the last returned cursor. Returns only newly settled workers; unchanged waits do not replay results. Omit afterSeq for a complete snapshot, or cancel residual workers."
     }
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
@@ -442,8 +437,13 @@ impl Tool for ObserveSubagentBatchTool {
                 "waitMs": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 2500,
-                    "description": "One steering-friendly wait quantum for another supplemental result"
+                    "maximum": 60000,
+                    "description": "Event-driven wait for new results; defaults to 30000 with afterSeq, otherwise an immediate full snapshot"
+                },
+                "afterSeq": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Last returned cursor. Only newer settled results are returned. Omit for a full snapshot; a future cursor returns reset=true plus the full snapshot."
                 },
                 "cancelRemaining": {
                     "type": "boolean",
@@ -477,41 +477,60 @@ impl Tool for ObserveSubagentBatchTool {
         if args.cancel_remaining {
             self.runtime.cancel_batch(batch_id);
         }
-        let wait_ms = args.wait_ms.unwrap_or(0).min(2_500);
-        let baseline_count = self
+        let wait_ms = args
+            .wait_ms
+            .unwrap_or(if args.after_seq.is_some() { 30_000 } else { 0 })
+            .min(60_000);
+        let changed = self
             .runtime
-            .batch_snapshot(batch_id)
+            .batch_notification(batch_id)
+            .ok_or_else(|| CoreError::NotFound(format!("Delegated batch {batch_id}")))?;
+        let baseline_cursor = self
+            .runtime
+            .batch_progress(batch_id)
             .ok_or_else(|| CoreError::NotFound(format!("Delegated batch {batch_id}")))?
-            .1
-            .len();
+            .1;
         let deadline = tokio::time::Instant::now() + Duration::from_millis(wait_ms);
-        let (expected_workers, runs) = loop {
-            let notified = self.runtime.batch_notify.notified();
+        let after = args.after_seq.unwrap_or(baseline_cursor);
+        let mut wait_interrupted = false;
+        loop {
+            let notified = changed.notified();
             tokio::pin!(notified);
             // Register before reading the snapshot so a completion between
             // the read and the await cannot be lost by notify_waiters().
             notified.as_mut().enable();
-            let Some((expected, runs)) = self.runtime.batch_snapshot(batch_id) else {
+            let Some((expected, cursor)) = self.runtime.batch_progress(batch_id) else {
                 return Err(CoreError::NotFound(format!("Delegated batch {batch_id}")));
             };
-            if runs.len() >= expected
-                || runs.len() > baseline_count
+            if cursor as usize >= expected
+                || cursor != after
                 || wait_ms == 0
                 || tokio::time::Instant::now() >= deadline
             {
-                break (expected, runs);
+                break;
             }
-            if tokio::time::timeout_at(deadline, &mut notified)
-                .await
-                .is_err()
-            {
-                break self
-                    .runtime
-                    .batch_snapshot(batch_id)
-                    .unwrap_or((expected, runs));
+            tokio::select! {
+                biased;
+                _ = self.runtime.cancel_token.cancelled() => {
+                    wait_interrupted = true;
+                    break;
+                }
+                result = tokio::time::timeout_at(deadline, &mut notified) => {
+                    if result.is_err() { break; }
+                }
             }
-        };
-        let completed_workers = runs.len();
+        }
+        let snapshot = self
+            .runtime
+            .batch_snapshot(batch_id, args.after_seq)
+            .ok_or_else(|| CoreError::NotFound(format!("Delegated batch {batch_id}")))?;
+        let DelegationBatchSnapshot {
+            expected_workers,
+            completed_workers,
+            cursor,
+            reset,
+            runs,
+        } = snapshot;
         let pending_workers = expected_workers.saturating_sub(completed_workers);
         let mut content = format!(
             "Delegated batch {batch_id}: {completed_workers}/{expected_workers} worker(s) settled"
@@ -532,6 +551,11 @@ impl Tool for ObserveSubagentBatchTool {
             artifacts: Some(serde_json::json!({
                 "kind": "subagent_batch_observation",
                 "batchId": batch_id,
+                "cursor": cursor,
+                "reset": reset,
+                "incremental": args.after_seq.is_some(),
+                "timedOut": !wait_interrupted && pending_workers > 0 && cursor == after && !reset,
+                "waitInterrupted": wait_interrupted,
                 "expectedWorkers": expected_workers,
                 "completedWorkers": completed_workers,
                 "pendingWorkers": pending_workers,

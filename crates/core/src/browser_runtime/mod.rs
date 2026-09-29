@@ -15,3 +15,8 @@ pub use native_pointer::{
 };
 pub use policy::{classify_action_risk, BrowserActionRisk};
 pub use types::*;
+
+/// Shared by browser observation and the agent's outer tool deadline so a
+/// condition wait leaves enough time to return its final visual evidence.
+pub const BROWSER_FINAL_OBSERVATION_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(20);

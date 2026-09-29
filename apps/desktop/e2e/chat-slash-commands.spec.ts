@@ -229,12 +229,14 @@ test('live turn timing appears after three seconds without a global elapsed stat
 
   const elapsed = page.getByTestId('chat-turn-elapsed');
   await expect(elapsed).toBeVisible({ timeout: 6000 });
-  await expect(elapsed).toContainText(/Thinking · [3-9]s/);
+  await expect(elapsed).toContainText(/Thinking · \d+:\d{2}/);
+  const duration = (await elapsed.innerText()).match(/(\d+):(\d{2})/)!;
+  expect(Number(duration[1]) * 60 + Number(duration[2])).toBeGreaterThanOrEqual(3);
 
   await page.getByTestId('chat-context-trigger').hover();
-  await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('TTFE');
-  await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('TTFV');
-  await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('Wall');
+  await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('First event');
+  await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('First visible output');
+  await expect(page.getByTestId('chat-turn-timing-metrics')).toContainText('Total time');
 });
 
 test('an activated slash command can be cancelled without editing the prompt', async ({ page }) => {
@@ -390,14 +392,14 @@ test('Nexus mode explains its cost, persists per conversation, and reaches the b
   const dialog = page.getByTestId('chat-nexus-dialog');
   await expect(dialog).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'About Nexus mode' })).toHaveCSS('opacity', '1');
-  await expect(dialog).toContainText('96K delegated tokens');
+  await expect(dialog).toContainText('budgets are resolved from the active endpoint and quality policy');
   await expect(dialog).toContainText('same blind spot');
   await page.getByTestId('chat-nexus-confirm').click();
 
   await expect(page.getByTestId('nexus-activation-effect')).toBeVisible();
   await expect(page.getByTestId('nexus-activation-effect')).toBeHidden();
   await expect(nexusSwitch).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('chat-nexus-mode-banner')).toContainText('25% verification reserve');
+  await expect(page.getByTestId('chat-nexus-mode-banner')).toContainText('dedicated verifier/judge lanes');
 
   await page.getByTestId('chat-input-textarea').fill('Review the cross-module change');
   await page.getByTestId('chat-send').click();

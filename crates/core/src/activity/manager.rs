@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Notify};
 
 use super::event_log::{ActivityEntry, DEFAULT_MAX_EVENTS_PER_ACTIVITY};
-use super::persistence::{load_entries, persist_event, persist_record};
+use super::persistence::{load_entries, persist_transition};
 use super::{ActivityEvent, ActivityEventKind, ActivityRecord, ActivitySpec, ActivityState};
 use crate::db::Database;
 use crate::error::CoreError;
@@ -178,8 +178,8 @@ impl ActivityRuntime {
                     record.activity_id
                 )));
             }
-            entries.insert(record.activity_id.clone(), entry);
             self.persist(&record, &event)?;
+            entries.insert(record.activity_id.clone(), entry);
         }
         let _ = self.inner.events.send(event);
         self.inner.notify.notify_waiters();
@@ -220,9 +220,11 @@ impl ActivityRuntime {
                 kind,
                 payload,
             };
-            entry.push(event.clone(), self.inner.max_events_per_activity);
-            let record = entry.record.clone();
+            let mut record = entry.record.clone();
+            record.last_event_seq = event.seq;
+            record.updated_at = event.timestamp;
             self.persist(&record, &event)?;
+            entry.push(event.clone(), self.inner.max_events_per_activity);
             (record, event)
         };
         let _ = self.inner.events.send(event.clone());
@@ -257,8 +259,9 @@ impl ActivityRuntime {
                 )));
             }
             let now = Utc::now();
-            entry.record.state = state;
-            entry.record.completed_at = state.is_terminal().then_some(now);
+            let mut record = entry.record.clone();
+            record.state = state;
+            record.completed_at = state.is_terminal().then_some(now);
             let kind = match state {
                 ActivityState::Completed => ActivityEventKind::Completed,
                 ActivityState::Failed => ActivityEventKind::Failed,
@@ -277,9 +280,11 @@ impl ActivityRuntime {
                     "detail": payload,
                 }),
             };
-            entry.push(event.clone(), self.inner.max_events_per_activity);
-            let record = entry.record.clone();
+            record.last_event_seq = event.seq;
+            record.updated_at = event.timestamp;
             self.persist(&record, &event)?;
+            entry.record = record.clone();
+            entry.push(event.clone(), self.inner.max_events_per_activity);
             (record, event)
         };
         let _ = self.inner.events.send(event.clone());
@@ -411,8 +416,7 @@ impl ActivityRuntime {
 
     fn persist(&self, record: &ActivityRecord, event: &ActivityEvent) -> Result<(), CoreError> {
         if let Some(database) = &self.inner.database {
-            persist_record(database, record)?;
-            persist_event(database, event)?;
+            persist_transition(database, record, event)?;
         }
         Ok(())
     }

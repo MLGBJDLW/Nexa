@@ -10,7 +10,7 @@ import {
   findSharedProviderCredential,
   providerCredentialScope,
 } from '../../lib/providerCredentials';
-import { defaultTtsItem, findTtsProviderPreset, TTS_PROVIDER_PRESETS } from '../../lib/ttsProviderPresets';
+import { defaultTtsItem, findTtsProviderPreset, TTS_PROVIDER_PRESETS, ttsSpeedRange, ttsVoiceForModel, ttsVoiceSupportsModel } from '../../lib/ttsProviderPresets';
 import {
   bindTtsVoiceCatalogCredential,
   isTtsVoiceCatalogStale,
@@ -99,6 +99,7 @@ export function TextToSpeechSettingsPanel({
     (model) => model.id === config.model,
   )?.descriptor;
   const localProvider = Boolean(activePreset.local || config.apiStyle === 'sherpa_onnx');
+  const [minSpeed, maxSpeed] = ttsSpeedRange(activePreset, config.baseUrl);
   const localFamilyNeedsVoices = config.model === 'kokoro' || config.model === 'kitten';
   const sharedKeySource = !localProvider
     ? findSharedProviderCredential(agentConfigs, config.provider, config.baseUrl)
@@ -119,9 +120,7 @@ export function TextToSpeechSettingsPanel({
   const filteredVoices = useMemo(() => {
     const query = voiceSearch.trim().toLowerCase();
     return catalogVoices.filter((voice) => {
-      const supportsModel = !voice.modelIds?.length
-        || voice.modelIds.some((modelId) => modelId.toLowerCase() === config.model.trim().toLowerCase());
-      if (!supportsModel) return false;
+      if (!ttsVoiceSupportsModel(voice, config.model)) return false;
       if (!query) return true;
       return [voice.id, voice.name, voice.description, ...(voice.languages ?? [])]
         .filter(Boolean)
@@ -152,12 +151,15 @@ export function TextToSpeechSettingsPanel({
     if (!preset) return;
     const preservesCredential = providerCredentialScope(config.provider, config.baseUrl) ===
       providerCredentialScope(preset.provider, preset.baseUrl);
+    const model = defaultTtsItem(preset.models)?.id ?? '';
+    const [min, max] = ttsSpeedRange(preset);
     update({
       provider: preset.provider,
       apiStyle: preset.apiStyle,
       baseUrl: preset.baseUrl,
-      model: defaultTtsItem(preset.models)?.id ?? '',
-      voice: defaultTtsItem(preset.voices)?.id ?? '',
+      model,
+      voice: ttsVoiceForModel(preset, model),
+      speed: Math.min(max, Math.max(min, config.speed)),
       apiKey: preservesCredential ? config.apiKey : '',
       outputFormat: preset.outputFormats[0] ?? 'mp3',
       executablePath: preset.local ? (config.executablePath || 'sherpa-onnx-offline-tts') : config.executablePath,
@@ -345,7 +347,7 @@ export function TextToSpeechSettingsPanel({
               <label className="text-sm font-medium text-text-primary">{t('settings.model')}</label>
               <CatalogModelPicker
                 value={config.model}
-                onValueChange={(model) => update({ model })}
+                onValueChange={(model) => update({ model, voice: ttsVoiceForModel(activePreset, model, config.voice, config.baseUrl) })}
                 models={activePreset.models.flatMap((model) => model.descriptor ? [{ ...model, descriptor: model.descriptor }] : [])}
                 surface="text_to_speech"
               />
@@ -436,11 +438,12 @@ export function TextToSpeechSettingsPanel({
               <label className="text-sm font-medium text-text-primary">{t('settings.ttsSpeed')}</label>
               <Input
                 type="number"
-                min={0.5}
-                max={2}
+                min={minSpeed}
+                max={maxSpeed}
+                disabled={minSpeed === maxSpeed}
                 step={0.05}
                 value={config.speed}
-                onChange={(event) => update({ speed: Math.min(2, Math.max(0.5, Number(event.target.value) || 1)) })}
+                onChange={(event) => update({ speed: Math.min(maxSpeed, Math.max(minSpeed, Number(event.target.value) || 1)) })}
               />
             </div>
 

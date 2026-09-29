@@ -73,6 +73,7 @@ export interface SubtaskRunArtifact {
   identityAliases?: string[];
   lifecycleId?: string | null;
   rowId?: string | null;
+  runtimeState?: 'live' | 'terminal' | 'unverified';
 }
 
 export function compactTaskLabel(value: string, maxCharacters = 72): string {
@@ -211,6 +212,7 @@ function normalizeRuntimeGate(value: unknown): RuntimeVerificationGateArtifact |
 }
 
 function subtaskStatus(status: string): string {
+  if (status === 'orphaned' || status === 'interrupted') return 'cancelled';
   if (status === 'done') return 'completed';
   if (status === 'error' || status === 'timed_out' || status === 'timedOut') return 'failed';
   if (['connecting', 'first_token', 'thinking', 'tool_running', 'cancelling'].includes(status)) return 'running';
@@ -505,6 +507,7 @@ export function findLatestSubtaskArtifacts(
   toolCalls: ToolCallEvent[],
   taskArtifacts?: unknown,
   taskEvents: AgentTaskRunEvent[] = [],
+  parentRunActive = false,
 ): SubtaskRunArtifact[] {
   const merged = new Map<string, SubtaskRunArtifact>();
   const isSubagentTool = (name: string | null | undefined) => matchesSubagentToolName(name);
@@ -536,24 +539,31 @@ export function findLatestSubtaskArtifacts(
     if (isSubagentTool(call.toolName)) mergeSubtaskArtifacts(merged, lifecycleSubtasks(call.activityEvents));
   }
 
-  return [...merged.values()];
+  return [...merged.values()].map(subtask => ({
+    ...subtask,
+    runtimeState: ['completed', 'failed', 'cancelled'].includes(subtask.status)
+      ? 'terminal' : parentRunActive ? 'live' : 'unverified',
+  }));
 }
 
 function lifecycleSubtasks(events: ActivityEvent[] | undefined): SubtaskRunArtifact[] {
   const workers = new Map<string, SubtaskRunArtifact>();
-  for (const event of events ?? []) {
+  for (const event of [...(events ?? [])].sort((left, right) => left.seq - right.seq)) {
     const payload = asRecord(event.payload);
     const envelope = typeof payload?.subagentEvent === 'string' ? payload : asRecord(payload?.detail);
     const agentId = asText(envelope?.agentId);
     const kind = asText(envelope?.subagentEvent);
     if (!agentId || !kind) continue;
+    if (['completed', 'failed', 'cancelled'].includes(workers.get(agentId)?.status ?? '')) continue;
     const detail = asRecord(envelope?.detail);
     const result = asRecord(detail?.result);
     const status = kind === 'completed' ? 'completed' : kind === 'failed' ? 'failed' : kind === 'cancelled' ? 'cancelled'
-      : ['spawned', 'queued', 'connected'].includes(kind) ? 'running' : null;
+      : ['spawned', 'queued'].includes(kind) ? 'queued'
+      : kind === 'connected' || detail?.status === 'running' || detail?.status === 'cancelling' ? 'running' : null;
     if (!status) continue;
     const worker = normalizeSubtaskRun({
       ...result, id: agentId, agentId, workerId: result?.id, status,
+      phase: detail?.status ?? status,
       task: detail?.task ?? result?.task ?? workers.get(agentId)?.task,
       label: detail?.task ?? result?.task ?? workers.get(agentId)?.label ?? agentId,
       role: detail?.role ?? result?.roleName ?? result?.role,

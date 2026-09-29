@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "Session created and models loaded. Inference has not been tested."
   ,"externalAgentProbe": "Check connection"
   ,"externalAgentControls": "Tools and runtime settings are managed by the external agent."
+  ,"reasoningBetweenTools": "Between-tool thinking only"
+  ,"enableUpfrontThinking": "Enable up-front thinking"
 }

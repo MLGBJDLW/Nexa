@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "セッションを作成し、モデルを取得しました。推論は未検証です。"
   ,"externalAgentProbe": "接続を確認"
   ,"externalAgentControls": "ツールと実行設定は外部エージェントが管理します。"
+  ,"reasoningBetweenTools": "ツール呼び出し間のみ思考"
+  ,"enableUpfrontThinking": "回答前の思考を有効にする"
 }

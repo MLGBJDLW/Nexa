@@ -52,5 +52,7 @@
   "actionCheck": "Markieren",
   "actionPress": "Taste",
   "actionScroll": "Scrollen",
-  "actionUpload": "Hochladen"
+  "actionUpload": "Hochladen",
+  "actionWait": "Warten",
+  "actionPending": "Noch ausstehend"
 }

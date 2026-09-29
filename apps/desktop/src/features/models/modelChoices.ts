@@ -12,6 +12,7 @@ export interface ModelChoice {
   vision: boolean | null;
   reasoning: {
     mode?: string | null;
+    disabledMode?: 'between_tools';
     effortLevels: string[];
     defaultEffort?: string | null;
     thinkingBudget?: { enabled?: boolean; minTokens?: number; maxTokens?: number; defaultTokens?: number } | null;

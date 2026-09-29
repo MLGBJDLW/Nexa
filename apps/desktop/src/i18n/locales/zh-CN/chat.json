@@ -604,6 +604,8 @@
   "mermaidFailed": "无法渲染这个 Mermaid 图表，源码如下。",
   "subagentStatusRunning": "运行中",
   "subagentStatusInterrupted": "因重启中断",
+  "subagentStatusUnverified": "状态待确认",
+  "subagentUnverifiedHint": "主运行已结束，子代理可能仍在运行，请重新确认结果。",
   "subagentStatusNeedsAttention": "需要注意",
   "subagentStatusComplete": "已完成",
   "subagentInProgress": "委派任务正在进行。",
@@ -772,5 +774,6 @@
   "agentPreparing": "正在准备会话",
   "agentReusing": "正在复用 Agent 会话",
   "agentWaiting": "正在等待响应",
-  "resumeTask": "继续任务"
+  "resumeTask": "继续任务",
+  "speechInputLimit": "回复有 {actual} 个字符，超过 Nexa 使用 {model} 时的单次朗读上限（{limit} 个）。请在语音设置中换用上限更高的模型，或朗读较短的回复。"
 }

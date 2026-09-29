@@ -26,6 +26,7 @@ import {
   defaultThinkingBudget,
   normalizeThinkingBudget,
   thinkingBudgetOptions,
+  reasoningOffLabelKey,
 } from '../../lib/reasoningControls';
 import {
   canonicalModelProviderId,
@@ -323,13 +324,18 @@ export function AgentModelPicker({
     : t('settings.defaultModel');
   const selectedLabel = selectedModelRow?.model.name || selectedConfig?.model || t('settings.defaultModel');
   const selectedDetail = selectedModelRow?.providerRow.label || selectedConfig?.name?.trim() || selectedConfig?.provider || t('settings.provider');
-  const selectedReasoningLabel = selectedConfig?.reasoningEffort
+  const selectedReasoningLabel = selectedModelRow?.reasoning?.disabledMode === 'between_tools'
+    && (selectedConfig?.reasoningEnabled === false || selectedConfig?.reasoningEffort === 'none')
+    ? t(reasoningOffLabelKey(selectedModelRow.reasoning))
+    : selectedConfig?.reasoningEffort
     ? t(REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel] ?? 'settings.reasoningEffort')
     : selectedConfig?.thinkingBudget
       ? formatBudget(selectedConfig.thinkingBudget)
       : selectedConfig && findPresetForConfig(selectedConfig)?.runtime
         ? t('settings.isDefault')
-        : t('settings.reasoningNone');
+        : selectedModelRow?.reasoning?.disabledMode === 'between_tools'
+          ? t('settings.isDefault')
+          : t(reasoningOffLabelKey(selectedModelRow?.reasoning));
   const selectedReasoningTitle = `${t('settings.reasoningEffort')}: ${selectedReasoningLabel}`;
 
   const panelStepRef = useRef<PickerStep>('providers');
@@ -847,12 +853,14 @@ export function AgentModelPicker({
                                   className={`flex h-7 items-center justify-between rounded-md px-2 text-xs transition-colors ${
                                     selectedConfig?.id === activeModelRow.providerRow.config.id &&
                                     selectedConfig.model === activeModelRow.model.id &&
-                                    !selectedConfig.reasoningEffort
+                                    (activeModelRow.reasoning.disabledMode === 'between_tools'
+                                      ? selectedConfig.reasoningEnabled === false || selectedConfig.reasoningEffort === 'none'
+                                      : !selectedConfig.reasoningEffort)
                                       ? 'bg-accent-subtle text-text-primary ring-1 ring-accent/25'
                                       : 'text-text-secondary hover:bg-surface-1 hover:text-text-primary'
                                   }`}
                                 >
-                                  <span className="truncate">{t('settings.reasoningNone')}</span>
+                                  <span className="truncate">{t(reasoningOffLabelKey(activeModelRow.reasoning))}</span>
                                 </button>
                               )}
                               {activeModelRow.reasoning.effortLevels.map((level) => {

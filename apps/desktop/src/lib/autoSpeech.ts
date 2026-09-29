@@ -1,7 +1,5 @@
 import type { TextToSpeechConfig } from '../types/conversation';
 
-const MAX_AUTO_SPEECH_CHARS = 4_000;
-
 /** Same readiness rules as TextToSpeechConfig::is_configured in the runtime. */
 export function isTextToSpeechConfigured(config: TextToSpeechConfig | null | undefined): boolean {
   if (!config) return false;
@@ -25,7 +23,5 @@ export function finalAnswerToSpeechText(markdown: string): string {
     .replace(/^\s*>\s?/gm, '')
     .replace(/[*_~|]/g, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_AUTO_SPEECH_CHARS)
     .trim();
 }

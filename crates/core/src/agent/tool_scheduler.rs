@@ -116,7 +116,11 @@ pub(crate) fn tool_timeout_for_call(
 ) -> Option<Duration> {
     if matches!(
         tool_name,
-        "spawn_subagent" | "spawn_subagent_batch" | "judge_subagent_results" | "wait_subagent"
+        "spawn_subagent"
+            | "spawn_subagent_batch"
+            | "judge_subagent_results"
+            | "wait_subagent"
+            | "observe_subagent_batch"
     ) {
         // Delegated work owns its explicit run/queue/wait deadlines and parent
         // cancellation. A generic tool timeout must not kill a healthy worker.
@@ -143,7 +147,12 @@ pub(crate) fn tool_timeout_for_call(
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(30_000)
             .min(60_000);
-        timeout_secs = timeout_secs.max(wait_ms.div_ceil(1_000).saturating_add(5));
+        timeout_secs = timeout_secs.max(
+            wait_ms
+                .div_ceil(1_000)
+                .saturating_add(crate::browser_runtime::BROWSER_FINAL_OBSERVATION_TIMEOUT.as_secs())
+                .saturating_add(5),
+        );
     }
     if tool_name == "activity_observe" {
         let wait_ms = parsed_args
@@ -613,6 +622,7 @@ mod tests {
             "spawn_subagent_batch",
             "judge_subagent_results",
             "wait_subagent",
+            "observe_subagent_batch",
         ] {
             for configured in [None, Some(30), Some(300)] {
                 assert_eq!(
@@ -620,6 +630,30 @@ mod tests {
                     None
                 );
             }
+        }
+    }
+
+    #[test]
+    fn browser_wait_budget_includes_final_visual_observation() {
+        for (arguments, seconds) in [
+            (serde_json::json!({"action": "wait_for"}), 55),
+            (
+                serde_json::json!({"action": "wait_for", "timeoutMs": 60_000}),
+                85,
+            ),
+            (
+                serde_json::json!({"action": "wait_for", "timeoutMs": 600_000}),
+                85,
+            ),
+            (
+                serde_json::json!({"action": "wait_for", "timeoutMs": 1}),
+                26,
+            ),
+        ] {
+            assert_eq!(
+                tool_timeout_for_call(Some(1), "browser_session", &arguments),
+                Some(Duration::from_secs(seconds)),
+            );
         }
     }
 

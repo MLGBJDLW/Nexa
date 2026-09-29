@@ -1069,4 +1069,6 @@
   ,"externalAgentConnected": "Session créée et modèles chargés. L’inférence n’a pas été testée."
   ,"externalAgentProbe": "Vérifier la connexion"
   ,"externalAgentControls": "Les outils et les paramètres d’exécution sont gérés par l’agent externe."
+  ,"reasoningBetweenTools": "Réflexion uniquement entre les appels d’outils"
+  ,"enableUpfrontThinking": "Activer la réflexion préalable"
 }

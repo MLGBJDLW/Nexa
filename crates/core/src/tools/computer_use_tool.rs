@@ -24,11 +24,8 @@ const CONTROL_DEF_JSON: &str = include_str!("../../prompts/tools/computer_contro
 const OBSERVATION_TTL: Duration = Duration::from_secs(120);
 const MAX_OBSERVATIONS: usize = 64;
 const SCREENSHOT_SIGNATURE_EDGE: u32 = 32;
-#[cfg(any(target_os = "windows", test))]
 const SCREENSHOT_PIXEL_DIFF_THRESHOLD: u8 = 24;
-#[cfg(any(target_os = "windows", test))]
 const MAX_SCREENSHOT_CHANGED_RATIO: f64 = 0.08;
-#[cfg(any(target_os = "windows", test))]
 const MAX_SCREENSHOT_MEAN_DIFF: f64 = 10.0;
 const DEFAULT_MAX_ELEMENTS: usize = 120;
 const MAX_ELEMENTS: usize = 300;
@@ -286,7 +283,6 @@ fn screenshot_guard_patch_matches(
         && difference as f64 / samples as f64 <= 6.0
 }
 
-#[cfg(any(target_os = "windows", test))]
 fn screenshot_difference(expected: &[u8], current: &[u8]) -> Option<VisualDifference> {
     if expected.len() != current.len() || expected.is_empty() {
         return None;
@@ -775,7 +771,6 @@ impl CaptureOptions {
         })
     }
 
-    #[cfg(any(target_os = "windows", test))]
     fn pixels_only() -> Self {
         Self {
             include_elements: false,
@@ -1351,6 +1346,7 @@ struct WaitOutcome {
     difference: Option<VisualDifference>,
     sampled_frames: u16,
     elapsed_ms: u64,
+    transient_change_observed: bool,
 }
 
 fn desktop_observation_trust_boundary() -> serde_json::Value {
@@ -2019,9 +2015,77 @@ where
     T: Send + 'static,
     F: FnOnce() -> Result<T, CoreError> + Send + 'static,
 {
-    tokio::task::spawn_blocking(operation)
-        .await
-        .map_err(|error| CoreError::Internal(format!("Computer use worker failed: {error}")))?
+    let state = Arc::new(AtomicU8::new(WORKER_PENDING));
+    let worker_state = Arc::clone(&state);
+    let mut cancellation = PendingWorkerCancellation::new(state);
+    let result = tokio::task::spawn_blocking(move || {
+        if worker_state
+            .compare_exchange(
+                WORKER_PENDING,
+                WORKER_STARTED,
+                AtomicOrdering::AcqRel,
+                AtomicOrdering::Acquire,
+            )
+            .is_err()
+        {
+            return Err(CoreError::Internal(
+                "Computer observation cancelled before capture started".into(),
+            ));
+        }
+        operation()
+    })
+    .await
+    .map_err(|error| CoreError::Internal(format!("Computer use worker failed: {error}")))?;
+    cancellation.disarm();
+    result
+}
+
+/// Poll on the async scheduler so stopping a turn cannot leave a native worker
+/// capturing the desktop for the rest of the wait interval. At most the current
+/// OS capture may finish; no further probe or final capture is dispatched.
+async fn wait_for_window_change<F, Fut>(
+    observed: &ObservedWindow,
+    timeout: Duration,
+    poll_interval: Duration,
+    options: CaptureOptions,
+    mut capture: F,
+) -> Result<WaitOutcome, CoreError>
+where
+    F: FnMut(WindowSnapshot, CaptureOptions) -> Fut,
+    Fut: std::future::Future<Output = Result<CapturedWindow, CoreError>>,
+{
+    let expected_signature = observed.screenshot_signature.as_deref().ok_or_else(|| {
+        CoreError::InvalidInput("wait_for_change requires a captured-window observation.".into())
+    })?;
+    let started = Instant::now();
+    let mut sampled_frames = 0_u16;
+    let mut last_snapshot = observed.snapshot.clone();
+    let transient_change_observed = loop {
+        let sampled = capture(last_snapshot, CaptureOptions::pixels_only()).await?;
+        sampled_frames = sampled_frames.saturating_add(1);
+        last_snapshot = sampled.snapshot;
+        let changed = screenshot_signature(&sampled.png)
+            .as_deref()
+            .and_then(|current| screenshot_difference(expected_signature, current))
+            .is_some_and(|difference| difference.materially_changed);
+        if changed || started.elapsed() >= timeout {
+            break changed;
+        }
+        tokio::time::sleep(poll_interval.min(timeout.saturating_sub(started.elapsed()))).await;
+    };
+    let capture = capture(last_snapshot, options).await?;
+    let difference = screenshot_signature(&capture.png)
+        .as_deref()
+        .and_then(|current| screenshot_difference(expected_signature, current));
+    let changed = difference.is_some_and(|difference| difference.materially_changed);
+    Ok(WaitOutcome {
+        capture,
+        changed,
+        difference,
+        sampled_frames,
+        elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        transient_change_observed,
+    })
 }
 
 struct WindowInventory {
@@ -2417,14 +2481,15 @@ impl Tool for ComputerObserveTool {
                         "poll_interval_ms must be between 50 and 1000.".to_string(),
                     ));
                 }
-                let outcome = blocking(move || {
-                    platform::wait_for_change(
-                        &observed,
-                        Duration::from_millis(timeout_ms),
-                        Duration::from_millis(poll_interval_ms),
-                        capture_options,
-                    )
-                })
+                let outcome = wait_for_window_change(
+                    &observed,
+                    Duration::from_millis(timeout_ms),
+                    Duration::from_millis(poll_interval_ms),
+                    capture_options,
+                    |snapshot, options| {
+                        blocking(move || platform::capture_window(&snapshot, options))
+                    },
+                )
                 .await?;
                 let fresh_observation_id = remember_observation(
                     conversation_id,
@@ -2448,6 +2513,10 @@ impl Tool for ComputerObserveTool {
                     );
                     object.insert("sampledFrames".to_string(), outcome.sampled_frames.into());
                     object.insert("elapsedMs".to_string(), outcome.elapsed_ms.into());
+                    object.insert(
+                        "transientChangeObserved".to_string(),
+                        outcome.transient_change_observed.into(),
+                    );
                 }
                 let summary = if outcome.changed {
                     format!(
@@ -3093,7 +3162,7 @@ mod platform {
         CaptureMode, CaptureOptions, CapturedWindow, ControlAction, ControlArgs,
         ControlCommitTracker, ControlFailure, ControlOutcome, CoordinateSpace, CoreError,
         ElementBounds, ModalOwnerHandoff, ObservedWindow, PreCommitFailureKind, UiElementSnapshot,
-        UiElementState, UiElementValue, VisualVerification, WaitOutcome, WindowSnapshot,
+        UiElementState, UiElementValue, VisualVerification, WindowSnapshot,
     };
 
     // Coordinate-bearing screenshots must already fit the same pixel envelope
@@ -5555,48 +5624,6 @@ mod platform {
         Ok((point.x, point.y))
     }
 
-    pub(super) fn wait_for_change(
-        observed: &ObservedWindow,
-        timeout: Duration,
-        poll_interval: Duration,
-        options: CaptureOptions,
-    ) -> Result<WaitOutcome, CoreError> {
-        let expected_signature = observed
-            .screenshot_signature
-            .as_deref()
-            .ok_or_else(|| invalid("wait_for_change requires a captured-window observation."))?;
-        let started = std::time::Instant::now();
-        let mut sampled_frames = 0_u16;
-        let mut last_snapshot = observed.snapshot.clone();
-        let (difference, changed) = loop {
-            let capture = capture_window(&last_snapshot, CaptureOptions::pixels_only())?;
-            sampled_frames = sampled_frames.saturating_add(1);
-            last_snapshot = capture.snapshot;
-            let difference = screenshot_signature(&capture.png)
-                .as_deref()
-                .and_then(|current| screenshot_difference(expected_signature, current));
-            let changed = difference.is_some_and(|difference| difference.materially_changed);
-            if changed || started.elapsed() >= timeout {
-                break (difference, changed);
-            }
-            thread::sleep(poll_interval.min(timeout.saturating_sub(started.elapsed())));
-        };
-        let capture = capture_window(&last_snapshot, options)?;
-        let final_difference = screenshot_signature(&capture.png)
-            .as_deref()
-            .and_then(|current| screenshot_difference(expected_signature, current))
-            .or(difference);
-        let changed =
-            changed || final_difference.is_some_and(|difference| difference.materially_changed);
-        Ok(WaitOutcome {
-            capture,
-            changed,
-            difference: final_difference,
-            sampled_frames,
-            elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-        })
-    }
-
     pub(super) fn control_window(
         action: ControlAction,
         args: &ControlArgs,
@@ -6238,9 +6265,8 @@ mod platform {
 mod platform {
     use super::{
         CaptureOptions, CapturedWindow, ControlAction, ControlArgs, ControlCommitTracker,
-        ControlFailure, ControlOutcome, CoreError, ObservedWindow, WaitOutcome, WindowSnapshot,
+        ControlFailure, ControlOutcome, CoreError, ObservedWindow, WindowSnapshot,
     };
-    use std::time::Duration;
 
     fn unsupported<T>() -> Result<T, CoreError> {
         Err(CoreError::InvalidInput(
@@ -6264,15 +6290,6 @@ mod platform {
         unsupported()
     }
 
-    pub(super) fn wait_for_change(
-        _observed: &ObservedWindow,
-        _timeout: Duration,
-        _poll_interval: Duration,
-        _options: CaptureOptions,
-    ) -> Result<WaitOutcome, CoreError> {
-        unsupported()
-    }
-
     pub(super) fn control_window(
         _action: ControlAction,
         _args: &ControlArgs,
@@ -6287,6 +6304,146 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wait_capture_fixture(level: u8) -> CapturedWindow {
+        let image = image::RgbImage::from_pixel(32, 32, image::Rgb([level; 3]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        CapturedWindow {
+            snapshot: serde_json::from_value(serde_json::json!({
+                "id":42,"pid":7,"processStartedAt100ns":123,"executablePathHash":"fixture",
+                "windowClass":"Editor","sessionId":1,"appName":"Editor","title":"Document",
+                "x":0,"y":0,"width":32,"height":32,"minimized":false,"maximized":false,"focused":true,
+            })).unwrap(),
+            png: png.into_inner(), image_width: 32, image_height: 32,
+            native_image_width: 32, native_image_height: 32,
+            elements: Vec::new(), semantic_enabled: false, semantic_error: None,
+            annotated_png: None, observation_captured_at_ms: 0,
+        }
+    }
+
+    fn wait_observed_fixture() -> ObservedWindow {
+        let capture = wait_capture_fixture(0);
+        ObservedWindow {
+            snapshot: capture.snapshot,
+            image_width: Some(32),
+            image_height: Some(32),
+            native_image_width: Some(32),
+            native_image_height: Some(32),
+            screenshot_signature: screenshot_signature(&capture.png),
+            screenshot_guard: None,
+            elements: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn computer_wait_change_is_proved_by_the_returned_frame() {
+        let mut probes = 0;
+        let mut finals = 0;
+        let options = CaptureOptions {
+            include_elements: true,
+            max_elements: 20,
+            mode: CaptureMode::Raw,
+        };
+        let result = wait_for_window_change(
+            &wait_observed_fixture(),
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            options,
+            |snapshot, options| {
+                assert_eq!(snapshot.id, 42);
+                let level = if options.include_elements {
+                    finals += 1;
+                    0
+                } else {
+                    probes += 1;
+                    255
+                };
+                async move { Ok(wait_capture_fixture(level)) }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!((probes, finals), (1, 1));
+        assert_eq!(result.sampled_frames, 1);
+        assert!(result.transient_change_observed);
+        assert!(
+            !result.changed,
+            "the changed intermediate frame was gone before final capture"
+        );
+        assert!(!result.difference.unwrap().materially_changed);
+    }
+
+    #[tokio::test]
+    async fn computer_wait_cancellation_stops_new_probes_and_final_capture() {
+        use std::sync::atomic::AtomicUsize;
+        let probes = AtomicUsize::new(0);
+        let finals = AtomicUsize::new(0);
+        let observed = wait_observed_fixture();
+        let options = CaptureOptions {
+            include_elements: true,
+            max_elements: 20,
+            mode: CaptureMode::Raw,
+        };
+        let waiting = wait_for_window_change(
+            &observed,
+            Duration::from_secs(10),
+            Duration::from_millis(100),
+            options,
+            |_, options| {
+                let probes = &probes;
+                let finals = &finals;
+                async move {
+                    if options.include_elements {
+                        finals.fetch_add(1, AtomicOrdering::SeqCst);
+                    } else {
+                        probes.fetch_add(1, AtomicOrdering::SeqCst);
+                    }
+                    Ok(wait_capture_fixture(0))
+                }
+            },
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(30), waiting)
+            .await
+            .is_err());
+        let after_cancellation = probes.load(AtomicOrdering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert_eq!(after_cancellation, 1);
+        assert_eq!(probes.load(AtomicOrdering::SeqCst), after_cancellation);
+        assert_eq!(finals.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[test]
+    fn cancelled_queued_computer_observation_never_captures() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        let captures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        runtime.block_on(async {
+            let (release, blocked) = std::sync::mpsc::channel();
+            let (started, ready) = tokio::sync::oneshot::channel();
+            let occupied = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                blocked.recv_timeout(Duration::from_secs(3)).unwrap();
+            });
+            ready.await.unwrap();
+            let counted = Arc::clone(&captures);
+            let observation = blocking(move || {
+                counted.fetch_add(1, AtomicOrdering::SeqCst);
+                Ok(())
+            });
+            assert!(tokio::time::timeout(Duration::from_millis(20), observation)
+                .await
+                .is_err());
+            release.send(()).unwrap();
+            occupied.await.unwrap();
+            // A barrier behind the cancelled job proves the worker drained it.
+            tokio::task::spawn_blocking(|| ()).await.unwrap();
+        });
+        assert_eq!(captures.load(AtomicOrdering::SeqCst), 0);
+    }
 
     #[test]
     fn semantic_values_are_unicode_bounded_and_keep_full_freshness_private() {

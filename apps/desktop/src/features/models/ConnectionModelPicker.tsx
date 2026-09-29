@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { ModelChoices, ModelChoicesLoader, TurnModelSelection } from './modelChoices';
+import { reasoningOffLabelKey, reasoningOnLabelKey } from '../../lib/reasoningControls';
 
 const field = 'w-full min-w-0 rounded-xl border border-border bg-surface-1 px-3 py-2.5 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-50';
 export function ConnectionModelPicker({ connectionId, defaultModel, value, onChange, load, label, disabled = false }: {
@@ -67,7 +68,7 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
       <span>{t('settings.reasoningSection')}</span>
       <select className={field} disabled={disabled} aria-label={`${label} · ${t('settings.reasoningSection')}`} value={value?.reasoningEnabled == null ? '' : String(value.reasoningEnabled)}
         onChange={event => changeReasoning({ reasoningEnabled:event.target.value === '' ? null : event.target.value === 'true', ...(event.target.value !== 'true' ? {reasoningEffort:null, thinkingBudget:null} : {}) })}>
-        <option value="">{t('settings.isDefault')}</option><option value="true">{t('settings.enableReasoning')}</option><option value="false">{t('settings.reasoningNone')}</option>
+        <option value="">{t('settings.isDefault')}</option><option value="true">{t(reasoningOnLabelKey(selected.reasoning))}</option><option value="false">{t(reasoningOffLabelKey(selected.reasoning))}</option>
       </select>
     </label>}
     {!!selected?.reasoning?.effortLevels.length && <label className="block space-y-1.5 text-xs text-text-secondary">

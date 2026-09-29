@@ -40,7 +40,7 @@ const discoveryCredentials = new Map([
 const publicRequiredModelIds = new Map([
   ['text:openrouter', [
     'z-ai/glm-5.3', 'z-ai/glm-5.3-flash',
-    'x-ai/grok-4.7', 'anthropic/claude-opus-5.5',
+    'x-ai/grok-4.7', 'anthropic/claude-opus-5.5', 'anthropic/claude-sonnet-5.5',
     'openai/gpt-6-sol', 'openai/gpt-6-luna',
     'openai/gpt-6-sol-pro', 'openai/gpt-6-luna-pro',
     'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed',
