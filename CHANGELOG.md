@@ -15,6 +15,16 @@
 * **models:** initialize subscription reasoning mode metadata ([2b4ad56](https://github.com/MLGBJDLW/Nexa/commit/2b4ad569c160e71ff8fd3c4b99061c5501aad43d))
 * **projects:** portal dialogs above themed sidebar surfaces ([aabe227](https://github.com/MLGBJDLW/Nexa/commit/aabe2271a3c40c0cc86a522aa4ecaf8a4a290f70))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at eb7bd07c07662c6de16bac4502f27fd549ec03b3 -->
+
+### What's Changed
+* feat(agents): modernize runtime, speech and Claude Sonnet 5.5 support by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/431
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.17...nexa-monorepo-v0.14.18
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.17](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.16...nexa-monorepo-v0.14.17) (2026-09-28)
 
 
