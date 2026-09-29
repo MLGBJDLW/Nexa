@@ -849,7 +849,11 @@ test('floating plan capsule renders only the update_plan checklist', async ({ pa
   await expect(subagentStatus).toContainText('Subagents');
   await expect(subagentStatus).toContainText('Audit chat renderer');
   await expect(subagentStatus).toContainText('Researcher');
-  await expect(subagentStatus).toContainText('Running');
+  // A restored nonterminal snapshot does not prove that its worker is live.
+  await expect(subagentStatus).toContainText('Status unverified');
+  const historicalWorker = subagentStatus.getByTestId('task-board-subtask').filter({ hasText: 'Audit chat renderer' });
+  await expect(historicalWorker).toHaveAttribute('data-status', 'unverified');
+  await expect(historicalWorker.locator('.animate-spin')).toHaveCount(0);
   await expect(subagentStatus).toContainText('Verify Mermaid fallback');
   await expect(subagentStatus).toContainText('2/3');
   await expect(subagentStatus).toContainText('Cancelled evidence branch');
