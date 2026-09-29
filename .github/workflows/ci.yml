@@ -339,6 +339,7 @@ jobs:
           npx playwright test
           e2e/app-window-frame.spec.ts
           e2e/chat-conversation-archive.spec.ts
+          e2e/chat-slash-commands.spec.ts
           e2e/chat-stream-markdown-throttle.spec.ts
           e2e/chat-stream-rounds.spec.ts
           e2e/chat-steering.spec.ts
@@ -354,7 +355,7 @@ jobs:
           e2e/chat-plan-progress-panel.spec.ts
           e2e/chat-recording-dock.spec.ts
           e2e/settings-provider-models.spec.ts
-          --grep "settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP external agent|creating a project opens|new chat cannot accept input|project drafts remain separate|project workspace exposes"
+          --grep "settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|browser trail separates invocations|browser waits share|project editor portal|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP external agent|creating a project opens|project editor stays above|read aloud reports|Nexus|live turn timing|speech preset defaults|new chat cannot accept input|project drafts remain separate|project workspace exposes"
 
       - name: App resources and agent browser competence
         working-directory: apps/desktop
@@ -379,6 +380,7 @@ jobs:
           e2e/desktop-control-status.spec.ts
           e2e/subagent-ui.spec.ts
           e2e/subagent-batch-judge-ui.spec.ts
+          e2e/subagent-parent-lifecycle.spec.ts
 
       - name: Live, phone pairing, startup, and local preview regressions
         working-directory: apps/desktop
@@ -478,6 +480,8 @@ jobs:
           agent_runtime::
           subagent_tool::tests::
           subagent_lifecycle::tests::
+          delegation_scheduler::
+          commands::realtime_transcription::tests::
 
   # Keep this name stable: callers and merge policy treat it as the public CI
   # interface while the implementation jobs above may evolve independently.
@@ -582,9 +586,12 @@ jobs:
           command_dispatch::tests::
           commands::terminal::tests::
           browser::agent_tool::tests::
+          browser::operation_progress::tests::
           agent_runtime::
           subagent_tool::tests::
           subagent_lifecycle::tests::
+          delegation_scheduler::
+          commands::realtime_transcription::tests::
 
       - name: Native PowerShell terminal input and paste
         shell: pwsh

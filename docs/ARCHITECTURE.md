@@ -99,6 +99,11 @@ are keyed by project, including their text and attachments, and remain local
 until the first send (or an explicit screen-sharing operation) creates the
 conversation. Browser history restores the route's project before another send.
 
+Project editors and shared modal dialogs render through the application overlay
+portal. Glass, transformed and scrolling workspace containers cannot become their
+fixed-position viewport. The overlay retains bounded scrolling and keyboard focus
+while the native Browser Workspace suspends its surface beneath an open modal.
+
 Projects own an ordered list of workspace root folders; the first is the default
 working directory. This is separate from indexed knowledge source scope. Project
 updates validate all roots before atomically persisting them. Each desktop turn
@@ -181,6 +186,18 @@ still needs them, then releases the in-memory handles. Durable results are
 unaffected. A clean worker event-stream closure is not a fatal event and cannot
 preempt successful executor finalization.
 
+Workers wait for their execution lane before allocating an isolated thread or
+provider. Admission reservations have one owner that refunds unstarted work and
+settles actual usage. Worker lifetime, rather than a result receiver, owns terminal
+settlement. Per-worker and per-batch notifications avoid waking unrelated waiters;
+batch cursors return only newly settled results while retaining a full-snapshot
+recovery path. See [Orchestration runtime](ORCHESTRATION_RUNTIME.md).
+
+The shared Activity Runtime commits each record and its sequenced event in one
+SQLite transaction before publishing the in-memory state or notifying observers.
+A failed journal write preserves the previous state and sequence for retry; it
+cannot become a successful terminal result in the subagent projection.
+
 ## Desktop and browser lifetime
 
 Optional [cloud vector mirrors](VECTOR_STORES.md) keep SQLite authoritative.
@@ -235,6 +252,14 @@ but it cannot reclaim user control, revive a closed tab, or repeat native input.
 Browser failures retain their underlying cause alongside commit/side-effect
 status so recovery can distinguish policy, navigation, capture and ownership
 failures.
+
+Browser condition waits use internal DOM probes and return one final visual
+observation request. Only that returned evidence determines whether the condition
+still matches; the agent's outer deadline includes the final capture budget.
+Desktop change waits schedule one native capture at a time, so cancellation stops
+subsequent probes. Browser action presentation is keyed by a host operation ID
+and tab rather than a reusable provider call ID. A native event sequence and
+bounded retention reject stale progress after completion or user takeover.
 
 Native WebView2 file input carries only filename/size metadata through the page
 bridge; authorized canonical paths stay in the native transport. Dialog answers
