@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.14.20](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.19...nexa-monorepo-v0.14.20) (2026-09-30)
+
+
+### Features
+
+* **agents:** upgrade external runtimes and expand ACP integrations ([c7fa516](https://github.com/MLGBJDLW/Nexa/commit/c7fa5161a368d074c369fe29005b1274a99740d8))
+* **external-agents:** expand ACP integrations and native client services ([e5e5dfb](https://github.com/MLGBJDLW/Nexa/commit/e5e5dfbf5f2bae54769aae601ea5e86e254ac3a3))
+
+
+### Bug Fixes
+
+* **codex:** describe host tool permissions without weakening native isolation ([58e5ea6](https://github.com/MLGBJDLW/Nexa/commit/58e5ea6b7cf95a9cd6203bb6a1f8570888d2b4b0))
+* **external-agents:** close model, MCP and interaction compatibility gaps ([c946616](https://github.com/MLGBJDLW/Nexa/commit/c946616df5ee28d7cf97b5093fd73081ecec5b0e))
+* **runtime:** preserve native context and sustain long tool sessions ([1954f35](https://github.com/MLGBJDLW/Nexa/commit/1954f358eb60cd60284a4dcf959a346cfbfc7a6f))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at c7fa5161a368d074c369fe29005b1274a99740d8 -->
+
+### What's Changed
+* feat(agents): upgrade external runtimes and expand ACP integrations by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/436
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.19...nexa-monorepo-v0.14.20
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.19](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.18...nexa-monorepo-v0.14.19) (2026-09-30)
 
 
