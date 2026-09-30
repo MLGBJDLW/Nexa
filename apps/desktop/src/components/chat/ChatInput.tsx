@@ -7,7 +7,7 @@ import {
   NexaSelect,
 } from "../ui/overlay";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowUp, Square, Paperclip, X, FileText, Workflow, ChevronDown, ArchiveRestore, Loader2, Command, BrainCircuit, Sparkles, CircleDollarSign, Timer, Users, ShieldCheck, TriangleAlert } from "lucide-react";
+import { ArrowUp, Square, Paperclip, X, FileText, Workflow, ChevronDown, ArchiveRestore, Loader2, Command, BrainCircuit, Sparkles, CircleDollarSign, Timer, Users, ShieldCheck, TriangleAlert, Ellipsis, Eye, PenLine } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, type TranslationKey } from "../../i18n";
 import type { ArtifactPayload, Conversation, ImageAttachment, VisionTurnOverride } from "../../types/conversation";
@@ -53,6 +53,8 @@ import { EmojiPicker } from "./EmojiPicker";
 import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
 import { Play } from 'lucide-react';
+import { openCommandPalette, runAppCommand, useAppCommand } from '../../lib/appCommands';
+import { UserMarkdown } from './UserMessageText';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -217,6 +219,7 @@ function persistOrchestrationPolicy(key: string, policy: StoredOrchestrationPoli
 
 const SLASH_COMMAND_TABS: SlashCommandTab[] = ["all", "command", "skill", "workflow"];
 const LOCALIZED_COMMON_SLASH_COMMANDS = new Set([
+  "model", "preview", "options", "attach", "commands",
   "plan",
   "goal",
   "review",
@@ -236,6 +239,8 @@ const LOCALIZED_COMMON_SLASH_COMMANDS = new Set([
 ]);
 
 function commonSlashCommandKey(name: string, field: "title" | "description"): TranslationKey | null {
+  const composerKeys: Record<string, TranslationKey> = { model: 'settings.defaultModel', preview: field === 'description' ? 'chat.previewHint' : 'chat.previewDraft', options: 'chat.moreOptions', attach: 'chat.attachImage', commands: 'nav.commandPalette' };
+  if (composerKeys[name]) return composerKeys[name];
   return LOCALIZED_COMMON_SLASH_COMMANDS.has(name)
     ? (`chat.slashCommand.${name}.${field}` as TranslationKey)
     : null;
@@ -396,6 +401,9 @@ export function ChatInput({
     () => initialDraftRef.current?.activeSlashCommandId ?? null,
   );
   const [previewAttachment, setPreviewAttachment] = useState<ImageAttachment | null>(null);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  const [draftPreview, setDraftPreview] = useState(false);
+  useEffect(() => { setDraftPreview(false); setMoreOptionsOpen(false); }, [draftKey]);
   const [loadedDraftKey, setLoadedDraftKey] = useState(draftKey);
   const [isDragging, setIsDragging] = useState(false);
   const [composerKeyboardFocus, setComposerKeyboardFocus] = useState(false);
@@ -429,6 +437,10 @@ export function ChatInput({
   const [visionTurnOverride, setVisionTurnOverride] = useState<VisionTurnOverride | null>(null);
   const [sendPending, setSendPending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftPreviewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (draftPreview) draftPreviewRef.current?.focus({ preventScroll: true });
+  }, [draftPreview]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle>(null);
   const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -688,14 +700,14 @@ export function ChatInput({
     if (!el) return;
     el.style.height = "auto";
     const lineHeight = 22;
-    const minHeight = 96;
+    const minHeight = 80;
     const maxHeight = lineHeight * 9 + 20;
     el.style.height = `${Math.max(minHeight, Math.min(el.scrollHeight, maxHeight))}px`;
   }, []);
 
   useEffect(() => {
     adjustHeight();
-  }, [value, adjustHeight]);
+  }, [value, draftPreview, adjustHeight]);
 
   const applyInputHistoryValue = useCallback((nextValue: string, cursor: "start" | "end" | number) => {
     setValue(nextValue);
@@ -880,9 +892,38 @@ export function ChatInput({
     }
   }, []);
 
+  const runComposerAction = useCallback((name: string) => {
+    if (name === 'model') runAppCommand('chat.model');
+    if (name === 'commands') openCommandPalette();
+    if (name === 'options') setMoreOptionsOpen(true);
+    if (name === 'attach' && !attachmentLocked) fileInputRef.current?.click();
+    if (name === 'preview') {
+      setDraftPreview(!draftPreview);
+      if (draftPreview) requestAnimationFrame(() => textareaRef.current?.focus());
+    }
+  }, [attachmentLocked, draftPreview]);
+  useAppCommand({ id: 'chat.preview', label: 'chat.previewDraft', keywords: '/preview markdown draft 预览', enabled: !inputLocked, run: () => runComposerAction('preview') });
+  useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', run: () => setMoreOptionsOpen(true) });
+  useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
+  useAppCommand({ id: 'chat.workflow', label: 'chat.workflows', keywords: '/workflow 工作流', enabled: !nativeAgent && !attachmentLocked, run: () => { setMoreOptionsOpen(true); setWorkflowCatalogOpen(true); } });
+  useAppCommand({ id: 'chat.compact', label: 'chat.compactNow', keywords: '/compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked), run: () => onCompact?.() });
+
   const applySlashOption = useCallback((option: SlashCommandOption) => {
     if (!slashTrigger) return;
     setDismissedSlashToken(null);
+
+    if (option.action === "composer") {
+      const nextValue = `${value.slice(0, slashTrigger.start)}${value.slice(slashTrigger.end)}`.trimStart();
+      setValue(nextValue);
+      setActiveSlashCommandId(null);
+      persistDraft(nextValue, attachments, null);
+      setCaretPosition(Math.min(slashTrigger.start, nextValue.length));
+      requestAnimationFrame(() => {
+        runComposerAction(option.name);
+        adjustHeight();
+      });
+      return;
+    }
 
     if (option.action === "openWorkflows") {
       const nextValue = `${value.slice(0, slashTrigger.start)}${value.slice(slashTrigger.end)}`.trimStart();
@@ -890,6 +931,7 @@ export function ChatInput({
       setActiveSlashCommandId(null);
       persistDraft(nextValue, attachments, null);
       setWorkflowCatalogOpen(true);
+      setMoreOptionsOpen(true);
       requestAnimationFrame(() => {
         textareaRef.current?.focus();
         setCaretPosition(textareaRef.current?.selectionStart ?? nextValue.length);
@@ -926,7 +968,7 @@ export function ChatInput({
       }
       adjustHeight();
     });
-  }, [adjustHeight, attachments, persistDraft, setPlanMode, slashTrigger, value]);
+  }, [adjustHeight, attachments, persistDraft, setPlanMode, slashTrigger, value, runComposerAction]);
 
   const removeActiveSlashCommand = useCallback(() => {
     setActiveSlashCommandId(null);
@@ -975,6 +1017,7 @@ export function ChatInput({
     setAttachments([]);
     setActiveSlashCommandId(null);
     setPreviewAttachment(null);
+    setDraftPreview(false);
     setDismissedSlashToken(null);
     setCaretPosition(0);
     setTimeout(() => {
@@ -1001,8 +1044,16 @@ export function ChatInput({
     const slashResolution = activeSlashCommand
       ? resolveSlashCommandSelection(activeSlashCommand, trimmed)
       : (trimmed ? resolveSlashCommandMessage(trimmed, slashOptions) : null);
+    if (slashResolution?.localAction === "composer") {
+      setValue(slashResolution.message);
+      setActiveSlashCommandId(null);
+      persistDraft(slashResolution.message, attachments, null);
+      runComposerAction(slashResolution.command.name);
+      return;
+    }
     if (slashResolution?.localAction === "openWorkflows") {
       setWorkflowCatalogOpen(true);
+      setMoreOptionsOpen(true);
       const nextValue = slashResolution.message;
       setValue(nextValue);
       persistDraft(nextValue);
@@ -1105,10 +1156,11 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       if (slashMenuOpen && slashTrigger) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -1851,9 +1903,7 @@ export function ChatInput({
             className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
           >
             {!nativeAgent && modeSegment}
-            {!nativeAgent && workflowCatalogControl}
             {nativeAgent && <span className="text-xs text-text-tertiary" title={t('settings.externalAgentControls')}>{t('settings.externalAgents')}</span>}
-            {attachmentControl}
           </div>
           {contextIndicator}
         </div>
@@ -2001,14 +2051,18 @@ export function ChatInput({
           aria-label={t("chat.placeholder")}
           disabled={inputLocked}
           rows={1}
-          className="chat-input-textarea block min-h-24 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
+          hidden={draftPreview}
+          className="chat-input-textarea min-h-20 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
         />
         </NexaPopoverAnchor>
+        {draftPreview && <div ref={draftPreviewRef} data-testid="chat-draft-preview" role="region" aria-label={t('chat.previewDraft')} tabIndex={0} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); runComposerAction('preview'); } }} className="max-h-72 min-h-20 overflow-auto px-4 py-3 text-sm text-text-primary">
+          <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-text-tertiary"><span>{t('chat.previewHint')}</span><button type="button" onClick={() => runComposerAction('preview')} className="shrink-0 rounded px-2 py-1 hover:bg-surface-2">{t('chat.editDraft')}</button></div>
+          <UserMarkdown text={value} />
+        </div>}
 
-        <div data-testid="chat-input-toolbar" className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-t border-border/35 px-2.5 py-2">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden">
-            {sessionControls}
-
+        <div id="chat-advanced-options" data-testid="chat-advanced-options" hidden={!moreOptionsOpen} className="border-t border-border/35 p-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {!nativeAgent && workflowCatalogControl}
             {agentRuntime === 'api' && <label
               data-testid="chat-moa-control"
               className={`flex h-8 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs transition-colors ${
@@ -2095,13 +2149,7 @@ export function ChatInput({
               <span className="hidden sm:inline">Nexus</span>
             </button>
 
-            <ScreenShareButton conversationId={conversationId} onEnsureConversation={onEnsureConversation ? () => onEnsureConversation((id) => {
-              const draft = draftsRef.current[draftKey] ?? readChatInputDraft(draftKey);
-              draftsRef.current[id] = cloneDraftState(draft);
-              persistChatInputDraft(id, draft);
-              sharedDraftTransferRef.current = { from: draftKey, to: id };
-              if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
-            }) : undefined} /></>}
+            </>}
             {conversationId && onCompact && (
               <button
                 type="button"
@@ -2126,15 +2174,7 @@ export function ChatInput({
                 onBranch={onBranchCheckpoint}
               />
             )}
-          </div>
 
-          <VoiceInputButton
-            ref={voiceInputRef}
-            onDictationEvent={handleVoiceDictationEvent}
-            disabled={inputLocked}
-          />
-
-          <div className="flex shrink-0 items-center gap-1.5">
             <EmojiPicker
               onEmojiSelect={(emoji) => {
                 setValue((prev) => {
@@ -2146,7 +2186,31 @@ export function ChatInput({
               }}
               disabled={inputLocked}
             />
+            <button type="button" onClick={openCommandPalette} className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2"><Command className="h-3.5 w-3.5" />{t('nav.commandPalette')}</button>
+          </div>
+        </div>
+        <div data-testid="chat-input-toolbar" className="flex min-h-11 flex-wrap items-center justify-between gap-2 border-t border-border/35 px-2.5 py-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+            {sessionControls}
+            {attachmentControl}
+            <button type="button" data-testid="chat-more-options" aria-expanded={moreOptionsOpen} aria-controls="chat-advanced-options" aria-label={t("chat.moreOptions")} title={t("chat.moreOptions")} onClick={() => setMoreOptionsOpen(!moreOptionsOpen)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2"><Ellipsis className="h-4 w-4" /></button>
+            <button type="button" data-testid="chat-preview-toggle" aria-pressed={draftPreview} aria-label={t(draftPreview ? "chat.editDraft" : "chat.previewDraft")} title={t(draftPreview ? "chat.editDraft" : "chat.previewDraft")} onClick={() => runComposerAction("preview")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2">{draftPreview ? <PenLine className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+          </div>
 
+          {!nativeAgent && <ScreenShareButton conversationId={conversationId} onEnsureConversation={onEnsureConversation ? () => onEnsureConversation((id) => {
+              const draft = draftsRef.current[draftKey] ?? readChatInputDraft(draftKey);
+              draftsRef.current[id] = cloneDraftState(draft);
+              persistChatInputDraft(id, draft);
+              sharedDraftTransferRef.current = { from: draftKey, to: id };
+              if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
+            }) : undefined} />}
+          <VoiceInputButton
+            ref={voiceInputRef}
+            onDictationEvent={handleVoiceDictationEvent}
+            disabled={inputLocked}
+          />
+
+          <div className="flex shrink-0 items-center gap-1.5">
             {isStreaming && (
               <button
                 onClick={onStop}

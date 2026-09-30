@@ -78,6 +78,54 @@ and [OpenRouter model](https://openrouter.ai/anthropic/claude-sonnet-5.5).
 
 ## Model retirement
 
+### September 30, 2026 catalog review
+
+The review covered all 71 existing presets across chat, images, video, embeddings,
+and speech, plus the subscription and ACP runtimes. Public sources verify model
+contracts; account availability still comes from each authenticated runtime.
+Existing provider defaults and saved selections stay in place; adding a gated
+or preview model does not select it automatically.
+
+- Added [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+  on the direct Responses route, and nine new models verified through
+  [OpenRouter's model API](https://openrouter.ai/api/v1/models), including Sol/Pro,
+  GLM and Qwen Prime, Ember 1, Perceptron 1.5, Aion 3.5, and Solar Mini4. The
+  individual model API's reasoning metadata determines each gateway's controls.
+  Solar's default selection is `none`, matching its default-disabled reasoning.
+- Added gated [MiniMax M3.1 Flash Preview](https://platform.minimax.io/docs/guides/text-generation)
+  and [Claude Mythos 5.1](https://platform.claude.com/docs/en/models/mythos-5-1/overview).
+  MiniMax M3.1 preserves separate `reasoning_content` through tool calls;
+  M3 retains its own optional adaptive-thinking contract.
+- Added Alibaba-hosted [DeepSeek V4.1 Flash](https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash),
+  [GLM Flash/FlashX](https://help.aliyun.com/zh/model-studio/glm-zhipu),
+  and [Step 5 Preview](https://help.aliyun.com/zh/model-studio/stepfun), with
+  endpoint-specific reasoning fields. Their entries expose the text/image
+  attachment transport implemented by Nexa.
+- Added [Doubao Seed 2.1 and Evolving](https://docs.volcengine.com/docs/ark/model-list?lang=zh),
+  [Mistral-hosted GLM 5.3/5.2](https://docs.mistral.ai/models/zai-glm-5-3), and
+  the local [Gemma 4](https://ollama.com/library/gemma4) suggestion. For pages
+  publishing abbreviated limits, Nexa uses conservative decimal budgets:
+  Doubao 1,024,000/256,000 and Mistral GLM 1,000,000/128,000. It does not copy
+  native Z.ai reasoning controls into Mistral's route or download local weights.
+- Updated [Qwen Image 3.0](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)
+  in Beijing and Singapore for the existing synchronous, single-image text-to-image
+  tool. Added [MiniMax H3 Max](https://platform.minimax.io/docs/api-reference/video-generation-v2)
+  with its own 480P/768P, 5–15 second limits and
+  [output/reference pricing](https://platform.minimax.io/docs/guides/pricing-paygo).
+- Added Cohere Embed v5 Pro/Fast and Qwen3.7 Embedding Flash; see
+  [embedding providers](EMBEDDING_PROVIDERS.md). Speech and Live models continue
+  to use their dedicated protocols, rather than appearing as chat completions.
+
+The four Yi API models are retired following the
+[platform shutdown](https://platform.lingyiwanwu.com/). Three Doubao IDs are
+also retired: `doubao-seed-code-preview-251028`, `doubao-seed-1-6-251015`, and
+`doubao-seed-1-6-flash-250828`. Seed 2.0 Pro remains selectable until its future
+shutdown, and Gemini 2.5 is retained for eligible existing accounts. Sources:
+[Ark retirement notice](https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh),
+[Gemini lifecycle](https://ai.google.dev/gemini-api/docs/deprecations).
+
+### Retirement behavior
+
 Confirmed retirements are endpoint-scoped tombstones in the shared catalog.
 They override old discovery caches and are excluded from desktop and phone
 choices. The API provider boundary rejects both streaming and non-streaming

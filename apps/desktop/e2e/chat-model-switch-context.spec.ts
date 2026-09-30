@@ -425,7 +425,8 @@ test('model selector and context usage follow the active chat model', async ({ p
   await expect(page.getByRole('button', { name: /61% context used/ })).toBeVisible();
   const modelSelect = page.getByTestId('agent-model-picker-trigger');
   const reasoningSelect = page.getByTestId('agent-reasoning-picker-trigger');
-  await expect(modelSelect).toContainText('Tiny Context');
+  await expect(modelSelect).toContainText('tiny-context');
+  await expect(modelSelect).toHaveAttribute('title', /Tiny Context/);
   await expect(reasoningSelect).toBeVisible();
 
   await page.evaluate(() => document.fonts.ready);
@@ -444,7 +445,7 @@ test('model selector and context usage follow the active chat model', async ({ p
   await page.getByTestId('agent-model-provider-cfg-large').click();
   await page.getByTestId('agent-model-option-cfg-large-large-context').click();
 
-  await expect(modelSelect).toHaveAttribute('title', 'open_ai / large-context');
+  await expect(modelSelect).toHaveAttribute('title', /open_ai \/ large-context$/);
   await expect(page.getByRole('button', { name: /1% context used/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /61% context used/ })).toHaveCount(0);
 
@@ -493,13 +494,13 @@ test('model selector saves model and reasoning changes to the agent config', asy
   await modelSelect.click();
   await page.getByTestId('agent-model-provider-cfg-tiny').click();
   await page.getByTestId('agent-model-option-cfg-tiny-gpt-5.5').click();
-  await expect(modelSelect).toHaveAttribute('title', 'open_ai / gpt-5.5');
+  await expect(modelSelect).toHaveAttribute('title', /open_ai \/ gpt-5\.5$/);
 
   const reasoningSelect = page.getByTestId('agent-reasoning-picker-trigger');
   await reasoningSelect.click();
   await page.getByTestId('agent-model-reasoning-high').click();
 
-  await expect(modelSelect).toHaveAttribute('title', 'open_ai / gpt-5.5');
+  await expect(modelSelect).toHaveAttribute('title', /open_ai \/ gpt-5\.5$/);
   const savedInput = await page.evaluate(() =>
     (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> })
       .__savedAgentConfigInputs?.at(-1),
@@ -522,7 +523,7 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
   await page.getByTestId(`agent-model-provider-${configId}`).click();
   await expect(page.getByTestId(`agent-model-option-${configId}-unavailable-old-model`)).toHaveCount(0);
   await page.getByTestId(`agent-model-option-${configId}-gpt-native`).click();
-  await expect(picker).toHaveAttribute('title', `${provider} / gpt-native`);
+  await expect(picker).toHaveAttribute('title', new RegExp(`${provider} / gpt-native$`));
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await expect(page.getByTestId('agent-model-reasoning-none')).toHaveCount(0);
   await page.getByTestId('agent-model-reasoning-ultra').click();
@@ -556,7 +557,7 @@ test('ACP external agent model selector hides unsupported runtime controls and u
   await page.getByTestId('agent-model-provider-cfg-acp').click();
   await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
   await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
-  await expect(picker).toHaveAttribute('title', 'gemini_cli / gpt-native');
+  await expect(picker).toHaveAttribute('title', /gemini_cli \/ gpt-native$/);
   await expect(page.getByTestId('agent-reasoning-picker-trigger')).toHaveCount(0);
   await expect(page.getByTestId('chat-moa-control')).toHaveCount(0);
   await expect(page.getByTestId('chat-quality-control')).toHaveCount(0);

@@ -38,18 +38,39 @@
         "dimensions": 1024,
         "supportsDimensionOverride": true,
         "recommended": false,
-        "source": "curated",
+        "source": "official",
         "productReadiness": "known",
         "allowedDimensions": [
-          64,
-          128,
           256,
           512,
           768,
           1024,
+          1536,
+          2048,
           2560
         ],
-        "maxBatchSize": 20
+        "maxBatchSize": 20,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai"
+      },
+      {
+        "id": "qwen3.7-text-embedding-flash",
+        "name": "Qwen3.7 Text Embedding Flash",
+        "source": "official",
+        "status": "active",
+        "lastVerifiedAt": "2026-09-30",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          768,
+          1024
+        ],
+        "maxBatchSize": 20,
+        "recommended": false,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen3-7-text-embedding-flash",
+        "productReadiness": "known"
       },
       {
         "id": "text-embedding-v4",
@@ -459,6 +480,46 @@
           1024,
           1536
         ]
+      },
+      {
+        "id": "embed-v5.0-fast",
+        "name": "Cohere Embed v5.0 fast",
+        "source": "official",
+        "status": "active",
+        "lastVerifiedAt": "2026-09-30",
+        "dimensions": 2048,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "recommended": false,
+        "documentationRef": "https://docs.cohere.com/docs/cohere-embed",
+        "productReadiness": "known"
+      },
+      {
+        "id": "embed-v5.0-pro",
+        "name": "Cohere Embed v5.0 pro",
+        "source": "official",
+        "status": "active",
+        "lastVerifiedAt": "2026-09-30",
+        "dimensions": 2048,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "recommended": false,
+        "documentationRef": "https://docs.cohere.com/docs/cohere-embed",
+        "productReadiness": "known"
       },
       {
         "id": "embed-multilingual-v3.0",

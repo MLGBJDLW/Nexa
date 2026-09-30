@@ -6,7 +6,11 @@ import { Search, FolderOpen, MessageCircle, Settings, ScanSearch, Database, Cloc
 import * as api from '../lib/api';
 import type { QueryLog } from '../types';
 import { useTranslation } from '../i18n';
-import { SHORTCUTS, formatKeys } from '../lib/shortcuts';
+import { formatPaletteShortcut, shortcutFromEvent, usePaletteShortcut } from '../lib/shortcuts';
+import { OPEN_COMMAND_PALETTE, useAppCommands } from '../lib/appCommands';
+import type { Conversation } from '../types/conversation';
+import { Modal } from './ui/Modal';
+import { KeyboardShortcutsSettings } from './settings/KeyboardShortcutsSettings';
 import { getSoftDropdownMotion, INSTANT_TRANSITION } from '../lib/uiMotion';
 
 type BatchAction = 'scanAll' | 'rebuildEmbeddings';
@@ -41,6 +45,11 @@ function activeConversationIdFromPath(pathname: string): string | null {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [query, setQuery] = useState('');
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcut = usePaletteShortcut();
+  const commands = useAppCommands();
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const shouldRestoreFocusRef = useRef(false);
@@ -55,11 +64,9 @@ export function CommandPalette() {
     setOpen(false);
   };
 
-  /* ── Ctrl/Cmd+K toggle ───────────────────────────────────────────── */
+  /* Both the configurable chord and the familiar Ctrl/Cmd+K open the same palette. */
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
+    const toggle = () => {
         if (open) {
           closePalette();
           return;
@@ -68,12 +75,23 @@ export function CommandPalette() {
         const activeElement = document.activeElement;
         restoreFocusRef.current = activeElement instanceof HTMLElement ? activeElement : null;
         shouldRestoreFocusRef.current = true;
+        setQuery('');
         setOpen(true);
-      }
+    };
+    const handler = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.repeat) return;
+      const chord = shortcutFromEvent(e);
+      if (chord !== shortcut && chord !== 'Mod+K') return;
+      e.preventDefault();
+      toggle();
     };
     document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open]);
+    window.addEventListener(OPEN_COMMAND_PALETTE, toggle);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      window.removeEventListener(OPEN_COMMAND_PALETTE, toggle);
+    };
+  }, [open, shortcut]);
 
   /* ── Escape to close ─────────────────────────────────────────────── */
   useEffect(() => {
@@ -167,16 +185,19 @@ export function CommandPalette() {
   /* ── Load recent queries on open ─────────────────────────────────── */
   useEffect(() => {
     if (!open) return;
-    // Recent queries are a non-critical UX hint; log but don't disrupt the palette
-    api.getRecentQueries(5).then(setRecentQueries).catch((e) => {
-      console.error('Failed to load recent queries:', e);
-    });
+    let cancelled = false;
+    setConversations([]);
+    setRecentQueries([]);
+    void api.getRecentQueries(5).then(rows => { if (!cancelled) setRecentQueries(rows ?? []); }).catch(() => {});
+    void api.listConversations().then(rows => { if (!cancelled) setConversations(rows ?? []); }).catch(() => {});
+    return () => { cancelled = true; };
   }, [open]);
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
   const select = (fn: () => void) => {
     closePalette();
-    fn();
+    // Let the modal release its focus trap before opening the selected control.
+    requestAnimationFrame(fn);
   };
 
   const openBatchActionConfirmation = (action: BatchAction) => {
@@ -195,7 +216,7 @@ export function CommandPalette() {
   };
 
   /* ── Render ──────────────────────────────────────────────────────── */
-  return (
+  return (<>
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50">
@@ -213,7 +234,7 @@ export function CommandPalette() {
           {/* Dialog */}
           <motion.div
             ref={dialogRef}
-            className="absolute left-1/2 top-[20%] w-full max-w-lg -translate-x-1/2 px-4"
+            className="absolute left-1/2 top-[14%] w-full max-w-xl -translate-x-1/2 px-4"
             role="dialog"
             aria-modal="true"
             aria-label={t('nav.commandPalette')}
@@ -225,6 +246,8 @@ export function CommandPalette() {
               loop
             >
               <Command.Input
+                value={query}
+                onValueChange={setQuery}
                 placeholder={t('cmd.placeholder')}
                 aria-label={t('cmd.placeholder')}
                 className="w-full border-b border-border bg-transparent px-4 py-3 text-sm
@@ -232,7 +255,7 @@ export function CommandPalette() {
                 autoFocus
               />
 
-              <Command.List className="max-h-72 overflow-y-auto p-2">
+              <Command.List className="max-h-[min(60vh,28rem)] overflow-y-auto p-2">
                 <Command.Empty className="px-4 py-8 text-center text-sm text-text-tertiary">
                   {t('cmd.noResults')}
                 </Command.Empty>
@@ -250,15 +273,19 @@ export function CommandPalette() {
                   <Command.Item onSelect={() => select(() => navigate('/chat'))}>
                     <MessageCircle className="h-4 w-4 shrink-0 text-text-tertiary" />
                     <span className="flex-1">{t('nav.chat')}</span>
-                    <kbd className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-                      {formatKeys(SHORTCUTS[1])}
-                    </kbd>
                   </Command.Item>
                   <Command.Item onSelect={() => select(() => navigate('/settings'))}>
                     <Settings className="h-4 w-4 shrink-0 text-text-tertiary" />
                     {t('nav.settings')}
                   </Command.Item>
+                  {(['tasks', 'workflows', 'knowledge'] as const).map(route => <Command.Item key={route} value={`navigate ${route} ${t(`nav.${route}`)}`} onSelect={() => select(() => navigate(`/${route}`))}><FolderOpen className="h-4 w-4 shrink-0 text-text-tertiary" />{t(`nav.${route}`)}</Command.Item>)}
                 </Command.Group>
+
+                {commands.length > 0 && <Command.Group heading={t('cmd.currentChat')}>
+                  {commands.map(command => <Command.Item key={command.id} value={`${command.id} ${t(command.label)} ${command.keywords}`} disabled={command.enabled === false} onSelect={() => select(command.run)}>
+                    <MessageCircle className="h-4 w-4 shrink-0 text-text-tertiary" /><span>{t(command.label)}</span>
+                  </Command.Item>)}
+                </Command.Group>}
 
                 <Command.Separator className="mx-2 my-1 h-px bg-border" />
 
@@ -272,9 +299,9 @@ export function CommandPalette() {
                     <Database className="h-4 w-4 shrink-0 text-text-tertiary" />
                     {t('cmd.rebuildEmbeddings')}
                   </Command.Item>
-                  {activeConversationId && (
+                  {activeConversationId && !commands.some(command => command.id === 'chat.compact') && (
                     <Command.Item
-                      value="compact conversation context"
+                      value={`compact conversation context ${t('chat.compactNow')}`}
                       onSelect={compactActiveConversation}
                     >
                       <Archive className="h-4 w-4 shrink-0 text-text-tertiary" />
@@ -282,6 +309,15 @@ export function CommandPalette() {
                     </Command.Item>
                   )}
                 </Command.Group>
+
+                <Command.Group heading={t('cmd.conversations')}>
+                  {conversations.filter(conversation => !conversation.archivedAt && (!query.trim() || conversation.title.toLowerCase().includes(query.trim().toLowerCase()))).slice(0, query ? 30 : 8).map(conversation => <Command.Item key={conversation.id} value={`conversation ${conversation.id} ${conversation.title}`} onSelect={() => select(() => navigate(`/chat/${encodeURIComponent(conversation.id)}`))}>
+                    <MessageCircle className="h-4 w-4 shrink-0 text-text-tertiary" /><span className="truncate">{conversation.title}</span>
+                  </Command.Item>)}
+                </Command.Group>
+                {query.trim() && <Command.Item forceMount value="search-documents" onSelect={() => select(() => navigate('/', { state: { query: query.trim() } }))}>
+                  <Search className="h-4 w-4 shrink-0 text-text-tertiary" /><span className="truncate">{t('cmd.searchDocuments', { query: query.trim() })}</span>
+                </Command.Item>}
 
                 {/* Recent queries */}
                 {recentQueries.length > 0 && (
@@ -303,21 +339,22 @@ export function CommandPalette() {
                 )}
                 <Command.Separator className="mx-2 my-1 h-px bg-border" />
                 <Command.Group heading={t('cmd.shortcuts')}>
-                  {SHORTCUTS.map((s) => (
-                    <Command.Item key={s.keys} value={`shortcut ${s.description} ${s.keys}`}>
+                    <Command.Item value={`keyboard shortcuts hotkeys ${t('cmd.shortcuts')}`} onSelect={() => select(() => setShortcutsOpen(true))}>
                       <Keyboard className="h-4 w-4 shrink-0 text-text-tertiary" />
-                      <span className="flex-1">{t(s.description)}</span>
+                      <span className="flex-1">{t('shortcuts.customize')}</span>
                       <kbd className="ml-auto rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-                        {formatKeys(s)}
+                        {formatPaletteShortcut(shortcut)}
                       </kbd>
                     </Command.Item>
-                  ))}
                 </Command.Group>
               </Command.List>
+              <div className="border-t border-border px-4 py-2 text-[11px] text-text-tertiary">{t('cmd.keyboardHint')}</div>
             </Command>
           </motion.div>
         </div>
       )}
     </AnimatePresence>
+    <Modal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} title={t('cmd.shortcuts')}><KeyboardShortcutsSettings /></Modal>
+    </>
   );
 }

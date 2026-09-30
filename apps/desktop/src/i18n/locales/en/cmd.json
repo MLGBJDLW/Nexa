@@ -1,5 +1,5 @@
 {
-  "placeholder": "Type a command...",
+  "placeholder": "Search commands, conversations, or documents…",
   "noResults": "No matching commands",
   "navigation": "Navigation",
   "actions": "Actions",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "Rebuilding vector index…",
   "rebuildComplete": "Vector rebuild complete",
   "rebuildError": "Vector rebuild failed",
-  "shortcuts": "Keyboard Shortcuts"
+  "shortcuts": "Keyboard Shortcuts",
+  "currentChat": "Current chat",
+  "conversations": "Conversations",
+  "searchDocuments": "Search documents for “{query}”",
+  "keyboardHint": "↑ ↓ Navigate · Enter Select · Esc Close"
 }

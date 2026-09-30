@@ -775,5 +775,13 @@
   "agentReusing": "エージェントのセッションを再利用中",
   "agentWaiting": "応答を待機中",
   "resumeTask": "タスクを再開",
-  "speechInputLimit": "この返信は {actual} 文字で、Nexa で {model} を使う場合の1回の読み上げ上限（{limit} 文字）を超えています。音声設定で上限の大きいモデルを選ぶか、短い返信を読み上げてください。"
+  "speechInputLimit": "この返信は {actual} 文字で、Nexa で {model} を使う場合の1回の読み上げ上限（{limit} 文字）を超えています。音声設定で上限の大きいモデルを選ぶか、短い返信を読み上げてください。",
+  "expandMessage": "全文を表示",
+  "collapseMessage": "折りたたむ",
+  "renderMarkdown": "Markdown 表示",
+  "viewSource": "原文を表示",
+  "previewDraft": "下書きをプレビュー",
+  "editDraft": "下書きを編集",
+  "previewHint": "プレビューのみです。元のテキストがそのまま送信されます。",
+  "moreOptions": "その他のオプション"
 }

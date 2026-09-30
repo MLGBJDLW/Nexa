@@ -563,6 +563,30 @@ fn validate_image_options(
     output_format: &str,
 ) -> Result<(), CoreError> {
     let invalid = |message: &str| CoreError::InvalidInput(message.to_string());
+    if provider == ImageProvider::Qwen && matches!(model, "qwen-image-3.0" | "qwen-image-3.0-pro") {
+        if output_format != "png" {
+            return Err(invalid("Qwen Image 3.0 returns PNG images."));
+        }
+        if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
+            .filter(|size| *size != "auto")
+        {
+            let valid = size
+                .split_once(['x', '*'])
+                .and_then(|(w, h)| Some((w.parse::<u64>().ok()?, h.parse::<u64>().ok()?)))
+                .is_some_and(|(w, h)| {
+                    w > 0
+                        && h > 0
+                        && w.checked_mul(h)
+                            .is_some_and(|area| (262_144..=4_194_304).contains(&area))
+                        && w <= h.saturating_mul(8)
+                        && h <= w.saturating_mul(8)
+                });
+            if !valid {
+                return Err(invalid("Qwen Image 3.0 requires 262144-4194304 pixels and an aspect ratio between 1:8 and 8:1."));
+            }
+        }
+        return Ok(());
+    }
     if provider == ImageProvider::Xai {
         build_xai_images_body(config, args, model)?;
         if args
@@ -987,9 +1011,7 @@ async fn generate_qwen_image(
         .and_then(|choice| choice.get("message"))
         .and_then(|message| message.get("content"))
         .and_then(Value::as_array)
-        .and_then(|content| content.first())
-        .and_then(|item| item.get("image"))
-        .and_then(Value::as_str)
+        .and_then(|content| content.iter().find_map(|item| item.get("image").and_then(Value::as_str)))
         .or_else(|| {
             value
                 .get("output")
@@ -1028,7 +1050,9 @@ fn build_qwen_image_body(
         "prompt_extend": args.effective_prompt_mode().provider_enhancement_enabled(),
         "watermark": args.watermark.unwrap_or(false),
     });
-    if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref()) {
+    if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
+        .filter(|size| *size != "auto")
+    {
         parameters["size"] = json!(size.replace('x', "*"));
     }
     if let Some(negative) = args
@@ -1591,6 +1615,29 @@ mod tests {
 
         assert_eq!(args.effective_prompt_mode(), ImagePromptMode::Verbatim);
         assert_eq!(args.prompt, "  保留标点：猫。\r\n--style raw  ");
+    }
+
+    #[test]
+    fn qwen_image3_keeps_the_sync_single_image_contract_and_validates_sizes() {
+        let config = test_config("qwen", None);
+        let mut args = test_args();
+        args.size = Some("2048x2048".into());
+        for model in ["qwen-image-3.0", "qwen-image-3.0-pro"] {
+            validate_image_options(&config, &args, model, ImageProvider::Qwen, "png").unwrap();
+            let body = build_qwen_image_body(&config, &args, model);
+            assert_eq!(body["model"], model);
+            assert_eq!(body["parameters"]["size"], "2048*2048");
+            assert_eq!(body["parameters"]["prompt_extend"], false);
+            assert_eq!(
+                body["input"]["messages"][0]["content"][0]["text"],
+                args.prompt
+            );
+            args.size = Some("4096x4096".into());
+            assert!(
+                validate_image_options(&config, &args, model, ImageProvider::Qwen, "png").is_err()
+            );
+            args.size = Some("2048x2048".into());
+        }
     }
 
     #[test]

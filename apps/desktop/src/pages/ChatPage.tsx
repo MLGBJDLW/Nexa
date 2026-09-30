@@ -8,6 +8,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Logo } from '../components/Logo';
 import { SourceSelector, SystemPromptEditor, ChatSidebar, ChatInput, ActiveExtensions, ChatRunOverview, TaskBoard, AgentModelPicker, ConnectionStatusBanner, type AgentModelSelection, type ChatInputSendOptions } from '../components/chat';
+import { useAppCommand } from '../lib/appCommands';
 import { ApprovalDialog } from '../components/chat/ApprovalDialog';
 import { DecisionTray } from '../components/chat/DecisionTray';
 import { ContextPolicyPopover } from '../components/chat/ContextPolicyPopover';
@@ -995,6 +996,8 @@ export function ChatPage() {
   const [browserOpen, setBrowserOpen] = useState(false);
   const [browserStatus, setBrowserStatus] = useState<BrowserDockStatus>({ tabCount: 0, state: 'empty' });
   const handleToggleBrowser = useCallback(() => setBrowserOpen((value) => !value), []);
+  useAppCommand({ id: 'chat.browser', label: 'shortcuts.toggleBrowser', keywords: 'browser workspace 浏览器', run: handleToggleBrowser });
+  useAppCommand({ id: 'chat.terminal', label: 'shortcuts.toggleTerminal', keywords: 'terminal shell 终端', run: handleToggleTerminal });
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'b') {
@@ -1046,7 +1049,7 @@ export function ChatPage() {
     [chat, t],
   );
   const sessionControls = (chat.agentConfig && agentConfigs.length > 0) || personas.length > 0 ? (
-    <div className="flex shrink-0 items-center gap-1.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
       {chat.agentConfig && agentConfigs.length > 0 && selectedAgentConfig && (
         <AgentModelPicker
           agentConfigs={agentConfigs}
@@ -1203,6 +1206,7 @@ export function ChatPage() {
   }, []);
 
   // Ctrl+B to toggle sidebar
+  useAppCommand({ id: 'chat.sidebar', label: 'shortcuts.toggleSidebar', keywords: 'sidebar conversations 侧栏', run: toggleSidebar });
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (

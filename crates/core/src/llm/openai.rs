@@ -1091,9 +1091,12 @@ fn build_request_body_with_config(
             }
             _ => None,
         },
-        enable_thinking: (reasoning_profile.mode_control == ThinkingModeControl::EnableThinking)
-            .then_some(requested_reasoning_mode)
-            .flatten(),
+        enable_thinking: matches!(
+            reasoning_profile.mode_control,
+            ThinkingModeControl::EnableThinking | ThinkingModeControl::AlwaysOnEnableThinking
+        )
+        .then_some(requested_reasoning_mode)
+        .flatten(),
         thinking_budget: (reasoning_profile.budget_field == ReasoningBudgetField::ThinkingBudget)
             .then_some(wire_budget)
             .flatten(),
@@ -1298,12 +1301,12 @@ fn build_responses_request_with_tools(
         }
         if matches!(
             request.model.as_str(),
-            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna"
+            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol"
         ) {
             let disabled = request.reasoning_enabled == Some(false)
                 || request.reasoning_effort == Some(ReasoningEffort::None);
             let effort = if disabled {
-                if request.model == "gpt-6-astra" {
+                if matches!(request.model.as_str(), "gpt-6-astra" | "gpt-6.1-sol") {
                     "low"
                 } else {
                     "none"
@@ -1448,7 +1451,10 @@ fn is_direct_gpt6_responses_model(config: &ProviderConfig, model: &str) -> bool 
             config.provider_type,
             config.base_url.as_deref(),
         )
-        && matches!(model.trim(), "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna")
+        && matches!(
+            model.trim(),
+            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol"
+        )
 }
 
 fn is_direct_deepseek_responses_request(
@@ -2923,10 +2929,17 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn replay_history_projection(&self, request: &CompletionRequest) -> ReplayHistoryProjection {
+        let mandatory_thinking = resolve_reasoning_profile(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            &request.model,
+        )
+        .requested_mode(Some(false), Some(&ReasoningEffort::None), None)
+            == Some(true);
         if (request.reasoning_enabled == Some(false)
             || request.reasoning_effort == Some(ReasoningEffort::None))
-            && !(is_direct_gpt6_responses_model(&self.config, &request.model)
-                && request.model == "gpt-6-astra")
+            && !mandatory_thinking
         {
             ReplayHistoryProjection::Caller(ReasoningReplayPolicy::NotRequired)
         } else {
@@ -3390,7 +3403,7 @@ mod tests {
     fn gpt6_direct_routes_use_responses_with_tool_replay_and_valid_sampling() {
         let config = endpoint_config(ProviderType::OpenAi, "https://api.openai.com/v1");
         let provider = OpenAiProvider::new(config.clone()).unwrap();
-        for model in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+        for model in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"] {
             let mut request = endpoint_reasoning_request(model);
             request.reasoning_effort = None;
             request.reasoning_enabled = None;
@@ -3421,13 +3434,24 @@ mod tests {
             .unwrap();
             assert_eq!(
                 body["reasoning"]["effort"],
-                if model == "gpt-6-astra" {
+                if matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
                     "low"
                 } else {
                     "none"
                 }
             );
-            assert_eq!(body.get("temperature").is_some(), model != "gpt-6-astra");
+            assert_eq!(
+                body.get("temperature").is_some(),
+                !matches!(model, "gpt-6-astra" | "gpt-6.1-sol")
+            );
+            assert_eq!(
+                provider.route_snapshot(&request).replay_policy,
+                if matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
+                    ReasoningReplayPolicy::OpaqueSignature
+                } else {
+                    ReasoningReplayPolicy::NotRequired
+                }
+            );
             for endpoint in [
                 "https://example.com/v1",
                 "https://api.openai.com/proxy",
@@ -3439,6 +3463,154 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn minimax31_preserves_tool_reasoning_and_m3_can_disable_adaptive_thinking() {
+        let config = endpoint_config(ProviderType::OpenAi, "https://api.minimax.io/v1");
+        let provider = OpenAiProvider::new(config.clone()).unwrap();
+        let mut request = endpoint_reasoning_request("MiniMax-M3.1-Flash-Preview");
+        request.reasoning_enabled = Some(false); // A saved old config cannot disable M3.1.
+        request.reasoning_effort = Some(ReasoningEffort::High);
+        request.thinking_budget = Some(2048);
+        request.max_tokens = Some(65536);
+        request.messages = vec![Message {
+            role: Role::Assistant,
+            parts: vec![ContentPart::Text {
+                text: "Checking a file".into(),
+            }],
+            reasoning_content: Some("Need the file contents first".into()),
+            name: None,
+            prompt_cache_hint: None,
+            tool_calls: Some(vec![ToolCallRequest {
+                id: "call-31".into(),
+                name: "read_file".into(),
+                arguments: "{\"path\":\"README.md\"}".into(),
+                thought_signature: None,
+            }]),
+        }];
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["reasoning_effort"], "high");
+        assert_eq!(body["max_completion_tokens"], 65536);
+        assert!(body.get("thinking_budget").is_none());
+        assert!(body.get("max_tokens").is_none());
+        assert_eq!(
+            body["messages"][0]["reasoning_content"],
+            "Need the file contents first"
+        );
+        assert_eq!(body["messages"][0]["content"], "Checking a file");
+        assert_eq!(body["messages"][0]["tool_calls"][0]["id"], "call-31");
+        assert!(matches!(
+            provider.replay_history_projection(&request),
+            ReplayHistoryProjection::Caller(ReasoningReplayPolicy::RequiredOnToolCall)
+        ));
+
+        request.model = "MiniMax-M3".into();
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["thinking"]["type"], "disabled");
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body["messages"][0].get("reasoning_content").is_none());
+    }
+
+    #[test]
+    fn september_hosted_routes_keep_their_own_thinking_dialects() {
+        for model in ["zai-glm-5-3", "zai-glm-5-2"] {
+            let config = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
+            let provider = OpenAiProvider::new(config.clone()).unwrap();
+            let mut request = endpoint_reasoning_request(model);
+            request.reasoning_effort = Some(ReasoningEffort::Max);
+            request.thinking_budget = Some(2048);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            for field in [
+                "thinking",
+                "reasoning_effort",
+                "thinking_budget",
+                "enable_thinking",
+            ] {
+                assert!(body.get(field).is_none(), "{model}: {field}");
+            }
+            assert_eq!(
+                provider.route_snapshot(&request).replay_policy,
+                ReasoningReplayPolicy::NotRequired
+            );
+        }
+        let config = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        );
+        for model in [
+            "ZHIPU/GLM-5.3-Flash",
+            "ZHIPU/GLM-5.3-FlashX",
+            "deepseek-v4.1-flash",
+            "stepfun/step-5-preview",
+        ] {
+            let mut request = endpoint_reasoning_request(model);
+            request.provider_type = Some(ProviderType::AlibabaModelStudio);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::High);
+            request.thinking_budget = Some(1234);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["enable_thinking"], model.starts_with("ZHIPU/"));
+            assert!(body.get("thinking").is_none());
+            for field in [
+                "thinking_budget",
+                "tool_choice",
+                "preserve_thinking",
+                "enable_search",
+            ] {
+                assert!(body.get(field).is_none(), "{model}: {field}");
+            }
+            assert_eq!(body["stream_options"]["include_usage"], true);
+            let custom = endpoint_config(
+                ProviderType::AlibabaModelStudio,
+                "https://example.com/compatible-mode/v1",
+            );
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&custom),
+            ))
+            .unwrap();
+            assert!(body.get("enable_thinking").is_none());
+            assert!(body.get("reasoning_effort").is_none());
+        }
+        let doubao = endpoint_config(
+            ProviderType::Doubao,
+            "https://ark.cn-beijing.volces.com/api/v3",
+        );
+        let mut request = endpoint_reasoning_request("doubao-seed-2-1-lite-260915");
+        request.provider_type = Some(ProviderType::Doubao);
+        request.reasoning_enabled = Some(true);
+        request.reasoning_effort = Some(ReasoningEffort::Minimal);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&doubao),
+        ))
+        .unwrap();
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["reasoning_effort"], "minimal");
+        assert!(body.get("enable_thinking").is_none());
     }
 
     #[test]

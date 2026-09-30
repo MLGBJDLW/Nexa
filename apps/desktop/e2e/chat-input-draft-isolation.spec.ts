@@ -785,13 +785,13 @@ test('keeps the chat message root vertical-only', async ({ page }) => {
     const bubbleBounds = bubble?.getBoundingClientRect();
     return {
       overflowWrap: getComputedStyle(element).overflowWrap,
-      lineCount: textRects.length,
+      wrappedHeight: element.getBoundingClientRect().height,
       rightEdge: Math.max(...textRects.map((rect) => rect.right)),
       bubbleRightEdge: bubbleBounds?.right ?? 0,
     };
   });
   expect(longUserTextLayout.overflowWrap).toBe('anywhere');
-  expect(longUserTextLayout.lineCount).toBeGreaterThan(1);
+  expect(longUserTextLayout.wrappedHeight).toBeGreaterThan(24);
   expect(longUserTextLayout.rightEdge).toBeLessThanOrEqual(longUserTextLayout.bubbleRightEdge + 1);
 
   const localCodeScroller = messageRoot.locator('pre.overflow-x-auto').first();

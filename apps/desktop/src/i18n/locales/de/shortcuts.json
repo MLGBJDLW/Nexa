@@ -3,5 +3,9 @@
   "toggleSidebar": "Seitenleiste umschalten",
   "toggleBrowser": "Browser Workspace umschalten",
   "toggleTerminal": "Terminal umschalten",
-  "askAi": "KI fragen"
+  "askAi": "KI fragen",
+  "customize": "Tastenkürzel anpassen",
+  "customizeHint": "Feld auswählen und Strg/Cmd + Umschalt oder Alt + Buchstabe oder Zahl drücken. Strg/Cmd+K öffnet die Palette ebenfalls.",
+  "reset": "Zurücksetzen",
+  "invalid": "Verwenden Sie ein noch nicht belegtes Kürzel mit Zusatztaste."
 }

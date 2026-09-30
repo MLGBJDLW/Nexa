@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::reasoning_profile::{
     ReasoningApiStyle, ReasoningCaptureStatus, ReasoningProfile, ReasoningReplayPolicy,
 };
-use super::{CompletionRequest, ReasoningEffort, ToolCallRequest};
+use super::{CompletionRequest, ToolCallRequest};
 
 pub const ANTHROPIC_THINKING_SIGNATURE_PREFIX: &str = "nexa.anthropic.thinking.v1:";
 pub const RESPONSES_REASONING_SIGNATURE_PREFIX: &str = "nexa.responses.reasoning.v1:";
@@ -45,8 +45,11 @@ impl RouteSnapshot {
         request: &CompletionRequest,
     ) -> Self {
         let mut snapshot = Self::from_profile(profile);
-        if request.reasoning_enabled == Some(false)
-            || request.reasoning_effort == Some(ReasoningEffort::None)
+        if profile.requested_mode(
+            request.reasoning_enabled,
+            request.reasoning_effort.as_ref(),
+            request.thinking_budget,
+        ) == Some(false)
         {
             snapshot.replay_policy = ReasoningReplayPolicy::NotRequired;
         }

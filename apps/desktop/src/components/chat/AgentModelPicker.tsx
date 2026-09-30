@@ -37,6 +37,7 @@ import type { AgentConfig } from '../../types/conversation';
 import { useOverlayRoot } from '../ui/overlay';
 import { getSubscriptionCatalogs, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
 import { catalogModelsForSnapshot, loadProviderModelCatalog } from '../../lib/providerModelCatalog';
+import { useAppCommand } from '../../lib/appCommands';
 
 export interface AgentModelSelection {
   config: AgentConfig;
@@ -211,6 +212,13 @@ export function AgentModelPicker({
   const [activeModelId, setActiveModelId] = useState(selectedConfig?.model ?? '');
   const [pickerStep, setPickerStep] = useState<PickerStep>('providers');
   const [query, setQuery] = useState('');
+  useAppCommand({ id: 'chat.model', label: 'settings.defaultModel', keywords: '/model llm provider 模型 供应商', enabled: agentConfigs.length > 0, run: () => { setPickerStep('providers'); setQuery(''); setOpen(true); } });
+  useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: Boolean(selectedConfig && findPresetForConfig(selectedConfig)?.runtime !== 'acp'), run: () => {
+    if (!selectedConfig) return;
+    setActiveConfigId(selectedConfig.id);
+    setActiveModelId(selectedConfig.model);
+    setQuery(''); setPickerStep('reasoning'); setOpen(true);
+  } });
   const [budgetDraft, setBudgetDraft] = useState('');
   const subscriptionCatalogs = useSyncExternalStore(subscribeSubscriptionCatalogs, getSubscriptionCatalogs);
   const subscriptionProviderKey = JSON.stringify(agentConfigs.filter(config => findPresetForConfig(config)?.runtime)
@@ -320,10 +328,9 @@ export function AgentModelPicker({
     ) ?? null
     : null;
   const selectedTitle = selectedConfig
-    ? `${selectedConfig.provider} / ${selectedConfig.model}`
+    ? `${selectedConfig.name || selectedConfig.provider} · ${selectedConfig.provider} / ${selectedConfig.model}`
     : t('settings.defaultModel');
   const selectedLabel = selectedModelRow?.model.name || selectedConfig?.model || t('settings.defaultModel');
-  const selectedDetail = selectedModelRow?.providerRow.label || selectedConfig?.name?.trim() || selectedConfig?.provider || t('settings.provider');
   const selectedReasoningLabel = selectedModelRow?.reasoning?.disabledMode === 'between_tools'
     && (selectedConfig?.reasoningEnabled === false || selectedConfig?.reasoningEffort === 'none')
     ? t(reasoningOffLabelKey(selectedModelRow.reasoning))
@@ -429,7 +436,7 @@ export function AgentModelPicker({
         model: row.model.id,
         reasoningEnabled: isCurrent
           ? selectedConfig.reasoningEnabled
-          : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
+          : defaultEffort === 'none' ? false : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
             ? true
             : null,
         thinkingBudget: isCurrent
@@ -499,7 +506,7 @@ export function AgentModelPicker({
         ref={triggerRef}
         type="button"
         data-testid="agent-model-picker-trigger"
-        className={`group flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center gap-0 overflow-hidden border-r border-border/60 px-1.5 text-xs font-medium transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 sm:w-auto sm:max-w-[12rem] sm:justify-start sm:gap-1.5 ${
+        className={`group flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center gap-0 overflow-hidden border-r border-border/60 px-1.5 text-xs font-medium transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 sm:w-auto sm:max-w-[10rem] sm:justify-start sm:gap-1.5 ${
           open && pickerStep !== 'reasoning' ? 'bg-surface-2 text-text-primary' : 'text-text-secondary hover:text-text-primary'
         }`}
         aria-haspopup="dialog"
@@ -528,12 +535,9 @@ export function AgentModelPicker({
           label={`${selected.name} ${selected.model}`}
           size="sm"
         />
-        <span className="hidden min-w-0 sm:flex sm:flex-col sm:items-start">
+        <span className="hidden min-w-0 sm:flex sm:items-center">
           <span className="max-w-[9rem] truncate text-xs font-medium leading-4 text-text-secondary group-hover:text-text-primary">
             {selectedLabel}
-          </span>
-          <span className="max-w-[9rem] truncate text-[10px] leading-3 text-text-tertiary">
-            {selectedDetail}
           </span>
         </span>
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep !== 'reasoning' ? 'rotate-180' : ''}`} />
@@ -543,7 +547,7 @@ export function AgentModelPicker({
         ref={reasoningTriggerRef}
         type="button"
         data-testid="agent-reasoning-picker-trigger"
-        className={`group flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center gap-0 px-1.5 text-xs font-medium transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 sm:w-auto sm:max-w-[9rem] sm:justify-start sm:gap-1.5 ${
+        className={`group flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center gap-0 px-1.5 text-xs font-medium transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 sm:w-auto sm:max-w-[6rem] sm:justify-start sm:gap-1.5 ${
           open && pickerStep === 'reasoning' ? 'bg-surface-2 text-text-primary' : 'text-text-secondary hover:text-text-primary'
         }`}
         aria-haspopup="dialog"
@@ -573,12 +577,9 @@ export function AgentModelPicker({
         }}
       >
         <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <span className="hidden min-w-0 sm:flex sm:flex-col sm:items-start">
+        <span className="hidden min-w-0 sm:flex sm:items-center">
           <span className="max-w-[6rem] truncate text-xs font-medium leading-4 text-text-secondary group-hover:text-text-primary">
             {selectedReasoningLabel}
-          </span>
-          <span className="max-w-[6rem] truncate text-[10px] leading-3 text-text-tertiary">
-            {t('settings.reasoningEffort')}
           </span>
         </span>
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep === 'reasoning' ? 'rotate-180' : ''}`} />

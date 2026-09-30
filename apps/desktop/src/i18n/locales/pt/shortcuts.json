@@ -3,5 +3,9 @@
   "toggleSidebar": "Alternar barra lateral",
   "toggleBrowser": "Alternar Browser Workspace",
   "toggleTerminal": "Alternar terminal",
-  "askAi": "Perguntar à IA"
+  "askAi": "Perguntar à IA",
+  "customize": "Personalizar atalhos",
+  "customizeHint": "Selecione o campo e pressione Ctrl/Cmd + Shift ou Alt + uma letra ou número. Ctrl/Cmd+K também abre a paleta.",
+  "reset": "Redefinir",
+  "invalid": "Use um atalho com modificador que ainda não esteja atribuído."
 }

@@ -3,5 +3,9 @@
   "toggleSidebar": "サイドバーの切り替え",
   "toggleBrowser": "Browser Workspace の切り替え",
   "toggleTerminal": "ターミナルの切り替え",
-  "askAi": "AIに質問"
+  "askAi": "AIに質問",
+  "customize": "ショートカットを変更",
+  "customizeHint": "欄を選択し、Ctrl/Cmd + Shift または Alt + 英数字を押してください。Ctrl/Cmd+K でも開けます。",
+  "reset": "リセット",
+  "invalid": "修飾キーを含む未使用のショートカットを指定してください。"
 }

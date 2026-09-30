@@ -1,5 +1,5 @@
 {
-  "placeholder": "Saisir une commande...",
+  "placeholder": "Rechercher des commandes, conversations ou documents…",
   "noResults": "Aucune commande trouvée",
   "navigation": "Navigation",
   "actions": "Actions",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "Reconstruction de l'index vectoriel en cours…",
   "rebuildComplete": "Reconstruction vectorielle terminée",
   "rebuildError": "Échec de la reconstruction vectorielle",
-  "shortcuts": "Raccourcis clavier"
+  "shortcuts": "Raccourcis clavier",
+  "currentChat": "Discussion actuelle",
+  "conversations": "Conversations",
+  "searchDocuments": "Rechercher « {query} » dans les documents",
+  "keyboardHint": "↑ ↓ Naviguer · Entrée Sélectionner · Échap Fermer"
 }

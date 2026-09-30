@@ -178,15 +178,13 @@ test('workflow catalog can prefill the chat composer', async ({ page }) => {
   const workflowTrigger = page.getByTestId('workflow-catalog-trigger');
   const attachmentTrigger = page.getByTestId('chat-attachment-trigger');
   await expect(primaryControls).toBeVisible();
-  await expect(primaryControls.locator('[data-testid="chat-mode-segment"]')).toHaveCount(1);
-  await expect(primaryControls.locator('[data-testid="workflow-catalog-trigger"]')).toHaveCount(1);
-  await expect(primaryControls.locator('[data-testid="chat-attachment-trigger"]')).toHaveCount(1);
-  const controlRows = await Promise.all([modeSegment, workflowTrigger, attachmentTrigger].map(async (control) => {
-    const box = await control.boundingBox();
-    if (!box) throw new Error('composer primary control is not measurable');
-    return box.y + box.height / 2;
-  }));
-  expect(Math.max(...controlRows) - Math.min(...controlRows)).toBeLessThanOrEqual(2);
+  await expect(primaryControls.getByTestId('chat-mode-segment')).toBeVisible();
+  await expect(page.getByTestId('chat-input-toolbar').getByTestId('chat-mode-segment')).toHaveCount(0);
+  await expect(attachmentTrigger).toBeVisible();
+  await expect(modeSegment).toBeVisible();
+  await expect(workflowTrigger).toBeHidden();
+  await page.getByTestId('chat-more-options').click();
+  await expect(page.getByTestId('chat-advanced-options').getByTestId('workflow-catalog-trigger')).toBeVisible();
 
   await workflowTrigger.click();
   const catalog = page.getByTestId('workflow-catalog-panel');
@@ -223,7 +221,7 @@ test('composer primary controls stay compact at narrow widths', async ({ page })
   await page.goto('/chat/conv-workflows');
 
   const controls = page.getByTestId('chat-composer-primary-controls');
-  await expect(page.getByTestId('workflow-catalog-trigger')).toBeVisible();
+  await expect(page.getByTestId('workflow-catalog-trigger')).toBeHidden();
   await expect(page.getByTestId('chat-attachment-trigger')).toBeVisible();
   const geometry = await controls.evaluate((element) => {
     const children = Array.from(element.children).map((child) => {
@@ -233,7 +231,7 @@ test('composer primary controls stay compact at narrow widths', async ({ page })
     return {
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
-      rowSpread: Math.max(...children) - Math.min(...children),
+      rowSpread: children.length ? Math.max(...children) - Math.min(...children) : 0,
     };
   });
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);

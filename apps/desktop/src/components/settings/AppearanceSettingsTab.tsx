@@ -13,6 +13,7 @@ import { CollapsiblePanel, Section } from './SettingsSection';
 import { ToolApprovalControl, type ToolApprovalMode } from './ToolApprovalControl';
 import { CompanionSettingsCard } from '../../features/companion/CompanionSettingsCard';
 import { DisplaySettings } from './DisplaySettings';
+import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
 import { SettingsRow, settingsSelectClass } from './SettingsRow';
 import { ShellSettingsPanel } from './ShellSettingsPanel';
 
@@ -152,6 +153,8 @@ export function AppearanceSettingsTab({
         <CollapsiblePanel title={t('settings.displayFonts')} description={t('settings.displayStreaming')} testId="display-preferences">
           <DisplaySettings />
         </CollapsiblePanel>
+
+        <KeyboardShortcutsSettings />
 
         {/* Separator */}
         <div className="border-t border-border" />

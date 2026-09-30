@@ -26,6 +26,28 @@ It should not feel:
 
 ## Core UX Rules
 
+### Chat editing and command access
+
+Long user messages initially show roughly five lines of rendered content. The
+disclosure expands the complete message and suspends automatic scrolling while
+the user reads. Markdown is rendered after sending; the source toggle, copying,
+and edit/resend retain the original text. User Markdown does not execute HTML or
+diagrams, and remote image syntax does not initiate image requests.
+
+The composer remains a plain-text editor for stable IME, selection, paste, and
+dictation behavior. Its optional Markdown preview uses the same renderer and
+never changes the draft. Plan/Normal stays above the editor. Compact provider,
+model/reasoning selection sits in the bottom toolbar with attachments, voice,
+sharing, and sending. Workflows, collaboration,
+quality, Nexus, compaction, checkpoints, and emoji are grouped under More options.
+
+Ctrl/Cmd+Shift+P opens the command palette; Ctrl/Cmd+K remains an alias. The palette
+searches navigation, available chat actions, and conversation titles, and can
+submit a query to document search. Arrow keys select, Enter runs, and Escape
+returns focus. Customize the palette shortcut from the palette or Appearance
+settings. `/model`, `/preview`, `/options`, `/attach`, and `/commands` are local
+composer actions and are never sent to the LLM.
+
 ### 1. Show the user what matters, not what the model felt
 
 Default UI should prioritize:

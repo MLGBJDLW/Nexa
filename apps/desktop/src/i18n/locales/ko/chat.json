@@ -775,5 +775,13 @@
   "agentReusing": "에이전트 세션 재사용 중",
   "agentWaiting": "응답 대기 중",
   "resumeTask": "작업 재개",
-  "speechInputLimit": "이 답변은 {actual}자로 Nexa에서 {model}을 사용할 때의 요청당 음성 변환 제한인 {limit}자를 초과합니다. 음성 설정에서 제한이 더 큰 모델을 선택하거나 더 짧은 답변을 읽어 주세요."
+  "speechInputLimit": "이 답변은 {actual}자로 Nexa에서 {model}을 사용할 때의 요청당 음성 변환 제한인 {limit}자를 초과합니다. 음성 설정에서 제한이 더 큰 모델을 선택하거나 더 짧은 답변을 읽어 주세요.",
+  "expandMessage": "전체 보기",
+  "collapseMessage": "접기",
+  "renderMarkdown": "Markdown 보기",
+  "viewSource": "원문 보기",
+  "previewDraft": "초안 미리보기",
+  "editDraft": "초안 편집",
+  "previewHint": "미리보기입니다. 원본 텍스트가 그대로 전송됩니다.",
+  "moreOptions": "추가 옵션"
 }

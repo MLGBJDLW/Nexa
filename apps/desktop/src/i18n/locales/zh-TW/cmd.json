@@ -1,5 +1,5 @@
 {
-  "placeholder": "輸入命令...",
+  "placeholder": "搜尋命令、對話或文件…",
   "noResults": "未找到匹配命令",
   "navigation": "導覽",
   "actions": "操作",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "正在重建向量索引…",
   "rebuildComplete": "向量重建完成",
   "rebuildError": "向量重建失敗",
-  "shortcuts": "鍵盤快捷鍵"
+  "shortcuts": "鍵盤快捷鍵",
+  "currentChat": "目前對話",
+  "conversations": "對話",
+  "searchDocuments": "在文件中搜尋「{query}」",
+  "keyboardHint": "↑ ↓ 選擇 · Enter 執行 · Esc 關閉"
 }
