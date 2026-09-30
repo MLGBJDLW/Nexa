@@ -437,6 +437,10 @@ export function ChatInput({
   const [visionTurnOverride, setVisionTurnOverride] = useState<VisionTurnOverride | null>(null);
   const [sendPending, setSendPending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftPreviewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (draftPreview) draftPreviewRef.current?.focus({ preventScroll: true });
+  }, [draftPreview]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle>(null);
   const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -2051,7 +2055,7 @@ export function ChatInput({
           className="chat-input-textarea min-h-20 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
         />
         </NexaPopoverAnchor>
-        {draftPreview && <div data-testid="chat-draft-preview" role="region" aria-label={t('chat.previewDraft')} tabIndex={0} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); runComposerAction('preview'); } }} className="max-h-72 min-h-20 overflow-auto px-4 py-3 text-sm text-text-primary">
+        {draftPreview && <div ref={draftPreviewRef} data-testid="chat-draft-preview" role="region" aria-label={t('chat.previewDraft')} tabIndex={0} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); runComposerAction('preview'); } }} className="max-h-72 min-h-20 overflow-auto px-4 py-3 text-sm text-text-primary">
           <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-text-tertiary"><span>{t('chat.previewHint')}</span><button type="button" onClick={() => runComposerAction('preview')} className="shrink-0 rounded px-2 py-1 hover:bg-surface-2">{t('chat.editDraft')}</button></div>
           <UserMarkdown text={value} />
         </div>}

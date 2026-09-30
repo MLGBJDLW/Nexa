@@ -401,6 +401,9 @@ export function resolveSlashCommandMessage(
   if (!option) return null;
 
   const commandStart = match.index + leadingWhitespace.length;
+  // Mentioning a path in ordinary prose must not consume a send as a UI action.
+  // An explicitly selected suggestion still resolves through resolveSlashCommandSelection.
+  if (option.action === "composer" && message.slice(0, commandStart).trim()) return null;
   const commandEnd = commandStart + commandName.length + 1;
   const remainder = `${message.slice(0, commandStart)}${message.slice(commandEnd)}`.trim();
 

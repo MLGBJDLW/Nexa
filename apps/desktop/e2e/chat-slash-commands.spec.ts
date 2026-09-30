@@ -45,6 +45,36 @@ test('draft preview and local slash commands keep original text and never send a
   await expect.poll(() => page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: Array<{ message: string }> }).__slashAgentChatCalls__[0]?.message)).toBe(source);
 });
 
+test('keyboard preview commands transfer focus and Escape returns to the original draft', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  const preview = page.getByTestId('chat-draft-preview');
+  await input.fill('/preview');
+  await page.keyboard.press('Enter');
+  await expect(preview).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
+  await input.fill('# Preserve this draft');
+  await page.keyboard.press('Control+Shift+P');
+  const dialog = page.getByRole('dialog', { name: /command palette/i });
+  await dialog.getByRole('combobox').fill('Preview draft');
+  await dialog.getByRole('option', { name: 'Preview draft', exact: true }).click();
+  await expect(preview).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('# Preserve this draft');
+});
+
+for (const message of ['Please inspect the /model endpoint and explain its response.', 'The /preview route is returning 404.']) {
+  test(`literal command path remains ordinary message text: ${message}`, async ({ page }) => {
+    await page.goto('/chat/conv-slash');
+    await page.getByTestId('chat-input-textarea').fill(message);
+    await page.getByTestId('chat-send').click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: Array<{ message: string }> }).__slashAgentChatCalls__[0]?.message)).toBe(message);
+  });
+}
+
 test('command palette runs chat actions, searches conversations, restores focus, and supports a persisted custom chord', async ({ page }) => {
   await page.goto('/chat/conv-slash');
   const input = page.getByTestId('chat-input-textarea');
