@@ -26,7 +26,7 @@ pub(super) fn validate_utf8_append(path: &Path) -> Result<(), String> {
                 pending = bytes.len() - start;
                 buffer.copy_within(start..start + pending, 0);
             }
-            Err(_) => return Err("Append requires a UTF-8 text file; use edit_file or multi_edit for BOM-marked UTF-16, or convert with an explicit encoding first".into()),
+            Err(_) => return Err("Append requires a UTF-8 text file; use edit_file for BOM-marked UTF-16, or convert with an explicit encoding first".into()),
         }
         if count == 0 {
             return Ok(());

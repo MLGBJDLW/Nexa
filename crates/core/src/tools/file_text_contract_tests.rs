@@ -1,7 +1,6 @@
 //! End-to-end byte contracts shared by all supported host platforms.
 use super::{
-    create_file_tool::CreateFileTool, edit_file_tool::EditFileTool, multi_edit_tool::MultiEditTool,
-    Tool, ToolExecutionContext,
+    create_file_tool::CreateFileTool, edit_file_tool::EditFileTool, Tool, ToolExecutionContext,
 };
 use crate::{db::Database, sources::CreateSourceInput};
 use serde_json::json;
@@ -66,15 +65,14 @@ async fn create_append_and_edits_preserve_literal_escapes_and_utf8_bytes() {
     .await;
     expected = expected.replacen("first", r"literal\nfirst", 1);
     assert_eq!(std::fs::read(&path).unwrap(), expected.as_bytes());
-    execute(
-        &MultiEditTool,
-        &db,
-        json!({"path": path, "edits": [
-            {"old_str": "second", "new_str": "two\nlines"},
-            {"old_str": "中文🙂", "new_str": r"中文🙂\t"}
-        ]}),
-    )
-    .await;
+    for (old, new) in [("second", "two\nlines"), ("中文🙂", r"中文🙂\t")] {
+        execute(
+            &EditFileTool,
+            &db,
+            json!({"path": path, "old_str": old, "new_str": new}),
+        )
+        .await;
+    }
     expected = expected
         .replacen("second", "two\nlines", 1)
         .replacen("中文🙂", r"中文🙂\t", 1);
@@ -175,14 +173,10 @@ async fn malformed_text_encoding_is_rejected_without_modification() {
         vec![0x80, 0x81],
         vec![0, b'a'],
     ] {
-        for tool in [&EditFileTool as &dyn Tool, &MultiEditTool as &dyn Tool] {
+        for tool in [&EditFileTool as &dyn Tool] {
             let path = dir.path().join("invalid.txt");
             std::fs::write(&path, &bytes).unwrap();
-            let args = if tool.name() == "multi_edit" {
-                json!({"path": path, "edits": [{"old_str": "a", "new_str": "b"}]})
-            } else {
-                json!({"path": path, "old_str": "a", "new_str": "b"})
-            };
+            let args = json!({"path": path, "old_str": "a", "new_str": "b"});
             let result = tool
                 .execute(ToolExecutionContext::new(
                     "invalid",
@@ -203,16 +197,11 @@ async fn edits_preserve_bom_and_utf16_encoding() {
     let dir = tempfile::tempdir().unwrap();
     let db = database(dir.path());
     for encoding in ["utf8", "utf8-bom", "utf16-le", "utf16-be"] {
-        for tool in [&EditFileTool as &dyn Tool, &MultiEditTool as &dyn Tool] {
+        for tool in [&EditFileTool as &dyn Tool] {
             let path = dir.path().join(format!("{encoding}-{}.txt", tool.name()));
             let original = "before\r\n中文🙂 literal \\n\r\nafter\r\n";
             std::fs::write(&path, encoded(original, encoding)).unwrap();
-            let edit = json!({"old_str": "before", "new_str": "updated"});
-            let args = if tool.name() == "multi_edit" {
-                json!({"path": path, "edits": [edit]})
-            } else {
-                json!({"path": path, "old_str": "before", "new_str": "updated"})
-            };
+            let args = json!({"path": path, "old_str": "before", "new_str": "updated"});
             execute(tool, &db, args).await;
             assert_eq!(
                 std::fs::read(&path).unwrap(),

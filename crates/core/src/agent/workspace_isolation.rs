@@ -19,14 +19,13 @@ const FILESYSTEM_TOOLS: &[&str] = &[
     "edit_file",
     "glob_files",
     "list_dir",
-    "multi_edit",
     "read_file",
     "read_files",
     "run_shell",
     "search_files",
 ];
 
-const MUTATION_TOOLS: &[&str] = &["create_file", "edit_file", "multi_edit", "run_shell"];
+const MUTATION_TOOLS: &[&str] = &["create_file", "edit_file", "run_shell"];
 
 pub(super) fn is_unscoped_isolation_tool(name: &str) -> bool {
     name == "project_tool" || name == "mcp_tool" || name.starts_with("mcp__")

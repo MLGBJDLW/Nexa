@@ -126,7 +126,6 @@ pub mod list_sources_tool;
 pub mod manage_skill_tool;
 pub mod manage_source_tool;
 pub mod mcp_tool;
-pub mod multi_edit_tool;
 #[cfg(feature = "ocr")]
 pub mod ocr_tool;
 pub mod office_artifact_tool;
@@ -1196,7 +1195,7 @@ impl ToolRegistry {
         // present a mixed turn as fully covered merely because one tool did.
         let records_native_changes = matches!(
             name,
-            "create_file" | "edit_file" | "multi_edit" | "write_note" | "run_shell"
+            "create_file" | "edit_file" | "write_note" | "run_shell"
         );
         if !records_native_changes
             && (tool.categories().contains(&ToolCategory::FileSystem)
@@ -1886,9 +1885,8 @@ fn tool_arg_limit_bytes(name: &str) -> Option<usize> {
     }
     if matches!(
         lower.as_str(),
-        "edit_file" | "multi_edit" | "create_file" | "write_note" | "apply_patch"
+        "edit_file" | "create_file" | "write_note" | "apply_patch"
     ) || lower.contains("edit_file")
-        || lower.contains("multi_edit")
         || lower.contains("create_file")
         || lower.contains("write_note")
         || lower.contains("apply_patch")
@@ -1934,7 +1932,6 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(write_note_tool::WriteNoteTool));
     registry.register(Box::new(search_playbooks_tool::SearchPlaybooksTool));
     registry.register(Box::new(edit_file_tool::EditFileTool));
-    registry.register(Box::new(multi_edit_tool::MultiEditTool));
     registry.register(Box::new(create_file_tool::CreateFileTool));
     registry.register(Box::new(submit_feedback_tool::SubmitFeedbackTool));
     registry.register(Box::new(document_info_tool::GetDocumentInfoTool));
@@ -2171,7 +2168,6 @@ mod tests {
         for blocked in [
             "run_shell",
             "edit_file",
-            "multi_edit",
             "create_file",
             "write_note",
             "update_plan",
@@ -2709,7 +2705,7 @@ mod tests {
     #[test]
     fn file_mutation_tools_stream_ui_previews() {
         let registry = default_tool_registry();
-        let preview_tools = ["edit_file", "multi_edit", "create_file", "write_note"];
+        let preview_tools = ["edit_file", "create_file", "write_note"];
 
         for name in preview_tools {
             let capabilities = registry.run_capabilities(name, &serde_json::Value::Null);

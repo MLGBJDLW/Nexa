@@ -493,7 +493,6 @@ const TOOL_ICONS: Record<string, typeof Search> = {
   computer_control: Monitor,
   project_tool: Wrench,
   playbook: BookOpen,
-  multi_edit: PenLine,
   edit_file: PenLine,
   create_file: PenLine,
   apply_patch: PenLine,
@@ -730,7 +729,7 @@ function countPatchLines(patch: string): { additions: number; deletions: number 
 function inferFileChangeOperation(toolName: string): string {
   const lower = toolName.toLowerCase();
   if (lower.includes('create_file')) return 'create';
-  if (lower.includes('multi_edit') || lower.includes('apply_patch')) return 'multi_edit';
+  if (lower.includes('apply_patch')) return 'edit_file';
   if (lower.includes('download_asset')) return 'download';
   return 'edit';
 }

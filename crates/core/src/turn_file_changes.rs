@@ -545,12 +545,10 @@ mod tests {
         let mut registry = ToolRegistry::new().with_file_change_owner(scope.owner.clone());
         registry.register(Box::new(crate::tools::create_file_tool::CreateFileTool));
         registry.register(Box::new(crate::tools::edit_file_tool::EditFileTool));
-        registry.register(Box::new(crate::tools::multi_edit_tool::MultiEditTool));
         registry.register(Box::new(crate::tools::write_note_tool::WriteNoteTool));
         let registry = registry.filtered(&[
             "create_file".into(),
             "edit_file".into(),
-            "multi_edit".into(),
             "write_note".into(),
         ]);
         for (index, (tool, args)) in [
@@ -567,8 +565,8 @@ mod tests {
                 json!({ "path": path, "old_str": "one", "new_str": "first" }),
             ),
             (
-                "multi_edit",
-                json!({ "path": path, "edits": [{ "old_str": "two", "new_str": "second" }] }),
+                "edit_file",
+                json!({ "path": path, "old_str": "two", "new_str": "second" }),
             ),
             (
                 "write_note",

@@ -20,7 +20,6 @@ export const toolRenderers: ToolRendererDescriptor[] = [
     matches: (name) =>
       name.includes('edit_file') ||
       name.includes('create_file') ||
-      name.includes('multi_edit') ||
       name.includes('write_note') ||
       name.includes('apply_patch') ||
       name.includes('download_asset'),

@@ -73,7 +73,7 @@ function toolRun(payload: PayloadRecord): ToolRunItem | null {
 
 function legacyToolRenderKind(toolName: string): ToolRenderKind {
   if (toolName === 'run_shell') return 'commandExecution';
-  if (toolName === 'create_file' || toolName === 'edit_file' || toolName === 'multi_edit' || toolName === 'write_note') {
+  if (toolName === 'create_file' || toolName === 'edit_file' || toolName === 'write_note') {
     return 'fileChange';
   }
   if (toolName.includes('search') || toolName === 'fetch_url' || toolName === 'retrieve_evidence') return 'search';

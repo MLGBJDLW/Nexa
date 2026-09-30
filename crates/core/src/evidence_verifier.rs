@@ -454,7 +454,7 @@ mod tests {
                 verification_tool_recorded: true,
                 runtime_verification: RuntimeVerificationSignals {
                     required: true,
-                    reasons: vec!["multi_edit modified source files".to_string()],
+                    reasons: vec!["edit_file modified source files".to_string()],
                     verification_artifact_status: Some("passed".to_string()),
                 },
             },

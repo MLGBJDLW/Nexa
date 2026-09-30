@@ -321,7 +321,6 @@ const FILE_WORKSPACE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDe
         "grep_files",
         "code_intelligence",
         "edit_file",
-        "multi_edit",
         "create_file",
         "write_note",
         "archive_output",

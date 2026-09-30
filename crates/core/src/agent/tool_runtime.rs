@@ -3,8 +3,7 @@ use std::collections::HashSet;
 use crate::llm::{ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus};
 use crate::plugins::CapabilityOwner;
 use crate::tools::diff_stats::{
-    changed_line_count, create_file_diff_artifact, diff_stats_artifact, diff_stats_from_diff,
-    text_diff_artifact,
+    create_file_diff_artifact, diff_stats_from_diff, text_diff_artifact,
 };
 use crate::tools::{ToolRegistry, ToolRenderKind};
 use crate::work_plan::MutationWorkPlan;
@@ -491,7 +490,6 @@ fn streaming_file_change_preview_artifact(tool_name: &str, args: &Value) -> Opti
     match tool_name {
         "edit_file" => edit_file_preview_artifact(args),
         "create_file" => create_file_preview_artifact(args),
-        "multi_edit" => multi_edit_preview_artifact(args),
         "write_note" => write_note_preview_artifact(args),
         _ => None,
     }
@@ -552,54 +550,6 @@ fn create_file_preview_artifact(args: &Value) -> Option<Value> {
         );
     }
     Some(preview_artifact_from_diff(diff, Some(0)))
-}
-
-fn multi_edit_preview_artifact(args: &Value) -> Option<Value> {
-    let path = non_empty_string_arg(args, &["path", "file_path", "filePath"])?;
-    let edits = args.get("edits")?.as_array()?;
-    if edits.is_empty() {
-        return None;
-    }
-
-    let mut diffs = Vec::new();
-    let mut additions = 0usize;
-    let mut deletions = 0usize;
-    let mut replacements = 0usize;
-
-    for edit in edits {
-        let old_content = string_arg(edit, &["old_str", "old_string"]).unwrap_or("");
-        let new_content = string_arg(edit, &["new_str", "new_string", "content"]).unwrap_or("");
-        if old_content.is_empty() && new_content.is_empty() {
-            continue;
-        }
-        diffs.push(text_diff_artifact(
-            path,
-            "multi_edit",
-            old_content,
-            new_content,
-        ));
-        additions += changed_line_count(new_content);
-        deletions += changed_line_count(old_content);
-        replacements += 1;
-    }
-
-    if diffs.is_empty() {
-        return None;
-    }
-
-    Some(json!({
-        "kind": "fileChangePreview",
-        "preview": true,
-        "diffStats": diff_stats_artifact(
-            path,
-            "multi_edit",
-            additions,
-            deletions,
-            diffs.len(),
-            Some(replacements),
-        ),
-        "diffs": diffs,
-    }))
 }
 
 fn write_note_preview_artifact(args: &Value) -> Option<Value> {

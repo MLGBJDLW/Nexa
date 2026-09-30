@@ -736,7 +736,7 @@ fn codebase_operation_plan(input: TaskPlanningInput<'_>, objective: String) -> A
                 "change",
                 "Make the narrowest source change that addresses the request.",
                 PlanStepStatus::Pending,
-                &["edit_file", "multi_edit", "create_file"],
+                &["edit_file", "create_file"],
                 &["Changes are scoped to relevant files and preserve existing behavior where required."],
             ),
             plan_step(

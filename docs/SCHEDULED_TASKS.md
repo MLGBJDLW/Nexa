@@ -99,7 +99,7 @@ Workspace writes have a separate policy:
   mutators fail closed. Read-only Nexus delegation is allowed because workers
   inherit the same narrowed root registry.
 - `isolated_patch` accepts only the built-in `create_file`, `edit_file`,
-  `multi_edit`, and constrained `run_shell` mutation adapters. It requires one
+  and constrained `run_shell` mutation adapters. It requires one
   explicit Source, Code Ultra, normal execution, and overlap `skip`. The
   controller always creates an isolated Git worktree, even if planner inference
   describes the task as read-only, and promotes only a verified patch from the

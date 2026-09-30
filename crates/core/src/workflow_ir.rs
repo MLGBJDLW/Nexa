@@ -2431,7 +2431,7 @@ pub(crate) fn ensure_runtime_desktop_observation_gate(
 fn tool_may_mutate_workspace(tool: &str) -> bool {
     matches!(
         tool,
-        "create_file" | "edit_file" | "multi_edit" | "project_tool" | "run_shell"
+        "create_file" | "edit_file" | "project_tool" | "run_shell"
     )
 }
 

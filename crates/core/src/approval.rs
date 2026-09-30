@@ -789,7 +789,7 @@ pub fn describe_request(tool_name: &str, args: &serde_json::Value) -> String {
                 )
             }
         }
-        "edit_file" | "multi_edit" => {
+        "edit_file" => {
             let path = args
                 .get("path")
                 .and_then(|v| v.as_str())
@@ -856,7 +856,7 @@ fn checkpoint_preview(
     args: &serde_json::Value,
 ) -> Option<ApprovalCheckpointPreview> {
     let path_arg = match tool_name {
-        "create_file" | "edit_file" | "multi_edit" => args
+        "create_file" | "edit_file" => args
             .get("path")
             .and_then(|v| v.as_str())
             .map(str::to_string),

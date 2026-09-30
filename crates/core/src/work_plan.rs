@@ -127,7 +127,7 @@ impl MutationWorkPlan {
 
 fn operation_kind_for_tool(tool_name: &str) -> String {
     match tool_name {
-        "edit_file" | "multi_edit" => "file edit",
+        "edit_file" => "file edit",
         "create_file" | "write_note" => "file creation",
         "compile_document" => "document compilation",
         "prepare_document_tools" => "document tooling",

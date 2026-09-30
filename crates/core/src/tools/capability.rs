@@ -89,9 +89,7 @@ pub enum ScheduledWorkspaceToolClass {
 
 pub fn scheduled_workspace_tool_class(name: &str) -> ScheduledWorkspaceToolClass {
     match name.trim() {
-        "create_file" | "edit_file" | "multi_edit" | "run_shell" => {
-            ScheduledWorkspaceToolClass::IsolatableWrite
-        }
+        "create_file" | "edit_file" | "run_shell" => ScheduledWorkspaceToolClass::IsolatableWrite,
         "activity_observe"
         | "browser_evidence_capture"
         | "code_intelligence"
@@ -182,8 +180,9 @@ fn first_non_core_category(categories: &[ToolCategory]) -> ToolCategory {
 pub fn capability_render_kind(name: &str) -> ToolRenderKind {
     match name {
         "run_shell" => ToolRenderKind::CommandExecution,
-        "edit_file" | "multi_edit" | "create_file" | "write_note" | "download_asset"
-        | "office_artifact" => ToolRenderKind::FileChange,
+        "edit_file" | "create_file" | "write_note" | "download_asset" | "office_artifact" => {
+            ToolRenderKind::FileChange
+        }
         "fetch_url"
         | "browser_evidence_capture"
         | "web_search"
@@ -245,7 +244,6 @@ pub fn capability_input_streaming(name: &str) -> ToolInputStreamingMode {
         | "grep_files"
         | "run_shell"
         | "edit_file"
-        | "multi_edit"
         | "create_file"
         | "write_note"
         | "extract_image_text"
@@ -449,7 +447,7 @@ pub fn infer_tool_access_profile(
             ApprovalRisk::High,
             "Executes local commands and can affect files, processes, and network.",
         ),
-        "edit_file" | "multi_edit" => (
+        "edit_file" => (
             "filesystem",
             true,
             true,

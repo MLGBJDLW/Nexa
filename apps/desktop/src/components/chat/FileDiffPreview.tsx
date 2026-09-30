@@ -112,7 +112,7 @@ function diffIdentityKey(diff: FileDiffArtifact): string {
 function mergeOperation(current: string, next: string): string {
   if (current === 'create') return 'create';
   if (current === next) return current;
-  return 'multi_edit';
+  return 'edit_file';
 }
 
 export function mergeFileDiffArtifactsByPath(diffs: FileDiffArtifact[]): FileDiffArtifact[] {
@@ -294,7 +294,7 @@ export function extractDiffStatsArtifact(artifacts: ArtifactPayload | undefined)
     additions: diffs.reduce((total, diff) => total + diff.additions, 0),
     deletions: diffs.reduce((total, diff) => total + diff.deletions, 0),
     hunks: diffs.reduce((total, diff) => total + diff.hunks.length, 0),
-    operation: diffs.length === 1 ? diffs[0].operation : 'multi_edit',
+    operation: diffs.length === 1 ? diffs[0].operation : 'edit_file',
     paths,
   };
 }
