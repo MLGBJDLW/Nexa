@@ -90,6 +90,16 @@ pub(super) fn is_minimax_public_endpoint(provider: ProviderType, base_url: Optio
         && endpoint_matches(provider, base_url, &["api.minimax.io"], &["/v1"])
 }
 
+pub(super) fn is_doubao_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
+    provider == ProviderType::Doubao
+        && endpoint_matches(
+            provider,
+            base_url,
+            &["ark.cn-beijing.volces.com"],
+            &["/api/v3"],
+        )
+}
+
 pub(super) fn is_mimo_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
     provider == ProviderType::OpenAi
         && endpoint_matches(provider, base_url, &["api.xiaomimimo.com"], &["/v1"])

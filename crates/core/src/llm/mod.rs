@@ -1299,6 +1299,41 @@ mod tests {
     async fn retired_models_are_rejected_before_both_transport_paths_and_discovery() {
         for (kind, url, model) in [
             (
+                ProviderType::Yi,
+                "https://api.lingyiwanwu.com/v1",
+                "yi-large",
+            ),
+            (
+                ProviderType::Yi,
+                "https://api.lingyiwanwu.com/v1",
+                "yi-medium",
+            ),
+            (
+                ProviderType::Yi,
+                "https://api.lingyiwanwu.com/v1",
+                "yi-spark",
+            ),
+            (
+                ProviderType::Yi,
+                "https://api.lingyiwanwu.com/v1",
+                "yi-large-turbo",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "doubao-seed-code-preview-251028",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "doubao-seed-1-6-251015",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "doubao-seed-1-6-flash-250828",
+            ),
+            (
                 ProviderType::Moonshot,
                 "https://api.moonshot.ai/v1",
                 " KIMI-K2.5 ",

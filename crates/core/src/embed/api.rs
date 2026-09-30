@@ -413,6 +413,18 @@ mod tests {
 
     #[test]
     fn provider_requests_preserve_retrieval_tasks_and_dimension_dialects() {
+        for model in ["embed-v5.0-pro", "embed-v5.0-fast"] {
+            let embedder = client("https://api.cohere.com/v2", model, 2048);
+            let (url, body) = embedder.request(&["query"], true);
+            assert_eq!(url, "https://api.cohere.com/v2/embed");
+            assert_eq!(body["model"], model);
+            assert_eq!(body["output_dimension"], 2048);
+            assert_eq!(body["input_type"], "search_query");
+            assert_eq!(
+                embedder.request(&["document"], false).1["input_type"],
+                "search_document"
+            );
+        }
         let voyage = client("https://api.voyageai.com/v1", "voyage-code-4", 512);
         let (_, body) = voyage.request(&["query"], true);
         assert_eq!(body["input_type"], "query");

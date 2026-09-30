@@ -33,6 +33,14 @@ No model is downloaded or installed just by selecting a preset.
 
 ## Storage, switching and upgrades
 
+September 30, 2026 additions: [Cohere Embed v5.0 Pro/Fast](https://docs.cohere.com/docs/cohere-embed)
+use the existing `/v2/embed` adapter with 2,048 default dimensions and
+256/512/768/1,024/1,536/2,048 choices. [Qwen3.7 Text Embedding Flash](https://help.aliyun.com/zh/model-studio/qwen3-7-text-embedding-flash)
+uses dense embeddings in Beijing, with 1,024 default dimensions, 256/512/768/1,024
+choices and batches of 20. Qwen3.7 Text Embedding's allowed dimensions were
+corrected to 256/512/768/1,024/1,536/2,048/2,560 from its model-specific API table.
+These changes do not select a new embedding model or rebuild an existing index.
+
 Vectors stay in Nexa's local SQLite database. Selecting a cloud embedding service
 changes where text becomes vectors, not where the resulting index is stored.
 An independently configured [optional cloud mirror](VECTOR_STORES.md) supports

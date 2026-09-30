@@ -10,11 +10,11 @@ use crate::provider_catalog::{find_provider_preset, model_capabilities_from_cata
 
 use super::provider_boundary::{
     endpoint_id, is_alibaba_chat_endpoint, is_anthropic_public_endpoint, is_azure_openai_endpoint,
-    is_deepseek_anthropic_endpoint, is_deepseek_public_endpoint, is_google_public_endpoint,
-    is_meta_model_api_endpoint, is_mimo_public_endpoint, is_minimax_public_endpoint,
-    is_mistral_public_endpoint, is_moonshot_public_endpoint, is_openai_public_endpoint,
-    is_openrouter_public_endpoint, is_siliconflow_public_endpoint, is_xai_public_endpoint,
-    is_zhipu_model_api_endpoint, provider_id,
+    is_deepseek_anthropic_endpoint, is_deepseek_public_endpoint, is_doubao_public_endpoint,
+    is_google_public_endpoint, is_meta_model_api_endpoint, is_mimo_public_endpoint,
+    is_minimax_public_endpoint, is_mistral_public_endpoint, is_moonshot_public_endpoint,
+    is_openai_public_endpoint, is_openrouter_public_endpoint, is_siliconflow_public_endpoint,
+    is_xai_public_endpoint, is_zhipu_model_api_endpoint, provider_id,
 };
 use super::{ProviderType, ReasoningEffort};
 
@@ -35,6 +35,7 @@ pub enum ThinkingModeControl {
     ProviderDefault,
     AlwaysOn,
     AlwaysOnThinkingType,
+    AlwaysOnEnableThinking,
     EnableThinking,
     ThinkingType,
     ThinkingTypeWithKeep,
@@ -210,7 +211,9 @@ impl ReasoningProfile {
     ) -> Option<bool> {
         if matches!(
             self.mode_control,
-            ThinkingModeControl::AlwaysOn | ThinkingModeControl::AlwaysOnThinkingType
+            ThinkingModeControl::AlwaysOn
+                | ThinkingModeControl::AlwaysOnThinkingType
+                | ThinkingModeControl::AlwaysOnEnableThinking
         ) {
             return Some(true);
         }
@@ -358,6 +361,9 @@ pub fn resolve_reasoning_profile(
         .to_string();
         value.preserve_reasoning_history = true;
         value.replay_policy = ReasoningReplayPolicy::OpaqueSignature;
+        if provider == ProviderType::OpenAi && matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
+            value.mode_control = ThinkingModeControl::AlwaysOn;
+        }
         value.confidence = CapabilityConfidence::Verified;
         return value;
     }
@@ -399,10 +405,14 @@ pub fn resolve_reasoning_profile(
     if (provider == ProviderType::OpenAi && is_openai_public_endpoint(provider, base_url))
         || (provider == ProviderType::AzureOpenAi && is_azure_openai_endpoint(provider, base_url))
     {
-        if model == "gpt-6-astra" {
+        if matches!(model.as_str(), "gpt-6-astra" | "gpt-6.1-sol") {
             let mut value = profile(
                 key,
-                "openai-gpt-6-astra-v1",
+                if model == "gpt-6.1-sol" {
+                    "openai-gpt61-sol-v1"
+                } else {
+                    "openai-gpt-6-astra-v1"
+                },
                 ThinkingModeControl::AlwaysOn,
                 ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
@@ -548,10 +558,40 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_minimax_public_endpoint(provider, base_url) && model.starts_with("minimax-m") {
+        if model == "minimax-m3.1-flash-preview" {
+            let mut value = profile(
+                key,
+                "minimax-m31-reasoning-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                        ReasoningEffort::XHigh,
+                        ReasoningEffort::Max,
+                    ],
+                    Some(ReasoningEffort::Max),
+                ),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.replay_policy = ReasoningReplayPolicy::RequiredOnToolCall;
+            value.use_max_completion_tokens = true;
+            // M3.1 always returns a separate reasoning_content field. Unlike
+            // M3/M2, reconstructing <think> tags loses its tool-loop contract.
+            return value;
+        }
         let mut value = profile(
             key,
             "minimax-native-reasoning-v1",
-            ThinkingModeControl::AlwaysOn,
+            if model == "minimax-m3" {
+                ThinkingModeControl::AdaptiveThinking
+            } else {
+                ThinkingModeControl::AlwaysOn
+            },
             ReasoningEffortField::None,
             ReasoningEffortMapping::Exact,
             (&[], None),
@@ -562,8 +602,44 @@ pub fn resolve_reasoning_profile(
         return value;
     }
 
+    if is_doubao_public_endpoint(provider, base_url)
+        && matches!(
+            model.as_str(),
+            "doubao-seed-2-1-pro-260915" | "doubao-seed-2-1-lite-260915" | "doubao-seed-evolving"
+        )
+    {
+        let mut value = profile(
+            key,
+            "doubao-seed21-thinking-v1",
+            ThinkingModeControl::ThinkingType,
+            ReasoningEffortField::TopLevel,
+            ReasoningEffortMapping::Exact,
+            (
+                &[
+                    ReasoningEffort::Minimal,
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                ],
+                Some(ReasoningEffort::High),
+            ),
+            ReasoningBudgetField::None,
+        );
+        value.preserve_reasoning_history = true;
+        return value;
+    }
+
     if is_mistral_public_endpoint(provider, base_url) {
         let mut value = match model.as_str() {
+            "zai-glm-5-3" | "zai-glm-5-2" => profile(
+                key,
+                "mistral-hosted-glm-v1",
+                ThinkingModeControl::ProviderDefault,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            ),
             "mistral-medium-3-5" => profile(
                 key,
                 "mistral-adjustable-reasoning-v1",
@@ -658,6 +734,29 @@ pub fn resolve_reasoning_profile(
         );
         value.effort_budget_exclusive = true;
         value.confidence = CapabilityConfidence::CuratedCompatibility;
+        if matches!(
+            model.as_str(),
+            "openai/gpt-6.1-sol"
+                | "openai/gpt-6.1-sol-pro"
+                | "z-ai/glm-5.3-prime"
+                | "qwen/qwen3.8-max-prime"
+                | "fireworks/ember-1"
+                | "perceptron/perceptron-mk1.5"
+                | "aion-labs/aion-3.5"
+                | "aion-labs/aion-3.5-mini"
+                | "upstage/solar-mini4"
+        ) {
+            value.preserve_reasoning_history = true;
+            value.budget_field = ReasoningBudgetField::None;
+        }
+        if matches!(
+            model.as_str(),
+            "openai/gpt-6.1-sol" | "openai/gpt-6.1-sol-pro"
+        ) {
+            value.budget_field = ReasoningBudgetField::None;
+            value.omit_temperature_when_reasoning = true;
+            value.preserve_reasoning_history = true;
+        }
         if is_openrouter_sonnet55_model(&model) {
             // OpenRouter owns its normalized adaptive contract. Preserve any
             // opaque details it returns, without imposing native beta fields
@@ -778,6 +877,54 @@ pub fn resolve_reasoning_profile(
                     "alibaba-model-studio" | "qwen-cloud-intl"
                 )
             });
+        let beijing_payg = is_alibaba_model_studio_payg_endpoint(provider, base_url);
+        if (beijing_payg
+            && matches!(
+                model.as_str(),
+                "zhipu/glm-5.3-flash" | "zhipu/glm-5.3-flashx" | "stepfun/step-5-preview"
+            ))
+            || (qwen_payg && model == "deepseek-v4.1-flash")
+        {
+            let mandatory = model.starts_with("zhipu/");
+            let efforts = if model == "stepfun/step-5-preview" {
+                vec![
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                ]
+            } else {
+                vec![
+                    ReasoningEffort::Low,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Max,
+                ]
+            };
+            let mut value = profile(
+                key,
+                "alibaba-hosted-september26-v1",
+                if mandatory {
+                    ThinkingModeControl::AlwaysOnEnableThinking
+                } else {
+                    ThinkingModeControl::EnableThinking
+                },
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &efforts,
+                    if mandatory {
+                        Some(ReasoningEffort::Max)
+                    } else if model == "deepseek-v4.1-flash" {
+                        Some(ReasoningEffort::High)
+                    } else {
+                        None
+                    },
+                ),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.omit_temperature_when_reasoning = true;
+            return value;
+        }
         if model == "qwen3.8-omni-flash" && qwen_payg {
             let mut value = profile(
                 key,
@@ -1235,7 +1382,7 @@ mod tests {
             ReasoningApiStyle::OpenAiChatCompletions,
             "MiniMax-M3",
         );
-        assert_eq!(minimax.mode_control, ThinkingModeControl::AlwaysOn);
+        assert_eq!(minimax.mode_control, ThinkingModeControl::AdaptiveThinking);
         assert_eq!(
             minimax.reasoning_history_encoding,
             ReasoningHistoryEncoding::ThinkTags

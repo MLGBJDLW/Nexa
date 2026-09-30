@@ -6,7 +6,7 @@
     "baseUrl": "https://api.openai.com/v1",
     "requiresApiKey": true,
     "icon": "🤖",
-    "description": "GPT-6 Astra, Sol, Luna; GPT-5.6 and earlier models",
+    "description": "GPT-6.1 Sol, GPT-6 Astra, Sol, Luna; GPT-5.6 and earlier models",
     "nativeWebSearch": {
       "dialect": "openAiResponses",
       "supportsDomains": true,
@@ -55,6 +55,54 @@
               "enabled": false
             }
           }
+        }
+      },
+      {
+        "id": "gpt-6.1-sol",
+        "name": "GPT-6.1 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
         }
       },
       {
@@ -770,6 +818,338 @@
               "xhigh"
             ],
             "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "openai/gpt-6.1-sol",
+        "name": "OpenAI: GPT-6.1 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.1-sol",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "openai/gpt-6.1-sol-pro",
+        "name": "OpenAI: GPT-6.1 Sol Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.1-sol-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "z-ai/glm-5.3-prime",
+        "name": "Z.ai: GLM 5.3 Prime",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/z-ai/glm-5.3-prime",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "qwen/qwen3.8-max-prime",
+        "name": "Qwen: Qwen3.8 Max Prime",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/qwen/qwen3.8-max-prime",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "xhigh",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "fireworks/ember-1",
+        "name": "Fireworks: Ember-1",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/fireworks/ember-1",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "perceptron/perceptron-mk1.5",
+        "name": "Perceptron: Perceptron Mk1.5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/perceptron/perceptron-mk1.5",
+        "contextTokens": 36864,
+        "maxOutputTokens": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "aion-labs/aion-3.5",
+        "name": "AionLabs: Aion 3.5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/aion-labs/aion-3.5",
+        "contextTokens": 262144,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "aion-labs/aion-3.5-mini",
+        "name": "AionLabs: Aion 3.5 Mini",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/aion-labs/aion-3.5-mini",
+        "contextTokens": 262144,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "upstage/solar-mini4",
+        "name": "Upstage: Solar Mini 4",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://openrouter.ai/upstage/solar-mini4",
+        "contextTokens": 524288,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "none",
             "thinkingBudget": {
               "enabled": false
             }
@@ -8738,6 +9118,44 @@
         "supportsStructuredOutput": true
       },
       {
+        "id": "claude-mythos-5-1",
+        "name": "Claude Mythos 5.1",
+        "source": "official",
+        "status": "gated",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://platform.claude.com/docs/en/models/mythos-5-1/overview",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "claude-sonnet-5-5",
         "name": "Claude Sonnet 5.5",
         "nativeWebSearch": {
@@ -9584,7 +10002,10 @@
               "step": 128
             }
           }
-        }
+        },
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
       },
       {
         "id": "gemini-2.5-flash",
@@ -9602,7 +10023,10 @@
               "step": 128
             }
           }
-        }
+        },
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
       },
       {
         "id": "gemini-2.5-flash-lite",
@@ -9619,7 +10043,10 @@
               "step": 128
             }
           }
-        }
+        },
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
       },
       {
         "id": "gemini-3-flash-preview",
@@ -10420,6 +10847,7 @@
         "capabilities": {
           "vision": true,
           "reasoning": {
+            "mode": "optional",
             "effortLevels": [],
             "thinkingBudget": {
               "enabled": false
@@ -10427,8 +10855,48 @@
           }
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/api-reference/text-chat-openai",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 524288
+      },
+      {
+        "id": "MiniMax-M3.1-Flash-Preview",
+        "name": "MiniMax M3.1 Flash Preview",
+        "source": "official",
+        "status": "gated",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 524288,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "access": "account_enablement",
+        "documentationRef": "https://platform.minimax.io/docs/guides/text-generation",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       },
       {
         "id": "MiniMax-M2.7",
@@ -10443,8 +10911,10 @@
           }
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       },
       {
         "id": "MiniMax-M2.7-highspeed",
@@ -10459,8 +10929,10 @@
           }
         },
         "status": "active",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       },
       {
         "id": "MiniMax-M2.5",
@@ -10474,8 +10946,10 @@
           }
         },
         "status": "legacy",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       },
       {
         "id": "MiniMax-M2.5-highspeed",
@@ -10490,8 +10964,10 @@
           }
         },
         "status": "legacy",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       },
       {
         "id": "MiniMax-M2.1",
@@ -10505,8 +10981,10 @@
           }
         },
         "status": "legacy",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       },
       {
         "id": "MiniMax-M2.1-highspeed",
@@ -10521,8 +10999,10 @@
           }
         },
         "status": "legacy",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       },
       {
         "id": "MiniMax-M2",
@@ -10536,8 +11016,10 @@
           }
         },
         "status": "legacy",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro"
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "contextTokens": 204800,
+        "maxOutputTokens": 204800
       }
     ]
   },
@@ -10574,6 +11056,54 @@
             }
           }
         }
+      },
+      {
+        "id": "zai-glm-5-2",
+        "name": "Z.ai GLM 5.2",
+        "source": "official",
+        "status": "preview",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-2",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        },
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000
+      },
+      {
+        "id": "zai-glm-5-3",
+        "name": "Z.ai GLM 5.3",
+        "source": "official",
+        "status": "preview",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-3",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        },
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000
       },
       {
         "id": "mistral-large-2512",
@@ -10668,6 +11198,32 @@
         "recommended": true,
         "capabilities": {
           "vision": true
+        }
+      },
+      {
+        "id": "gemma4:latest",
+        "name": "Gemma 4",
+        "source": "official",
+        "status": "active",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://ollama.com/library/gemma4",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
         }
       },
       {
@@ -11949,6 +12505,42 @@
         }
       },
       {
+        "id": "deepseek-v4.1-flash",
+        "name": "DeepSeek V4.1 Flash",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 393216,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
         "id": "qwen3.8-max-0902",
         "name": "Qwen3.8 Max (0902)",
         "tagKey": "providers.tagLatest",
@@ -12284,6 +12876,149 @@
               "maxTokens": 262144,
               "step": 1,
               "allowZero": true
+            }
+          }
+        }
+      },
+      {
+        "id": "stepfun/step-5-preview",
+        "name": "Step 5 Preview",
+        "source": "official",
+        "status": "preview",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/step-5-preview",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "ZHIPU/GLM-5.3-FlashX",
+        "name": "GLM 5.3 FlashX",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/glm-5-3-flashx-by-zhipu",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "ZHIPU/GLM-5.3-Flash",
+        "name": "GLM 5.3 Flash",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/glm-5-3-flash-by-zhipu",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "deepseek-v4.1-flash",
+        "name": "DeepSeek V4.1 Flash",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 393216,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
             }
           }
         }
@@ -13222,6 +13957,117 @@
         }
       },
       {
+        "id": "doubao-seed-evolving",
+        "name": "doubao-seed-evolving",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-release-announcement?lang=zh",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "contextTokens": 1024000,
+        "maxOutputTokens": 256000,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "doubao-seed-2-1-lite-260915",
+        "name": "doubao-seed-2-1-lite-260915",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-release-announcement?lang=zh",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "contextTokens": 1024000,
+        "maxOutputTokens": 256000,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "doubao-seed-2-1-pro-260915",
+        "name": "doubao-seed-2-1-pro-260915",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-release-announcement?lang=zh",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "contextTokens": 1024000,
+        "maxOutputTokens": 256000,
+        "supportsStructuredOutput": true
+      },
+      {
         "id": "doubao-seed-2.0-code",
         "name": "Doubao Seed 2.0 Code",
         "tagKey": "providers.tagCode",
@@ -13242,7 +14088,11 @@
         "name": "Doubao Seed 2.0 Pro 260215",
         "capabilities": {
           "vision": true
-        }
+        },
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-09-30",
+        "replacementModelId": "doubao-seed-2-1-pro-260915",
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
       },
       {
         "id": "doubao-seed-2-0-lite-260428",
@@ -13254,7 +14104,12 @@
       {
         "id": "doubao-seed-1-6-251015",
         "name": "Doubao-Seed 1.6",
-        "tagKey": "providers.tagLatest"
+        "tagKey": "providers.tagLatest",
+        "status": "removed",
+        "recommended": false,
+        "replacementModelId": "doubao-seed-2-0-lite-260428",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
       },
       {
         "id": "doubao-seed-1-6-thinking",
@@ -13264,12 +14119,22 @@
       {
         "id": "doubao-seed-code-preview-251028",
         "name": "Doubao-Seed Code Preview",
-        "tagKey": "providers.tagCode"
+        "tagKey": "providers.tagCode",
+        "status": "removed",
+        "recommended": false,
+        "replacementModelId": "doubao-seed-evolving",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
       },
       {
         "id": "doubao-seed-1-6-flash-250828",
         "name": "Doubao-Seed 1.6 Flash",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "status": "removed",
+        "recommended": false,
+        "replacementModelId": "doubao-seed-2-0-mini-260428",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
       }
     ]
   },
@@ -13291,20 +14156,35 @@
         "tagKey": "providers.tagBest",
         "source": "curated",
         "productReadiness": "known",
-        "recommended": true
+        "recommended": false,
+        "status": "removed",
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.lingyiwanwu.com/"
       },
       {
         "id": "yi-medium",
-        "name": "Yi Medium"
+        "name": "Yi Medium",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.lingyiwanwu.com/"
       },
       {
         "id": "yi-spark",
         "name": "Yi Spark",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.lingyiwanwu.com/"
       },
       {
         "id": "yi-large-turbo",
-        "name": "Yi Large Turbo"
+        "name": "Yi Large Turbo",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-09-30",
+        "documentationRef": "https://platform.lingyiwanwu.com/"
       }
     ]
   },

@@ -18,6 +18,7 @@ use crate::video_provider_catalog::VideoModelManifest;
 const PROVIDER_ID: &str = "minimax";
 const OFFICIAL_BASE_URL: &str = "https://api.minimax.io";
 const MODEL_ID: &str = "MiniMax-H3";
+const MAX_MODEL_ID: &str = "MiniMax-H3-Max";
 
 #[derive(Clone)]
 pub struct MiniMaxVideoAdapter {
@@ -129,25 +130,38 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
                 "MiniMax H3 prompts are limited to 7000 characters",
             ));
         }
-        if request.model_id != MODEL_ID {
+        let max_model = request.model_id == MAX_MODEL_ID;
+        if !matches!(request.model_id.as_str(), MODEL_ID | MAX_MODEL_ID) {
             issues.push(issue(
                 "modelId",
                 "unsupported_model",
-                "MiniMax V2 currently exposes MiniMax-H3",
+                "MiniMax V2 supports MiniMax-H3 and MiniMax-H3-Max",
             ));
         }
-        if !(4..=15).contains(&request.duration_seconds) {
+        if !(if max_model { 5 } else { 4 }..=15).contains(&request.duration_seconds) {
             issues.push(issue(
                 "durationSeconds",
                 "unsupported_duration",
-                "MiniMax H3 duration must be an integer from 4 through 15",
+                if max_model {
+                    "MiniMax H3 Max duration must be an integer from 5 through 15"
+                } else {
+                    "MiniMax H3 duration must be an integer from 4 through 15"
+                },
             ));
         }
-        if !matches!(request.resolution.as_str(), "768P" | "2K") {
+        if !(if max_model {
+            matches!(request.resolution.as_str(), "480P" | "768P")
+        } else {
+            matches!(request.resolution.as_str(), "768P" | "2K")
+        }) {
             issues.push(issue(
                 "resolution",
                 "unsupported_resolution",
-                "MiniMax H3 resolution must be 768P or 2K",
+                if max_model {
+                    "MiniMax H3 Max resolution must be 480P or 768P"
+                } else {
+                    "MiniMax H3 resolution must be 768P or 2K"
+                },
             ));
         }
         if !matches!(
@@ -488,7 +502,7 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
             return Err(invalid_request_error(PROVIDER_ID, validation));
         }
         let payload = json!({
-            "model": MODEL_ID,
+            "model": request.model_id,
             "content": Self::content(request),
             "resolution": request.resolution,
             "duration": request.duration_seconds,
@@ -717,10 +731,18 @@ fn h3_cost_estimate(
     request: &NormalizedVideoRequest,
 ) -> Result<CostEstimate, NormalizedProviderError> {
     let mut estimate = pricing_estimate(PROVIDER_ID, request)?;
-    let per_second = match request.resolution.as_str() {
-        "768P" => 80_000_u64,
-        "2K" => 130_000_u64,
-        _ => return Ok(estimate),
+    let manifest = find_capabilities(PROVIDER_ID)
+        .into_iter()
+        .find(|model| model.model_id == request.model_id)
+        .ok_or_else(|| configuration_error("Missing video pricing manifest"))?;
+    let Some(per_second) = manifest
+        .pricing
+        .input_video_tiers
+        .iter()
+        .find(|tier| tier.resolution == request.resolution)
+        .and_then(|tier| tier.micros_per_second)
+    else {
+        return Ok(estimate);
     };
     let image_count = request
         .input_assets
@@ -734,7 +756,9 @@ fn h3_cost_estimate(
             )
         })
         .count();
-    let additional_images = image_count.saturating_sub(5) as u64;
+    let additional_images = image_count
+        .saturating_sub(manifest.pricing.free_reference_images.unwrap_or(0) as usize)
+        as u64;
     let mut missing_video_duration = false;
     let mut input_video_seconds = 0_u64;
     for asset in request.input_assets.iter().filter(|asset| {
@@ -752,7 +776,14 @@ fn h3_cost_estimate(
     }
     if let Some(amount) = estimate.amount_micros {
         estimate.amount_micros = amount
-            .checked_add(additional_images.saturating_mul(40_000))
+            .checked_add(
+                additional_images.saturating_mul(
+                    manifest
+                        .pricing
+                        .additional_reference_image_micros
+                        .unwrap_or(0),
+                ),
+            )
             .and_then(|amount| amount.checked_add(input_video_seconds.saturating_mul(per_second)));
     }
     if missing_video_duration {
@@ -927,6 +958,32 @@ mod tests {
         assert_eq!(body["model"], MODEL_ID);
         assert_eq!(body["content"][0]["type"], "text");
         assert_eq!(body["resolution"], "2K");
+    }
+
+    #[tokio::test]
+    async fn h3_max_keeps_its_own_model_resolution_duration_and_price() {
+        let (base_url, captured) = serve_once(r#"{"task_id":"max-123"}"#).await;
+        let adapter = MiniMaxVideoAdapter::for_test(&base_url);
+        let mut input = request();
+        input.model_id = MAX_MODEL_ID.into();
+        input.resolution = "480P".into();
+        assert!(adapter.validate(&input).valid);
+        assert_eq!(
+            adapter.estimate_cost(&input).await.unwrap().amount_micros,
+            Some(250_000)
+        );
+        adapter.submit(&input).await.unwrap();
+        let raw = captured.lock().unwrap().clone();
+        let body: Value = serde_json::from_str(raw.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(body["model"], MAX_MODEL_ID);
+        assert_eq!(body["duration"], 5);
+        assert_eq!(body["resolution"], "480P");
+        assert!(body.get("generate_audio").is_none());
+        input.duration_seconds = 4;
+        assert!(!adapter.validate(&input).valid);
+        input.duration_seconds = 5;
+        input.resolution = "2K".into();
+        assert!(!adapter.validate(&input).valid);
     }
 
     #[tokio::test]
