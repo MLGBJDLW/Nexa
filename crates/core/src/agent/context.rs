@@ -360,6 +360,14 @@ pub struct ContextUsageSegment {
 pub struct ContextUsageBreakdown {
     pub total_tokens: u32,
     pub segments: Vec<ContextUsageSegment>,
+    /// Authoritative capacity reported by the active external runtime. Absent
+    /// for local estimates; never infer an external limit from an API alias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_model: Option<String>,
 }
 
 pub fn estimate_context_usage_breakdown_for_model(
@@ -440,6 +448,9 @@ pub fn estimate_context_usage_breakdown_for_model(
     ContextUsageBreakdown {
         total_tokens,
         segments,
+        context_window: None,
+        runtime_provider: None,
+        runtime_model: None,
     }
 }
 

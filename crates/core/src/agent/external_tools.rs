@@ -2,8 +2,8 @@
 
 use super::tool_dispatch::{ToolDispatchContext, ToolDispatchRuntime};
 use super::*;
+use crate::runtime_receipts::RuntimeReceipts;
 use crate::tools::ToolResult;
-use std::collections::HashMap;
 
 pub struct PersistedAssistantMessage {
     pub id: String,
@@ -509,6 +509,23 @@ mod tests {
         );
     }
     #[tokio::test]
+    async fn automatic_tool_budget_continues_past_256_effects_and_preserves_idempotency() {
+        let (session, count, mut rx) = session(u32::MAX);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        for index in 0..300 {
+            let result = session
+                .execute(call(&format!("effect-{index}"), index))
+                .await
+                .unwrap();
+            assert!(!result.result.is_error, "{}", result.result.content);
+        }
+        session.execute(call("effect-299", 299)).await.unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 300);
+        drop(session);
+        drain.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn cancellation_and_budget_stop_before_another_effect() {
         let (session, count, _rx) = session(1);
         session.execute(call("one", 1)).await.unwrap();
@@ -661,7 +678,7 @@ struct ExternalToolState {
     trace_items: Vec<PersistedTraceItem>,
     next_sort_order: i64,
     rounds: u32,
-    completed: HashMap<String, (String, ToolResult)>,
+    completed: RuntimeReceipts,
     action_reconciliation: super::turn_loop::ActionReconciliationFence,
     desktop_resume_workflow: Option<crate::workflow_ir::WorkflowIr>,
     desktop_profile: crate::quality_profile::ResolvedOrchestrationProfile,
@@ -719,7 +736,7 @@ impl ExternalToolSession {
             trace_items: Vec::new(),
             next_sort_order: input.next_sort_order,
             rounds: 0,
-            completed: HashMap::new(),
+            completed: RuntimeReceipts::new()?,
             action_reconciliation: super::turn_loop::ActionReconciliationFence::from_resume_prompt(
                 &input.user_prompt,
             ),
@@ -753,23 +770,22 @@ impl ExternalToolSession {
         if self.input.cancellation.is_cancelled() {
             return Err(CoreError::Cancelled("Stopped by user".into()));
         }
-        let signature = format!("{}:{}", call.name, call.arguments);
-        if let Some((previous, result)) = state.completed.get(&call.id) {
-            if previous != &signature {
+        let signature =
+            blake3::hash(format!("{}:{}", call.name, call.arguments).as_bytes()).to_string();
+        if let Some((previous, result)) = state.completed.get::<ToolResult>(&call.id)? {
+            if previous != signature {
                 return Err(CoreError::Agent(
                     "Upstream reused a tool call ID with different arguments".into(),
                 ));
             }
             return Ok(ExternalToolOutput {
-                result: result.clone(),
+                result,
                 visual_parts: Vec::new(),
             });
         }
-        let limit = if self.input.config.max_iterations == u32::MAX {
-            256
-        } else {
-            self.input.config.max_iterations
-        };
+        // The automatic/unlimited sentinel must remain unlimited. Converting it
+        // into 256 callbacks terminated healthy long-running subscription work.
+        let limit = self.input.config.max_iterations;
         if state.rounds >= limit {
             return Err(CoreError::Agent(
                 "External agent tool budget exhausted".into(),
@@ -868,7 +884,7 @@ impl ExternalToolSession {
         )
         .await?;
         if spends_tool_budget {
-            *rounds += 1;
+            *rounds = rounds.saturating_add(1);
         }
         action_reconciliation.observe_tool_results(batch.as_slice(), &outcome.summaries);
         if outcome.summaries.iter().any(|summary| {
@@ -948,7 +964,7 @@ impl ExternalToolSession {
                 result.content.push_str(&guidance);
             }
         }
-        state.completed.insert(call.id, (signature, result.clone()));
+        state.completed.insert(&call.id, &signature, &result)?;
         if let Some(interaction_id) = awaiting_interaction {
             create_task_checkpoint_for_turn_with_state(
                 &self.input.db,
@@ -1022,11 +1038,29 @@ impl ExternalToolSession {
     }
 
     pub async fn persist_answer(&self, text: &str) -> Result<PersistedAssistantMessage, CoreError> {
+        self.persist_assistant(text, false).await
+    }
+
+    /// Durable progress/partial output does not assert that final verification
+    /// completed. Use the same sort owner as tools to preserve message ordering.
+    pub async fn persist_intermediate(
+        &self,
+        text: &str,
+    ) -> Result<PersistedAssistantMessage, CoreError> {
+        self.persist_assistant(text, true).await
+    }
+
+    async fn persist_assistant(
+        &self,
+        text: &str,
+        intermediate: bool,
+    ) -> Result<PersistedAssistantMessage, CoreError> {
         let mut state = self.state.lock().await;
-        if state
-            .desktop_resume_workflow
-            .as_ref()
-            .is_some_and(crate::workflow_ir::WorkflowIr::desktop_evidence_pending)
+        if !intermediate
+            && state
+                .desktop_resume_workflow
+                .as_ref()
+                .is_some_and(crate::workflow_ir::WorkflowIr::desktop_evidence_pending)
         {
             return Err(CoreError::Agent("The task still has unverified desktop targets. Capture each exact pending window, or complete an explicitly requested close with a host-verified terminal receipt, before a final answer.".into()));
         }
@@ -1040,7 +1074,7 @@ impl ExternalToolSession {
             tool_call_id: None,
             tool_calls: vec![],
             artifacts: Some(
-                serde_json::json!({"turnId":self.input.turn_id,"runtime":"subscription"}),
+                serde_json::json!({"turnId":self.input.turn_id,"runtime":"subscription","phase":if intermediate { "commentary" } else { "final_answer" }}),
             ),
             token_count: estimate_tokens_for_model(
                 self.input.config.model.as_deref().unwrap_or("subscription"),

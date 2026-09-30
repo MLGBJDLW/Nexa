@@ -1071,4 +1071,6 @@
   ,"externalAgentControls": "Tools and runtime settings are managed by the external agent."
   ,"reasoningBetweenTools": "Between-tool thinking only"
   ,"enableUpfrontThinking": "Enable up-front thinking"
+  ,"externalAgentMcp": "MCP connectors for this agent"
+  ,"externalAgentMcpHint": "Selected connectors and their configured credentials are passed to this agent and use its native permission policy."
 }

@@ -34,7 +34,9 @@ Copilot/Codex tool callback IDs are idempotent within the live session. Reusing 
 different arguments fails the run. Tool effects are serialized through the
 shared dispatcher; invalid schema and denied actions produce structured errors
 without an effect. The configured tool budget also applies to external callbacks
-(256 calls when no explicit limit is configured). Renderer reload never replays
+(automatic has no hidden lifetime call limit). Completed receipts spill into a
+private temporary database so long runs retain idempotency without accumulating
+all callback payloads in memory. Renderer reload never replays
 callbacks. Process loss terminates the turn; it does not transparently resend
 an uncertain action.
 
@@ -47,6 +49,12 @@ The External agents catalog also includes these explicit launch presets:
 | Gemini CLI | `gemini --acp` | Install the official CLI and complete its login |
 | OpenCode | `opencode acp` | Install and configure its native providers/account |
 | Hermes Agent | `hermes acp` | Install with the ACP extra and configure its native account |
+| GitHub Copilot CLI (ACP) | `copilot --acp` | Use the official CLI login; this route uses native Copilot tools |
+| Claude Code (ACP) | `claude-agent-acp` | Install the Agent Client Protocol Claude adapter and authenticate Claude Code |
+| Codex CLI (ACP) | `codex-acp` | Install the Agent Client Protocol Codex adapter and authenticate Codex |
+| Qwen Code | `qwen --acp` | Install and authenticate the official CLI |
+| Goose | `goose acp` | Install and configure a native provider |
+| Auggie | `auggie --acp` | Install and authenticate the Augment CLI |
 
 Select an existing working directory and optionally an absolute executable path.
 Launch preferences are stored separately from API credentials under the exact
@@ -65,6 +73,26 @@ unconfirmed change fails before submission. A runtime without model discovery
 can expose only its own default. API keys/endpoints cannot be saved on a runtime
 profile, and unavailable models never silently switch providers.
 
+Native select options are discovered, including mode, provider and reasoning.
+Provider/mode changes are applied before model selection, and model-dependent
+options are refreshed afterward. Successful native responses replace the complete
+option list; normalized values (such as Qwen's default reasoning level) are kept.
+The final model must still match the user's selection. Model-dependent preferences
+are bound to the model verified in Settings, so a chat model switch cannot replay
+obsolete effort/Fast options. Discovery returns replacement choices after a saved
+model retires; inference rejects it until the user selects a replacement.
+Available native slash
+commands are sent verbatim without a Nexa instruction wrapper; running a command
+in a fresh session does not consume the pending project context for its next prompt.
+Namespaced commands retain their prefix. Silent command completion emits a typed
+status receipt without inventing an assistant reply. Queued commands and ordinary
+steering messages execute as separate prompts so the latter are not swallowed.
+
+Profiles can explicitly select enabled user-managed MCP connectors to forward.
+Stdio is supported by ACP; HTTP/SSE requires the agent's advertised capability.
+Selected connector environment variables/headers are passed to the native agent,
+which owns execution and permissions. Built-in Nexa connectors are not forwarded.
+
 ACP tools execute in the external process with its native configuration and
 permission policy. Nexa projects `tool_call` reports with `providerExecuted` and
 does not run them again. ACP permission requests use Nexa's approval UI, bind to
@@ -72,8 +100,21 @@ the profile, working directory and stable action arguments, and select only a
 corresponding one-time option. Transient RPC/session IDs do not invalidate a
 reusable Nexa decision, but incomplete action details remain invocation-specific.
 A reusable Nexa decision is never promoted into an upstream `allow_always` grant.
-Nexa does not advertise filesystem/terminal RPC services. This does not sandbox
-native tools or prevent them accessing paths outside the selected directory.
+Nexa advertises and serves text-file and terminal RPCs. File access uses the
+existing workspace/source policy; writes retain checkpoints and change records.
+Terminals preserve cwd/environment, bound output, stream their state into tool
+cards, and support asynchronous wait, kill and release with process-tree cleanup.
+Commands without argv use the host shell, as required by Goose; explicit argv
+remains literal. Native tool reports, including file diffs and released terminal
+output, are projected without executing their effects again. These client services
+do not sandbox the external process's own tools.
+
+Native questions with multiple one-time choices require the exact selected
+answer. Generic allow-all policy and reusable tool approval cannot choose an
+answer or promote a one-time decision into a permanent native grant.
+The same exact-choice flow is available on the phone and projects a selected
+answer separately from an allowed/denied tool permission. Waiting for an answer
+does not block filesystem requests, terminal output or cancellation.
 
 Text/thinking, native tool lifecycle, context usage snapshots and final message
 IDs flow through the existing ordered outbox. A fresh session receives bounded
@@ -89,6 +130,15 @@ incomplete/unknown stop reasons retain partial text without emitting success.
 Native tool reports must finish before a successful terminal event. Context
 usage is not added as billable usage; missing native token/cost data is not
 estimated from an API price table.
+
+Context usage retains the native capacity, occupied tokens and provider/model
+identity. Compaction can lower occupancy; billing remains cumulative and separate.
+Copilot's `session.usage_info`, Codex's thread token snapshot and ACP's `usage_update`
+feed this state through live events and durable conversation usage. Switching
+models cannot reuse another runtime/model's context capacity. Completed progress
+and questions are checkpointed during a turn instead of consuming a lifetime
+block limit. Copilot's event queue is drained into a temporary spool so a slow
+renderer/database does not lose ephemeral usage, filter or completion events.
 
 Nexa's tools, subagent scheduler, screen sharing, MoA and strict read-only Plan
 policy are not exposed by this ACP adapter. The composer hides controls it cannot
@@ -120,12 +170,23 @@ the runtime does not silently switch to an in-memory journal.
   Empty mode's forced keychain-disable environment setting is overridden with
   the caller's original setting, so enrollment and execution use the same
   system-keychain or explicitly selected file credential backend.
+  Nexa disables SDK tool deferral/search for this route and explicitly registers
+  the complete tool inventory; editing tools remain callable above the SDK's
+  default 30-tool deferral threshold. The separately labelled Copilot CLI ACP
+  route uses native tools and native permissions instead.
 - Codex uses a fresh ephemeral app-server thread, no executor environments,
   read-only policy and disabled shell, web, plugins, hooks, agents and automation.
   Effective MCP names and skill paths are inventoried and disabled for that
   thread without changing global config. An inventory error prevents submission.
   This enumeration is not an OS sandbox or an atomic ban on skills created after
   the inventory. The supported CLI must accept the complete execution contract.
+  Its stock executor-permission prompt is disabled because it incorrectly labels
+  Nexa's host tools as read-only. Nexa supplies the actual host-tool scope and
+  approval guidance; the Codex executor's read-only policy remains enforced.
+- Codex reserves the `mcp__` dynamic-tool namespace. Nexa sends stable protocol
+  aliases and restores the original registered names at dispatch, preserving
+  connector identity, permission rules and tool receipts. Runtime warnings remain
+  visible in the status row and ordered trace.
 - Codex native clock requests receive the actual host time. Native asynchronous
   questions/status are persisted visibly, and are never interpreted as terminal
   answers. Real user replies use `turn/steer`; no suggested option is auto-sent.
@@ -186,6 +247,14 @@ into the user's official login and one read-only tool inference. They assert a
 fresh tool nonce reaches the streamed answer, executes once, persists once, and
 emits one terminal event through the real forwarder/outbox, and closes the turn
 with the exact final assistant ID before delivery. They are not run by ordinary CI.
+
+Additional opt-in native edit tests use the full tool catalog and real read/edit
+implementations against one disposable temporary file. Deterministic ACP peers
+exercise config replacement, provider/model dependency, Unicode filesystem edits,
+terminal polling beyond 512 requests, released output, native choices, cancellation
+and context compaction. Passing these contracts is not a claim that every external
+CLI version or account has passed live inference; Check connection reports this
+boundary explicitly.
 
 Implementation: [subscription drivers](../apps/desktop/src-tauri/src/agent_runtime),
 [account enrollment](../apps/desktop/src-tauri/src/commands/subscription_accounts.rs),

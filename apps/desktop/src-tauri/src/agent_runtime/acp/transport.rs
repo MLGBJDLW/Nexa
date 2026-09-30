@@ -58,10 +58,27 @@ fn executable(preset: &ExternalAgentPreset, launch: &ExternalAgentLaunch) -> Res
             }
         }
     }
+    if preset.provider == "github_copilot_acp" {
+        return crate::commands::subscription_accounts::resolve_copilot_binary().map_err(error);
+    }
     Err(error(format!("{} is not installed on PATH. Install and sign in with its official CLI, or choose its executable in Settings.", preset.name)))
 }
 
 impl Wire {
+    pub(super) fn take_pending(&mut self) -> Result<VecDeque<Value>> {
+        let mut pending = std::mem::take(&mut self.queued);
+        while let Ok(value) = self.messages.try_recv() {
+            if pending.len() >= 256 {
+                return Err(error("ACP queued event budget exceeded"));
+            }
+            pending.push_back(value?);
+        }
+        Ok(pending)
+    }
+    pub(super) fn requeue(&mut self, pending: VecDeque<Value>) {
+        self.queued = pending;
+    }
+
     pub(super) fn is_alive(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None)) && !self.messages.is_closed()
     }
@@ -74,6 +91,7 @@ impl Wire {
         let mut command = tokio::process::Command::new(executable(preset, launch)?);
         command
             .args(&preset.args)
+            .envs(&preset.env)
             .current_dir(&launch.working_directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

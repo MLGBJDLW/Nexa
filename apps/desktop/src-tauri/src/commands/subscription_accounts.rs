@@ -93,6 +93,8 @@ pub struct CopilotModelSummary {
     pub(super) id: String,
     pub(super) name: String,
     pub(super) reasoning_efforts: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) context_window: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -892,6 +894,13 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
                         .into_iter()
                         .take(100)
                         .map(|model| CopilotModelSummary {
+                            context_window: model
+                                .capabilities
+                                .limits
+                                .as_ref()
+                                .and_then(|limits| limits.max_context_window_tokens)
+                                .and_then(|v| u32::try_from(v).ok())
+                                .filter(|v| *v > 0),
                             id: bounded_field(&model.id, 120),
                             name: bounded_field(&model.name, 160),
                             reasoning_efforts: model
@@ -1033,7 +1042,15 @@ pub async fn list_subscription_models_cmd(
             .db
             .external_agent_launch(&id)
             .map_err(|error| error.to_string())?;
-        return super::external_agents::probe_external_agent_cmd(provider, launch).await;
+        return crate::agent_runtime::acp::probe(
+            &provider,
+            &launch,
+            &state.db,
+            Some(&config.model),
+        )
+        .await
+        .map(|catalog| super::external_agents::summaries(catalog.models))
+        .map_err(|error| error.to_string());
     }
     match provider.as_str() {
         "github_copilot" => {
@@ -1054,6 +1071,7 @@ pub async fn list_subscription_models_cmd(
                 }.await;
                 let _ = client.stop().await;
                 result.map(|models| models.into_iter().take(100).map(|model| CopilotModelSummary {
+                    context_window: model.capabilities.limits.as_ref().and_then(|limits| limits.max_context_window_tokens).and_then(|v| u32::try_from(v).ok()).filter(|v| *v > 0),
                     id: bounded_field(&model.id, 120), name: bounded_field(&model.name, 160),
                     reasoning_efforts: model.supported_reasoning_efforts.unwrap_or_default().into_iter().take(12)
                         .map(|effort| bounded_field(&effort, 32)).collect(),
@@ -1092,6 +1110,11 @@ pub async fn list_subscription_models_cmd(
                         continue;
                     };
                     models.push(CopilotModelSummary {
+                        context_window: item
+                            .get("contextWindow")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u32::try_from(v).ok())
+                            .filter(|v| *v > 0),
                         id: id.to_string(),
                         name: item
                             .get("displayName")

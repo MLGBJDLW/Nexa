@@ -103,6 +103,7 @@ pub mod quality_profile;
 pub mod rag;
 pub mod run_event_outbox;
 pub mod runtime;
+pub mod runtime_receipts;
 pub mod search;
 mod sensitive_data;
 pub mod settings_schema_v2;

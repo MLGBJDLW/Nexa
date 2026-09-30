@@ -90,7 +90,6 @@ const TOOL_GROUP_BY_NAME: Record<string, SubagentToolGroupId> = {
 
   write_note: 'write',
   edit_file: 'write',
-  multi_edit: 'write',
   reindex_document: 'write',
   manage_source: 'write',
   archive_output: 'write',
@@ -266,13 +265,6 @@ export const SUBAGENT_TOOL_CATALOG: SubagentToolDescriptor[] = [
     name: 'edit_file',
     label: 'Edit File',
     description: 'Apply text edits to files inside registered sources.',
-    enabledByDefault: false,
-    source: 'built_in',
-  },
-  {
-    name: 'multi_edit',
-    label: 'Multi Edit',
-    description: 'Apply several coordinated text replacements atomically.',
     enabledByDefault: false,
     source: 'built_in',
   },

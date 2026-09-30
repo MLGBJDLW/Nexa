@@ -1,13 +1,18 @@
+use super::copilot_events::{EventLedger, EventStream};
 use super::projection::Projection;
 use super::*;
-use github_copilot_sdk::types::{ToolBinaryResult, ToolInvocation, ToolResult, ToolResultExpanded};
+use github_copilot_sdk::types::{
+    DeferMode, ToolBinaryResult, ToolInvocation, ToolResult, ToolResultExpanded, ToolSearchConfig,
+};
 use github_copilot_sdk::{
     Attachment, CliProgram, Client, ClientMode, ClientOptions, MessageOptions, SessionConfig,
     SessionEvent, SystemMessageConfig, Tool, ToolSet,
 };
 use nexa_core::agent::StreamBlockChannel;
 use nexa_core::llm::ToolCallRequest;
-use std::collections::{HashSet, VecDeque};
+#[cfg(test)]
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::time::Duration;
 
 struct ToolBridge {
@@ -152,6 +157,9 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             Tool::new(definition.name)
                 .with_description(definition.description)
                 .with_parameters(definition.parameters)
+                // The CLI otherwise defers custom tools once its catalog exceeds
+                // 30 entries. Empty mode has no native search tool to load them.
+                .with_defer(DeferMode::Never)
                 // Only this custom callback skips CLI permission prompts. Nexa's
                 // shared dispatcher performs the actual policy and user approval.
                 .with_skip_permission(true)
@@ -162,6 +170,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .with_model(&model_id)
         .with_streaming(true)
         .with_tools(tools)
+        .with_tool_search(ToolSearchConfig::new().with_enabled(false))
         .with_available_tools(
             ToolSet::new()
                 .add_custom("*")
@@ -195,7 +204,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot session creation".into())),
         result = tokio::time::timeout(Duration::from_secs(30), client.create_session(config)) => result.map_err(|_| protocol_error("Copilot session creation timed out"))?.map_err(protocol_error)?,
     };
-    let mut events = session.subscribe();
+    let mut events = EventStream::start(session.subscribe())?;
     let initial = MessageOptions::new(&turn.prompt).with_attachments(
         turn.images
             .iter()
@@ -206,56 +215,72 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             })
             .collect(),
     );
-    let mut projection = Projection::default();
-    let mut seen = HashSet::new();
+    let mut projection = Projection::for_turn(&turn);
+    let mut seen = EventLedger::default();
     let mut response = super::copilot_response::Response::default();
     let mut steering = VecDeque::new();
     let mut steering_closed = false;
     let run = async {
-        session.send(initial).await.map_err(protocol_error)?;
+        let mut next = initial;
         loop {
-            tokio::select! {
-                biased;
-                error = fatal_rx.recv() => if let Some(error) = error { return Err(error); },
-                _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped by user".into())),
-                message = turn.steering.recv(), if !steering_closed => match message {
-                    Some(message) => {
-                        if steering.len() >= 64 || message.content.len() > 256 * 1024 { return Err(protocol_error("Copilot steering input budget exceeded")); }
-                        steering.push_back(message);
+            // The SDK's reliable waiter observes idle/error before the bounded
+            // subscriber queue. Ephemeral idle cannot be recovered by replaying
+            // persisted messages after lag. The host cancellation token owns
+            // deadlines; do not accidentally adopt the SDK's 60-second default.
+            let operation = session.send_and_wait(next.with_wait_timeout(Duration::from_secs(u32::MAX as u64)));
+            tokio::pin!(operation);
+            let mut completed = None;
+            let mut idle_observed = false;
+            loop {
+                if completed.is_some() && idle_observed { break; }
+                tokio::select! {
+                    biased;
+                    _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped by user".into())),
+                    error = fatal_rx.recv() => if let Some(error) = error { return Err(error); },
+                    message = turn.steering.recv(), if !steering_closed => match message {
+                        Some(message) => {
+                            if steering.len() >= 64 || message.content.len() > 256 * 1024 { return Err(protocol_error("Copilot steering input budget exceeded")); }
+                            steering.push_back(message);
+                        },
+                        None => steering_closed = true,
                     },
-                    None => steering_closed = true,
-                },
-                event = events.recv() => {
-                    let batch = match event {
-                        Ok(event) => vec![event],
-                        Err(error) if matches!(error.kind(), github_copilot_sdk::subscription::RecvErrorKind::Lagged(_)) => {
-                            session.get_events().await.map_err(protocol_error)?
-                        }
-                        Err(error) => return Err(protocol_error(error)),
-                    };
-                    let mut idle = false;
-                    for event in batch {
-                        if event.agent_id.is_none() && !seen.contains(&event.id) {
-                            if event.event_type == "session.idle" { idle = true; }
-                            else if matches!(event.event_type.as_str(), "assistant.turn_start" | "assistant.message_delta" | "tool.execution_start") { idle = false; }
+                    result = &mut operation, if completed.is_none() => {
+                        if result.is_err() { completed = Some(result); break; }
+                        completed = Some(result);
+                    },
+                    event = events.recv() => {
+                        let event = event?;
+                        if event.agent_id.as_deref().is_none_or(str::is_empty) {
+                            if event.event_type == "session.idle" {
+                                if event.data["aborted"] == true { return Err(CoreError::Cancelled("Copilot turn was aborted".into())); }
+                                idle_observed = true;
+                            } else if matches!(event.event_type.as_str(), "assistant.turn_start" | "tool.execution_start") { idle_observed = false; }
                         }
                         project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
-                    }
-                    if idle {
-                        response.ensure_complete()?;
-                        if let Some(message) = steering.pop_front() {
-                            if message.recovery_control.is_some() { return Err(protocol_error("Copilot manages its own recovery. Stop and start a new turn to change reasoning.")); }
-                            let attachments = message.parts.iter().filter_map(|part| match part { ContentPart::Image {media_type,data} => Some(Attachment::Blob{data:data.clone(),mime_type:media_type.clone(),display_name:None}),_=>None }).collect::<Vec<_>>();
-                            if !native_vision && !attachments.is_empty() { return Err(protocol_error("the selected Copilot model does not accept steering images")); }
-                            projection.persist_completed_answer(&turn).await?;
-                            turn.transcript.persist_steering(&message).await?;
-                            if turn.cancellation.is_cancelled() { return Err(CoreError::Cancelled("Stopped by user".into())); }
-                            turn.events.send(AgentEvent::Steering { content:message.content.clone() }).await.map_err(protocol_error)?;
-                            session.send(MessageOptions::new(redact_user_text(&message.content,&turn.privacy)).with_attachments(attachments)).await.map_err(protocol_error)?;
-                        } else { return Ok(()); }
+                        projection.persist_settled(&turn, response.take_settled()).await?;
                     }
                 }
+            };
+            // Full durable records repair any dropped deltas, and the cursor
+            // prevents re-counting or resurrecting already-checkpointed output.
+            for event in seen.backfill(session.get_events().await.map_err(protocol_error)?)? {
+                project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
+                projection.persist_settled(&turn, response.take_settled()).await?;
             }
+            if let Some(event) = completed.expect("native completion observed").map_err(protocol_error)? {
+                project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
+                projection.persist_settled(&turn, response.take_settled()).await?;
+            }
+            response.ensure_complete()?;
+            let Some(message) = steering.pop_front() else { return Ok(()); };
+            if message.recovery_control.is_some() { return Err(protocol_error("Copilot manages its own recovery. Stop and start a new turn to change reasoning.")); }
+            let attachments = message.parts.iter().filter_map(|part| match part { ContentPart::Image {media_type,data} => Some(Attachment::Blob{data:data.clone(),mime_type:media_type.clone(),display_name:None}),_=>None }).collect::<Vec<_>>();
+            if !native_vision && !attachments.is_empty() { return Err(protocol_error("the selected Copilot model does not accept steering images")); }
+            projection.persist_completed_answer(&turn).await?;
+            turn.transcript.persist_steering(&message).await?;
+            if turn.cancellation.is_cancelled() { return Err(CoreError::Cancelled("Stopped by user".into())); }
+            turn.events.send(AgentEvent::Steering { content:message.content.clone() }).await.map_err(protocol_error)?;
+            next = MessageOptions::new(redact_user_text(&message.content,&turn.privacy)).with_attachments(attachments);
         }
     }.await;
     turn.cancellation.cancel();
@@ -280,13 +305,13 @@ async fn project_event(
     projection: &mut Projection,
     response: &mut super::copilot_response::Response,
     tx: &mpsc::Sender<AgentEvent>,
-    seen: &mut HashSet<String>,
+    seen: &mut EventLedger,
     event: &SessionEvent,
 ) -> Result<(), CoreError> {
-    if event.agent_id.is_some() {
+    if event.agent_id.as_deref().is_some_and(|id| !id.is_empty()) {
         return Ok(());
     }
-    if event.ephemeral != Some(true) && !seen.insert(event.id.clone()) {
+    if !seen.observe(event) {
         return Ok(());
     }
     let data = &event.data;
@@ -339,6 +364,7 @@ async fn project_event(
             }
         }
         "assistant.turn_start" => {
+            response.ensure_complete()?;
             response.start(data.get("turnId").and_then(serde_json::Value::as_str));
             projection.clear_answer();
         }
@@ -354,6 +380,43 @@ async fn project_event(
             response.tool_started();
             projection.clear_answer();
         }
+        "session.usage_info" => {
+            if let Some(used) = data["currentTokens"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok())
+            {
+                let capacity = data["tokenLimit"]
+                    .as_u64()
+                    .and_then(|v| u32::try_from(v).ok());
+                let mut remaining = used;
+                let mut segments = Vec::new();
+                for (field, kind) in [
+                    ("systemTokens", "systemCore"),
+                    ("toolDefinitionsTokens", "tools"),
+                    ("conversationTokens", "conversation"),
+                ] {
+                    if let Some(tokens) = data[field].as_u64().and_then(|v| u32::try_from(v).ok()) {
+                        let tokens = tokens.min(remaining);
+                        remaining -= tokens;
+                        if tokens > 0 {
+                            segments.push(nexa_core::agent::context::ContextUsageSegment {
+                                kind: kind.into(),
+                                tokens,
+                            });
+                        }
+                    }
+                }
+                if remaining > 0 {
+                    segments.push(nexa_core::agent::context::ContextUsageSegment {
+                        kind: "overhead".into(),
+                        tokens: remaining,
+                    });
+                }
+                projection
+                    .context_snapshot(tx, used, capacity, segments)
+                    .await?;
+            }
+        }
         "assistant.usage" => {
             let tokens = |key: &str| {
                 data.get(key)
@@ -365,7 +428,14 @@ async fn project_event(
                 .usage
                 .prompt_tokens
                 .saturating_add(tokens("inputTokens"));
-            projection.last_prompt_tokens = tokens("inputTokens");
+            if projection.context_breakdown.is_none()
+                && data
+                    .get("initiator")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(str::is_empty)
+            {
+                projection.last_prompt_tokens = tokens("inputTokens");
+            }
             projection.usage.completion_tokens = projection
                 .usage
                 .completion_tokens
@@ -374,6 +444,18 @@ async fn project_event(
                 .usage
                 .prompt_tokens
                 .saturating_add(projection.usage.completion_tokens);
+            for (field, target) in [
+                ("cacheReadTokens", &mut projection.usage.cache_read_tokens),
+                (
+                    "cacheWriteTokens",
+                    &mut projection.usage.cache_creation_tokens,
+                ),
+            ] {
+                if data[field].as_u64().is_some() {
+                    *target = Some(target.unwrap_or(0).saturating_add(tokens(field)));
+                }
+            }
+            projection.publish_usage(tx).await?;
             // Copilot normalizes Anthropic's refusal stop reason to content_filter.
             // Treat the explicit protocol signal as a failed turn, never infer it
             // from assistant prose (which may be quoting an error for the user).
@@ -396,16 +478,48 @@ async fn project_event(
             }
         }
         "session.error" => {
-            return Err(protocol_error(
-                data.get("message")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Copilot session failed"),
-            ))
+            let details = [
+                "errorType",
+                "errorCode",
+                "statusCode",
+                "providerCallId",
+                "serviceRequestId",
+            ]
+            .iter()
+            .filter_map(|key| {
+                data.get(key).filter(|value| !value.is_null()).map(|value| {
+                    format!(
+                        "{key}={}",
+                        value
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| value.to_string())
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+            let message = data["message"]
+                .as_str()
+                .unwrap_or("Copilot session failed")
+                .chars()
+                .take(2000)
+                .collect::<String>();
+            return Err(protocol_error(format!("Copilot: {message} [{details}]")));
+        }
+        "session.compaction_start" => {
+            tx.send(AgentEvent::ControllerStatus {
+                code: "external_agent_compacting".into(),
+                content: "Copilot is compacting its context".into(),
+                tone: None,
+            })
+            .await
+            .map_err(protocol_error)?;
+        }
+        "session.compaction_complete" => {
+            tx.send(AgentEvent::ControllerStatus { code: "external_agent_active".into(), content: if data["success"] == false { "Copilot context compaction did not complete; waiting for the runtime's next event" } else { "Copilot context compacted" }.into(), tone: None }).await.map_err(protocol_error)?;
         }
         _ => {}
-    }
-    if seen.len() > 8192 {
-        return Err(protocol_error("Copilot exceeded the turn event budget"));
     }
     Ok(())
 }
@@ -413,6 +527,61 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn native_context_snapshot_survives_compaction_and_done_without_becoming_billable() {
+        let (request, mut rx, _, _) =
+            super::super::tests::fixture(AgentRuntimeKind::Copilot, "test");
+        let turn = request.prepare(false).unwrap();
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        for current in [48_000, 12_000] {
+            project_test_event(
+                &mut projection,
+                &mut response,
+                &turn.events,
+                "session.usage_info",
+                serde_json::json!({
+                    "currentTokens": current, "tokenLimit": 200_000, "messagesLength": 4,
+                    "systemTokens": 2_000, "toolDefinitionsTokens": 3_000,
+                    "conversationTokens": current - 5_000
+                }),
+            )
+            .await
+            .unwrap();
+            let event = rx
+                .try_recv()
+                .expect("native context usage must reach the UI live");
+            let wire = nexa_core::agent_run::AgentRunEvent::from_agent_event(&event);
+            assert_eq!(wire.payload["lastPromptTokens"], current);
+            assert_eq!(wire.payload["contextBreakdown"]["contextWindow"], 200_000);
+            assert_eq!(
+                projection.usage.total_tokens, 0,
+                "context is not billed usage"
+            );
+        }
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &turn.events,
+            "assistant.message",
+            serde_json::json!({"messageId":"answer","content":"done"}),
+        )
+        .await
+        .unwrap();
+        projection.finish(&turn).await.unwrap();
+        let mut done = None;
+        while let Ok(event) = rx.try_recv() {
+            if matches!(event, AgentEvent::Done { .. }) {
+                done = Some(nexa_core::agent_run::AgentRunEvent::from_agent_event(
+                    &event,
+                ));
+            }
+        }
+        let done = done.unwrap();
+        assert_eq!(done.payload["lastPromptTokens"], 12_000);
+        assert_eq!(done.payload["contextBreakdown"]["contextWindow"], 200_000);
+    }
 
     #[tokio::test]
     async fn explicit_content_filter_clears_the_failed_attempt_without_classifying_prose() {
@@ -510,7 +679,14 @@ mod tests {
         let event: SessionEvent = serde_json::from_value(serde_json::json!({
             "id": uuid::Uuid::new_v4().to_string(), "timestamp": "2026-09-05T00:00:00Z", "type": kind, "data": data
         })).unwrap();
-        project_event(projection, response, tx, &mut HashSet::new(), &event).await
+        project_event(
+            projection,
+            response,
+            tx,
+            &mut EventLedger::default(),
+            &event,
+        )
+        .await
     }
 
     #[tokio::test]
@@ -729,6 +905,25 @@ mod tests {
             HashSet::from(["delta-only".to_string(), "reused".to_string()])
         );
         assert_eq!(replacement_offset, Some(0));
+    }
+
+    #[tokio::test]
+    #[ignore = "uses the official Copilot subscription to edit one disposable temporary file"]
+    async fn native_copilot_edits_with_full_nexa_catalog() {
+        let binary = crate::commands::subscription_accounts::resolve_copilot_binary().unwrap();
+        let client = Client::start(client_options(binary).unwrap())
+            .await
+            .unwrap();
+        let models = client.list_models().await.unwrap();
+        let model = models
+            .iter()
+            .find(|model| model.id == "claude-opus-5.5")
+            .or_else(|| models.first())
+            .unwrap()
+            .id
+            .clone();
+        client.stop().await.unwrap();
+        super::super::tests::run_live_edit(AgentRuntimeKind::Copilot, &model).await;
     }
 
     #[tokio::test]

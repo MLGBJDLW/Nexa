@@ -4810,8 +4810,12 @@ impl Database {
         if crate::external_agent::preset(&input.provider).is_none() {
             return Err(CoreError::InvalidInput("Unknown ACP agent.".into()));
         }
+        let mut launch = launch.clone();
+        if !launch.config_options.is_empty() {
+            launch.config_options_model = Some(input.model.clone());
+        }
         launch.validate()?;
-        self.save_agent_config_with_external_launch(input, Some(launch))
+        self.save_agent_config_with_external_launch(input, Some(&launch))
     }
 
     fn save_agent_config_with_external_launch(

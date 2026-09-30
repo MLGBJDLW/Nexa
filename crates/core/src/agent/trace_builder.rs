@@ -374,9 +374,7 @@ pub(super) fn evidence_signals_from_trace(items: &[PersistedTraceItem]) -> Evide
 
 fn push_runtime_verification_reason(tool_call: &PersistedTraceToolCall, reasons: &mut Vec<String>) {
     let reason = match tool_call.tool_name.as_str() {
-        "edit_file" | "multi_edit" => {
-            Some(format!("{} modified source files", tool_call.tool_name))
-        }
+        "edit_file" => Some(format!("{} modified source files", tool_call.tool_name)),
         "create_file" => Some("create_file created or overwrote files".to_string()),
         "write_note" => Some("write_note created or updated local files".to_string()),
         "run_shell" if artifact_has_file_changes(tool_call.artifacts.as_ref()) => {

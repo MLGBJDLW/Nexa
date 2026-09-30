@@ -5,18 +5,6 @@ use crate::file_checkpoint::{checkpoint_artifact, FileCheckpoint};
 const DIFF_CONTEXT_LINES: usize = 3;
 const MAX_DIFF_LINES: usize = 400;
 
-pub(crate) fn changed_line_count(text: &str) -> usize {
-    if text.is_empty() {
-        return 0;
-    }
-    let count = text.split('\n').count();
-    if text.ends_with('\n') {
-        count.saturating_sub(1)
-    } else {
-        count
-    }
-}
-
 fn text_lines(content: &str) -> Vec<&str> {
     if content.is_empty() {
         Vec::new()
@@ -103,7 +91,7 @@ pub(crate) fn create_file_diff_artifact(path: &str, file_content: &str) -> Value
     })
 }
 
-pub(crate) fn text_diff_artifact(
+pub fn text_diff_artifact(
     path: &str,
     operation: &str,
     old_content: &str,
@@ -182,14 +170,6 @@ pub(crate) fn diff_stats_from_diff(diff: &Value, replacements: Option<usize>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn changed_line_count_ignores_trailing_newline() {
-        assert_eq!(changed_line_count(""), 0);
-        assert_eq!(changed_line_count("one"), 1);
-        assert_eq!(changed_line_count("one\n"), 1);
-        assert_eq!(changed_line_count("one\ntwo\n"), 2);
-    }
 
     #[test]
     fn diff_stats_from_diff_extracts_counts() {

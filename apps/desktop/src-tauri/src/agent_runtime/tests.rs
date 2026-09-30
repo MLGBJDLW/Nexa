@@ -9,6 +9,7 @@ use nexa_core::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct NonceTool {
+    name: &'static str,
     calls: Arc<AtomicUsize>,
     nonce: String,
 }
@@ -36,13 +37,11 @@ impl Tool for CatalogOnlyTool {
 #[test]
 fn saved_subscription_configs_keep_the_native_route_and_reasoning_level() {
     let db = Database::open_memory().unwrap();
-    for provider in [
-        "github_copilot",
-        "openai_codex",
-        "gemini_cli",
-        "opencode",
-        "hermes",
-    ] {
+    for provider in ["github_copilot", "openai_codex"].into_iter().chain(
+        nexa_core::external_agent::presets()
+            .iter()
+            .map(|preset| preset.provider.as_str()),
+    ) {
         let input = serde_json::from_value(serde_json::json!({"name":provider,"provider":provider,"apiKey":"","model":"gpt-native-test","isDefault":true,"reasoningEffort":"ultra"})).unwrap();
         let saved = db.save_agent_config(&input).unwrap();
         let loaded = db.get_agent_config(&saved.id).unwrap();
@@ -108,7 +107,7 @@ fn subscription_input_and_history_obey_the_saved_privacy_policy() {
 #[async_trait::async_trait]
 impl Tool for NonceTool {
     fn name(&self) -> &str {
-        "read_test_nonce"
+        self.name
     }
     fn description(&self) -> &str {
         "Read the integration test nonce. This has no external effects."
@@ -147,7 +146,11 @@ pub(super) fn fixture(
             persona_id: None,
         })
         .unwrap();
-    let prompt = "Call read_test_nonce exactly once, then reply with the returned nonce and nothing else. Do not use any other tool.";
+    let (name, prompt) = if matches!(kind, AgentRuntimeKind::Codex) {
+        ("mcp__audit__read_test_nonce", "Call the Nexa tool mcp__audit__read_test_nonce exactly once (it may have a protocol alias), then reply with the returned nonce and nothing else. Do not use any other tool.")
+    } else {
+        ("read_test_nonce", "Call read_test_nonce exactly once, then reply with the returned nonce and nothing else. Do not use any other tool.")
+    };
     let user = ConversationMessage {
         id: uuid::Uuid::new_v4().to_string(),
         conversation_id: conversation.id.clone(),
@@ -170,6 +173,7 @@ pub(super) fn fixture(
     let nonce = uuid::Uuid::new_v4().to_string();
     let mut tools = ToolRegistry::new();
     tools.register(Box::new(NonceTool {
+        name,
         calls: calls.clone(),
         nonce: nonce.clone(),
     }));
@@ -276,7 +280,11 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
     let forwarding = tokio::spawn(forwarder.run(forward_rx));
     let (steering_tx, steering_rx) = mpsc::unbounded_channel();
     request.steering = steering_rx;
-    let correction = "Keep the current read_test_nonce call, and do not call any tool again. After its result arrives, reply with STEERING_CONFIRMED followed by that nonce.";
+    let (probe_tool, correction) = if matches!(kind, AgentRuntimeKind::Codex) {
+        ("mcp__audit__read_test_nonce", "Keep the current mcp__audit__read_test_nonce call, and do not call any tool again. After its result arrives, reply with STEERING_CONFIRMED followed by that nonce.")
+    } else {
+        ("read_test_nonce", "Keep the current read_test_nonce call, and do not call any tool again. After its result arrives, reply with STEERING_CONFIRMED followed by that nonce.")
+    };
     let drain = tokio::spawn(async move {
         let mut done = 0;
         let mut deltas = 0;
@@ -289,7 +297,7 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
                 AgentEvent::StreamBlockDelta { .. } => deltas += 1,
                 AgentEvent::ToolRunStarted { ref run } | AgentEvent::ToolRunUpdated { ref run } => {
                     tool_events.push((run.tool_name.clone(), format!("{:?}", run.status)));
-                    if run.tool_name == "read_test_nonce" && !steered {
+                    if run.tool_name == probe_tool && !steered {
                         steering_tx
                             .send(AgentSteeringMessage::text(correction))
                             .unwrap();
@@ -309,7 +317,9 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
         .expect("live runtime completion");
     assert!(
         result.text_content().contains(&nonce),
-        "answer must use actual Nexa tool evidence"
+        "answer must use actual Nexa tool evidence: calls={}, answer={}",
+        calls.load(Ordering::SeqCst),
+        result.text_content()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let (done, deltas, steered, applied, tool_events) = drain.await.unwrap();
@@ -370,5 +380,127 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
     assert_eq!(
         completed.assistant_message_id.as_deref(),
         Some(history.last().unwrap().id.as_str())
+    );
+}
+
+/// Exercise the real read/edit implementations in an isolated disposable folder
+/// with the full production tool catalog present (including Copilot's >30 boundary).
+pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("native-edit.txt");
+    std::fs::write(&path, "old value\n").unwrap();
+    let (mut request, mut rx, _, nonce) = fixture(kind, model);
+    request.config.max_iterations = 10;
+    let assembler =
+        nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&request.db).unwrap();
+    let catalog = assembler
+        .assemble_tool_registry(assembler.builtin_tool_registry())
+        .unwrap();
+    for definition in catalog
+        .tools
+        .definitions()
+        .into_iter()
+        .filter(|definition| !matches!(definition.name.as_str(), "read_file" | "edit_file"))
+    {
+        request
+            .dependencies
+            .tools
+            .register(Box::new(CatalogOnlyTool(definition)));
+    }
+    request
+        .dependencies
+        .tools
+        .register(Box::new(nexa_core::tools::file_tool::FileTool));
+    request
+        .dependencies
+        .tools
+        .register(Box::new(nexa_core::tools::edit_file_tool::EditFileTool));
+    request.dependencies.tools =
+        request
+            .dependencies
+            .tools
+            .with_workspace(Some(nexa_core::workspace::Workspace {
+                roots: vec![directory.path().to_string_lossy().into()],
+            }));
+    assert!(request.dependencies.tools.definitions().len() > 30);
+    request.user_parts = vec![ContentPart::Text { text: format!(
+        "In this disposable integration-test workspace, use read_file to read {}, then edit_file to replace old value with {}. Read it again to verify. Reply EDIT_VERIFIED and the exact new value. Use only read_file and edit_file; all other tools are unavailable in this test.",
+        path.display(), nonce
+    ) }];
+    let db = request.db.clone();
+    let conversation = request.conversation_id.clone();
+    let drain = tokio::spawn(async move {
+        let mut edits = 0;
+        let mut done = 0;
+        let mut native_capacity = None;
+        let mut tool_receipts = Vec::new();
+        while let Some(event) = rx.recv().await {
+            match event {
+                AgentEvent::ToolRunCompleted { run } if run.tool_name == "edit_file" => {
+                    assert_eq!(
+                        run.status,
+                        nexa_core::agent::ToolRunStatus::Completed,
+                        "{run:?}"
+                    );
+                    edits += 1;
+                    tool_receipts.push(format!(
+                        "{}: {:?} {}",
+                        run.tool_name,
+                        run.status,
+                        run.content.unwrap_or_default()
+                    ));
+                }
+                AgentEvent::ToolRunCompleted { run } => tool_receipts.push(format!(
+                    "{}: {:?} {}",
+                    run.tool_name,
+                    run.status,
+                    run.content
+                        .unwrap_or_default()
+                        .chars()
+                        .take(1200)
+                        .collect::<String>()
+                )),
+                AgentEvent::ControllerStatus { code, content, .. }
+                    if code == "external_agent_warning" =>
+                {
+                    tool_receipts.push(format!("warning: {content}"))
+                }
+                AgentEvent::UsageUpdate {
+                    context_breakdown: Some(breakdown),
+                    ..
+                } => {
+                    native_capacity = breakdown.context_window.or(native_capacity);
+                }
+                AgentEvent::Done { .. } => done += 1,
+                _ => {}
+            }
+        }
+        (edits, done, native_capacity, tool_receipts)
+    });
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(180), run(request))
+        .await
+        .expect("native edit deadline")
+        .expect("native edit completion");
+    let (edits, done, native_capacity, tool_receipts) = drain.await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap().trim(),
+        nonce,
+        "model={model}, answer={}, tools={tool_receipts:?}",
+        answer.text_content()
+    );
+    assert!(answer.text_content().contains("EDIT_VERIFIED"));
+    assert!(answer.text_content().contains(&nonce));
+    assert_eq!(edits, 1);
+    assert_eq!(done, 1);
+    assert_eq!(db.list_file_checkpoints(None).unwrap().len(), 1);
+    assert!(db
+        .get_messages(&conversation)
+        .unwrap()
+        .last()
+        .unwrap()
+        .content
+        .contains(&nonce));
+    eprintln!(
+        "Live {kind:?} model={model}: real edit once; native context capacity={native_capacity:?}"
     );
 }

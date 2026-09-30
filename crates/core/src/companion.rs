@@ -455,7 +455,6 @@ fn tool_state(tool_name: &str) -> CompanionState {
     }
     if [
         "edit_file",
-        "multi_edit",
         "write_file",
         "create_file",
         "apply_patch",

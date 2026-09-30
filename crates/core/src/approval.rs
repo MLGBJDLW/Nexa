@@ -55,6 +55,10 @@ pub struct ApprovalRequest {
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_preview: Option<ApprovalCheckpointPreview>,
+    /// A native agent may request an explicit choice. Generic permission grants
+    /// cannot select an answer, and these choices are never cached as grants.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
     #[serde(skip)]
     durable_reason: Option<String>,
 }
@@ -100,6 +104,7 @@ impl ApprovalRequest {
             risk_level,
             reason: reason.into(),
             checkpoint_preview: checkpoint_preview(&tool_name, arguments),
+            choices: Vec::new(),
             durable_reason: None,
         }
     }
@@ -485,6 +490,8 @@ pub enum ApprovalDecision {
     Deny,
     /// Deny this invocation and remember the rule across restarts.
     Never,
+    /// Select an explicitly presented native option by its zero-based index.
+    SelectOption(u32),
 }
 
 impl ApprovalDecision {
@@ -498,6 +505,7 @@ impl ApprovalDecision {
             Self::AllowSession => "allow_session",
             Self::Deny => "deny",
             Self::Never => "never",
+            Self::SelectOption(_) => "select_option",
         }
     }
 
@@ -507,7 +515,11 @@ impl ApprovalDecision {
             "allow_session" => Some(Self::AllowSession),
             "deny" => Some(Self::Deny),
             "never" => Some(Self::Never),
-            _ => None,
+            _ => value
+                .strip_prefix("select_option:")
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|index| *index < 64)
+                .map(Self::SelectOption),
         }
     }
 }
@@ -789,7 +801,7 @@ pub fn describe_request(tool_name: &str, args: &serde_json::Value) -> String {
                 )
             }
         }
-        "edit_file" | "multi_edit" => {
+        "edit_file" => {
             let path = args
                 .get("path")
                 .and_then(|v| v.as_str())
@@ -856,7 +868,7 @@ fn checkpoint_preview(
     args: &serde_json::Value,
 ) -> Option<ApprovalCheckpointPreview> {
     let path_arg = match tool_name {
-        "create_file" | "edit_file" | "multi_edit" => args
+        "create_file" | "edit_file" => args
             .get("path")
             .and_then(|v| v.as_str())
             .map(str::to_string),

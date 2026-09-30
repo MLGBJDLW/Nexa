@@ -16,6 +16,375 @@ fn wire(mode: &str) -> Wire {
     wire_with_marker(mode, "")
 }
 
+#[tokio::test]
+async fn chat_model_switch_discards_old_model_options_and_discovery_survives_retirement() {
+    let mut wire = wire("dependent");
+    let mut session = Session::connect(&mut wire, "fixture").await.unwrap();
+    let preferences = std::collections::BTreeMap::from([
+        ("provider".into(), "B".into()),
+        ("reasoning_effort".into(), "low".into()),
+        ("fast".into(), "on".into()),
+    ]);
+    session
+        .configure(
+            &mut wire,
+            Some("B2"),
+            &preferences,
+            None,
+            Some("A1"),
+            catalog::ConfigurationUse::Inference,
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.models[0].id, "B2");
+    session
+        .configure(
+            &mut wire,
+            Some("retired"),
+            &preferences,
+            None,
+            Some("A1"),
+            catalog::ConfigurationUse::Discovery,
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.models.len(), 2);
+    assert!(
+        session.select_model(&mut wire, "retired").await.is_err(),
+        "Inference cannot use a retired selection"
+    );
+}
+
+#[tokio::test]
+async fn provider_switch_replaces_catalog_before_model_and_model_dependent_reasoning() {
+    let mut wire = wire("dependent");
+    let mut session = Session::connect(&mut wire, "fixture").await.unwrap();
+    // Saved low is obsolete for B2; the explicit chat choice high owns reasoning.
+    let preferences = std::collections::BTreeMap::from([
+        ("provider".into(), "B".into()),
+        ("reasoning_effort".into(), "low".into()),
+    ]);
+    session
+        .configure(
+            &mut wire,
+            Some("B2"),
+            &preferences,
+            Some("high"),
+            None,
+            catalog::ConfigurationUse::Inference,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["B2", "B1"]
+    );
+    let effort = session
+        .config_options
+        .iter()
+        .find(|option| option.id == "reasoning_effort")
+        .unwrap();
+    assert_eq!(effort.current_value, "high");
+    assert_eq!(effort.options.len(), 2);
+    assert_eq!(effort.options[0].value, "high");
+    session
+        .set_option(&mut wire, "reasoning_effort", "default")
+        .await
+        .unwrap();
+    assert_eq!(
+        session
+            .config_options
+            .iter()
+            .find(|option| option.id == "reasoning_effort")
+            .unwrap()
+            .current_value,
+        "high"
+    );
+}
+
+#[tokio::test]
+#[ignore = "uses the official Copilot CLI ACP login to edit one disposable temporary file"]
+async fn native_copilot_acp_reads_and_edits_with_native_tools() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("native-acp-edit.txt");
+    std::fs::write(&path, "old value\n").unwrap();
+    let (mut request, mut rx, effects, nonce) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        "@nexa/agent-default",
+    );
+    let launch = ExternalAgentLaunch {
+        executable: Some(
+            crate::commands::subscription_accounts::resolve_copilot_binary()
+                .unwrap()
+                .to_string_lossy()
+                .into(),
+        ),
+        working_directory: directory.path().to_string_lossy().into(),
+        ..Default::default()
+    };
+    let catalog = probe("github_copilot_acp", &launch, &request.db, None)
+        .await
+        .unwrap();
+    let model = catalog
+        .models
+        .iter()
+        .find(|model| model.id == "claude-opus-5.5")
+        .unwrap_or(&catalog.models[0])
+        .id
+        .clone();
+    request.config.model = Some(model.clone());
+    request.user_parts = vec![nexa_core::llm::ContentPart::Text { text: format!(
+        "Read {} with your native tools, edit it by replacing old value with {}, then read it to verify. This is a disposable test file. Reply ACP_EDIT_VERIFIED and the exact new value.", path.display(), nonce) }];
+    request.external = Some(super::super::ExternalAgentBinding {
+        profile_id: uuid::Uuid::new_v4().to_string(),
+        launch,
+    });
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let answer = tokio::time::timeout(Duration::from_secs(180), run("github_copilot_acp", request))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(path).unwrap().trim(), nonce);
+    assert!(answer.text_content().contains("ACP_EDIT_VERIFIED"));
+    assert!(answer.text_content().contains(&nonce));
+    assert_eq!(effects.load(Ordering::SeqCst), 0);
+    drain.await.unwrap();
+    shutdown();
+    eprintln!("Live Copilot ACP model={model}: native edit and final answer verified");
+}
+
+fn client_wire(root: &std::path::Path, mode: &str) -> Wire {
+    let mut command =
+        tokio::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
+    command
+        .args([
+            "-u",
+            "-c",
+            include_str!("client_fixture.py"),
+            &root.to_string_lossy(),
+            mode,
+        ])
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    Wire::spawn(command).unwrap()
+}
+
+#[tokio::test]
+async fn user_permission_does_not_block_concurrent_filesystem_requests() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut request, mut rx, _, _) =
+        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("gemini_cli"), "native");
+    request.dependencies.tools =
+        request
+            .dependencies
+            .tools
+            .with_workspace(Some(nexa_core::workspace::Workspace {
+                roots: vec![directory.path().to_string_lossy().into()],
+            }));
+    request.approval = Arc::new(|_| {
+        Box::pin(async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            ApprovalDecision::AllowOnce
+        })
+    });
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let answer = tokio::time::timeout(
+        Duration::from_secs(10),
+        run_connected(
+            "gemini_cli",
+            request,
+            client_wire(directory.path(), "parallel_permission"),
+            &directory.path().to_string_lossy(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(answer.text_content(), "Concurrent services verified");
+    drain.await.unwrap();
+}
+
+#[tokio::test]
+async fn native_services_create_missing_files_render_released_terminals_and_survive_long_polling() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut request, mut rx, effects, _) =
+        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("gemini_cli"), "native");
+    request.dependencies.tools =
+        request
+            .dependencies
+            .tools
+            .with_workspace(Some(nexa_core::workspace::Workspace {
+                roots: vec![directory.path().to_string_lossy().into()],
+            }));
+    let db = request.db.clone();
+    let drain = tokio::spawn(async move {
+        let mut events = Vec::new();
+        while let Some(event) = rx.recv().await {
+            events.push(event);
+        }
+        events
+    });
+    tokio::time::timeout(
+        Duration::from_secs(60),
+        run_connected(
+            "gemini_cli",
+            request,
+            client_wire(directory.path(), "services"),
+            &directory.path().to_string_lossy(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let events = drain.await.unwrap();
+    assert_eq!(
+        effects.load(Ordering::SeqCst),
+        0,
+        "native reports are not replayed through Nexa tools"
+    );
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("created-中文.txt")).unwrap(),
+        "first\r\n中文🙂\nlast\n"
+    );
+    assert!(!directory.path().join("wrong-session.txt").exists());
+    let checkpoints = db.list_file_checkpoints(None).unwrap().len();
+    assert_eq!(
+        checkpoints, 1,
+        "duplicate write RPC must reuse the exact receipt"
+    );
+    assert!(events.iter().any(|event| matches!(event, AgentEvent::ToolRunCompleted { run } if run.call_id.ends_with("native-terminal") && run.content.as_deref().is_some_and(|text| text.contains("DONE")))));
+    assert!(events.iter().any(|event| matches!(event, AgentEvent::ToolRunCompleted { run } if run.call_id.ends_with("native-edit") && run.artifacts.as_ref().is_some_and(|value| value["diffs"][0]["additions"] == 3))));
+    let done = events
+        .iter()
+        .find(|event| matches!(event, AgentEvent::Done { .. }))
+        .unwrap();
+    let payload = nexa_core::agent_run::AgentRunEvent::from_agent_event(done).payload;
+    assert_eq!(payload["lastPromptTokens"], 6400);
+    assert_eq!(payload["contextBreakdown"]["contextWindow"], 64000);
+    assert_eq!(payload["usageTotal"]["totalTokens"], 0);
+}
+
+#[tokio::test]
+async fn queued_commands_keep_the_following_input_and_first_project_context() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        "native",
+    );
+    request.user_parts = vec![nexa_core::llm::ContentPart::Text {
+        text: "/context".into(),
+    }];
+    request.config.system_prompt = "PROJECT_CONTEXT_MUST_REACH_AGENT".into();
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    sender
+        .send(nexa_core::agent::AgentSteeringMessage::text(
+            "/mcp:server:command",
+        ))
+        .unwrap();
+    sender
+        .send(nexa_core::agent::AgentSteeringMessage::text(
+            "Continue with the requested work",
+        ))
+        .unwrap();
+    drop(sender);
+    request.steering = receiver;
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let answer = run_connected(
+        "github_copilot_acp",
+        request,
+        client_wire(directory.path(), "commands"),
+        &directory.path().to_string_lossy(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.text_content(), "Native peer completed");
+    drain.await.unwrap();
+}
+
+#[tokio::test]
+async fn cold_native_command_preserves_raw_input_and_does_not_mark_project_context_delivered() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut wire = client_wire(directory.path(), "commands");
+    let session = Session::connect(&mut wire, &directory.path().to_string_lossy())
+        .await
+        .unwrap();
+    let mut connection = pool::Connected {
+        wire,
+        session,
+        history: String::new(),
+        context: String::new(),
+    };
+    let (mut request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        "native",
+    );
+    request.user_parts = vec![nexa_core::llm::ContentPart::Text {
+        text: "/mcp:server:command".into(),
+    }];
+    request.config.system_prompt = "PROJECT_CONTEXT_MUST_REACH_AGENT".into();
+    let db = request.db.clone();
+    let conversation = request.conversation_id.clone();
+    let answer = run_initialized("github_copilot_acp", request, &mut connection)
+        .await
+        .unwrap();
+    assert!(answer.text_content().is_empty());
+    assert_eq!(
+        db.get_messages(&conversation).unwrap().len(),
+        1,
+        "A native command receipt is not assistant dialogue"
+    );
+    let mut command_receipt = false;
+    while let Ok(event) = rx.try_recv() {
+        if let AgentEvent::ControllerStatus { code, content, .. } = event {
+            if code == "external_agent_command_completed" {
+                command_receipt = content == "/mcp:server:command";
+            }
+        }
+    }
+    assert!(command_receipt);
+    assert!(connection.context.is_empty());
+    connection.history = "cached-completed-command".into();
+    let (mut request, _rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        "native",
+    );
+    request.config.system_prompt = "PROJECT_CONTEXT_MUST_REACH_AGENT".into();
+    run_initialized("github_copilot_acp", request, &mut connection)
+        .await
+        .unwrap();
+    assert!(!connection.context.is_empty());
+}
+
+#[tokio::test]
+async fn native_questions_require_the_selected_option_and_never_infer_the_first_answer() {
+    for (decision, expected) in [
+        (ApprovalDecision::SelectOption(1), "choice-b"),
+        (ApprovalDecision::AllowOnce, "deny"),
+    ] {
+        let (mut request, _rx, _, _) =
+            super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("opencode"), "native");
+        request.approval = Arc::new(move |request| {
+            assert_eq!(request.choices, vec!["First answer", "Second answer"]);
+            Box::pin(async move { decision })
+        });
+        let turn = request.prepare(false).unwrap();
+        let params = json!({"sessionId":"session","toolCall":{"toolCallId":"question","kind":"other","title":"Which target?"},"options":[{"optionId":"choice-a","kind":"allow_once","name":"First answer"},{"optionId":"choice-b","kind":"allow_once","name":"Second answer"},{"optionId":"deny","kind":"reject_once","name":"Skip"}]});
+        assert_eq!(
+            permission("opencode", &turn, "session", &params)
+                .await
+                .unwrap()["outcome"]["optionId"],
+            expected
+        );
+    }
+}
+
 #[test]
 fn reusable_permission_identity_ignores_invocation_ids_but_binds_profile_and_action() {
     let a = json!({"toolCallId":"first","title":"Read file","kind":"read","rawInput":{"path":"file.txt","range":{"start":1,"end":9}}});
@@ -351,11 +720,13 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
         name: "Fixture".into(),
         command: "unused".into(),
         args: vec![],
+        env: Default::default(),
         docs_url: String::new(),
     };
     let launch = ExternalAgentLaunch {
         executable: Some(launcher.to_string_lossy().into_owned()),
         working_directory: directory.path().to_string_lossy().into_owned(),
+        ..ExternalAgentLaunch::default()
     };
     let mut wire = Wire::start(&preset, &launch).unwrap();
     let mut session = Session::connect(&mut wire, &launch.working_directory)

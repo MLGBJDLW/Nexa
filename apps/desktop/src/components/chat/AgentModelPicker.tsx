@@ -35,7 +35,7 @@ import {
 } from '../../lib/modelCatalog';
 import type { AgentConfig } from '../../types/conversation';
 import { useOverlayRoot } from '../ui/overlay';
-import { getSubscriptionCatalogs, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
+import { getSubscriptionCatalogs, invalidateSubscriptionModels, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
 import { catalogModelsForSnapshot, loadProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { useAppCommand } from '../../lib/appCommands';
 
@@ -213,12 +213,6 @@ export function AgentModelPicker({
   const [pickerStep, setPickerStep] = useState<PickerStep>('providers');
   const [query, setQuery] = useState('');
   useAppCommand({ id: 'chat.model', label: 'settings.defaultModel', keywords: '/model llm provider 模型 供应商', enabled: agentConfigs.length > 0, run: () => { setPickerStep('providers'); setQuery(''); setOpen(true); } });
-  useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: Boolean(selectedConfig && findPresetForConfig(selectedConfig)?.runtime !== 'acp'), run: () => {
-    if (!selectedConfig) return;
-    setActiveConfigId(selectedConfig.id);
-    setActiveModelId(selectedConfig.model);
-    setQuery(''); setPickerStep('reasoning'); setOpen(true);
-  } });
   const [budgetDraft, setBudgetDraft] = useState('');
   const subscriptionCatalogs = useSyncExternalStore(subscribeSubscriptionCatalogs, getSubscriptionCatalogs);
   const subscriptionProviderKey = JSON.stringify(agentConfigs.filter(config => findPresetForConfig(config)?.runtime)
@@ -240,6 +234,7 @@ export function AgentModelPicker({
           const effortLevels = model.reasoningEfforts.filter((effort): effort is ReasoningEffortLevel => effort in REASONING_EFFORT_LABEL_KEYS);
           const nativeModel = {
             id: model.id, name: model.name, source: 'discovered' as const, status: 'active' as const, productReadiness: 'known' as const,
+            contextTokens: model.contextWindow,
             capabilities: { reasoning: effortLevels.length ? { mode: effortLevels.includes('none') ? 'optional' as const : 'always' as const, effortLevels } : null },
           };
           return { ...nativeModel, descriptor: projectModelDescriptor(nativeModel, {
@@ -330,6 +325,12 @@ export function AgentModelPicker({
   const selectedTitle = selectedConfig
     ? `${selectedConfig.name || selectedConfig.provider} · ${selectedConfig.provider} / ${selectedConfig.model}`
     : t('settings.defaultModel');
+  const canChangeReasoning = Boolean(selectedConfig && (findPresetForConfig(selectedConfig)?.runtime !== 'acp' || selectedModelRow?.reasoning));
+  useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: canChangeReasoning, run: () => {
+    if (!selectedConfig) return;
+    setActiveConfigId(selectedConfig.id); setActiveModelId(selectedConfig.model);
+    setQuery(''); setPickerStep('reasoning'); setOpen(true);
+  } });
   const selectedLabel = selectedModelRow?.model.name || selectedConfig?.model || t('settings.defaultModel');
   const selectedReasoningLabel = selectedModelRow?.reasoning?.disabledMode === 'between_tools'
     && (selectedConfig?.reasoningEnabled === false || selectedConfig?.reasoningEffort === 'none')
@@ -431,7 +432,7 @@ export function AgentModelPicker({
       const defaultEffort = defaultReasoningEffort(row.reasoning);
       const defaultBudget = defaultThinkingBudget(row.reasoning);
       setOpen(false);
-      void onSelect({
+      void Promise.resolve(onSelect({
         config: row.providerRow.config,
         model: row.model.id,
         reasoningEnabled: isCurrent
@@ -445,6 +446,11 @@ export function AgentModelPicker({
             ? null
             : defaultBudget,
         reasoningEffort: isCurrent ? selectedConfig.reasoningEffort : defaultEffort,
+      })).then(() => {
+        if (!isCurrent && row.providerRow.preset?.runtime === 'acp') {
+          invalidateSubscriptionModels(runtimeCatalogKey(row.providerRow.config.provider, row.providerRow.config.id));
+          void loadSubscriptionModels(row.providerRow.config.provider, false, row.providerRow.config.id).catch(() => {});
+        }
       });
       requestAnimationFrame(() => triggerRef.current?.focus());
     },
@@ -543,7 +549,7 @@ export function AgentModelPicker({
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep !== 'reasoning' ? 'rotate-180' : ''}`} />
       </button>
 
-      {findPresetForConfig(selected)?.runtime !== 'acp' && <button
+      {canChangeReasoning && <button
         ref={reasoningTriggerRef}
         type="button"
         data-testid="agent-reasoning-picker-trigger"

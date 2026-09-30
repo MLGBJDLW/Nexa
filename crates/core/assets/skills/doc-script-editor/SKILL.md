@@ -41,7 +41,7 @@ Keep format-specific generation logic in the format skill. In particular, `creat
 ## Tool discipline
 
 - Prefer `office_artifact` for DOCX/PPTX/XLSX create, modify, verify, publish, and restore work. It validates path roles, negotiates guarantees, keeps output as a candidate by default, and publishes only after `decide`.
-- Use `create_file`, `edit_file`, or `multi_edit` for durable text inputs: Markdown bodies, JSON specs, CSV data, and reusable Python scripts.
+- Use `create_file` or `edit_file` for durable text inputs: Markdown bodies, JSON specs, CSV data, and reusable Python scripts.
 - Use `run_shell` only to execute the bundled renderer/editor scripts or a short command against files that already exist on disk.
 - Do not write a large one-off Python program inside a single `run_shell` argument. If custom code is genuinely needed, create a small script file in the workspace, run it, validate the output, then remove only temporary scratch files the user did not ask to keep.
 - For new Office binaries, keep a reviewable source artifact next to the output whenever possible: `.md` for DOCX body content, `.json` for PPTX/XLSX specs, plus validation/audit output for layout-sensitive work.

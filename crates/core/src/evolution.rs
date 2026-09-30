@@ -994,7 +994,6 @@ fn derive_auto_skill_pattern(trace: &AgentTrace) -> Option<AutoSkillPattern> {
     let tool_set = tools.iter().map(String::as_str).collect::<HashSet<&str>>();
 
     let has_code_change = tool_set.contains("edit_file")
-        || tool_set.contains("multi_edit")
         || tool_set.contains("create_file")
         || tool_set.contains("run_shell");
     let has_document_work = tools.iter().any(|tool| {

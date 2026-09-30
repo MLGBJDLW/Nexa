@@ -21,6 +21,18 @@ pub(super) enum Transcript {
 }
 
 impl Transcript {
+    pub(super) async fn persist_intermediate(
+        &self,
+        text: &str,
+    ) -> Result<PersistedAssistantMessage, CoreError> {
+        match self {
+            Self::NexaTools(tools) => tools.persist_intermediate(text).await,
+            Self::Native { .. } => Ok(PersistedAssistantMessage {
+                id: self.save(Role::Assistant, text, None).await?,
+                message: Message::text(Role::Assistant, text),
+            }),
+        }
+    }
     pub(super) fn nexa_tools(&self) -> &Arc<ExternalToolSession> {
         match self {
             Self::NexaTools(tools) => tools,

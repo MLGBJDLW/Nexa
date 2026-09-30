@@ -6,7 +6,25 @@ import type { AgentConfig, SaveAgentConfigInput } from '../types/conversation';
 export interface ExternalAgentLaunch {
   executable: string | null;
   workingDirectory: string;
+  configOptions?: Record<string, string>;
+  configOptionsModel?: string;
+  mcpServerIds?: string[];
 }
+
+export interface ExternalAgentConfigOption {
+  id: string;
+  name: string;
+  category: string | null;
+  currentValue: string;
+  options: { value: string; name: string }[];
+}
+export interface ExternalAgentCatalog {
+  models: CopilotModelSummary[];
+  configOptions: ExternalAgentConfigOption[];
+  commands: string[];
+}
+export const inspectExternalAgent = (provider: string, launch: ExternalAgentLaunch, model?: string) =>
+  invoke<ExternalAgentCatalog>('inspect_external_agent_cmd', { provider, launch, model });
 
 export const getExternalAgentLaunch = (agentConfigId?: string) => agentConfigId
   ? invoke<ExternalAgentLaunch>('get_external_agent_launch_cmd', { agentConfigId })

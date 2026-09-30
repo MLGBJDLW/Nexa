@@ -60,7 +60,6 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`manage_skill`](../crates/core/prompts/tools/manage_skill.json) | List, load, activate, inspect available skills and their bundled resources, execute a declared script resource helper through the skill resource helper sandbox, and create, insp... |
 | [`manage_source`](../crates/core/prompts/tools/manage_source.json) | Add, remove, or refresh knowledge source directories |
 | [`manage_user_memory`](../crates/core/prompts/tools/manage_user_memory.json) | List, search, record, update, or delete cross-session user memories |
-| [`multi_edit`](../crates/core/prompts/tools/multi_edit.json) | Apply multiple exact text replacements to one existing plain-text file in a single atomic operation |
 | [`office_artifact`](../crates/core/prompts/tools/office_artifact.json) | Inspect, assess, create, edit, verify, publish, discard, or restore DOCX, XLSX, and PPTX artifacts through Nexa's transactional OfficeArtifactEngine |
 | [`open_in_nexa`](../crates/core/prompts/tools/open_in_nexa.json) | Open an authorized local file inside Nexa |
 | [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |
@@ -234,7 +233,6 @@ Use this quick routing guide when a request is about files or documents:
 | Compare two files or indexed chunks | `compare_documents` | Text or parsed document content | yes for file paths | Use chunk IDs when you already know the exact evidence |
 | Create a new plain-text file | `create_file` | Text-based files only | yes | For new `.md`, `.txt`, `.json`, `.rs`, etc. |
 | Edit an existing plain-text file | `edit_file` | Text-based files only | yes | Exact `str_replace` only; must match once |
-| Apply several coordinated text edits | `multi_edit` | Text-based files only | yes | Atomic multi-replacement with one checkpoint; all edits succeed or no file changes |
 | Create, edit, verify, publish, or restore an Office file | `office_artifact` | DOCX, XLSX, PPTX | yes | Typed guarantees, candidate gating, validation/evidence, receipts, and hash-guarded restore |
 | Edit/convert/render PDF or use an Office escape hatch | `run_shell` + `doc-script-editor` | DOCX, XLSX, PPTX, PDF | yes | Compatibility operations, extraction, conversion, rendering, and low-level OOXML edits |
 | Compatibility fallback for very simple new Office files | `generate_docx`/`generate_xlsx`/`ppt_generate` | DOCX, XLSX, PPTX | yes | Use only when Python is unavailable or the schema fully covers the request |
@@ -539,27 +537,6 @@ The full schema also documents `old_string`, `new_string`, and `content` aliases
 `str_replace` operates on UTF-8 char boundaries, so replacements containing multi-byte characters (CJK text, emoji, etc.) are handled safely without byte-slice panics.
 
 > **Example:** Fix a typo in an existing text document or create a new configuration file.
-
----
-
-### `multi_edit`
-
-Apply multiple exact text replacements to one existing plain-text file in a single atomic operation. The tool validates each edit in order before writing; if any edit is missing or ambiguous, no file is changed. A restorable file checkpoint is created before the write.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `path` | string | yes | File path (absolute or relative to a source root) |
-| `edits` | object[] | yes | Ordered replacements, max 20 |
-| `edits[].old_str` | string | yes | Exact text to find; must match once unless `replace_all` is true |
-| `edits[].new_str` | string | no | Replacement text; omitted means delete the old text |
-| `edits[].replace_all` | boolean | no | Replace every occurrence for that edit (default false) |
-| `edits[].start_line` | integer | no | Optional 1-based inclusive line range start |
-| `edits[].end_line` | integer | no | Optional 1-based inclusive line range end |
-
-Use `office_artifact` for Office candidates and `run_shell` + `doc-script-editor`
-for PDF or compatibility operations. `multi_edit` is for plain-text changes.
-
-> **Example:** Update three related headings in a Markdown note with one checkpointed operation.
 
 ---
 

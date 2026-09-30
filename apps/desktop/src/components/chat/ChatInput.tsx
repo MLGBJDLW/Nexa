@@ -810,8 +810,8 @@ export function ChatInput({
   }, []);
 
   const slashOptions = useMemo(
-    () => buildSlashCommandOptions(activeSkills, workflowTemplates),
-    [activeSkills, workflowTemplates],
+    () => buildSlashCommandOptions(activeSkills, workflowTemplates).filter(option => !nativeAgent || option.kind !== 'command'),
+    [activeSkills, workflowTemplates, nativeAgent],
   );
   const activeSlashCommand = useMemo(
     () => slashOptions.find((option) => option.id === activeSlashCommandId) ?? null,

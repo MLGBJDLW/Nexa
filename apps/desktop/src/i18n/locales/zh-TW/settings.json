@@ -1071,4 +1071,6 @@
   ,"externalAgentControls": "工具與執行設定由外部 Agent 管理。"
   ,"reasoningBetweenTools": "僅工具間思考"
   ,"enableUpfrontThinking": "啟用回答前思考"
+  ,"externalAgentMcp": "此代理的 MCP 連接器"
+  ,"externalAgentMcpHint": "所選連接器及其設定的憑證會傳給此代理，並使用代理自身的權限原則。"
 }

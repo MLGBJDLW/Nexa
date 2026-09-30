@@ -1012,6 +1012,7 @@ export const logoutCodexAccount = async () => {
 };
 
 export interface CopilotModelSummary {
+  contextWindow?: number;
   id: string;
   name: string;
   reasoningEfforts: string[];

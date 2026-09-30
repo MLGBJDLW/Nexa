@@ -16,5 +16,42 @@
     "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
     "icon": "⚕", "description": "Use an installed Hermes Agent with its ACP extra enabled.",
     "command": "hermes", "args": ["acp"], "docsUrl": "https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/"
+  },
+  {
+    "id": "copilot-acp", "name": "GitHub Copilot CLI (ACP)", "provider": "github_copilot_acp",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "◉", "description": "Use Copilot's native tools, commands and context through ACP.",
+    "command": "copilot", "args": ["--acp"], "docsUrl": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server"
+  },
+  {
+    "id": "claude-code-acp", "name": "Claude Code (ACP)", "provider": "claude_code_acp",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "✳", "description": "Use the Claude Code ACP adapter with Claude's own tools and login.",
+    "command": "claude-agent-acp", "args": [], "docsUrl": "https://github.com/agentclientprotocol/claude-agent-acp"
+  },
+  {
+    "id": "codex-acp", "name": "Codex CLI (ACP)", "provider": "codex_acp",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "◎", "description": "Use the Codex ACP adapter with native Codex tools and session configuration.",
+    "command": "codex-acp", "args": [], "docsUrl": "https://github.com/agentclientprotocol/codex-acp"
+  },
+  {
+    "id": "qwen-code", "name": "Qwen Code", "provider": "qwen_code",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "✧", "description": "Use Qwen Code's native providers, login and tools through ACP.",
+    "command": "qwen", "args": ["--acp"], "docsUrl": "https://qwenlm.github.io/qwen-code-docs/"
+  },
+  {
+    "id": "goose", "name": "Goose", "provider": "goose",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "◈", "description": "Use an installed Goose agent with its configured providers and extensions.",
+    "command": "goose", "args": ["acp"], "docsUrl": "https://block.github.io/goose/docs/getting-started/installation/"
+  },
+  {
+    "id": "auggie", "name": "Auggie", "provider": "auggie",
+    "runtime": "acp", "baseUrl": "", "requiresApiKey": false, "models": [],
+    "icon": "△", "description": "Use Augment's installed CLI with its native account and workspace tools.",
+    "command": "auggie", "args": ["--acp"], "env": { "AUGMENT_DISABLE_AUTO_UPDATE": "1" },
+    "docsUrl": "https://github.com/augmentcode/auggie#quick-start"
   }
 ]

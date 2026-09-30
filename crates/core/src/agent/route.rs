@@ -148,7 +148,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
         AgentRouteKind::FileOperation =>
             "## Route Pack: File and Office Work\n\
              - Use list_dir, glob_files, search_files, grep_files, read_file, or read_files to locate and inspect plain-text files.\n\
-             - Use edit_file, multi_edit, or create_file for plain-text changes. Do not use ad hoc scripts for ordinary plain-text reads or edits.\n\
+             - Use edit_file or create_file for plain-text changes. Do not use ad hoc scripts for ordinary plain-text reads or edits.\n\
              - For DOCX/XLSX/PPTX/PDF creation or editing, use run_shell plus the relevant document skill/script workflow; do not use plain-text edit tools on Office/PDF binaries.\n\
              - Keep large generation specs in files or stdin instead of one giant tool argument; validate or render artifacts when the format requires it."
                 .to_string(),
