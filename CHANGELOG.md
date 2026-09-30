@@ -15,6 +15,16 @@
 * **external-agents:** close model, MCP and interaction compatibility gaps ([c946616](https://github.com/MLGBJDLW/Nexa/commit/c946616df5ee28d7cf97b5093fd73081ecec5b0e))
 * **runtime:** preserve native context and sustain long tool sessions ([1954f35](https://github.com/MLGBJDLW/Nexa/commit/1954f358eb60cd60284a4dcf959a346cfbfc7a6f))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at c7fa5161a368d074c369fe29005b1274a99740d8 -->
+
+### What's Changed
+* feat(agents): upgrade external runtimes and expand ACP integrations by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/436
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.19...nexa-monorepo-v0.14.20
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.19](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.18...nexa-monorepo-v0.14.19) (2026-09-30)
 
 
