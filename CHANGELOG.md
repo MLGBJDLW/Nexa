@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.19](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.18...nexa-monorepo-v0.14.19) (2026-09-30)
+
+
+### Features
+
+* **chat:** add compact composer and searchable app commands ([f73fac4](https://github.com/MLGBJDLW/Nexa/commit/f73fac497867bd51ecd3712c9a5b18cd591fbcf9))
+* **models:** refresh provider catalogs and model protocol support ([2279aa7](https://github.com/MLGBJDLW/Nexa/commit/2279aa7bd0deb04f2233bd012f436e607dac221a))
+* simplify chat controls and refresh provider model support ([9a6a3f6](https://github.com/MLGBJDLW/Nexa/commit/9a6a3f6bac35a3aa99445aa57bbc7129d5024bab))
+
+
+### Bug Fixes
+
+* **chat:** preserve literal slash text and preview keyboard focus ([eec2a25](https://github.com/MLGBJDLW/Nexa/commit/eec2a2502d31efc2b3bdd15d52b374b3e9febc49))
+
 ## [0.14.18](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.17...nexa-monorepo-v0.14.18) (2026-09-29)
 
 
