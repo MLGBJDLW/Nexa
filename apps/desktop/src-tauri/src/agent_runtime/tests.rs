@@ -9,6 +9,7 @@ use nexa_core::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct NonceTool {
+    name: &'static str,
     calls: Arc<AtomicUsize>,
     nonce: String,
 }
@@ -106,7 +107,7 @@ fn subscription_input_and_history_obey_the_saved_privacy_policy() {
 #[async_trait::async_trait]
 impl Tool for NonceTool {
     fn name(&self) -> &str {
-        "read_test_nonce"
+        self.name
     }
     fn description(&self) -> &str {
         "Read the integration test nonce. This has no external effects."
@@ -145,7 +146,11 @@ pub(super) fn fixture(
             persona_id: None,
         })
         .unwrap();
-    let prompt = "Call read_test_nonce exactly once, then reply with the returned nonce and nothing else. Do not use any other tool.";
+    let (name, prompt) = if matches!(kind, AgentRuntimeKind::Codex) {
+        ("mcp__audit__read_test_nonce", "Call the Nexa tool mcp__audit__read_test_nonce exactly once (it may have a protocol alias), then reply with the returned nonce and nothing else. Do not use any other tool.")
+    } else {
+        ("read_test_nonce", "Call read_test_nonce exactly once, then reply with the returned nonce and nothing else. Do not use any other tool.")
+    };
     let user = ConversationMessage {
         id: uuid::Uuid::new_v4().to_string(),
         conversation_id: conversation.id.clone(),
@@ -168,6 +173,7 @@ pub(super) fn fixture(
     let nonce = uuid::Uuid::new_v4().to_string();
     let mut tools = ToolRegistry::new();
     tools.register(Box::new(NonceTool {
+        name,
         calls: calls.clone(),
         nonce: nonce.clone(),
     }));
@@ -274,7 +280,11 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
     let forwarding = tokio::spawn(forwarder.run(forward_rx));
     let (steering_tx, steering_rx) = mpsc::unbounded_channel();
     request.steering = steering_rx;
-    let correction = "Keep the current read_test_nonce call, and do not call any tool again. After its result arrives, reply with STEERING_CONFIRMED followed by that nonce.";
+    let (probe_tool, correction) = if matches!(kind, AgentRuntimeKind::Codex) {
+        ("mcp__audit__read_test_nonce", "Keep the current mcp__audit__read_test_nonce call, and do not call any tool again. After its result arrives, reply with STEERING_CONFIRMED followed by that nonce.")
+    } else {
+        ("read_test_nonce", "Keep the current read_test_nonce call, and do not call any tool again. After its result arrives, reply with STEERING_CONFIRMED followed by that nonce.")
+    };
     let drain = tokio::spawn(async move {
         let mut done = 0;
         let mut deltas = 0;
@@ -287,7 +297,7 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
                 AgentEvent::StreamBlockDelta { .. } => deltas += 1,
                 AgentEvent::ToolRunStarted { ref run } | AgentEvent::ToolRunUpdated { ref run } => {
                     tool_events.push((run.tool_name.clone(), format!("{:?}", run.status)));
-                    if run.tool_name == "read_test_nonce" && !steered {
+                    if run.tool_name == probe_tool && !steered {
                         steering_tx
                             .send(AgentSteeringMessage::text(correction))
                             .unwrap();

@@ -58,7 +58,7 @@ for line in sys.stdin:
             reply(prompt, {"stopReason":"end_turn"})
             continue
         if mode == "commands":
-            if blocks[0]["text"] == "/context":
+            if blocks[0]["text"] in ["/context", "/mcp:server:command"]:
                 assert len(blocks) == 1
                 update({"sessionUpdate": "usage_update", "used": 1000, "size": 64000})
                 reply(prompt, {"stopReason": "end_turn"})

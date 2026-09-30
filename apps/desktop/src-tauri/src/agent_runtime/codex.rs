@@ -22,6 +22,42 @@ const MAX_FRAME: usize = 8 * 1024 * 1024;
 mod image_generation;
 pub(crate) use image_generation::generate_subscription_image;
 
+fn dynamic_tool_catalog(
+    definitions: Vec<nexa_core::llm::ToolDefinition>,
+) -> Result<(Vec<Value>, HashMap<String, String>), CoreError> {
+    let names = definitions
+        .iter()
+        .map(|tool| tool.name.clone())
+        .collect::<HashSet<_>>();
+    let mut aliases = HashMap::new();
+    let mut catalog = Vec::new();
+    for tool in definitions {
+        // app-server reserves its own MCP namespace. Keep Nexa's authoritative
+        // name in the dispatcher and alias only at this protocol boundary.
+        let name = if tool.name == "mcp" || tool.name.starts_with("mcp__") {
+            let alias = format!(
+                "nexa_mcp_{}",
+                &blake3::hash(tool.name.as_bytes()).to_hex()[..24]
+            );
+            if names.contains(&alias) {
+                return Err(protocol_error(
+                    "Codex tool alias conflicts with a registered tool",
+                ));
+            }
+            alias
+        } else {
+            tool.name.clone()
+        };
+        if aliases.insert(name.clone(), tool.name.clone()).is_some() {
+            return Err(protocol_error(
+                "Codex tool catalog contains duplicate names",
+            ));
+        }
+        catalog.push(json!({"type":"function","name":name,"description":format!("{}\nNexa tool: {}",tool.description,tool.name),"inputSchema":tool.parameters,"deferLoading":false}));
+    }
+    Ok((catalog, aliases))
+}
+
 /// One reader owns stdout. A bounded mailbox prevents output from exhausting
 /// memory while a tool is awaiting approval; it never blocks clock responses.
 struct Wire {
@@ -419,7 +455,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         drop(config);
         drop(skills);
         let turn = request.prepare(native_vision)?;
-        let tools = turn.transcript.nexa_tools().definitions().into_iter().map(|tool| json!({"type":"function","name":tool.name,"description":tool.description,"inputSchema":tool.parameters})).collect::<Vec<_>>();
+        let (tools, aliases) = dynamic_tool_catalog(turn.transcript.nexa_tools().definitions())?;
         let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":turn.system_prompt,"dynamicTools":tools,"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
         if response["model"].as_str() != Some(&model_id)
             || response["modelProvider"] != "openai"
@@ -441,9 +477,9 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .and_then(Value::as_str)
             .ok_or_else(|| protocol_error("Codex created no turn"))?
             .to_string();
-        Ok::<_, CoreError>((wire, turn, thread_id, turn_id, native_vision))
+        Ok::<_, CoreError>((wire, turn, thread_id, turn_id, native_vision, aliases))
     };
-    let (mut wire, mut turn, thread_id, turn_id, native_vision) = tokio::select! {
+    let (mut wire, mut turn, thread_id, turn_id, native_vision, aliases) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
         result = tokio::time::timeout(Duration::from_secs(120), bootstrap) => result.map_err(|_| protocol_error("Codex connection timed out"))??,
     };
@@ -511,7 +547,9 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                             }
                             "item/tool/call" => {
                                 if params["turnId"].as_str() != Some(&turn_id) || pending.len() >= 16 { wire.reject(&message).await?; return Err(protocol_error("invalid Codex tool dispatch boundary")); }
-                                let call = ToolCallRequest {id:required_string(params,"callId")?,name:required_string(params,"tool")?,arguments:params["arguments"].to_string(),thought_signature:None};
+                                let tool = required_string(params,"tool")?;
+                                let name = aliases.get(&tool).ok_or_else(|| protocol_error("Codex requested an unregistered dynamic tool"))?.clone();
+                                let call = ToolCallRequest {id:required_string(params,"callId")?,name,arguments:params["arguments"].to_string(),thought_signature:None};
                                 let tools = turn.transcript.nexa_tools().clone(); let id = message["id"].clone();
                                 projection.clear_answer();
                                 pending.push(async move { (id,tools.execute(call).await) });
@@ -577,6 +615,21 @@ async fn project_event(
     params: &Value,
 ) -> Result<bool, CoreError> {
     match method {
+        "warning" => {
+            turn.events
+                .send(AgentEvent::ControllerStatus {
+                    code: "external_agent_warning".into(),
+                    content: params["message"]
+                        .as_str()
+                        .unwrap_or("Codex reported a runtime warning")
+                        .chars()
+                        .take(4000)
+                        .collect(),
+                    tone: None,
+                })
+                .await
+                .map_err(protocol_error)?;
+        }
         "item/agentMessage/delta" => {
             projection
                 .delta(
@@ -703,6 +756,31 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mcp_dynamic_tools_have_stable_nonreserved_aliases_and_original_dispatch_names() {
+        let definition = |name: &str| nexa_core::llm::ToolDefinition {
+            name: name.into(),
+            description: "Read test evidence".into(),
+            parameters: json!({"type":"object","properties":{}}),
+        };
+        let (catalog, aliases) = dynamic_tool_catalog(vec![
+            definition("read_file"),
+            definition("mcp__audit__read_test_nonce"),
+        ])
+        .unwrap();
+        let alias = catalog[1]["name"].as_str().unwrap();
+        assert!(!alias.starts_with("mcp__"));
+        assert!(alias.len() < 64);
+        assert_eq!(aliases[alias], "mcp__audit__read_test_nonce");
+        assert_eq!(aliases["read_file"], "read_file");
+        assert_eq!(catalog[1]["deferLoading"], false);
+        let repeated =
+            dynamic_tool_catalog(vec![definition("mcp__audit__read_test_nonce")]).unwrap();
+        assert_eq!(repeated.0[0]["name"], alias);
+        assert!(
+            dynamic_tool_catalog(vec![definition("read_file"), definition("read_file")]).is_err()
+        );
+    }
     struct PauseTool {
         started: Arc<tokio::sync::Notify>,
         release: Arc<tokio::sync::Notify>,

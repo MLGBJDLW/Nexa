@@ -709,11 +709,15 @@ impl AgentRunEvent {
                 AgentRunEventKind::ApprovalResolved,
                 AgentRunPhase::Approval,
                 "Approval resolved".to_string(),
-                Some(if decision.is_allowed() {
-                    "allowed".to_string()
-                } else {
-                    "denied".to_string()
-                }),
+                Some(
+                    if matches!(decision, crate::approval::ApprovalDecision::SelectOption(_)) {
+                        "selected".to_string()
+                    } else if decision.is_allowed() {
+                        "allowed".to_string()
+                    } else {
+                        "denied".to_string()
+                    },
+                ),
             ),
         };
 
@@ -1347,6 +1351,19 @@ mod tests {
     use crate::tools::{
         ToolInputStreamingMode, ToolInterruptBehavior, ToolRenderKind, ToolRunCapabilities,
     };
+
+    #[test]
+    fn native_answer_selection_is_projected_without_granting_tool_permission() {
+        let decision = ApprovalDecision::SelectOption(1);
+        assert!(!decision.is_allowed());
+        let event = AgentRunEvent::from_agent_event(&AgentEvent::ApprovalResolved {
+            request_id: "choice".into(),
+            decision,
+        })
+        .with_context(Some("run"), Some("turn"), Some(1));
+        assert_eq!(event.status.as_deref(), Some("selected"));
+        event.validate_durable_contract().unwrap();
+    }
 
     #[test]
     fn projects_agent_event_to_stable_run_event() {

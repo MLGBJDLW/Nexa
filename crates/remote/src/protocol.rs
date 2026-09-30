@@ -145,7 +145,11 @@ impl RemoteCommand {
                 .map_err(|_| "A stable request ID is required for reconnection")?;
         }
         if let Self::RespondApproval { decision, .. } = self {
-            if !matches!(decision.as_str(), "allow_once" | "deny") {
+            let selected = decision
+                .strip_prefix("select_option:")
+                .and_then(|index| index.parse::<u32>().ok())
+                .is_some_and(|index| index < 64);
+            if !matches!(decision.as_str(), "allow_once" | "deny") && !selected {
                 return Err("Remote approvals must be explicit for this action".into());
             }
         }
@@ -203,4 +207,28 @@ pub struct ConnectionManifest {
 pub struct WebAsset {
     pub bytes: Vec<u8>,
     pub mime_type: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn remote_native_choices_preserve_explicit_selection_without_persistent_grants() {
+        for (decision, valid) in [
+            ("select_option:0", true),
+            ("select_option:63", true),
+            ("select_option:64", false),
+            ("select_option:-1", false),
+            ("allow_once", true),
+            ("deny", true),
+            ("allow_session", false),
+            ("never", false),
+        ] {
+            let command = RemoteCommand::RespondApproval {
+                request_id: "native-question".into(),
+                decision: decision.into(),
+            };
+            assert_eq!(command.validate().is_ok(), valid, "{decision}");
+        }
+    }
 }

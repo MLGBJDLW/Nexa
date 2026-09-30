@@ -418,7 +418,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
       runEvents.length = 0;
       eventSequence = 0; runStatus = 'running'; finalAnswer = null;
     },
-    requests: (questionType = "single_choice") => {
+    requests: (questionType = "single_choice", choices?: string[]) => {
       approvalItems = [
         {
           runId: "run-1",
@@ -428,6 +428,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
             reason: "Update the reviewed document",
             targetValue: "report.md",
             argumentsPreview: '{"path":"report.md"}',
+            choices,
           },
         },
       ];
@@ -859,6 +860,18 @@ test("revoking the phone releases capture and exposes the pairing recovery actio
   await expect(
     page.getByRole("heading", { name: "Your agent, within reach" }),
   ).toBeVisible();
+});
+
+test('phone sends the selected native answer without granting generic tool permission', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  app.requests('single_choice', ['First native answer', 'Second native answer']);
+  app.emit('approvalRequested', {});
+  await expect(page.getByRole('button', { name: 'Allow once', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Second native answer', exact: true }).click();
+  await expect.poll(() => app.counts().actions.find(action => action.method === 'approvals.respond')?.params)
+    .toEqual({ requestId: 'approval-1', decision: 'select_option:1' });
 });
 
 test("phone replays missing UTF-8 deltas and forwards explicit approvals, answers, and stop", async ({

@@ -52,6 +52,7 @@ interface Approval {
     reason: string;
     targetValue: string;
     argumentsPreview: string;
+    choices?: string[];
   };
 }
 interface Question {
@@ -640,8 +641,10 @@ export function RemoteChat({
           <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all text-xs">
             {item.request.argumentsPreview}
           </pre>
-          <div className="flex gap-2">
-            <button
+          <div className="flex flex-wrap gap-2">
+            {item.request.choices?.length ? item.request.choices.map((choice, index) => (
+              <button key={index} className={remoteButton} onClick={() => void act('approvals.respond', { requestId: item.request.id, decision: `select_option:${index}` })}>{choice}</button>
+            )) : <button
               className={remoteButton}
               onClick={() =>
                 void act("approvals.respond", {
@@ -651,7 +654,7 @@ export function RemoteChat({
               }
             >
               {t("remote.allowOnce")}
-            </button>
+            </button>}
             <button
               className={remoteButton}
               onClick={() =>

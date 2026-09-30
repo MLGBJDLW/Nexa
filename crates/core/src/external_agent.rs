@@ -44,6 +44,10 @@ pub struct ExternalAgentLaunch {
     /// Native ACP select options, keyed by the advertised opaque config ID.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub config_options: std::collections::BTreeMap<String, String>,
+    /// Model against which the saved model-dependent options were verified.
+    /// Provider/mode preferences remain valid across chat model selections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_options_model: Option<String>,
     /// Explicitly selected user-managed MCP connectors forwarded to the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_server_ids: Vec<String>,
@@ -52,6 +56,10 @@ pub struct ExternalAgentLaunch {
 impl ExternalAgentLaunch {
     pub fn validate(&self) -> Result<(), CoreError> {
         if self.config_options.len() > 64
+            || self
+                .config_options_model
+                .as_ref()
+                .is_some_and(|model| model.len() > 1024)
             || self
                 .config_options
                 .iter()
@@ -140,6 +148,37 @@ mod tests {
             .value;
         assert_eq!(launch, ExternalAgentLaunch::default());
     }
+    #[test]
+    fn native_options_remain_bound_to_the_model_that_was_verified() {
+        let db = Database::open_memory().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        let launch = ExternalAgentLaunch {
+            working_directory: cwd.path().to_string_lossy().into(),
+            config_options: std::collections::BTreeMap::from([("fast".into(), "on".into())]),
+            ..Default::default()
+        };
+        let mut input: crate::conversation::SaveAgentConfigInput = serde_json::from_value(serde_json::json!({"name":"Claude", "provider":"claude_code_acp", "apiKey":"", "model":"model-a", "isDefault":false})).unwrap();
+        let saved = db.save_external_agent_profile(&input, &launch).unwrap();
+        assert_eq!(
+            db.external_agent_launch(&saved.id)
+                .unwrap()
+                .config_options_model
+                .as_deref(),
+            Some("model-a")
+        );
+        input.id = Some(saved.id.clone());
+        input.model = "model-b".into();
+        db.save_agent_config(&input).unwrap();
+        assert_eq!(
+            db.external_agent_launch(&saved.id)
+                .unwrap()
+                .config_options_model
+                .as_deref(),
+            Some("model-a"),
+            "Changing the chat model must not rebind old native options"
+        );
+    }
+
     #[test]
     fn launch_preferences_round_trip_without_becoming_an_api_endpoint() {
         let db = Database::open_memory().unwrap();

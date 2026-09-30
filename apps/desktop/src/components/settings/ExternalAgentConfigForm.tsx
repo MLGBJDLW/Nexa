@@ -9,6 +9,10 @@ import type { ProviderPreset } from '../../lib/providerPresets';
 import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import { Button } from '../ui/Button';
 
+const isNativeModel = (option: ExternalAgentConfigOption) => option.category === 'model' || (!option.category && option.id === 'model');
+const isModelDependent = (option: ExternalAgentConfigOption) => option.category === 'model_config' || option.category === 'thought_level'
+  || (!option.category && ['reasoning_effort', 'effort', 'thought_level'].includes(option.id));
+
 export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSaving, onDirtyChange }: {
   preset: ProviderPreset; config?: AgentConfig; onSave: (input: SaveAgentConfigInput, launch?: ExternalAgentLaunch) => Promise<void>;
   onCancel: () => void; isSaving: boolean; onDirtyChange: (dirty: boolean) => void;
@@ -55,7 +59,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
       setLaunch({ ...requestedLaunch, configOptions: Object.fromEntries(found.configOptions
         .filter(option => Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
         .map(option => [option.id, option.currentValue])) });
-      setModel(previous => found.models.some(item => item.id === previous) ? previous : found.models[0]?.id ?? '');
+      setModel(selected || found.models[0]?.id || '');
     } catch (cause) { if (generation.current === current) setError(String(cause)); }
     finally { if (generation.current === current) setLoading(false); }
   };
@@ -70,7 +74,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
       // Native preferences may change the available reasoning values. A saved
       // chat override must not silently override the newly selected preference.
       if (JSON.stringify(initialLaunch?.configOptions) !== JSON.stringify(launch.configOptions)) input.reasoningEffort = null;
-      await onSave(input, unchanged ? undefined : launch);
+      await onSave(input, unchanged ? undefined : { ...launch, configOptionsModel: model });
     } catch (cause) { setError(String(cause)); }
     finally { setSaving(false); }
   };
@@ -99,23 +103,22 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     {models.length > 0 && <label className="block text-xs font-medium text-text-secondary">{t('settings.defaultModel')}
       <select className={inputClass} value={model} disabled={loading} onChange={event => {
         const selected = event.target.value;
-        const dependent = new Set(nativeOptions.filter(option => option.category === 'thought_level' || option.category === 'model_config').map(option => option.id));
-        const requestedLaunch = { ...launch, configOptions: Object.fromEntries(Object.entries(launch.configOptions ?? {}).filter(([id]) => !dependent.has(id))) };
+        const dependent = new Set(nativeOptions.filter(isModelDependent).map(option => option.id));
+        const requestedLaunch = { ...launch, configOptionsModel: selected, configOptions: Object.fromEntries(Object.entries(launch.configOptions ?? {}).filter(([id]) => !dependent.has(id))) };
         setModel(selected); setLaunch(requestedLaunch); onDirtyChange(true); void probe(selected, requestedLaunch);
       }}>
+        {model && !models.some(item => item.id === model) && <option value={model} disabled>{model} · {t('settings.modelCredentialUnavailable')}</option>}
         {models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
     </label>}
-    {nativeOptions.filter(option => option.category !== 'model' && option.id !== 'model').map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
+    {nativeOptions.filter(option => !isNativeModel(option)).map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
       {option.name}
       <select className={inputClass} disabled={loading} value={launch.configOptions?.[option.id] ?? option.currentValue}
         onChange={event => {
-          const changesCatalog = option.category !== 'thought_level' && option.category !== 'model_config'
-            && !['reasoning_effort', 'effort', 'thought_level'].includes(option.id);
-          const dependent = new Set(nativeOptions.filter(item => item.category === 'model_config' || item.category === 'thought_level'
-            || ['reasoning_effort', 'effort', 'thought_level'].includes(item.id)).map(item => item.id));
+          const changesCatalog = !isModelDependent(option);
+          const dependent = new Set(nativeOptions.filter(isModelDependent).map(item => item.id));
           const preferences = Object.fromEntries(Object.entries(launch.configOptions ?? {}).filter(([id]) => !changesCatalog || !dependent.has(id)));
-          const requestedLaunch = { ...launch, configOptions: { ...preferences, [option.id]: event.target.value } };
+          const requestedLaunch = { ...launch, configOptionsModel: changesCatalog ? undefined : model, configOptions: { ...preferences, [option.id]: event.target.value } };
           setLaunch(requestedLaunch); onDirtyChange(true); void probe(changesCatalog ? '' : model, requestedLaunch);
         }}>
         {option.options.map(choice => <option key={choice.value} value={choice.value}>{choice.name}</option>)}

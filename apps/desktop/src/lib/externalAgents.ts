@@ -7,6 +7,7 @@ export interface ExternalAgentLaunch {
   executable: string | null;
   workingDirectory: string;
   configOptions?: Record<string, string>;
+  configOptionsModel?: string;
   mcpServerIds?: string[];
 }
 

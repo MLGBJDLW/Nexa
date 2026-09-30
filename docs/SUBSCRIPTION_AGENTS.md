@@ -77,9 +77,16 @@ Native select options are discovered, including mode, provider and reasoning.
 Provider/mode changes are applied before model selection, and model-dependent
 options are refreshed afterward. Successful native responses replace the complete
 option list; normalized values (such as Qwen's default reasoning level) are kept.
-The final model must still match the user's selection. Available native slash
+The final model must still match the user's selection. Model-dependent preferences
+are bound to the model verified in Settings, so a chat model switch cannot replay
+obsolete effort/Fast options. Discovery returns replacement choices after a saved
+model retires; inference rejects it until the user selects a replacement.
+Available native slash
 commands are sent verbatim without a Nexa instruction wrapper; running a command
 in a fresh session does not consume the pending project context for its next prompt.
+Namespaced commands retain their prefix. Silent command completion emits a typed
+status receipt without inventing an assistant reply. Queued commands and ordinary
+steering messages execute as separate prompts so the latter are not swallowed.
 
 Profiles can explicitly select enabled user-managed MCP connectors to forward.
 Stdio is supported by ACP; HTTP/SSE requires the agent's advertised capability.
@@ -105,6 +112,9 @@ do not sandbox the external process's own tools.
 Native questions with multiple one-time choices require the exact selected
 answer. Generic allow-all policy and reusable tool approval cannot choose an
 answer or promote a one-time decision into a permanent native grant.
+The same exact-choice flow is available on the phone and projects a selected
+answer separately from an allowed/denied tool permission. Waiting for an answer
+does not block filesystem requests, terminal output or cancellation.
 
 Text/thinking, native tool lifecycle, context usage snapshots and final message
 IDs flow through the existing ordered outbox. A fresh session receives bounded
@@ -170,6 +180,10 @@ the runtime does not silently switch to an in-memory journal.
   thread without changing global config. An inventory error prevents submission.
   This enumeration is not an OS sandbox or an atomic ban on skills created after
   the inventory. The supported CLI must accept the complete execution contract.
+- Codex reserves the `mcp__` dynamic-tool namespace. Nexa sends stable protocol
+  aliases and restores the original registered names at dispatch, preserving
+  connector identity, permission rules and tool receipts. Runtime warnings remain
+  visible in the status row and ordered trace.
 - Codex native clock requests receive the actual host time. Native asynchronous
   questions/status are persisted visibly, and are never interpreted as terminal
   answers. Real user replies use `turn/steer`; no suggested option is auto-sent.

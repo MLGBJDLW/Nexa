@@ -468,6 +468,12 @@ test.beforeEach(async ({ page }) => {
           const delay = Number(localStorage.getItem('nexa-e2e-acp-probe-delay') ?? '0');
           if (delay) await new Promise(resolve => setTimeout(resolve, delay));
           const launch = _args.launch as { configOptions?: Record<string, string> };
+          if (localStorage.getItem('nexa-e2e-dependent-reasoning')) {
+            const second = _args.model === 'second';
+            if (second && launch.configOptions?.reasoning_effort) throw new Error('Stale model reasoning was retained');
+            return { models: [{ id: second ? 'second' : 'first', name: second ? 'Second' : 'First', reasoningEfforts: second ? ['low'] : ['low', 'high'] }, { id: second ? 'first' : 'second', name: second ? 'First' : 'Second', reasoningEfforts: [] }],
+              configOptions: [{ id: 'reasoning_effort', name: 'Native reasoning', currentValue: launch.configOptions?.reasoning_effort ?? 'low', options: (second ? ['low'] : ['low', 'high']).map(value => ({ value, name: value })) }], commands: [] };
+          }
           return { models: [{ id: 'vendor/native-model', name: 'Native model', reasoningEfforts: ['low', 'high'] }],
             configOptions: [{ id: 'effort', name: 'Native reasoning', category: 'thought_level', currentValue: launch.configOptions?.effort ?? 'low', options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] }], commands: ['context', 'compact'] };
         }
@@ -2614,6 +2620,43 @@ test('ACP external agent launch edits discard stale connection probes', async ({
   await page.waitForTimeout(850);
   await expect(form.getByRole('status')).toHaveCount(0);
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+});
+
+test('ACP model changes discard uncategorized native reasoning before verifying the new catalog', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-e2e-dependent-reasoning', '1'));
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.locator('[data-provider-preset-id="goose"]').click();
+  const form = page.getByTestId('external-agent-form');
+  await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
+  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await form.getByRole('combobox', { name: 'Native reasoning', exact: true }).selectOption('high');
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await form.getByRole('combobox', { name: 'Default Model', exact: true }).selectOption('second');
+  await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveValue('low');
+  await expect(form.getByRole('alert')).toHaveCount(0);
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { configOptions: {} } });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ model: 'second', reasoningEffort: null });
+});
+
+test('ACP discovery exposes replacements without silently changing a retired saved model', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-e2e-stale-subscription-provider', 'gemini_cli'));
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.getByTitle('Edit').first().click();
+  const form = page.getByTestId('external-agent-form');
+  await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
+  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  const model = form.getByRole('combobox', { name: 'Default Model', exact: true });
+  await expect(model).toHaveValue('retired-native-model');
+  await expect(model.getByRole('option', { name: 'Native model', exact: true })).toHaveCount(1);
+  await model.selectOption('vendor/native-model');
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ model: 'vendor/native-model', reasoningEffort: null });
 });
 
 test("Qwen Audio and dynamically discovered OpenRouter image models are usable in settings", async ({ page }) => {

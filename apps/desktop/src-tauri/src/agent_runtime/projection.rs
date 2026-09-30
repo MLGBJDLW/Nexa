@@ -21,6 +21,7 @@ pub(super) struct Projection {
     pub(super) last_prompt_tokens: u32,
     pub(super) context_breakdown: Option<nexa_core::agent::context::ContextUsageBreakdown>,
     pub(super) native_final_fallback: Option<nexa_core::agent::PersistedAssistantMessage>,
+    pub(super) completed_command: bool,
     runtime_identity: Option<(String, String)>,
 }
 
@@ -361,24 +362,34 @@ impl Projection {
         mut self,
         turn: &PreparedTurn,
     ) -> Result<nexa_core::llm::Message, CoreError> {
-        let message = self
-            .persist_completed_answer(turn)
-            .await?
-            .or_else(|| self.native_final_fallback.take())
-            .ok_or_else(|| protocol_error("upstream completed without a final answer"))?;
+        let saved = self.persist_completed_answer(turn).await?;
+        let (message, assistant_message_id) = match saved.or_else(|| {
+            if self.completed_command {
+                None
+            } else {
+                self.native_final_fallback.take()
+            }
+        }) {
+            Some(saved) => (saved.message, Some(saved.id)),
+            None if self.completed_command => (
+                nexa_core::llm::Message::text(nexa_core::llm::Role::Assistant, ""),
+                None,
+            ),
+            None => return Err(protocol_error("upstream completed without a final answer")),
+        };
         turn.events
             .send(AgentEvent::Done {
-                message: message.message.clone(),
+                message: message.clone(),
                 last_prompt_tokens: self.last_prompt_tokens,
                 usage_total: self.usage,
                 context_breakdown: self.context_breakdown,
-                assistant_message_id: Some(message.id),
+                assistant_message_id,
                 cached: false,
                 finish_reason: Some("stop".into()),
             })
             .await
             .map_err(protocol_error)?;
-        Ok(message.message)
+        Ok(message)
     }
 }
 

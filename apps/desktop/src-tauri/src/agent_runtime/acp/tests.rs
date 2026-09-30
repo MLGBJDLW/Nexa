@@ -17,6 +17,45 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn chat_model_switch_discards_old_model_options_and_discovery_survives_retirement() {
+    let mut wire = wire("dependent");
+    let mut session = Session::connect(&mut wire, "fixture").await.unwrap();
+    let preferences = std::collections::BTreeMap::from([
+        ("provider".into(), "B".into()),
+        ("reasoning_effort".into(), "low".into()),
+        ("fast".into(), "on".into()),
+    ]);
+    session
+        .configure(
+            &mut wire,
+            Some("B2"),
+            &preferences,
+            None,
+            Some("A1"),
+            catalog::ConfigurationUse::Inference,
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.models[0].id, "B2");
+    session
+        .configure(
+            &mut wire,
+            Some("retired"),
+            &preferences,
+            None,
+            Some("A1"),
+            catalog::ConfigurationUse::Discovery,
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.models.len(), 2);
+    assert!(
+        session.select_model(&mut wire, "retired").await.is_err(),
+        "Inference cannot use a retired selection"
+    );
+}
+
+#[tokio::test]
 async fn provider_switch_replaces_catalog_before_model_and_model_dependent_reasoning() {
     let mut wire = wire("dependent");
     let mut session = Session::connect(&mut wire, "fixture").await.unwrap();
@@ -26,7 +65,14 @@ async fn provider_switch_replaces_catalog_before_model_and_model_dependent_reaso
         ("reasoning_effort".into(), "low".into()),
     ]);
     session
-        .configure(&mut wire, Some("B2"), &preferences, Some("high"))
+        .configure(
+            &mut wire,
+            Some("B2"),
+            &preferences,
+            Some("high"),
+            None,
+            catalog::ConfigurationUse::Inference,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -35,7 +81,7 @@ async fn provider_switch_replaces_catalog_before_model_and_model_dependent_reaso
             .iter()
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>(),
-        ["B1", "B2"]
+        ["B2", "B1"]
     );
     let effort = session
         .config_options
@@ -226,6 +272,43 @@ async fn native_services_create_missing_files_render_released_terminals_and_surv
 }
 
 #[tokio::test]
+async fn queued_commands_keep_the_following_input_and_first_project_context() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        "native",
+    );
+    request.user_parts = vec![nexa_core::llm::ContentPart::Text {
+        text: "/context".into(),
+    }];
+    request.config.system_prompt = "PROJECT_CONTEXT_MUST_REACH_AGENT".into();
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    sender
+        .send(nexa_core::agent::AgentSteeringMessage::text(
+            "/mcp:server:command",
+        ))
+        .unwrap();
+    sender
+        .send(nexa_core::agent::AgentSteeringMessage::text(
+            "Continue with the requested work",
+        ))
+        .unwrap();
+    drop(sender);
+    request.steering = receiver;
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let answer = run_connected(
+        "github_copilot_acp",
+        request,
+        client_wire(directory.path(), "commands"),
+        &directory.path().to_string_lossy(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.text_content(), "Native peer completed");
+    drain.await.unwrap();
+}
+
+#[tokio::test]
 async fn cold_native_command_preserves_raw_input_and_does_not_mark_project_context_delivered() {
     let directory = tempfile::tempdir().unwrap();
     let mut wire = client_wire(directory.path(), "commands");
@@ -238,17 +321,34 @@ async fn cold_native_command_preserves_raw_input_and_does_not_mark_project_conte
         history: String::new(),
         context: String::new(),
     };
-    let (mut request, _rx, _, _) = super::super::tests::fixture(
+    let (mut request, mut rx, _, _) = super::super::tests::fixture(
         super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
         "native",
     );
     request.user_parts = vec![nexa_core::llm::ContentPart::Text {
-        text: "/context".into(),
+        text: "/mcp:server:command".into(),
     }];
     request.config.system_prompt = "PROJECT_CONTEXT_MUST_REACH_AGENT".into();
-    run_initialized("github_copilot_acp", request, &mut connection)
+    let db = request.db.clone();
+    let conversation = request.conversation_id.clone();
+    let answer = run_initialized("github_copilot_acp", request, &mut connection)
         .await
         .unwrap();
+    assert!(answer.text_content().is_empty());
+    assert_eq!(
+        db.get_messages(&conversation).unwrap().len(),
+        1,
+        "A native command receipt is not assistant dialogue"
+    );
+    let mut command_receipt = false;
+    while let Ok(event) = rx.try_recv() {
+        if let AgentEvent::ControllerStatus { code, content, .. } = event {
+            if code == "external_agent_command_completed" {
+                command_receipt = content == "/mcp:server:command";
+            }
+        }
+    }
+    assert!(command_receipt);
     assert!(connection.context.is_empty());
     connection.history = "cached-completed-command".into();
     let (mut request, _rx, _, _) = super::super::tests::fixture(

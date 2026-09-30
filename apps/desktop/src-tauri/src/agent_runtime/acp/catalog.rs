@@ -4,6 +4,12 @@ use serde_json::{json, Value};
 
 pub(super) const DEFAULT_MODEL: &str = "@nexa/agent-default";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConfigurationUse {
+    Discovery,
+    Inference,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Model {
@@ -218,7 +224,8 @@ impl Session {
 
     fn replace_options(&mut self, value: &Value) -> Result<()> {
         let options = config::parse(value)?;
-        if let Some((id, current, models)) = config::models(&options) {
+        if let Some((id, current, mut models)) = config::models(&options) {
+            models.sort_by_key(|model| model.id != current);
             self.model_option = Some(id);
             self.current_model = Some(current);
             self.models = models;
@@ -288,6 +295,8 @@ impl Session {
         model: Option<&str>,
         preferences: &std::collections::BTreeMap<String, String>,
         effort: Option<&str>,
+        saved_model: Option<&str>,
+        purpose: ConfigurationUse,
     ) -> Result<()> {
         self.sync(wire)?;
         let mut remaining = preferences.clone();
@@ -305,12 +314,29 @@ impl Session {
             .map(|option| option.id.clone())
         {
             let value = remaining.remove(&id).expect("selected preference");
+            if purpose == ConfigurationUse::Discovery
+                && !self.config_options.iter().any(|option| {
+                    option.id == id && option.options.iter().any(|choice| choice.value == value)
+                })
+            {
+                continue;
+            }
             self.set_option(wire, &id, &value).await?;
         }
+        // Discovery must still return alternatives after a saved model retires.
+        // Inference keeps its strict identity check and never switches silently.
+        let model = model.filter(|selected| {
+            purpose == ConfigurationUse::Inference
+                || self.models.iter().any(|model| model.id == *selected)
+        });
+        let reuse_model_options = saved_model.is_none_or(|saved| Some(saved) == model);
         if let Some(model) = model {
             self.select_model(wire, model).await?;
         }
         for (id, value) in remaining {
+            if !reuse_model_options {
+                continue;
+            }
             // Model and explicit chat reasoning own their respective options.
             if self.model_option.as_deref() == Some(id.as_str())
                 || (effort.is_some()
@@ -318,6 +344,13 @@ impl Session {
                         .config_options
                         .iter()
                         .any(|option| option.id == id && config::is_thought(option)))
+            {
+                continue;
+            }
+            if purpose == ConfigurationUse::Discovery
+                && !self.config_options.iter().any(|option| {
+                    option.id == id && option.options.iter().any(|choice| choice.value == value)
+                })
             {
                 continue;
             }

@@ -45,7 +45,14 @@ pub(crate) async fn probe(
         let mut session =
             Session::connect_with_mcp(&mut wire, &launch.working_directory, &servers).await?;
         session
-            .configure(&mut wire, model, &launch.config_options, None)
+            .configure(
+                &mut wire,
+                model,
+                &launch.config_options,
+                None,
+                launch.config_options_model.as_deref(),
+                catalog::ConfigurationUse::Discovery,
+            )
             .await?;
         Ok(Catalog {
             models: session.models,
@@ -211,9 +218,13 @@ async fn run_initialized(
         .map(serde_json::to_value)
         .transpose()?
         .and_then(|value| value.as_str().map(str::to_owned));
+    let saved_model = request
+        .external
+        .as_ref()
+        .and_then(|binding| binding.launch.config_options_model.as_deref());
     tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while configuring the external agent".into())),
-        result = connection.session.configure(&mut connection.wire, Some(model), &preferences, effort.as_deref()) => result?,
+        result = connection.session.configure(&mut connection.wire, Some(model), &preferences, effort.as_deref(), saved_model, catalog::ConfigurationUse::Inference) => result?,
     }
     request
         .events
@@ -244,9 +255,6 @@ async fn run_initialized(
     if warm && connection.context == context {
         turn.system_prompt.clear();
     }
-    if native_command(&turn.prompt).is_none() {
-        connection.context = context;
-    }
     let mut output = super::projection::Projection::for_turn(&turn);
     let mut reports = projection::ToolReports::new(provider)?;
     let result = drive(
@@ -259,7 +267,12 @@ async fn run_initialized(
     )
     .await;
     match result {
-        Ok(()) => output.finish(&turn).await,
+        Ok(context_delivered) => {
+            if context_delivered {
+                connection.context = context;
+            }
+            output.finish(&turn).await
+        }
         Err(cause) => {
             let _ = reports
                 .close_pending(&turn.events, turn.cancellation.is_cancelled())
@@ -429,10 +442,11 @@ async fn drive(
     session: &mut Session,
     output: &mut super::projection::Projection,
     reports: &mut projection::ToolReports,
-) -> Result<()> {
+) -> Result<bool> {
     stage(&turn.events, "waiting").await?;
     session.sync(wire)?;
-    let command = native_command(&turn.prompt).map(str::to_owned);
+    let mut command = native_command(&turn.prompt, &session.commands).map(str::to_owned);
+    let mut context_delivered = command.is_none();
     if command.is_some() && !turn.images.is_empty() {
         return Err(error("Native slash commands require text-only input"));
     }
@@ -703,7 +717,7 @@ async fn drive(
                 completed["stopReason"]
             )));
         }
-        if reports.has_pending() {
+        if reports.has_pending() || !pending_services.is_empty() {
             return Err(error(
                 "External agent completed with unfinished tool reports",
             ));
@@ -712,24 +726,26 @@ async fn drive(
             output.complete_block(&turn.events, id, text).await?;
         }
         output.select_answer_blocks(answer_blocks.iter().map(|(id, _)| id.clone()).collect())?;
+        if command.is_some() && output.answer.trim().is_empty() {
+            turn.events
+                .send(AgentEvent::ControllerStatus {
+                    code: "external_agent_command_completed".into(),
+                    content: format!("/{}", command.as_deref().unwrap_or_default()),
+                    tone: Some("success".into()),
+                })
+                .await
+                .map_err(error)?;
+        }
         if steering.is_empty() {
-            if command.is_some() && output.answer.trim().is_empty() {
-                output
-                    .complete(
-                        &turn.events,
-                        "native-command-result",
-                        &format!(
-                            "External agent command completed: /{}",
-                            command.as_deref().unwrap_or_default()
-                        ),
-                    )
-                    .await?;
-            }
-            return Ok(());
+            output.completed_command = command.is_some();
+            return Ok(context_delivered);
         }
         output.persist_completed_answer(turn).await?;
         let mut next = Vec::new();
-        while let Some(item) = steering.pop_front() {
+        command = None;
+        // Native slash commands consume one prompt. Keep subsequent steering
+        // queued so it cannot be silently swallowed by a command handler.
+        if let Some(item) = steering.pop_front() {
             if item
                 .image_attachments
                 .as_ref()
@@ -740,15 +756,19 @@ async fn drive(
                 ));
             }
             turn.transcript.persist_steering(&item).await?;
+            command = native_command(&item.content, &session.commands).map(str::to_owned);
             turn.events
                 .send(AgentEvent::Steering {
                     content: item.content.clone(),
                 })
                 .await
                 .map_err(error)?;
-            next.push(
-                json!({"type":"text","text":super::redact_user_text(&item.content,&turn.privacy)}),
-            );
+            let mut text = super::redact_user_text(&item.content, &turn.privacy);
+            if command.is_none() && !context_delivered {
+                text = format!("{}\n\nCurrent user message:\n{text}", turn.system_prompt);
+                context_delivered = true;
+            }
+            next.push(json!({"type":"text","text":text}));
         }
         segment += 1;
         answer_blocks.clear();
@@ -764,11 +784,12 @@ async fn drive(
     }
 }
 
-fn native_command(prompt: &str) -> Option<&str> {
+fn native_command<'a>(prompt: &'a str, advertised: &[String]) -> Option<&'a str> {
     let name = prompt.trim().strip_prefix('/')?.split_whitespace().next()?;
-    (!name.is_empty()
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
+    (advertised.iter().any(|command| command == name)
+        || (!name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':'))))
     .then_some(name)
 }
