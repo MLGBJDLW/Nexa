@@ -464,10 +464,12 @@ test.beforeEach(async ({ page }) => {
         }
         case 'get_external_agent_launch_cmd':
           return { executable: null, workingDirectory: '' };
-        case 'probe_external_agent_cmd': {
+        case 'inspect_external_agent_cmd': {
           const delay = Number(localStorage.getItem('nexa-e2e-acp-probe-delay') ?? '0');
           if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-          return [{ id: 'vendor/native-model', name: 'Native model', reasoningEfforts: [] }];
+          const launch = _args.launch as { configOptions?: Record<string, string> };
+          return { models: [{ id: 'vendor/native-model', name: 'Native model', reasoningEfforts: ['low', 'high'] }],
+            configOptions: [{ id: 'effort', name: 'Native reasoning', category: 'thought_level', currentValue: launch.configOptions?.effort ?? 'low', options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] }], commands: ['context', 'compact'] };
         }
         case 'save_external_agent_profile_cmd':
           localStorage.setItem('nexa-e2e-acp-launch', JSON.stringify({ provider: (_args.config as { provider: string }).provider, launch: _args.launch }));
@@ -1543,7 +1545,7 @@ test("settings verifies GitHub Copilot subscription models and quota through the
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("tab", { name: "External agents", exact: true }).click();
-  await page.getByRole("button", { name: "GitHub Copilot", exact: false }).click();
+  await page.locator('[data-provider-preset-id="github-copilot"]').click();
 
   const account = page.getByTestId("copilot-subscription-account");
   await expect(account).toContainText("Subscription verified");
@@ -1564,7 +1566,7 @@ test("settings starts and cancels the official Copilot CLI browser login", async
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("tab", { name: "External agents", exact: true }).click();
-  await page.getByRole("button", { name: "GitHub Copilot", exact: false }).click();
+  await page.locator('[data-provider-preset-id="github-copilot"]').click();
 
   const account = page.getByTestId("copilot-subscription-account");
   await account.getByRole("button", { name: "Sign in with GitHub" }).click();
@@ -2517,7 +2519,7 @@ for (const runtime of ["GitHub Copilot", "ChatGPT / Codex"]) {
     await page.getByRole("button", { name: "AI Providers" }).click();
     await page.getByRole("button", { name: "Add Provider" }).click();
     await page.getByRole("tab", { name: "External agents", exact: true }).click();
-    await page.getByRole("button", { name: runtime, exact: false }).click();
+    await page.locator(`[data-provider-preset-id="${runtime === 'GitHub Copilot' ? 'github-copilot' : 'openai-codex'}"]`).click();
     const form = page.getByTestId("subscription-agent-form");
     const model = runtime === "GitHub Copilot" ? "claude-sonnet-4.6" : "gpt-6";
     await expect(form.getByRole("combobox")).toHaveCount(0);
@@ -2559,7 +2561,7 @@ test("subscription catalog failure invalidates stale models and prevents saving"
   await page.getByRole("button", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("tab", { name: "External agents", exact: true }).click();
-  await page.getByRole("button", { name: "GitHub Copilot", exact: false }).click();
+  await page.locator('[data-provider-preset-id="github-copilot"]').click();
   const form = page.getByTestId("subscription-agent-form");
   await expect(form.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
   await page.evaluate(() => localStorage.setItem("nexa-e2e-subscription-models-fail", "1"));
@@ -2568,26 +2570,32 @@ test("subscription catalog failure invalidates stale models and prevents saving"
   await expect(form.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 });
 
-for (const [name, provider] of [['Gemini CLI', 'gemini_cli'], ['OpenCode', 'opencode'], ['Hermes Agent', 'hermes']]) {
+for (const [name, provider, presetId] of [
+  ['Gemini CLI', 'gemini_cli', 'gemini-cli'], ['OpenCode', 'opencode', 'opencode'], ['Hermes Agent', 'hermes', 'hermes'],
+  ['GitHub Copilot CLI', 'github_copilot_acp', 'copilot-acp'], ['Claude Code', 'claude_code_acp', 'claude-code-acp'],
+  ['Codex CLI', 'codex_acp', 'codex-acp'], ['Qwen Code', 'qwen_code', 'qwen-code'], ['Goose', 'goose', 'goose'], ['Auggie', 'auggie', 'auggie'],
+]) {
   test(`ACP external agent ${name} saves a verified launch separately from API credentials`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 680, height: 850 });
     await page.goto('/settings');
     await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
     await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
-    await expect(page.locator(`[data-provider-preset-id="${provider === 'gemini_cli' ? 'gemini-cli' : provider}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-provider-preset-id="${presetId}"]`)).toHaveCount(0);
     await page.getByRole('tab', { name: 'External agents', exact: true }).click();
     await expect(page.locator('[data-provider-preset-id="openai"]')).toHaveCount(0);
-    await page.getByRole('button', { name: new RegExp(name) }).click();
+    await page.locator(`[data-provider-preset-id="${presetId}"]`).click();
     const form = page.getByTestId('external-agent-form');
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await form.getByLabel('Working directory', { exact: true }).fill('D:\\工作区\\Example');
     await form.getByRole('button', { name: 'Check connection', exact: true }).click();
     await expect(form.getByRole('status')).toContainText('Inference has not been tested');
-    await expect(form.getByRole('combobox')).toHaveValue('vendor/native-model');
+    await expect(form.getByRole('combobox', { name: 'Default Model', exact: true })).toHaveValue('vendor/native-model');
+    await form.getByRole('combobox', { name: 'Native reasoning', exact: true }).selectOption('high');
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('external-agent-settings-narrow.png') });
     await form.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ provider, launch: { executable: null, workingDirectory: 'D:\\工作区\\Example' } });
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ provider, launch: { executable: null, workingDirectory: 'D:\\工作区\\Example', configOptions: { effort: 'high' } } });
     await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ provider, model: 'vendor/native-model', apiKey: '', baseUrl: null });
   });
 }

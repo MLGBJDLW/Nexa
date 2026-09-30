@@ -1071,4 +1071,6 @@
   ,"externalAgentControls": "ツールと実行設定は外部エージェントが管理します。"
   ,"reasoningBetweenTools": "ツール呼び出し間のみ思考"
   ,"enableUpfrontThinking": "回答前の思考を有効にする"
+  ,"externalAgentMcp": "このエージェントの MCP コネクタ"
+  ,"externalAgentMcpHint": "選択したコネクタと設定済みの認証情報は、このエージェントに渡され、その権限ポリシーが適用されます。"
 }

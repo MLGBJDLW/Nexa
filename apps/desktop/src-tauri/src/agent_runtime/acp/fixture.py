@@ -7,6 +7,12 @@ import subprocess
 mode = sys.argv[1]
 session = "会话-Δ"
 config = [{"id": "model-id", "category": "model", "type": "select", "name": "Model", "currentValue": "first", "options": [{"value": "first", "name": "First"}, {"value": "vendor/模型", "name": "Model"}]}]
+if mode == "dependent":
+    config = [
+        {"id": "provider", "type": "select", "name": "Provider", "currentValue": "A", "options": [{"value": "A", "name": "A"}, {"value": "B", "name": "B"}]},
+        {"id": "model", "category": "model", "type": "select", "name": "Model", "currentValue": "A1", "options": [{"value": "A1", "name": "A1"}]},
+        {"id": "reasoning_effort", "type": "select", "name": "Reasoning", "currentValue": "low", "options": [{"value": "low", "name": "Low"}]},
+    ]
 
 def emit(value):
     # Deliberately split multibyte UTF-8 across writes.
@@ -29,7 +35,8 @@ for line in sys.stdin:
         with open(sys.argv[2], "a", encoding="utf-8") as log:
             log.write(json.dumps(message, ensure_ascii=False) + "\n")
     if method == "initialize":
-        assert message["params"]["clientCapabilities"]["terminal"] is False
+        assert message["params"]["clientCapabilities"]["terminal"] is True
+        assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": True, "writeTextFile": True}
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}})
     elif method == "session/new":
         if mode == "auth":
@@ -42,6 +49,21 @@ for line in sys.stdin:
         assert mode == "legacy" and message["params"]["modelId"] == "vendor/模型"
         reply(message, {})
     elif method == "session/set_config_option":
+        if mode == "dependent":
+            ident, value = message["params"]["configId"], message["params"]["value"]
+            option = next(option for option in config if option["id"] == ident)
+            assert any(choice["value"] == value for choice in option["options"])
+            option["currentValue"] = value
+            if ident == "provider":
+                assert value == "B"
+                config[1].update(currentValue="B1", options=[{"value": name, "name": name} for name in ["B1", "B2"]])
+            if ident == "model":
+                assert value == "B2" and config[0]["currentValue"] == "B"
+                config[2].update(currentValue="high", options=[{"value": "high", "name": "High"}, {"value":"default", "name":"Default"}])
+            if ident == "reasoning_effort" and value == "default":
+                option["currentValue"] = "high"
+            reply(message, {"configOptions": config})
+            continue
         if mode != "unconfirmed":
             config[0]["currentValue"] = message["params"]["value"]
         reply(message, {"configOptions": config})

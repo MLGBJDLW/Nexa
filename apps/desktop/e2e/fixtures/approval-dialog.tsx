@@ -12,5 +12,6 @@ export function renderApproval(targetKind: string) {
     id: 'approval-test', toolName: 'computer_control', targetKind,
     permissionKey: 'trusted-key', targetValue: 'verified-scope', argumentsPreview: '{}',
     riskLevel: 'high', reason: 'Control this verified editor window for the current task.',
+    ...(targetKind === 'external_agent_choice' ? { choices: ['First answer', 'Second answer'] } : {}),
   }} /></I18nProvider>);
 }

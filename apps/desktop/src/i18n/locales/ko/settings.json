@@ -1071,4 +1071,6 @@
   ,"externalAgentControls": "도구와 실행 설정은 외부 에이전트가 관리합니다."
   ,"reasoningBetweenTools": "도구 호출 사이에서만 사고"
   ,"enableUpfrontThinking": "응답 전 사고 활성화"
+  ,"externalAgentMcp": "이 에이전트의 MCP 커넥터"
+  ,"externalAgentMcpHint": "선택한 커넥터와 설정된 인증 정보가 이 에이전트에 전달되며 에이전트의 권한 정책이 적용됩니다."
 }

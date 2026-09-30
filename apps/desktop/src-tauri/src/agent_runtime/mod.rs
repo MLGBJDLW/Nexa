@@ -78,6 +78,7 @@ struct PreparedTurn {
     privacy: nexa_core::privacy::PrivacyConfig,
     approval: ApprovalCallback,
     permission_scope: String,
+    files: acp::client::FileContext,
 }
 
 impl AgentRuntimeTurnRequest {
@@ -93,6 +94,26 @@ impl AgentRuntimeTurnRequest {
             })
             .unwrap_or_else(|| self.conversation_id.clone());
         let cancellation = self.cancellation.child_token();
+        let files = acp::client::FileContext {
+            db: self.db.clone(),
+            conversation: self.conversation_id.clone(),
+            turn: self.turn_id.clone(),
+            workspace: workspace.clone().or_else(|| {
+                self.external
+                    .as_ref()
+                    .map(|binding| nexa_core::workspace::Workspace {
+                        roots: vec![binding.launch.working_directory.clone()],
+                    })
+            }),
+            source_scope: self
+                .db
+                .get_effective_conversation_source_scope(&self.conversation_id)?,
+            cancellation: cancellation.clone(),
+            native_provider: match self.kind {
+                AgentRuntimeKind::Acp(provider) => Some(provider),
+                _ => None,
+            },
+        };
         let user_text = self
             .user_parts
             .iter()
@@ -206,6 +227,7 @@ impl AgentRuntimeTurnRequest {
             privacy,
             approval: self.approval,
             permission_scope,
+            files,
         })
     }
 }

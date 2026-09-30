@@ -41,10 +41,11 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
   if (!request) return null;
   const reusableWindowGrant = request.targetKind === 'desktop_window_task'
     && ['computer_control', 'computer_observe'].includes(request.toolName);
-  const oneShotOnly = !reusableWindowGrant && (request.toolName === 'computer_control'
-    || request.targetKind === 'screen_disclosure');
+  const choices = request.choices ?? [];
+  const oneShotOnly = choices.length > 0 || (!reusableWindowGrant && (request.toolName === 'computer_control'
+    || request.targetKind === 'screen_disclosure'));
   const targetIsInternalScope = request.targetKind === 'desktop_action'
-    || request.targetKind === 'screen_disclosure' || reusableWindowGrant;
+    || request.targetKind === 'screen_disclosure' || request.targetKind === 'external_agent_choice' || reusableWindowGrant;
 
   return (
     <div
@@ -120,14 +121,17 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
               {t('chat.approvalAllowSession')}
             </button>
           )}
-          <button
+          {choices.length > 0 ? choices.map((label, index) => <button
+            key={index} type="button" disabled={busy} onClick={() => decide(`select_option:${index}`)}
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          >{label}</button>) : <button
             type="button"
             disabled={busy}
             onClick={() => decide('allow_once')}
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
           >
             {t('chat.approvalAllowOnce')}
-          </button>
+          </button>}
         </div>
 
         {!oneShotOnly && !reusableWindowGrant && (

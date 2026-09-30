@@ -91,7 +91,7 @@ pub(crate) fn create_file_diff_artifact(path: &str, file_content: &str) -> Value
     })
 }
 
-pub(crate) fn text_diff_artifact(
+pub fn text_diff_artifact(
     path: &str,
     operation: &str,
     old_content: &str,

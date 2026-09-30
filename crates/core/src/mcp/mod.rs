@@ -88,7 +88,7 @@ fn normalize_optional_text(value: &Option<String>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-pub(crate) fn parse_mcp_args(args: &str) -> Result<Vec<String>, CoreError> {
+pub fn parse_mcp_args(args: &str) -> Result<Vec<String>, CoreError> {
     let trimmed = args.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -194,7 +194,10 @@ fn resolve_env_placeholders(value: &str) -> Result<String, CoreError> {
     Ok(resolved)
 }
 
-fn resolve_mcp_config_map(field: &str, raw: &str) -> Result<HashMap<String, String>, CoreError> {
+pub fn resolve_mcp_config_map(
+    field: &str,
+    raw: &str,
+) -> Result<HashMap<String, String>, CoreError> {
     let values: HashMap<String, String> = serde_json::from_str(raw)
         .map_err(|error| CoreError::InvalidInput(format!("Invalid {field}: {error}")))?;
     values

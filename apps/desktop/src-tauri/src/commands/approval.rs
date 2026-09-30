@@ -16,6 +16,15 @@ pub async fn approve_tool_call_cmd(
         .ok_or_else(|| format!("Unknown approval decision: {decision}"))?;
     let sender = {
         let mut pending = approval_state.pending.lock().await;
+        if let Some(request) = pending.get(&request_id).map(|pending| &pending.request) {
+            if let ApprovalDecision::SelectOption(index) = decision {
+                if index as usize >= request.choices.len() {
+                    return Err("Native choice is unavailable for this approval request".into());
+                }
+            } else if !request.choices.is_empty() && decision.is_allowed() {
+                return Err("Select one of the native options explicitly".into());
+            }
+        }
         pending.remove(&request_id)
     };
     match sender {

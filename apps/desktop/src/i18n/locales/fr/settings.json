@@ -1071,4 +1071,6 @@
   ,"externalAgentControls": "Les outils et les paramètres d’exécution sont gérés par l’agent externe."
   ,"reasoningBetweenTools": "Réflexion uniquement entre les appels d’outils"
   ,"enableUpfrontThinking": "Activer la réflexion préalable"
+  ,"externalAgentMcp": "Connecteurs MCP de cet agent"
+  ,"externalAgentMcpHint": "Les connecteurs sélectionnés et leurs identifiants configurés sont transmis à cet agent et suivent sa politique d’autorisation."
 }

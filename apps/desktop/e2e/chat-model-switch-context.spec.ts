@@ -78,6 +78,7 @@ test.beforeEach(async ({ page }) => {
     configs.push({ ...configs[0], id: 'cfg-subscription', name: 'My Copilot plan', provider: 'github_copilot', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-codex', name: 'My Codex plan', provider: 'openai_codex', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-acp', name: 'My Gemini CLI', provider: 'gemini_cli', model: 'unavailable-old-model', isDefault: false });
+    configs.push({ ...configs[0], id: 'cfg-opencode', name: 'My OpenCode', provider: 'opencode', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-glm', name: 'GLM gateway', model: 'glm-4.7', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-sonnet', name: 'Anthropic', provider: 'anthropic', model: 'claude-sonnet-5-5', contextWindow: 1000000, isDefault: false });
     const savedAgentConfigInputs: Array<Record<string, unknown>> = [];
@@ -140,7 +141,7 @@ test.beforeEach(async ({ page }) => {
           (fixture.__catalogCalls ??= []).push(String(args.provider));
           if (fixture.__catalogDelay) await new Promise(resolve => setTimeout(resolve, fixture.__catalogDelay));
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
-          return [{ id: 'gpt-native', name: 'Native GPT', reasoningEfforts: ['low', 'ultra'] }];
+          return [{ id: 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : ['low', 'ultra'], contextWindow: 200000 }];
         }
         case 'list_agent_configs_cmd':
           return configs.map(clone);
@@ -545,6 +546,29 @@ test('subscription compact command is rejected without starting an API summarize
   await page.locator('textarea').press('Enter');
   await expect(page.getByText('Manual compaction is unavailable for this conversation.', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('e2e-compact-started'))).toBeNull();
+});
+
+test('ACP native slash commands reach the native runtime without local template expansion', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-acp').click();
+  await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
+  await page.locator('textarea').fill('/compact');
+  await page.locator('textarea').press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string,unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-acp', message: '/compact' });
+  expect(await page.evaluate(() => localStorage.getItem('e2e-compact-started'))).toBeNull();
+});
+
+test('ACP advertised reasoning and native context capacity are available in chat', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-opencode').click();
+  await page.getByTestId('agent-model-option-cfg-opencode-gpt-native').click();
+  await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByTestId('agent-model-reasoning-ultra').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string,unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider: 'opencode', reasoningEffort: 'ultra' });
+  await page.screenshot({ path: testInfo.outputPath('native-context-and-reasoning.png') });
 });
 
 test('ACP external agent model selector hides unsupported runtime controls and uses its native route', async ({ page }, testInfo) => {

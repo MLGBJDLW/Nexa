@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, FolderOpen, Terminal } from 'lucide-react';
 import { useTranslation } from '../../i18n';
-import { getExternalAgentLaunch, probeExternalAgent, type ExternalAgentLaunch } from '../../lib/externalAgents';
+import { getExternalAgentLaunch, inspectExternalAgent, type ExternalAgentLaunch, type ExternalAgentConfigOption } from '../../lib/externalAgents';
 import { runtimeAgentConfig } from '../../lib/runtimeAgentConfig';
-import type { CopilotModelSummary } from '../../lib/api';
+import { listMcpServers, type CopilotModelSummary } from '../../lib/api';
+import type { McpServer } from '../../types/extensions';
 import type { ProviderPreset } from '../../lib/providerPresets';
 import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import { Button } from '../ui/Button';
@@ -18,11 +19,19 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   const [initialLaunch, setInitialLaunch] = useState<ExternalAgentLaunch | null>(null);
   const [model, setModel] = useState(config?.model ?? '');
   const [models, setModels] = useState<CopilotModelSummary[]>([]);
+  const [nativeOptions, setNativeOptions] = useState<ExternalAgentConfigOption[]>([]);
+  const [nativeCommands, setNativeCommands] = useState<string[]>([]);
+  const [connectors, setConnectors] = useState<McpServer[]>([]);
   const [verified, setVerified] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  useEffect(() => {
+    let cancelled = false;
+    void listMcpServers().then(servers => { if (!cancelled) setConnectors(servers.filter(server => server.enabled && !server.builtinId)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
     const current = ++generation.current;
     void getExternalAgentLaunch(config?.id).then(value => {
@@ -34,16 +43,19 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   }, [config?.id]);
   const changeLaunch = (next: ExternalAgentLaunch) => {
     generation.current += 1;
-    setLaunch(next); setVerified(false); setModels([]); setLoading(false); setError(null); onDirtyChange(true);
+    setLaunch(next); setVerified(false); setModels([]); setNativeOptions([]); setNativeCommands([]); setLoading(false); setError(null); onDirtyChange(true);
   };
-  const probe = async () => {
+  const probe = async (selected = model, requestedLaunch = launch) => {
     const current = ++generation.current;
     setLoading(true); setError(null); setVerified(false);
     try {
-      const found = await probeExternalAgent(preset.provider, launch);
+      const found = await inspectExternalAgent(preset.provider, requestedLaunch, selected || undefined);
       if (generation.current !== current) return;
-      setModels(found); setVerified(true);
-      setModel(previous => found.some(item => item.id === previous) ? previous : found[0]?.id ?? '');
+      setModels(found.models); setNativeOptions(found.configOptions); setNativeCommands(found.commands); setVerified(true);
+      setLaunch({ ...requestedLaunch, configOptions: Object.fromEntries(found.configOptions
+        .filter(option => Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
+        .map(option => [option.id, option.currentValue])) });
+      setModel(previous => found.models.some(item => item.id === previous) ? previous : found.models[0]?.id ?? '');
     } catch (cause) { if (generation.current === current) setError(String(cause)); }
     finally { if (generation.current === current) setLoading(false); }
   };
@@ -54,7 +66,11 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     if (!canSave) return;
     setSaving(true); setError(null);
     try {
-      await onSave(runtimeAgentConfig(preset.provider, name, model, config), unchanged ? undefined : launch);
+      const input = runtimeAgentConfig(preset.provider, name, model, config);
+      // Native preferences may change the available reasoning values. A saved
+      // chat override must not silently override the newly selected preference.
+      if (JSON.stringify(initialLaunch?.configOptions) !== JSON.stringify(launch.configOptions)) input.reasoningEffort = null;
+      await onSave(input, unchanged ? undefined : launch);
     } catch (cause) { setError(String(cause)); }
     finally { setSaving(false); }
   };
@@ -81,10 +97,42 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     </label>
     <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentDirectoryHint')}</p>
     {models.length > 0 && <label className="block text-xs font-medium text-text-secondary">{t('settings.defaultModel')}
-      <select className={inputClass} value={model} onChange={event => { setModel(event.target.value); onDirtyChange(true); }}>
+      <select className={inputClass} value={model} disabled={loading} onChange={event => {
+        const selected = event.target.value;
+        const dependent = new Set(nativeOptions.filter(option => option.category === 'thought_level' || option.category === 'model_config').map(option => option.id));
+        const requestedLaunch = { ...launch, configOptions: Object.fromEntries(Object.entries(launch.configOptions ?? {}).filter(([id]) => !dependent.has(id))) };
+        setModel(selected); setLaunch(requestedLaunch); onDirtyChange(true); void probe(selected, requestedLaunch);
+      }}>
         {models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
     </label>}
+    {nativeOptions.filter(option => option.category !== 'model' && option.id !== 'model').map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
+      {option.name}
+      <select className={inputClass} disabled={loading} value={launch.configOptions?.[option.id] ?? option.currentValue}
+        onChange={event => {
+          const changesCatalog = option.category !== 'thought_level' && option.category !== 'model_config'
+            && !['reasoning_effort', 'effort', 'thought_level'].includes(option.id);
+          const dependent = new Set(nativeOptions.filter(item => item.category === 'model_config' || item.category === 'thought_level'
+            || ['reasoning_effort', 'effort', 'thought_level'].includes(item.id)).map(item => item.id));
+          const preferences = Object.fromEntries(Object.entries(launch.configOptions ?? {}).filter(([id]) => !changesCatalog || !dependent.has(id)));
+          const requestedLaunch = { ...launch, configOptions: { ...preferences, [option.id]: event.target.value } };
+          setLaunch(requestedLaunch); onDirtyChange(true); void probe(changesCatalog ? '' : model, requestedLaunch);
+        }}>
+        {option.options.map(choice => <option key={choice.value} value={choice.value}>{choice.name}</option>)}
+      </select>
+    </label>)}
+    {connectors.length > 0 && <fieldset className="space-y-2 rounded-lg border border-border p-3">
+      <legend className="px-1 text-xs font-medium text-text-secondary">{t('settings.externalAgentMcp')}</legend>
+      <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentMcpHint')}</p>
+      {connectors.map(server => <label key={server.id} className="flex items-center gap-2 text-sm text-text-primary">
+        <input type="checkbox" disabled={loading} checked={launch.mcpServerIds?.includes(server.id) ?? false} onChange={event => {
+          const ids = new Set(launch.mcpServerIds ?? []);
+          if (event.target.checked) ids.add(server.id); else ids.delete(server.id);
+          changeLaunch({ ...launch, mcpServerIds: [...ids] });
+        }} />{server.name}
+      </label>)}
+    </fieldset>}
+    {nativeCommands.length > 0 && <p className="break-words text-xs text-text-tertiary">{nativeCommands.map(name => `/${name}`).join(' · ')}</p>}
     {verified && <p role="status" className="text-xs text-success">{t('settings.externalAgentConnected')}</p>}
     {error && <p role="alert" className="break-words text-xs text-danger [overflow-wrap:anywhere]">{error}</p>}
     <div className="flex flex-wrap gap-2">

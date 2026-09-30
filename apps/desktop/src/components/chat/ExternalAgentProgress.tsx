@@ -6,6 +6,7 @@ import type { TraceEvent } from '../../lib/streaming/protocol';
 const labels = {
   starting: 'chat.agentStarting', connecting: 'chat.agentConnecting',
   model: 'chat.agentPreparing', reusing: 'chat.agentReusing', waiting: 'chat.agentWaiting',
+  compacting: 'chat.compacting',
 } as const;
 
 export function ExternalAgentProgress({ events, active }: { events: TraceEvent[]; active: boolean }) {

@@ -448,11 +448,15 @@ pub(crate) fn build_desktop_approval_callback(
         let task_run_id = task_run_id.clone();
         let cancellation = cancellation.clone();
         Box::pin(async move {
-            if let Some(decision) = approval_mode.short_circuit() {
+            if let Some(decision) = approval_mode
+                .short_circuit()
+                .filter(|decision| req.choices.is_empty() || !decision.is_allowed())
+            {
                 return decision;
             }
             let permission_key = ToolPermissionKey::from_request(&req);
-            let hard_confirmation = requires_explicit_desktop_approval(&req);
+            let hard_confirmation =
+                !req.choices.is_empty() || requires_explicit_desktop_approval(&req);
             let reusable_window_grant = req.target_kind == "desktop_window_task"
                 && matches!(
                     req.tool_name.as_str(),
@@ -486,9 +490,19 @@ pub(crate) fn build_desktop_approval_callback(
                 biased;
                 _ = cancellation.cancelled() => ApprovalDecision::Deny,
                 decision = rx => decision.unwrap_or(ApprovalDecision::Deny),
-                _ = tokio::time::sleep(Duration::from_secs(60)) => ApprovalDecision::Deny,
+                _ = tokio::time::sleep(Duration::from_secs(60)), if req.choices.is_empty() => ApprovalDecision::Deny,
             };
             pending.lock().await.remove(&req.id);
+            if !req.choices.is_empty() {
+                return match decision {
+                    ApprovalDecision::SelectOption(index)
+                        if (index as usize) < req.choices.len() =>
+                    {
+                        decision
+                    }
+                    _ => ApprovalDecision::Deny,
+                };
+            }
             match decision {
                 ApprovalDecision::AllowSession => {
                     if hard_confirmation && !reusable_window_grant {

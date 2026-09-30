@@ -1165,6 +1165,7 @@ fn main() {
             commands::external_agents::get_external_agent_launch_cmd,
             commands::external_agents::save_external_agent_profile_cmd,
             commands::external_agents::probe_external_agent_cmd,
+            commands::external_agents::inspect_external_agent_cmd,
             commands::start_live_cmd,
             commands::begin_desktop_share_cmd,
             commands::list_desktop_monitors_cmd,

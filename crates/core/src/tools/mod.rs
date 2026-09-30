@@ -108,7 +108,7 @@ pub mod create_file_tool;
 pub mod date_search_tool;
 mod desktop_app_catalog;
 pub mod desktop_automation_tool;
-pub(crate) mod diff_stats;
+pub mod diff_stats;
 pub mod document_info_tool;
 pub mod document_utils;
 pub mod download_asset_tool;

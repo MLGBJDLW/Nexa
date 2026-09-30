@@ -1071,4 +1071,6 @@
   ,"externalAgentControls": "El agente externo gestiona las herramientas y los ajustes de ejecución."
   ,"reasoningBetweenTools": "Pensar solo entre llamadas a herramientas"
   ,"enableUpfrontThinking": "Activar el razonamiento previo"
+  ,"externalAgentMcp": "Conectores MCP para este agente"
+  ,"externalAgentMcpHint": "Los conectores seleccionados y sus credenciales configuradas se pasan a este agente y usan su política de permisos."
 }

@@ -876,7 +876,7 @@ export interface ProviderConnectionState {
 }
 
 export type ApprovalRisk = 'low' | 'medium' | 'high';
-export type ApprovalDecisionValue = 'allow_once' | 'allow_session' | 'deny' | 'never';
+export type ApprovalDecisionValue = 'allow_once' | 'allow_session' | 'deny' | 'never' | `select_option:${number}`;
 
 export interface CapabilityOwner {
   id: string;
@@ -1024,6 +1024,7 @@ export interface ApprovalRequest {
   argumentsPreview: string;
   riskLevel: ApprovalRisk;
   reason: string;
+  choices?: string[];
   checkpointPreview?: {
     planned: boolean;
     targetPaths: string[];
