@@ -253,6 +253,10 @@ fn rpc_result(message: Value, method: &str) -> Result<Value, CoreError> {
 fn static_config() -> serde_json::Map<String, Value> {
     let mut config = serde_json::Map::new();
     config.insert("web_search".into(), json!("disabled"));
+    // Native executors stay read-only below. Their stock permissions prompt
+    // incorrectly describes host-owned edit_file callbacks as read-only too.
+    // Nexa supplies the actual host-tool workspace/approval policy instead.
+    config.insert("include_permissions_instructions".into(), json!(false));
     // Some models require the code-mode wrapper to call any tool, including
     // client-owned dynamic tools. Keep its host available; native effect tools
     // remain disabled and Nexa still authorizes every dynamic callback.
@@ -1038,6 +1042,7 @@ mod tests {
         let skills = json!({"data":[{"cwd":cwd,"skills":[],"errors":[]}]});
         let disabled = disable_ambient(&config, &skills, &cwd).unwrap();
         assert_eq!(disabled["features.code_mode_host"], true);
+        assert_eq!(disabled["include_permissions_instructions"], false);
         assert_eq!(disabled["features.shell_tool"], false);
         assert_eq!(disabled["features.image_generation"], false);
         assert_eq!(

@@ -180,6 +180,9 @@ the runtime does not silently switch to an in-memory journal.
   thread without changing global config. An inventory error prevents submission.
   This enumeration is not an OS sandbox or an atomic ban on skills created after
   the inventory. The supported CLI must accept the complete execution contract.
+  Its stock executor-permission prompt is disabled because it incorrectly labels
+  Nexa's host tools as read-only. Nexa supplies the actual host-tool scope and
+  approval guidance; the Codex executor's read-only policy remains enforced.
 - Codex reserves the `mcp__` dynamic-tool namespace. Nexa sends stable protocol
   aliases and restores the original registered names at dispatch, preserving
   connector identity, permission rules and tool receipts. Runtime warnings remain

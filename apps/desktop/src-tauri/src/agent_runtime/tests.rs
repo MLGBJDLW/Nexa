@@ -433,6 +433,7 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
         let mut edits = 0;
         let mut done = 0;
         let mut native_capacity = None;
+        let mut tool_receipts = Vec::new();
         while let Some(event) = rx.recv().await {
             match event {
                 AgentEvent::ToolRunCompleted { run } if run.tool_name == "edit_file" => {
@@ -442,6 +443,27 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
                         "{run:?}"
                     );
                     edits += 1;
+                    tool_receipts.push(format!(
+                        "{}: {:?} {}",
+                        run.tool_name,
+                        run.status,
+                        run.content.unwrap_or_default()
+                    ));
+                }
+                AgentEvent::ToolRunCompleted { run } => tool_receipts.push(format!(
+                    "{}: {:?} {}",
+                    run.tool_name,
+                    run.status,
+                    run.content
+                        .unwrap_or_default()
+                        .chars()
+                        .take(1200)
+                        .collect::<String>()
+                )),
+                AgentEvent::ControllerStatus { code, content, .. }
+                    if code == "external_agent_warning" =>
+                {
+                    tool_receipts.push(format!("warning: {content}"))
                 }
                 AgentEvent::UsageUpdate {
                     context_breakdown: Some(breakdown),
@@ -453,16 +475,21 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
                 _ => {}
             }
         }
-        (edits, done, native_capacity)
+        (edits, done, native_capacity, tool_receipts)
     });
     let answer = tokio::time::timeout(std::time::Duration::from_secs(180), run(request))
         .await
         .expect("native edit deadline")
         .expect("native edit completion");
-    assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), nonce);
+    let (edits, done, native_capacity, tool_receipts) = drain.await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap().trim(),
+        nonce,
+        "model={model}, answer={}, tools={tool_receipts:?}",
+        answer.text_content()
+    );
     assert!(answer.text_content().contains("EDIT_VERIFIED"));
     assert!(answer.text_content().contains(&nonce));
-    let (edits, done, native_capacity) = drain.await.unwrap();
     assert_eq!(edits, 1);
     assert_eq!(done, 1);
     assert_eq!(db.list_file_checkpoints(None).unwrap().len(), 1);
