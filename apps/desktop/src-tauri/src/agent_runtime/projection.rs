@@ -9,6 +9,8 @@ use tokio::sync::mpsc;
 pub(super) struct Projection {
     offsets: HashMap<String, usize>,
     completed: HashSet<String>,
+    retired: HashSet<String>,
+    retired_order: VecDeque<String>,
     drafts: HashMap<String, String>,
     draft_order: Vec<String>,
     draft_bytes: usize,
@@ -17,9 +19,68 @@ pub(super) struct Projection {
     answer_block_ids: Vec<String>,
     pub(super) usage: Usage,
     pub(super) last_prompt_tokens: u32,
+    pub(super) context_breakdown: Option<nexa_core::agent::context::ContextUsageBreakdown>,
+    pub(super) native_final_fallback: Option<nexa_core::agent::PersistedAssistantMessage>,
+    runtime_identity: Option<(String, String)>,
 }
 
 impl Projection {
+    pub(super) fn for_turn(turn: &PreparedTurn) -> Self {
+        let provider = match turn.runtime {
+            super::AgentRuntimeKind::Copilot => "github_copilot",
+            super::AgentRuntimeKind::Codex => "openai_codex",
+            super::AgentRuntimeKind::Acp(provider) => provider,
+        };
+        Self {
+            runtime_identity: Some((
+                provider.into(),
+                turn.config.model.clone().unwrap_or_default(),
+            )),
+            ..Self::default()
+        }
+    }
+    pub(super) async fn context_snapshot(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+        used: u32,
+        capacity: Option<u32>,
+        segments: Vec<nexa_core::agent::context::ContextUsageSegment>,
+    ) -> Result<(), CoreError> {
+        // Native compaction can decrease occupancy. This is a replacement
+        // snapshot, independent of the cumulative billed token counters.
+        self.last_prompt_tokens = used;
+        self.context_breakdown = Some(nexa_core::agent::context::ContextUsageBreakdown {
+            total_tokens: used,
+            segments,
+            context_window: capacity.filter(|value| *value > 0).or_else(|| {
+                self.context_breakdown
+                    .as_ref()
+                    .and_then(|value| value.context_window)
+            }),
+            runtime_provider: self
+                .runtime_identity
+                .as_ref()
+                .map(|(provider, _)| provider.clone()),
+            runtime_model: self
+                .runtime_identity
+                .as_ref()
+                .map(|(_, model)| model.clone()),
+        });
+        self.publish_usage(tx).await
+    }
+
+    pub(super) async fn publish_usage(
+        &self,
+        tx: &mpsc::Sender<AgentEvent>,
+    ) -> Result<(), CoreError> {
+        tx.send(AgentEvent::UsageUpdate {
+            usage_total: self.usage.clone(),
+            last_prompt_tokens: self.last_prompt_tokens,
+            context_breakdown: self.context_breakdown.clone(),
+        })
+        .await
+        .map_err(protocol_error)
+    }
     pub(super) async fn delta(
         &mut self,
         tx: &mpsc::Sender<AgentEvent>,
@@ -27,7 +88,7 @@ impl Projection {
         channel: StreamBlockChannel,
         delta: &str,
     ) -> Result<(), CoreError> {
-        if delta.is_empty() || self.completed.contains(id) {
+        if delta.is_empty() || self.completed.contains(id) || self.retired.contains(id) {
             return Ok(());
         }
         if !self.offsets.contains_key(id) && self.offsets.len() >= 2048 {
@@ -110,6 +171,9 @@ impl Projection {
         id: &str,
         text: &str,
     ) -> Result<(), CoreError> {
+        if self.retired.contains(id) {
+            return Ok(());
+        }
         if !self.offsets.contains_key(id) && self.offsets.len() >= 2048 {
             return Err(protocol_error("subscription output-block budget exceeded"));
         }
@@ -161,6 +225,47 @@ impl Projection {
             self.draft_bytes -= text.len();
         }
         self.draft_order.retain(|key| key != id);
+        self.offsets.remove(id);
+        self.completed.remove(id);
+        if self.retired.insert(id.into()) {
+            self.retired_order.push_back(id.into());
+        }
+        while self.retired_order.len() > 2048 {
+            if let Some(old) = self.retired_order.pop_front() {
+                self.retired.remove(&old);
+            }
+        }
+    }
+
+    pub(super) fn finish_reasoning(&mut self, item_id: &str) {
+        let prefix = format!("reasoning:{item_id}:");
+        self.offsets.retain(|id, _| !id.starts_with(&prefix));
+    }
+
+    pub(super) async fn persist_settled(
+        &mut self,
+        turn: &PreparedTurn,
+        ids: Vec<String>,
+    ) -> Result<Option<nexa_core::agent::PersistedAssistantMessage>, CoreError> {
+        let text = ids
+            .iter()
+            .filter_map(|id| self.drafts.get(id))
+            .filter(|text| !text.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let persisted = if text.is_empty() {
+            None
+        } else {
+            Some(turn.transcript.persist_intermediate(&text).await?)
+        };
+        for id in ids {
+            self.mark_persisted(&id);
+        }
+        // Reasoning deltas are already durable in the ordered outbox. Once the
+        // inference has completed, their byte offsets need no lifetime cache.
+        self.offsets.retain(|id, _| self.drafts.contains_key(id));
+        Ok(persisted)
     }
 
     /// An upstream retry abandons only this inference's uncommitted output.
@@ -177,8 +282,9 @@ impl Projection {
         for id in &ids {
             self.mark_persisted(id);
             self.completed.remove(id);
-            // Retain the ID in the turn-wide budget, but reset a reused block.
-            self.offsets.insert(id.clone(), 0);
+            // A retry may reuse this block ID; it starts from offset zero.
+            self.retired.remove(id);
+            self.retired_order.retain(|key| key != id);
         }
         self.clear_answer();
         for id in ids {
@@ -227,7 +333,7 @@ impl Projection {
         turn: &PreparedTurn,
     ) -> Result<(), CoreError> {
         while let Some((id, text)) = self.async_messages.front() {
-            turn.transcript.persist_answer(text).await?;
+            turn.transcript.persist_intermediate(text).await?;
             let id = id.clone();
             self.async_messages.pop_front();
             self.mark_persisted(&id);
@@ -246,7 +352,7 @@ impl Projection {
             .collect::<Vec<_>>()
             .join("\n\n");
         if !text.is_empty() {
-            turn.transcript.persist_answer(&text).await?;
+            turn.transcript.persist_intermediate(&text).await?;
         }
         Ok(())
     }
@@ -258,13 +364,14 @@ impl Projection {
         let message = self
             .persist_completed_answer(turn)
             .await?
+            .or_else(|| self.native_final_fallback.take())
             .ok_or_else(|| protocol_error("upstream completed without a final answer"))?;
         turn.events
             .send(AgentEvent::Done {
                 message: message.message.clone(),
                 last_prompt_tokens: self.last_prompt_tokens,
                 usage_total: self.usage,
-                context_breakdown: None,
+                context_breakdown: self.context_breakdown,
                 assistant_message_id: Some(message.id),
                 cached: false,
                 finish_reason: Some("stop".into()),

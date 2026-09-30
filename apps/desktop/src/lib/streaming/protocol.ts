@@ -93,6 +93,9 @@ export interface ContextUsageSegment {
 export interface ContextUsageBreakdown {
   totalTokens: number;
   segments: ContextUsageSegment[];
+  contextWindow?: number;
+  runtimeProvider?: string;
+  runtimeModel?: string;
 }
 
 export interface UsageTotal {

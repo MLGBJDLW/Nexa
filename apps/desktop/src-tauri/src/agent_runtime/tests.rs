@@ -36,13 +36,11 @@ impl Tool for CatalogOnlyTool {
 #[test]
 fn saved_subscription_configs_keep_the_native_route_and_reasoning_level() {
     let db = Database::open_memory().unwrap();
-    for provider in [
-        "github_copilot",
-        "openai_codex",
-        "gemini_cli",
-        "opencode",
-        "hermes",
-    ] {
+    for provider in ["github_copilot", "openai_codex"].into_iter().chain(
+        nexa_core::external_agent::presets()
+            .iter()
+            .map(|preset| preset.provider.as_str()),
+    ) {
         let input = serde_json::from_value(serde_json::json!({"name":provider,"provider":provider,"apiKey":"","model":"gpt-native-test","isDefault":true,"reasoningEffort":"ultra"})).unwrap();
         let saved = db.save_agent_config(&input).unwrap();
         let loaded = db.get_agent_config(&saved.id).unwrap();
@@ -309,7 +307,9 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
         .expect("live runtime completion");
     assert!(
         result.text_content().contains(&nonce),
-        "answer must use actual Nexa tool evidence"
+        "answer must use actual Nexa tool evidence: calls={}, answer={}",
+        calls.load(Ordering::SeqCst),
+        result.text_content()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let (done, deltas, steered, applied, tool_events) = drain.await.unwrap();
@@ -370,5 +370,100 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
     assert_eq!(
         completed.assistant_message_id.as_deref(),
         Some(history.last().unwrap().id.as_str())
+    );
+}
+
+/// Exercise the real read/edit implementations in an isolated disposable folder
+/// with the full production tool catalog present (including Copilot's >30 boundary).
+pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("native-edit.txt");
+    std::fs::write(&path, "old value\n").unwrap();
+    let (mut request, mut rx, _, nonce) = fixture(kind, model);
+    request.config.max_iterations = 10;
+    let assembler =
+        nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&request.db).unwrap();
+    let catalog = assembler
+        .assemble_tool_registry(assembler.builtin_tool_registry())
+        .unwrap();
+    for definition in catalog
+        .tools
+        .definitions()
+        .into_iter()
+        .filter(|definition| !matches!(definition.name.as_str(), "read_file" | "edit_file"))
+    {
+        request
+            .dependencies
+            .tools
+            .register(Box::new(CatalogOnlyTool(definition)));
+    }
+    request
+        .dependencies
+        .tools
+        .register(Box::new(nexa_core::tools::file_tool::FileTool));
+    request
+        .dependencies
+        .tools
+        .register(Box::new(nexa_core::tools::edit_file_tool::EditFileTool));
+    request.dependencies.tools =
+        request
+            .dependencies
+            .tools
+            .with_workspace(Some(nexa_core::workspace::Workspace {
+                roots: vec![directory.path().to_string_lossy().into()],
+            }));
+    assert!(request.dependencies.tools.definitions().len() > 30);
+    request.user_parts = vec![ContentPart::Text { text: format!(
+        "In this disposable integration-test workspace, use read_file to read {}, then edit_file to replace old value with {}. Read it again to verify. Reply EDIT_VERIFIED and the exact new value. Use only read_file and edit_file; all other tools are unavailable in this test.",
+        path.display(), nonce
+    ) }];
+    let db = request.db.clone();
+    let conversation = request.conversation_id.clone();
+    let drain = tokio::spawn(async move {
+        let mut edits = 0;
+        let mut done = 0;
+        let mut native_capacity = None;
+        while let Some(event) = rx.recv().await {
+            match event {
+                AgentEvent::ToolRunCompleted { run } if run.tool_name == "edit_file" => {
+                    assert_eq!(
+                        run.status,
+                        nexa_core::agent::ToolRunStatus::Completed,
+                        "{run:?}"
+                    );
+                    edits += 1;
+                }
+                AgentEvent::UsageUpdate {
+                    context_breakdown: Some(breakdown),
+                    ..
+                } => {
+                    native_capacity = breakdown.context_window.or(native_capacity);
+                }
+                AgentEvent::Done { .. } => done += 1,
+                _ => {}
+            }
+        }
+        (edits, done, native_capacity)
+    });
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(180), run(request))
+        .await
+        .expect("native edit deadline")
+        .expect("native edit completion");
+    assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), nonce);
+    assert!(answer.text_content().contains("EDIT_VERIFIED"));
+    assert!(answer.text_content().contains(&nonce));
+    let (edits, done, native_capacity) = drain.await.unwrap();
+    assert_eq!(edits, 1);
+    assert_eq!(done, 1);
+    assert_eq!(db.list_file_checkpoints(None).unwrap().len(), 1);
+    assert!(db
+        .get_messages(&conversation)
+        .unwrap()
+        .last()
+        .unwrap()
+        .content
+        .contains(&nonce));
+    eprintln!(
+        "Live {kind:?} model={model}: real edit once; native context capacity={native_capacity:?}"
     );
 }

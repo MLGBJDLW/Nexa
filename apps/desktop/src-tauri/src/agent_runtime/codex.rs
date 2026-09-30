@@ -447,13 +447,12 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
         result = tokio::time::timeout(Duration::from_secs(120), bootstrap) => result.map_err(|_| protocol_error("Codex connection timed out"))??,
     };
-    let mut projection = Projection::default();
+    let mut projection = Projection::for_turn(&turn);
     let mut pending = FuturesUnordered::new();
     let mut replies = HashMap::new();
     let mut steering_closed = false;
     let mut steering_queue: VecDeque<AgentSteeringMessage> = VecDeque::new();
-    let mut async_items = HashSet::new();
-    let mut server_requests = 0u32;
+    let mut async_items = nexa_core::runtime_receipts::RuntimeReceipts::new()?;
     let result = async {
         loop {
             if turn.cancellation.is_cancelled() { return Err(CoreError::Cancelled("Stopped by user".into())); }
@@ -504,8 +503,6 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                     let method = message["method"].as_str().unwrap_or_default();
                     let params = &message["params"];
                     if message.get("id").is_some() {
-                        server_requests += 1;
-                        if server_requests > 256 { wire.reject(&message).await?; return Err(protocol_error("Codex exceeded the per-turn native request budget")); }
                         if params["threadId"].as_str() != Some(&thread_id) { wire.reject(&message).await?; return Err(protocol_error("Codex request belongs to another thread")); }
                         match method {
                             "currentTime/read" => {
@@ -575,7 +572,7 @@ fn required_string(value: &Value, key: &str) -> Result<String, CoreError> {
 async fn project_event(
     projection: &mut Projection,
     turn: &PreparedTurn,
-    async_items: &mut HashSet<String>,
+    async_items: &mut nexa_core::runtime_receipts::RuntimeReceipts,
     method: &str,
     params: &Value,
 ) -> Result<bool, CoreError> {
@@ -606,14 +603,14 @@ async fn project_event(
         }
         "item/completed" => {
             let item = &params["item"];
+            if item["type"] == "reasoning" {
+                projection.finish_reasoning(&required_string(item, "id")?);
+            }
             if item["type"] == "agentMessage" {
                 let id = required_string(item, "id")?;
                 let text = item["text"].as_str().unwrap_or_default();
                 if item["delivery"] == "async" {
-                    if async_items.len() >= 256 {
-                        return Err(protocol_error("Codex async message budget exceeded"));
-                    }
-                    if async_items.insert(id.clone()) {
+                    if async_items.get::<bool>(&id)?.is_none() {
                         let mut text = text.to_string();
                         if let Some(questions) = item["questions"].as_array() {
                             for question in questions {
@@ -634,13 +631,20 @@ async fn project_event(
                         projection
                             .delta(&turn.events, &id, StreamBlockChannel::Answer, &text)
                             .await?;
+                        async_items.insert(&id, "async", &true)?;
                         projection.queue_async_message(id, text);
                     }
+                } else if item["phase"] == "commentary" {
+                    if async_items.get::<bool>(&id)?.is_none() {
+                        projection.complete_block(&turn.events, &id, text).await?;
+                        async_items.insert(&id, "commentary", &true)?;
+                        // Defer the transcript lock while a tool is active so
+                        // clock requests and native notifications keep flowing.
+                        projection.queue_async_message(id, text.to_string());
+                    }
+                    projection.clear_answer();
                 } else {
                     projection.complete(&turn.events, &id, text).await?;
-                    if item["phase"] == "commentary" {
-                        projection.clear_answer();
-                    }
                 }
             }
         }
@@ -654,6 +658,22 @@ async fn project_event(
                 .min(u32::MAX as u64) as u32;
             projection.usage.completion_tokens = tokens("outputTokens");
             projection.usage.total_tokens = tokens("totalTokens");
+            projection.usage.cache_read_tokens = usage["cachedInputTokens"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok());
+            projection.usage.thinking_tokens = usage["reasoningOutputTokens"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok());
+            let capacity = params["tokenUsage"]["modelContextWindow"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok());
+            let used = params["tokenUsage"]["last"]["totalTokens"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(projection.last_prompt_tokens);
+            projection
+                .context_snapshot(&turn.events, used, capacity, vec![])
+                .await?;
         }
         "turn/completed" => match params["turn"]["status"].as_str() {
             Some("completed") => return Ok(true),
@@ -740,7 +760,7 @@ mod tests {
             .await
             .unwrap();
         let mut projection = Projection::default();
-        let mut seen = HashSet::new();
+        let mut seen = nexa_core::runtime_receipts::RuntimeReceipts::new().unwrap();
         let params = json!({"item":{"type":"agentMessage","id":"async","delivery":"async","phase":"final_answer","text":"A question while the tool waits","questions":null}});
         let done = tokio::time::timeout(
             Duration::from_millis(200),
@@ -770,7 +790,7 @@ mod tests {
         let conversation = request.conversation_id.clone();
         let turn = request.prepare(false).unwrap();
         let mut projection = Projection::default();
-        let mut seen = HashSet::new();
+        let mut seen = nexa_core::runtime_receipts::RuntimeReceipts::new().unwrap();
         let params = json!({"item":{"type":"agentMessage","id":"q1","phase":"final_answer","delivery":"async","text":"Choose a region","questions":[{"title":"Region","options":["Beijing","Singapore"]}]}});
         assert!(
             !project_event(&mut projection, &turn, &mut seen, "item/completed", &params)
@@ -798,6 +818,74 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn long_native_progress_and_questions_remain_durable_without_lifetime_caps() {
+        let (request, mut rx, _, _) = super::super::tests::fixture(AgentRuntimeKind::Codex, "test");
+        let db = request.db.clone();
+        let conversation = request.conversation_id.clone();
+        let turn = request.prepare(false).unwrap();
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let mut projection = Projection::default();
+        let mut seen = nexa_core::runtime_receipts::RuntimeReceipts::new().unwrap();
+        for index in 0..2200 {
+            let reasoning_id = format!("reasoning-item-{index}");
+            project_event(
+                &mut projection,
+                &turn,
+                &mut seen,
+                "item/reasoning/summaryTextDelta",
+                &json!({"itemId":reasoning_id,"summaryIndex":0,"delta":"Thinking"}),
+            )
+            .await
+            .unwrap();
+            project_event(
+                &mut projection,
+                &turn,
+                &mut seen,
+                "item/completed",
+                &json!({"item":{"type":"reasoning","id":reasoning_id}}),
+            )
+            .await
+            .unwrap();
+            let params = json!({"item":{"type":"agentMessage","id":format!("progress-{index}"),"phase":"commentary","text":format!("Progress {index}")}});
+            project_event(&mut projection, &turn, &mut seen, "item/completed", &params)
+                .await
+                .unwrap();
+            projection.flush_async_messages(&turn).await.unwrap();
+        }
+        for index in 0..300 {
+            let params = json!({"item":{"type":"agentMessage","id":format!("question-{index}"),"delivery":"async","text":format!("Question {index}")}});
+            project_event(&mut projection, &turn, &mut seen, "item/completed", &params)
+                .await
+                .unwrap();
+            projection.flush_async_messages(&turn).await.unwrap();
+        }
+        // A repeated old item must stay idempotent after the live block cache retires it.
+        let duplicate = json!({"item":{"type":"agentMessage","id":"progress-0","phase":"commentary","text":"Progress 0"}});
+        project_event(
+            &mut projection,
+            &turn,
+            &mut seen,
+            "item/completed",
+            &duplicate,
+        )
+        .await
+        .unwrap();
+        projection.flush_async_messages(&turn).await.unwrap();
+        assert!(projection.answer.is_empty());
+        let history = db.get_messages(&conversation).unwrap();
+        assert_eq!(
+            history
+                .iter()
+                .filter(|message| message.role == nexa_core::llm::Role::Assistant)
+                .count(),
+            2500
+        );
+        assert_eq!(history.last().unwrap().content, "Question 299");
+        drop(turn);
+        drain.await.unwrap();
+    }
+
+    #[tokio::test]
     #[ignore = "uses the official ChatGPT subscription for one read-only tool inference"]
     async fn native_codex_executes_nexa_tool_and_streams_persisted_answer() {
         let mut wire = Wire::start().await.unwrap();
@@ -815,6 +903,7 @@ mod tests {
             .to_string();
         drop(wire);
         super::super::tests::run_live(AgentRuntimeKind::Codex, &model).await;
+        super::super::tests::run_live_edit(AgentRuntimeKind::Codex, &model).await;
     }
     #[tokio::test]
     #[ignore = "requires the user's official Codex CLI and login; no model inference"]

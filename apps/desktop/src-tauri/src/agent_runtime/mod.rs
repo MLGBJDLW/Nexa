@@ -4,6 +4,7 @@
 pub(crate) mod acp;
 pub(crate) mod codex;
 mod copilot;
+mod copilot_events;
 mod copilot_response;
 mod projection;
 #[cfg(test)]
@@ -65,6 +66,7 @@ pub(crate) struct ExternalAgentBinding {
 }
 
 struct PreparedTurn {
+    runtime: AgentRuntimeKind,
     transcript: transcript::Transcript,
     config: AgentConfig,
     system_prompt: String,
@@ -192,6 +194,7 @@ impl AgentRuntimeTurnRequest {
             system_prompt.push_str(section);
         }
         Ok(PreparedTurn {
+            runtime: self.kind,
             transcript,
             config: self.config,
             system_prompt,

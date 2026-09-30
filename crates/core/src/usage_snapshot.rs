@@ -58,7 +58,10 @@ impl Database {
             .transpose()?
             .as_ref()
             .and_then(usage_snapshot_from_payload);
-        if let Some(snapshot) = snapshot.as_mut() {
+        if let Some(snapshot) = snapshot
+            .as_mut()
+            .filter(|snapshot| snapshot.context_capacity.is_none())
+        {
             let context: Option<String> = conn
                 .query_row(
                     "SELECT payload_json FROM agent_task_run_events
@@ -131,11 +134,15 @@ fn usage_snapshot_from_payload(payload: &serde_json::Value) -> Option<UsageSnaps
         .get("lastPromptTokens")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(prompt_tokens);
-    let context_breakdown = payload
+    let context_breakdown: Option<ContextUsageBreakdown> = payload
         .get("contextBreakdown")
         .cloned()
         .and_then(|value| serde_json::from_value(value).ok());
-    let source = if prompt_tokens + completion_tokens > 0 {
+    let context_capacity = context_breakdown
+        .as_ref()
+        .and_then(|value| value.context_window)
+        .filter(|value| *value > 0);
+    let source = if prompt_tokens + completion_tokens > 0 || context_capacity.is_some() {
         UsageSnapshotSource::Provider
     } else if last_prompt_tokens > 0 {
         UsageSnapshotSource::Estimated
@@ -153,8 +160,8 @@ fn usage_snapshot_from_payload(payload: &serde_json::Value) -> Option<UsageSnaps
         cache_miss_tokens: json_u64(&raw, "cacheMissTokens"),
         cache_creation_tokens: json_u64(&raw, "cacheCreationTokens"),
         last_prompt_tokens,
-        context_capacity: None,
-        context_authority: None,
+        context_capacity,
+        context_authority: context_capacity.map(|_| ContextWindowAuthority::ProviderManaged),
         context_breakdown,
         provider_raw: raw,
     })
@@ -284,6 +291,28 @@ mod tests {
             })),
             Some((Some(750_000), ContextWindowAuthority::UserOverride,))
         );
+    }
+
+    #[test]
+    fn native_context_capacity_and_compaction_survive_database_replay_without_billing() {
+        let db = Database::open_memory().unwrap();
+        for (seq, used) in [(1, 48_000), (2, 12_000)] {
+            let mut event = usage_event(seq, 0, 0);
+            event.payload["lastPromptTokens"] = serde_json::json!(used);
+            event.payload["contextBreakdown"] = serde_json::json!({
+                "totalTokens": used, "segments": [], "contextWindow": 200_000
+            });
+            db.save_agent_run_event(&event).unwrap();
+        }
+        let snapshot = db.get_run_usage_snapshot("run-usage").unwrap().unwrap();
+        assert_eq!(snapshot.context_capacity, Some(200_000));
+        assert_eq!(
+            snapshot.context_authority,
+            Some(ContextWindowAuthority::ProviderManaged)
+        );
+        assert_eq!(snapshot.last_prompt_tokens, 12_000);
+        assert_eq!(snapshot.total_tokens, 0);
+        assert_eq!(snapshot.source, UsageSnapshotSource::Provider);
     }
 
     #[test]

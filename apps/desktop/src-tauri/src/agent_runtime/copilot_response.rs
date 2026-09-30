@@ -9,6 +9,7 @@ pub(super) struct Response {
     attempt: u64,
     group: Option<Group>,
     answer_blocks: HashSet<String>,
+    settled: Vec<String>,
 }
 
 struct Group {
@@ -20,10 +21,17 @@ struct Group {
 
 impl Response {
     pub(super) fn start(&mut self, turn_id: Option<&str>) {
+        if let Some(group) = &self.group {
+            self.settled.extend(group.blocks.values().cloned());
+        }
         self.turn_id = turn_id.map(str::to_owned);
         self.attempt += 1;
         self.group = None;
         self.answer_blocks.clear();
+    }
+
+    pub(super) fn take_settled(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.settled)
     }
 
     pub(super) fn retry(&mut self, turn_id: &str) -> Result<Vec<String>, CoreError> {
@@ -114,6 +122,12 @@ impl Response {
         };
         if self.group.as_ref().is_none_or(|group| group.key != key) {
             self.ensure_complete()?;
+            if let Some(group) = &self.group {
+                for id in group.blocks.values() {
+                    self.settled.push(id.clone());
+                    self.answer_blocks.remove(id);
+                }
+            }
             self.group = Some(Group {
                 key,
                 count,
