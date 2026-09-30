@@ -1,5 +1,5 @@
 {
-  "placeholder": "コマンドを入力...",
+  "placeholder": "コマンド、会話、文書を検索…",
   "noResults": "一致するコマンドがありません",
   "navigation": "ナビゲーション",
   "actions": "アクション",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "ベクトルインデックスを再構築中…",
   "rebuildComplete": "ベクトル再構築完了",
   "rebuildError": "ベクトル再構築に失敗しました",
-  "shortcuts": "キーボードショートカット"
+  "shortcuts": "キーボードショートカット",
+  "currentChat": "現在のチャット",
+  "conversations": "会話",
+  "searchDocuments": "文書で「{query}」を検索",
+  "keyboardHint": "↑ ↓ 移動 · Enter 選択 · Esc 閉じる"
 }

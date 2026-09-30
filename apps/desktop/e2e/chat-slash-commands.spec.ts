@@ -1,5 +1,97 @@
 import { expect, test, type Locator } from '@playwright/test';
 
+test('user Markdown folds by rendered height, preserves source, and does not load remote images', async ({ page }) => {
+  const imageRequests: string[] = [];
+  page.on('request', request => { if (request.url().includes('example.invalid')) imageRequests.push(request.url()); });
+  await page.goto('/chat/conv-slash?longMessage=1');
+  const body = page.getByTestId('chat-user-message-body');
+  const expand = body.getByRole('button', { name: 'Show more' });
+  await expect(expand).toHaveAttribute('aria-expanded', 'false');
+  await expect(body.locator('h1')).toHaveText('A long request');
+  await expect(body.locator('strong')).toHaveText('Keep this text');
+  expect(await body.getByTestId('chat-user-message-text').evaluate(el => el.parentElement!.clientHeight)).toBeLessThanOrEqual(121);
+  await expand.click();
+  await expect(body.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+  await body.getByRole('button', { name: 'View source' }).click();
+  await expect(body.getByTestId('chat-user-message-text')).toContainText('**Keep this text**');
+  await expect(body.getByTestId('chat-user-message-text')).toContainText('<script>');
+  expect(imageRequests).toEqual([]);
+  expect(await page.evaluate(() => (window as unknown as { __unsafe?: boolean }).__unsafe)).toBeUndefined();
+  await page.screenshot({ path: '../../.artifacts/chat-command-center/message-source.png' });
+});
+
+test('draft preview and local slash commands keep original text and never send a command to the model', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  const source = '# Draft\n\n**中文输入**\n\n- keep raw text';
+  await input.fill(source);
+  await page.getByTestId('chat-preview-toggle').click();
+  await expect(input).toBeHidden();
+  await expect(page.getByTestId('chat-draft-preview').locator('h1')).toHaveText('Draft');
+  await page.getByTestId('chat-draft-preview').getByRole('button', { name: 'Edit draft' }).click();
+  await expect(input).toHaveValue(source);
+  await expect(input).toBeFocused();
+  await input.fill('/model');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('agent-model-picker-menu')).toBeVisible();
+  await expect(input).toHaveValue('');
+  await page.keyboard.press('Escape');
+  await input.fill('/options');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-more-options')).toHaveAttribute('aria-expanded', 'true');
+  expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
+  await input.fill(source);
+  await page.getByTestId('chat-send').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: Array<{ message: string }> }).__slashAgentChatCalls__[0]?.message)).toBe(source);
+});
+
+test('command palette runs chat actions, searches conversations, restores focus, and supports a persisted custom chord', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep my draft');
+  await page.keyboard.press('Control+Shift+P');
+  const dialog = page.getByRole('dialog', { name: /command palette/i });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('combobox').fill('model');
+  await dialog.getByRole('option').filter({ hasText: /default model/i }).click();
+  await expect(page.getByTestId('agent-model-picker-menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await input.focus();
+  await page.keyboard.press('Control+k');
+  await dialog.getByRole('combobox').fill('Slash commands');
+  await expect(dialog.getByRole('option').filter({ hasText: 'Slash commands' })).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('Keep my draft');
+  await page.goto('/settings');
+  const shortcut = page.getByTestId('palette-shortcut-input');
+  await shortcut.focus();
+  await page.keyboard.press('Control+Alt+O');
+  await expect(shortcut).toHaveValue('Ctrl+Alt+O');
+  await page.reload();
+  await page.getByTestId('palette-shortcut-input').waitFor();
+  await page.keyboard.press('Control+Alt+O');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('combobox').fill('');
+  await page.screenshot({ path: '../../.artifacts/chat-command-center/palette.png' });
+});
+
+test('IME confirmation cannot submit a draft and the compact composer fits narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 800 });
+  await page.goto('/chat/conv-slash?locale=zh-CN');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('正在输入');
+  await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true });
+  expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
+  await expect(page.getByTestId('chat-advanced-options')).toBeHidden();
+  const toolbar = page.getByTestId('chat-input-toolbar');
+  expect(await toolbar.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+  await page.getByTestId('chat-more-options').click();
+  await expect(page.getByTestId('chat-quality-profile')).toBeVisible();
+  await page.getByTestId('chat-more-options').click();
+  await page.screenshot({ path: '../../.artifacts/chat-command-center/composer-narrow.png' });
+});
+
 async function selectNexaOption(trigger: Locator, value: string) {
   await trigger.click();
   await trigger.page().locator(`[role="option"][data-value=${JSON.stringify(value)}]`).click();
@@ -114,8 +206,10 @@ test.beforeEach(async ({ page }) => {
           return { completed: true, language: 'en', aiProvider: 'open_ai', sourceAdded: true };
         case 'list_conversations_cmd':
           return [clone(conversation)];
-        case 'get_conversation_cmd':
-          return [clone(conversation), []];
+        case 'get_conversation_cmd': {
+          const content = '# A long request\n\n**Keep this text**\n\n' + Array.from({ length: 18 }, (_, index) => '- Task ' + index + ': 这是原始需求。').join('\n') + '\n\n![remote](https://example.invalid/track.png)\n<script>window.__unsafe = true</script>';
+          return [clone(conversation), new URLSearchParams(location.search).has('longMessage') ? [{ id: 'long-user', conversationId: conversation.id, role: 'user', content, toolCallId: null, toolCalls: [], artifacts: null, thinking: null, sortOrder: 0, tokenCount: 0, createdAt: nowIso }] : []];
+        }
         case 'get_conversation_turns_cmd':
         case 'get_agent_task_runs_cmd':
         case 'list_sources':
@@ -384,6 +478,7 @@ test('plan mode switch keeps its divider centered between labels', async ({ page
 
 test('Nexus mode explains its cost, persists per conversation, and reaches the backend', async ({ page }) => {
   await page.goto('/chat/conv-slash');
+  await page.getByTestId('chat-more-options').click();
 
   const nexusSwitch = page.getByTestId('chat-nexus-mode');
   await expect(nexusSwitch).toHaveAttribute('aria-pressed', 'false');
@@ -411,6 +506,7 @@ test('Nexus mode explains its cost, persists per conversation, and reaches the b
   ).toBe('nexus');
 
   await page.reload();
+  await page.getByTestId('chat-more-options').click();
   await expect(page.getByTestId('chat-nexus-mode')).toHaveAttribute('aria-pressed', 'true');
   await page.getByTestId('chat-nexus-mode').click();
   await expect(page.getByTestId('chat-nexus-mode')).toHaveAttribute('aria-pressed', 'false');
@@ -425,6 +521,7 @@ test('Nexus mode explains its cost, persists per conversation, and reaches the b
 test('Nexus activation respects reduced-motion preferences', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/chat/conv-slash');
+  await page.getByTestId('chat-more-options').click();
 
   await page.getByTestId('chat-nexus-mode').click();
   await page.getByTestId('chat-nexus-confirm').click();
@@ -435,6 +532,7 @@ test('Nexus activation respects reduced-motion preferences', async ({ page }) =>
 
 test('the unified quality select supports Home End Enter and Escape', async ({ page }) => {
   await page.goto('/chat/conv-slash');
+  await page.getByTestId('chat-more-options').click();
   const trigger = page.getByTestId('chat-quality-profile');
 
   await trigger.focus();
@@ -451,6 +549,7 @@ test('the unified quality select supports Home End Enter and Escape', async ({ p
 
 test('MoA and orchestration profiles remain independent from Nexus and reach the backend', async ({ page }) => {
   await page.goto('/chat/conv-slash');
+  await page.getByTestId('chat-more-options').click();
 
   await selectNexaOption(page.getByTestId('chat-moa-preset'), 'crossModelCodeReview');
   await expect(page.getByTestId('chat-moa-mode-banner')).toContainText('Code Review');
@@ -480,6 +579,7 @@ test('MoA and orchestration profiles remain independent from Nexus and reach the
   ).toEqual(['nexus', 'mixtureOfAgents', 'crossModelCodeReview', 'codeUltra']);
 
   await page.reload();
+  await page.getByTestId('chat-more-options').click();
   await expect(page.getByTestId('chat-moa-mode-banner')).toContainText('Nexus + MoA');
   await page.getByTestId('chat-nexus-mode').click();
   await expect(page.getByTestId('chat-nexus-mode')).toHaveAttribute('aria-pressed', 'false');
@@ -488,6 +588,7 @@ test('MoA and orchestration profiles remain independent from Nexus and reach the
 
 test('Custom orchestration exposes bounded runtime controls', async ({ page }) => {
   await page.goto('/chat/conv-slash');
+  await page.getByTestId('chat-more-options').click();
   await selectNexaOption(page.getByTestId('chat-quality-profile'), 'custom');
   await page.getByTestId('chat-quality-custom-maxIterations').fill('48');
   await page.getByTestId('chat-quality-custom-maxParallel').fill('8');

@@ -691,6 +691,7 @@ test('active goal owns the top-right task capsule and stays out of context detai
 
 test('manual compact keeps canonical messages and updates only projected context usage', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-more-options').click();
 
   await page.getByTestId('chat-input-textarea').fill('Generate usage before compacting.');
   await page.getByTestId('chat-send').click();
@@ -715,6 +716,7 @@ test('manual compact keeps canonical messages and updates only projected context
 
 test('manual compact resumes observation after a page reload', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-more-options').click();
   await page.getByTestId('chat-compact').click();
   await expect(page.getByTestId('chat-compact-status').first()).toContainText('Queued');
 
@@ -727,6 +729,7 @@ test('manual compact resumes observation after a page reload', async ({ page }) 
 
 test('manual compact exposes cancellation and keeps the canonical transcript', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-more-options').click();
   await page.getByTestId('chat-compact').click();
   await page.getByTestId('chat-compact-cancel').click();
 
@@ -736,6 +739,7 @@ test('manual compact exposes cancellation and keeps the canonical transcript', a
 
 test('manual compact status and completion stay scoped to the target conversation', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-more-options').click();
   await page.getByTestId('chat-compact').click();
   await expect(page.getByTestId('chat-compact-status').first()).toBeVisible();
 

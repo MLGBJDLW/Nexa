@@ -775,5 +775,13 @@
   "agentReusing": "正在復用 Agent 對話",
   "agentWaiting": "正在等待回應",
   "resumeTask": "繼續任務",
-  "speechInputLimit": "回覆有 {actual} 個字元，超過 Nexa 使用 {model} 時的單次朗讀上限（{limit} 個）。請在語音設定中改用上限更高的模型，或朗讀較短的回覆。"
+  "speechInputLimit": "回覆有 {actual} 個字元，超過 Nexa 使用 {model} 時的單次朗讀上限（{limit} 個）。請在語音設定中改用上限更高的模型，或朗讀較短的回覆。",
+  "expandMessage": "展開全文",
+  "collapseMessage": "收起",
+  "renderMarkdown": "Markdown 預覽",
+  "viewSource": "檢視原文",
+  "previewDraft": "預覽草稿",
+  "editDraft": "編輯草稿",
+  "previewHint": "僅供預覽，傳送時保留原始文字。",
+  "moreOptions": "更多選項"
 }

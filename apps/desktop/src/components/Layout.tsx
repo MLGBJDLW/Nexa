@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio } from 'lucide-react';
+import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
@@ -32,6 +32,7 @@ import { RemoteSidebarLink } from '../features/remote/RemoteSidebarLink';
 import { isLightTheme } from '../lib/theme';
 import type { TranslationKey } from '../i18n';
 import { UpdateSettingsPanel } from './settings/UpdateSettingsPanel';
+import { openCommandPalette } from '../lib/appCommands';
 import { NexaPopover, NexaPopoverTrigger, NexaPopoverContent } from './ui/overlay/Popover';
 
 function useAppVersion() {
@@ -261,6 +262,11 @@ export function Layout() {
         </div>
 
         {/* Navigation */}
+        <div className="px-2 pb-2">
+          <Tooltip content={t('nav.commandPalette')} side="right" delay={180}>
+            <button type="button" data-testid="open-command-palette" aria-label={t('nav.commandPalette')} onClick={openCommandPalette} className="grid h-10 w-full place-items-center rounded-lg text-text-secondary hover:bg-surface-2 hover:text-text-primary"><Command size={18} /></button>
+          </Tooltip>
+        </div>
         <nav className="flex-1 space-y-0.5 px-2" role="navigation">
           <DndContext
             sensors={sensors}

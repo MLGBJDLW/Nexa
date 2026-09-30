@@ -3,5 +3,9 @@
   "toggleSidebar": "Basculer la barre latérale",
   "toggleBrowser": "Basculer Browser Workspace",
   "toggleTerminal": "Basculer le terminal",
-  "askAi": "Demander à l'IA"
+  "askAi": "Demander à l'IA",
+  "customize": "Personnaliser les raccourcis",
+  "customizeHint": "Sélectionnez le champ, puis appuyez sur Ctrl/Cmd + Maj ou Alt + une lettre ou un chiffre. Ctrl/Cmd+K ouvre aussi la palette.",
+  "reset": "Réinitialiser",
+  "invalid": "Choisissez un raccourci avec modificateur qui n’est pas déjà attribué."
 }

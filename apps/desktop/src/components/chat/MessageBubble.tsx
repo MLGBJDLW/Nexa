@@ -20,6 +20,7 @@ import type { CitationCardData } from '../../lib/citationParser';
 import { goalObjectiveFromMessage, isGoalMessage, isSteeringMessage } from '../../lib/chatMessageGuards';
 import { buildEvidenceItemsFromContent } from '../../lib/evidenceItems';
 import { MessageActions } from './MessageActions';
+import { UserMessageText } from './UserMessageText';
 import { messageTimestamp } from '../../lib/relativeTime';
 import type { ConversationMessage, ImageAttachment, VisionTurnOverride } from '../../types/conversation';
 import { Modal } from '../ui/Modal';
@@ -432,12 +433,7 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
                   {t('chat.steeringLabel')}
                 </span>
               )}
-              <span
-                data-testid="chat-user-message-text"
-                className="whitespace-pre-wrap [overflow-wrap:anywhere]"
-              >
-                {visibleContent}
-              </span>
+              <UserMessageText key={msg.id} text={visibleContent} />
               {visibleAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {visibleAttachments.map((att, i) => (

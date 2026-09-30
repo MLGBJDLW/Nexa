@@ -3,6 +3,12 @@ export interface ScrollMetrics {
   overflow: boolean;
 }
 
+const PAUSE_SCROLL_FOLLOW = 'nexa:pause-scroll-follow';
+/** A disclosure is an explicit request to read history, even when already at the bottom. */
+export function pauseScrollFollowForReading(target: HTMLElement | null) {
+  target?.closest('[data-chat-scroll-root="true"]')?.dispatchEvent(new Event(PAUSE_SCROLL_FOLLOW));
+}
+
 /** Follow rendered geometry, including delayed text paints and tool card resize.
  * Only navigation away from the bottom releases the latch; growing content does not. */
 export function observeScrollFollow(
@@ -75,6 +81,8 @@ export function observeScrollFollow(
     if ((event.target as Element)?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (ownsInput(event.target) && (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey))) following.current = false;
   };
+  const pauseForReading = () => { following.current = false; };
+  container.addEventListener(PAUSE_SCROLL_FOLLOW, pauseForReading);
   container.addEventListener('scroll', scroll, { passive: true });
   container.addEventListener('wheel', wheel, { passive: true });
   container.addEventListener('touchstart', touchStart, { passive: true });
@@ -92,5 +100,6 @@ export function observeScrollFollow(
     container.removeEventListener('touchstart', touchStart);
     container.removeEventListener('touchmove', touchMove);
     container.removeEventListener('keydown', keydown);
+    container.removeEventListener(PAUSE_SCROLL_FOLLOW, pauseForReading);
   };
 }

@@ -775,5 +775,13 @@
   "agentReusing": "Retomando sessão do agente",
   "agentWaiting": "Aguardando resposta",
   "resumeTask": "Retomar tarefa",
-  "speechInputLimit": "Esta resposta tem {actual} caracteres e excede o limite do Nexa de {limit} por pedido de voz com {model}. Escolha um modelo com limite maior nas definições de voz ou uma resposta mais curta."
+  "speechInputLimit": "Esta resposta tem {actual} caracteres e excede o limite do Nexa de {limit} por pedido de voz com {model}. Escolha um modelo com limite maior nas definições de voz ou uma resposta mais curta.",
+  "expandMessage": "Mostrar mais",
+  "collapseMessage": "Mostrar menos",
+  "renderMarkdown": "Markdown",
+  "viewSource": "Ver texto original",
+  "previewDraft": "Prévia do rascunho",
+  "editDraft": "Editar rascunho",
+  "previewHint": "Somente prévia. O texto original é enviado sem alterações.",
+  "moreOptions": "Mais opções"
 }

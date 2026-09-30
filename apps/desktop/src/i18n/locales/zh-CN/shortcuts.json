@@ -3,5 +3,9 @@
   "toggleSidebar": "切换侧边栏",
   "toggleBrowser": "切换浏览器工作区",
   "toggleTerminal": "切换终端",
-  "askAi": "问 AI"
+  "askAi": "问 AI",
+  "customize": "自定义快捷键",
+  "customizeHint": "选中输入框后，按 Ctrl/Cmd + Shift 或 Alt + 字母或数字。Ctrl/Cmd+K 也可打开面板。",
+  "reset": "重置",
+  "invalid": "请使用带修饰键且未被占用的快捷键。"
 }

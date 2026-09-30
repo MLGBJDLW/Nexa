@@ -1,5 +1,5 @@
 {
-  "placeholder": "Digite um comando...",
+  "placeholder": "Buscar comandos, conversas ou documentos…",
   "noResults": "Nenhum comando encontrado",
   "navigation": "Navegação",
   "actions": "Ações",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "Reconstruindo índice vetorial…",
   "rebuildComplete": "Reconstrução vetorial concluída",
   "rebuildError": "Falha na reconstrução vetorial",
-  "shortcuts": "Atalhos de teclado"
+  "shortcuts": "Atalhos de teclado",
+  "currentChat": "Chat atual",
+  "conversations": "Conversas",
+  "searchDocuments": "Buscar “{query}” nos documentos",
+  "keyboardHint": "↑ ↓ Navegar · Enter Selecionar · Esc Fechar"
 }

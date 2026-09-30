@@ -775,5 +775,13 @@
   "agentReusing": "Resuming agent session",
   "agentWaiting": "Waiting for response",
   "resumeTask": "Resume task",
-  "speechInputLimit": "This reply has {actual} characters, exceeding Nexa's {limit}-character limit per speech request with {model}. Choose a model with a larger limit in Speech settings or read a shorter reply."
+  "speechInputLimit": "This reply has {actual} characters, exceeding Nexa's {limit}-character limit per speech request with {model}. Choose a model with a larger limit in Speech settings or read a shorter reply.",
+  "expandMessage": "Show more",
+  "collapseMessage": "Show less",
+  "renderMarkdown": "Markdown",
+  "viewSource": "View source",
+  "previewDraft": "Preview draft",
+  "editDraft": "Edit draft",
+  "previewHint": "Preview only. Your original text is sent unchanged.",
+  "moreOptions": "More options"
 }

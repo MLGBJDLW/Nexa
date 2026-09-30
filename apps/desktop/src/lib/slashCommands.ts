@@ -2,7 +2,7 @@ import type { Skill } from "../types/extensions";
 import { buildWorkflowBatchPrompt } from "./workflowPrompts";
 
 export type SlashCommandKind = "command" | "skill" | "workflow";
-export type SlashCommandAction = "prompt" | "compact" | "openWorkflows" | "planMode" | "companion";
+export type SlashCommandAction = "prompt" | "compact" | "openWorkflows" | "planMode" | "companion" | "composer";
 export type SlashCommandExecutionMode = "normal" | "plan";
 
 export interface SlashWorkflowTemplate {
@@ -48,6 +48,11 @@ const COMMAND_NAME_PATTERN = "[a-zA-Z0-9_.:@-]+";
 const FIRST_COMMAND_RE = new RegExp(`(^|\\s)/((${COMMAND_NAME_PATTERN}))(?:\\s|$)`);
 
 const COMMON_COMMANDS: Array<Omit<SlashCommandOption, "id" | "kind" | "sourceLabel" | "searchText">> = [
+  { name: "model", title: "Choose model", description: "Choose a model for the next message.", action: "composer" },
+  { name: "preview", title: "Markdown preview", description: "Preview your draft without changing its source.", action: "composer" },
+  { name: "options", title: "More options", description: "Show collaboration, quality, workflows, and conversation tools.", action: "composer" },
+  { name: "attach", title: "Attach files", description: "Add files to the current draft.", action: "composer" },
+  { name: "commands", title: "Command palette", description: "Search commands, conversations, and documents.", action: "composer" },
   {
     name: "plan",
     title: "Plan",
@@ -409,7 +414,7 @@ export function resolveSlashCommandSelection(
 ): ResolvedSlashCommand {
   const remainder = input.trim();
 
-  if (option.action === "compact" || option.action === "openWorkflows" || option.action === "companion") {
+  if (option.action === "compact" || option.action === "openWorkflows" || option.action === "companion" || option.action === "composer") {
     return {
       command: option,
       message: remainder,

@@ -370,6 +370,7 @@ test.beforeEach(async ({ page }) => {
 
 test('dictation and next-turn Nexus controls remain usable during an active response', async ({ page }) => {
   await page.goto('/chat/conv-voice-dock');
+  await page.getByTestId('chat-more-options').click();
   await page.getByTestId('chat-input-textarea').fill('Start a long task');
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-stop')).toBeVisible();

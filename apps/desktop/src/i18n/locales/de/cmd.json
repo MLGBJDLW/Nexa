@@ -1,5 +1,5 @@
 {
-  "placeholder": "Befehl eingeben...",
+  "placeholder": "Befehle, Unterhaltungen oder Dokumente suchen…",
   "noResults": "Keine passenden Befehle",
   "navigation": "Navigation",
   "actions": "Aktionen",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "Vektorindex wird neu erstellt…",
   "rebuildComplete": "Vektorneuerstellung abgeschlossen",
   "rebuildError": "Vektorneuerstellung fehlgeschlagen",
-  "shortcuts": "Tastaturkürzel"
+  "shortcuts": "Tastaturkürzel",
+  "currentChat": "Aktueller Chat",
+  "conversations": "Unterhaltungen",
+  "searchDocuments": "Dokumente nach „{query}“ durchsuchen",
+  "keyboardHint": "↑ ↓ Navigieren · Eingabe Auswählen · Esc Schließen"
 }

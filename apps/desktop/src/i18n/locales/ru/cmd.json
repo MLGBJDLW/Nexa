@@ -1,5 +1,5 @@
 {
-  "placeholder": "Введите команду...",
+  "placeholder": "Поиск команд, разговоров или документов…",
   "noResults": "Команды не найдены",
   "navigation": "Навигация",
   "actions": "Действия",
@@ -12,5 +12,9 @@
   "rebuildingEmbeddings": "Пересоздание векторного индекса…",
   "rebuildComplete": "Пересоздание вектора завершено",
   "rebuildError": "Ошибка пересоздания вектора",
-  "shortcuts": "Горячие клавиши"
+  "shortcuts": "Горячие клавиши",
+  "currentChat": "Текущий чат",
+  "conversations": "Разговоры",
+  "searchDocuments": "Искать «{query}» в документах",
+  "keyboardHint": "↑ ↓ Навигация · Enter Выбрать · Esc Закрыть"
 }

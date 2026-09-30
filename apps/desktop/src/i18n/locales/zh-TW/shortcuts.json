@@ -3,5 +3,9 @@
   "toggleSidebar": "切換側邊欄",
   "toggleBrowser": "切換瀏覽器工作區",
   "toggleTerminal": "切換終端",
-  "askAi": "詢問 AI"
+  "askAi": "詢問 AI",
+  "customize": "自訂快速鍵",
+  "customizeHint": "選取輸入框後，按 Ctrl/Cmd + Shift 或 Alt + 字母或數字。Ctrl/Cmd+K 也可開啟面板。",
+  "reset": "重設",
+  "invalid": "請使用包含修飾鍵且未被占用的快速鍵。"
 }

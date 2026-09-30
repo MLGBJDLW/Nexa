@@ -3,5 +3,9 @@
   "toggleSidebar": "Toggle sidebar",
   "toggleBrowser": "Toggle Browser Workspace",
   "toggleTerminal": "Toggle terminal",
-  "askAi": "Ask AI"
+  "askAi": "Ask AI",
+  "customize": "Customize shortcuts",
+  "customizeHint": "Focus the field and press Ctrl/Cmd + Shift or Alt + a letter or number. Ctrl/Cmd+K also opens the palette.",
+  "reset": "Reset",
+  "invalid": "Use a modified shortcut that is not already assigned."
 }
