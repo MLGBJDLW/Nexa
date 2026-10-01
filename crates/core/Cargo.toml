@@ -38,7 +38,7 @@ h2 = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking", "multipart", "stream", "cookies", "gzip", "brotli", "deflate", "zstd", "charset", "http2", "system-proxy"], default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-pemfile = "2"
-async-trait = "0.1"
+async-trait = "0.1.92"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }

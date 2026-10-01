@@ -896,6 +896,10 @@ impl AgentRunEventOutbox {
                 }
             });
         }
+        #[allow(
+            deprecated,
+            reason = "Keep Rust 1.94 support; Atomic::try_update stabilized in Rust 1.95"
+        )]
         let _ =
             self.accepted_high_water
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
@@ -959,6 +963,10 @@ impl AgentRunEventOutbox {
                 }
             });
         }
+        #[allow(
+            deprecated,
+            reason = "Keep Rust 1.94 support; Atomic::try_update stabilized in Rust 1.95"
+        )]
         let _ =
             self.accepted_high_water
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
