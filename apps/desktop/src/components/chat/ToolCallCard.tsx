@@ -1526,6 +1526,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const isFileChangeRender = isFileChangeToolRender(safeToolName, renderKind);
   const isCommandExecutionRender = isCommandExecutionTool(safeToolName, renderKind);
   const isPending = isPendingToolCallStatus(status);
+  const failedStatus = isUnsuccessfulToolCallStatus(status);
   const argumentFileChangeStats = useMemo(
     () => deriveFileChangeStatsFromArgs({
       rawArgs: args,
@@ -1534,7 +1535,9 @@ export const ToolCallCard = memo(function ToolCallCard({
     }),
     [args, isFileChangeRender, safeToolName],
   );
-  const headerDiffStats = diffStats ?? argumentFileChangeStats?.stats ?? null;
+  // Arguments describe an intended edit, not evidence that a failed call wrote
+  // anything. Retain real partial-change receipts, but drop speculative counts.
+  const headerDiffStats = diffStats ?? (failedStatus ? null : argumentFileChangeStats?.stats) ?? null;
   const fileChangeTarget = isFileChangeRender
     ? getStableFileChangeTarget(fileDiff, headerDiffStats) ?? argumentFileChangeStats?.target ?? null
     : null;
@@ -1669,9 +1672,10 @@ export const ToolCallCard = memo(function ToolCallCard({
     );
   }
 
-  const failedStatus = isUnsuccessfulToolCallStatus(status);
   const failedResultSummary = failedStatus ? toolResultHeaderSummary(content) : null;
-  const baseHeaderSummary = skillActivation
+  const baseHeaderSummary = failedStatus
+    ? failedResultSummary ?? briefResult
+    : skillActivation
     ? t('chat.skillActivationReady')
     : subagentBatch
       ? [
@@ -1709,9 +1713,7 @@ export const ToolCallCard = memo(function ToolCallCard({
             : `${headerDiffStats.operation === 'create' ? t('chat.fileDiffCreated') : t('chat.fileDiffModified')}`
         : isPending && progressNote
           ? progressNote
-        : failedStatus
-          ? failedResultSummary ?? briefResult
-          : null;
+        : null;
   const headerSummary = [
     baseHeaderSummary,
     !isPending && durationLabel ? durationLabel : null,

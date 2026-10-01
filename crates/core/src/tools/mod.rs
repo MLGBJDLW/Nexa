@@ -115,6 +115,7 @@ pub mod download_asset_tool;
 pub mod edit_file_tool;
 pub mod fetch_url_tool;
 pub mod file_tool;
+pub(crate) mod file_tool_contract;
 pub mod glob_files_tool;
 pub mod harness_dry_run_tool;
 pub mod health_check_tool;
@@ -715,10 +716,20 @@ pub trait Tool: Send + Sync {
 
     /// Build a [`ToolDefinition`] suitable for an LLM completion request.
     fn definition(&self) -> ToolDefinition {
+        let mut parameters = with_scheduler_control_parameters(self.parameters_schema());
+        // Built-in handlers have finite named arguments. Do not silently ignore
+        // fields copied from a different tool. MCP servers own their own schemas.
+        if !self.categories().contains(&ToolCategory::Mcp) {
+            if let Some(schema) = parameters.as_object_mut() {
+                schema
+                    .entry("additionalProperties")
+                    .or_insert(serde_json::Value::Bool(false));
+            }
+        }
         ToolDefinition {
             name: self.name().to_string(),
             description: self.description().to_string(),
-            parameters: with_scheduler_control_parameters(self.parameters_schema()),
+            parameters,
         }
     }
 
@@ -1211,16 +1222,32 @@ impl ToolRegistry {
         Ok(result)
     }
 
-    pub(crate) fn normalized_arguments_for_scheduling(
+    pub(crate) fn prepare_arguments_for_scheduling(
         &self,
         name: &str,
+        call_id: &str,
         arguments: &str,
-    ) -> serde_json::Value {
-        let mut value = parse_tool_arguments_value(arguments).unwrap_or_default();
-        if let Some(tool) = self.get(name) {
-            normalize_tool_argument_value(&mut value, &tool.definition().parameters);
+    ) -> (serde_json::Value, Option<ToolResult>) {
+        match self.prepare_execution(name, call_id, arguments) {
+            Ok((_, normalized)) => (
+                serde_json::from_str(&normalized).expect("normalized JSON"),
+                None,
+            ),
+            Err(error) => (
+                parse_tool_arguments_value(arguments).unwrap_or_default(),
+                Some(error),
+            ),
         }
-        value
+    }
+
+    #[cfg(test)]
+    pub(crate) fn argument_error_for_scheduling(
+        &self,
+        name: &str,
+        call_id: &str,
+        arguments: &str,
+    ) -> Option<ToolResult> {
+        self.prepare_execution(name, call_id, arguments).err()
     }
 
     fn prepare_execution<'a>(
@@ -1265,10 +1292,42 @@ impl ToolRegistry {
 
         let schema = tool.definition().parameters;
         match normalize_tool_arguments(name, arguments, &schema) {
-            Ok(arguments) => Ok((tool, arguments)),
-            Err((code, message)) => Err(structured_tool_error_result(
-                call_id, code, message, schema, true,
-            )),
+            Ok(arguments) => {
+                if name == "run_shell" {
+                    let value: serde_json::Value =
+                        serde_json::from_str(&arguments).expect("normalized JSON");
+                    let program = value
+                        .get("program")
+                        .and_then(serde_json::Value::as_str)
+                        .or_else(|| {
+                            value
+                                .get("command")
+                                .and_then(serde_json::Value::as_str)
+                                .and_then(|command| command.split_whitespace().next())
+                        });
+                    if let Some(target) = program.and_then(|program| self.get(program)) {
+                        return Err(structured_tool_error_result(call_id, "shell_tool_intent_mismatch",
+                            format!("'{}' is a registered tool, not a shell command. Call it directly with its own arguments. No process was started.", target.name()),
+                            serde_json::json!({"tool": target.name(), "parameters": target.definition().parameters}), true));
+                    }
+                }
+                Ok((tool, arguments))
+            }
+            Err((code, message)) => {
+                if let Ok(mut value) = parse_tool_arguments_value(arguments) {
+                    normalize_tool_argument_value(&mut value, &schema);
+                    if let Some(error) = file_tool_contract::argument_error(name, call_id, &value) {
+                        return Err(error);
+                    }
+                }
+                Err(structured_tool_error_result(
+                    call_id,
+                    code,
+                    format!("{name}: {message}"),
+                    schema,
+                    true,
+                ))
+            }
         }
     }
 }
@@ -1556,6 +1615,23 @@ fn top_level_argument_issue(
     schema: &serde_json::Value,
 ) -> Option<(&'static str, String)> {
     let object = value.as_object()?;
+    if schema.get("additionalProperties") == Some(&serde_json::Value::Bool(false))
+        && schema.get("patternProperties").is_none()
+    {
+        let properties = schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object);
+        let unknown = object
+            .keys()
+            .filter(|key| properties.is_none_or(|properties| !properties.contains_key(*key)))
+            .collect::<Vec<_>>();
+        if !unknown.is_empty() {
+            return Some(("unknown_tool_arguments", format!(
+                "Unsupported argument(s): {}. Use only fields declared by this tool; do not mix another tool's arguments or nest a tool-call envelope inside arguments. No operation was performed.",
+                unknown.iter().map(|key| key.as_str()).collect::<Vec<_>>().join(", ")
+            )));
+        }
+    }
     if let Some(required) = schema.get("required").and_then(serde_json::Value::as_array) {
         let missing = required
             .iter()
@@ -1647,7 +1723,7 @@ fn top_level_argument_issue(
 }
 
 fn normalize_tool_arguments(
-    _tool_name: &str,
+    tool_name: &str,
     arguments: &str,
     schema: &serde_json::Value,
 ) -> Result<String, (&'static str, String)> {
@@ -1670,8 +1746,28 @@ fn normalize_tool_arguments(
         ));
     }
     normalize_tool_argument_value(&mut value, schema);
+    if let Some(issue) = file_tool_contract::argument_issue(tool_name, &value) {
+        return Err((issue.code, issue.message));
+    }
+    if tool_name == "run_shell" {
+        if let Some(message) = run_shell_contract::argument_issue(&value) {
+            return Err(("invalid_run_shell_arguments", message));
+        }
+    }
+    // Workspace isolation adds this private field after model generation. It is
+    // not advertised as a model parameter and must survive runtime validation.
+    let internal_sandbox = if tool_name == "run_shell" {
+        value
+            .as_object_mut()
+            .and_then(|object| object.remove("_nexaIsolationSandbox"))
+    } else {
+        None
+    };
     if let Some(issue) = top_level_argument_issue(&value, schema) {
         return Err(issue);
+    }
+    if let Some(sandbox) = internal_sandbox {
+        value["_nexaIsolationSandbox"] = sandbox;
     }
     serde_json::to_string(&value).map_err(|error| {
         (
@@ -2887,14 +2983,83 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_metadata_does_not_force_provider_specific_schema_closure() {
+    fn builtin_arguments_are_closed_but_mcp_keeps_its_declared_schema() {
         let tool = EchoArgumentsTool;
         let definition = tool.definition();
 
-        assert!(definition.parameters.get("additionalProperties").is_none());
+        assert_eq!(definition.parameters["additionalProperties"], false);
         assert!(definition.parameters["properties"]
             .as_object()
             .is_some_and(|properties| properties.contains_key("wait_for_previous")));
+        assert!(RuntimeMcpOnlyTool
+            .definition()
+            .parameters
+            .get("additionalProperties")
+            .is_none());
+        // Pattern-key schemas are owned by the MCP server; the local named-field
+        // subset must not reject a valid dynamic property.
+        assert!(top_level_argument_issue(&serde_json::json!({"setting_x": 1}), &serde_json::json!({
+            "type":"object", "properties":{}, "patternProperties":{"^setting_":{"type":"integer"}}, "additionalProperties":false,
+        })).is_none());
+    }
+
+    #[test]
+    fn every_builtin_rejects_foreign_top_level_arguments() {
+        let registry = default_tool_registry();
+        for name in registry.tool_names() {
+            let tool = registry.get(&name).unwrap();
+            if tool.categories().contains(&ToolCategory::Mcp) {
+                continue;
+            }
+            let schema = tool.definition().parameters;
+            assert_eq!(
+                schema["additionalProperties"], false,
+                "{name} must declare its argument boundary"
+            );
+            let issue = top_level_argument_issue(
+                &serde_json::json!({"__foreign_tool_argument": "never execute"}),
+                &schema,
+            )
+            .expect(&name);
+            assert_eq!(issue.0, "unknown_tool_arguments", "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn registry_rejects_cross_tool_fields_and_conflicting_aliases_before_execution() {
+        let db = Database::open_memory().unwrap();
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(EchoArgumentsTool));
+        for arguments in [
+            r#"{"start_line":1,"command":"do not run"}"#,
+            r#"{"start_line":1,"startLine":2}"#,
+            r#"{"tool":"read_file","arguments":{"path":"file.txt"}}"#,
+        ] {
+            let result = registry
+                .execute(
+                    "echo_arguments",
+                    ToolExecutionContext::new("mismatch", arguments, &db, &[]),
+                )
+                .await
+                .unwrap();
+            assert!(result.is_error, "{arguments} reached the tool");
+            assert!(result.content.contains("Unsupported argument"));
+        }
+    }
+
+    #[test]
+    fn shell_tool_calls_preserve_identity_and_never_launch_a_tool_name() {
+        let registry = default_tool_registry();
+        for arguments in [
+            r#"{"command":"read_file notes.txt"}"#,
+            r#"{"program":"edit_file","args":["notes.txt"]}"#,
+        ] {
+            let error = registry
+                .argument_error_for_scheduling("run_shell", "shell-mismatch", arguments)
+                .expect("must reject tool-as-command");
+            assert!(error.content.contains("shell_tool_intent_mismatch"));
+            assert_eq!(error.call_id, "shell-mismatch");
+        }
     }
 
     #[tokio::test]

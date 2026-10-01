@@ -63,6 +63,13 @@ impl Tool for FileTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let value: serde_json::Value = serde_json::from_str(context.arguments)
+            .map_err(|e| CoreError::InvalidInput(format!("Invalid read_file arguments: {e}")))?;
+        if let Some(error) =
+            super::file_tool_contract::argument_error(self.name(), context.call_id, &value)
+        {
+            return Ok(error);
+        }
         let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,

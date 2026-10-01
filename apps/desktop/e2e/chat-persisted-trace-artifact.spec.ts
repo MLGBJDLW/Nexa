@@ -128,6 +128,24 @@ test.beforeEach(async ({ page }) => {
                   },
                 },
               },
+              {
+                kind: 'tool',
+                toolCall: {
+                  callId: 'rejected-file-read', toolName: 'edit_file',
+                  arguments: JSON.stringify({ path: 'H:/novel/never-changed.md', old_str: 'original line', new_str: 'replacement line' }),
+                  status: 'error', isError: true,
+                  content: 'No file operation was performed. Use read_file to inspect.', artifacts: null,
+                },
+              },
+              {
+                kind: 'tool',
+                toolCall: {
+                  callId: 'partial-file-error', toolName: 'edit_file',
+                  arguments: JSON.stringify({ path: 'H:/novel/partial-change.md', old_str: 'old', new_str: 'new' }),
+                  status: 'error', isError: true, content: 'Verification failed after a recorded change.',
+                  artifacts: { diffStats: { kind: 'diffStats', filesChanged: 1, additions: 1, deletions: 1, hunks: 1, operation: 'str_replace', paths: ['H:/novel/partial-change.md'] } },
+                },
+              },
               { kind: 'status', text: 'Recovered from persisted trace data.', tone: 'success' },
             ],
           },
@@ -287,4 +305,18 @@ test('renders persisted trace artifacts as a single unified timeline', async ({ 
   expect(text.indexOf('Final answer from persisted trace artifacts.')).toBeGreaterThan(text.indexOf('Recovered from persisted trace data.'));
   expect(text).not.toContain('update_plan');
   expect(text).not.toContain('Draft fix');
+});
+
+test('rejected file calls do not claim modifications while confirmed partial changes retain evidence', async ({ page }) => {
+  await page.goto('/chat/conv-persisted-artifact-trace');
+  await page.getByRole('button', { name: /Thinking completed/ }).click();
+  const rejected = page.getByRole('button', { name: /edit_file.*never-changed\.md/ });
+  await expect(rejected).toBeVisible();
+  await expect(rejected.getByTestId('tool-card-header-diff-stats')).toHaveCount(0);
+  await expect(rejected).toContainText('No file operation was performed');
+  await expect(rejected).not.toContainText('Modified');
+  const partial = page.getByRole('button', { name: /edit_file.*partial-change\.md/ });
+  await expect(partial.getByTestId('tool-card-header-additions')).toHaveAttribute('data-value', '+1');
+  await expect(partial).toContainText('Verification failed');
+  await expect(partial).not.toContainText('Modified');
 });
