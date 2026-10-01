@@ -103,6 +103,10 @@ impl DialogPolicy {
         kind: &str,
         message: &str,
     ) -> (bool, Option<String>, DialogResult) {
+        #[allow(
+            deprecated,
+            reason = "Keep Rust 1.94 support; Atomic::try_update stabilized in Rust 1.95"
+        )]
         let count = self
             .1
             .fetch_update(

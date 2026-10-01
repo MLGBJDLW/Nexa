@@ -38,7 +38,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`create_file`](../crates/core/prompts/tools/create_file.json) | Create, overwrite, or incrementally append UTF-8 plain-text files at the specified path |
 | [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Discover and launch installed Windows applications, or open/reveal source-scoped files |
 | [`download_asset`](../crates/core/prompts/tools/download_asset.json) | Download a supported public image asset (JPEG, PNG, WebP, or GIF) into the workspace with SSRF, redirect-hop, content-type, size, and output-path validation |
-| [`edit_file`](../crates/core/prompts/tools/edit_file.json) | Edit an existing plain-text file or create a new plain-text file |
+| [`edit_file`](../crates/core/prompts/tools/edit_file.json) | MUTATION ONLY: replace text in an existing plain-text file, or create one with explicit content |
 | [`extract_image_text`](../crates/core/prompts/tools/extract_image_text.json) | Extract visible text from a local image using the app's PaddleOCR runtime |
 | [`fetch_url`](../crates/core/prompts/tools/fetch_url.json) | Fetch and read the text content of a public web page with SSRF and redirect-hop validation |
 | [`generate_image`](../crates/core/prompts/tools/generate_image.json) | Generate an image using the provider configured in Settings and return an in-chat preview artifact |
@@ -65,7 +65,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |
 | [`project_tool`](../crates/core/prompts/tools/project_tool.json) | Discover, describe, and run source-scoped project-local tool manifests |
 | [`query_knowledge_graph`](../crates/core/prompts/tools/query_knowledge_graph.json) | Query the compiled entity relationship graph as a compact navigation index before retrieving full evidence |
-| [`read_file`](../crates/core/prompts/tools/read_file.json) | Read a file by path |
+| [`read_file`](../crates/core/prompts/tools/read_file.json) | READ ONLY: inspect a file by path without modifying it |
 | [`read_files`](../crates/core/prompts/tools/read_files.json) | Read multiple files in a single call |
 | [`record_verification`](../crates/core/prompts/tools/record_verification.json) | Record what was verified before finishing a multi-step task |
 | [`reindex_document`](../crates/core/prompts/tools/reindex_document.json) | Trigger re-indexing of a specific document by path or an entire source directory |

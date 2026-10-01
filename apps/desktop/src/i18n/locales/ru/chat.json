@@ -783,5 +783,9 @@
   "previewDraft": "Предпросмотр черновика",
   "editDraft": "Изменить черновик",
   "previewHint": "Только предпросмотр. Исходный текст отправляется без изменений.",
-  "moreOptions": "Другие параметры"
+  "moreOptions": "Другие параметры",
+  "slashCommand.nexus.description": "Переключите Nexus или используйте /nexus on|off. При первом включении появится описание.",
+  "slashCommand.moa.description": "Выберите совместную работу или используйте /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
+  "slashCommand.quality.description": "Выберите качество или используйте /quality balanced|deep|code-ultra|research-ultra|custom.",
+  "commandUnavailable": "Эта команда сейчас недоступна в текущем разговоре."
 }

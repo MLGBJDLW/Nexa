@@ -64,6 +64,18 @@ assembly. Moving unchanged text between a Rust literal and `include_str!`
 does not change the effective prompt. Updating its text intentionally changes
 the affected prefix.
 
+Tool calls keep their registered name and call ID throughout scheduling,
+approval, execution, and recovery. The scheduler and final registry dispatch
+share argument validation. Built-in tool definitions reject undeclared
+top-level fields; external MCP schemas retain their declared extensibility.
+Unambiguous casing aliases are normalized, while conflicting aliases and
+foreign argument fields are rejected before approval. Tool-specific validators
+own conditional and nested semantics. File inspection cannot fall through to
+an empty creation or implicit deletion, and shell process management cannot
+silently ignore a mixed-in launch command. Recovery returns a retryable error
+with the correct schema or suggested tool; it never switches tools or performs
+the suggested operation automatically.
+
 ## Desktop responsiveness and tool ownership
 
 Application IPC enters a bounded blocking dispatcher before calling generated
@@ -295,7 +307,9 @@ files are verified off the UI thread and published without overwriting a name.
    prompt-only state.
 7. **Bounded presentation.** Streaming and trace surfaces stay responsive,
    preserve reduced-motion behavior, and avoid turning internal diagnostics into
-   normal chat content.
+   normal chat content. History display projections retain semantic artifact
+   discriminators even without additional fields: a `steering` marker is a user
+   boundary, and losing it can move the final answer before that correction.
 8. **Typed prompt projection.** Conversation history, provider-native replay,
    controller state, audit records, and the final assistant answer are separate
    projections. Volatile runtime/controller rows never become durable dialogue;

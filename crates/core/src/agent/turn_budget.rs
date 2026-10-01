@@ -28,6 +28,10 @@ impl ModelRequestBudget {
         }
     }
 
+    #[allow(
+        deprecated,
+        reason = "Keep Rust 1.94 support; Atomic::try_update stabilized in Rust 1.95"
+    )]
     pub(super) fn acquire(&self) -> bool {
         self.used
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {

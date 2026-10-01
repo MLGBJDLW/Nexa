@@ -49,7 +49,8 @@ impl ToolSchedulerPolicy {
         tools: &ToolRegistry,
         call: &ToolCallRequest,
     ) -> ToolSchedulingDecision {
-        let parsed_args = tools.normalized_arguments_for_scheduling(&call.name, &call.arguments);
+        let (parsed_args, argument_error) =
+            tools.prepare_arguments_for_scheduling(&call.name, &call.id, &call.arguments);
         let timeout = tool_timeout_for_call(self.configured_timeout_secs, &call.name, &parsed_args);
 
         let hidden_registered_tool = self.dynamic_tool_visibility
@@ -74,16 +75,24 @@ impl ToolSchedulerPolicy {
                 true,
             ))
         } else {
-            None
+            // Validate every tool before previews, approvals, or side effects.
+            // Execution repeats the same contract at the final dispatch boundary.
+            argument_error
         };
 
         ToolSchedulingDecision {
             invocation: tools.build_invocation(&call.id, &call.name, parsed_args),
             timeout,
-            policy_label: if hidden_registered_tool {
-                "executeHiddenRegistered"
-            } else if synthetic_result.is_some() {
+            policy_label: if synthetic_result.is_some()
+                && !hidden_registered_tool
+                && self.dynamic_tool_visibility
+                && !self.offered_tool_names.contains(&call.name)
+            {
                 "blockedByToolVisibility"
+            } else if synthetic_result.is_some() {
+                "blockedByArgumentContract"
+            } else if hidden_registered_tool {
+                "executeHiddenRegistered"
             } else {
                 "execute"
             },
@@ -719,7 +728,7 @@ mod tests {
             &ToolCallRequest {
                 id: "call-1".to_string(),
                 name: "edit_file".to_string(),
-                arguments: "{}".to_string(),
+                arguments: serde_json::json!({"path": "notes.txt", "action": "create", "new_str": "explicit content"}).to_string(),
                 thought_signature: None,
             },
         );
@@ -735,5 +744,41 @@ mod tests {
 
         assert_eq!(compacted.len(), content.len());
         assert!(!compacted.contains("truncated"));
+    }
+    #[test]
+    fn file_intent_mismatch_is_rejected_before_mutation_approval() {
+        let tools = crate::tools::default_tool_registry();
+        let policy = ToolSchedulerPolicy::new(None, false, HashSet::new(), HashSet::new());
+        for arguments in [
+            serde_json::json!({"path": "notes.txt"}),
+            serde_json::json!({"path": "notes.txt", "action": "read"}),
+            serde_json::json!({"path": "notes.txt", "old_str": "before"}),
+            serde_json::json!({"path": "notes.txt", "command": "view", "content": ""}),
+        ] {
+            let call = ToolCallRequest {
+                id: "file-contract".into(),
+                name: "edit_file".into(),
+                arguments: arguments.to_string(),
+                thought_signature: None,
+            };
+            let decision = policy.decision_for(&tools, &call);
+            assert_eq!(decision.policy_label, "blockedByArgumentContract");
+            let error = decision
+                .synthetic_result
+                .expect("must fail before approval");
+            assert!(error.is_error);
+            assert!(error.content.contains("read_file"));
+        }
+        let call = ToolCallRequest {
+            id: "explicit-delete".into(),
+            name: "edit_file".into(),
+            arguments: serde_json::json!({"path": "notes.txt", "old_str": "before", "new_str": ""})
+                .to_string(),
+            thought_signature: None,
+        };
+        assert!(policy
+            .decision_for(&tools, &call)
+            .synthetic_result
+            .is_none());
     }
 }

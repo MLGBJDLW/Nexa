@@ -2213,7 +2213,7 @@ impl Tool for ScopedActivityTool {
         "Start a delegated build activity"
     }
     fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({"type":"object"})
+        serde_json::json!({"type":"object", "properties":{"value":{"type":"string"}}})
     }
     async fn execute(
         &self,

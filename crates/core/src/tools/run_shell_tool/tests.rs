@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn shell_parser_rejects_arguments_from_other_tools() {
+    for arguments in [
+        json!({"command":"git status", "path":"README.md", "max_lines":5}),
+        json!({"program":"git", "args":["status"], "old_str":"before", "new_str":"after"}),
+        json!({"command":"git status", "workdir":"another-tool-field"}),
+    ] {
+        assert!(
+            parse_run_shell_args(&arguments.to_string()).is_err(),
+            "mixed arguments were ignored: {arguments}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn shell_argument_confusion_has_no_filesystem_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = db_with_source(dir.path());
+    let marker = dir.path().join("must-not-exist");
+    for arguments in [
+        json!({"program":"mkdir", "args":[marker], "cwd":dir.path(), "path":"wrong-tool-field"}),
+        json!({"program":"mkdir", "args":[marker], "cwd":dir.path(), "service_action":"status", "service_id":"unknown"}),
+    ] {
+        let result = RunShellTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "shell-confusion",
+                &arguments.to_string(),
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(result.is_error, "mismatched call was executed: {arguments}");
+        assert!(result.content.contains("invalid_run_shell_arguments"));
+        assert!(!marker.exists());
+    }
+}
+
+#[test]
 fn saved_shell_preference_preserves_policy_and_explicit_host_argv() {
     use super::policy::apply_shell_preference;
     let cwd = std::env::current_dir().unwrap();

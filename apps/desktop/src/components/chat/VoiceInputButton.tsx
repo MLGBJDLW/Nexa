@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { useAppCommand } from '../../lib/appCommands';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Mic, Loader2, RotateCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -164,6 +165,8 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
       showRuntimeError(result.code, result.message);
     }
   }, [busy, hasRetryableVoiceSpool, isRecording, onDictationEvent, showRuntimeError, toggleRecording]);
+
+  useAppCommand({ id: 'chat.voice', label: isRecording ? 'voice.stopRecording' : 'voice.startRecording', keywords: '/voice dictation microphone 语音', enabled: !disabled && !busy, run: () => { void handleClick(); } });
 
   const handleDiscard = useCallback(async () => {
     if (busy) return;

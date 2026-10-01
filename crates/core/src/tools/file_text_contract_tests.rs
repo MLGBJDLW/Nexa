@@ -34,6 +34,105 @@ async fn execute(tool: &dyn Tool, db: &Database, args: serde_json::Value) {
 }
 
 #[tokio::test]
+async fn edit_file_read_requests_never_create_or_modify_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = database(dir.path());
+    for exists in [false, true] {
+        for fields in [
+            json!({}),
+            json!({"action": "read"}),
+            json!({"action": "view", "start_line": 1, "end_line": 5}),
+            json!({"command": "view", "view_range": [1, 5]}),
+            json!({"start_line": 1, "max_lines": 5}),
+        ] {
+            let path = dir.path().join(format!("read-{exists}.txt"));
+            if exists {
+                std::fs::write(&path, "keep me\n").unwrap();
+            }
+            let mut args = fields;
+            args["path"] = json!(path);
+            let result = EditFileTool
+                .execute(ToolExecutionContext::new(
+                    "read-misuse",
+                    &args.to_string(),
+                    &db,
+                    &[],
+                ))
+                .await
+                .unwrap();
+            assert!(result.is_error, "read-shaped edit must fail: {args}");
+            assert!(
+                result.content.contains("read_file"),
+                "actionable recovery: {}",
+                result.content
+            );
+            assert!(result
+                .artifacts
+                .as_ref()
+                .is_none_or(
+                    |value| value.get("checkpoint").is_none() && value.get("diff").is_none()
+                ));
+            if exists {
+                assert_eq!(std::fs::read(&path).unwrap(), b"keep me\n");
+            } else {
+                assert!(!path.exists(), "read-shaped call created a file: {args}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn edit_file_missing_replacement_is_not_an_implicit_deletion() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = database(dir.path());
+    let path = dir.path().join("preserve.txt");
+    std::fs::write(&path, "keep me\n").unwrap();
+    let args = json!({"path": path, "old_str": "keep me"});
+    let result = EditFileTool
+        .execute(ToolExecutionContext::new(
+            "missing-edit",
+            &args.to_string(),
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(result.is_error, "missing replacement silently deleted text");
+    assert_eq!(std::fs::read(&path).unwrap(), b"keep me\n");
+    assert!(result
+        .artifacts
+        .as_ref()
+        .is_none_or(|value| value.get("checkpoint").is_none() && value.get("diff").is_none()));
+    execute(
+        &EditFileTool,
+        &db,
+        json!({"path": path, "old_str": "keep me", "new_str": ""}),
+    )
+    .await;
+    assert_eq!(std::fs::read(&path).unwrap(), b"\n");
+}
+
+#[tokio::test]
+async fn read_file_rejects_mutation_fields_instead_of_reporting_read_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = database(dir.path());
+    let path = dir.path().join("read-only.txt");
+    std::fs::write(&path, "unchanged\n").unwrap();
+    let registry = super::default_tool_registry();
+    let arguments = json!({"path": path, "old_str": "unchanged", "new_str": "changed"}).to_string();
+    let result = registry
+        .execute(
+            "read_file",
+            ToolExecutionContext::new("read-mutation", &arguments, &db, &[]),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("edit_file"));
+    assert_eq!(std::fs::read(&path).unwrap(), b"unchanged\n");
+}
+
+#[tokio::test]
 async fn create_append_and_edits_preserve_literal_escapes_and_utf8_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let db = database(dir.path());

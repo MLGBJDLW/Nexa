@@ -2219,6 +2219,16 @@ impl Tool for RunShellTool {
             ..
         } = context;
         let conversation_id = process_owner.as_deref();
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(arguments) {
+            if let Some(message) = crate::tools::run_shell_contract::argument_issue(&value) {
+                return Ok(tool_contract_error_result(
+                    call_id,
+                    "invalid_run_shell_arguments",
+                    message,
+                    run_shell_expected_format(),
+                ));
+            }
+        }
         let parsed = match parse_run_shell_args(arguments) {
             Ok(parsed) => parsed,
             Err(err) => {

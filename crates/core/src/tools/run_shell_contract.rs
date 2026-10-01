@@ -170,8 +170,68 @@ pub(crate) fn parameters_schema() -> Value {
                 "description": "Optional text written to the child process stdin. Use this for scripts or generated content that would exceed argv limits, e.g. program python with args [\"-\"] and stdin containing the script. For HTML-first PPTX generation, pass the JSON deck spec here while using --spec - in args. The payload is bounded and is not logged. Native filesystem commands do not accept stdin."
             }
         },
-        "required": []
+        "required": [],
+        "oneOf": [
+            { "required": ["command"] },
+            { "required": ["program"] },
+            { "required": ["service_action", "service_id"], "properties": { "service_action": { "enum": ["status", "wait", "stop"] } } }
+        ]
     })
+}
+
+/// Validate invocation shape before approval or process lookup/launch. Shell
+/// quoting and access policy remain owned by the existing shell parser.
+pub(crate) fn argument_issue(args: &Value) -> Option<String> {
+    let object = args.as_object()?;
+    let present = |name: &str| object.get(name).is_some_and(|value| !value.is_null());
+    let nonempty = |name: &str| {
+        object
+            .get(name)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let service_action = args
+        .get("service_action")
+        .and_then(Value::as_str)
+        .unwrap_or("run");
+    if !matches!(service_action, "run" | "status" | "wait" | "stop") {
+        return Some("run_shell service_action must be run, status, wait, or stop".into());
+    }
+    if matches!(service_action, "status" | "wait" | "stop") {
+        if !nonempty("service_id") {
+            return Some(format!("service_action={service_action} requires service_id returned by a previous run. For activityId/cursor use activity_observe instead."));
+        }
+        if [
+            "command",
+            "program",
+            "args",
+            "shell",
+            "stdin",
+            "cwd",
+            "background",
+            "ready_url",
+            "ready_timeout_secs",
+        ]
+        .iter()
+        .any(|key| present(key))
+        {
+            return Some("Do not mix run_shell process management with a new command. Use service_action and service_id only (plus timeout_secs for wait), or make a separate command/program call.".into());
+        }
+        return None;
+    }
+    if present("service_id") {
+        return Some("service_id is only valid with run_shell service_action=status|wait|stop. Use activity_observe for an activityId.".into());
+    }
+    if !nonempty("command") && !nonempty("program") {
+        return Some("run_shell requires command (a shell command string) or program plus args (argv). Use read_file with path/start_line/max_lines to inspect files, edit_file with old_str/new_str for edits, and activity_observe for running activities. Tool names are not shell commands.".into());
+    }
+    if present("command") && (present("program") || present("args")) {
+        return Some(command_program_mix_error().into());
+    }
+    if present("program") && present("shell") {
+        return Some("run_shell shell applies only to command; use program plus args for exact argv without shell.".into());
+    }
+    None
 }
 
 pub(crate) fn route_guidance() -> &'static str {
@@ -298,7 +358,7 @@ fn allowed_programs_for_error() -> Vec<&'static str> {
 }
 
 fn invocation_modes_sentence() -> &'static str {
-    "You can pass either `command` for short one-line commands like `git status --short`, or `program` plus `args` for exact argv control."
+    "You can pass either `command` for short one-line commands like `git status --short`, or `program` plus `args` for exact argv control. Registered tool names such as read_file, edit_file, and activity_observe are separate tool calls, not shell programs. Never mix new commands with service_action=status/wait/stop."
 }
 
 fn direct_command_sentence() -> &'static str {

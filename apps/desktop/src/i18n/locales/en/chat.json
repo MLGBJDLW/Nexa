@@ -783,5 +783,9 @@
   "previewDraft": "Preview draft",
   "editDraft": "Edit draft",
   "previewHint": "Preview only. Your original text is sent unchanged.",
-  "moreOptions": "More options"
+  "moreOptions": "More options",
+  "slashCommand.nexus.description": "Toggle Nexus, or use /nexus on|off. First use opens the introduction.",
+  "slashCommand.moa.description": "Choose collaboration, or use /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
+  "slashCommand.quality.description": "Choose quality, or use /quality balanced|deep|code-ultra|research-ultra|custom.",
+  "commandUnavailable": "This command is unavailable in the current conversation."
 }

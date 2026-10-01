@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { MonitorUp, Square, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAppCommand } from '../../lib/appCommands';
 import { useTranslation } from '../../i18n';
 import { encodeSharedScreenFrame } from '../../lib/sharedScreenFrame';
 import { openScreenCapture, useDesktopMonitors, useDesktopWindows, type ScreenCapture } from '../../lib/screenCapture';
@@ -112,6 +113,15 @@ export function ScreenShareButton({ conversationId, onEnsureConversation }: { co
     }
     if (mounted.current) setPickerOpen(true);
   };
+  useAppCommand({
+    id: 'chat.screen', label: sharing || pending ? 'chat.stopScreenShare' : 'chat.shareScreen',
+    keywords: '/screen share screen 屏幕共享',
+    enabled: Boolean((conversationId || onEnsureConversation) && supported && !preparingConversation),
+    run: () => {
+      if (sharing || pending) { stop(); setPickerOpen(false); }
+      else void openPicker(true);
+    },
+  });
   return <div className="group relative shrink-0" data-testid="desktop-share-control">
     <NexaPopover open={pickerOpen && !sharing && !pending} onOpenChange={openPicker}>
     <NexaPopoverTrigger asChild>

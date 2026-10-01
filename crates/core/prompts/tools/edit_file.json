@@ -1,6 +1,6 @@
 {
   "name": "edit_file",
-  "description": "Edit an existing plain-text file or create a new plain-text file. In restricted mode paths must resolve inside the current registered source scope; allow-all/non-restricted permission modes can use all registered sources, and open mode can also use absolute local paths outside registered sources. Paths may be absolute or relative to a source root. Supports exact string replacement and plain-text file creation.\n\nUse this tool when:\n- You need to modify an existing text file (use str_replace with the exact text to find and its replacement)\n- You need to create a new text file (use create with the file content)\n\nDo not use Python or run_shell snippets for ordinary plain-text edits. Do not use this tool for DOCX/XLSX/PPTX/PDF files. Use office_artifact for DOCX/XLSX/PPTX candidate-based creation and edits; use run_shell + doc-script-editor for PDF, conversion/rendering, or OOXML compatibility work.\n\nFor str_replace: old_str must match exactly once in the file. Include enough surrounding context to make it unique, or pass start_line/end_line to narrow the replacement. Common aliases are accepted: action 'replace' means 'str_replace', old_string means old_str, and new_string/content mean new_str. If action is omitted, the tool infers str_replace when old_str/old_string is present, otherwise create.",
+  "description": "MUTATION ONLY: replace text in an existing plain-text file, or create one with explicit content. This tool does not read, view, inspect, or list files. To inspect, use read_file(path, start_line?, max_lines?) or read_files; read the relevant text before editing. In restricted mode paths must resolve inside the current registered source scope; allow-all/non-restricted permission modes can use all registered sources, and open mode can also use absolute local paths outside registered sources. Paths may be absolute or relative to a source root. Supports exact string replacement and plain-text file creation.\n\nUse this tool when:\n- You need to modify an existing text file (use str_replace with the exact text to find and its replacement)\n- You need to create a new text file (use create with the file content)\n\nDo not use Python or run_shell snippets for ordinary plain-text edits. Do not use this tool for DOCX/XLSX/PPTX/PDF files. Use office_artifact for DOCX/XLSX/PPTX candidate-based creation and edits; use run_shell + doc-script-editor for PDF, conversion/rendering, or OOXML compatibility work.\n\nFor str_replace: old_str must match exactly once in the file. Include enough surrounding context to make it unique, or pass start_line/end_line to narrow the replacement. Common aliases are accepted: action 'replace' means 'str_replace', old_string means old_str, and new_string/content mean new_str. Always supply new_str (aliases new_string/content); an explicit empty string deletes matched text or creates an empty file, but omitted/null content is rejected. If action is omitted, infer str_replace only with non-empty old_str/old_string and explicit replacement content, or create only with explicit new file content. For new files prefer create_file. Never send read/view actions or read pagination fields to edit_file.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -10,7 +10,11 @@
       },
       "action": {
         "type": "string",
-        "enum": ["str_replace", "replace", "create"],
+        "enum": [
+          "str_replace",
+          "replace",
+          "create"
+        ],
         "description": "Edit action: 'str_replace' to find-and-replace text in an existing file, 'replace' as a convenient alias, or 'create' to create a new file. Optional when the operation is clear from the supplied fields."
       },
       "old_str": {
@@ -23,7 +27,7 @@
       },
       "new_str": {
         "type": "string",
-        "description": "For str_replace: replacement string. For create: file content"
+        "description": "Required mutation content: replacement text for str_replace, or complete content for create. Explicit empty string is allowed; missing/null is rejected."
       },
       "new_string": {
         "type": "string",
@@ -44,6 +48,26 @@
         "minimum": 1
       }
     },
-    "required": ["path"]
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false,
+    "anyOf": [
+      {
+        "required": [
+          "new_str"
+        ]
+      },
+      {
+        "required": [
+          "new_string"
+        ]
+      },
+      {
+        "required": [
+          "content"
+        ]
+      }
+    ]
   }
 }

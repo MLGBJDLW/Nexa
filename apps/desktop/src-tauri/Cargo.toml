@@ -15,7 +15,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-window-state = "2"
-async-trait = "0.1"
+async-trait = "0.1.92"
 axum = "0.8.9"
 percent-encoding = "2"
 serde = { version = "1", features = ["derive"] }

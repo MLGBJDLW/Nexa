@@ -783,5 +783,9 @@
   "previewDraft": "預覽草稿",
   "editDraft": "編輯草稿",
   "previewHint": "僅供預覽，傳送時保留原始文字。",
-  "moreOptions": "更多選項"
+  "moreOptions": "更多選項",
+  "slashCommand.nexus.description": "切換 Nexus，或使用 /nexus on|off。首次啟用會顯示說明。",
+  "slashCommand.moa.description": "選擇多模型協作，或使用 /moa on|off|fast-review|deep-research|cross-model-code-review|custom。",
+  "slashCommand.quality.description": "選擇品質設定，或使用 /quality balanced|deep|code-ultra|research-ultra|custom。",
+  "commandUnavailable": "目前對話暫時無法使用此命令。"
 }

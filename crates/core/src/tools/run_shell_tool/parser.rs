@@ -9,7 +9,10 @@ pub(super) struct RunShellIsolationSandbox {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct RunShellArgs {
+    #[serde(default, rename = "wait_for_previous", alias = "waitForPrevious")]
+    pub(super) _wait_for_previous: Option<bool>,
     #[serde(default)]
     pub(super) command: Option<String>,
     #[serde(default)]

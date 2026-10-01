@@ -783,5 +783,9 @@
   "previewDraft": "Aperçu du brouillon",
   "editDraft": "Modifier le brouillon",
   "previewHint": "Aperçu uniquement. Le texte original est envoyé sans modification.",
-  "moreOptions": "Plus d’options"
+  "moreOptions": "Plus d’options",
+  "slashCommand.nexus.description": "Activez ou désactivez Nexus avec /nexus on|off. La première activation affiche une présentation.",
+  "slashCommand.moa.description": "Choisissez la collaboration, ou utilisez /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
+  "slashCommand.quality.description": "Choisissez la qualité, ou utilisez /quality balanced|deep|code-ultra|research-ultra|custom.",
+  "commandUnavailable": "Cette commande est indisponible dans la conversation actuelle."
 }

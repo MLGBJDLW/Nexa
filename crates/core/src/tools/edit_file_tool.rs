@@ -380,6 +380,13 @@ impl Tool for EditFileTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let value: serde_json::Value = serde_json::from_str(context.arguments)
+            .map_err(|e| CoreError::InvalidInput(format!("Invalid edit_file arguments: {e}")))?;
+        if let Some(error) =
+            super::file_tool_contract::argument_error(self.name(), context.call_id, &value)
+        {
+            return Ok(error);
+        }
         let file_changes = crate::turn_file_changes::FileChangeScope::from_context(&context);
         let mutation_cancel = context
             .cancel_token
@@ -428,7 +435,7 @@ impl Tool for EditFileTool {
                             });
                         }
                     };
-                    let new_str = args.new_str.as_deref().unwrap_or("");
+                    let new_str = args.new_str.as_deref().expect("validated replacement content");
 
                     let canonical = match resolve_and_validate(
                         &requested,
@@ -602,7 +609,7 @@ impl Tool for EditFileTool {
                 }
 
                 "create" => {
-                    let file_content = args.new_str.as_deref().unwrap_or("");
+                    let file_content = args.new_str.as_deref().expect("validated creation content");
 
                     let canonical = match resolve_and_validate(
                         &requested,

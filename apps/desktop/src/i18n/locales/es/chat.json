@@ -783,5 +783,9 @@
   "previewDraft": "Vista previa del borrador",
   "editDraft": "Editar borrador",
   "previewHint": "Solo vista previa. El texto original se envía sin cambios.",
-  "moreOptions": "Más opciones"
+  "moreOptions": "Más opciones",
+  "slashCommand.nexus.description": "Activa o desactiva Nexus con /nexus on|off. La primera activación muestra una introducción.",
+  "slashCommand.moa.description": "Elige la colaboración o usa /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
+  "slashCommand.quality.description": "Elige la calidad o usa /quality balanced|deep|code-ultra|research-ultra|custom.",
+  "commandUnavailable": "Este comando no está disponible en la conversación actual."
 }

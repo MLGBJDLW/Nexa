@@ -1376,6 +1376,11 @@ impl GeminiToolCallStreamState {
         }
 
         if let Some(index) = self.provider_indices.get(&tool_call.id).copied() {
+            if self.pending[index].name != tool_call.name {
+                return Err(CoreError::StreamIncomplete(
+                    "Gemini reused a tool call ID with a different tool name; refusing ambiguous tool identity".into(),
+                ));
+            }
             if tool_call.thought_signature.is_none() {
                 tool_call.thought_signature = self.pending[index].thought_signature.clone();
             }
@@ -2290,6 +2295,30 @@ mod tests {
             }
             _ => panic!("expected FunctionResponse part"),
         }
+    }
+
+    #[test]
+    fn repeated_provider_call_id_cannot_change_tool_identity() {
+        let mut state = GeminiToolCallStreamState::default();
+        state
+            .record_snapshot(ToolCallRequest {
+                id: "call-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"README.md"}"#.into(),
+                thought_signature: None,
+            })
+            .unwrap();
+        let result = state.record_snapshot(ToolCallRequest {
+            id: "call-1".into(),
+            name: "run_shell".into(),
+            arguments: r#"{"command":"git status"}"#.into(),
+            thought_signature: None,
+        });
+        assert!(
+            result.is_err(),
+            "a reused call ID changed from reading a file to executing a shell command"
+        );
+        assert_eq!(state.pending[0].name, "read_file");
     }
 
     #[test]

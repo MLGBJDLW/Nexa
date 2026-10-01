@@ -429,13 +429,109 @@ test('slash command menu uses the shared collision-aware overlay portal', async 
   expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewportHeight);
 });
 
-test('slash command menu caps mounted rows and reports hidden matches', async ({ page }) => {
+test('slash command menu keeps all matched commands reachable in its scroll area', async ({ page }) => {
   await page.goto('/chat/conv-slash');
   await page.getByTestId('chat-input-textarea').fill('/');
 
   const list = page.getByTestId('slash-command-list');
-  await expect(list.getByRole('option')).toHaveCount(16);
-  await expect(page.getByTestId('slash-command-hidden-count')).toContainText('+');
+  expect(await list.getByRole('option').count()).toBeGreaterThan(16);
+  expect(await list.getByRole('option').count()).toBeLessThanOrEqual(64);
+  await expect(page.getByTestId('slash-command-option-nexus')).toHaveCount(1);
+  await expect(page.getByTestId('slash-command-option-plan')).toHaveCount(1);
+});
+
+test('runtime slash commands share button state, preserve drafts, and configure the next request', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('/nex');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-nexus-dialog')).toBeVisible();
+  await expect(input).toHaveValue('');
+  await page.getByTestId('chat-nexus-confirm').click();
+  await expect(page.getByTestId('chat-nexus-mode-banner')).toBeVisible();
+  await input.fill('/nexus on Keep this draft');
+  await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('Keep this draft');
+  await expect(page.getByTestId('chat-nexus-dialog')).toBeHidden();
+  await input.fill('/moa cross-model-code-review');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-moa-mode-banner')).toContainText('Code Review');
+  await input.fill('/quality code-ultra');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-quality-profile-banner')).toContainText('Code Ultra');
+  await input.fill('/plan');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-plan-mode-banner')).toBeVisible();
+  await input.fill('/normal');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-plan-mode-banner')).toBeHidden();
+  expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
+  await page.reload();
+  await expect(page.getByTestId('chat-nexus-mode-banner')).toBeVisible();
+  await expect(page.getByTestId('chat-moa-mode-banner')).toBeVisible();
+  await expect(page.getByTestId('chat-quality-profile-banner')).toContainText('Code Ultra');
+  await input.fill('Execute the requested work');
+  await page.getByTestId('chat-send').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: Array<Record<string, unknown>> }).__slashAgentChatCalls__[0])).toMatchObject({
+    powerMode: 'nexus', collaborationMode: 'mixtureOfAgents', moaPreset: 'crossModelCodeReview', orchestrationProfile: 'codeUltra',
+  });
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
+  await input.fill('/nexus off');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-nexus-mode-banner')).toBeHidden();
+  await input.fill('/moa off');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('chat-moa-mode-banner')).toBeHidden();
+  await input.fill('/quality deep Next draft');
+  await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('Next draft');
+  await expect(page.getByTestId('chat-quality-profile-banner')).toContainText('Deep');
+  expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(1);
+});
+
+test('bare runtime commands and palette actions open the same pickers', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('/moa');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('option', { name: 'Fast Review', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await input.fill('/quality');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('option', { name: 'Research Ultra', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await input.fill('Keep my draft');
+  await page.keyboard.press('Control+Shift+P');
+  const dialog = page.getByRole('dialog', { name: /command palette/i });
+  await dialog.getByRole('combobox').fill('Nexus');
+  await dialog.getByRole('option', { name: 'Nexus mode', exact: true }).click();
+  await expect(page.getByTestId('chat-nexus-dialog')).toBeVisible();
+  await expect(input).toHaveValue('Keep my draft');
+});
+
+test('invalid and unavailable local commands never reach the model', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  for (const command of ['/nexus unknown', '/quality invalid', '/stop']) {
+    await input.fill(command);
+    await page.getByTestId('chat-send').click();
+    await expect(input).toHaveValue(command);
+  }
+  await expect(page.getByTestId('chat-nexus-mode-banner')).toBeHidden();
+  expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
+});
+
+test('registered browser button automatically has a local slash command', async ({ page }) => {
+  await page.goto('/chat/conv-slash');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('/browser');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('browser-dock')).toBeVisible();
+  await input.fill('/browser Keep my draft');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('browser-dock')).toHaveCount(0);
+  await expect(input).toHaveValue('Keep my draft');
+  expect(await page.evaluate(() => (window as unknown as { __slashAgentChatCalls__: unknown[] }).__slashAgentChatCalls__.length)).toBe(0);
 });
 
 test('slash command keyboard selection scrolls with the active row', async ({ page }) => {

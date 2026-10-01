@@ -325,9 +325,18 @@ pub fn conversation_message_for_display_with_turn_trace(
             artifacts.insert("version".to_string(), serde_json::Value::Number(2.into()));
         }
 
-        let has_display_payload = artifacts
-            .keys()
-            .any(|key| !matches!(key.as_str(), "kind" | "version"));
+        // A control message's discriminator is display data on its own:
+        // dropping {"kind":"steering"} makes history treat it as a new turn
+        // and collapse the final answer ahead of that correction. Only the
+        // assistant metadata wrapper can be empty after replay data is removed.
+        let has_display_kind = artifacts
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| !kind.is_empty() && kind != "assistantArtifacts");
+        let has_display_payload = has_display_kind
+            || artifacts
+                .keys()
+                .any(|key| !matches!(key.as_str(), "kind" | "version"));
         message.artifacts = has_display_payload.then_some(serde_json::Value::Object(artifacts));
     }
     for tool_call in &mut message.tool_calls {
@@ -521,6 +530,48 @@ mod reasoning_envelope_tests {
         assert!(artifacts.get(REASONING_ENVELOPE_ARTIFACT_KEY).is_none());
         assert_eq!(artifacts["proposedPlan"]["markdown"], "Keep me");
         assert_eq!(display.thinking.as_deref(), Some("visible reasoning"));
+    }
+
+    #[test]
+    fn display_projection_preserves_kind_only_control_messages() {
+        for kind in [
+            "steering",
+            "goalContinuation",
+            "checkpointContinuation",
+            "questionResponse",
+        ] {
+            for has_turn_trace in [false, true] {
+                let mut message = assistant_message(None, Some(serde_json::json!({"kind": kind})));
+                message.role = Role::User;
+                message.content = "Correction before the final summary".to_string();
+                message.sort_order = 2;
+
+                let display =
+                    conversation_message_for_display_with_turn_trace(message, has_turn_trace);
+                assert_eq!(
+                    display.artifacts,
+                    Some(serde_json::json!({"kind": kind})),
+                    "{kind} must retain its turn-boundary semantics after history hydration"
+                );
+                assert_eq!(display.sort_order, 2);
+            }
+        }
+    }
+
+    #[test]
+    fn display_projection_discards_only_empty_assistant_metadata() {
+        let message = assistant_message(
+            None,
+            Some(serde_json::json!({
+                "kind": "assistantArtifacts",
+                "version": 2,
+                "providerTurnEnvelope": {"opaque": "private replay"},
+                "reasoningEnvelope": {"replayPayload": "private reasoning"}
+            })),
+        );
+        assert!(conversation_message_for_display(message)
+            .artifacts
+            .is_none());
     }
 
     #[test]

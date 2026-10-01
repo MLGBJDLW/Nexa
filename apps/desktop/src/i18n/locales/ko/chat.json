@@ -783,5 +783,9 @@
   "previewDraft": "초안 미리보기",
   "editDraft": "초안 편집",
   "previewHint": "미리보기입니다. 원본 텍스트가 그대로 전송됩니다.",
-  "moreOptions": "추가 옵션"
+  "moreOptions": "추가 옵션",
+  "slashCommand.nexus.description": "Nexus를 전환하거나 /nexus on|off를 사용합니다. 처음에는 안내를 표시합니다.",
+  "slashCommand.moa.description": "협업을 선택하거나 /moa on|off|fast-review|deep-research|cross-model-code-review|custom을 사용합니다.",
+  "slashCommand.quality.description": "품질을 선택하거나 /quality balanced|deep|code-ultra|research-ultra|custom을 사용합니다.",
+  "commandUnavailable": "현재 대화에서 이 명령을 사용할 수 없습니다."
 }
