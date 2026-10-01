@@ -15,6 +15,16 @@
 * **llm:** preserve tool identity across streamed call fragments ([cc78632](https://github.com/MLGBJDLW/Nexa/commit/cc78632e35786f1a9c653e3d2bcc5d85f2eb44c6))
 * **tools:** reject mixed arguments before tool execution ([c6b977a](https://github.com/MLGBJDLW/Nexa/commit/c6b977af83fe3052989c4e1a7c6101f8867d2333))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 51dce9f9baf0ff2088892565958cbe392ecb397b -->
+
+### What's Changed
+* feat(chat): add slash controls and harden tool execution and steering history by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/438
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.20...nexa-monorepo-v0.14.21
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.20](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.19...nexa-monorepo-v0.14.20) (2026-09-30)
 
 
