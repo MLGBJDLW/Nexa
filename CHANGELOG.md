@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.21](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.20...nexa-monorepo-v0.14.21) (2026-10-01)
+
+
+### Features
+
+* **chat:** add slash controls and harden tool execution and steering history ([51dce9f](https://github.com/MLGBJDLW/Nexa/commit/51dce9f9baf0ff2088892565958cbe392ecb397b))
+* **chat:** expose composer controls through slash commands ([47cb0a6](https://github.com/MLGBJDLW/Nexa/commit/47cb0a668e88424e5aeae126c671fc451101a79d))
+
+
+### Bug Fixes
+
+* **chat:** preserve steering markers in history display ([82b13be](https://github.com/MLGBJDLW/Nexa/commit/82b13bebd397f42bfe8b7f7b6181dd68d4c5d007))
+* **llm:** preserve tool identity across streamed call fragments ([cc78632](https://github.com/MLGBJDLW/Nexa/commit/cc78632e35786f1a9c653e3d2bcc5d85f2eb44c6))
+* **tools:** reject mixed arguments before tool execution ([c6b977a](https://github.com/MLGBJDLW/Nexa/commit/c6b977af83fe3052989c4e1a7c6101f8867d2333))
+
 ## [0.14.20](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.19...nexa-monorepo-v0.14.20) (2026-09-30)
 
 
