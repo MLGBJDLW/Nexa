@@ -889,7 +889,7 @@ fn convert_message(
     oai
 }
 
-fn convert_tools(tools: &[ToolDefinition]) -> Vec<OaiTool> {
+fn convert_tools(tools: &[ToolDefinition], moonshot_schema: bool) -> Vec<OaiTool> {
     tools
         .iter()
         .map(|t| OaiTool {
@@ -897,7 +897,11 @@ fn convert_tools(tools: &[ToolDefinition]) -> Vec<OaiTool> {
             function: OaiToolFunction {
                 name: t.name.clone(),
                 description: t.description.clone(),
-                parameters: t.parameters.clone(),
+                parameters: if moonshot_schema {
+                    super::moonshot_schema::project_tool_parameters(&t.parameters)
+                } else {
+                    t.parameters.clone()
+                },
             },
             cache_control: None,
         })
@@ -1103,7 +1107,16 @@ fn build_request_body_with_config(
         preserve_thinking: (reasoning_profile.send_preserve_thinking
             && requested_reasoning_mode != Some(false))
         .then_some(true),
-        tools: request.tools.as_ref().map(|t| convert_tools(t)),
+        tools: request.tools.as_ref().map(|t| {
+            convert_tools(
+                t,
+                super::moonshot_schema::uses_moonshot_schema(
+                    provider_type,
+                    config.and_then(|config| config.base_url.as_deref()),
+                    &request.model,
+                ),
+            )
+        }),
         tool_stream: (native_glm53_contract
             && stream
             && request
@@ -3810,6 +3823,229 @@ mod tests {
             org_id: None,
             timeout_secs: None,
             streaming: Default::default(),
+        }
+    }
+
+    #[test]
+    fn kimi_tool_schema_does_not_send_type_next_to_any_of() {
+        let mut request = endpoint_reasoning_request("kimi-k2.5");
+        request.tools = Some(vec![ToolDefinition {
+            name: "schema_repro".into(),
+            description: "Minimal Moonshot schema repro".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "anyOf": [{"required": ["content"]}]
+            }),
+        }]);
+        let config = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://coding.dashscope.aliyuncs.com/v1",
+        );
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        let schema = &body["tools"][0]["function"]["parameters"];
+        assert!(
+            !(schema.get("anyOf").is_some() && schema.get("type").is_some()),
+            "tools.function.parameters is not a valid moonshot flavored json schema, details: \
+             <At path 'root': when using anyOf, type should be defined in anyOf items instead of the parent schema>"
+        );
+    }
+
+    #[test]
+    fn kimi_tool_schema_request_matrix_is_endpoint_scoped_for_both_request_modes() {
+        let definition: serde_json::Value =
+            serde_json::from_str(include_str!("../../prompts/tools/edit_file.json")).unwrap();
+        let original = definition["parameters"].clone();
+        let cases = [
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.ai/v1",
+                "kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.cn/v1/",
+                "kimi-k2.6",
+                true,
+            ),
+            (
+                ProviderType::Custom,
+                "https://api.moonshot.ai/v1",
+                "kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.6",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+                "kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "kimi/kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "kimi/kimi-k2.7-code-highspeed",
+                true,
+            ),
+            (
+                ProviderType::Qwen,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi/kimi-k2.6",
+                true,
+            ),
+            (
+                ProviderType::OpenAi,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.7-code",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://coding.dashscope.aliyuncs.com/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::Custom,
+                "https://coding.dashscope.aliyuncs.com/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://coding-intl.dashscope.aliyuncs.com/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://coding.dashscope.aliyuncs.com/v1",
+                "qwen3.7-plus",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "qwen3.8-max",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "zhipu/glm-5.3",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "my-kimi-model",
+                false,
+            ),
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "moonshotai/kimi-k3",
+                false,
+            ),
+            (
+                ProviderType::SiliconFlow,
+                "https://api.siliconflow.cn/v1",
+                "Pro/moonshotai/Kimi-K2.6",
+                false,
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://proxy.example/v1",
+                "kimi-k3",
+                false,
+            ),
+            (
+                ProviderType::Custom,
+                "http://localhost:8000/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "http://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com:8443/compatible-mode/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/tenant/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1?route=custom",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com.evil.invalid/compatible-mode/v1",
+                "kimi-k2.5",
+                false,
+            ),
+        ];
+        for (provider, url, model, adapted) in cases {
+            for stream in [false, true] {
+                let mut request = endpoint_reasoning_request(model);
+                request.tools = Some(vec![ToolDefinition {
+                    name: "edit_file".into(),
+                    description: "Keep the tool identity".into(),
+                    parameters: original.clone(),
+                }]);
+                let config = endpoint_config(provider, url);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    stream,
+                    Some(&config),
+                ))
+                .unwrap();
+                let tool = &body["tools"][0]["function"];
+                assert_eq!(tool["name"], "edit_file");
+                assert_eq!(tool["description"], "Keep the tool identity");
+                if adapted {
+                    assert_eq!(tool["parameters"]["type"], "object", "{url} {model}");
+                    assert!(tool["parameters"].get("anyOf").is_none(), "{url} {model}");
+                    assert_eq!(tool["parameters"]["properties"], original["properties"]);
+                    assert_eq!(tool["parameters"]["required"], original["required"]);
+                } else {
+                    assert_eq!(tool["parameters"], original, "{url} {model}");
+                }
+                assert_eq!(request.tools.as_ref().unwrap()[0].parameters, original);
+            }
         }
     }
 

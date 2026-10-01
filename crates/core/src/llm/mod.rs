@@ -13,6 +13,7 @@ pub mod anthropic;
 pub mod fallback;
 pub mod google;
 pub mod message_validation;
+mod moonshot_schema;
 pub mod native_search;
 pub mod ollama;
 pub mod openai;

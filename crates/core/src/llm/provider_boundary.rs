@@ -205,6 +205,21 @@ pub(super) fn is_alibaba_chat_endpoint(provider: ProviderType, base_url: Option<
         ) || host.ends_with(".maas.aliyuncs.com"))
 }
 
+pub(super) fn is_alibaba_coding_chat_endpoint(
+    provider: ProviderType,
+    base_url: Option<&str>,
+) -> bool {
+    endpoint_matches(
+        provider,
+        base_url,
+        &[
+            "coding.dashscope.aliyuncs.com",
+            "coding-intl.dashscope.aliyuncs.com",
+        ],
+        &["/v1"],
+    )
+}
+
 pub(super) fn endpoint_id(provider: ProviderType, base_url: Option<&str>) -> String {
     let endpoint = base_url.unwrap_or_else(|| default_endpoint(provider));
     let normalized = endpoint.trim().trim_end_matches('/').to_ascii_lowercase();
