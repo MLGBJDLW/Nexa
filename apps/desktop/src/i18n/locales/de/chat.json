@@ -783,5 +783,9 @@
   "previewDraft": "Entwurf ansehen",
   "editDraft": "Entwurf bearbeiten",
   "previewHint": "Nur Vorschau. Der ursprüngliche Text wird unverändert gesendet.",
-  "moreOptions": "Weitere Optionen"
+  "moreOptions": "Weitere Optionen",
+  "slashCommand.nexus.description": "Nexus umschalten oder /nexus on|off verwenden. Beim ersten Aktivieren erscheint eine Einführung.",
+  "slashCommand.moa.description": "Zusammenarbeit wählen oder /moa on|off|fast-review|deep-research|cross-model-code-review|custom verwenden.",
+  "slashCommand.quality.description": "Qualität wählen oder /quality balanced|deep|code-ultra|research-ultra|custom verwenden.",
+  "commandUnavailable": "Dieser Befehl ist in der aktuellen Unterhaltung nicht verfügbar."
 }

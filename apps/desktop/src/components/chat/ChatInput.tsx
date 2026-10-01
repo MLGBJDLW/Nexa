@@ -28,6 +28,7 @@ import {
   getSlashCommandTrigger,
   resolveSlashCommandMessage,
   resolveSlashCommandSelection,
+  resolveComposerCommandInput,
   type SlashCommandKind,
   type SlashCommandOption,
 } from "../../lib/slashCommands";
@@ -53,7 +54,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import { Modal } from "../ui/Modal";
 import { CollapsibleMotion } from "../ui/Motion";
 import { Play } from 'lucide-react';
-import { openCommandPalette, runAppCommand, useAppCommand } from '../../lib/appCommands';
+import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from '../../lib/appCommands';
 import { UserMarkdown } from './UserMessageText';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
@@ -239,7 +240,9 @@ const LOCALIZED_COMMON_SLASH_COMMANDS = new Set([
 ]);
 
 function commonSlashCommandKey(name: string, field: "title" | "description"): TranslationKey | null {
+  if (field === 'description' && ['nexus', 'moa', 'quality'].includes(name)) return `chat.slashCommand.${name}.description` as TranslationKey;
   const composerKeys: Record<string, TranslationKey> = { model: 'settings.defaultModel', preview: field === 'description' ? 'chat.previewHint' : 'chat.previewDraft', options: 'chat.moreOptions', attach: 'chat.attachImage', commands: 'nav.commandPalette' };
+  Object.assign(composerKeys, { nexus: 'chat.nexusMode', moa: 'chat.moaMode', quality: 'chat.qualityProfile', normal: 'chat.normalLabel', voice: 'voice.startRecording', screen: 'chat.shareScreen', emoji: 'chat.insertEmoji', checkpoints: 'chat.checkpoints', stop: 'chat.stop', resume: 'chat.resumeTask' });
   if (composerKeys[name]) return composerKeys[name];
   return LOCALIZED_COMMON_SLASH_COMMANDS.has(name)
     ? (`chat.slashCommand.${name}.${field}` as TranslationKey)
@@ -402,6 +405,9 @@ export function ChatInput({
   );
   const [previewAttachment, setPreviewAttachment] = useState<ImageAttachment | null>(null);
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  const [moaPickerOpen, setMoaPickerOpen] = useState(false);
+  const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
+  const appCommands = useAppCommands();
   const [draftPreview, setDraftPreview] = useState(false);
   useEffect(() => { setDraftPreview(false); setMoreOptionsOpen(false); }, [draftKey]);
   const [loadedDraftKey, setLoadedDraftKey] = useState(draftKey);
@@ -555,6 +561,15 @@ export function ChatInput({
       setNexusActivationVisible(true);
     }
   }, [setPowerMode, shouldReduceMotion]);
+
+  const changeNexusMode = useCallback((argument?: string) => {
+    const enabled = argument ? argument === 'on' : powerMode !== 'nexus';
+    if (!enabled) { setPowerMode('standard'); setNexusDialogOpen(false); }
+    else if (powerMode !== 'nexus') {
+      if (hasAcknowledgedNexusMode()) activateNexusMode();
+      else setNexusDialogOpen(true);
+    }
+  }, [activateNexusMode, powerMode, setPowerMode]);
 
   useEffect(() => {
     const previousKey = previousPowerModeKeyRef.current;
@@ -809,9 +824,18 @@ export function ChatInput({
     };
   }, []);
 
+  const allSlashOptions = useMemo(
+    () => buildSlashCommandOptions(activeSkills, workflowTemplates, appCommands.map(command => ({ id: command.id, title: t(command.label), keywords: command.keywords }))),
+    [activeSkills, workflowTemplates, appCommands, t],
+  );
   const slashOptions = useMemo(
-    () => buildSlashCommandOptions(activeSkills, workflowTemplates).filter(option => !nativeAgent || option.kind !== 'command'),
-    [activeSkills, workflowTemplates, nativeAgent],
+    () => allSlashOptions.filter(option => {
+      if (option.action === 'composer') {
+        return option.name === 'commands' || appCommands.some(command => command.id === (option.appCommandId ?? `chat.${option.name}`) && command.enabled !== false);
+      }
+      return !nativeAgent || option.kind !== 'command';
+    }),
+    [allSlashOptions, nativeAgent, appCommands],
   );
   const activeSlashCommand = useMemo(
     () => slashOptions.find((option) => option.id === activeSlashCommandId) ?? null,
@@ -838,7 +862,7 @@ export function ChatInput({
     [slashActiveTab, slashMatches],
   );
   const renderedSlashMatches = useMemo(
-    () => visibleSlashMatches.slice(0, 16),
+    () => visibleSlashMatches,
     [visibleSlashMatches],
   );
   const hiddenSlashMatchCount = Math.max(0, visibleSlashMatches.length - renderedSlashMatches.length);
@@ -892,7 +916,17 @@ export function ChatInput({
     }
   }, []);
 
-  const runComposerAction = useCallback((name: string) => {
+  const resumeTask = useCallback(async () => {
+    if (!onResume || isStreaming || sendLocked || sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
+    setSendPending(true);
+    try { await onResume(); }
+    catch (error) { toast.error(String(error)); }
+    finally { sendInFlightRef.current = false; setSendPending(false); }
+  }, [isStreaming, onResume, sendLocked]);
+
+  const runComposerAction = useCallback((name: string, argument?: string, appCommandId?: string) => {
+    if (inputLocked) return;
     if (name === 'model') runAppCommand('chat.model');
     if (name === 'commands') openCommandPalette();
     if (name === 'options') setMoreOptionsOpen(true);
@@ -901,25 +935,55 @@ export function ChatInput({
       setDraftPreview(!draftPreview);
       if (draftPreview) requestAnimationFrame(() => textareaRef.current?.focus());
     }
-  }, [attachmentLocked, draftPreview]);
+    if (name === 'nexus' && !nativeAgent) changeNexusMode(argument);
+    if (name === 'normal' && !nativeAgent) setPlanMode(false);
+    if (name === 'moa' && agentRuntime === 'api') {
+      if (argument) persistRuntimePolicy(argument === 'off'
+        ? { collaborationMode: 'direct' }
+        : { collaborationMode: 'mixtureOfAgents', moaPreset: argument === 'on' ? moaPreset : argument as MoaPresetId });
+      else { setMoreOptionsOpen(true); setMoaPickerOpen(true); }
+    }
+    if (name === 'quality' && !nativeAgent) {
+      if (argument) persistRuntimePolicy({ orchestrationProfile: argument as OrchestrationProfile });
+      else { setMoreOptionsOpen(true); setQualityPickerOpen(true); }
+    }
+    if (!['model', 'commands', 'options', 'attach', 'preview', 'nexus', 'normal', 'moa', 'quality'].includes(name)) {
+      if (name === 'emoji' || name === 'checkpoints') setMoreOptionsOpen(true);
+      runAppCommand(appCommandId ?? `chat.${name}`);
+    }
+  }, [agentRuntime, attachmentLocked, changeNexusMode, draftPreview, inputLocked, moaPreset, nativeAgent, persistRuntimePolicy, setPlanMode]);
   useAppCommand({ id: 'chat.preview', label: 'chat.previewDraft', keywords: '/preview markdown draft 预览', enabled: !inputLocked, run: () => runComposerAction('preview') });
-  useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', run: () => setMoreOptionsOpen(true) });
+  useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
   useAppCommand({ id: 'chat.workflow', label: 'chat.workflows', keywords: '/workflow 工作流', enabled: !nativeAgent && !attachmentLocked, run: () => { setMoreOptionsOpen(true); setWorkflowCatalogOpen(true); } });
   useAppCommand({ id: 'chat.compact', label: 'chat.compactNow', keywords: '/compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked), run: () => onCompact?.() });
+  useAppCommand({ id: 'chat.nexus', label: 'chat.nexusMode', keywords: '/nexus 协作', enabled: !nativeAgent && !inputLocked, run: () => changeNexusMode() });
+  useAppCommand({ id: 'chat.moa', label: 'chat.moaMode', keywords: '/moa multi-model 多模型 协作', enabled: agentRuntime === 'api' && !inputLocked, run: () => runComposerAction('moa') });
+  useAppCommand({ id: 'chat.quality', label: 'chat.qualityProfile', keywords: '/quality deep ultra 质量', enabled: !nativeAgent && !inputLocked, run: () => runComposerAction('quality') });
+  useAppCommand({ id: 'chat.normal', label: 'chat.normalLabel', keywords: '/normal execute 普通 执行', enabled: !nativeAgent && !inputLocked, run: () => setPlanMode(false) });
+  useAppCommand({ id: 'chat.plan', label: 'chat.planLabel', keywords: '/plan 计划', enabled: !nativeAgent && !inputLocked, run: () => setPlanMode(true) });
+  useAppCommand({ id: 'chat.stop', label: 'chat.stop', keywords: '/stop 停止', enabled: isStreaming, run: onStop });
+  useAppCommand({ id: 'chat.resume', label: 'chat.resumeTask', keywords: '/resume 继续', enabled: Boolean(onResume && !isStreaming && !sendLocked), run: () => { void resumeTask(); } });
 
   const applySlashOption = useCallback((option: SlashCommandOption) => {
     if (!slashTrigger) return;
     setDismissedSlashToken(null);
 
     if (option.action === "composer") {
-      const nextValue = `${value.slice(0, slashTrigger.start)}${value.slice(slashTrigger.end)}`.trimStart();
+      const before = value.slice(0, slashTrigger.start);
+      const parsed = resolveComposerCommandInput(option.name, value.slice(slashTrigger.end));
+      if (parsed.invalidArgument) {
+        const key = commonSlashCommandKey(option.name, 'description');
+        toast.error(key ? t(key) : option.description);
+        return;
+      }
+      const nextValue = `${before}${parsed.message}`.trimStart();
       setValue(nextValue);
       setActiveSlashCommandId(null);
       persistDraft(nextValue, attachments, null);
       setCaretPosition(Math.min(slashTrigger.start, nextValue.length));
       requestAnimationFrame(() => {
-        runComposerAction(option.name);
+        runComposerAction(option.name, parsed.argument, option.appCommandId);
         adjustHeight();
       });
       return;
@@ -968,7 +1032,7 @@ export function ChatInput({
       }
       adjustHeight();
     });
-  }, [adjustHeight, attachments, persistDraft, setPlanMode, slashTrigger, value, runComposerAction]);
+  }, [adjustHeight, attachments, persistDraft, setPlanMode, slashTrigger, value, runComposerAction, t]);
 
   const removeActiveSlashCommand = useCallback(() => {
     setActiveSlashCommandId(null);
@@ -1028,27 +1092,36 @@ export function ChatInput({
   }, [draftKey, resetInputHistoryNavigation]);
 
   const handleSend = useCallback(async () => {
-    if (sendLocked || sendInFlightRef.current) return;
+    if (inputLocked || sendInFlightRef.current) return;
     const trimmed = value.trim();
+    const slashResolution = activeSlashCommand
+      ? resolveSlashCommandSelection(activeSlashCommand, trimmed)
+      : (trimmed ? resolveSlashCommandMessage(trimmed, nativeAgent ? allSlashOptions.filter(option => option.action === 'composer' || option.kind !== 'command') : allSlashOptions) : null);
+    if (slashResolution?.localAction === "composer") {
+      if (!slashOptions.some(option => option.id === slashResolution.command.id)) {
+        toast.error(t('chat.commandUnavailable'));
+        return;
+      }
+      const parsed = resolveComposerCommandInput(slashResolution.command.name, slashResolution.message);
+      if (parsed.invalidArgument) {
+        const key = commonSlashCommandKey(slashResolution.command.name, 'description');
+        toast.error(key ? t(key) : slashResolution.command.description);
+        return;
+      }
+      setValue(parsed.message);
+      setActiveSlashCommandId(null);
+      persistDraft(parsed.message, attachments, null);
+      requestAnimationFrame(() => { runComposerAction(slashResolution.command.name, parsed.argument, slashResolution.command.appCommandId); adjustHeight(); });
+      return;
+    }
+    if (sendLocked) return;
     if (!isStreaming && onResume && !trimmed && attachments.length === 0 && !activeSlashCommand) {
-      sendInFlightRef.current = true;
-      setSendPending(true);
-      try { await onResume(); } finally { sendInFlightRef.current = false; setSendPending(false); }
+      await resumeTask();
       return;
     }
     if (!trimmed && attachments.length === 0 && !activeSlashCommand) return;
     if (isStreaming && (!trimmed || attachments.length > 0)) {
       toast.error(t("chat.attachmentWhileRunning"));
-      return;
-    }
-    const slashResolution = activeSlashCommand
-      ? resolveSlashCommandSelection(activeSlashCommand, trimmed)
-      : (trimmed ? resolveSlashCommandMessage(trimmed, slashOptions) : null);
-    if (slashResolution?.localAction === "composer") {
-      setValue(slashResolution.message);
-      setActiveSlashCommandId(null);
-      persistDraft(slashResolution.message, attachments, null);
-      runComposerAction(slashResolution.command.name);
       return;
     }
     if (slashResolution?.localAction === "openWorkflows") {
@@ -1156,7 +1229,7 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, agentRuntime, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, adjustHeight, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -2074,6 +2147,8 @@ export function ChatInput({
               <Users className="h-3.5 w-3.5" />
               <NexaSelect
                 data-testid="chat-moa-preset"
+                open={moaPickerOpen}
+                onOpenChange={setMoaPickerOpen}
                 aria-label={t("chat.moaMode")}
                 value={moaModeEnabled ? moaPreset : "direct"}
                 disabled={inputLocked}
@@ -2108,6 +2183,8 @@ export function ChatInput({
               <ShieldCheck className="h-3.5 w-3.5" />
               <NexaSelect
                 data-testid="chat-quality-profile"
+                open={qualityPickerOpen}
+                onOpenChange={setQualityPickerOpen}
                 aria-label={t("chat.qualityProfile")}
                 value={orchestrationProfile}
                 disabled={inputLocked}
@@ -2127,15 +2204,7 @@ export function ChatInput({
             <button
               type="button"
               data-testid="chat-nexus-mode"
-              onClick={() => {
-                if (nexusModeEnabled) {
-                  setPowerMode("standard");
-                } else if (hasAcknowledgedNexusMode()) {
-                  activateNexusMode();
-                } else {
-                  setNexusDialogOpen(true);
-                }
-              }}
+              onClick={() => changeNexusMode()}
               disabled={inputLocked}
               aria-pressed={nexusModeEnabled}
               className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-all duration-fast disabled:pointer-events-none disabled:opacity-40 ${

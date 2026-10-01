@@ -3,6 +3,7 @@ import { Bookmark, GitBranch, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
 import * as api from '../../lib/api';
+import { useAppCommand } from '../../lib/appCommands';
 import { appTimeMs, parseAppDate } from '../../lib/dateTime';
 import type { Checkpoint, Conversation } from '../../types/conversation';
 import {
@@ -44,6 +45,7 @@ function formatDate(iso: string): string {
 export function CheckpointMenu({ conversationId, onRestore, onBranch }: CheckpointMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  useAppCommand({ id: 'chat.checkpoints', label: 'chat.checkpoints', keywords: '/checkpoints restore branch 检查点', run: () => setOpen(true) });
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);

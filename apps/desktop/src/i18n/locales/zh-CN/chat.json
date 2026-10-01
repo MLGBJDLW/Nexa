@@ -783,5 +783,9 @@
   "previewDraft": "预览草稿",
   "editDraft": "编辑草稿",
   "previewHint": "仅预览，发送时保留原始文字。",
-  "moreOptions": "更多选项"
+  "moreOptions": "更多选项",
+  "slashCommand.nexus.description": "切换 Nexus，或使用 /nexus on|off。首次启用会显示说明。",
+  "slashCommand.moa.description": "选择多模型协作，或使用 /moa on|off|fast-review|deep-research|cross-model-code-review|custom。",
+  "slashCommand.quality.description": "选择质量档位，或使用 /quality balanced|deep|code-ultra|research-ultra|custom。",
+  "commandUnavailable": "当前会话暂时无法使用此命令。"
 }

@@ -3,6 +3,7 @@ import { Smile } from "lucide-react";
 import { useTranslation } from "../../i18n";
 import { useTheme } from "../../lib/ThemeProvider";
 import { isLightTheme } from "../../lib/theme";
+import { useAppCommand } from '../../lib/appCommands';
 import {
   NexaPopover,
   NexaPopoverContent,
@@ -42,6 +43,7 @@ export function EmojiPicker({ onEmojiSelect, disabled }: EmojiPickerProps) {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const [open, setOpen] = useState(false);
+  useAppCommand({ id: 'chat.emoji', label: 'chat.insertEmoji', keywords: '/emoji 表情', enabled: !disabled, run: () => setOpen(true) });
 
   return (
     <NexaPopover open={open} onOpenChange={setOpen}>

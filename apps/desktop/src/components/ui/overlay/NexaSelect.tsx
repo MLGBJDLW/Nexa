@@ -21,6 +21,8 @@ type NativeSelectProps = Omit<
 export interface NexaSelectProps extends NativeSelectProps {
   multiple?: boolean;
   onChange?: (event: ChangeEvent<HTMLSelectElement>) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface SelectOption {
@@ -79,6 +81,8 @@ export function NexaSelect({
   multiple,
   name,
   onChange,
+  open,
+  onOpenChange,
   value,
   ...props
 }: NexaSelectProps) {
@@ -108,7 +112,7 @@ export function NexaSelect({
       .map(option => option.label)
       .filter((label): label is string | number => typeof label === 'string' || typeof label === 'number');
     return (
-      <DropdownMenu.Root>
+      <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
         <DropdownMenu.Trigger
           id={id}
           disabled={disabled}
@@ -161,6 +165,8 @@ export function NexaSelect({
 
   return (
     <SelectPrimitive.Root
+      open={open}
+      onOpenChange={onOpenChange}
       value={controlledValue}
       defaultValue={initialValue}
       disabled={disabled}

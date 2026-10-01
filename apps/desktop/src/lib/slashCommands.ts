@@ -24,6 +24,7 @@ export interface SlashCommandOption {
   skillId?: string;
   skillName?: string;
   workflowTemplateId?: string;
+  appCommandId?: string;
   searchText: string;
 }
 
@@ -53,6 +54,16 @@ const COMMON_COMMANDS: Array<Omit<SlashCommandOption, "id" | "kind" | "sourceLab
   { name: "options", title: "More options", description: "Show collaboration, quality, workflows, and conversation tools.", action: "composer" },
   { name: "attach", title: "Attach files", description: "Add files to the current draft.", action: "composer" },
   { name: "commands", title: "Command palette", description: "Search commands, conversations, and documents.", action: "composer" },
+  { name: "nexus", title: "Nexus Mode", description: "Toggle Nexus for the next turn, or use /nexus on|off. First use opens the Nexus introduction.", action: "composer" },
+  { name: "moa", title: "Multi-model collaboration", description: "Choose collaboration, or use /moa on|off|fast-review|deep-research|cross-model-code-review|custom.", action: "composer" },
+  { name: "quality", title: "Quality profile", description: "Choose quality, or use /quality balanced|deep|code-ultra|research-ultra|custom.", action: "composer" },
+  { name: "normal", title: "Normal Mode", description: "Leave Plan Mode and allow execution for the next turn.", action: "composer" },
+  { name: "voice", title: "Voice input", description: "Start or stop voice dictation in the current draft.", action: "composer" },
+  { name: "screen", title: "Share screen", description: "Open the screen sharing picker, or stop the current share.", action: "composer" },
+  { name: "emoji", title: "Insert emoji", description: "Open the emoji picker for the current draft.", action: "composer" },
+  { name: "checkpoints", title: "Checkpoints", description: "Open conversation checkpoints.", action: "composer" },
+  { name: "stop", title: "Stop response", description: "Stop the running response and keep your draft.", action: "composer" },
+  { name: "resume", title: "Resume task", description: "Resume the interrupted task and keep your draft.", action: "composer" },
   {
     name: "plan",
     title: "Plan",
@@ -190,6 +201,27 @@ const COMMON_COMMANDS: Array<Omit<SlashCommandOption, "id" | "kind" | "sourceLab
   },
 ];
 
+const COMPOSER_ARGUMENTS: Record<string, readonly string[]> = {
+  nexus: ['on', 'off'],
+  moa: ['on', 'off', 'fastReview', 'deepResearch', 'crossModelCodeReview', 'custom'],
+  quality: ['balanced', 'deep', 'codeUltra', 'researchUltra', 'custom'],
+};
+
+/** Consume only the command argument; preserve the remaining draft verbatim. */
+export function resolveComposerCommandInput(name: string, input: string): {
+  argument?: string;
+  message: string;
+  invalidArgument?: boolean;
+} {
+  const values = COMPOSER_ARGUMENTS[name];
+  if (!values || !input.trim()) return { message: input };
+  const match = /^\s*(\S+)(?:\s+|$)/.exec(input)!;
+  const normalize = (value: string) => value.toLowerCase().replace(/[-_]/g, '');
+  const argument = values.find(value => normalize(value) === normalize(match[1]));
+  if (!argument) return { message: input, invalidArgument: true };
+  return { argument, message: input.slice(match[0].length) };
+}
+
 function normalizeSearch(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -248,6 +280,7 @@ export function getSlashCommandTrigger(text: string, cursorPosition: number): Sl
 export function buildSlashCommandOptions(
   skills: Skill[],
   workflowTemplates: SlashWorkflowTemplate[],
+  appCommands: Array<{ id: string; title: string; keywords: string }> = [],
 ): SlashCommandOption[] {
   const common = COMMON_COMMANDS.map((command): SlashCommandOption => ({
     ...command,
@@ -256,6 +289,22 @@ export function buildSlashCommandOptions(
     sourceLabel: "Command",
     searchText: makeSearchText([command.name, command.title, command.description]),
   }));
+
+  // Button/palette owners register once. Their actions also become slash
+  // commands, while curated commands retain their descriptions and arguments.
+  for (const command of appCommands) {
+    const name = command.id.startsWith('chat.') ? command.id.slice(5) : commandSafeSlug(command.id);
+    const existing = common.find(option => option.name === name);
+    if (existing) {
+      existing.searchText = makeSearchText([existing.searchText, command.title, command.keywords]);
+      continue;
+    }
+    common.push({
+      id: `command:${name}`, name, title: command.title, description: command.title,
+      kind: 'command', action: 'composer', sourceLabel: 'Command', appCommandId: command.id,
+      searchText: makeSearchText([name, command.title, command.keywords]),
+    });
+  }
 
   const reservedNames = new Set(common.map((command) => command.name));
   const usedNames = new Set(reservedNames);

@@ -4,6 +4,7 @@ import {
   getSlashCommandTrigger,
   resolveSlashCommandSelection,
   resolveSlashCommandMessage,
+  resolveComposerCommandInput,
 } from '../src/lib/slashCommands';
 import {
   buildGoalContinuationLlmContext,
@@ -80,6 +81,39 @@ test('detects slash command trigger without matching urls', () => {
   assert(getSlashCommandTrigger('/pla', 4)?.query === 'pla', 'detects leading slash query');
   assert(getSlashCommandTrigger('please /pla', 11)?.query === 'pla', 'detects whitespace-prefixed slash query');
   assertEqual(getSlashCommandTrigger('https://example.com/a', 21), null, 'does not detect URL slashes');
+});
+
+test('composer buttons expose local slash commands without sending prompts', () => {
+  const options = buildSlashCommandOptions([], []);
+  for (const name of ['nexus', 'moa', 'quality', 'normal', 'voice', 'screen', 'emoji', 'checkpoints', 'stop']) {
+    const resolved = resolveSlashCommandMessage(`/${name}`, options);
+    assert(resolved, `/${name} should resolve`);
+    assertEqual(resolved.localAction, 'composer', `/${name} stays local`);
+    assertEqual(resolved.message, '', `/${name} never fabricates a model prompt`);
+    assertEqual(resolveSlashCommandMessage(`Please inspect the /${name} route.`, options), null, 'ordinary prose stays intact');
+  }
+});
+
+test('runtime slash arguments are explicit and preserve the remaining draft', () => {
+  assertEqual(resolveComposerCommandInput('nexus', 'on keep my draft').argument, 'on', 'Nexus enables explicitly');
+  assertEqual(resolveComposerCommandInput('nexus', 'off keep my draft').message, 'keep my draft', 'only consumes the argument');
+  assertEqual(resolveComposerCommandInput('quality', 'code-ultra').argument, 'codeUltra', 'readable quality spelling');
+  assertEqual(resolveComposerCommandInput('quality', 'researchUltra').argument, 'researchUltra', 'wire spelling works too');
+  assertEqual(resolveComposerCommandInput('moa', 'cross-model-code-review').argument, 'crossModelCodeReview', 'readable MoA preset');
+  assertEqual(resolveComposerCommandInput('nexus', 'unknown').invalidArgument, true, 'invalid arguments cannot toggle a mode');
+  assertEqual(resolveComposerCommandInput('quality', '').argument, undefined, 'bare quality opens its chooser');
+  assertEqual(resolveComposerCommandInput('model', 'keep all text').message, 'keep all text', 'non-parameter commands preserve draft');
+});
+
+test('registered button actions automatically become slash commands without overriding curated commands', () => {
+  const options = buildSlashCommandOptions([], [], ['browser', 'terminal', 'sidebar', 'reasoning', 'nexus'].map(name => ({ id: `chat.${name}`, title: name, keywords: name })));
+  for (const name of ['browser', 'terminal', 'sidebar', 'reasoning']) {
+    const resolved = resolveSlashCommandMessage(`/${name}`, options);
+    assertEqual(resolved?.localAction, 'composer', `/${name} runs locally`);
+    assertEqual(resolved?.command.appCommandId, `chat.${name}`, 'keeps the registered action identity');
+  }
+  assertEqual(options.filter(option => option.name === 'nexus').length, 1, 'curated command is not duplicated');
+  assert(options.find(option => option.name === 'nexus')?.description.includes('on|off'), 'curated argument help remains intact');
 });
 
 test('builds direct skill slash commands', () => {

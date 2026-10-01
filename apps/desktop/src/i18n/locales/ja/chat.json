@@ -783,5 +783,9 @@
   "previewDraft": "下書きをプレビュー",
   "editDraft": "下書きを編集",
   "previewHint": "プレビューのみです。元のテキストがそのまま送信されます。",
-  "moreOptions": "その他のオプション"
+  "moreOptions": "その他のオプション",
+  "slashCommand.nexus.description": "Nexus を切り替えます。/nexus on|off も使用できます。初回は説明を表示します。",
+  "slashCommand.moa.description": "協調モードを選択します。/moa on|off|fast-review|deep-research|cross-model-code-review|custom も使用できます。",
+  "slashCommand.quality.description": "品質を選択します。/quality balanced|deep|code-ultra|research-ultra|custom も使用できます。",
+  "commandUnavailable": "この会話では現在このコマンドを使用できません。"
 }
