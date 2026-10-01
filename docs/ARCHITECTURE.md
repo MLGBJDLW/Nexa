@@ -307,7 +307,9 @@ files are verified off the UI thread and published without overwriting a name.
    prompt-only state.
 7. **Bounded presentation.** Streaming and trace surfaces stay responsive,
    preserve reduced-motion behavior, and avoid turning internal diagnostics into
-   normal chat content.
+   normal chat content. History display projections retain semantic artifact
+   discriminators even without additional fields: a `steering` marker is a user
+   boundary, and losing it can move the final answer before that correction.
 8. **Typed prompt projection.** Conversation history, provider-native replay,
    controller state, audit records, and the final assistant answer are separate
    projections. Volatile runtime/controller rows never become durable dialogue;
