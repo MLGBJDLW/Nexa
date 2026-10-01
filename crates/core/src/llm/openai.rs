@@ -4049,6 +4049,81 @@ mod tests {
         }
     }
 
+    #[test]
+    fn kimi_tool_replay_preserves_coding_plan_reasoning_without_borrowing_payg_budgets() {
+        for url in [
+            "https://coding.dashscope.aliyuncs.com/v1",
+            "https://coding-intl.dashscope.aliyuncs.com/v1",
+        ] {
+            let config = endpoint_config(ProviderType::AlibabaModelStudio, url);
+            for enabled in [None, Some(true), Some(false)] {
+                let mut request = endpoint_reasoning_request("kimi-k2.5");
+                request.reasoning_enabled = enabled;
+                request.thinking_budget = enabled.map(|_| 2048);
+                let mut assistant = Message::text(Role::Assistant, "Checking the file");
+                assistant.reasoning_content = Some("Need to read the existing contents".into());
+                assistant.tool_calls = Some(vec![ToolCallRequest {
+                    id: "read-1".into(),
+                    name: "read_file".into(),
+                    arguments: r#"{"path":"a.txt"}"#.into(),
+                    thought_signature: None,
+                }]);
+                request.messages.push(assistant);
+                for stream in [false, true] {
+                    let body = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        stream,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(
+                        body["messages"][1].get("reasoning_content").is_some(),
+                        enabled != Some(false),
+                        "{url}"
+                    );
+                    assert_eq!(
+                        body.get("enable_thinking"),
+                        enabled.map(serde_json::Value::Bool).as_ref()
+                    );
+                    assert!(body.get("thinking_budget").is_none());
+                    assert!(body.get("reasoning_effort").is_none());
+                    assert!(body.get("thinking").is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn kimi_tool_replay_hosted_k3_keeps_mandatory_thinking_with_the_alibaba_encoding() {
+        let config = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        );
+        let mut request = endpoint_reasoning_request("kimi-k3");
+        request.reasoning_enabled = Some(false);
+        request.reasoning_effort = Some(ReasoningEffort::Low);
+        request.thinking_budget = Some(4096);
+        let mut assistant = Message::text(Role::Assistant, "Checking");
+        assistant.reasoning_content = Some("Retained thinking".into());
+        request.messages.push(assistant);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["enable_thinking"], true);
+        assert_eq!(body["preserve_thinking"], true);
+        assert_eq!(
+            body["messages"][1]["reasoning_content"],
+            "Retained thinking"
+        );
+        assert!(body.get("thinking_budget").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("temperature").is_none());
+    }
+
     fn endpoint_reasoning_request(model: &str) -> CompletionRequest {
         CompletionRequest {
             model: model.to_string(),

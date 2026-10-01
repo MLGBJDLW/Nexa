@@ -48,6 +48,49 @@ an independent model inventory.
 For output continuation, accepted-route replay, context management, and explicit
 worker budgets, see [Orchestration runtime](ORCHESTRATION_RUNTIME.md).
 
+## Kimi tool calling
+
+Kimi's OpenAI-compatible envelope does not imply support for arbitrary JSON
+Schema. Moonshot uses a restricted dialect (MFJS). For example, a tool with
+`type` beside `anyOf` can cause the entire request to fail before the model
+produces output, even when that tool is not used in the current turn.
+
+Nexa projects tool parameters at the Chat Completions serialization boundary
+for Moonshot's public endpoints and known Alibaba Kimi routes. This covers
+streaming and non-streaming requests, built-in tools, and MCP tools. Root object
+alternatives expose their fields without making every alternative mandatory;
+nested unions, primitive enums, nullable types, and array items use the supported
+vocabulary. Local references are expanded with depth and work limits. Recursive
+or unresolved references remain unconstrained in the wire description; remote
+schema references are never fetched.
+
+The projection is deliberately more permissive where MFJS cannot express the
+original contract. Conditional/exclusive requirements and tuple constraints
+remain model guidance. The original registered schema and tool execution
+validation are unchanged; MCP servers remain responsible for their own full
+validation. This is not a general JSON Schema compiler or a guarantee that every
+external schema fits the service's size and depth limits.
+
+Verified route distinctions on October 2, 2026:
+
+| Service | Model examples | Thinking contract |
+| --- | --- | --- |
+| Moonshot public API (`api.moonshot.ai` / `api.moonshot.cn`) | `kimi-k3`, `kimi-k2.6` | Native Moonshot controls, selected per model |
+| Alibaba-hosted Kimi | `kimi-k3`, `kimi-k2.6` | `enable_thinking`; hosted K3 is always on and has no numeric thinking budget |
+| Moonshot direct supply through Alibaba | `kimi/kimi-k3`, `kimi/kimi-k2.6` | Direct-supply controls; K3 uses the documented `max` effort |
+| Alibaba Coding Plan (`coding.dashscope.aliyuncs.com` / `coding-intl.dashscope.aliyuncs.com`) | `kimi-k2.5` | `enable_thinking` and reasoning replay, without borrowing pay-as-you-go budget controls |
+
+Only documented HTTPS base paths receive these adaptations. Other Alibaba
+model families, OpenRouter, and private proxy endpoints retain their own schema
+contracts. Saved provider credentials, model choices, and retirement rules are
+not changed by schema projection. API acceptance for a particular account still
+requires a live check using that account's endpoint and entitlement.
+
+Sources: [Moonshot MFJS](https://github.com/MoonshotAI/walle/blob/main/docs/mfjs-spec.md),
+[Alibaba-hosted Kimi](https://help.aliyun.com/zh/model-studio/kimi-api),
+[Moonshot direct supply](https://help.aliyun.com/zh/model-studio/kimi-api-by-moonshot-ai),
+and [Coding Plan thinking controls](https://help.aliyun.com/zh/model-studio/coding-plan-faq).
+
 ## Claude Sonnet 5.5
 
 Verified on September 29, 2026: Anthropic `claude-sonnet-5-5` and OpenRouter
