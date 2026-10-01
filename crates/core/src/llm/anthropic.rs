@@ -992,9 +992,8 @@ async fn parse_anthropic_stream(
     let mut input_tokens: u32 = 0;
     let mut cache_read_tokens: Option<u32> = None;
     let mut cache_creation_tokens: Option<u32> = None;
-    // Track current tool call id/name from content_block_start.
-    let mut current_tool_id = String::new();
-    let mut current_tool_name: Option<String> = None;
+    // Content block indexes own tool identity, including interleaved calls.
+    let mut closed_tool_blocks = HashSet::<usize>::new();
     // Accumulate thinking content for token estimation.
     let mut thinking_text = String::new();
     let mut current_thinking_text = String::new();
@@ -1077,24 +1076,29 @@ async fn parse_anthropic_stream(
                     content_block,
                 } => {
                     if let Some(block) = raw_event.get("content_block").cloned() {
+                        if replay_content_blocks.contains_key(&index)
+                            || (block.get("type").and_then(serde_json::Value::as_str)
+                                == Some("tool_use")
+                                && replay_content_blocks.values().any(|existing| {
+                                    existing.get("type").and_then(serde_json::Value::as_str)
+                                        == Some("tool_use")
+                                        && existing.get("id") == block.get("id")
+                                }))
+                        {
+                            return Err(CoreError::StreamIncomplete("Anthropic reused a content block index or tool call ID; refusing ambiguous tool identity".into()));
+                        }
                         replay_content_blocks.insert(index, block);
                     }
                     match content_block {
                         AnthropicStreamContentBlock::Text { .. } => {
-                            current_tool_id.clear();
-                            current_tool_name = None;
                             current_block_is_thinking = false;
                         }
                         AnthropicStreamContentBlock::Thinking { .. } => {
-                            current_tool_id.clear();
-                            current_tool_name = None;
                             current_thinking_text.clear();
                             current_thinking_signature.clear();
                             current_block_is_thinking = true;
                         }
                         AnthropicStreamContentBlock::RedactedThinking { data } => {
-                            current_tool_id.clear();
-                            current_tool_name = None;
                             current_block_is_thinking = false;
                             if !data.trim().is_empty() {
                                 replay_thinking_blocks.push(
@@ -1106,8 +1110,6 @@ async fn parse_anthropic_stream(
                         }
                         AnthropicStreamContentBlock::ToolUse { id, name } => {
                             current_block_is_thinking = false;
-                            current_tool_id = id.clone();
-                            current_tool_name = Some(name.clone());
                             // Emit an initial tool call delta with the name.
                             let chunk = StreamChunk {
                                 delta: String::new(),
@@ -1135,8 +1137,6 @@ async fn parse_anthropic_stream(
                         }
                         AnthropicStreamContentBlock::ServerToolUse { id, name, input } => {
                             current_block_is_thinking = false;
-                            current_tool_id.clear();
-                            current_tool_name = None;
                             if name == super::native_search::LOCAL_WEB_SEARCH_TOOL {
                                 pending_server_searches.insert(id, input);
                             }
@@ -1146,8 +1146,6 @@ async fn parse_anthropic_stream(
                             content,
                         } => {
                             current_block_is_thinking = false;
-                            current_tool_id.clear();
-                            current_tool_name = None;
                             // Array content is a completed provider search. An
                             // object is the documented in-band error shape, so
                             // keep the query pending for Nexa Router fallback.
@@ -1157,8 +1155,6 @@ async fn parse_anthropic_stream(
                         }
                         AnthropicStreamContentBlock::Unknown => {
                             current_block_is_thinking = false;
-                            current_tool_id.clear();
-                            current_tool_name = None;
                         }
                     }
                 }
@@ -1219,6 +1215,27 @@ async fn parse_anthropic_stream(
                         current_thinking_signature.push_str(&signature);
                     }
                     AnthropicStreamDelta::InputJsonDelta { partial_json } => {
+                        let tool = replay_content_blocks.get(&index)
+                            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("tool_use") && !closed_tool_blocks.contains(&index))
+                            .ok_or_else(|| CoreError::StreamIncomplete(format!("Anthropic tool arguments referenced an unknown or closed content block {index}")))?;
+                        let id = tool
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|id| !id.trim().is_empty())
+                            .ok_or_else(|| {
+                                CoreError::StreamIncomplete(
+                                    "Anthropic tool arguments have no call ID".into(),
+                                )
+                            })?;
+                        let name = tool
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|name| !name.trim().is_empty())
+                            .ok_or_else(|| {
+                                CoreError::StreamIncomplete(
+                                    "Anthropic tool arguments have no tool name".into(),
+                                )
+                            })?;
                         tool_input_deltas
                             .entry(index)
                             .or_default()
@@ -1226,8 +1243,8 @@ async fn parse_anthropic_stream(
                         let chunk = StreamChunk {
                             delta: String::new(),
                             tool_call_delta: Some(ToolCallDelta {
-                                id: current_tool_id.clone(),
-                                name: current_tool_name.clone(),
+                                id: id.to_string(),
+                                name: Some(name.to_string()),
                                 arguments_delta: partial_json.into(),
                                 index: None,
                                 thought_signature: None,
@@ -1395,6 +1412,7 @@ async fn parse_anthropic_stream(
                     return Ok(());
                 }
                 AnthropicStreamEvent::ContentBlockStop { index } => {
+                    closed_tool_blocks.insert(index);
                     if let Some(input_json) = tool_input_deltas.remove(&index) {
                         if let Ok(input) = serde_json::from_str::<serde_json::Value>(&input_json) {
                             if let Some(block) = replay_content_blocks
@@ -1594,6 +1612,80 @@ mod tests {
         assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
         assert_eq!(tools[1]["type"], "web_search_20260209");
         assert_eq!(tools[1]["name"], "web_search");
+    }
+
+    #[tokio::test]
+    async fn interleaved_tool_blocks_keep_arguments_with_their_declared_tool() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let events = [
+            serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"read-call","name":"read_file","input":{}}}),
+            serde_json::json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"shell-call","name":"run_shell","input":{}}}),
+            serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"README.md\"}"}}),
+            serde_json::json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"git status --short\"}"}}),
+            serde_json::json!({"type":"content_block_stop","index":0}),
+            serde_json::json!({"type":"content_block_stop","index":1}),
+            serde_json::json!({"type":"message_delta","delta":{"stop_reason":"tool_use"}}),
+            serde_json::json!({"type":"message_stop"}),
+        ];
+        let body = events
+            .iter()
+            .map(|event| {
+                format!(
+                    "event: {}\ndata: {event}\n\n",
+                    event["type"].as_str().unwrap()
+                )
+            })
+            .collect::<String>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let mut buffer = [0; 1024];
+                let count = socket.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}"))
+            .send()
+            .await
+            .unwrap();
+        let (tx, mut rx) = mpsc::channel(32);
+        parse_anthropic_stream(
+            response,
+            tx,
+            super::super::native_search::SearchExecutionMode::NexaRouter,
+            Duration::from_secs(5),
+            None,
+        )
+        .await
+        .unwrap();
+        let mut argument_deltas = Vec::new();
+        while let Some(item) = rx.recv().await {
+            if let AnthropicParsedStreamItem::Chunk(chunk) = item.unwrap() {
+                if let Some(delta) = chunk
+                    .tool_call_delta
+                    .filter(|delta| !delta.arguments_delta.is_empty())
+                {
+                    argument_deltas.push(delta);
+                }
+            }
+        }
+        server.await.unwrap();
+        assert_eq!(argument_deltas.len(), 2);
+        assert_eq!(argument_deltas[0].id, "read-call");
+        assert_eq!(argument_deltas[0].name.as_deref(), Some("read_file"));
+        assert_eq!(
+            argument_deltas[0].arguments_delta.to_string(),
+            r#"{"path":"README.md"}"#
+        );
+        assert_eq!(argument_deltas[1].id, "shell-call");
+        assert_eq!(argument_deltas[1].name.as_deref(), Some("run_shell"));
     }
 
     #[test]
