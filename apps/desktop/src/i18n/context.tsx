@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
 import type { Locale, TranslationKeys } from './types';
 import { en } from './locales/en';
 import { updateTrayMenu } from '../lib/api';
@@ -100,7 +100,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return text;
   }, [locale, translations]);
 
-  const availableLocales: { code: Locale; name: string }[] = [
+  const availableLocales = useMemo<I18nContextType['availableLocales']>(() => [
     { code: 'zh-CN', name: '简体中文' },
     { code: 'zh-TW', name: '繁體中文' },
     { code: 'en', name: 'English' },
@@ -111,10 +111,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     { code: 'es', name: 'Español' },
     { code: 'pt', name: 'Português' },
     { code: 'ru', name: 'Русский' },
-  ];
+  ], []);
+  const contextValue = useMemo<I18nContextType>(
+    () => ({ locale, setLocale, t, availableLocales }),
+    [locale, setLocale, t, availableLocales],
+  );
 
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t, availableLocales }}>
+    <I18nContext.Provider value={contextValue}>
       {children}
     </I18nContext.Provider>
   );

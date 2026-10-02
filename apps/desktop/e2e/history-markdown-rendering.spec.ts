@@ -92,6 +92,7 @@ test('live tool progress does not render or re-highlight twenty historical rich 
   }
   await page.addInitScript(({ markdown }) => {
     localStorage.setItem('nexa-locale', 'en');
+    localStorage.removeItem('last-insights-at');
     const now = '2026-10-02T00:00:00Z';
     const conversationId = 'rich-history';
     const conversation = { id: conversationId, title: 'Rich history isolation', provider: 'open_ai', model: 'gpt-4.1', systemPrompt: '', projectId: null, personaId: null, initialAutoTitlePending: false, createdAt: now, updatedAt: now };
@@ -107,6 +108,8 @@ test('live tool progress does not render or re-highlight twenty historical rich 
     const newest = { sortOrder: 2, messageId: 'rich-active-user' };
     const callbacks = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, { event: string; handler: number }>();
+    const pendingInsights = new Map<string, (value: unknown[]) => void>();
+    const insightEvents: Array<{ command: string; phase: 'requested' | 'released'; at: number }> = [];
     let sequence = 0;
     let eventSequence = 0;
     const counts: RenderSnapshot = { messageBubble: 0, codeBlock: 0, highlight: 0, byBlock: {} };
@@ -144,6 +147,9 @@ test('live tool progress does not render or re-highlight twenty historical rich 
         case 'plugin:event|listen': { const id = ++sequence; listeners.set(id, { event: String(args.event), handler: Number(args.handler) }); return id; }
         case 'plugin:event|unlisten': listeners.delete(Number(args.eventId)); return null;
         case 'get_wizard_state_cmd': return { completed: true, language: 'en' };
+        case 'get_knowledge_gaps_cmd': case 'suggest_explorations_cmd':
+          insightEvents.push({ command, phase: 'requested', at: performance.now() });
+          return new Promise<unknown[]>(resolve => pendingInsights.set(command, resolve));
         case 'list_agent_configs_cmd': return [config];
         case 'get_model_context_window': return 128000;
         case 'list_conversations_cmd': return [conversation];
@@ -169,6 +175,16 @@ test('live tool progress does not render or re-highlight twenty historical rich 
         codeBlock: (code: string) => countCode('codeBlock', code),
         highlight: (code: string) => countCode('highlight', code),
         snapshot: () => JSON.parse(JSON.stringify(counts)),
+        pendingInsights: () => [...pendingInsights.keys()].sort(),
+        insightEvents,
+        releaseInsights: () => {
+          if (pendingInsights.size !== 2) throw new Error('Both actual startup insight requests must be pending');
+          for (const [command, resolve] of pendingInsights) {
+            insightEvents.push({ command, phase: 'released', at: performance.now() });
+            resolve([]);
+          }
+          pendingInsights.clear();
+        },
         emitProgress,
       },
       __TAURI_INTERNALS__: {
@@ -188,6 +204,7 @@ test('live tool progress does not render or re-highlight twenty historical rich 
   await expect(history.locator('pre[data-code-presentation="plain"]')).toHaveCount(0);
   expect(await history.locator('pre code .token').count()).toBeGreaterThan(20);
   expect([...instrumented].sort()).toEqual(['markdown', 'message']);
+  await expect.poll(() => page.evaluate(() => (window as any).__HISTORY_MARKDOWN_AUDIT__.pendingInsights())).toEqual(['get_knowledge_gaps_cmd', 'suggest_explorations_cmd']);
 
   await page.evaluate(async () => {
     const { streamStore } = await import('/src/lib/streamStore.ts');
@@ -204,6 +221,12 @@ test('live tool progress does not render or re-highlight twenty historical rich 
   expect(Object.keys(before.byBlock)).toHaveLength(20);
   expect(Object.values(before.byBlock).every(block => block.codeBlock > 0 && block.highlight > 0)).toBe(true);
 
+  // Complete a real AppShell background update after the baseline. An unchanged
+  // locale must not republish a new context and re-highlight historical code.
+  await page.evaluate(() => (window as any).__HISTORY_MARKDOWN_AUDIT__.releaseInsights());
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('last-insights-at'))).not.toBeNull();
+  await crossFrames(page);
+  const afterInsights = await snapshot();
   const frames: number[] = [];
   for (let step = 1; step <= 12; step += 1) {
     await page.evaluate(step => (window as any).__HISTORY_MARKDOWN_AUDIT__.emitProgress(step), step);
@@ -212,12 +235,34 @@ test('live tool progress does not render or re-highlight twenty historical rich 
   }
   const after = await snapshot();
   expect(frames.every((time, index) => index === 0 || time > frames[index - 1])).toBe(true);
+  expect(afterInsights, 'an unrelated AppShell update must not change the locale context').toEqual(before);
   expect(after).toEqual(before);
   await expect(history.locator('pre code')).toHaveCount(20);
   await expect(history.locator('pre[data-code-presentation="plain"]')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   await testInfo.attach('historical-rich-markdown-render-counts', {
     contentType: 'application/json',
-    body: Buffer.from(JSON.stringify({ scenario: 'actual ChatPage + StreamProvider; 20 Prism blocks; 12 cross-frame toolProgress events', before, after, frames }, null, 2)),
+    body: Buffer.from(JSON.stringify({ scenario: 'actual ChatPage + StreamProvider; one AppShell background update; 20 Prism blocks; 12 cross-frame toolProgress events', before, afterInsights, after, frames, insightEvents: await page.evaluate(() => (window as any).__HISTORY_MARKDOWN_AUDIT__.insightEvents) }, null, 2)),
   });
+
+  // Real locale changes still update both the provider value and loaded text.
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  const language = page.locator('#settings-language');
+  await expect(language).toBeVisible();
+  if (await language.evaluate(element => element.tagName === 'SELECT')) await language.selectOption('zh-CN');
+  else {
+    await language.click();
+    await page.getByRole('option', { name: '简体中文', exact: true }).click();
+  }
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+  await expect(page.getByRole('link', { name: '设置', exact: true })).toBeVisible();
+  await expect(page.getByText('选择显示语言', { exact: true })).toBeVisible();
+  if (await language.evaluate(element => element.tagName === 'SELECT')) await language.selectOption('en');
+  else {
+    await language.click();
+    await page.getByRole('option', { name: 'English', exact: true }).click();
+  }
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+  await expect(page.getByText('Choose your preferred display language', { exact: true })).toBeVisible();
 });
