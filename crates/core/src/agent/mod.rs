@@ -294,6 +294,10 @@ pub struct AgentConfig {
     /// legacy inference path for non-hosted callers and serialized configs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog_limits_authoritative: Option<bool>,
+    /// Limits resolved once for the configured endpoint/model contract. The
+    /// route authority flag still gates their use by output budgeting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_catalog_limits: Option<crate::model_catalog::ModelLimits>,
     /// Whether to enable reasoning/thinking for models that support it.
     pub reasoning_enabled: Option<bool>,
     /// Thinking budget in tokens (Anthropic, Gemini).
@@ -471,6 +475,7 @@ impl Default for AgentConfig {
             context_management_mode: crate::context_history::ContextManagementMode::default(),
             context_window_resolution: None,
             catalog_limits_authoritative: None,
+            resolved_catalog_limits: None,
             reasoning_enabled: None,
             thinking_budget: None,
             reasoning_effort: None,

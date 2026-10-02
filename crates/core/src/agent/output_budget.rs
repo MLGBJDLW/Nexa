@@ -117,8 +117,10 @@ impl AgentConfig {
             });
         let catalog_limits = catalog_is_route_authoritative
             .then(|| {
-                self.provider_type.and_then(|provider| {
-                    crate::provider_catalog::model_limits_from_catalog(provider, model)
+                self.resolved_catalog_limits.clone().or_else(|| {
+                    self.provider_type.and_then(|provider| {
+                        crate::provider_catalog::model_limits_from_catalog(provider, model)
+                    })
                 })
             })
             .flatten();
