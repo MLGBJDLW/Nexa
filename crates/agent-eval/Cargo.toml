@@ -17,8 +17,5 @@ tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
 tokio-util = "0.7"
 
-[dev-dependencies]
-
 [build-dependencies]
 blake3 = "1"
-
