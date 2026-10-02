@@ -113,6 +113,7 @@ pub fn ocr_pdf_with_llm_provider_type(
     Err(disabled_error())
 }
 
+#[cfg(feature = "document-processing")]
 pub(crate) fn extract_images_from_pdf_page(
     _doc: &lopdf::Document,
     _page_id: lopdf::ObjectId,

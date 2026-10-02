@@ -158,6 +158,15 @@ pub fn policy_snapshot(
                 &config.model,
             ),
         ),
+        resolved_catalog_limits: crate::llm::model_contract::resolve_configured_model_contract(
+            crate::provider_registry::provider_type_for_parts(
+                &config.provider,
+                config.base_url.as_deref(),
+            ),
+            config.base_url.as_deref(),
+            &config.model,
+        )
+        .catalog_limits(),
         ..Default::default()
     };
     let response_token_limit = agent.resolved_response_token_limit(&config.model);

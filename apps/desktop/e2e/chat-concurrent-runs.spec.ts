@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {

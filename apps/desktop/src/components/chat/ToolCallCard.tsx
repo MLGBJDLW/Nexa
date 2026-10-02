@@ -47,6 +47,9 @@ import { ImagePreview } from '../ui/ImagePreview';
 import { extractToolVisualEvidence, type ToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { extractManagedProcess } from '../../lib/processArtifacts';
 import { ManagedProcessCard } from './ManagedProcessCard';
+import { extractMcpResult } from '../../lib/mcpResult';
+import { McpResultView } from './McpResultView';
+import { useStreamTool } from '../../lib/useStreamSelector';
 export { extractToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
 import type { ToolCallEvent } from '../../lib/streaming/protocol';
@@ -304,6 +307,13 @@ interface ToolCallCardProps {
   questionAnswered?: boolean;
   questionResponse?: unknown;
 }
+
+/** A live card subscribes to its own immutable entity. Durable cards use the
+ * supplied history projection and never adopt another run's matching call ID. */
+export const TimelineToolCallCard = memo(function TimelineToolCallCard({ conversationId, toolCall, ...props }: Omit<ToolCallCardProps,'status'> & { conversationId?: string | null; toolCall: ToolCallEvent }) {
+  const live = useStreamTool(props.parentRunActive ? conversationId ?? '' : '',toolCall.callId,toolCall);
+  return <ToolCallCard {...toolCall} {...live} {...props} />;
+});
 
 export function QuestionRequestTimelineRecord({
   request,
@@ -1509,6 +1519,7 @@ export const ToolCallCard = memo(function ToolCallCard({
 }: ToolCallCardProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
+  const mcpResult = useMemo(() => extractMcpResult(artifacts), [artifacts]);
   const safeToolName =
     typeof toolName === 'string' && toolName.trim().length > 0
       ? toolName
@@ -1542,7 +1553,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     ? getStableFileChangeTarget(fileDiff, headerDiffStats) ?? argumentFileChangeStats?.target ?? null
     : null;
   const briefTargetOverride = isFileChangeRender ? (fileChangeTarget ?? '') : fileChangeTarget;
-  const briefLabel = getToolBriefLabel(
+  const briefLabel = mcpResult?.toolIdentity?.toolName ?? getToolBriefLabel(
     safeToolName,
     args,
     skillActivationName ?? briefTargetOverride,
@@ -1732,6 +1743,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   ].filter((value): value is string => Boolean(value)).join(', ');
   const traceSoft = !failedStatus;
   const hasStructuredResult = Boolean(
+    mcpResult ||
     searchItems ||
     subagentRun ||
     subagentBatch ||
@@ -1759,6 +1771,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const liveFileDiff = trace && isPending && Boolean(fileDiff);
   const detailsExpanded = expanded;
   const expandableDetails = Boolean(
+    mcpResult ||
     visibleArgs ||
     visibleResultContent ||
     searchItems ||
@@ -1860,6 +1873,8 @@ export const ToolCallCard = memo(function ToolCallCard({
                 ) : null}
                 {skillActivation ? (
                   <SkillActivationPanel activation={skillActivation} compact />
+                ) : mcpResult ? (
+                  <McpResultView result={mcpResult} />
                 ) : visualEvidence ? (
                   <ToolVisualEvidencePreview
                     evidence={visualEvidence}
@@ -2031,6 +2046,8 @@ export const ToolCallCard = memo(function ToolCallCard({
                 ) : null}
                 {skillActivation ? (
                   <SkillActivationPanel activation={skillActivation} compact />
+                ) : mcpResult ? (
+                  <McpResultView result={mcpResult} />
                 ) : visualEvidence ? (
                   <ToolVisualEvidencePreview evidence={visualEvidence} label={briefLabel} compact />
                 ) : generatedImage ? (
@@ -2412,6 +2429,8 @@ export const ToolCallCard = memo(function ToolCallCard({
               )}
               {skillActivation ? (
                 <SkillActivationPanel activation={skillActivation} />
+              ) : mcpResult ? (
+                <McpResultView result={mcpResult} />
               ) : visualEvidence ? (
                 <ToolVisualEvidencePreview evidence={visualEvidence} label={briefLabel} />
               ) : generatedImage ? (

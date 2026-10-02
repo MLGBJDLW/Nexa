@@ -1,12 +1,12 @@
 //! Conversation summarization and turn context-compaction helpers.
 
+use super::context_window::ContextReductionPlan;
 use super::*;
 use crate::usage_analytics::{provider_type_id, usage_cost_metadata, AiUsageRecordInput};
 
 /// After compaction, leave enough headroom for several tool calls and the next
 /// user turn instead of compacting just barely below the trigger threshold.
 const COMPACTION_TARGET_USAGE: f32 = 0.55;
-const MIN_RECENT_TURNS: usize = 2;
 
 struct SummarizationUsageContext<'a> {
     db: &'a Database,
@@ -21,6 +21,7 @@ pub(super) struct CompactionRunContext<'a> {
     pub(super) db: &'a Database,
     pub(super) conversation_id: Option<&'a str>,
     pub(super) turn_id: Option<&'a str>,
+    pub(super) active_request: Option<&'a Message>,
 }
 
 fn summarization_fits_run_budget(per_attempt: u32, actual_tokens_remaining: Option<u32>) -> bool {
@@ -50,65 +51,6 @@ fn unreported_summarization_usage(attempts: u32, per_attempt_reservation: u32) -
         total_tokens: tokens,
         ..Usage::default()
     }
-}
-
-fn system_prefix_end(messages: &[Message]) -> usize {
-    messages
-        .iter()
-        .position(|message| {
-            message.role != Role::System
-                || message
-                    .text_content()
-                    .contains("## Earlier conversation context")
-        })
-        .unwrap_or(messages.len())
-}
-
-/// Return an exclusive boundary that evicts only complete, old user turns.
-/// The returned boundary always points at a user message, so assistant tool
-/// calls and their tool results on the preceding turn remain atomic.
-fn compaction_boundary(
-    messages: &[Message],
-    model: &str,
-    target_tail_tokens: u32,
-    min_recent_turns: usize,
-) -> Option<usize> {
-    let prefix_end = system_prefix_end(messages);
-    let user_starts = messages
-        .iter()
-        .enumerate()
-        .skip(prefix_end)
-        .filter_map(|(index, message)| (message.role == Role::User).then_some(index))
-        .collect::<Vec<_>>();
-
-    if user_starts.len() <= min_recent_turns {
-        return None;
-    }
-
-    // Manual compaction can receive tens of thousands of persisted messages.
-    // Re-summing every candidate tail makes boundary selection quadratic and
-    // can starve the desktop runtime. Compute each message once, then answer
-    // every candidate from the suffix table in O(1).
-    let mut suffix_tokens = vec![0_u32; messages.len() + 1];
-    for index in (prefix_end..messages.len()).rev() {
-        suffix_tokens[index] = suffix_tokens[index + 1]
-            .saturating_add(estimate_message_tokens_for_model(model, &messages[index]));
-    }
-
-    let latest_allowed = user_starts[user_starts.len() - min_recent_turns];
-    let mut selected = None;
-    for boundary in user_starts.into_iter().skip(1) {
-        if boundary > latest_allowed {
-            break;
-        }
-        selected = Some(boundary);
-        let tail_tokens = suffix_tokens[boundary];
-        if tail_tokens <= target_tail_tokens {
-            return Some(boundary);
-        }
-    }
-
-    selected
 }
 
 fn reference_summary_message(summary: &str, evicted_count: usize, reason: &str) -> Message {
@@ -272,135 +214,38 @@ impl AgentExecutor {
     /// old turns until the retained tail is near the target utilization.
     pub(super) async fn summarize_if_needed(
         &self,
-        history: Vec<Message>,
+        mut history: Vec<Message>,
         model: &str,
         max_response_tokens: u32,
         run: CompactionRunContext<'_>,
         actual_tokens_remaining: Option<u32>,
     ) -> Result<(Vec<Message>, Usage), CoreError> {
-        let CompactionRunContext {
-            db,
-            conversation_id,
-            turn_id,
-        } = run;
-        if history.is_empty() {
-            return Ok((history, Usage::default()));
-        }
-
-        let pipeline = ContextPipeline::new_with_resolution(
+        let window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
             self.config.context_window_resolution,
             max_response_tokens,
         )
         .with_compact_percent(self.config.auto_compact_percent);
-        let Some(budget) = pipeline.context_budget() else {
-            // An unknown/custom provider owns its capacity. Do not trigger
-            // speculative compaction from a fabricated local fallback.
+        let Some(budget) = window.context_budget().filter(|budget| *budget > 0) else {
             return Ok((history, Usage::default()));
         };
-        if budget == 0 {
+        let tokens = self
+            .context_usage_breakdown(model, &history, &[], None)
+            .total_tokens;
+        if !window.budget_decision(tokens).should_compact {
             return Ok((history, Usage::default()));
         }
-
-        // Estimate total tokens across the history.
-        let total_tokens: u32 = history
-            .iter()
-            .map(|message| estimate_message_tokens_for_model(model, message))
-            .sum();
-
-        if !pipeline.budget_decision(total_tokens).should_compact {
-            return Ok((history, Usage::default()));
-        }
-
-        let prefix_end = system_prefix_end(&history);
-        let target_tail_tokens = (budget as f32 * COMPACTION_TARGET_USAGE) as u32;
-        if self.history_handoff_enabled(conversation_id) {
-            let mut history = history;
-            self.handoff_context(&mut history, model, target_tail_tokens, run)?;
-            return Ok((history, Usage::default()));
-        }
-        let Some(evict_end) =
-            compaction_boundary(&history, model, target_tail_tokens, MIN_RECENT_TURNS)
-        else {
-            return Ok((history, Usage::default()));
-        };
-
-        // Include any earlier compacted summary after the stable system prefix
-        // so summaries are merged instead of accumulating as separate layers.
-        let evicted = &history[prefix_end..evict_end];
-
-        // Build the extractive fallback first (cheap, in-process).
-        let extractive_fallback = context::build_evicted_recap_from_messages(evicted);
-
-        // Attempt LLM summarization.
-        // Use dedicated summarization provider/model if configured,
-        // otherwise fall back to the main provider and model.
-        let summ_provider: &dyn LlmProvider = self
-            .summarization_provider
-            .as_deref()
-            .unwrap_or(self.provider.as_ref());
-        let summ_model = self.config.summarization_model.as_deref().unwrap_or(model);
-        let summ_provider_type = if self.summarization_provider.is_some() {
-            self.config.summarization_provider_type
-        } else {
-            self.config.provider_type
-        };
-        let summarization = self
-            .summarize_for_compaction(
-                summ_provider,
-                summ_model,
-                summ_provider_type,
-                evicted,
-                &extractive_fallback,
+        let (usage, _) = self
+            .reduce_context_to_target(
+                &mut history,
+                model,
+                (budget as f32 * COMPACTION_TARGET_USAGE) as u32,
+                run,
                 actual_tokens_remaining,
             )
-            .await;
-        let (result, per_attempt_reservation) = match summarization {
-            Ok(result) => result,
-            Err(failure) => {
-                let reservation = summarizer::summarization_attempt_token_reservation(evicted);
-                self.record_unreported_summarization_failure(
-                    SummarizationUsageContext {
-                        db,
-                        conversation_id,
-                        turn_id,
-                        model: summ_model,
-                        provider_type: summ_provider_type,
-                    },
-                    evicted,
-                    &failure,
-                    reservation,
-                );
-                return Err(failure.into());
-            }
-        };
-        if let Some(usage) = result.usage.as_ref() {
-            self.record_summarization_usage(
-                SummarizationUsageContext {
-                    db,
-                    conversation_id,
-                    turn_id,
-                    model: summ_model,
-                    provider_type: summ_provider_type,
-                },
-                evicted,
-                usage,
-                "provider",
-                "success",
-            );
-        }
-        let ledger_usage = summarization_ledger_usage(&result, per_attempt_reservation);
-
-        let mut new_history = Vec::with_capacity(prefix_end + 1 + history.len() - evict_end);
-        new_history.extend_from_slice(&history[..prefix_end]);
-        new_history.push(reference_summary_message(
-            &result.summary,
-            evict_end - prefix_end,
-            "automatic headroom compaction",
-        ));
-        new_history.extend_from_slice(&history[evict_end..]);
-        Ok((new_history, ledger_usage))
+            .await?;
+        Ok((history, usage))
     }
 
     pub(super) async fn recover_context_overflow(
@@ -411,9 +256,11 @@ impl AgentExecutor {
         run: CompactionRunContext<'_>,
         total_usage: &mut Usage,
     ) -> Result<bool, CoreError> {
-        let before_tokens: u32 = messages
+        let before_tokens: u32 = self
+            .context_metrics_snapshot(model, messages, &[])
+            .messages
             .iter()
-            .map(|message| estimate_message_tokens_for_model(model, message))
+            .map(|message| message.base_tokens)
             .sum();
         let before_len = messages.len();
 
@@ -437,20 +284,11 @@ impl AgentExecutor {
             )));
         }
 
-        let pipeline = ContextPipeline::new_with_resolution(
-            model,
-            self.config.context_window,
-            self.config.context_window_resolution,
-            self.config.resolved_max_response_tokens(model),
-        )
-        .with_compact_percent(self.config.auto_compact_percent);
-        if !self.history_handoff_enabled(run.conversation_id) {
-            *messages = pipeline.trim_after_overflow_recovery(messages);
-        }
-
-        let after_tokens: u32 = messages
+        let after_tokens: u32 = self
+            .context_metrics_snapshot(model, messages, &[])
+            .messages
             .iter()
-            .map(|message| estimate_message_tokens_for_model(model, message))
+            .map(|message| message.base_tokens)
             .sum();
         Ok(after_tokens < before_tokens || messages.len() < before_len)
     }
@@ -469,50 +307,72 @@ impl AgentExecutor {
         run: CompactionRunContext<'_>,
         actual_tokens_remaining: Option<u32>,
     ) -> Result<Usage, CoreError> {
-        let CompactionRunContext {
-            db,
-            conversation_id,
-            turn_id,
-        } = run;
-        let non_system_start = system_prefix_end(messages);
-        let pipeline = ContextPipeline::new_with_resolution(
+        let window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
             self.config.context_window_resolution,
             self.config.resolved_max_response_tokens(model),
         )
         .with_compact_percent(self.config.auto_compact_percent);
-        let target = pipeline
+        // A provider can reject a prompt below the configured capacity. An
+        // aggressive reduction must still target the current input; otherwise
+        // a large configured target can select only an existing checkpoint and
+        // miss later old exchanges that could actually reduce the request.
+        let current_target = self
+            .context_usage_breakdown(model, messages, &[], None)
+            .total_tokens
+            / 2;
+        let target = window
             .context_budget()
             .map(|budget| (budget as f32 * COMPACTION_TARGET_USAGE) as u32)
-            // This path is also used after a real provider overflow. When the
-            // provider owns an unknown capacity, recover by summarizing roughly
-            // half of the currently observed prompt instead of pretending the
-            // model has a 32K window.
-            .unwrap_or_else(|| {
-                messages
-                    .iter()
-                    .map(|message| estimate_message_tokens_for_model(model, message))
-                    .sum::<u32>()
-                    .saturating_div(2)
-            });
-        if self.history_handoff_enabled(conversation_id) {
-            let before = messages.len();
-            if self.handoff_context(messages, model, target, run)? {
-                let _ = tx
-                    .send(AgentEvent::AutoCompacted {
-                        evicted_count: before.saturating_sub(messages.len()),
-                    })
-                    .await;
-            }
-            return Ok(Usage::default());
+            .unwrap_or(current_target)
+            .min(current_target);
+        let before = messages.len();
+        let (usage, changed) = self
+            .reduce_context_to_target(messages, model, target, run, actual_tokens_remaining)
+            .await?;
+        if changed {
+            let _ = tx
+                .send(AgentEvent::AutoCompacted {
+                    evicted_count: before.saturating_sub(messages.len()),
+                })
+                .await;
         }
-        let Some(evict_end) = compaction_boundary(messages, model, target, MIN_RECENT_TURNS) else {
-            return Ok(Usage::default());
+        Ok(usage)
+    }
+
+    /// Both automatic headroom and overflow recovery use one retention plan.
+    /// A summary/archive must finish before its replacement becomes live.
+    async fn reduce_context_to_target(
+        &self,
+        messages: &mut Vec<Message>,
+        model: &str,
+        target: u32,
+        run: CompactionRunContext<'_>,
+        actual_tokens_remaining: Option<u32>,
+    ) -> Result<(Usage, bool), CoreError> {
+        if self.history_handoff_enabled(run.conversation_id) {
+            let changed = self.handoff_context(messages, model, target, run)?;
+            return Ok((Usage::default(), changed));
+        }
+        let metrics = self.context_metrics_snapshot(model, messages, &[]);
+        let costs = metrics
+            .messages
+            .iter()
+            .map(|message| message.cache_tokens)
+            .collect::<Vec<_>>();
+        let Some(plan) =
+            ContextReductionPlan::prepare_with_costs(messages, target, run.active_request, &costs)
+        else {
+            return Ok((Usage::default(), false));
         };
-
-        let evicted = &messages[non_system_start..evict_end];
-
+        let CompactionRunContext {
+            db,
+            conversation_id,
+            turn_id,
+            ..
+        } = run;
+        let evicted = plan.evicted(messages);
         let extractive_fallback = context::build_evicted_recap_from_messages(evicted);
 
         let summ_provider: &dyn LlmProvider = self
@@ -571,88 +431,32 @@ impl AgentExecutor {
         }
         let ledger_usage = summarization_ledger_usage(&result, per_attempt_reservation);
 
-        let evicted_count = evict_end - non_system_start;
-
-        // Build replacement: keep system prefix + summary + kept tail.
-        let summary_msg =
-            reference_summary_message(&result.summary, evicted_count, "near-limit recovery");
-
-        let mut new_messages =
-            Vec::with_capacity(non_system_start + 1 + messages.len() - evict_end);
-        new_messages.extend_from_slice(&messages[..non_system_start]);
-        new_messages.push(summary_msg);
-        new_messages.extend_from_slice(&messages[evict_end..]);
-        *messages = new_messages;
-
-        let _ = tx.send(AgentEvent::AutoCompacted { evicted_count }).await;
-
-        Ok(ledger_usage)
+        let next = plan.replacement(
+            messages,
+            reference_summary_message(&result.summary, evicted.len(), "safe context reduction"),
+        );
+        let before = self
+            .context_usage_breakdown(model, messages, &[], None)
+            .total_tokens;
+        let after = self
+            .context_usage_breakdown(model, &next, &[], None)
+            .total_tokens;
+        if after >= before {
+            return Ok((ledger_usage, false));
+        }
+        if self.cancel_token.is_cancelled() {
+            return Err(CoreError::Cancelled(
+                "Context summary cancelled; working history retained".into(),
+            ));
+        }
+        *messages = next;
+        Ok((ledger_usage, true))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn compaction_boundary_keeps_recent_turns_and_tool_blocks() {
-        let messages = vec![
-            Message::text(Role::System, "stable"),
-            Message::text(Role::User, "first"),
-            Message::text(Role::Assistant, "working"),
-            Message::text_with_name(Role::Tool, "result", "call-1"),
-            Message::text(Role::Assistant, "done"),
-            Message::text(Role::User, "second"),
-            Message::text(Role::Assistant, "done"),
-            Message::text(Role::User, "third"),
-            Message::text(Role::Assistant, "done"),
-        ];
-
-        let boundary = compaction_boundary(&messages, "gpt-4o", 1, 2).unwrap();
-        assert_eq!(boundary, 5);
-        assert_eq!(messages[boundary].role, Role::User);
-        assert!(messages[..boundary]
-            .iter()
-            .any(|message| message.role == Role::Tool));
-    }
-
-    #[test]
-    fn compaction_boundary_requires_enough_complete_turns() {
-        let messages = vec![
-            Message::text(Role::System, "stable"),
-            Message::text(Role::User, "only"),
-            Message::text(Role::Assistant, "answer"),
-        ];
-        assert_eq!(compaction_boundary(&messages, "gpt-4o", 1, 2), None);
-    }
-
-    #[test]
-    fn compaction_boundary_scales_linearly_for_large_histories() {
-        let mut messages = Vec::with_capacity(8_000);
-        for index in 0..4_000 {
-            messages.push(Message::text(Role::User, format!("request {index}")));
-            messages.push(Message::text(Role::Assistant, "response"));
-        }
-
-        let started = std::time::Instant::now();
-        let boundary = compaction_boundary(&messages, "gpt-4o", 32, 2);
-
-        assert!(boundary.is_some());
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(3),
-            "large-history boundary selection regressed beyond linear-time expectations"
-        );
-    }
-
-    #[test]
-    fn system_prefix_excludes_an_existing_compaction_checkpoint() {
-        let messages = vec![
-            Message::text(Role::System, "stable policy"),
-            reference_summary_message("previous state", 3, "automatic"),
-            Message::text(Role::User, "continue"),
-        ];
-        assert_eq!(system_prefix_end(&messages), 1);
-    }
 
     #[test]
     fn summarization_admission_reserves_every_possible_physical_attempt() {

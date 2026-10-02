@@ -1,15 +1,5 @@
 use super::*;
 
-pub(crate) async fn sync_enabled_desktop_mcp_servers(
-    manager: &mut McpManager,
-    enabled_servers: &[McpServer],
-    timeout_secs: u64,
-) -> Result<HashMap<String, String>, String> {
-    Ok(manager
-        .sync_servers(enabled_servers, Some(timeout_secs))
-        .await)
-}
-
 #[derive(Clone)]
 pub(crate) struct DesktopToolRegistrySnapshot {
     generation: String,
@@ -195,21 +185,23 @@ pub async fn build_desktop_agent_session_dependencies(
                 .map_err(|error| warn!("{error}"))
                 .ok()
         });
-    let mut manager = mcp_manager.lock().await;
+    let manager = mcp_manager.as_ref();
     let generation = configuration_generation.as_ref().map(|generation| {
         format!(
             "{mcp_manager:p}:{generation}:{}",
-            manager.connection_generation()
+            manager.registry_generation()
         )
     });
     let snapshot_cache = DESKTOP_TOOL_REGISTRY_SNAPSHOT.get_or_init(|| TokioMutex::new(None));
-    let mut snapshot_guard = snapshot_cache.lock().await;
-    let cached_tools = generation.as_ref().and_then(|generation| {
-        snapshot_guard
-            .as_ref()
-            .filter(|snapshot| snapshot.generation == *generation)
-            .map(|snapshot| snapshot.tools.clone())
-    });
+    let cached_tools = {
+        let snapshot = snapshot_cache.lock().await;
+        generation.as_ref().and_then(|generation| {
+            snapshot
+                .as_ref()
+                .filter(|snapshot| snapshot.generation == *generation)
+                .map(|snapshot| snapshot.tools.clone())
+        })
+    };
     let mut active_generation = cached_tools.as_ref().and(generation.clone());
     let (mut tools, mcp_sync_ms) = if let Some(tools) = cached_tools {
         (tools, 0)
@@ -223,13 +215,10 @@ pub async fn build_desktop_agent_session_dependencies(
             });
         let mcp_sync_started = Instant::now();
         let mut registry_snapshot_complete = enabled_servers.is_ok();
-        if let Ok(enabled_servers) = enabled_servers.as_ref() {
-            match sync_enabled_desktop_mcp_servers(
-                &mut manager,
-                enabled_servers,
-                mcp_call_timeout_secs,
-            )
-            .await
+        if enabled_servers.is_ok() {
+            match manager
+                .sync_from_database(db, Some(mcp_call_timeout_secs))
+                .await
             {
                 Ok(errors) => {
                     registry_snapshot_complete = errors.is_empty();
@@ -242,32 +231,40 @@ pub async fn build_desktop_agent_session_dependencies(
                     warn!("Failed to sync enabled MCP servers: {error}");
                 }
             }
-            if let Err(error) = manager
-                .register_tools_with_recovery(&mut tools, Arc::downgrade(mcp_manager))
-                .await
-            {
-                registry_snapshot_complete = false;
-                warn!("Failed to register MCP tools: {error}");
-            }
         }
+        // Registration reads one immutable projection. A catalog mutation
+        // during that read invalidates caching instead of labelling old tools
+        // with the new generation. No cache lock is held during connector I/O.
+        let registry_generation = manager.registry_generation();
+        if let Err(error) = manager.register_tools(&mut tools) {
+            registry_snapshot_complete = false;
+            warn!("Failed to register MCP tools: {error}");
+        }
+        let current_configuration = PackageRuntimeAssembler::database_builtin(db)
+            .ok()
+            .zip(db.get_enabled_mcp_servers().ok())
+            .and_then(|(assembler, servers)| {
+                desktop_tool_registry_generation(&assembler, &servers).ok()
+            });
+        registry_snapshot_complete &= configuration_generation == current_configuration
+            && registry_generation == manager.registry_generation();
         let mcp_sync_ms = elapsed_ms(mcp_sync_started);
         if registry_snapshot_complete {
             if let Some(configuration_generation) = configuration_generation {
-                let generation = format!(
-                    "{mcp_manager:p}:{configuration_generation}:{}",
-                    manager.connection_generation()
-                );
-                active_generation = Some(generation.clone());
-                *snapshot_guard = Some(DesktopToolRegistrySnapshot {
-                    generation,
-                    tools: tools.clone(),
-                });
+                let generation =
+                    format!("{mcp_manager:p}:{configuration_generation}:{registry_generation}");
+                let mut snapshot = snapshot_cache.lock().await;
+                if registry_generation == manager.registry_generation() {
+                    active_generation = Some(generation.clone());
+                    *snapshot = Some(DesktopToolRegistrySnapshot {
+                        generation,
+                        tools: tools.clone(),
+                    });
+                }
             }
         }
         (tools, mcp_sync_ms)
     };
-    drop(snapshot_guard);
-    drop(manager);
 
     let delegation_runtime = {
         let mut runtime = DelegationRuntime::new(
@@ -490,7 +487,7 @@ pub(crate) fn build_desktop_approval_callback(
                 biased;
                 _ = cancellation.cancelled() => ApprovalDecision::Deny,
                 decision = rx => decision.unwrap_or(ApprovalDecision::Deny),
-                _ = tokio::time::sleep(Duration::from_secs(60)), if req.choices.is_empty() => ApprovalDecision::Deny,
+                _ = tokio::time::sleep(req.remaining_timeout()), if req.choices.is_empty() => ApprovalDecision::Deny,
             };
             pending.lock().await.remove(&req.id);
             if !req.choices.is_empty() {

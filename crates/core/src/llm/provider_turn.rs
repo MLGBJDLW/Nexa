@@ -540,10 +540,16 @@ impl ProviderReplayPayload {
     }
 
     pub fn reasoning_content(&self) -> Option<String> {
+        self.reasoning_content_ref().map(str::to_owned)
+    }
+
+    /// Borrow native textual replay without copying it for every read-only
+    /// request projection. Opaque provider payloads remain opaque.
+    pub fn reasoning_content_ref(&self) -> Option<&str> {
         match self {
             Self::DeepSeekReasoningContent(content)
             | Self::OpenAiCompatibleReasoningContent { content, .. } => {
-                (!content.trim().is_empty()).then(|| content.clone())
+                (!content.trim().is_empty()).then_some(content.as_str())
             }
             _ => None,
         }

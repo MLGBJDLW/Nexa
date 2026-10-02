@@ -3,10 +3,15 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::net::IpAddr;
+#[cfg(any(feature = "headless-browser", test))]
 use std::net::ToSocketAddrs;
+#[cfg(feature = "headless-browser")]
 use std::path::PathBuf;
+#[cfg(any(feature = "headless-browser", test))]
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+#[cfg(any(feature = "headless-browser", test))]
+use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -31,7 +36,9 @@ const MAX_REDIRECTS: usize = 5;
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 const MAX_IMAGE_ASSETS: usize = 25;
+#[cfg(feature = "headless-browser")]
 const JS_RENDER_STABILITY_BUDGET_MS: u64 = 1500;
+#[cfg(feature = "headless-browser")]
 const JS_RENDER_TIMEOUT_SECS: u64 = 10;
 static FETCH_BODY_CACHE: OnceLock<Mutex<HashMap<String, CachedFetchBody>>> = OnceLock::new();
 
@@ -290,6 +297,7 @@ async fn validate_resolved_host(url: &reqwest::Url) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(feature = "headless-browser", test))]
 fn validate_resolved_host_blocking(url: &reqwest::Url) -> Result<(), String> {
     let host = url.host_str().ok_or("URL has no host")?;
     if host.parse::<IpAddr>().is_ok() {
@@ -323,6 +331,7 @@ pub(crate) async fn validate_url_for_fetch(url: &str) -> Result<reqwest::Url, St
     Ok(parsed)
 }
 
+#[cfg(any(feature = "headless-browser", test))]
 fn validate_url_for_fetch_blocking(url: &str) -> Result<reqwest::Url, String> {
     let parsed = validate_url(url)?;
     validate_resolved_host_blocking(&parsed)?;
@@ -361,6 +370,7 @@ pub(crate) async fn validate_url_for_browser_capture(url: &str) -> Result<reqwes
     validate_url_for_fetch(parsed.as_str()).await
 }
 
+#[cfg(any(feature = "headless-browser", test))]
 fn validate_url_for_browser_capture_blocking(
     url: &str,
     allow_loopback: bool,
@@ -1296,6 +1306,7 @@ fn truncate_note(value: &str, max_chars: usize) -> String {
     out
 }
 
+#[cfg(any(feature = "headless-browser", test))]
 fn browser_internal_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower == "about:blank"
@@ -1304,6 +1315,7 @@ fn browser_internal_url(url: &str) -> bool {
         || lower.starts_with("chrome-error://")
 }
 
+#[cfg(any(feature = "headless-browser", test))]
 pub(crate) fn browser_request_allowed(
     url: &str,
     cache: &Mutex<HashMap<String, bool>>,
@@ -1326,6 +1338,7 @@ pub(crate) fn browser_request_allowed(
     allowed
 }
 
+#[cfg(feature = "headless-browser")]
 fn push_browser_diagnostic(target: &mut Vec<String>, value: String) {
     const MAX_DIAGNOSTICS_PER_KIND: usize = 50;
     const MAX_DIAGNOSTIC_CHARS: usize = 2_000;
@@ -1337,6 +1350,7 @@ fn push_browser_diagnostic(target: &mut Vec<String>, value: String) {
     target.push(value);
 }
 
+#[cfg(feature = "headless-browser")]
 fn extract_interactive_elements(html: &str) -> Vec<serde_json::Value> {
     let document = Html::parse_document(html);
     let Ok(selector) =
@@ -1370,6 +1384,7 @@ fn extract_interactive_elements(html: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+#[cfg(feature = "headless-browser")]
 async fn render_html_with_browser(url: reqwest::Url) -> Result<BrowserRenderedHtml, String> {
     tokio::task::spawn_blocking(move || render_html_with_browser_blocking(url))
         .await
@@ -1381,6 +1396,7 @@ pub(crate) async fn capture_browser_page(url: &str) -> Result<BrowserRenderedHtm
     render_html_with_browser(url).await
 }
 
+#[cfg(feature = "headless-browser")]
 fn browser_executable_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("NEXA_BROWSER_EXECUTABLE") {
@@ -1418,6 +1434,7 @@ fn browser_executable_candidates() -> Vec<PathBuf> {
     candidates
 }
 
+#[cfg(feature = "headless-browser")]
 pub(crate) fn launch_browser_for_capture() -> Result<headless_chrome::Browser, String> {
     use headless_chrome::{Browser, LaunchOptionsBuilder};
 
@@ -1454,6 +1471,7 @@ pub(crate) fn launch_browser_for_capture() -> Result<headless_chrome::Browser, S
     })
 }
 
+#[cfg(feature = "headless-browser")]
 fn render_html_with_browser_blocking(url: reqwest::Url) -> Result<BrowserRenderedHtml, String> {
     use headless_chrome::browser::tab::RequestPausedDecision;
     use headless_chrome::protocol::cdp::types::Event;
@@ -1615,6 +1633,7 @@ fn render_html_with_browser_blocking(url: reqwest::Url) -> Result<BrowserRendere
     })
 }
 
+#[cfg(feature = "headless-browser")]
 fn wait_for_dom_stability(tab: &headless_chrome::browser::Tab) {
     let deadline = std::time::Instant::now() + Duration::from_millis(JS_RENDER_STABILITY_BUDGET_MS);
     let mut previous_hash = None;
@@ -2373,6 +2392,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "headless-browser")]
     #[ignore = "requires a locally installed Chrome or Chromium browser"]
     fn browser_capture_repeated_live_page_does_not_require_network_idle() {
         use std::io::{Read, Write};
@@ -2465,4 +2485,9 @@ mod tests {
         assert!(std::str::from_utf8(text.as_bytes()).is_ok());
         assert!(text.ends_with("[… truncated]"));
     }
+}
+
+#[cfg(not(feature = "headless-browser"))]
+async fn render_html_with_browser(_url: reqwest::Url) -> Result<BrowserRenderedHtml, String> {
+    Err("Headless browser support is not enabled in this build".into())
 }

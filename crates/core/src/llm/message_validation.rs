@@ -199,11 +199,15 @@ pub fn normalize_assistant_message(
         });
     }
 
-    if let Some(calls) = message.tool_calls.as_mut() {
-        calls.retain(is_complete_tool_call);
-        if calls.is_empty() {
-            message.tool_calls = None;
+    // Validation of an already valid request is read-only. Taking a mutable
+    // field reference here would needlessly detach every shared assistant.
+    if invalid_tool_calls > 0 {
+        if let Some(calls) = message.tool_calls.as_mut() {
+            calls.retain(is_complete_tool_call);
         }
+    }
+    if message.tool_calls.as_ref().is_some_and(Vec::is_empty) {
+        message.tool_calls = None;
     }
     let tool_call_count = message.tool_calls.as_ref().map_or(0, Vec::len);
 
@@ -539,14 +543,14 @@ mod tests {
     use super::*;
 
     fn assistant_with_calls(calls: Option<Vec<ToolCallRequest>>) -> Message {
-        Message {
+        Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: Vec::new(),
             name: None,
             tool_calls: calls,
             reasoning_content: None,
             prompt_cache_hint: None,
-        }
+        })
     }
 
     fn recovery_context() -> MessageNormalizationContext<'static> {

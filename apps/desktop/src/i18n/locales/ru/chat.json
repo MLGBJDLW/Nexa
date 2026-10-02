@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "Не удалось сохранить этот ход.",
   "connectionNextAction": "Проверьте настройки провайдера и отправьте сообщение снова после восстановления соединения.",
   "toolInputRedacted": "[Скрыто]",
-  "toolInputInvalid": "[Нечитаемые аргументы скрыты]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[Нечитаемые аргументы скрыты]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "Спутник отдыхает",
   "companionThinking": "Размышляет",
   "companionSearching": "Ищет в интернете",
@@ -694,8 +694,8 @@
   "companionSucceeded": "Задача выполнена",
   "companionFailed": "Задача завершилась с ошибкой",
   "companionCancelled": "Задача отменена",
-  "companionSleeping": "Спутник спит"
-,"compactUnavailable": "Ручное сжатие контекста недоступно для этого разговора.",
+  "companionSleeping": "Спутник спит",
+  "compactUnavailable": "Ручное сжатие контекста недоступно для этого разговора.",
   "turnChangesTitle": "Изменено файлов: {count}",
   "turnChangesPartial": "Изменения отслежены частично",
   "turnChangesCoverage": "Учтены записанные штатные изменения файлов. Команды Shell, сторонние правки или недоступное содержимое могут оставить пробелы. Неизвестное число строк исключено из суммы.",
@@ -787,5 +787,22 @@
   "slashCommand.nexus.description": "Переключите Nexus или используйте /nexus on|off. При первом включении появится описание.",
   "slashCommand.moa.description": "Выберите совместную работу или используйте /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
   "slashCommand.quality.description": "Выберите качество или используйте /quality balanced|deep|code-ultra|research-ultra|custom.",
-  "commandUnavailable": "Эта команда сейчас недоступна в текущем разговоре."
+  "commandUnavailable": "Эта команда сейчас недоступна в текущем разговоре.",
+  "attentionTitle": "Требуется ваше внимание",
+  "attentionCount": "Требуется ваше внимание ({count})",
+  "attentionEmpty": "Нет запросов, требующих вашего внимания.",
+  "attentionApproval": "Ожидается разрешение",
+  "attentionQuestion": "Ожидается ваш ответ",
+  "approvalExpiresIn": "Ответьте в течение {seconds} с",
+  "approvalExpired": "Срок запроса истёк. Ожидается обновление задачи.",
+  "approvalSubmitFailed": "Не удалось отправить решение. Повторите попытку.",
+  "approvalSubmitting": "Отправка решения…",
+  "loadOlderMessages": "Загрузить предыдущие сообщения",
+  "loadLatestMessages": "К последним сообщениям",
+  "loadTurnActivity": "Показать действия и результаты инструментов",
+  "mcpMediaUnavailable": "Предпросмотр недоступен.",
+  "mcpImage": "Изображение результата",
+  "mcpAudio": "Аудио результата",
+  "mcpEmbeddedResource": "Встроенный ресурс",
+  "mcpStructuredContent": "Структурированный результат"
 }

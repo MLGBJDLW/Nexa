@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "このターンを保持できませんでした。",
   "connectionNextAction": "プロバイダー設定を確認し、接続が戻ったら再送してください。",
   "toolInputRedacted": "[非表示]",
-  "toolInputInvalid": "[解析できない引数を非表示]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[解析できない引数を非表示]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "コンパニオンは休憩中です",
   "companionThinking": "考えています",
   "companionSearching": "Web を検索しています",
@@ -694,8 +694,8 @@
   "companionSucceeded": "タスクが成功しました",
   "companionFailed": "タスクに失敗しました",
   "companionCancelled": "タスクをキャンセルしました",
-  "companionSleeping": "コンパニオンは眠っています"
-,"compactUnavailable": "この会話では手動のコンテキスト圧縮を利用できません。",
+  "companionSleeping": "コンパニオンは眠っています",
+  "compactUnavailable": "この会話では手動のコンテキスト圧縮を利用できません。",
   "turnChangesTitle": "{count} ファイルを変更",
   "turnChangesPartial": "変更の追跡は一部のみ",
   "turnChangesCoverage": "記録された標準ファイル操作のみ集計します。Shell コマンド、外部の編集、利用できない内容は漏れる場合があります。不明な行数は合計に含みません。",
@@ -787,5 +787,22 @@
   "slashCommand.nexus.description": "Nexus を切り替えます。/nexus on|off も使用できます。初回は説明を表示します。",
   "slashCommand.moa.description": "協調モードを選択します。/moa on|off|fast-review|deep-research|cross-model-code-review|custom も使用できます。",
   "slashCommand.quality.description": "品質を選択します。/quality balanced|deep|code-ultra|research-ultra|custom も使用できます。",
-  "commandUnavailable": "この会話では現在このコマンドを使用できません。"
+  "commandUnavailable": "この会話では現在このコマンドを使用できません。",
+  "attentionTitle": "対応が必要",
+  "attentionCount": "対応が必要（{count}）",
+  "attentionEmpty": "対応が必要な項目はありません。",
+  "attentionApproval": "承認待ち",
+  "attentionQuestion": "回答待ち",
+  "approvalExpiresIn": "{seconds} 秒以内に回答してください",
+  "approvalExpired": "このリクエストは期限切れです。タスクの更新を待っています。",
+  "approvalSubmitFailed": "判断を送信できませんでした。再試行してください。",
+  "approvalSubmitting": "判断を送信中…",
+  "loadOlderMessages": "以前のメッセージを読み込む",
+  "loadLatestMessages": "最新のメッセージに戻る",
+  "loadTurnActivity": "活動とツールの結果を表示",
+  "mcpMediaUnavailable": "メディアをプレビューできません。",
+  "mcpImage": "ツール結果の画像",
+  "mcpAudio": "ツール結果の音声",
+  "mcpEmbeddedResource": "埋め込みリソース",
+  "mcpStructuredContent": "構造化された結果"
 }

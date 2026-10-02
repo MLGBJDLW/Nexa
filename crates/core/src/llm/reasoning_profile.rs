@@ -9,12 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::provider_catalog::{find_provider_preset, model_capabilities_from_catalog};
 
 use super::provider_boundary::{
-    endpoint_id, is_alibaba_chat_endpoint, is_anthropic_public_endpoint, is_azure_openai_endpoint,
-    is_deepseek_anthropic_endpoint, is_deepseek_public_endpoint, is_doubao_public_endpoint,
-    is_google_public_endpoint, is_meta_model_api_endpoint, is_mimo_public_endpoint,
-    is_minimax_public_endpoint, is_mistral_public_endpoint, is_moonshot_public_endpoint,
-    is_openai_public_endpoint, is_openrouter_public_endpoint, is_siliconflow_public_endpoint,
-    is_xai_public_endpoint, is_zhipu_model_api_endpoint, provider_id,
+    endpoint_id, is_alibaba_chat_endpoint, is_alibaba_coding_chat_endpoint,
+    is_anthropic_public_endpoint, is_azure_openai_endpoint, is_deepseek_anthropic_endpoint,
+    is_deepseek_public_endpoint, is_doubao_public_endpoint, is_google_public_endpoint,
+    is_meta_model_api_endpoint, is_mimo_public_endpoint, is_minimax_public_endpoint,
+    is_mistral_public_endpoint, is_moonshot_public_endpoint, is_openai_public_endpoint,
+    is_openrouter_public_endpoint, is_siliconflow_public_endpoint, is_xai_public_endpoint,
+    is_zhipu_model_api_endpoint, provider_id,
 };
 use super::{ProviderType, ReasoningEffort};
 
@@ -869,6 +870,24 @@ pub fn resolve_reasoning_profile(
         return value;
     }
 
+    if is_alibaba_coding_chat_endpoint(provider, base_url) && model == "kimi-k2.5" {
+        // Coding Plan documents enable_thinking on its OpenAI-compatible route.
+        // Its endpoint/key/limits are separate from the pay-as-you-go service;
+        // preserve real reasoning without inventing a numeric budget contract.
+        let mut value = profile(
+            key,
+            "alibaba-coding-kimi-k2.5-v1",
+            ThinkingModeControl::EnableThinking,
+            ReasoningEffortField::None,
+            ReasoningEffortMapping::Exact,
+            (&[], None),
+            ReasoningBudgetField::None,
+        );
+        value.preserve_reasoning_history = true;
+        value.omit_temperature_when_reasoning = true;
+        return value;
+    }
+
     if is_alibaba_chat_endpoint(provider, base_url) {
         let qwen_payg = provider == ProviderType::AlibabaModelStudio
             && find_provider_preset("alibaba_model_studio", base_url).is_some_and(|preset| {
@@ -1043,6 +1062,22 @@ pub fn resolve_reasoning_profile(
                 ReasoningBudgetField::ThinkingBudget,
             );
             value.preserve_reasoning_history = true;
+            return value;
+        }
+
+        if model == "kimi-k3" {
+            let mut value = profile(
+                key,
+                "alibaba-hosted-kimi-k3-v1",
+                ThinkingModeControl::AlwaysOnEnableThinking,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = true;
+            value.omit_temperature_when_reasoning = true;
             return value;
         }
 

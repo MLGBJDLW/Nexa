@@ -2,8 +2,10 @@ import type { AgentRunEvent } from '../../types/conversation';
 import type { StreamState } from './protocol';
 import type { StreamTimeoutHandle } from './watchdog';
 import { isPendingToolCallStatus } from './toolStatus';
+import { StreamToolEntities } from './toolEntities';
 
 export interface InternalStreamState extends StreamState {
+  _tools: StreamToolEntities;
   _terminalRunId: string | null;
   _toolCallSeq: number;
   _roundSeq: number;
@@ -30,16 +32,21 @@ export interface InternalStreamState extends StreamState {
 }
 
 export function createDefaultState(): InternalStreamState {
+  const tools = new StreamToolEntities();
   return {
+    _tools: tools,
     _terminalRunId: null,
     turnHandle: null,
     isStreaming: false,
     streamText: '',
-    streamRounds: [],
-    traceEvents: [],
+    get streamRounds() { return tools.streamRounds; },
+    set streamRounds(value) { tools.streamRounds = value; },
+    get traceEvents() { return tools.traceEvents; },
+    set traceEvents(value) { tools.traceEvents = value; },
     thinkingText: '',
     isThinking: false,
-    toolCalls: [],
+    get toolCalls() { return tools.toolCalls; },
+    set toolCalls(value) { tools.toolCalls = value; },
     error: null,
     lastUsage: null,
     lastCached: false,
@@ -90,13 +97,16 @@ export function clearToolPreparingTimers(state: InternalStreamState): void {
 }
 
 export function capStreamCollections(state: InternalStreamState): void {
-  if (state.traceEvents.length > 512) state.traceEvents = state.traceEvents.slice(-512);
-  if (state.streamRounds.length > 128) state.streamRounds = state.streamRounds.slice(-128);
+  let trimmed = false;
+  if (state._tools.traceCount > 512) { state.traceEvents = state.traceEvents.slice(-512); trimmed = true; }
+  if (state._tools.roundCount > 128) { state.streamRounds = state.streamRounds.slice(-128); trimmed = true; }
   if (state.taskEvents.length > 256) state.taskEvents = state.taskEvents.slice(-256);
-  if (state.toolCalls.length > 512) {
+  if (state._tools.activeCount > 512) {
     const retained = new Set(state.traceEvents.flatMap(event => event.kind === 'tool' ? [event.toolCall.callId] : []));
     for (const round of state.streamRounds) for (const tool of round.toolCalls) retained.add(tool.callId);
     state.toolCalls = state.toolCalls.filter(tool => retained.has(tool.callId)
       || isPendingToolCallStatus(tool.status));
+    trimmed = true;
   }
+  if (trimmed) state._tools.prune();
 }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::{ProviderType, ToolDefinition};
 use crate::error::CoreError;
 use crate::model_catalog::NativeWebSearchCapability;
-use crate::provider_catalog::load_provider_presets;
+use crate::provider_catalog::provider_presets;
 use crate::provider_registry::provider_type_from_key;
 
 pub use crate::model_catalog::NativeSearchDialect;
@@ -410,10 +410,10 @@ impl NativeSearchPlan {
         provider_engine: ProviderNativeSearchEngine,
     ) -> Self {
         let normalized = normalize_base_url(base_url);
-        let capability = load_provider_presets()
+        let capability = provider_presets()
             .ok()
             .and_then(|presets| {
-                presets.into_iter().find(|preset| {
+                presets.iter().find(|preset| {
                     provider_type_from_key(&preset.provider) == Some(provider_type)
                         && normalized.as_deref().is_none_or(|actual| {
                             normalize_base_url(Some(&preset.base_url)).as_deref() == Some(actual)

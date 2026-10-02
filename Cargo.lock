@@ -3905,6 +3905,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "nexa-agent-eval"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "blake3",
+ "futures",
+ "nexa-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "nexa-core"
 version = "0.14.21"
 dependencies = [
@@ -3935,6 +3950,7 @@ dependencies = [
  "libc",
  "lopdf",
  "ndarray",
+ "nexa-model-catalog",
  "notify",
  "ort",
  "quick-xml",
@@ -4019,6 +4035,16 @@ dependencies = [
  "webview2-com",
  "windows 0.62.2",
  "windows-core 0.61.2",
+]
+
+[[package]]
+name = "nexa-model-catalog"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

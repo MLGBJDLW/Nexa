@@ -12,7 +12,10 @@ use crate::provider_registry::{provider_adapter_for_type, ProviderAdapterKind};
 pub mod anthropic;
 pub mod fallback;
 pub mod google;
+mod message;
 pub mod message_validation;
+pub mod model_contract;
+mod moonshot_schema;
 pub mod native_search;
 pub mod ollama;
 pub mod openai;
@@ -21,6 +24,9 @@ pub(crate) mod provider_boundary;
 pub mod provider_turn;
 pub mod reasoning_profile;
 pub mod reasoning_replay;
+pub use message::{Message, MessageData};
+#[cfg(test)]
+mod message_snapshot_tests;
 pub mod streaming;
 pub(crate) mod transport;
 
@@ -108,149 +114,6 @@ pub enum ContentPart {
     ProviderTurn {
         envelope: Box<provider_turn::ProviderTurnEnvelope>,
     },
-}
-
-/// A single message in a conversation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Message {
-    pub role: Role,
-    pub parts: Vec<ContentPart>,
-    /// Optional name for tool messages (the tool-call id).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// Tool calls requested by the assistant.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<ToolCallRequest>>,
-    /// Provider-specific assistant reasoning content to pass back in
-    /// multi-step tool loops (e.g. DeepSeek `reasoning_content`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_content: Option<String>,
-    /// Internal prompt-compiler metadata. Provider adapters consume this
-    /// sidecar and never include it in wire message content.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_hint: Option<PromptCacheHint>,
-}
-
-impl Message {
-    /// Create a text-only message.
-    pub fn text(role: Role, content: impl Into<String>) -> Self {
-        Self {
-            role,
-            parts: vec![ContentPart::Text {
-                text: content.into(),
-            }],
-            name: None,
-            tool_calls: None,
-            reasoning_content: None,
-            prompt_cache_hint: None,
-        }
-    }
-
-    /// Create a text message with a name.
-    pub fn text_with_name(role: Role, content: impl Into<String>, name: impl Into<String>) -> Self {
-        Self {
-            role,
-            parts: vec![ContentPart::Text {
-                text: content.into(),
-            }],
-            name: Some(name.into()),
-            tool_calls: None,
-            reasoning_content: None,
-            prompt_cache_hint: None,
-        }
-    }
-
-    pub fn with_prompt_cache_hint(
-        mut self,
-        stability: PromptStability,
-        boundary: CacheBoundaryHint,
-    ) -> Self {
-        self.prompt_cache_hint = Some(PromptCacheHint {
-            stability,
-            boundary,
-            lifetime: PromptLifetime::Turn,
-        });
-        self
-    }
-
-    pub fn with_prompt_lifetime(mut self, lifetime: PromptLifetime) -> Self {
-        if let Some(hint) = self.prompt_cache_hint.as_mut() {
-            hint.lifetime = lifetime;
-        }
-        self
-    }
-
-    pub fn prompt_cache_hint(&self) -> Option<(PromptStability, CacheBoundaryHint)> {
-        self.prompt_cache_hint
-            .map(|hint| (hint.stability, hint.boundary))
-    }
-
-    pub fn prompt_lifetime(&self) -> PromptLifetime {
-        self.prompt_cache_hint
-            .map(|hint| hint.lifetime)
-            .unwrap_or_default()
-    }
-
-    /// Get the combined text content from all text parts.
-    pub fn text_content(&self) -> String {
-        self.parts
-            .iter()
-            .filter_map(|p| match p {
-                ContentPart::Text { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    /// Check if this message has any image parts.
-    pub fn has_images(&self) -> bool {
-        self.parts
-            .iter()
-            .any(|p| matches!(p, ContentPart::Image { .. }))
-    }
-
-    /// Get all image parts.
-    pub fn image_parts(&self) -> Vec<&ContentPart> {
-        self.parts
-            .iter()
-            .filter(|p| matches!(p, ContentPart::Image { .. }))
-            .collect()
-    }
-
-    pub fn provider_turn(&self) -> Option<&provider_turn::ProviderTurnEnvelope> {
-        self.parts.iter().find_map(|part| match part {
-            ContentPart::ProviderTurn { envelope } => Some(envelope.as_ref()),
-            _ => None,
-        })
-    }
-
-    pub fn set_provider_turn(&mut self, envelope: provider_turn::ProviderTurnEnvelope) {
-        self.clear_provider_turn();
-        self.parts.push(ContentPart::ProviderTurn {
-            envelope: Box::new(envelope),
-        });
-    }
-
-    /// Remove provider-native replay state when a history repair changes the
-    /// assistant/tool envelope it authenticated.
-    pub fn clear_provider_turn(&mut self) {
-        self.parts
-            .retain(|part| !matches!(part, ContentPart::ProviderTurn { .. }));
-        if let Some(tool_calls) = self.tool_calls.as_mut() {
-            for tool_call in tool_calls {
-                tool_call.thought_signature = None;
-            }
-        }
-    }
-
-    /// Remove secret-adjacent provider replay state before serializing a
-    /// message to the desktop UI or another display-only consumer.
-    pub fn without_provider_turn(mut self) -> Self {
-        self.clear_provider_turn();
-        self
-    }
 }
 
 /// A tool invocation requested by the model.
@@ -1156,6 +1019,10 @@ fn provider_adapter_for_config(config: &ProviderConfig) -> ProviderAdapterKind {
 /// Create a provider instance from configuration.
 pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider>, CoreError> {
     config.base_url = normalize_base_url(config.base_url);
+    config.provider_type = crate::provider_registry::provider_type_for_parts(
+        crate::provider_registry::canonical_provider_key(config.provider_type),
+        config.base_url.as_deref(),
+    );
     let catalog_provider = config.provider_type;
     let catalog_base_url = config.base_url.clone();
 

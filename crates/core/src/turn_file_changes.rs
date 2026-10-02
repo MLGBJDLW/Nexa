@@ -428,6 +428,51 @@ mod tests {
     }
 
     #[test]
+    fn file_change_display_scope_reads_only_requested_turns() {
+        let (db, scope) = setup();
+        record(&scope, "first", "/first.txt", None, Some(b"first\n"));
+        seed_file_change_turn(&db, &scope.owner.conversation_id, "turn-2");
+        let second = FileChangeScope {
+            db: db.clone(),
+            owner: FileChangeOwner {
+                turn_id: "turn-2".into(),
+                ..scope.owner.clone()
+            },
+        };
+        record(&second, "second", "/second.txt", None, Some(b"second\n"));
+        let filtered = db
+            .conversation_file_changes_for_turns(
+                &scope.owner.conversation_id,
+                Some(&["turn-2".into()]),
+            )
+            .unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].turn_id, "turn-2");
+        assert_eq!(filtered[0].files.len(), 1);
+        assert_eq!(filtered[0].files[0].path, "/second.txt");
+        assert!(db
+            .conversation_file_changes_for_turns(&scope.owner.conversation_id, Some(&[]))
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .conversation_file_changes_for_turns("foreign-conversation", Some(&["turn-2".into()]))
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .conversation_file_changes_for_turns(
+                &scope.owner.conversation_id,
+                Some(&vec!["turn-2".into(); 257])
+            )
+            .is_err());
+        assert_eq!(
+            db.conversation_file_changes(&scope.owner.conversation_id)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
     fn repeated_edits_are_net_deduplicated_and_reverts_clear_the_capsule() {
         let (db, scope) = setup();
         let original = b"old\nkeep\nkeep\nkeep\nkeep\nkeep\nkeep\nkeep\nlast\n";
@@ -849,10 +894,35 @@ impl Database {
         &self,
         conversation_id: &str,
     ) -> Result<Vec<TurnFileChangeSummary>, CoreError> {
+        self.conversation_file_changes_for_turns(conversation_id, None)
+    }
+
+    /// A display page requests only its visible turn IDs. The complete history
+    /// endpoint remains available to callers that intentionally request it.
+    pub fn conversation_file_changes_for_turns(
+        &self,
+        conversation_id: &str,
+        turn_ids: Option<&[String]>,
+    ) -> Result<Vec<TurnFileChangeSummary>, CoreError> {
+        if turn_ids.is_some_and(|ids| ids.is_empty()) {
+            return Ok(Vec::new());
+        }
+        if turn_ids.is_some_and(|ids| ids.len() > 256) {
+            return Err(CoreError::InvalidInput(
+                "A file-change page accepts at most 256 turns".into(),
+            ));
+        }
+        let mut arguments = vec![rusqlite::types::Value::Text(conversation_id.to_string())];
+        let filter = if let Some(ids) = turn_ids {
+            arguments.push(rusqlite::types::Value::Text(serde_json::to_string(ids)?));
+            " AND turn_id IN (SELECT value FROM json_each(?2))"
+        } else {
+            ""
+        };
         let conn = self.conn();
         let mut summaries = BTreeMap::new();
-        let mut events = conn.prepare("SELECT turn_id,MAX(id),MAX(partial),MAX(pending) FROM turn_file_change_events WHERE conversation_id=?1 GROUP BY turn_id")?;
-        for row in events.query_map([conversation_id], |row| {
+        let mut events = conn.prepare(&format!("SELECT turn_id,MAX(id),MAX(partial),MAX(pending) FROM turn_file_change_events WHERE conversation_id=?1{filter} GROUP BY turn_id"))?;
+        for row in events.query_map(rusqlite::params_from_iter(arguments.iter()), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, u64>(1)?,
@@ -872,9 +942,9 @@ impl Database {
                 },
             );
         }
-        let mut files = conn.prepare("SELECT turn_id,display_path,absolute_path,existed_before,exists_after,additions,deletions,content_kind,partial,revision
-            FROM turn_file_changes WHERE conversation_id=?1 AND (existed_before!=exists_after OR before_hash IS NOT after_hash) ORDER BY absolute_path")?;
-        for row in files.query_map([conversation_id], |row| {
+        let mut files = conn.prepare(&format!("SELECT turn_id,display_path,absolute_path,existed_before,exists_after,additions,deletions,content_kind,partial,revision
+            FROM turn_file_changes WHERE conversation_id=?1{filter} AND (existed_before!=exists_after OR before_hash IS NOT after_hash) ORDER BY absolute_path"))?;
+        for row in files.query_map(rusqlite::params_from_iter(arguments.iter()), |row| {
             let existed: bool = row.get(3)?;
             let exists: bool = row.get(4)?;
             Ok((

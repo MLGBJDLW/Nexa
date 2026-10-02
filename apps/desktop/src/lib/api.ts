@@ -31,7 +31,7 @@ export interface TurnFileChangeSummary {
   partial: boolean;
   pending?: boolean;
 }
-export const getConversationFileChanges = (conversationId: string) => invoke<TurnFileChangeSummary[]>('get_conversation_file_changes_cmd', { conversationId });
+export const getConversationFileChanges = (conversationId: string, turnIds?: string[]) => invoke<TurnFileChangeSummary[]>('get_conversation_file_changes_cmd', { conversationId, turnIds });
 export const getTurnFileDiff = (conversationId: string, turnId: string, absolutePath: string) => invoke<import('../components/chat/FileDiffPreview').FileDiffArtifact>('get_turn_file_diff_cmd', { conversationId, turnId, absolutePath });
 import { invalidateSubscriptionModels, loadSubscriptionModels, reconcileSubscriptionAccount } from './subscriptionModelCatalog';
 import type {
@@ -1318,6 +1318,12 @@ export const getConversation = (id: string) =>
 
 export const getConversationTurns = (conversationId: string) =>
   invoke<ConversationTurn[]>('get_conversation_turns_cmd', { conversationId });
+
+export const getConversationTimelinePage = (conversationId: string, request: import('./conversationTimeline').TimelinePageRequest = {}) =>
+  invoke<import('../types/conversation').ConversationTimelinePage>('get_conversation_timeline_page_cmd', { conversationId, ...request });
+
+export const getConversationTimelineDetails = (conversationId: string, anchorMessageId: string) =>
+  invoke<import('../types/conversation').ConversationTimelineDetails>('get_conversation_timeline_details_cmd', { conversationId, anchorMessageId });
 
 export const listInteractionRequests = (
   conversationId: string | null = null,
@@ -2727,6 +2733,9 @@ import type { ApprovalDecisionValue, ToolPermissionPolicyList } from '../types';
 
 export const approveToolCall = (requestId: string, decision: ApprovalDecisionValue) =>
   invoke<void>('approve_tool_call_cmd', { requestId, decision });
+
+export const listPendingToolApprovals = () =>
+  invoke<import('./attentionInbox').PendingApprovalSnapshot[]>('list_pending_tool_approvals_cmd');
 
 export const listToolPermissionPolicies = () =>
   invoke<ToolPermissionPolicyList>('list_tool_permission_policies_cmd');

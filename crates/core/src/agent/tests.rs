@@ -1438,6 +1438,7 @@ struct RecoveringStreamProvider {
 
 struct EmptyMetadataContextOverflowProvider {
     stream_calls: Arc<AtomicUsize>,
+    requests: Arc<Mutex<Vec<CompletionRequest>>>,
 }
 
 #[async_trait]
@@ -1466,8 +1467,9 @@ impl LlmProvider for EmptyMetadataContextOverflowProvider {
 
     async fn stream_events(
         &self,
-        _request: &CompletionRequest,
+        request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        self.requests.lock().unwrap().push(request.clone());
         let call = self.stream_calls.fetch_add(1, Ordering::SeqCst) + 1;
         if call > 3 {
             return Err(CoreError::Internal(
@@ -7124,7 +7126,7 @@ async fn test_runtime_tail_is_ephemeral_between_turns() {
     .into_iter()
     .map(|message| {
         let text = message.text_content();
-        (message.role, text)
+        (message.role.clone(), text)
     })
     .collect::<Vec<_>>();
 
@@ -7568,7 +7570,7 @@ async fn test_exact_prefix_tool_loop_control_state_is_not_persisted_or_replayed(
     .into_iter()
     .map(|message| {
         let text = message.text_content();
-        (message.role, text)
+        (message.role.clone(), text)
     })
     .collect::<Vec<_>>();
 
@@ -7950,7 +7952,7 @@ async fn test_loop_guard_change_strategy_keeps_control_state_ephemeral() {
     .into_iter()
     .map(|message| {
         let text = message.text_content();
-        (message.role, text)
+        (message.role.clone(), text)
     })
     .collect::<Vec<_>>();
 
@@ -10354,10 +10356,13 @@ async fn test_repeated_stream_incomplete_fails_without_non_streaming_fallback() 
 
 #[tokio::test]
 async fn empty_metadata_chunks_do_not_reset_context_compaction_circuit_breaker() {
+    const CURRENT_REQUEST: &str = "answer after considering the history";
     let stream_calls = Arc::new(AtomicUsize::new(0));
+    let requests = Arc::new(Mutex::new(Vec::new()));
     let executor = AgentExecutor::new(
         Box::new(EmptyMetadataContextOverflowProvider {
             stream_calls: Arc::clone(&stream_calls),
+            requests: Arc::clone(&requests),
         }),
         ToolRegistry::new(),
         AgentConfig {
@@ -10369,23 +10374,29 @@ async fn empty_metadata_chunks_do_not_reset_context_compaction_circuit_breaker()
     let db = Database::open_memory().expect("in-memory db");
     let (tx, mut rx) = mpsc::channel(128);
     let compaction_statuses = Arc::new(AtomicUsize::new(0));
+    let applied_compactions = Arc::new(AtomicUsize::new(0));
     let drained_compaction_statuses = Arc::clone(&compaction_statuses);
+    let drained_applied_compactions = Arc::clone(&applied_compactions);
     let event_drain = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if matches!(
-                event,
-                AgentEvent::Status { ref content, .. }
-                    if content.starts_with("Context window overflow detected.")
-            ) {
-                drained_compaction_statuses.fetch_add(1, Ordering::SeqCst);
+            match event {
+                AgentEvent::Status { content, .. }
+                    if content.starts_with("Context window overflow detected.") =>
+                {
+                    drained_compaction_statuses.fetch_add(1, Ordering::SeqCst);
+                }
+                AgentEvent::AutoCompacted { .. } => {
+                    drained_applied_compactions.fetch_add(1, Ordering::SeqCst);
+                }
+                _ => {}
             }
         }
     });
     let history = (0..6)
         .flat_map(|turn| {
             [
-                Message::text(Role::User, format!("old user turn {turn}")),
-                Message::text(Role::Assistant, format!("old assistant response {turn}")),
+                Message::text(Role::User, format!("old user turn {turn}: {}", "Completed investigation requirements and archiveable source details. ".repeat(128))),
+                Message::text(Role::Assistant, format!("old assistant response {turn}: {}", "Verified archiveable evidence and results from that completed investigation. ".repeat(128))),
             ]
         })
         .collect();
@@ -10394,7 +10405,7 @@ async fn empty_metadata_chunks_do_not_reset_context_compaction_circuit_breaker()
         .run(
             history,
             vec![ContentPart::Text {
-                text: "answer after considering the history".to_string(),
+                text: CURRENT_REQUEST.to_string(),
             }],
             &db,
             None,
@@ -10417,6 +10428,100 @@ async fn empty_metadata_chunks_do_not_reset_context_compaction_circuit_breaker()
         2,
         "the run must expose exactly the two budgeted compaction attempts"
     );
+    assert_eq!(
+        applied_compactions.load(Ordering::SeqCst),
+        2,
+        "both retries require actual net context reduction, not a shorter message vector"
+    );
+    let requests = requests.lock().unwrap();
+    let prompt_tokens = requests
+        .iter()
+        .map(|request| {
+            assert!(request
+                .messages
+                .iter()
+                .any(|message| message.role == Role::User
+                    && message.text_content() == CURRENT_REQUEST));
+            context::estimate_context_usage_breakdown_for_model(
+                "mock-model",
+                &request.messages,
+                request.tools.as_deref().unwrap_or_default(),
+                None,
+            )
+            .total_tokens
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        prompt_tokens.windows(2).all(|pair| pair[1] < pair[0]),
+        "provider retries must receive successively smaller preserved contexts: {prompt_tokens:?}"
+    );
+}
+
+#[tokio::test]
+async fn provider_overflow_below_configured_capacity_reduces_beyond_an_existing_checkpoint() {
+    let executor = AgentExecutor::new(
+        Box::new(EmptyMetadataContextOverflowProvider {
+            stream_calls: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            model: Some("mock-model".into()),
+            context_window: Some(1_000_000),
+            ..AgentConfig::default()
+        },
+    );
+    let active = Message::text(Role::User, "Keep the active acceptance criterion exactly.");
+    let mut messages = vec![
+        Message::text(Role::System, "Stable policy"),
+        Message::text(
+            Role::System,
+            "## Earlier conversation context (compacted)\nAn earlier checkpoint.",
+        ),
+        Message::text(Role::User, "Earlier request"),
+        Message::text(Role::Assistant, "OLD_REDUCIBLE_EVIDENCE ".repeat(512)),
+        Message::text(Role::User, "Recent request one"),
+        Message::text(Role::Assistant, "RECENT_EXCHANGE_ONE"),
+        Message::text(Role::User, "Recent request two"),
+        Message::text(Role::Assistant, "RECENT_EXCHANGE_TWO"),
+        active.clone(),
+    ];
+    let tokens = |messages: &[Message]| {
+        context::estimate_context_usage_breakdown_for_model("mock-model", messages, &[], None)
+            .total_tokens
+    };
+    let before = tokens(&messages);
+    let db = Database::open_memory().unwrap();
+    let (tx, _rx) = mpsc::channel(8);
+    let changed = executor
+        .recover_context_overflow(
+            &mut messages,
+            "mock-model",
+            &tx,
+            context_compaction::CompactionRunContext {
+                db: &db,
+                conversation_id: None,
+                turn_id: None,
+                active_request: Some(&active),
+            },
+            &mut Usage::default(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        changed,
+        "an existing short checkpoint must not hide a later reducible old exchange"
+    );
+    assert!(tokens(&messages) < before);
+    assert!(messages.iter().any(|message| message == &active));
+    for recent in ["RECENT_EXCHANGE_ONE", "RECENT_EXCHANGE_TWO"] {
+        assert!(messages
+            .iter()
+            .any(|message| message.text_content() == recent));
+    }
+    assert!(!messages
+        .iter()
+        .any(|message| message.text_content().contains("OLD_REDUCIBLE_EVIDENCE")));
 }
 
 #[tokio::test]

@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use super::reasoning_profile::{resolve_reasoning_profile, ReasoningApiStyle};
+use super::model_contract::resolve_model_contract;
+use super::reasoning_profile::ReasoningApiStyle;
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
     configured_request_timeout, next_stream_item_with_idle_timeout, send_stream_start_request,
@@ -1751,38 +1752,42 @@ impl LlmProvider for GeminiProvider {
     }
 
     fn prompt_cache_profile(&self, model: &str) -> super::prompt_cache::PromptCacheProfile {
-        super::prompt_cache::resolve_prompt_cache_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
-            super::prompt_cache::PromptCacheApiStyle::Gemini,
+            ReasoningApiStyle::GeminiGenerateContent,
             model,
         )
+        .cache
+        .clone()
     }
 
     fn reasoning_replay_policy(
         &self,
         model: &str,
     ) -> super::reasoning_profile::ReasoningReplayPolicy {
-        resolve_reasoning_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::GeminiGenerateContent,
             model,
         )
+        .reasoning
         .replay_policy
     }
 
     fn route_snapshot(&self, request: &CompletionRequest) -> super::provider_turn::RouteSnapshot {
-        let profile = resolve_reasoning_profile(
+        let contract = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::GeminiGenerateContent,
             &request.model,
         );
+        let profile = &contract.reasoning;
         let trusted_codec =
             profile.confidence == super::reasoning_profile::CapabilityConfidence::Verified;
         let mut snapshot =
-            super::provider_turn::RouteSnapshot::from_profile_for_request(&profile, request);
+            super::provider_turn::RouteSnapshot::from_profile_for_request(profile, request);
         if trusted_codec && uses_thinking_levels(&request.model) {
             // Gemini 3 function-calling turns require a thought signature even
             // when the client does not request visible thinking.
@@ -2269,7 +2274,7 @@ mod tests {
     #[test]
     fn test_convert_messages_maps_tool_call_id_to_function_name() {
         let messages = vec![
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2281,7 +2286,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"ok":true}"#, "call_0"),
         ];
 
@@ -2324,7 +2329,7 @@ mod tests {
     #[test]
     fn test_convert_messages_wraps_non_object_tool_result() {
         let messages = vec![
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2336,7 +2341,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, "plain text result", "call_0"),
         ];
 
@@ -2612,7 +2617,7 @@ mod tests {
     #[test]
     fn test_convert_messages_preserves_function_call_ids() {
         let messages = vec![
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2624,7 +2629,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"content":"ok"}"#, "fc_123"),
         ];
 
@@ -2700,7 +2705,7 @@ mod tests {
         let messages = vec![
             Message::text(Role::User, "Please investigate"),
             Message::text(Role::Assistant, "I will inspect this."),
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2712,7 +2717,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"content":"ok"}"#, "call_1"),
         ];
 
@@ -2744,7 +2749,7 @@ mod tests {
     fn test_convert_messages_keeps_parallel_calls_and_responses_paired() {
         let messages = vec![
             Message::text(Role::User, "Inspect both files"),
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2764,7 +2769,7 @@ mod tests {
                 ]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"content":"a"}"#, "call_a"),
             Message::text_with_name(Role::Tool, r#"{"content":"b"}"#, "call_b"),
         ];

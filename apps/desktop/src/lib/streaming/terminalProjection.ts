@@ -9,8 +9,10 @@ import {
   isPendingToolCallStatus,
   type TerminalToolStatus,
 } from './toolStatus';
+import type { StreamToolEntities } from './toolEntities';
 
 export interface StreamTerminalProjectionState {
+  _tools?: StreamToolEntities;
   pendingApprovals?: unknown[];
   isStreaming: boolean;
   streamText: string;
@@ -90,11 +92,25 @@ export function clearTransientControllerStatus(
 }
 
 export function syncTraceToolEvents(state: StreamTerminalProjectionState): void {
+  if (state._tools) return; // ID projections already resolve the current entity.
   state.traceEvents = state.traceEvents.map(event => {
     if (event.kind !== 'tool') return event;
     const latest = state.toolCalls.find(tc => tc.callId === event.toolCall.callId);
     return latest ? { ...event, toolCall: latest } as TraceToolEvent : event;
   });
+}
+
+export function finishProjectedTools(state: StreamTerminalProjectionState, status: TerminalToolStatus, fallbackContent: string): void {
+  if (state._tools) {
+    for (const [id,tool] of state._tools.byId) {
+      if (!isPendingToolCallStatus(tool.status)) continue;
+      state._tools.set({ ...tool, status, argsStatus: status === 'error' || status === 'timedOut' ? 'error' : 'done', content: tool.content || fallbackContent, isError: status === 'error' || status === 'timedOut' },id);
+    }
+    return;
+  }
+  state.toolCalls = markToolCallsFinished(state.toolCalls,status,fallbackContent);
+  state.streamRounds = markRoundsToolCallsFinished(state.streamRounds,status,fallbackContent);
+  syncTraceToolEvents(state);
 }
 
 export function resetActiveStreamBlocks(state: StreamTerminalProjectionState): void {
@@ -145,23 +161,14 @@ export function applyStreamResetProjection(
     // intact and make any interrupted tools terminal so the timeline does not
     // show stale in-progress work forever. The flat active-tool list is still
     // cleared so new tool calls after the reset start from a clean slate.
-    state.toolCalls = markToolCallsFinished(
-      state.toolCalls,
-      'cancelled',
-      reason || 'Interrupted by stream reset',
-    );
-    state.streamRounds = markRoundsToolCallsFinished(
-      state.streamRounds,
-      'cancelled',
-      reason || 'Interrupted by stream reset',
-    );
-    syncTraceToolEvents(state);
+    finishProjectedTools(state, 'cancelled', reason || 'Interrupted by stream reset');
     state.toolCalls = [];
   }
 
   state.error = null;
   state._activeRoundId = null;
   state._activeRoundAcceptingStarts = false;
+  state._tools?.prune();
   resetActiveStreamBlocks(state);
 }
 
@@ -180,9 +187,7 @@ export function applyTerminalProjection(
   state.isThinking = false;
   state.thinkingText = '';
   const toolFallbackMessage = input.toolFallbackMessage ?? input.message;
-  state.toolCalls = markToolCallsFinished(state.toolCalls, input.toolStatus, toolFallbackMessage);
-  state.streamRounds = markRoundsToolCallsFinished(state.streamRounds, input.toolStatus, toolFallbackMessage);
-  syncTraceToolEvents(state);
+  finishProjectedTools(state, input.toolStatus, toolFallbackMessage);
   if (input.errorMessage !== undefined) state.error = input.errorMessage;
   appendStatusTraceEvent(state, input.message, input.traceTone);
   state._activeRoundId = null;

@@ -58,7 +58,8 @@ mod assistant_turn;
 pub mod context;
 mod context_compaction;
 mod context_handoff;
-pub mod context_pipeline;
+mod context_metrics;
+pub mod context_window;
 mod desktop_resume;
 pub use desktop_resume::restore_pending_desktop_evidence;
 mod direct_dispatch;
@@ -101,7 +102,7 @@ mod turn_loop;
 mod usage_accounting;
 mod workspace_isolation;
 
-use self::context_pipeline::ContextPipeline;
+use self::context_window::ContextWindow;
 use self::long_task::{
     create_task_checkpoint_for_turn, create_task_checkpoint_for_turn_with_state,
     LongTaskCompactionContext, LongTaskState,
@@ -294,6 +295,10 @@ pub struct AgentConfig {
     /// legacy inference path for non-hosted callers and serialized configs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog_limits_authoritative: Option<bool>,
+    /// Limits resolved once for the configured endpoint/model contract. The
+    /// route authority flag still gates their use by output budgeting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_catalog_limits: Option<crate::llm::model_contract::ResolvedCatalogLimits>,
     /// Whether to enable reasoning/thinking for models that support it.
     pub reasoning_enabled: Option<bool>,
     /// Thinking budget in tokens (Anthropic, Gemini).
@@ -471,6 +476,7 @@ impl Default for AgentConfig {
             context_management_mode: crate::context_history::ContextManagementMode::default(),
             context_window_resolution: None,
             catalog_limits_authoritative: None,
+            resolved_catalog_limits: None,
             reasoning_enabled: None,
             thinking_budget: None,
             reasoning_effort: None,
@@ -718,6 +724,7 @@ pub struct AgentExecutor {
     approval_callback: Option<ApprovalCallback>,
     tool_visual_interpreter: Option<ToolVisualInterpreter>,
     prompt_cache_tracker: StdMutex<PromptCacheTracker>,
+    context_metrics: StdMutex<context_metrics::ContextMetrics>,
     /// Separates invocation ids for short-lived executors that do not have a
     /// persisted conversation turn (notably detached subagents).
     usage_scope_id: String,
@@ -743,6 +750,7 @@ impl AgentExecutor {
             approval_callback: None,
             tool_visual_interpreter: None,
             prompt_cache_tracker: StdMutex::new(PromptCacheTracker::default()),
+            context_metrics: StdMutex::new(context_metrics::ContextMetrics::default()),
             usage_scope_id: Uuid::new_v4().to_string(),
             usage_run_id: None,
             usage_subtask_run_id: None,
@@ -1026,3 +1034,6 @@ fn resolve_delta_target<'a>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod context_window_tests;

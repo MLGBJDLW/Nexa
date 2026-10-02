@@ -95,6 +95,7 @@ pub(super) struct ModelStepContext<'a> {
     pub(super) has_sources: bool,
     pub(super) privacy_cfg: &'a privacy::PrivacyConfig,
     pub(super) messages: &'a mut Vec<Message>,
+    pub(super) active_request: &'a Message,
     /// Exact canonical message projection used for the initial physical
     /// request. Context-recovery rebuilds replace this snapshot in-place.
     pub(super) request_messages: Vec<Message>,
@@ -230,14 +231,14 @@ impl AgentExecutor {
 
         let draft_reasoning =
             self.reasoning_content_for_iteration(capture.iteration_thinking, false);
-        let mut draft_message = Message {
+        let mut draft_message = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text { text: full_content }],
             name: None,
             tool_calls: None,
             reasoning_content: draft_reasoning.clone(),
             prompt_cache_hint: None,
-        };
+        });
         let mut draft_envelope = crate::llm::provider_turn::ProviderTurnEnvelope::capture(
             Uuid::new_v4().to_string(),
             capture.accepted.sample_id.clone(),
@@ -318,6 +319,7 @@ impl AgentExecutor {
             has_sources,
             privacy_cfg,
             messages,
+            active_request,
             request_messages,
             final_answer_hygiene_scope,
             tool_defs,
@@ -533,13 +535,14 @@ impl AgentExecutor {
                     if steering.recovery_control
                         == Some(AgentRecoveryControl::LowerReasoningAndRetry)
                     {
-                        let discarded_prompt = context::estimate_context_usage_breakdown_for_model(
-                            model,
-                            &current_request.messages,
-                            tool_defs,
-                            None,
-                        )
-                        .total_tokens;
+                        let discarded_prompt = self
+                            .context_usage_breakdown(
+                                model,
+                                &current_request.messages,
+                                tool_defs,
+                                None,
+                            )
+                            .total_tokens;
                         let discarded_output =
                             crate::conversation::memory::estimate_tokens_for_model(
                                 model,
@@ -1028,6 +1031,7 @@ impl AgentExecutor {
                                         db,
                                         conversation_id,
                                         turn_id,
+                                        active_request: Some(active_request),
                                     },
                                     total_usage,
                                 )
@@ -1268,22 +1272,10 @@ impl AgentExecutor {
                     Some(&trace),
                 );
             }
-            let context_pipeline = ContextPipeline::new_with_resolution(
-                model,
-                self.config.context_window,
-                self.config.context_window_resolution,
-                self.config
-                    .resolved_max_response_tokens(model)
-                    .min(max_response_tokens),
-            )
-            .with_compact_percent(self.config.auto_compact_percent);
-            let before_trim = prompt_cache::message_sequence_fingerprint(messages);
-            if !self.history_handoff_enabled(conversation_id) {
-                *messages = context_pipeline.trim_after_tool_results(messages);
-            }
+            // Restart with intact evidence; the shared pre-request window
+            // preparation owns all summary/history reduction decisions.
             return Ok(ModelStepOutcome::Restart {
-                prompt_was_compacted: before_trim
-                    != prompt_cache::message_sequence_fingerprint(messages),
+                prompt_was_compacted: false,
             });
         }
 
@@ -1295,6 +1287,7 @@ impl AgentExecutor {
             )
         })?;
         let mut accepted_sample_id = accepted_attempt.sample_id;
+        let mut accepted_replay_omitted_units = accepted_attempt.replay_projection_omitted_units;
         let mut accepted_route_snapshot = accepted_attempt.route_snapshot;
 
         let captured_output_payload = crate::llm::provider_turn::ProviderReplayPayload::capture(
@@ -1441,6 +1434,7 @@ impl AgentExecutor {
                                             db,
                                             conversation_id,
                                             turn_id,
+                                            active_request: Some(active_request),
                                         },
                                         total_usage,
                                     )
@@ -1732,6 +1726,7 @@ impl AgentExecutor {
                 );
             }
             accepted_sample_id = safe_accepted.sample_id;
+            accepted_replay_omitted_units = safe_accepted.replay_projection_omitted_units;
             accepted_route_snapshot = safe_route;
             attempt_timing = safe_timing;
             current_request.messages = safe_request.messages;
@@ -1783,6 +1778,26 @@ impl AgentExecutor {
                     .await;
             }
         }
+
+        self.refresh_prompt_cache_observation(
+            model,
+            &current_request.messages,
+            current_request.tools.as_deref().unwrap_or_default(),
+        );
+        let primary_route = self.provider.route_snapshot(&current_request);
+        let calibration_tokens = if primary_route.same_route_identity(&accepted_route_snapshot)
+            && accepted_replay_omitted_units == 0
+        {
+            chunk_usage.as_ref().map(|usage| usage.prompt_tokens)
+        } else {
+            None
+        };
+        self.observe_context_input_tokens(
+            model,
+            &current_request.messages,
+            current_request.tools.as_deref().unwrap_or_default(),
+            calibration_tokens,
+        );
 
         let prompt_cache_observation =
             self.complete_prompt_cache_observation(chunk_usage.as_ref(), None);

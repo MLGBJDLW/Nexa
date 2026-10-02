@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "No se pudo conservar este turno.",
   "connectionNextAction": "Revisa la configuración del proveedor y vuelve a enviar cuando haya conexión.",
   "toolInputRedacted": "[Oculto]",
-  "toolInputInvalid": "[Argumentos no válidos ocultos]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[Argumentos no válidos ocultos]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "El compañero está descansando",
   "companionThinking": "Pensando",
   "companionSearching": "Buscando en la web",
@@ -694,8 +694,8 @@
   "companionSucceeded": "Tarea completada",
   "companionFailed": "La tarea falló",
   "companionCancelled": "Tarea cancelada",
-  "companionSleeping": "El compañero está durmiendo"
-,"compactUnavailable": "La compactación manual no está disponible para esta conversación.",
+  "companionSleeping": "El compañero está durmiendo",
+  "compactUnavailable": "La compactación manual no está disponible para esta conversación.",
   "turnChangesTitle": "{count} archivos modificados",
   "turnChangesPartial": "Seguimiento parcial de cambios",
   "turnChangesCoverage": "Solo se cuentan cambios nativos registrados. Los comandos Shell, otras ediciones o el contenido no disponible pueden dejar huecos. Las líneas desconocidas se excluyen del total.",
@@ -787,5 +787,22 @@
   "slashCommand.nexus.description": "Activa o desactiva Nexus con /nexus on|off. La primera activación muestra una introducción.",
   "slashCommand.moa.description": "Elige la colaboración o usa /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
   "slashCommand.quality.description": "Elige la calidad o usa /quality balanced|deep|code-ultra|research-ultra|custom.",
-  "commandUnavailable": "Este comando no está disponible en la conversación actual."
+  "commandUnavailable": "Este comando no está disponible en la conversación actual.",
+  "attentionTitle": "Requiere tu atención",
+  "attentionCount": "Requiere tu atención ({count})",
+  "attentionEmpty": "No hay nada que requiera tu atención.",
+  "attentionApproval": "Esperando aprobación",
+  "attentionQuestion": "Esperando tu respuesta",
+  "approvalExpiresIn": "Responde en {seconds} s",
+  "approvalExpired": "Esta solicitud ha caducado. Esperando a que se actualice la tarea.",
+  "approvalSubmitFailed": "No se pudo enviar tu decisión. Inténtalo de nuevo.",
+  "approvalSubmitting": "Enviando tu decisión…",
+  "loadOlderMessages": "Cargar mensajes anteriores",
+  "loadLatestMessages": "Volver a los últimos mensajes",
+  "loadTurnActivity": "Ver actividad y resultados de herramientas",
+  "mcpMediaUnavailable": "No se puede previsualizar el contenido.",
+  "mcpImage": "Imagen del resultado",
+  "mcpAudio": "Audio del resultado",
+  "mcpEmbeddedResource": "Recurso integrado",
+  "mcpStructuredContent": "Resultado estructurado"
 }

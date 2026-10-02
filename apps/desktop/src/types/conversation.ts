@@ -52,6 +52,44 @@ export interface ConversationTurn {
   finishedAt?: string | null;
 }
 
+export interface ConversationTimelineCursor {
+  sortOrder: number;
+  messageId: string;
+}
+
+export interface ConversationTimelineRange {
+  from: ConversationTimelineCursor;
+  before: ConversationTimelineCursor | null;
+}
+
+export interface ConversationTimelineEntry {
+  anchor: ConversationTimelineCursor;
+  turnId: string | null;
+  hasDetails: boolean;
+  detailRevision: string;
+}
+
+export interface ConversationTimelinePage {
+  conversation: Conversation;
+  messages: ConversationMessage[];
+  turns: ConversationTurn[];
+  entries: ConversationTimelineEntry[];
+  taskRuns: AgentTaskRun[];
+  range: ConversationTimelineRange | null;
+  oldestCursor: ConversationTimelineCursor | null;
+  newestCursor: ConversationTimelineCursor | null;
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+}
+
+export interface ConversationTimelineDetails {
+  anchorId: string;
+  messages: ConversationMessage[];
+  turns: ConversationTurn[];
+  range: ConversationTimelineRange;
+  detailRevision: string;
+}
+
 export type InteractionKind =
   | 'user_input'
   | 'approval'
@@ -1017,6 +1055,8 @@ export interface ToolAccessInfo {
 
 export interface ApprovalRequest {
   id: string;
+  createdAt?: string | null;
+  expiresAt?: string | null;
   toolName: string;
   permissionKey: string;
   targetKind: string;

@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
   useCallback,
+  useLayoutEffect,
 } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -22,6 +23,7 @@ import {
 import { useTranslation } from "../../i18n";
 import { useDeveloperMode } from "../../lib/developerMode";
 import { useConversationFileChanges } from '../../lib/useConversationFileChanges';
+import type { TimelineEntry } from '../../lib/conversationTimeline';
 import { observeScrollFollow } from '../../lib/scrollFollow';
 import { TurnFileChanges } from '../../components/chat/TurnFileChanges';
 import { hasTimeGap } from "../../lib/relativeTime";
@@ -64,6 +66,7 @@ import {
 import {
   QuestionRequestTimelineRecord,
   ToolCallCard,
+  TimelineToolCallCard,
 } from "../../components/chat/ToolCallCard";
 import { extractQuestionRequest } from "../../lib/questionCards";
 import {
@@ -89,6 +92,14 @@ interface ChatMessagesProps {
   conversationId?: string | null;
   messages: ConversationMessage[];
   turns: ConversationTurn[];
+  timelineEntries?: TimelineEntry[];
+  hasOlderMessages?: boolean;
+  hasNewerMessages?: boolean;
+  loadingOlderMessages?: boolean;
+  onLoadOlderMessages?: () => Promise<void>;
+  onLoadLatestMessages?: () => Promise<void>;
+  onLoadTurnDetails?: (anchorId: string) => Promise<void>;
+  focusMessageId?: string | null;
   streamText: string;
   streamRounds: StreamRoundEvent[];
   traceEvents: TraceEvent[];
@@ -637,6 +648,7 @@ function collectQuestionResponses(
 
 export function ChatMessages(props: ChatMessagesProps) {
   const {
+    conversationId,
     turns,
     streamText,
     thinkingText,
@@ -662,10 +674,9 @@ export function ChatMessages(props: ChatMessagesProps) {
     onCancelCompaction,
   } = props;
   const completedFileTools = toolCalls.filter(call => call.status === 'done' || call.status === 'error').map(call => `${call.callId}:${call.status}`).join('|');
-  const recordedFileChanges = useConversationFileChanges(props.conversationId, isStreaming, `${completedFileTools}:${props.messages.length}:${turns.length}`);
-  const dockedFileChanges = (taskRun?.turnId ? recordedFileChanges.get(taskRun.turnId) : undefined)
-    ?? [...turns].reverse().map(turn => recordedFileChanges.get(turn.id)).find(Boolean)
-    ?? [...recordedFileChanges.values()].slice(-1)[0];
+  const [expandedDetailAnchors, setExpandedDetailAnchors] = useState<ReadonlySet<string>>(new Set());
+  const detailEntries = useMemo(() => new Map((props.timelineEntries ?? []).map(entry => [entry.anchor.messageId, entry])), [props.timelineEntries]);
+  useEffect(() => { setExpandedDetailAnchors(new Set()); }, [props.conversationId]);
   const [developerMode] = useDeveloperMode();
   const streamingVisibility = useMemo(
     () => projectChatStreamingVisibility({
@@ -925,24 +936,11 @@ export function ChatMessages(props: ChatMessagesProps) {
           return {
             text: "",
             node: (
-              <ToolCallCard
+              <TimelineToolCallCard
                 key={section.id}
-                callId={section.toolCall.callId}
-                toolName={section.toolCall.toolName}
-                arguments={section.toolCall.arguments}
-                status={section.toolCall.status}
-                owner={section.toolCall.owner}
-                renderKind={section.toolCall.renderKind}
-                capabilities={section.toolCall.capabilities}
-                durationMs={section.toolCall.durationMs}
-                progressNote={section.toolCall.progressNote}
-                activityEvents={section.toolCall.activityEvents}
+                conversationId={conversationId}
+                toolCall={section.toolCall}
                 parentRunActive={parentRunActive}
-                content={section.toolCall.content}
-                isError={section.toolCall.isError}
-                artifacts={section.toolCall.artifacts}
-                argsStatus={section.toolCall.argsStatus}
-                argsBytes={section.toolCall.argsBytes}
                 trace={section.trace}
                 questionAnswered={questionResponses.has(section.toolCall.callId)}
                 questionResponse={questionResponses.get(section.toolCall.callId)}
@@ -954,7 +952,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           return null;
       }
     },
-    [onQuestionSubmit, questionResponses, renderTraceReplyNode, t],
+    [conversationId, onQuestionSubmit, questionResponses, renderTraceReplyNode, t],
   );
 
   const renderTimelineSections = useCallback(
@@ -971,6 +969,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       sections: TimelineSection[],
       isStreaming = false,
       parentRunActive = isStreaming,
+      forceExpanded = false,
     ) => {
       if (sections.length === 0) return <Fragment key={key} />;
       const ordered: Array<
@@ -1051,7 +1050,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                 item.id,
                 renderTimelineSections(item.sections, parentRunActive),
                 isStreaming && index === lastTraceIndex,
-                false,
+                forceExpanded,
               )
             : item.kind === 'steering' ? (
                 <TraceSteeringRow key={item.id} text={item.text} label={t('chat.steeringLabel')} />
@@ -1251,6 +1250,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     }
 
     let currentGroup: number[] = [];
+    let currentGroupRoot: string | null = null;
 
     const flushGroup = () => {
       if (currentGroup.length === 0) return;
@@ -1373,6 +1373,9 @@ export function ChatMessages(props: ChatMessagesProps) {
           renderTimelineTraceNode(
             `turn-working-trace-${messages[anchorIdx].id}`,
             traceSections,
+            false,
+            false,
+            expandedDetailAnchors.has(currentGroupRoot ?? ''),
           ),
         );
       }
@@ -1387,6 +1390,9 @@ export function ChatMessages(props: ChatMessagesProps) {
             renderTimelineTraceNode(
               `trace-fallback-${messages[anchorIdx].id}`,
               fallbackSections,
+                false,
+                false,
+                expandedDetailAnchors.has(currentGroupRoot ?? ''),
             ),
           );
         }
@@ -1441,6 +1447,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       const msg = messages[i];
       if (msg.role === "user") {
         flushGroup();
+        if (!isSteeringMessage(msg)) currentGroupRoot = msg.id;
         continue;
       }
       if (msg.role === "assistant") {
@@ -1463,6 +1470,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     renderTraceReplyNode,
     t,
     turns,
+    expandedDetailAnchors,
   ]);
 
   const renderableMessageIndexes = useMemo(() => messages.flatMap((message, index) => {
@@ -1488,6 +1496,47 @@ export function ChatMessages(props: ChatMessagesProps) {
       return turn ? `turn-${turn.turn.id}` : message?.id ?? virtualIndex;
     },
   });
+  const visibleFileChangeTurnIds = [...new Set([
+    ...(taskRun?.turnId ? [taskRun.turnId] : turns.length ? [turns[turns.length - 1].id] : []),
+    ...rowVirtualizer.getVirtualItems().flatMap(row => {
+      const anchor = turnRenderMap.anchors.get(renderableMessageIndexes[row.index]);
+      return anchor ? [anchor.turn.id] : [];
+    }),
+  ])];
+  const recordedFileChanges = useConversationFileChanges(props.conversationId, isStreaming, `${completedFileTools}:${props.messages.length}:${turns.length}`, visibleFileChangeTurnIds);
+  const dockedFileChanges = (taskRun?.turnId ? recordedFileChanges.get(taskRun.turnId) : undefined)
+    ?? [...turns].reverse().map(turn => recordedFileChanges.get(turn.id)).find(Boolean)
+    ?? [...recordedFileChanges.values()].slice(-1)[0];
+
+  const pendingPrependAnchor = useRef<{ key: string; top: number } | null>(null);
+  const loadOlderMessages = useCallback(async () => {
+    const container = scrollContainerRef.current;
+    if (!container || !props.onLoadOlderMessages || props.loadingOlderMessages) return;
+    shouldAutoFollowRef.current = false;
+    const bounds = container.getBoundingClientRect();
+    const visible = [...container.querySelectorAll<HTMLElement>('[data-timeline-key]')]
+      .find(element => element.getBoundingClientRect().bottom > bounds.top);
+    if (visible) pendingPrependAnchor.current = { key: visible.dataset.timelineKey!, top: visible.getBoundingClientRect().top - bounds.top };
+    await props.onLoadOlderMessages();
+  }, [props.onLoadOlderMessages, props.loadingOlderMessages]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingPrependAnchor.current;
+    const container = scrollContainerRef.current;
+    if (!anchor || !container || props.loadingOlderMessages) return;
+    pendingPrependAnchor.current = null;
+    const index = renderableMessageIndexes.findIndex(messageIndex => {
+      const turn = turnRenderMap.anchors.get(messageIndex);
+      return (turn ? `turn-${turn.turn.id}` : messages[messageIndex]?.id) === anchor.key;
+    });
+    if (index < 0) return;
+    rowVirtualizer.scrollToIndex(index, { align: 'start' });
+    const frame = requestAnimationFrame(() => {
+      const element = container.querySelector<HTMLElement>(`[data-timeline-key="${CSS.escape(anchor.key)}"]`);
+      if (element) container.scrollTop += element.getBoundingClientRect().top - container.getBoundingClientRect().top - anchor.top;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [messages, props.loadingOlderMessages, renderableMessageIndexes, rowVirtualizer, turnRenderMap.anchors]);
 
   const turnVirtualIndexById = useMemo(() => {
     const indexes = new Map<string, number>();
@@ -1723,6 +1772,35 @@ export function ChatMessages(props: ChatMessagesProps) {
     shouldAutoFollowRef.current = true;
     scrollToContainerBottom(shouldReduceMotion ? "auto" : "smooth");
   }, [scrollToContainerBottom, shouldReduceMotion]);
+
+  const focusedMessage = useRef<string | null>(null);
+  useEffect(() => {
+    if (!props.focusMessageId || loadingMsgs || turnNavigationItems.length === 0) return;
+    const identity = `${props.conversationId}:${props.focusMessageId}`;
+    if (focusedMessage.current === identity) return;
+    focusedMessage.current = identity;
+    const owner = turns.find(turn => turn.assistantMessageId === props.focusMessageId);
+    const target = turnNavigationItems.find(item => item.userMessageId === (owner?.userMessageId ?? props.focusMessageId)) ?? turnNavigationItems[0];
+    scrollToTurn(target.id);
+  }, [loadingMsgs, props.conversationId, props.focusMessageId, scrollToTurn, turnNavigationItems, turns]);
+
+  const renderDeferredActivity = (anchorId: string) => {
+    const entry = detailEntries.get(anchorId);
+    if (!entry?.hasDetails || entry.detailsLoaded || !props.onLoadTurnDetails) return null;
+    const turn = entry.turnId ? turns.find(turn => turn.id === entry.turnId) : null;
+    return <div className="mb-3" data-testid={`deferred-activity-${anchorId}`}>
+      <button type="button" disabled={entry.detailsLoading} className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-surface-2 disabled:opacity-60"
+        onClick={() => {
+          setExpandedDetailAnchors(previous => new Set([...previous, anchorId]));
+          void props.onLoadTurnDetails?.(anchorId);
+        }}>
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+        {entry.detailsLoading ? t('common.loading') : t('chat.loadTurnActivity')}
+        {turn?.status === 'failed' && <span className="text-danger">{t('taskCenter.failed')}</span>}
+      </button>
+      {entry.detailError && <p role="alert" className="break-words text-xs text-danger">{entry.detailError}</p>}
+    </div>;
+  };
 
   const lastAssistantIdx = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -2002,6 +2080,8 @@ export function ChatMessages(props: ChatMessagesProps) {
       aria-label={t("chat.messageArea")}
     >
       <div ref={scrollContentRef} data-chat-follow-content="true" className="flow-root min-w-0">
+      {props.hasOlderMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-older" disabled={props.loadingOlderMessages} onClick={() => void loadOlderMessages()} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2 disabled:opacity-60">{props.loadingOlderMessages ? t('common.loading') : t('chat.loadOlderMessages')}</button></div>}
+      {props.hasNewerMessages && <div className="mb-3 flex justify-center"><button type="button" data-testid="chat-load-latest" onClick={() => { void props.onLoadLatestMessages?.().then(scrollToBottom); }} className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2">{t('chat.loadLatestMessages')}</button></div>}
       <TurnNavigator
         items={turnNavigationItems}
         activeId={activeTurnNavigationId}
@@ -2041,8 +2121,8 @@ export function ChatMessages(props: ChatMessagesProps) {
                 ? messageTraceGroups.get(assistantIdx)
                 : undefined;
             const chunkIds = assistantMsg
-              ? (chunkIdCacheRef.current.get(assistantMsg.id) ?? [])
-              : [];
+              ? chunkIdCacheRef.current.get(assistantMsg.id)
+              : undefined;
             const turnDiffs =
               isStreaming && idx === latestUserIdx
                 ? undefined
@@ -2097,6 +2177,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                   }
                 />
 
+                {renderDeferredActivity(msg.id)}
                 {visibleSkills.length > 0 && (
                   <TurnSkillStrip skills={visibleSkills} live={skillsAreLive} />
                 )}
@@ -2157,7 +2238,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                   .reverse()
                   .find((m) => m.role === "user")?.content ?? "")
               : "";
-          const chunkIds = chunkIdCacheRef.current.get(msg.id) ?? [];
+          const chunkIds = chunkIdCacheRef.current.get(msg.id);
           const traceGroup =
             msg.role === "assistant" ? messageTraceGroups.get(idx) : undefined;
           if (traceGroup?.type === "member") return null;
@@ -2256,6 +2337,8 @@ export function ChatMessages(props: ChatMessagesProps) {
                 <TurnSkillStrip skills={liveUserSkills} live />
               )}
 
+              {msg.role === 'user' && renderDeferredActivity(msg.id)}
+
               {renderFileDiffPreviews(assistantDiffs, `message-diff-${msg.id}`)}
             </div>
           );
@@ -2266,6 +2349,7 @@ export function ChatMessages(props: ChatMessagesProps) {
               ref={rowVirtualizer.measureElement}
               data-index={virtualRow.index}
               data-chat-virtual-row="true"
+              data-timeline-key={String(virtualRow.key)}
               style={{
                 left: 0,
                 position: 'absolute',

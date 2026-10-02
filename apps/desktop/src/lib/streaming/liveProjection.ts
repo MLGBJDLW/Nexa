@@ -8,10 +8,8 @@ import type { InternalStreamState } from './state';
 import {
   appendStatusTraceEvent,
   applyTerminalProjection,
-  markRoundsToolCallsFinished,
-  markToolCallsFinished,
+  finishProjectedTools,
   resetActiveStreamBlocks,
-  syncTraceToolEvents,
 } from './terminalProjection';
 
 const CONNECTION_STATES = new Set([
@@ -189,9 +187,7 @@ export function applyDoneEvent(
     : input.status === 'timed_out'
       ? 'Timed out'
       : 'No output';
-  state.toolCalls = markToolCallsFinished(state.toolCalls, toolStatus, toolFallback);
-  state.streamRounds = markRoundsToolCallsFinished(state.streamRounds, toolStatus, toolFallback);
-  syncTraceToolEvents(state);
+  finishProjectedTools(state, toolStatus, toolFallback);
 
   applyUsageUpdateEvent(
     state,

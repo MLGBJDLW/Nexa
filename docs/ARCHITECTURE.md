@@ -20,6 +20,7 @@ become architecture merely by being stored in the repository.
 | Live observation | Bounded input/session lifecycle, native realtime or incremental observation, text records, and summaries | `crates/core/src/live_analysis` |
 | Office live host | Separately paired Word/Excel/PowerPoint operations with declared host capabilities | `integrations/office-addin` and `crates/core/src/office_live_bridge.rs` |
 | Shared catalogs | Provider, model, modality, and capability descriptors consumed by both frontend and backend | `shared/` |
+| Catalog protocol | Endpoint/model identities, immutable projection, account-scoped merge and selection | `crates/model-catalog` |
 | Durable state | Conversations, turns, tool results, checkpoints, settings, sources, and indexes | SQLite migrations and stores under `crates/core/src` |
 
 The UI is a projection of runtime state, not a second source of truth. Provider
@@ -47,6 +48,27 @@ Transport liveness is distinct from committed Agent Run progress. Public route
 readiness verifies the actual HTTPS, RPC, and WebSocket path before advertising
 an endpoint. A browser session or Live observation is also a separate lifecycle
 from an Agent Run; it must not manufacture run completion.
+
+## Portable contracts and host implementations
+
+The model catalog protocol is an independent crate with no dependency on core,
+SQLite, async runtimes, browsers or the desktop host. Core re-exports the types
+for existing callers. Static catalog data is parsed once; account discoveries,
+probes and saved choices remain separately versioned state. A resolved model
+contract supplies wire schema, reasoning/replay, cache behavior and catalog
+limits for the same concrete route. Cached limits carry model/provider identity
+and cannot be reused after changing that identity.
+
+Core's `host-tools` default enables `headless-browser`, `desktop-control` and
+`document-processing`. Desktop explicitly enables that group even when its own
+default features are disabled. A minimal core build excludes those heavy
+implementations; missing PDF/spreadsheet support is explicit, and unavailable
+headless tools are not registered. Browser schema and committed-open receipts
+remain shared with the native host without requiring Chromium in a protocol
+consumer. OCR additionally enables its document/image processing dependencies.
+
+The [task evaluator](AGENT_TASK_EVALUATION.md) uses the minimal runtime and real
+file tools; its scripted transport is distinct from opt-in model task quality.
 
 ## Prompt source and cache layout
 

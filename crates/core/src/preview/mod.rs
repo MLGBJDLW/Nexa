@@ -1,6 +1,8 @@
 mod docx;
 pub mod model;
+#[cfg(feature = "document-processing")]
 mod pdf;
+#[cfg(feature = "document-processing")]
 mod xlsx;
 
 use std::path::{Path, PathBuf};
@@ -62,6 +64,7 @@ pub fn build_structured_preview(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
             docx::preview_docx(path, content_hash, options).map(Some)
         }
+        #[cfg(feature = "document-processing")]
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
             if path
                 .extension()
@@ -73,7 +76,12 @@ pub fn build_structured_preview(
                 Ok(None)
             }
         }
+        #[cfg(feature = "document-processing")]
         "application/pdf" => pdf::preview_pdf(path),
+        #[cfg(not(feature = "document-processing"))]
+        "application/pdf" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
+            Err("PDF and spreadsheet previews require the document-processing build feature".into())
+        }
         _ => Ok(None),
     }
 }

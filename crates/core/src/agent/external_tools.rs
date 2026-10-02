@@ -989,7 +989,7 @@ impl ExternalToolSession {
         let mut visual_parts: Vec<ContentPart> = messages
             .into_iter()
             .filter(|message| message.role == Role::User)
-            .flat_map(|message| message.parts)
+            .flat_map(|message| message.into_data().parts)
             .collect();
         // Use the executed action receipt, including normalized tool arguments.
         // Its own visual result already contains the explicitly observed frame.
@@ -1008,7 +1008,7 @@ impl ExternalToolSession {
             )
             .await
             {
-                visual_parts.extend(context.parts);
+                visual_parts.extend(context.into_data().parts);
             }
         }
         Ok(ExternalToolOutput {

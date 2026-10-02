@@ -2,6 +2,17 @@
 
 pub mod client;
 pub mod config_file;
+mod events;
+pub mod identity;
+mod manager;
+pub mod result;
+pub(crate) use manager::McpConnectorSlot;
+pub use manager::{McpCatalogSnapshot, McpManager};
+
+pub use identity::{CanonicalToolId, McpToolIdentity};
+
+#[cfg(test)]
+mod integration_tests;
 
 use crate::db::Database;
 use crate::error::CoreError;
@@ -9,15 +20,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::net::TcpListener;
-use std::process::{Child, Command as StdCommand};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Weak};
-use tokio::sync::Mutex;
 use uuid::Uuid;
-
-use self::client::McpClient;
-use crate::tools::mcp_tool::{McpClientSlot, McpTool};
-use crate::tools::ToolRegistry;
 
 // ---------------------------------------------------------------------------
 // Data models
@@ -64,7 +67,7 @@ pub struct SaveMcpServerInput {
 }
 
 /// Tool information returned by an MCP connector.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct McpToolInfo {
     pub name: String,
     pub description: Option<String>,
@@ -331,6 +334,7 @@ fn runtime_config_changed(current: &McpServer, desired: &McpServer) -> bool {
         || current.url != desired.url
         || current.env_json != desired.env_json
         || current.headers_json != desired.headers_json
+        || current.builtin_id != desired.builtin_id
 }
 
 fn expand_managed_arg(arg: &str, port: u16) -> String {
@@ -551,533 +555,12 @@ impl Database {
     }
 }
 
-// ---------------------------------------------------------------------------
-// MCP Manager
-// ---------------------------------------------------------------------------
-
-/// Manages MCP connector connections and their lifecycle.
-pub struct McpManager {
-    clients: HashMap<String, Arc<Mutex<McpClient>>>,
-    connection_health: HashMap<String, Arc<McpConnectionHealth>>,
-    connection_call_timeout_secs: HashMap<String, Option<u64>>,
-    connected_servers: HashMap<String, McpServer>,
-    managed_processes: HashMap<String, Child>,
-    connection_generation: Arc<AtomicU64>,
-}
-
-/// Shared liveness state held by both the manager and registered MCP tools.
-/// A failed tool call invalidates the registry generation without requiring
-/// the tool to own or lock the manager.
-pub(crate) struct McpConnectionHealth {
-    healthy: AtomicBool,
-    connection_generation: Arc<AtomicU64>,
-}
-
-impl McpConnectionHealth {
-    fn new(connection_generation: Arc<AtomicU64>) -> Self {
-        Self {
-            healthy: AtomicBool::new(true),
-            connection_generation,
-        }
-    }
-
-    pub(crate) fn is_healthy(&self) -> bool {
-        self.healthy.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn mark_unhealthy(&self) {
-        if self.healthy.swap(false, Ordering::AcqRel) {
-            self.connection_generation.fetch_add(1, Ordering::AcqRel);
-        }
-    }
-}
-
-impl McpManager {
-    pub fn new() -> Self {
-        Self {
-            clients: HashMap::new(),
-            connection_health: HashMap::new(),
-            connection_call_timeout_secs: HashMap::new(),
-            connected_servers: HashMap::new(),
-            managed_processes: HashMap::new(),
-            connection_generation: Arc::new(AtomicU64::new(0)),
-        }
-    }
-
-    fn advance_connection_generation(&self) {
-        self.connection_generation.fetch_add(1, Ordering::AcqRel);
-    }
-
-    /// Start a managed process for a built-in MCP connector.
-    /// Returns the port the process is listening on.
-    async fn start_managed_process(&mut self, server: &McpServer) -> Result<u16, CoreError> {
-        let command = server
-            .command
-            .as_deref()
-            .ok_or_else(|| CoreError::Mcp("Built-in connector missing command".into()))?;
-
-        let port = find_free_port()?;
-
-        let args: Vec<String> = match &server.args {
-            Some(a) => parse_mcp_args(a)?,
-            None => Vec::new(),
-        }
-        .into_iter()
-        .map(|arg| expand_managed_arg(&arg, port))
-        .collect();
-
-        // Merge environment variables, adding PORT
-        let mut env_vars: HashMap<String, String> = server
-            .env_json
-            .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or_default();
-        env_vars.insert("PORT".to_string(), port.to_string());
-
-        // On Windows, Node.js CLI tools are batch scripts (.cmd) — Command::new
-        // won't find them without the extension since it doesn't use PATHEXT.
-        #[cfg(windows)]
-        let effective_command = {
-            let lower = command.to_ascii_lowercase();
-            if ["npx", "node", "npm", "yarn", "pnpm", "bunx"].contains(&lower.as_str()) {
-                format!("{command}.cmd")
-            } else {
-                command.to_string()
-            }
-        };
-        #[cfg(not(windows))]
-        let effective_command = command.to_string();
-
-        let mut cmd = StdCommand::new(&effective_command);
-        cmd.args(&args);
-        cmd.envs(&env_vars);
-        // Prevent the child from inheriting stdin (important on Windows)
-        cmd.stdin(std::process::Stdio::null());
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-
-        crate::background_process::configure_std_background_process_group(&mut cmd);
-
-        let child = cmd.spawn().map_err(|e| {
-            CoreError::Mcp(format!(
-                "Failed to start managed server '{}': {e}. Is Node.js/npx installed?",
-                server.name
-            ))
-        })?;
-
-        tracing::info!(
-            "Started managed MCP connector '{}' (PID {}) on port {}",
-            server.name,
-            child.id(),
-            port
-        );
-
-        self.managed_processes.insert(server.id.clone(), child);
-
-        // Wait for the server to accept connections
-        let addr = format!("localhost:{}", port);
-        let timeout = std::time::Duration::from_secs(30);
-        let start = std::time::Instant::now();
-        loop {
-            if start.elapsed() > timeout {
-                // Kill the process on timeout
-                if let Some(mut child) = self.managed_processes.remove(&server.id) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                return Err(CoreError::Mcp(format!(
-                    "Managed server '{}' failed to start within {}s on port {}",
-                    server.name,
-                    timeout.as_secs(),
-                    port
-                )));
-            }
-            match tokio::net::TcpStream::connect(&addr).await {
-                Ok(_) => {
-                    tracing::info!("Managed server '{}' is ready on port {}", server.name, port);
-                    break;
-                }
-                Err(_) => {
-                    // Check if process is still alive
-                    if let Some(child) = self.managed_processes.get_mut(&server.id) {
-                        match child.try_wait() {
-                            Ok(Some(status)) => {
-                                self.managed_processes.remove(&server.id);
-                                return Err(CoreError::Mcp(format!(
-                                    "Managed server '{}' exited with {status}",
-                                    server.name
-                                )));
-                            }
-                            Ok(None) => {} // Still running
-                            Err(e) => {
-                                tracing::warn!("Error checking process status: {e}");
-                            }
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                }
-            }
-        }
-
-        Ok(port)
-    }
-
-    /// Connect to an MCP connector and return the tools it offers.
-    pub async fn connect_server(
-        &mut self,
-        server: &McpServer,
-        call_timeout_secs: Option<u64>,
-    ) -> Result<Vec<McpToolInfo>, CoreError> {
-        // Disconnect existing connection if any.
-        self.disconnect_server(&server.id).await.ok();
-
-        // For built-in servers with a command, start managed process first
-        let effective_url = if server.builtin_id.is_some()
-            && server.command.is_some()
-            && server.transport != "stdio"
-        {
-            let port = self.start_managed_process(server).await?;
-            let path = if server.transport == "sse" {
-                "sse"
-            } else {
-                "mcp"
-            };
-            Some(format!("http://localhost:{port}/{path}"))
-        } else {
-            None
-        };
-
-        match server.transport.as_str() {
-            "stdio" => {
-                let command = server.command.as_deref().ok_or_else(|| {
-                    CoreError::InvalidInput("stdio transport requires a command".into())
-                })?;
-
-                let args: Vec<String> = match &server.args {
-                    Some(args_str) => parse_mcp_args(args_str)?,
-                    None => Vec::new(),
-                };
-
-                let env: Option<HashMap<String, String>> = match &server.env_json {
-                    Some(env_json) => Some(resolve_mcp_config_map("envJson", env_json)?),
-                    None => None,
-                };
-
-                let mut client =
-                    McpClient::connect_stdio(command, &args, env.as_ref(), &server.name).await?;
-                if let Some(secs) = call_timeout_secs {
-                    client.set_call_timeout(std::time::Duration::from_secs(secs));
-                }
-                let tools = client.list_tools().await?;
-                self.clients
-                    .insert(server.id.clone(), Arc::new(Mutex::new(client)));
-                self.connection_health.insert(
-                    server.id.clone(),
-                    Arc::new(McpConnectionHealth::new(Arc::clone(
-                        &self.connection_generation,
-                    ))),
-                );
-                self.connection_call_timeout_secs
-                    .insert(server.id.clone(), call_timeout_secs);
-                self.connected_servers
-                    .insert(server.id.clone(), server.clone());
-                self.advance_connection_generation();
-                Ok(tools)
-            }
-            "sse" | "streamable_http" => {
-                let url = effective_url
-                    .as_deref()
-                    .or(server.url.as_deref())
-                    .ok_or_else(|| {
-                        CoreError::InvalidInput(format!(
-                            "{} transport requires a URL",
-                            server.transport
-                        ))
-                    })?;
-
-                let headers: Option<HashMap<String, String>> = match &server.headers_json {
-                    Some(headers_json) => {
-                        Some(resolve_mcp_config_map("headersJson", headers_json)?)
-                    }
-                    None => None,
-                };
-
-                let mut client = if server.transport == "sse" {
-                    McpClient::connect_sse(url, headers.as_ref(), &server.name).await?
-                } else {
-                    McpClient::connect_streamable_http(url, headers.as_ref(), &server.name).await?
-                };
-                if let Some(secs) = call_timeout_secs {
-                    client.set_call_timeout(std::time::Duration::from_secs(secs));
-                }
-                let tools = client.list_tools().await?;
-                self.clients
-                    .insert(server.id.clone(), Arc::new(Mutex::new(client)));
-                self.connection_health.insert(
-                    server.id.clone(),
-                    Arc::new(McpConnectionHealth::new(Arc::clone(
-                        &self.connection_generation,
-                    ))),
-                );
-                self.connection_call_timeout_secs
-                    .insert(server.id.clone(), call_timeout_secs);
-                self.connected_servers
-                    .insert(server.id.clone(), server.clone());
-                self.advance_connection_generation();
-                Ok(tools)
-            }
-            other => Err(CoreError::InvalidInput(format!(
-                "Unsupported MCP transport: {other}. Expected 'stdio', 'sse', or 'streamable_http'."
-            ))),
-        }
-    }
-
-    /// Ensure the active connections match the currently enabled server set.
-    /// Returns per-server connection failures without aborting healthy servers.
-    pub async fn sync_servers(
-        &mut self,
-        servers: &[McpServer],
-        call_timeout_secs: Option<u64>,
-    ) -> HashMap<String, String> {
-        let desired: HashMap<&str, &McpServer> = servers
-            .iter()
-            .map(|server| (server.id.as_str(), server))
-            .collect();
-        let connected_ids: Vec<String> = self.connected_servers.keys().cloned().collect();
-
-        for server_id in connected_ids {
-            if !desired.contains_key(server_id.as_str()) {
-                self.disconnect_server(&server_id).await.ok();
-            }
-        }
-
-        let mut errors = HashMap::new();
-        for server in servers {
-            if !self.server_needs_reconnect(server) {
-                continue;
-            }
-
-            if let Err(err) = self.connect_server(server, call_timeout_secs).await {
-                errors.insert(server.id.clone(), err.to_string());
-                self.disconnect_server(&server.id).await.ok();
-            }
-        }
-
-        errors
-    }
-
-    fn server_needs_reconnect(&self, server: &McpServer) -> bool {
-        let config_changed = self
-            .connected_servers
-            .get(&server.id)
-            .map(|current| runtime_config_changed(current, server))
-            .unwrap_or(true);
-        let connection_unhealthy = self
-            .connection_health
-            .get(&server.id)
-            .map(|health| !health.is_healthy())
-            .unwrap_or(true);
-        config_changed || connection_unhealthy
-    }
-
-    /// Recover a failed client immediately and return the active connection.
-    /// Calls are serialized by the shared manager mutex. If another tool has
-    /// already replaced the failed client, reuse that newer connection.
-    pub async fn recover_server_after_failure(
-        &mut self,
-        server_id: &str,
-        failed_client: &Arc<Mutex<McpClient>>,
-    ) -> Result<Arc<Mutex<McpClient>>, CoreError> {
-        let current_client = self.clients.get(server_id).cloned().ok_or_else(|| {
-            CoreError::Internal(format!(
-                "MCP connector {server_id} has no active client to recover"
-            ))
-        })?;
-        if !Arc::ptr_eq(&current_client, failed_client) {
-            return Ok(current_client);
-        }
-        if let Some(health) = self.connection_health.get(server_id) {
-            health.mark_unhealthy();
-        }
-
-        let server = self
-            .connected_servers
-            .get(server_id)
-            .cloned()
-            .ok_or_else(|| CoreError::NotFound(format!("MCP connector {server_id}")))?;
-        let call_timeout_secs = self
-            .connection_call_timeout_secs
-            .get(server_id)
-            .copied()
-            .flatten();
-        self.connect_server(&server, call_timeout_secs).await?;
-        self.clients.get(server_id).cloned().ok_or_else(|| {
-            CoreError::Internal(format!(
-                "MCP connector {server_id} reconnected without an active client"
-            ))
-        })
-    }
-
-    /// Disconnect and shut down a specific MCP connector.
-    pub async fn disconnect_server(&mut self, server_id: &str) -> Result<(), CoreError> {
-        let removed_server = self.connected_servers.remove(server_id).is_some();
-        let client = self.clients.remove(server_id);
-        let removed_client = client.is_some();
-        let removed_health = self.connection_health.remove(server_id).is_some();
-        self.connection_call_timeout_secs.remove(server_id);
-        if let Some(client) = client {
-            let mut guard = client.lock().await;
-            guard.shutdown().await.ok();
-        }
-        // Kill managed process if present
-        let process = self.managed_processes.remove(server_id);
-        let removed_process = process.is_some();
-        if let Some(mut child) = process {
-            tracing::info!("Killing managed process for server {}", server_id);
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        if removed_server || removed_client || removed_health || removed_process {
-            self.advance_connection_generation();
-        }
-        Ok(())
-    }
-
-    /// Monotonic identity for the live client set. Registries that capture MCP
-    /// client Arcs must include this value in their cache key.
-    pub fn connection_generation(&self) -> u64 {
-        self.connection_generation.load(Ordering::Acquire)
-    }
-
-    /// Disconnect all MCP connectors.
-    pub async fn disconnect_all(&mut self) {
-        let ids: Vec<String> = self.clients.keys().cloned().collect();
-        for id in ids {
-            self.disconnect_server(&id).await.ok();
-        }
-        // Kill all remaining managed processes
-        for (id, mut child) in self.managed_processes.drain() {
-            tracing::info!("Killing managed process for server {}", id);
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-
-    /// Shutdown all connections and kill all managed processes.
-    /// Call this when the app is closing.
-    pub async fn shutdown(&mut self) {
-        self.disconnect_all().await;
-    }
-
-    /// Get a client reference for tool execution.
-    pub fn get_client(&self, server_id: &str) -> Option<Arc<Mutex<McpClient>>> {
-        self.clients.get(server_id).cloned()
-    }
-
-    /// Register all MCP tools from connected servers into a ToolRegistry.
-    pub async fn register_tools(&self, registry: &mut ToolRegistry) -> Result<(), CoreError> {
-        self.register_tools_inner(registry, None).await
-    }
-
-    /// Register tools that can eagerly recover a failed connection for later
-    /// calls in the same agent turn. The failed call itself is never retried,
-    /// because an MCP mutation may already have reached the server.
-    pub async fn register_tools_with_recovery(
-        &self,
-        registry: &mut ToolRegistry,
-        manager: Weak<Mutex<McpManager>>,
-    ) -> Result<(), CoreError> {
-        self.register_tools_inner(registry, Some(manager)).await
-    }
-
-    async fn register_tools_inner(
-        &self,
-        registry: &mut ToolRegistry,
-        recovery_manager: Option<Weak<Mutex<McpManager>>>,
-    ) -> Result<(), CoreError> {
-        let mut discovery_errors = Vec::new();
-        for (server_id, client) in &self.clients {
-            let Some(health) = self.connection_health.get(server_id) else {
-                discovery_errors.push(format!(
-                    "MCP connector {server_id} has no connection health state"
-                ));
-                continue;
-            };
-            let tools = {
-                let mut guard = client.lock().await;
-                match guard.list_tools().await {
-                    Ok(tools) => tools,
-                    Err(error) => {
-                        health.mark_unhealthy();
-                        discovery_errors.push(format!("MCP connector {server_id}: {error}"));
-                        continue;
-                    }
-                }
-            };
-            let server_name = self
-                .connected_servers
-                .get(server_id)
-                .map(|server| server.name.as_str())
-                .unwrap_or("mcp");
-            let client_slot = Arc::new(McpClientSlot::new(Arc::clone(client)));
-            for tool_info in tools {
-                let server_slug = mcp_registry_slug(server_name, "server");
-                let tool_slug = mcp_registry_slug(&tool_info.name, "tool");
-                let mut registry_name = format!("mcp__{server_slug}__{tool_slug}");
-                if registry.contains(&registry_name) {
-                    registry_name =
-                        format!("{registry_name}__{}", &server_id[..8.min(server_id.len())]);
-                }
-                let mcp_tool = McpTool::new(
-                    tool_info,
-                    Arc::clone(&client_slot),
-                    server_id.clone(),
-                    registry_name,
-                    server_name.to_string(),
-                    Arc::clone(health),
-                    recovery_manager.clone(),
-                );
-                registry.register(Box::new(mcp_tool));
-            }
-        }
-        // Keep healthy connectors available while signaling that this registry
-        // is incomplete, so callers do not cache it as a complete snapshot.
-        if discovery_errors.is_empty() {
-            Ok(())
-        } else {
-            Err(CoreError::Mcp(discovery_errors.join("; ")))
-        }
-    }
-}
-
-fn mcp_registry_slug(value: &str, fallback: &str) -> String {
-    let slug = value
-        .chars()
-        .map(|ch| match ch {
-            'a'..='z' | '0'..='9' => ch,
-            'A'..='Z' => ch.to_ascii_lowercase(),
-            _ => '_',
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string();
-    if slug.is_empty() {
-        fallback.to_string()
-    } else {
-        slug
-    }
-}
-
-impl Default for McpManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicUsize;
+    use crate::tools::ToolRegistry;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1222,71 +705,51 @@ mod tests {
 
     #[test]
     fn mcp_registry_slug_normalizes_names() {
-        assert_eq!(mcp_registry_slug("Web Search", "server"), "web_search");
-        assert_eq!(mcp_registry_slug("search.query", "tool"), "search_query");
-        assert_eq!(mcp_registry_slug("!!!", "tool"), "tool");
+        assert_eq!(
+            identity::registry_slug("Web Search", "server"),
+            "web_search"
+        );
+        assert_eq!(
+            identity::registry_slug("search.query", "tool"),
+            "search_query"
+        );
+        assert_eq!(identity::registry_slug("!!!", "tool"), "tool");
     }
 
     #[tokio::test]
     async fn disconnecting_a_live_server_advances_registry_generation() {
-        let mut manager = McpManager::new();
-        manager.connected_servers.insert(
-            "server-1".into(),
-            McpServer {
-                id: "server-1".into(),
-                name: "Test".into(),
-                transport: "streamable_http".into(),
-                command: None,
-                args: None,
-                url: Some("https://example.test/mcp".into()),
-                env_json: None,
-                headers_json: None,
-                enabled: true,
-                created_at: String::new(),
-                updated_at: String::new(),
-                builtin_id: None,
-            },
-        );
-
-        let before = manager.connection_generation();
-        manager.disconnect_server("server-1").await.unwrap();
-
-        assert!(manager.connection_generation() > before);
+        let connector = start_test_connector("disconnect", false).await;
+        let manager = McpManager::new();
+        manager
+            .connect_server(&connector.server, Some(5))
+            .await
+            .unwrap();
+        let before = manager.registry_generation();
+        manager
+            .disconnect_server(&connector.server.id)
+            .await
+            .unwrap();
+        assert!(manager.registry_generation() > before);
+        assert!(manager.catalog_snapshot(&connector.server.id).is_none());
     }
 
-    #[test]
-    fn failed_tool_connection_invalidates_snapshot_and_requires_reconnect() {
-        let mut manager = McpManager::new();
-        let server = McpServer {
-            id: "server-1".into(),
-            name: "Test".into(),
-            transport: "streamable_http".into(),
-            command: None,
-            args: None,
-            url: Some("https://example.test/mcp".into()),
-            env_json: None,
-            headers_json: None,
-            enabled: true,
-            created_at: String::new(),
-            updated_at: String::new(),
-            builtin_id: None,
-        };
-        let health = Arc::new(McpConnectionHealth::new(Arc::clone(
-            &manager.connection_generation,
-        )));
+    #[tokio::test]
+    async fn failed_catalog_refresh_invalidates_snapshot_without_losing_diagnostics() {
+        let connector = start_test_connector("catalog-failure", false).await;
+        let manager = McpManager::new();
         manager
-            .connected_servers
-            .insert(server.id.clone(), server.clone());
-        manager
-            .connection_health
-            .insert(server.id.clone(), Arc::clone(&health));
-
-        assert!(!manager.server_needs_reconnect(&server));
-        let before = manager.connection_generation();
-        health.mark_unhealthy();
-
-        assert!(manager.connection_generation() > before);
-        assert!(manager.server_needs_reconnect(&server));
+            .connect_server(&connector.server, Some(5))
+            .await
+            .unwrap();
+        connector.fail_listing.store(true, Ordering::SeqCst);
+        let before = manager.registry_generation();
+        assert!(manager.refresh_server(&connector.server.id).await.is_err());
+        let snapshot = manager.catalog_snapshot(&connector.server.id).unwrap();
+        assert!(!snapshot.complete);
+        assert!(!snapshot.tools.is_empty());
+        assert!(snapshot.diagnostics.is_some());
+        assert!(manager.registry_generation() > before);
+        manager.shutdown().await;
     }
 
     async fn read_test_http_request(
@@ -1467,7 +930,7 @@ mod tests {
             start_test_connector("alpha", false).await,
             start_test_connector("beta", false).await,
         ];
-        let mut manager = McpManager::new();
+        let manager = McpManager::new();
         for connector in &connectors {
             // Discovery failure is injected as a JSON-RPC error, not a timer.
             // Leave headroom for the healthy server during parallel DB fixtures.
@@ -1477,7 +940,7 @@ mod tests {
                 .unwrap();
         }
         // Fail whichever connector is visited first, independently of HashMap order.
-        let failed_id = manager.clients.keys().next().unwrap().clone();
+        let failed_id = connectors[0].server.id.clone();
         let failed = connectors
             .iter()
             .find(|connector| connector.server.id == failed_id)
@@ -1487,18 +950,19 @@ mod tests {
             .find(|connector| connector.server.id != failed_id)
             .unwrap();
         failed.fail_listing.store(true, Ordering::SeqCst);
-        let generation = manager.connection_generation();
+        let generation = manager.registry_generation();
         let mut registry = ToolRegistry::new();
 
-        let result = manager.register_tools(&mut registry).await;
+        assert!(manager.refresh_server(&failed.server.id).await.is_err());
+        let result = manager.register_tools(&mut registry);
 
         assert!(
             result.is_err(),
             "incomplete discovery must not be cached as complete"
         );
-        assert!(!registry.contains(&format!("mcp__{}__demo", failed.server.name)));
+        assert!(!registry.contains(&CanonicalToolId::new(&failed.server.id, "demo").model_alias()));
         let healthy_tool = registry
-            .get(&format!("mcp__{}__demo", healthy.server.name))
+            .get(&CanonicalToolId::new(&healthy.server.id, "demo").model_alias())
             .expect("a failing connector must not hide another connector's tools");
         let db = Database::open_memory().unwrap();
         let output = healthy_tool
@@ -1516,32 +980,39 @@ mod tests {
             output.content
         );
         assert_eq!(output.content, "connector result");
-        assert!(manager.connection_generation() > generation);
-        assert!(manager.server_needs_reconnect(&failed.server));
-        assert!(!manager.server_needs_reconnect(&healthy.server));
+        assert!(manager.registry_generation() > generation);
+        assert!(
+            !manager
+                .catalog_snapshot(&failed.server.id)
+                .unwrap()
+                .complete
+        );
+        assert!(
+            manager
+                .catalog_snapshot(&healthy.server.id)
+                .unwrap()
+                .complete
+        );
         manager.shutdown().await;
     }
 
     #[tokio::test]
     async fn tool_result_is_error_is_preserved_without_transport_recovery() {
         let connector = start_test_connector("remote", true).await;
-        let manager = Arc::new(Mutex::new(McpManager::new()));
+        let manager = Arc::new(McpManager::new());
         let mut registry = ToolRegistry::new();
         let generation = {
-            let mut guard = manager.lock().await;
+            let guard = &manager;
             guard
                 .connect_server(&connector.server, Some(2))
                 .await
                 .unwrap();
-            guard
-                .register_tools_with_recovery(&mut registry, Arc::downgrade(&manager))
-                .await
-                .unwrap();
-            guard.connection_generation()
+            guard.register_tools(&mut registry).unwrap();
+            guard.registry_generation()
         };
         let db = Database::open_memory().unwrap();
         let output = registry
-            .get("mcp__remote__demo")
+            .get(&CanonicalToolId::new(&connector.server.id, "demo").model_alias())
             .unwrap()
             .execute(crate::tools::ToolExecutionContext::new(
                 "error-call",
@@ -1558,9 +1029,14 @@ mod tests {
         );
         assert!(output.content.contains("connector result"));
         assert!(!output.content.contains("recovery"));
-        let mut guard = manager.lock().await;
-        assert_eq!(guard.connection_generation(), generation);
-        assert!(!guard.server_needs_reconnect(&connector.server));
+        let guard = &manager;
+        assert_eq!(guard.registry_generation(), generation);
+        assert!(
+            guard
+                .catalog_snapshot(&connector.server.id)
+                .unwrap()
+                .complete
+        );
         assert_eq!(connector.initialize_calls.load(Ordering::SeqCst), 1);
         guard.shutdown().await;
     }
@@ -1684,7 +1160,7 @@ mod tests {
             }
         });
 
-        let manager = Arc::new(Mutex::new(McpManager::new()));
+        let manager = Arc::new(McpManager::new());
         let server = McpServer {
             id: "server-1".into(),
             name: "Remote".into(),
@@ -1701,16 +1177,15 @@ mod tests {
         };
         let mut registry = ToolRegistry::new();
         {
-            let mut guard = manager.lock().await;
+            let guard = &manager;
             guard.connect_server(&server, Some(5)).await.unwrap();
-            guard
-                .register_tools_with_recovery(&mut registry, Arc::downgrade(&manager))
-                .await
-                .unwrap();
+            guard.register_tools(&mut registry).unwrap();
         }
         let db = Database::open_memory().unwrap();
         let source_scope = Vec::new();
-        let tool = registry.get("mcp__remote__demo").unwrap();
+        let tool = registry
+            .get(&CanonicalToolId::new(&server.id, "demo").model_alias())
+            .unwrap();
         let application_error = tool
             .execute(crate::tools::ToolExecutionContext::new(
                 "call-1",

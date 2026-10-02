@@ -54,6 +54,7 @@ English is the canonical language for maintained technical documentation.
 - [UX quality bar](UX_QUALITY_BAR.md): interaction, presentation, and acceptance.
 - [Internationalization](I18N_GUIDELINES.md): namespace JSON, generated files, and locale review.
 - [Contributing](../CONTRIBUTING.md): environment setup, checks, and PR expectations.
+- [Agent task evaluation](AGENT_TASK_EVALUATION.md): contract, replay, scripted and opt-in live task evidence.
 - [Changelog](../CHANGELOG.md): generated release history.
 - [Third-party notices](../apps/desktop/THIRD_PARTY_NOTICES.md): bundled attributions.
 

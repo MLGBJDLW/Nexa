@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import * as api from './api';
 import { isOptimisticSteeringMessage, isSteeringMessage } from './chatMessageGuards';
@@ -35,10 +35,7 @@ import type {
 } from '../types/conversation';
 import { appTimeMs } from './dateTime';
 import { formatUserError } from './userError';
-import {
-  estimateJsonBytes,
-  upsertBoundedConversationCache,
-} from './boundedConversationCache';
+import { ConversationTimeline, type TimelineEntry } from './conversationTimeline';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -55,11 +52,6 @@ function generateTitle(message: string): string {
   }
   return truncated + '...';
 }
-
-const MAX_CACHED_CONVERSATIONS = 8;
-const MAX_MESSAGE_CACHE_BYTES = 64 * 1024 * 1024;
-const MAX_TURN_CACHE_BYTES = 16 * 1024 * 1024;
-const MAX_TASK_RUN_CACHE_BYTES = 16 * 1024 * 1024;
 
 function persistedVisionOverride(
   artifacts: ArtifactPayload | null | undefined,
@@ -146,7 +138,7 @@ function insertMessagesByCreatedAt(
     const insertAt = ordered.findIndex((message) => appTimeMs(message.createdAt) > insertTime);
     ordered.splice(insertAt === -1 ? ordered.length : insertAt, 0, insert);
   }
-  return ordered.map((message, index) => ({ ...message, sortOrder: index }));
+  return ordered;
 }
 
 function optimisticSteeringIsPending(message: ConversationMessage): boolean {
@@ -292,6 +284,7 @@ export interface UseChatSessionOptions {
   initialProjectId?: string | null;
   /** UI-selected persona to inject for the next agent turn */
   activePersonaId?: string | null;
+  anchorMessageId?: string | null;
 }
 
 export interface RuntimeProfile {
@@ -330,6 +323,13 @@ export interface UseChatSessionReturn {
   applyModelContextPolicy: (snapshot: api.ModelContextPolicySnapshot) => void;
   messages: ConversationMessage[];
   turns: ConversationTurn[];
+  timelineEntries: TimelineEntry[];
+  hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
+  loadingOlderMessages: boolean;
+  loadOlderMessages: () => Promise<void>;
+  loadLatestMessages: () => Promise<void>;
+  loadTurnDetails: (anchorId: string) => Promise<void>;
   taskRun: AgentTaskRun | null;
   taskEvents: ReturnType<typeof useAgentStream>['taskEvents'];
   turnTiming: ReturnType<typeof useAgentStream>['turnTiming'];
@@ -407,6 +407,7 @@ export interface UseChatSessionReturn {
 export function useChatSession(options: UseChatSessionOptions = {}): UseChatSessionReturn {
   const {
     conversationId: externalConversationId,
+    anchorMessageId: externalAnchorMessageId,
     onConversationCreated,
     systemPrompt: externalSystemPrompt,
     initialSourceIds = [],
@@ -428,9 +429,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   /* ── State ──────────────────────────────────────────────────────── */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [openedConversation, setOpenedConversation] = useState<Conversation | null>(null);
-  const [messageCache, setMessageCache] = useState<Record<string, ConversationMessage[]>>({});
-  const [turnCache, setTurnCache] = useState<Record<string, ConversationTurn[]>>({});
-  const [taskRunCache, setTaskRunCache] = useState<Record<string, AgentTaskRun[]>>({});
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string>(externalSystemPrompt ?? '');
   const [loadingConfig, setLoadingConfig] = useState(true);
@@ -477,10 +475,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const systemPromptCacheRef = useRef<Record<string, string>>({});
   const contextWindowCacheRef = useRef<Record<string, number>>({});
   const contextAuthorityCacheRef = useRef<Record<string, api.ContextWindowAuthority>>({});
-  const messageCacheRecencyRef = useRef<Map<string, number>>(new Map());
-  const turnCacheRecencyRef = useRef<Map<string, number>>(new Map());
-  const taskRunCacheRecencyRef = useRef<Map<string, number>>(new Map());
-  const cacheClockRef = useRef(0);
   const agentConfigsRef = useRef<AgentConfig[]>([]);
   const activeAgentConfigRef = useRef<AgentConfig | null>(null);
   const defaultAgentConfigRef = useRef<AgentConfig | null>(null);
@@ -488,83 +482,31 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   conversationsRef.current = conversations;
   const openedConversationRef = useRef(openedConversation);
   openedConversationRef.current = openedConversation;
-  const messageCacheRef = useRef(messageCache);
-  messageCacheRef.current = messageCache;
   activeAgentConfigRef.current = agentConfig;
 
-  const messages = activeId ? (messageCache[activeId] ?? []) : [];
-  const turns = activeId ? (turnCache[activeId] ?? []) : [];
-  const taskRuns = activeId ? (taskRunCache[activeId] ?? []) : [];
+  const [timeline] = useState(() => new ConversationTimeline({
+    page: api.getConversationTimelinePage,
+    details: api.getConversationTimelineDetails,
+    mergeLocalMessages: mergeLocalMessageState,
+    protectedIds: () => [
+      ...(activeIdRef.current ? [activeIdRef.current] : []),
+      ...streamStore.getRunningConversationIds(),
+    ],
+  }));
+  const readTimeline = useCallback(() => timeline.get(activeId), [activeId, timeline]);
+  const timelineSnapshot = useSyncExternalStore(timeline.subscribe, readTimeline, readTimeline);
+  const { messages, turns, taskRuns } = timelineSnapshot;
   const hasPersistedStreamResult = hasPersistedResultAfterLatestUserMessage(messages);
 
   const setMessagesForConversation = useCallback((
     conversationId: string,
     updater: ConversationMessage[] | ((prev: ConversationMessage[]) => ConversationMessage[]),
-  ) => {
-    setMessageCache(prev => {
-      const current = prev[conversationId] ?? [];
-      const nextMessages = typeof updater === 'function'
-        ? (updater as (prev: ConversationMessage[]) => ConversationMessage[])(current)
-        : updater;
-      return upsertBoundedConversationCache(prev, conversationId, nextMessages, {
-        maxEntries: MAX_CACHED_CONVERSATIONS,
-        maxBytes: MAX_MESSAGE_CACHE_BYTES,
-        estimateBytes: estimateJsonBytes,
-        recency: messageCacheRecencyRef.current,
-        protectedKeys: [
-          ...(activeIdRef.current ? [activeIdRef.current] : []),
-          ...streamStore.getRunningConversationIds(),
-        ],
-        tick: ++cacheClockRef.current,
-      });
-    });
-  }, []);
+  ) => timeline.mutate(conversationId, { messages: updater }), [timeline]);
 
   const setTurnsForConversation = useCallback((
     conversationId: string,
     updater: ConversationTurn[] | ((prev: ConversationTurn[]) => ConversationTurn[]),
-  ) => {
-    setTurnCache(prev => {
-      const current = prev[conversationId] ?? [];
-      const nextTurns = typeof updater === 'function'
-        ? (updater as (prev: ConversationTurn[]) => ConversationTurn[])(current)
-        : updater;
-      return upsertBoundedConversationCache(prev, conversationId, nextTurns, {
-        maxEntries: MAX_CACHED_CONVERSATIONS,
-        maxBytes: MAX_TURN_CACHE_BYTES,
-        estimateBytes: estimateJsonBytes,
-        recency: turnCacheRecencyRef.current,
-        protectedKeys: [
-          ...(activeIdRef.current ? [activeIdRef.current] : []),
-          ...streamStore.getRunningConversationIds(),
-        ],
-        tick: ++cacheClockRef.current,
-      });
-    });
-  }, []);
-
-  const setTaskRunsForConversation = useCallback((
-    conversationId: string,
-    updater: AgentTaskRun[] | ((prev: AgentTaskRun[]) => AgentTaskRun[]),
-  ) => {
-    setTaskRunCache(prev => {
-      const current = prev[conversationId] ?? [];
-      const nextRuns = typeof updater === 'function'
-        ? (updater as (prev: AgentTaskRun[]) => AgentTaskRun[])(current)
-        : updater;
-      return upsertBoundedConversationCache(prev, conversationId, nextRuns, {
-        maxEntries: MAX_CACHED_CONVERSATIONS,
-        maxBytes: MAX_TASK_RUN_CACHE_BYTES,
-        estimateBytes: estimateJsonBytes,
-        recency: taskRunCacheRecencyRef.current,
-        protectedKeys: [
-          ...(activeIdRef.current ? [activeIdRef.current] : []),
-          ...streamStore.getRunningConversationIds(),
-        ],
-        tick: ++cacheClockRef.current,
-      });
-    });
-  }, []);
+  ) => timeline.mutate(conversationId, { turns: updater }), [timeline]);
 
   const {
     send: streamSend,
@@ -715,7 +657,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     );
     setUsageSnapshot(null);
 
-    if (isStreaming) {
+    if (isStreaming && timeline.get(activeId).messages.length > 0 && !externalAnchorMessageId) {
       setLoadingMsgs(false);
       return;
     }
@@ -723,20 +665,13 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setLoadingMsgs(true);
     void (async () => {
       try {
-        const [[conv, msgs], conversationTurns, agentTaskRuns, durableUsage] = await Promise.all([
-          api.getConversation(activeId),
-          api.getConversationTurns(activeId),
-          api.getAgentTaskRuns(activeId),
+        const [page, durableUsage] = await Promise.all([
+          timeline.openTail(activeId, externalAnchorMessageId),
           api.getConversationUsageSnapshot(activeId),
         ]);
-        if (cancelled || generation !== conversationHydrationGenerationRef.current) return;
+        if (!page || cancelled || generation !== conversationHydrationGenerationRef.current) return;
+        const { conversation: conv, taskRuns: agentTaskRuns } = page;
         setOpenedConversation(conv);
-        // Safety net (also covers pre-Tier-B persisted rows): preserve any
-        // imageAttachments present in prior in-memory state when the backend
-        // response lacks them (e.g. optimistic temp-* ids or legacy rows).
-        setMessagesForConversation(activeId, (prev) => mergeLocalMessageState(prev, msgs));
-        setTurnsForConversation(activeId, conversationTurns);
-        setTaskRunsForConversation(activeId, agentTaskRuns);
         setUsageSnapshot(compactionUsageRef.current.get(activeId) ?? durableUsage);
         if (!streamHasVisiblePreview(activeId)) {
           void durableRunReconciler.reconcile({
@@ -814,7 +749,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     return () => {
       cancelled = true;
     };
-  }, [activeId, defaultContextAuthority, defaultContextWindow, externalSystemPrompt, setMessagesForConversation, setTaskRunsForConversation, setTurnsForConversation]);
+  }, [activeId, defaultContextAuthority, defaultContextWindow, externalSystemPrompt, externalAnchorMessageId, timeline]);
 
   /* ── Reload messages when streaming completes ───────────────────── */
   useEffect(() => {
@@ -829,20 +764,11 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       knownStreamConversationsRef.current.delete(completedConversationId);
       // Re-fetch messages after agent is done.
       const refreshConversationPromise = Promise.all([
-        api.getConversation(completedConversationId),
-        api.getConversationTurns(completedConversationId),
-        api.getAgentTaskRuns(completedConversationId),
+        timeline.refreshTail(completedConversationId),
         api.getConversationUsageSnapshot(completedConversationId),
-      ]).then(([[conv, msgs], conversationTurns, agentTaskRuns, durableUsage]) => {
-        if (!cancelled && generation === completionHydrationGenerationRef.current) {
-          // Safety net (also covers pre-Tier-B persisted rows): preserve any
-          // imageAttachments present in prior in-memory state when the backend
-          // response lacks them (e.g. optimistic temp-* ids or legacy rows).
-          setMessagesForConversation(completedConversationId, (prev) =>
-            mergeLocalMessageState(prev, msgs),
-          );
-          setTurnsForConversation(completedConversationId, conversationTurns);
-          setTaskRunsForConversation(completedConversationId, agentTaskRuns);
+      ]).then(([page, durableUsage]) => {
+        if (page && !cancelled && generation === completionHydrationGenerationRef.current) {
+          const conv = page.conversation;
           if (activeId === completedConversationId) {
             setOpenedConversation(conv);
             setUsageSnapshot(
@@ -883,7 +809,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         && !conv.title.trim()
         && !autoTitleInFlightRef.current.has(completedConversationId)
       ) {
-        const firstUserMsg = (messageCacheRef.current[completedConversationId] ?? []).find((m) => m.role === 'user');
+        const firstUserMsg = timeline.get(completedConversationId).messages.find((m) => m.role === 'user');
         if (!conv.title && firstUserMsg) {
           const placeholder = generateTitle(firstUserMsg.content);
           if (placeholder && !cancelled) {
@@ -919,7 +845,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       }
     }
     return () => { cancelled = true; };
-  }, [activeId, isStreaming, loadConversations, setMessagesForConversation, setTaskRunsForConversation, setTurnsForConversation, t]);
+  }, [activeId, isStreaming, loadConversations, timeline, t]);
 
   // Retire the live projection only after React has committed the durable
   // messages. Clearing it from the fetch callback can race the state commit
@@ -1016,24 +942,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       try {
         await api.deleteConversation(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
-        setMessageCache(prev => {
-          const next = { ...prev };
-          delete next[id];
-          messageCacheRecencyRef.current.delete(id);
-          return next;
-        });
-        setTurnCache(prev => {
-          const next = { ...prev };
-          delete next[id];
-          turnCacheRecencyRef.current.delete(id);
-          return next;
-        });
-        setTaskRunCache(prev => {
-          const next = { ...prev };
-          delete next[id];
-          taskRunCacheRecencyRef.current.delete(id);
-          return next;
-        });
+        timeline.clear(id);
         delete systemPromptCacheRef.current[id];
         delete contextWindowCacheRef.current[id];
         delete contextAuthorityCacheRef.current[id];
@@ -1048,7 +957,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         toast.error(formatUserError(t('chat.deleteError'), e));
       }
     },
-    [activeId, defaultContextAuthority, defaultContextWindow, t],
+    [activeId, defaultContextAuthority, defaultContextWindow, timeline, t],
   );
 
   const deleteConversationsBatch = useCallback(
@@ -1057,33 +966,12 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         await api.deleteConversationsBatch(ids);
         const idSet = new Set(ids);
         setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
-        setMessageCache(prev => {
-          const next = { ...prev };
-          for (const id of ids) {
-            delete next[id];
-            messageCacheRecencyRef.current.delete(id);
-            delete systemPromptCacheRef.current[id];
-            delete contextWindowCacheRef.current[id];
-            delete contextAuthorityCacheRef.current[id];
-          }
-          return next;
-        });
-        setTurnCache(prev => {
-          const next = { ...prev };
-          for (const id of ids) {
-            delete next[id];
-            turnCacheRecencyRef.current.delete(id);
-          }
-          return next;
-        });
-        setTaskRunCache(prev => {
-          const next = { ...prev };
-          for (const id of ids) {
-            delete next[id];
-            taskRunCacheRecencyRef.current.delete(id);
-          }
-          return next;
-        });
+        for (const id of ids) {
+          timeline.clear(id);
+          delete systemPromptCacheRef.current[id];
+          delete contextWindowCacheRef.current[id];
+          delete contextAuthorityCacheRef.current[id];
+        }
         if (activeId && idSet.has(activeId)) {
           setInternalConversationId(null);
           setUsageSnapshot(null);
@@ -1095,7 +983,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         toast.error(formatUserError(t('chat.deleteError'), e));
       }
     },
-    [activeId, defaultContextAuthority, defaultContextWindow, t],
+    [activeId, defaultContextAuthority, defaultContextWindow, timeline, t],
   );
 
   const deleteAllConversations = useCallback(async () => {
@@ -1103,12 +991,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       await api.deleteAllConversations();
       setConversations([]);
       setInternalConversationId(null);
-      setMessageCache({});
-      setTurnCache({});
-      setTaskRunCache({});
-      messageCacheRecencyRef.current.clear();
-      turnCacheRecencyRef.current.clear();
-      taskRunCacheRecencyRef.current.clear();
+      timeline.clearAll();
       systemPromptCacheRef.current = {};
       contextWindowCacheRef.current = {};
       contextAuthorityCacheRef.current = {};
@@ -1119,7 +1002,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     } catch (e) {
       toast.error(formatUserError(t('chat.deleteError'), e));
     }
-  }, [defaultContextAuthority, defaultContextWindow, t]);
+  }, [defaultContextAuthority, defaultContextWindow, timeline, t]);
 
   const renameConversation = useCallback(
     async (id: string, title: string) => {
@@ -1206,7 +1089,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           return false;
         }
 
-        const currentMessages = messageCache[steeringConversationId] ?? [];
+        const currentMessages = timeline.get(steeringConversationId).messages;
         const optimisticId = `temp-steer-${crypto.randomUUID()}`;
         const optimisticMsg: ConversationMessage = {
           id: optimisticId,
@@ -1218,7 +1101,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           artifacts: { kind: 'steering', delivery: 'pending' },
           tokenCount: 0,
           createdAt: new Date().toISOString(),
-          sortOrder: currentMessages.length,
+          sortOrder: Math.max(-1, ...currentMessages.map(message => message.sortOrder)) + 1,
           thinking: null,
           imageAttachments: null,
         };
@@ -1321,7 +1204,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         }
       }
 
-      const currentMessages = messageCache[convId] ?? [];
+      timeline.fence(convId);
+      const currentMessages = timeline.get(convId).messages;
 
       // Add optimistic user message
       const optimisticMessageId = `temp-${Date.now()}`;
@@ -1335,7 +1219,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         artifacts: options?.userArtifacts ?? null,
         tokenCount: 0,
         createdAt: new Date().toISOString(),
-        sortOrder: currentMessages.length,
+        sortOrder: Math.max(-1, ...currentMessages.map(message => message.sortOrder)) + 1,
         thinking: null,
         imageAttachments: attachments ?? null,
       };
@@ -1393,7 +1277,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         }
       }
     },
-    [activeId, activePersonaId, customSystemPrompt, initialCollectionContext, initialProjectId, initialSourceIds, messageCache, streamSend, onConversationCreated, setMessagesForConversation, t],
+    [activeId, activePersonaId, customSystemPrompt, initialCollectionContext, initialProjectId, initialSourceIds, timeline, streamSend, onConversationCreated, setMessagesForConversation, t],
   );
 
   const stop = useCallback(() => {
@@ -1408,14 +1292,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     turnsBeforeRetry: ConversationTurn[],
   ) => {
     try {
-      const [[, durableMessages], durableTurns, durableTaskRuns] = await Promise.all([
-        api.getConversation(conversationId),
-        api.getConversationTurns(conversationId),
-        api.getAgentTaskRuns(conversationId),
-      ]);
-      setMessagesForConversation(conversationId, durableMessages);
-      setTurnsForConversation(conversationId, durableTurns);
-      setTaskRunsForConversation(conversationId, durableTaskRuns);
+      const page = await timeline.openTail(conversationId);
+      if (!page) return;
+      const durableTaskRuns = page.taskRuns;
       const outcome = await durableRunReconciler.reconcile({
         reason: 'watchdog',
         conversationId,
@@ -1447,7 +1326,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     }
     suppressedLiveUsageRef.current.delete(conversationId);
     compactionUsageRef.current.delete(conversationId);
-  }, [setMessagesForConversation, setTaskRunsForConversation, setTurnsForConversation]);
+  }, [setMessagesForConversation, setTurnsForConversation, timeline]);
 
   const retry = useCallback(async (
     messageId?: string,
@@ -1541,6 +1420,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     };
     const messagesBeforeRetry = messages;
     const turnsBeforeRetry = turns;
+    timeline.invalidate(activeId);
 
     // Keep the original user identity and replace only the completed suffix.
     // The backend applies the same operation atomically before launching.
@@ -1585,7 +1465,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       // optimistic snapshot.
       await reconcileDurableRetryLaunchFailure(activeId, messagesBeforeRetry, turnsBeforeRetry);
     }
-  }, [activeId, activePersonaId, messages, reconcileDurableRetryLaunchFailure, setMessagesForConversation, setTurnsForConversation, streamSend, t, turns]);
+  }, [activeId, activePersonaId, messages, reconcileDurableRetryLaunchFailure, setMessagesForConversation, setTurnsForConversation, streamSend, timeline, t, turns]);
 
   /* ── Delete single message (optimistic, local only) ─────────────── */
   const deleteMessage = useCallback((messageId: string) => {
@@ -1610,6 +1490,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     };
     const messagesBeforeEdit = messages;
     const turnsBeforeEdit = turns;
+    timeline.invalidate(activeId);
     const retainedUserMessageIds = new Set(
       messages.slice(0, msgIndex).filter((message) => message.role === 'user').map((message) => message.id),
     );
@@ -1652,7 +1533,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     } catch {
       await reconcileDurableRetryLaunchFailure(activeId, messagesBeforeEdit, turnsBeforeEdit);
     }
-  }, [activeId, activePersonaId, messages, reconcileDurableRetryLaunchFailure, setMessagesForConversation, setTurnsForConversation, streamSend, turns]);
+  }, [activeId, activePersonaId, messages, reconcileDurableRetryLaunchFailure, setMessagesForConversation, setTurnsForConversation, streamSend, timeline, turns]);
 
   /* ── Reload messages (e.g. after compaction) ────────────────────── */
   const reloadMessages = useCallback(async (options?: {
@@ -1668,24 +1549,19 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       suppressedLiveUsageRef.current.add(targetConversationId);
     }
     try {
-      const [[, msgs], conversationTurns, agentTaskRuns, durableUsage] = await Promise.all([
-        api.getConversation(targetConversationId),
-        api.getConversationTurns(targetConversationId),
-        api.getAgentTaskRuns(targetConversationId),
+      const [, durableUsage] = await Promise.all([
+        options?.resetUsage ? timeline.openTail(targetConversationId) : timeline.refreshTail(targetConversationId),
         options?.resetUsage
           ? Promise.resolve(null)
           : api.getConversationUsageSnapshot(targetConversationId),
       ]);
-      setMessagesForConversation(targetConversationId, (prev) => mergeLocalMessageState(prev, msgs));
-      setTurnsForConversation(targetConversationId, conversationTurns);
-      setTaskRunsForConversation(targetConversationId, agentTaskRuns);
       if (activeIdRef.current === targetConversationId) {
         setUsageSnapshot(
           compactionUsageRef.current.get(targetConversationId) ?? durableUsage,
         );
       }
     } catch { /* ignore */ }
-  }, [activeId, setMessagesForConversation, setTaskRunsForConversation, setTurnsForConversation]);
+  }, [activeId, timeline]);
 
   const applyCompactionUsage = useCallback((
     conversationId: string,
@@ -1858,9 +1734,30 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     t,
   );
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeId) return;
+    try { await timeline.loadBefore(activeId); }
+    catch (error) { toast.error(formatUserError(t('chat.loadError'), error)); }
+  }, [activeId, timeline, t]);
+  const loadLatestMessages = useCallback(async () => {
+    if (!activeId) return;
+    try { await timeline.openTail(activeId); }
+    catch (error) { toast.error(formatUserError(t('chat.loadError'), error)); }
+  }, [activeId, timeline, t]);
+  const loadTurnDetails = useCallback(async (anchorId: string) => {
+    if (activeId) await timeline.loadDetails(activeId, anchorId);
+  }, [activeId, timeline]);
+
   return {
     messages,
     turns: activeTurns,
+    timelineEntries: timelineSnapshot.entries,
+    hasOlderMessages: timelineSnapshot.hasMoreBefore,
+    hasNewerMessages: timelineSnapshot.hasMoreAfter,
+    loadingOlderMessages: timelineSnapshot.loadingOlder,
+    loadOlderMessages,
+    loadLatestMessages,
+    loadTurnDetails,
     taskRun: activeTaskRun,
     taskEvents: activeTaskEvents,
     turnTiming: activeTurnTiming,

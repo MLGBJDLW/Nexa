@@ -1,6 +1,5 @@
 //! Long-running task resilience helpers.
 
-use super::context;
 use super::*;
 use crate::workflow_ir::WorkflowIr;
 
@@ -18,7 +17,8 @@ pub(super) struct LongTaskCompactionContext<'a> {
     pub(super) tx: &'a mpsc::Sender<AgentEvent>,
     pub(super) model: &'a str,
     pub(super) messages: &'a mut Vec<Message>,
-    pub(super) context_pipeline: ContextPipeline,
+    pub(super) active_request: &'a Message,
+    pub(super) context_window: ContextWindow,
     pub(super) tool_defs: &'a [ToolDefinition],
     pub(super) loop_recorder: &'a mut TurnLoopRecorder,
     pub(super) persisted_trace_items: &'a mut Vec<PersistedTraceItem>,
@@ -94,17 +94,18 @@ impl AgentExecutor {
             tx,
             model,
             messages,
-            context_pipeline,
+            active_request,
+            context_window,
             tool_defs,
             loop_recorder,
             persisted_trace_items,
             total_usage,
         } = ctx;
 
-        let estimated =
-            context::estimate_context_usage_breakdown_for_model(model, messages, tool_defs, None);
-        let budget_decision = context_pipeline.budget_decision(estimated.total_tokens);
+        let input_tokens = self.context_input_tokens(model, messages, tool_defs);
+        let budget_decision = context_window.budget_decision(input_tokens);
         if !budget_decision.should_compact {
+            context_window.validate_request(messages, Some(active_request), input_tokens)?;
             return Ok(false);
         }
 
@@ -135,6 +136,7 @@ impl AgentExecutor {
                     db,
                     conversation_id,
                     turn_id,
+                    active_request: Some(active_request),
                 },
                 actual_tokens_remaining,
             )
@@ -155,7 +157,9 @@ impl AgentExecutor {
                 compacted
             }
             Err(err) => {
-                if self.history_handoff_enabled(conversation_id) {
+                if self.history_handoff_enabled(conversation_id)
+                    || matches!(err, CoreError::Cancelled(_))
+                {
                     // Archiving is a prerequisite for eviction in this mode.
                     // Do not continue into a lossy trim after a storage failure.
                     return Err(err);
@@ -169,6 +173,8 @@ impl AgentExecutor {
                 false
             }
         };
+        let input_tokens = self.context_input_tokens(model, messages, tool_defs);
+        context_window.validate_request(messages, Some(active_request), input_tokens)?;
         Ok(compacted)
     }
 }

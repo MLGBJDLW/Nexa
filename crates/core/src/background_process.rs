@@ -32,16 +32,6 @@ pub(crate) fn configure_std_background(command: &mut std::process::Command) {
 pub(crate) fn configure_std_background(_command: &mut std::process::Command) {}
 
 #[cfg(windows)]
-pub(crate) fn configure_std_background_process_group(command: &mut std::process::Command) {
-    use std::os::windows::process::CommandExt;
-
-    command.creation_flags(windows_creation_flags(true));
-}
-
-#[cfg(not(windows))]
-pub(crate) fn configure_std_background_process_group(_command: &mut std::process::Command) {}
-
-#[cfg(windows)]
 pub(crate) fn configure_tokio_background(command: &mut tokio::process::Command) {
     command.creation_flags(windows_creation_flags(false));
 }

@@ -575,6 +575,12 @@ pub fn build_desktop_agent_turn_config(
             .as_ref()
             .and_then(|policy| policy.auto_compact_percent),
         catalog_limits_authoritative: Some(catalog_limits_authoritative),
+        resolved_catalog_limits: nexa_core::llm::model_contract::resolve_configured_model_contract(
+            provider_type,
+            db_config.base_url.as_deref(),
+            &db_config.model,
+        )
+        .catalog_limits(),
         reasoning_enabled: power_policy.reasoning_enabled,
         thinking_budget: power_policy.thinking_budget,
         reasoning_effort: power_policy.reasoning_effort,

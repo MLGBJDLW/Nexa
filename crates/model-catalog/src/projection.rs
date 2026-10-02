@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -10,11 +11,11 @@ use super::{
     ReasoningCapability,
 };
 
-const TEXT_PRESETS: &str = include_str!("../../../../shared/provider-presets.json");
-const IMAGE_PRESETS: &str = include_str!("../../../../shared/image-provider-presets.json");
-const EMBEDDING_PRESETS: &str = include_str!("../../../../shared/embedding-provider-presets.json");
-const STT_PRESETS: &str = include_str!("../../../../shared/stt-provider-presets.json");
-const TTS_PRESETS: &str = include_str!("../../../../shared/tts-provider-presets.json");
+const TEXT_PRESETS: &str = include_str!("../../../shared/provider-presets.json");
+const IMAGE_PRESETS: &str = include_str!("../../../shared/image-provider-presets.json");
+const EMBEDDING_PRESETS: &str = include_str!("../../../shared/embedding-provider-presets.json");
+const STT_PRESETS: &str = include_str!("../../../shared/stt-provider-presets.json");
+const TTS_PRESETS: &str = include_str!("../../../shared/tts-provider-presets.json");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CatalogSurface {
@@ -61,6 +62,17 @@ pub struct BuiltinModelCatalog {
 }
 
 pub fn load_builtin_catalog() -> Result<BuiltinModelCatalog, String> {
+    builtin_catalog().cloned().map_err(Clone::clone)
+}
+
+/// Borrow the process-wide immutable built-in catalog. Dynamic discovery and
+/// capability probes are merged into separate snapshots, never into this data.
+pub fn builtin_catalog() -> Result<&'static BuiltinModelCatalog, &'static String> {
+    static CATALOG: OnceLock<Result<BuiltinModelCatalog, String>> = OnceLock::new();
+    CATALOG.get_or_init(parse_builtin_catalog).as_ref()
+}
+
+fn parse_builtin_catalog() -> Result<BuiltinModelCatalog, String> {
     let sources = [
         (CatalogSurface::Text, TEXT_PRESETS),
         (CatalogSurface::Image, IMAGE_PRESETS),
@@ -180,7 +192,7 @@ pub fn resolve_builtin_endpoint_id(
     provider_or_alias: &str,
     base_url: Option<&str>,
 ) -> Option<String> {
-    let catalog = load_builtin_catalog().ok()?;
+    let catalog = builtin_catalog().ok()?;
     let endpoint_prefix = format!("{}:", surface.trim().to_ascii_lowercase());
     let endpoints = catalog
         .endpoints
@@ -542,7 +554,7 @@ pub fn normalize_endpoint_url(value: Option<&str>) -> String {
     if raw.is_empty() {
         return String::new();
     }
-    let Ok(mut url) = reqwest::Url::parse(raw) else {
+    let Ok(mut url) = url::Url::parse(raw) else {
         return raw.trim_end_matches('/').to_string();
     };
     let mut normalized_path = url.path().trim_end_matches('/').to_string();
@@ -552,7 +564,7 @@ pub fn normalize_endpoint_url(value: Option<&str>) -> String {
     if url
         .host_str()
         .is_some_and(|host| host.eq_ignore_ascii_case("api.deepseek.com"))
-        && normalized_path.eq_ignore_ascii_case("/v1")
+        && normalized_path == "/v1"
     {
         normalized_path.clear();
     }
@@ -571,7 +583,7 @@ fn documentation_ref(provider_id: &str) -> Option<String> {
 
 fn infer_region(base_url: &str) -> String {
     let value = base_url.to_ascii_lowercase();
-    let is_z_ai_international = reqwest::Url::parse(base_url).ok().is_some_and(|url| {
+    let is_z_ai_international = url::Url::parse(base_url).ok().is_some_and(|url| {
         url.scheme() == "https" && url.host_str().is_some_and(|host| host == "api.z.ai")
     });
     if value.is_empty() || value.contains("localhost") || value.contains("127.0.0.1") {
@@ -681,6 +693,15 @@ fn string_array(value: Option<&Value>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_data_is_shared_but_exported_catalogs_are_independent() {
+        let first = builtin_catalog().unwrap();
+        assert!(std::ptr::eq(first, builtin_catalog().unwrap()));
+        let mut exported = load_builtin_catalog().unwrap();
+        exported.models.clear();
+        assert!(!first.models.is_empty());
+    }
 
     #[test]
     fn model_capabilities_inherit_provider_defaults_but_keep_explicit_false() {

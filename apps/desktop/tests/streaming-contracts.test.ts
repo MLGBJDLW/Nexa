@@ -1792,6 +1792,12 @@ test('identifies legacy reasoning promoted into a persisted reply without hiding
     ]),
     'an explicit reply trace is authoritative',
   );
+  const summary = { ...message, content: '', thinking: null, artifacts: { kind: 'assistantArtifacts', version: 2, displayReasoningOnly: true } };
+  assert(isPersistedReasoningOnlyAssistant(summary, null), 'a bounded page preserves quarantine without transferring reasoning or trace text');
+  assert(!isPersistedReasoningOnlyAssistant({ ...summary, role: 'user' }, null), 'the display marker cannot reclassify a user message');
+  assert(isPersistedReasoningOnlyAssistant({ ...summary, artifacts: { kind: 'generatedImage', dataUrl: 'data:image/png;base64,fixture', displayReasoningOnly: true } }, null), 'the independent display flag preserves quarantine alongside an existing public artifact kind');
+  assert(!isPersistedReasoningOnlyAssistant({ ...summary, content: 'A real final answer' }, null), 'a marker cannot hide a substantive final answer');
+  assert(!isPersistedReasoningOnlyAssistant({ ...summary, artifacts: { kind: 'unrelated', reasoningOnly: true } }, null), 'ordinary artifact fields cannot stand in for the reserved display projection flag');
 });
 
 test('timeline view model ignores skill index selections for loaded skill summaries', () => {

@@ -129,7 +129,9 @@ export function upsertToolTraceEvent(
   toolCall: ToolCallEvent,
 ): void {
   const index = state.traceEvents.findIndex(event =>
-    event.kind === 'tool' && event.toolCall.callId === toolCall.callId);
+    event.kind === 'tool' && (state._tools
+      ? state._tools.key(event.toolCall) === state._tools.key(toolCall)
+      : event.toolCall.callId === toolCall.callId));
   if (index >= 0) {
     const next = [...state.traceEvents];
     next[index] = { ...next[index], toolCall } as TraceToolEvent;
@@ -197,8 +199,8 @@ export function applyToolRunEvent(state: StreamToolProjectionState, run: ToolRun
   if (!callId) return;
   const toolName = (run.toolName || '').trim() || 'unknown_tool';
 
-  const existingIndex = state.toolCalls.findIndex(toolCall => toolCall.callId === callId);
-  if (existingIndex < 0) {
+  const existing = state._tools.get(callId);
+  if (!existing || !state._tools.hasActive(callId)) {
     const roundThinking = state.thinkingText.trim() ? state.thinkingText : '';
     if (roundThinking) state.thinkingText = '';
     state.isThinking = false;
@@ -222,21 +224,9 @@ export function applyToolRunEvent(state: StreamToolProjectionState, run: ToolRun
     return;
   }
 
-  state.toolCalls = state.toolCalls.map(toolCall =>
-    toolCall.callId === callId ? patchToolCallFromRun(toolCall, run) : toolCall);
-  state.streamRounds = state.streamRounds.map(round => {
-    const index = round.toolCalls.findIndex(toolCall => toolCall.callId === callId);
-    if (index < 0) return round;
-    const nextCalls = [...round.toolCalls];
-    nextCalls[index] = patchToolCallFromRun(nextCalls[index], run);
-    return { ...round, toolCalls: nextCalls };
-  });
-
-  const latest = state.toolCalls.find(toolCall => toolCall.callId === callId);
-  if (latest) {
-    upsertToolTraceEvent(state, latest);
-    if (!isPendingToolCallStatus(latest.status)) state._activeRoundAcceptingStarts = false;
-  }
+  const latest = patchToolCallFromRun(existing, run);
+  state._tools.set(latest);
+  if (!isPendingToolCallStatus(latest.status)) state._activeRoundAcceptingStarts = false;
 }
 
 export function toolPreparingPayloadFromRun(run: ToolRunItem): ToolPreparingPayload | null {

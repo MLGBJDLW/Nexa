@@ -41,7 +41,6 @@ use tauri::{
     Emitter, Manager,
 };
 use tauri_plugin_window_state::StateFlags;
-use tokio::sync::Mutex as TokioMutex;
 
 /// One-shot migration of user data from the pre-rebrand "ask-myself" layout
 /// to the new "nexa" layout. Runs on every startup but is a no-op once the
@@ -759,7 +758,7 @@ fn main() {
                 sessions: nexa_core::runtime::AgentSessionManager::new(),
             });
             app.manage(McpManagerState {
-                manager: Arc::new(TokioMutex::new(nexa_core::mcp::McpManager::new())),
+                manager: Arc::new(nexa_core::mcp::McpManager::new()),
             });
             app.manage(ApprovalState::default());
             app.manage(RealtimeTranscriptionState::default());
@@ -913,6 +912,8 @@ fn main() {
             commands::list_archived_conversations_cmd,
             commands::get_conversation_cmd,
             commands::get_conversation_turns_cmd,
+            commands::get_conversation_timeline_page_cmd,
+            commands::get_conversation_timeline_details_cmd,
             commands::list_interaction_requests_cmd,
             commands::get_interaction_request_cmd,
             commands::mark_interaction_presented_cmd,
@@ -1266,6 +1267,7 @@ fn main() {
             commands::suggest_explorations_cmd,
             // Tool approval
             commands::approve_tool_call_cmd,
+            commands::list_pending_tool_approvals_cmd,
             commands::list_tool_permission_policies_cmd,
             commands::delete_tool_permission_policy_cmd,
             commands::clear_tool_permission_policies_cmd,
@@ -1337,8 +1339,7 @@ fn main() {
             // Shutdown MCP manager: kill all managed processes
             if let Some(mcp_state) = app_handle.try_state::<McpManagerState>() {
                 tauri::async_runtime::block_on(async {
-                    let mut manager = mcp_state.manager.lock().await;
-                    manager.shutdown().await;
+                    mcp_state.manager.shutdown().await;
                 });
             }
         }

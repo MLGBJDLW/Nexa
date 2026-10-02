@@ -312,10 +312,6 @@ pub fn reject_skill_change_proposal_cmd(
 
 // ── MCP Commands ────────────────────────────────────────────────────
 
-fn disconnect_after_mcp_test(server: &McpServer) -> bool {
-    !server.enabled
-}
-
 fn may_list_mcp_tools(server: &McpServer) -> bool {
     server.enabled
 }
@@ -357,8 +353,8 @@ pub async fn reload_mcp_config_file_cmd(
     let path = state.user_extensions.mcp_config_path();
     let report = nexa_core::mcp::config_file::reload_user_mcp_config(&state.db, &path)
         .map_err(|error| error.to_string())?;
-    let mut manager = mcp_state.manager.lock().await;
-    match sync_enabled_mcp_servers(&state.db, &mut manager).await {
+    let manager = &mcp_state.manager;
+    match sync_enabled_mcp_servers(&state.db, manager).await {
         Ok(errors) => {
             for (server_id, error) in errors {
                 warn!("Failed to sync MCP connector {server_id} after config reload: {error}");
@@ -384,14 +380,19 @@ pub async fn save_mcp_server_cmd(
         .db
         .save_mcp_server(&input)
         .map_err(|e| e.to_string())?;
-    let mut manager = mcp_state.manager.lock().await;
-    match sync_enabled_mcp_servers(&state.db, &mut manager).await {
-        Ok(errors) => {
-            for (server_id, error) in errors {
-                warn!("Failed to sync MCP server {server_id} after save: {error}");
-            }
+    let manager = &mcp_state.manager;
+    if saved.enabled {
+        if let Err(error) = manager
+            .sync_server_from_database(&state.db, &saved.id, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+            .await
+        {
+            warn!(
+                "Failed to sync MCP connector {} after save: {error}",
+                saved.id
+            );
         }
-        Err(error) => warn!("Failed to refresh enabled MCP servers after save: {error}"),
+    } else {
+        manager.disconnect_server(&saved.id).await.ok();
     }
     Ok(saved)
 }
@@ -403,7 +404,7 @@ pub async fn delete_mcp_server_cmd(
     id: String,
 ) -> Result<(), String> {
     state.db.delete_mcp_server(&id).map_err(|e| e.to_string())?;
-    let mut manager = mcp_state.manager.lock().await;
+    let manager = &mcp_state.manager;
     manager.disconnect_server(&id).await.ok();
     Ok(())
 }
@@ -420,15 +421,13 @@ pub async fn toggle_mcp_server_cmd(
         .toggle_mcp_server(&id, enabled)
         .map_err(|e| e.to_string())?;
 
-    let mut manager = mcp_state.manager.lock().await;
+    let manager = &mcp_state.manager;
     if enabled {
-        match sync_enabled_mcp_servers(&state.db, &mut manager).await {
-            Ok(errors) => {
-                for (server_id, error) in errors {
-                    warn!("Failed to sync MCP server {server_id} after enable: {error}");
-                }
-            }
-            Err(error) => warn!("Failed to refresh enabled MCP servers after enable: {error}"),
+        if let Err(error) = manager
+            .sync_server_from_database(&state.db, &id, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+            .await
+        {
+            warn!("Failed to sync MCP connector {id} after enable: {error}");
         }
     } else {
         manager.disconnect_server(&id).await.ok();
@@ -440,7 +439,6 @@ pub async fn toggle_mcp_server_cmd(
 #[tauri::command]
 pub async fn test_mcp_server_cmd(
     state: tauri::State<'_, AppState>,
-    mcp_state: tauri::State<'_, McpManagerState>,
     id: String,
 ) -> Result<Vec<McpToolInfo>, String> {
     let servers = state.db.list_mcp_servers().map_err(|e| e.to_string())?;
@@ -448,24 +446,14 @@ pub async fn test_mcp_server_cmd(
         .into_iter()
         .find(|s| s.id == id)
         .ok_or_else(|| format!("MCP server {id} not found"))?;
-    let mut manager = mcp_state.manager.lock().await;
-    // connect_server stores the client so list_mcp_tools_cmd can reuse it.
-    let tools = manager
-        .connect_server(&server, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+    nexa_core::mcp::McpManager::probe_server(&server, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
         .await
-        .map_err(|e| e.to_string())?;
-    // Testing is diagnostic only. A disabled connector must not retain a
-    // client, background HTTP stream, or stdio child process after discovery.
-    if disconnect_after_mcp_test(&server) {
-        let _ = manager.disconnect_server(&server.id).await;
-    }
-    Ok(tools)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn test_mcp_server_direct_cmd(
-    mcp_state: tauri::State<'_, McpManagerState>,
     name: String,
     transport: String,
     command: Option<String>,
@@ -488,13 +476,9 @@ pub async fn test_mcp_server_direct_cmd(
         updated_at: String::new(),
         builtin_id: None,
     };
-    let mut manager = mcp_state.manager.lock().await;
-    let tools = manager
-        .connect_server(&server, None)
+    nexa_core::mcp::McpManager::probe_server(&server, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
         .await
-        .map_err(|e| e.to_string())?;
-    manager.disconnect_server("__test__").await.ok();
-    Ok(tools)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -508,7 +492,7 @@ pub async fn list_mcp_tools_cmd(
         .into_iter()
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("MCP server {server_id} not found"))?;
-    let mut manager = mcp_state.manager.lock().await;
+    let manager = &mcp_state.manager;
     // Tool enumeration is a runtime action, not a diagnostic test. Re-read
     // durable activation before consulting the client cache so a stale UI
     // snapshot cannot resurrect a connector disabled by a JSON reload.
@@ -516,16 +500,14 @@ pub async fn list_mcp_tools_cmd(
         let _ = manager.disconnect_server(&server_id).await;
         return Err(format!("MCP server {server_id} is disabled"));
     }
-    // If already connected, list tools from existing client.
-    if let Some(client) = manager.get_client(&server_id) {
-        let mut guard = client.lock().await;
-        return guard.list_tools().await.map_err(|e| e.to_string());
-    }
-    // Otherwise, connect first.
     manager
-        .connect_server(&server, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+        .sync_server_from_database(&state.db, &server_id, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|error| error.to_string())?;
+    manager
+        .refresh_server(&server_id)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -547,13 +529,6 @@ mod mcp_command_tests {
             updated_at: String::new(),
             builtin_id: builtin.then(|| "builtin-test".into()),
         }
-    }
-
-    #[test]
-    fn tests_retain_only_explicitly_enabled_connector_connections() {
-        assert!(disconnect_after_mcp_test(&test_server(false, false)));
-        assert!(disconnect_after_mcp_test(&test_server(false, true)));
-        assert!(!disconnect_after_mcp_test(&test_server(true, false)));
     }
 
     #[test]

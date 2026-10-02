@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './timeline-test';
 
 test('user Markdown folds by rendered height, preserves source, and does not load remote images', async ({ page }) => {
   const imageRequests: string[] = [];

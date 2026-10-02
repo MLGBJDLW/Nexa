@@ -175,6 +175,50 @@ jobs:
           cargo clippy -p nexa-remote --all-targets -- -D warnings
           cargo test -p nexa-remote
 
+  agent_task_eval:
+    name: Agent Task Evaluation
+    needs: classify
+    if: needs.classify.outputs.release_metadata_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-agent-eval-${{ hashFiles('**/Cargo.lock') }}
+      - name: Lightweight protocol and dependency boundaries
+        run: |
+          cargo test -p nexa-model-catalog
+          cargo clippy -p nexa-model-catalog --all-targets -- -D warnings
+          node scripts/check-cargo-boundaries.mjs
+      - name: Task evaluator contracts and local provider wire
+        run: |
+          cargo clippy -p nexa-agent-eval --all-targets -- -D warnings
+          cargo test -p nexa-agent-eval
+          node --test scripts/compare-task-eval.test.mjs
+      - name: Real executor with deterministic task transport
+        run: cargo run -p nexa-agent-eval -- --output target/eval/scripted-report.json
+      - name: Upload task evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-task-evaluation
+          path: target/eval/*report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   office_smoke:
     name: Office Artifact Smoke
     needs: classify
@@ -377,6 +421,10 @@ jobs:
           e2e/chat-scroll-behavior.spec.ts
           e2e/chat-decision-tray.spec.ts
           e2e/desktop-approval-scope.spec.ts
+          e2e/attention-inbox.spec.ts
+          e2e/conversation-timeline.spec.ts
+          e2e/tool-entities.spec.ts
+          e2e/history-markdown-rendering.spec.ts
           e2e/desktop-control-status.spec.ts
           e2e/subagent-ui.spec.ts
           e2e/subagent-batch-judge-ui.spec.ts
@@ -493,6 +541,7 @@ jobs:
       - repository_policy
       - release_metadata
       - rust_core
+      - agent_task_eval
       - office_smoke
       - frontend
       - browser_regressions
@@ -507,6 +556,7 @@ jobs:
           REPOSITORY_POLICY_RESULT: ${{ needs.repository_policy.result }}
           RELEASE_METADATA_RESULT: ${{ needs.release_metadata.result }}
           RUST_CORE_RESULT: ${{ needs.rust_core.result }}
+          AGENT_TASK_EVAL_RESULT: ${{ needs.agent_task_eval.result }}
           OFFICE_SMOKE_RESULT: ${{ needs.office_smoke.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           BROWSER_REGRESSIONS_RESULT: ${{ needs.browser_regressions.result }}
@@ -524,6 +574,7 @@ jobs:
               "Repository Policy:$REPOSITORY_POLICY_RESULT"
               "Release Metadata Contracts:$RELEASE_METADATA_RESULT"
               "Rust Core:$RUST_CORE_RESULT"
+              "Agent Task Evaluation:$AGENT_TASK_EVAL_RESULT"
               "Office Artifact Smoke:$OFFICE_SMOKE_RESULT"
               "Frontend Contracts & Build:$FRONTEND_RESULT"
               "Browser Regressions:$BROWSER_REGRESSIONS_RESULT"

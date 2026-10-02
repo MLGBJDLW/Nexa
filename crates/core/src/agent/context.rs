@@ -184,14 +184,14 @@ pub fn prepare_messages_with_options(
             .chain(options.volatile_system_sections.iter().copied())
             .chain(std::iter::once(volatile_skills_section.as_str())),
     );
-    let current_user = Message {
+    let current_user = Message::from(crate::llm::MessageData {
         role: Role::User,
         parts: user_parts.to_vec(),
         name: None,
         tool_calls: None,
         reasoning_content: None,
         prompt_cache_hint: None,
-    };
+    });
     let prompt = AgentPrompt {
         policy: PromptBlock::new(PromptLayer::Policy, stable_system_prompt)
             .into_iter()
@@ -376,6 +376,30 @@ pub fn estimate_context_usage_breakdown_for_model(
     tools: &[ToolDefinition],
     actual_prompt_tokens: Option<u32>,
 ) -> ContextUsageBreakdown {
+    let mut segments: BTreeMap<&'static str, u32> = BTreeMap::new();
+    for message in messages {
+        add_message_context_tokens(&mut segments, model, message);
+    }
+    for tool in tools {
+        let kind = if is_mcp_tool_definition(tool) {
+            "mcp"
+        } else {
+            "tools"
+        };
+        add_tokens(
+            &mut segments,
+            kind,
+            estimate_tool_definition_tokens_for_model(model, tool),
+        );
+    }
+
+    breakdown_from_segments(segments, actual_prompt_tokens)
+}
+
+pub(super) fn breakdown_from_segments(
+    mut segments: BTreeMap<&'static str, u32>,
+    actual_prompt_tokens: Option<u32>,
+) -> ContextUsageBreakdown {
     const ORDER: [&str; 24] = [
         "systemCore",
         "runtime",
@@ -402,23 +426,6 @@ pub fn estimate_context_usage_breakdown_for_model(
         "mcp",
         "overhead",
     ];
-
-    let mut segments: BTreeMap<&'static str, u32> = BTreeMap::new();
-    for message in messages {
-        add_message_context_tokens(&mut segments, model, message);
-    }
-    for tool in tools {
-        let kind = if is_mcp_tool_definition(tool) {
-            "mcp"
-        } else {
-            "tools"
-        };
-        add_tokens(
-            &mut segments,
-            kind,
-            estimate_tool_definition_tokens_for_model(model, tool),
-        );
-    }
 
     let estimated_total = segments.values().copied().sum::<u32>();
     let actual_total = actual_prompt_tokens.unwrap_or(0);
@@ -454,7 +461,7 @@ pub fn estimate_context_usage_breakdown_for_model(
     }
 }
 
-fn add_message_context_tokens(
+pub(super) fn add_message_context_tokens(
     segments: &mut BTreeMap<&'static str, u32>,
     model: &str,
     message: &Message,
@@ -605,12 +612,12 @@ fn context_kind_for_system_heading(heading: &str) -> &'static str {
     }
 }
 
-fn estimate_tool_definition_tokens_for_model(model: &str, tool: &ToolDefinition) -> u32 {
+pub(super) fn estimate_tool_definition_tokens_for_model(model: &str, tool: &ToolDefinition) -> u32 {
     let tool_text = format!("{} {} {}", tool.name, tool.description, tool.parameters);
     estimate_tokens_for_model(model, &tool_text) + 10
 }
 
-fn is_mcp_tool_definition(tool: &ToolDefinition) -> bool {
+pub(super) fn is_mcp_tool_definition(tool: &ToolDefinition) -> bool {
     tool.name == "mcp_tool" || tool.name.starts_with("mcp__")
 }
 

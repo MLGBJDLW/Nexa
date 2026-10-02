@@ -1381,14 +1381,14 @@ fn test_preflight_classifies_invalid_inherited_history() {
         deliverable_style: None,
         return_sections: None,
     };
-    let invalid_assistant = Message {
+    let invalid_assistant = Message::from(nexa_core::llm::MessageData {
         role: Role::Assistant,
         parts: Vec::new(),
         name: None,
         tool_calls: None,
         reasoning_content: Some("private reasoning".into()),
         prompt_cache_hint: None,
-    };
+    });
     let snapshot = DelegationContextSnapshot {
         id: "snapshot".into(),
         selected_message_ids: Arc::from(vec!["message-1".to_string()]),

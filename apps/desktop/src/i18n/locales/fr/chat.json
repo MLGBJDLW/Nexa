@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "Ce tour n'a pas pu être conservé.",
   "connectionNextAction": "Vérifiez les réglages du fournisseur, puis renvoyez le message une fois la connexion disponible.",
   "toolInputRedacted": "[Masqué]",
-  "toolInputInvalid": "[Arguments illisibles masqués]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[Arguments illisibles masqués]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "Le compagnon se repose",
   "companionThinking": "Réflexion",
   "companionSearching": "Recherche sur le web",
@@ -694,8 +694,8 @@
   "companionSucceeded": "Tâche réussie",
   "companionFailed": "Échec de la tâche",
   "companionCancelled": "Tâche annulée",
-  "companionSleeping": "Le compagnon dort"
-,"compactUnavailable": "La compression manuelle du contexte est indisponible pour cette conversation.",
+  "companionSleeping": "Le compagnon dort",
+  "compactUnavailable": "La compression manuelle du contexte est indisponible pour cette conversation.",
   "turnChangesTitle": "{count} fichiers modifiés",
   "turnChangesPartial": "Suivi partiel des modifications",
   "turnChangesCoverage": "Seules les modifications natives enregistrées sont comptées. Les commandes Shell, les autres modifications ou les contenus indisponibles peuvent laisser des lacunes. Les lignes inconnues sont exclues du total.",
@@ -787,5 +787,22 @@
   "slashCommand.nexus.description": "Activez ou désactivez Nexus avec /nexus on|off. La première activation affiche une présentation.",
   "slashCommand.moa.description": "Choisissez la collaboration, ou utilisez /moa on|off|fast-review|deep-research|cross-model-code-review|custom.",
   "slashCommand.quality.description": "Choisissez la qualité, ou utilisez /quality balanced|deep|code-ultra|research-ultra|custom.",
-  "commandUnavailable": "Cette commande est indisponible dans la conversation actuelle."
+  "commandUnavailable": "Cette commande est indisponible dans la conversation actuelle.",
+  "attentionTitle": "Votre intervention est requise",
+  "attentionCount": "Votre intervention est requise ({count})",
+  "attentionEmpty": "Aucune intervention requise.",
+  "attentionApproval": "En attente d’approbation",
+  "attentionQuestion": "En attente de votre réponse",
+  "approvalExpiresIn": "Répondez sous {seconds} s",
+  "approvalExpired": "Cette demande a expiré. En attente de la mise à jour de la tâche.",
+  "approvalSubmitFailed": "Impossible d’envoyer votre décision. Réessayez.",
+  "approvalSubmitting": "Envoi de votre décision…",
+  "loadOlderMessages": "Charger les messages précédents",
+  "loadLatestMessages": "Revenir aux derniers messages",
+  "loadTurnActivity": "Voir l’activité et les résultats des outils",
+  "mcpMediaUnavailable": "Aperçu du média indisponible.",
+  "mcpImage": "Image du résultat",
+  "mcpAudio": "Audio du résultat",
+  "mcpEmbeddedResource": "Ressource intégrée",
+  "mcpStructuredContent": "Résultat structuré"
 }

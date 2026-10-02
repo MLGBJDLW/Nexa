@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -159,6 +159,7 @@ test.beforeEach(async ({ page }) => {
 test('checkpoint menu can open a saved point as a new branch', async ({ page }) => {
   await page.goto('/chat/conv-checkpoint-source');
 
+  await page.getByTestId('chat-more-options').click();
   await page.getByTestId('checkpoint-menu-trigger').click();
   const menu = page.getByTestId('checkpoint-menu-panel');
 

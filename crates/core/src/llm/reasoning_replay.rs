@@ -103,9 +103,18 @@ pub fn prepare_reasoning_replay_history(
 ) -> ReasoningReplayProjection {
     let mut normalized = messages.to_vec();
     for message in &mut normalized {
-        message.reasoning_content = sanitize_reasoning_text(message.reasoning_content.as_deref());
-        if policy == ReasoningReplayPolicy::Forbidden {
-            message.reasoning_content = None;
+        let reasoning = if policy == ReasoningReplayPolicy::Forbidden {
+            None
+        } else {
+            message
+                .reasoning_content
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && *value != LEGACY_MISSING_REASONING_SENTINEL)
+        };
+        if message.reasoning_content.as_deref() != reasoning {
+            let reasoning = reasoning.map(str::to_owned);
+            message.reasoning_content = reasoning;
         }
     }
 
@@ -172,9 +181,18 @@ pub fn prepare_provider_replay_history(
 
     let mut normalized = messages.to_vec();
     for message in &mut normalized {
-        message.reasoning_content = sanitize_reasoning_text(message.reasoning_content.as_deref());
-        if let Some(envelope) = message.provider_turn() {
-            message.reasoning_content = envelope.replay_payload.reasoning_content();
+        let reasoning = if let Some(envelope) = message.provider_turn() {
+            envelope.replay_payload.reasoning_content_ref()
+        } else {
+            message
+                .reasoning_content
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && *value != LEGACY_MISSING_REASONING_SENTINEL)
+        };
+        if message.reasoning_content.as_deref() != reasoning {
+            let reasoning = reasoning.map(str::to_owned);
+            message.reasoning_content = reasoning;
         }
     }
 

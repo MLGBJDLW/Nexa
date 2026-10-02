@@ -324,14 +324,16 @@ impl MoaProvider {
         };
         let mut aggregator_request = self.request_for_aggregator(request);
         if let Some(tail) = tail {
-            aggregator_request.messages.push(Message {
-                role: Role::System,
-                parts: vec![ContentPart::Text { text: tail }],
-                name: None,
-                tool_calls: None,
-                reasoning_content: None,
-                prompt_cache_hint: None,
-            });
+            aggregator_request
+                .messages
+                .push(Message::from(crate::llm::MessageData {
+                    role: Role::System,
+                    parts: vec![ContentPart::Text { text: tail }],
+                    name: None,
+                    tool_calls: None,
+                    reasoning_content: None,
+                    prompt_cache_hint: None,
+                }));
         }
         Ok(aggregator_request)
     }
@@ -363,7 +365,7 @@ impl MoaProvider {
             let mut advisor_request = request.clone();
             advisor_request.model = advisor.slot.model.clone();
             advisor_request.messages = advisor_view.clone();
-            advisor_request.messages.insert(0, Message {
+            advisor_request.messages.insert(0, Message::from(crate::llm::MessageData {
                 role: Role::System,
                 parts: vec![ContentPart::Text {
                     text: format!(
@@ -375,7 +377,7 @@ impl MoaProvider {
                 tool_calls: None,
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            });
+            }));
             advisor_request.tools = None;
             advisor_request.parallel_tool_calls = false;
             advisor_request.max_tokens = Some(self.preset.reference_max_tokens);
@@ -564,29 +566,31 @@ fn deterministic_advisor_view(messages: &[Message], privacy: &MoaPrivacyFilter) 
     };
     source
         .into_iter()
-        .map(|message| Message {
-            role: message.role.clone(),
-            parts: message
-                .parts
-                .iter()
-                .filter_map(|part| match part {
-                    ContentPart::Text { text } => Some(ContentPart::Text {
-                        text: if *privacy == MoaPrivacyFilter::Off {
-                            text.clone()
-                        } else {
-                            crate::privacy::redact_content(text, &[])
-                        },
-                    }),
-                    ContentPart::Image { .. } if *privacy == MoaPrivacyFilter::Off => {
-                        Some(part.clone())
-                    }
-                    ContentPart::Image { .. } | ContentPart::ProviderTurn { .. } => None,
-                })
-                .collect(),
-            name: None,
-            tool_calls: None,
-            reasoning_content: None,
-            prompt_cache_hint: None,
+        .map(|message| {
+            Message::from(crate::llm::MessageData {
+                role: message.role.clone(),
+                parts: message
+                    .parts
+                    .iter()
+                    .filter_map(|part| match part {
+                        ContentPart::Text { text } => Some(ContentPart::Text {
+                            text: if *privacy == MoaPrivacyFilter::Off {
+                                text.clone()
+                            } else {
+                                crate::privacy::redact_content(text, &[])
+                            },
+                        }),
+                        ContentPart::Image { .. } if *privacy == MoaPrivacyFilter::Off => {
+                            Some(part.clone())
+                        }
+                        ContentPart::Image { .. } | ContentPart::ProviderTurn { .. } => None,
+                    })
+                    .collect(),
+                name: None,
+                tool_calls: None,
+                reasoning_content: None,
+                prompt_cache_hint: None,
+            })
         })
         .filter(|message| !message.parts.is_empty())
         .collect()
@@ -827,7 +831,7 @@ mod tests {
     fn request() -> CompletionRequest {
         CompletionRequest {
             model: "aggregator-model".to_string(),
-            messages: vec![Message {
+            messages: vec![Message::from(crate::llm::MessageData {
                 role: Role::User,
                 parts: vec![ContentPart::Text {
                     text: "review this".to_string(),
@@ -836,7 +840,7 @@ mod tests {
                 tool_calls: None,
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            }],
+            })],
             tools: Some(vec![]),
             ..Default::default()
         }

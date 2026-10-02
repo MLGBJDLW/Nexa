@@ -399,6 +399,9 @@ fn permission(
         request.permission_key = key.permission_key();
         request.target_kind = key.target_kind;
         request.target_value = key.target_value;
+        if !selection {
+            request = request.with_default_deadline();
+        }
         events
             .send(AgentEvent::ApprovalRequested {
                 request: request.clone(),

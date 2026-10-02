@@ -11,10 +11,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use super::prompt_cache::{resolve_prompt_cache_profile, PromptCacheApiStyle, PromptCacheProfile};
+use super::model_contract::{resolve_model_contract, ToolSchemaDialect};
+use super::prompt_cache::PromptCacheProfile;
+#[cfg(test)]
+use super::reasoning_profile::resolve_reasoning_profile;
 use super::reasoning_profile::{
-    resolve_reasoning_profile, ReasoningApiStyle, ReasoningBudgetField, ReasoningEffortField,
-    ReasoningHistoryEncoding, ReasoningReplayPolicy, ThinkingModeControl,
+    ReasoningApiStyle, ReasoningBudgetField, ReasoningEffortField, ReasoningHistoryEncoding,
+    ReasoningReplayPolicy, ThinkingModeControl,
 };
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
@@ -889,7 +892,7 @@ fn convert_message(
     oai
 }
 
-fn convert_tools(tools: &[ToolDefinition]) -> Vec<OaiTool> {
+fn convert_tools(tools: &[ToolDefinition], moonshot_schema: bool) -> Vec<OaiTool> {
     tools
         .iter()
         .map(|t| OaiTool {
@@ -897,7 +900,11 @@ fn convert_tools(tools: &[ToolDefinition]) -> Vec<OaiTool> {
             function: OaiToolFunction {
                 name: t.name.clone(),
                 description: t.description.clone(),
-                parameters: t.parameters.clone(),
+                parameters: if moonshot_schema {
+                    super::moonshot_schema::project_tool_parameters(&t.parameters)
+                } else {
+                    t.parameters.clone()
+                },
             },
             cache_control: None,
         })
@@ -918,12 +925,14 @@ fn build_request_body_with_config(
         .provider_type
         .or_else(|| config.map(|config| config.provider_type))
         .unwrap_or(ProviderType::Custom);
-    let reasoning_profile = resolve_reasoning_profile(
+    let contract = resolve_model_contract(
         provider_type,
         config.and_then(|config| config.base_url.as_deref()),
         ReasoningApiStyle::OpenAiChatCompletions,
         &request.model,
     );
+    let provider_type = contract.provider_type;
+    let reasoning_profile = &contract.reasoning;
     let reasoning_supported = reasoning_profile.id != "openai-reasoning-v1"
         || is_reasoning_model(&request.model, Some(&provider_type));
     let requested_reasoning_mode = reasoning_profile
@@ -991,13 +1000,8 @@ fn build_request_body_with_config(
         && reasoning_profile.omit_stop_when_reasoning
         && requested_reasoning_mode != Some(false);
     // Some providers/models require function arguments as JSON objects, not strings.
-    let raw_tool_args = requires_raw_tool_arguments(&request.model, request.provider_type.as_ref());
-    let cache_profile = resolve_prompt_cache_profile(
-        provider_type,
-        config.and_then(|config| config.base_url.as_deref()),
-        PromptCacheApiStyle::OpenAiCompatible,
-        &request.model,
-    );
+    let raw_tool_args = requires_raw_tool_arguments(&request.model, Some(&provider_type));
+    let cache_profile = &contract.cache;
     let wire_source_indices = chat_completion_wire_order(&request.messages);
     let leading_system_count = request
         .messages
@@ -1023,7 +1027,7 @@ fn build_request_body_with_config(
         request,
         &mut messages,
         &wire_source_indices,
-        &cache_profile,
+        cache_profile,
     );
 
     OaiRequest {
@@ -1033,7 +1037,7 @@ fn build_request_body_with_config(
             .then(|| request.routing_session_id.clone())
             .flatten(),
         prompt_cache_key: super::prompt_cache::openai_prompt_cache_key(
-            &cache_profile,
+            cache_profile,
             &request.model,
             &request.messages,
             request.tools.as_deref(),
@@ -1103,7 +1107,10 @@ fn build_request_body_with_config(
         preserve_thinking: (reasoning_profile.send_preserve_thinking
             && requested_reasoning_mode != Some(false))
         .then_some(true),
-        tools: request.tools.as_ref().map(|t| convert_tools(t)),
+        tools: request
+            .tools
+            .as_ref()
+            .map(|t| convert_tools(t, contract.tool_schema == ToolSchemaDialect::Moonshot)),
         tool_stream: (native_glm53_contract
             && stream
             && request
@@ -1344,12 +1351,13 @@ fn build_responses_request_with_tools(
         // budget and an effort are mutually exclusive; keep an explicit budget
         // when present, then fall back to the selected effort/mode.
         if super::reasoning_profile::is_openrouter_sonnet55_model(&request.model) {
-            let profile = resolve_reasoning_profile(
+            let contract = resolve_model_contract(
                 ProviderType::OpenRouter,
                 None,
                 ReasoningApiStyle::OpenAiChatCompletions,
                 &request.model,
             );
+            let profile = &contract.reasoning;
             let effort = profile
                 .wire_effort(request.reasoning_effort.as_ref())
                 .or_else(|| profile.wire_effort(profile.default_effort.as_ref()));
@@ -2898,12 +2906,14 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn prompt_cache_profile(&self, model: &str) -> PromptCacheProfile {
-        resolve_prompt_cache_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
-            PromptCacheApiStyle::OpenAiCompatible,
+            ReasoningApiStyle::OpenAiChatCompletions,
             model,
         )
+        .cache
+        .clone()
     }
 
     fn reasoning_replay_policy(&self, model: &str) -> ReasoningReplayPolicy {
@@ -2919,22 +2929,24 @@ impl LlmProvider for OpenAiProvider {
         } else {
             ReasoningApiStyle::OpenAiChatCompletions
         };
-        resolve_reasoning_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             api_style,
             model,
         )
+        .reasoning
         .replay_policy
     }
 
     fn replay_history_projection(&self, request: &CompletionRequest) -> ReplayHistoryProjection {
-        let mandatory_thinking = resolve_reasoning_profile(
+        let mandatory_thinking = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::OpenAiChatCompletions,
             &request.model,
         )
+        .reasoning
         .requested_mode(Some(false), Some(&ReasoningEffort::None), None)
             == Some(true);
         if (request.reasoning_enabled == Some(false)
@@ -2965,13 +2977,13 @@ impl LlmProvider for OpenAiProvider {
             }
             None => ReasoningApiStyle::OpenAiChatCompletions,
         };
-        let profile = resolve_reasoning_profile(
+        let contract = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             api_style,
             &request.model,
         );
-        super::provider_turn::RouteSnapshot::from_profile_for_request(&profile, request)
+        super::provider_turn::RouteSnapshot::from_profile_for_request(&contract.reasoning, request)
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
@@ -3474,7 +3486,7 @@ mod tests {
         request.reasoning_effort = Some(ReasoningEffort::High);
         request.thinking_budget = Some(2048);
         request.max_tokens = Some(65536);
-        request.messages = vec![Message {
+        request.messages = vec![Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "Checking a file".into(),
@@ -3488,7 +3500,7 @@ mod tests {
                 arguments: "{\"path\":\"README.md\"}".into(),
                 thought_signature: None,
             }]),
-        }];
+        })];
         let body = serde_json::to_value(build_request_body_with_config(
             &request,
             true,
@@ -3811,6 +3823,350 @@ mod tests {
             timeout_secs: None,
             streaming: Default::default(),
         }
+    }
+
+    #[test]
+    fn kimi_tool_schema_does_not_send_type_next_to_any_of() {
+        let mut request = endpoint_reasoning_request("kimi-k2.5");
+        request.tools = Some(vec![ToolDefinition {
+            name: "schema_repro".into(),
+            description: "Minimal Moonshot schema repro".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "anyOf": [{"required": ["content"]}]
+            }),
+        }]);
+        let config = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://coding.dashscope.aliyuncs.com/v1",
+        );
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        let schema = &body["tools"][0]["function"]["parameters"];
+        assert!(
+            !(schema.get("anyOf").is_some() && schema.get("type").is_some()),
+            "tools.function.parameters is not a valid moonshot flavored json schema, details: \
+             <At path 'root': when using anyOf, type should be defined in anyOf items instead of the parent schema>"
+        );
+    }
+
+    #[test]
+    fn kimi_tool_schema_request_matrix_is_endpoint_scoped_for_both_request_modes() {
+        let definition: serde_json::Value =
+            serde_json::from_str(include_str!("../../prompts/tools/edit_file.json")).unwrap();
+        let original = definition["parameters"].clone();
+        let cases = [
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.ai/v1",
+                "kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://api.moonshot.cn/v1/",
+                "kimi-k2.6",
+                true,
+            ),
+            (
+                ProviderType::Custom,
+                "https://api.moonshot.ai/v1",
+                "kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.6",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+                "kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "kimi/kimi-k3",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "kimi/kimi-k2.7-code-highspeed",
+                true,
+            ),
+            (
+                ProviderType::Qwen,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi/kimi-k2.6",
+                true,
+            ),
+            (
+                ProviderType::OpenAi,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.7-code",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://coding.dashscope.aliyuncs.com/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::Custom,
+                "https://coding.dashscope.aliyuncs.com/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://coding-intl.dashscope.aliyuncs.com/v1",
+                "kimi-k2.5",
+                true,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://coding.dashscope.aliyuncs.com/v1",
+                "qwen3.7-plus",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "qwen3.8-max",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "zhipu/glm-5.3",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "my-kimi-model",
+                false,
+            ),
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "moonshotai/kimi-k3",
+                false,
+            ),
+            (
+                ProviderType::SiliconFlow,
+                "https://api.siliconflow.cn/v1",
+                "Pro/moonshotai/Kimi-K2.6",
+                false,
+            ),
+            (
+                ProviderType::Moonshot,
+                "https://proxy.example/v1",
+                "kimi-k3",
+                false,
+            ),
+            (
+                ProviderType::Custom,
+                "http://localhost:8000/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "http://dashscope.aliyuncs.com/compatible-mode/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com:8443/compatible-mode/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/tenant/v1",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com/compatible-mode/v1?route=custom",
+                "kimi-k2.5",
+                false,
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope.aliyuncs.com.evil.invalid/compatible-mode/v1",
+                "kimi-k2.5",
+                false,
+            ),
+        ];
+        for (provider, url, model, adapted) in cases {
+            for stream in [false, true] {
+                let mut request = endpoint_reasoning_request(model);
+                request.tools = Some(vec![ToolDefinition {
+                    name: "edit_file".into(),
+                    description: "Keep the tool identity".into(),
+                    parameters: original.clone(),
+                }]);
+                let config = endpoint_config(provider, url);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    stream,
+                    Some(&config),
+                ))
+                .unwrap();
+                let tool = &body["tools"][0]["function"];
+                assert_eq!(tool["name"], "edit_file");
+                assert_eq!(tool["description"], "Keep the tool identity");
+                if adapted {
+                    assert_eq!(tool["parameters"]["type"], "object", "{url} {model}");
+                    assert!(tool["parameters"].get("anyOf").is_none(), "{url} {model}");
+                    assert_eq!(tool["parameters"]["properties"], original["properties"]);
+                    assert_eq!(tool["parameters"]["required"], original["required"]);
+                } else {
+                    assert_eq!(tool["parameters"], original, "{url} {model}");
+                }
+                assert_eq!(request.tools.as_ref().unwrap()[0].parameters, original);
+            }
+        }
+    }
+
+    #[test]
+    fn custom_moonshot_cn_replays_reasoning_and_projects_schema_in_the_same_request() {
+        for saved in [
+            ProviderType::Custom,
+            ProviderType::OpenAi,
+            ProviderType::Moonshot,
+        ] {
+            let config = endpoint_config(saved, "https://api.moonshot.cn/v1");
+            let mut request = endpoint_reasoning_request("kimi-k3");
+            request.provider_type = Some(saved);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::Low);
+            let mut assistant = Message::text(Role::Assistant, "Checking");
+            assistant.reasoning_content = Some("Retained provider reasoning".into());
+            assistant.tool_calls = Some(vec![ToolCallRequest {
+                id: "read-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.txt"}"#.into(),
+                thought_signature: None,
+            }]);
+            request.messages.push(assistant);
+            request.tools = Some(vec![ToolDefinition {
+                name: "edit_file".into(),
+                description: "Edit".into(),
+                parameters: serde_json::json!({"type":"object","properties":{"content":{"type":"string"}},"anyOf":[{"required":["content"]}]}),
+            }]);
+            for stream in [false, true] {
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    stream,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(
+                    body["messages"][1]["reasoning_content"],
+                    "Retained provider reasoning"
+                );
+                assert_eq!(body["reasoning_effort"], "low");
+                assert!(body["tools"][0]["function"]["parameters"]
+                    .get("anyOf")
+                    .is_none());
+                assert!(body.get("temperature").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn kimi_tool_replay_preserves_coding_plan_reasoning_without_borrowing_payg_budgets() {
+        for url in [
+            "https://coding.dashscope.aliyuncs.com/v1",
+            "https://coding-intl.dashscope.aliyuncs.com/v1",
+        ] {
+            let config = endpoint_config(ProviderType::AlibabaModelStudio, url);
+            for enabled in [None, Some(true), Some(false)] {
+                let mut request = endpoint_reasoning_request("kimi-k2.5");
+                request.reasoning_enabled = enabled;
+                request.thinking_budget = enabled.map(|_| 2048);
+                let mut assistant = Message::text(Role::Assistant, "Checking the file");
+                assistant.reasoning_content = Some("Need to read the existing contents".into());
+                assistant.tool_calls = Some(vec![ToolCallRequest {
+                    id: "read-1".into(),
+                    name: "read_file".into(),
+                    arguments: r#"{"path":"a.txt"}"#.into(),
+                    thought_signature: None,
+                }]);
+                request.messages.push(assistant);
+                for stream in [false, true] {
+                    let body = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        stream,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(
+                        body["messages"][1].get("reasoning_content").is_some(),
+                        enabled != Some(false),
+                        "{url}"
+                    );
+                    assert_eq!(
+                        body.get("enable_thinking"),
+                        enabled.map(serde_json::Value::Bool).as_ref()
+                    );
+                    assert!(body.get("thinking_budget").is_none());
+                    assert!(body.get("reasoning_effort").is_none());
+                    assert!(body.get("thinking").is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn kimi_tool_replay_hosted_k3_keeps_mandatory_thinking_with_the_alibaba_encoding() {
+        let config = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        );
+        let mut request = endpoint_reasoning_request("kimi-k3");
+        request.reasoning_enabled = Some(false);
+        request.reasoning_effort = Some(ReasoningEffort::Low);
+        request.thinking_budget = Some(4096);
+        let mut assistant = Message::text(Role::Assistant, "Checking");
+        assistant.reasoning_content = Some("Retained thinking".into());
+        request.messages.push(assistant);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["enable_thinking"], true);
+        assert_eq!(body["preserve_thinking"], true);
+        assert_eq!(
+            body["messages"][1]["reasoning_content"],
+            "Retained thinking"
+        );
+        assert!(body.get("thinking_budget").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("temperature").is_none());
     }
 
     fn endpoint_reasoning_request(model: &str) -> CompletionRequest {
@@ -4467,7 +4823,7 @@ data: [DONE]
 
     #[test]
     fn direct_reasoning_history_uses_each_providers_documented_content_shape() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "final answer".to_string(),
@@ -4476,7 +4832,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("work it out".to_string()),
             prompt_cache_hint: None,
-        };
+        });
 
         let minimax_request = CompletionRequest {
             messages: vec![assistant.clone()],
@@ -5625,7 +5981,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_thinking_history_replays_reasoning_content() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "answer".to_string(),
@@ -5634,7 +5990,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("prior reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "deepseek-v4-pro".to_string(),
             messages: vec![Message::text(Role::User, "hello"), assistant],
@@ -5658,7 +6014,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_thinking_history_replays_reasoning_content_with_tool_calls() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -5670,7 +6026,7 @@ data: [DONE]
             }]),
             reasoning_content: Some("Need to check whether python-docx is installed.".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let mut tool = Message::text(Role::Tool, "python-docx 1.2.0");
         tool.name = Some("call_1".to_string());
         let request = CompletionRequest {
@@ -5711,7 +6067,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_thinking_history_never_synthesizes_legacy_reasoning() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -5723,7 +6079,7 @@ data: [DONE]
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let mut tool = Message::text(Role::Tool, "ok");
         tool.name = Some("call_legacy".to_string());
         let request = CompletionRequest {
@@ -5750,7 +6106,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_disabled_thinking_omits_reasoning_content() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "answer".to_string(),
@@ -5759,7 +6115,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("prior reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "deepseek-v4-pro".to_string(),
             messages: vec![Message::text(Role::User, "hello"), assistant],
@@ -5838,7 +6194,7 @@ data: [DONE]
 
     #[test]
     fn glm53_trusted_routes_gate_wire_extras_and_preserve_thinking() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "answer".to_string(),
@@ -5847,7 +6203,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("full prior reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let request_for = |provider_type: ProviderType, model: &str| CompletionRequest {
             model: model.to_string(),
             messages: vec![Message::text(Role::User, "hello"), assistant.clone()],
@@ -6191,7 +6547,7 @@ data: [DONE]
 
     #[test]
     fn qwen_history_tool_arguments_are_sent_as_json_objects() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6203,7 +6559,7 @@ data: [DONE]
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "qwen3-coder".to_string(),
             messages: vec![assistant],
@@ -6336,7 +6692,7 @@ data: [DONE]
 
     #[test]
     fn qwen_thinking_replays_real_reasoning_content_without_placeholder() {
-        let assistant_with_reasoning = Message {
+        let assistant_with_reasoning = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6348,15 +6704,15 @@ data: [DONE]
             }]),
             reasoning_content: Some("need lookup".to_string()),
             prompt_cache_hint: None,
-        };
-        let assistant_without_reasoning = Message {
+        });
+        let assistant_without_reasoning = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
             tool_calls: None,
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "qwen3.6-plus".to_string(),
             messages: vec![assistant_with_reasoning, assistant_without_reasoning],
@@ -6918,7 +7274,7 @@ data: [DONE]
 
     #[test]
     fn invalid_history_tool_arguments_are_replaced_before_replay() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6930,7 +7286,7 @@ data: [DONE]
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "qwen3-coder".to_string(),
             messages: vec![assistant],

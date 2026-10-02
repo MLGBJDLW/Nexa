@@ -279,13 +279,17 @@ impl PackageRuntimeAssembler {
         let mut tool_owners = HashMap::new();
 
         for tool_name in registry.tool_names() {
-            let owner = self.tool_owner(&tool_name).ok_or_else(|| {
+            let ownership_selector = registry
+                .get(&tool_name)
+                .map(|tool| tool.ownership_selector())
+                .unwrap_or(&tool_name);
+            let owner = self.tool_owner(ownership_selector).ok_or_else(|| {
                 PackageHostContractError::UnownedRuntimeTool {
                     tool_name: tool_name.clone(),
                 }
             })?;
             tool_owners.insert(tool_name.clone(), owner.id.clone());
-            if self.tool_is_runtime_visible(owner, &tool_name) {
+            if self.tool_is_runtime_visible(owner, ownership_selector) {
                 allowed_names.push(tool_name);
             } else {
                 excluded_tools.push(tool_name);

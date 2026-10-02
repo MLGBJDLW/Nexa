@@ -152,6 +152,10 @@ intentional environment setup and are not ordinary CI coverage.
 | `video` | No | Yes | Media analysis and local speech dependencies; runtime assets are still required |
 | `onnx-runtime` | Through OCR/embeddings | Through core | Shared optional ONNX dependencies |
 | `custom-protocol` | Not applicable | Yes | Tauri application asset protocol |
+| `host-tools` | Yes | Always enabled on the core dependency | Browser, native control and document implementation group |
+| `headless-browser` | Through host-tools | Through core | Chromium-backed browser sessions and rendered fetches |
+| `desktop-control` | Through host-tools | Through core | Native Windows observation/input and capture dependencies |
+| `document-processing` | Through host-tools or OCR | Through core | PDF and spreadsheet parsers/previews |
 
 The manifests are authoritative:
 [core](crates/core/Cargo.toml), [desktop](apps/desktop/src-tauri/Cargo.toml).
@@ -162,7 +166,16 @@ cargo check -p nexa-core --no-default-features
 cargo check -p nexa-core --no-default-features --features local-embeddings
 cargo check -p nexa-core --no-default-features --features ocr
 cargo check -p nexa-core --no-default-features --features video
+cargo check -p nexa-core --no-default-features --features host-tools
+cargo test -p nexa-model-catalog
+node scripts/check-cargo-boundaries.mjs
 ```
+
+Use `cargo test -p nexa-core --no-default-features --features host-tools` when
+testing all ordinary host tools without the optional local OCR/embedding models.
+The lightweight `nexa-model-catalog` crate can be checked independently of core.
+The [task evaluation guide](docs/AGENT_TASK_EVALUATION.md) documents reproducible
+runtime tasks, opt-in model calls and version comparisons.
 
 ## Documentation and translations
 

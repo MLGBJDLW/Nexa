@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::io::Read;
+#[cfg(feature = "document-processing")]
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
@@ -514,6 +515,7 @@ pub fn parse_pdf(
     parse_pdf_with_llm_provider_type(path, ocr_config, llm_provider, None, max_chunk_chars)
 }
 
+#[cfg(feature = "document-processing")]
 pub fn parse_pdf_with_llm_provider_type(
     path: &Path,
     ocr_config: &crate::ocr::OcrConfig,
@@ -575,6 +577,7 @@ pub fn parse_pdf_with_llm_provider_type(
 /// Extract PDF text with `lopdf`, tolerating per-chunk decode errors.
 ///
 /// Returns extracted text when at least one text chunk is decodable.
+#[cfg(feature = "document-processing")]
 fn extract_pdf_text_lopdf(bytes: &[u8]) -> Result<String, String> {
     panic::catch_unwind(AssertUnwindSafe(|| {
         let doc = lopdf::Document::load_mem(bytes).map_err(|e| format!("load failed: {e}"))?;
@@ -612,6 +615,7 @@ fn extract_pdf_text_lopdf(bytes: &[u8]) -> Result<String, String> {
 }
 
 /// Convert a panic payload into a readable string for error reporting.
+#[cfg(feature = "document-processing")]
 fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
         return (*s).to_string();
@@ -747,6 +751,7 @@ pub fn parse_docx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument,
 }
 
 /// Parse an Excel file (.xlsx / .xls) by extracting text from all sheets.
+#[cfg(feature = "document-processing")]
 pub fn parse_xlsx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
     use calamine::{open_workbook_auto, Data, Reader};
 
@@ -2761,4 +2766,24 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
             Some("disabled")
         );
     }
+}
+
+#[cfg(not(feature = "document-processing"))]
+pub fn parse_pdf_with_llm_provider_type(
+    _path: &Path,
+    _ocr_config: &crate::ocr::OcrConfig,
+    _llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    _llm_provider_type: Option<crate::llm::ProviderType>,
+    _max_chunk_chars: usize,
+) -> Result<ParsedDocument, CoreError> {
+    Err(CoreError::Parse(
+        "PDF parsing requires the document-processing build feature".into(),
+    ))
+}
+
+#[cfg(not(feature = "document-processing"))]
+pub fn parse_xlsx(_path: &Path, _max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
+    Err(CoreError::Parse(
+        "Spreadsheet parsing requires the document-processing build feature".into(),
+    ))
 }
