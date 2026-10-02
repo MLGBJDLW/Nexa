@@ -226,6 +226,11 @@ signatures. Tool dispatch, steering and usage accounting do not independently
 trim the live history. If the required retained input still exceeds a known
 window after safe reduction, the turn stops with an explicit context error
 instead of sending a prompt that silently lost its user request or evidence.
+Aggressive reduction targets are bounded by both the configured headroom and
+half of the currently estimated input. A provider overflow below a configured
+capacity can therefore reduce older exchanges beyond an existing checkpoint;
+the replacement still commits only when it reduces the input while retaining
+the protected request and exchanges.
 
 In history mode, before changing the live message list, Nexa writes a conversation-scoped
 archive and verifies its digest inside the transaction. Failure leaves the

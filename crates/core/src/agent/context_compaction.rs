@@ -314,14 +314,19 @@ impl AgentExecutor {
             self.config.resolved_max_response_tokens(model),
         )
         .with_compact_percent(self.config.auto_compact_percent);
+        // A provider can reject a prompt below the configured capacity. An
+        // aggressive reduction must still target the current input; otherwise
+        // a large configured target can select only an existing checkpoint and
+        // miss later old exchanges that could actually reduce the request.
+        let current_target = self
+            .context_usage_breakdown(model, messages, &[], None)
+            .total_tokens
+            / 2;
         let target = window
             .context_budget()
             .map(|budget| (budget as f32 * COMPACTION_TARGET_USAGE) as u32)
-            .unwrap_or_else(|| {
-                self.context_usage_breakdown(model, messages, &[], None)
-                    .total_tokens
-                    / 2
-            });
+            .unwrap_or(current_target)
+            .min(current_target);
         let before = messages.len();
         let (usage, changed) = self
             .reduce_context_to_target(messages, model, target, run, actual_tokens_remaining)
