@@ -58,7 +58,7 @@ mod assistant_turn;
 pub mod context;
 mod context_compaction;
 mod context_handoff;
-pub mod context_pipeline;
+pub mod context_window;
 mod desktop_resume;
 pub use desktop_resume::restore_pending_desktop_evidence;
 mod direct_dispatch;
@@ -101,7 +101,7 @@ mod turn_loop;
 mod usage_accounting;
 mod workspace_isolation;
 
-use self::context_pipeline::ContextPipeline;
+use self::context_window::ContextWindow;
 use self::long_task::{
     create_task_checkpoint_for_turn, create_task_checkpoint_for_turn_with_state,
     LongTaskCompactionContext, LongTaskState,
@@ -1031,3 +1031,6 @@ fn resolve_delta_target<'a>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod context_window_tests;

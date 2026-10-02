@@ -12,8 +12,7 @@ pub(super) struct UsageAccountingContext<'a> {
     /// Message projection used by the accepted physical request. This remains
     /// stable while `messages` may be compacted for the following step.
     pub(super) request_messages: &'a [Message],
-    pub(super) messages: &'a mut Vec<Message>,
-    pub(super) context_pipeline: ContextPipeline,
+    pub(super) context_window: ContextWindow,
     pub(super) tool_defs: &'a [ToolDefinition],
     pub(super) loop_recorder: &'a mut TurnLoopRecorder,
     pub(super) persisted_trace_items: &'a mut Vec<PersistedTraceItem>,
@@ -21,14 +20,6 @@ pub(super) struct UsageAccountingContext<'a> {
     pub(super) total_usage: &'a mut Usage,
     pub(super) last_prompt_tokens: &'a mut u32,
     pub(super) last_context_breakdown: &'a mut Option<context::ContextUsageBreakdown>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ModelStepUsageReport {
-    /// Whether context was rewritten after this request and therefore before
-    /// the next model step. The current request's cache sample must not be
-    /// mislabeled with a compaction that had not happened yet.
-    pub(super) compacted_after_step: bool,
 }
 
 pub(super) struct ModelStepUsageObservation<'a> {
@@ -148,7 +139,7 @@ impl AgentExecutor {
         &self,
         ctx: UsageAccountingContext<'_>,
         observation: ModelStepUsageObservation<'_>,
-    ) -> ModelStepUsageReport {
+    ) {
         let UsageAccountingContext {
             db,
             conversation_id,
@@ -156,8 +147,7 @@ impl AgentExecutor {
             tx,
             model,
             request_messages,
-            messages,
-            context_pipeline,
+            context_window,
             tool_defs,
             loop_recorder,
             persisted_trace_items,
@@ -255,62 +245,9 @@ impl AgentExecutor {
             })
             .await;
 
-        let mut iteration_compacted = false;
-        let budget_decision = context_pipeline.budget_decision(prompt_tokens);
-        let _budget_tokens = budget_decision.budget_tokens;
-        let iteration_context_pct = budget_decision.usage_pct;
-        if budget_decision.should_compact {
-            let before_message_count = messages.len();
-            let before_messages = prompt_cache::message_sequence_fingerprint(messages);
-            let started = TurnLoopEvent::CompactionStarted {
-                reason: "auto".to_string(),
-                message_count: before_message_count,
-            };
-            loop_recorder.record(started.clone());
-            append_persisted_trace_loop_event(persisted_trace_items, started);
-            let actual_tokens_remaining = self
-                .config
-                .max_actual_tokens_per_run
-                .map(|limit| limit.saturating_sub(total_usage.total_tokens));
-            match self
-                .aggressive_compact(
-                    messages,
-                    model,
-                    tx,
-                    context_compaction::CompactionRunContext {
-                        db,
-                        conversation_id,
-                        turn_id,
-                    },
-                    actual_tokens_remaining,
-                )
-                .await
-            {
-                Err(e) => warn!("Auto-compact failed: {e}"),
-                Ok(compaction_usage) => {
-                    accumulate_usage(total_usage, &compaction_usage);
-                    let after_messages = prompt_cache::message_sequence_fingerprint(messages);
-                    iteration_compacted = before_messages != after_messages;
-                    let evicted_count = before_message_count.saturating_sub(messages.len());
-                    let ended = TurnLoopEvent::CompactionEnded {
-                        reason: "auto".to_string(),
-                        evicted_count,
-                        message_count: messages.len(),
-                    };
-                    loop_recorder.record(ended.clone());
-                    append_persisted_trace_loop_event(persisted_trace_items, ended);
-                    if compaction_usage.total_tokens > 0 {
-                        let _ = tx
-                            .send(AgentEvent::UsageUpdate {
-                                usage_total: total_usage.clone(),
-                                last_prompt_tokens: *last_prompt_tokens,
-                                context_breakdown: Some(context_breakdown.clone()),
-                            })
-                            .await;
-                    }
-                }
-            }
-        }
+        // Request preparation exclusively owns compaction. Usage accounting
+        // observes the accepted input and never rewrites live history mid-step.
+        let iteration_context_pct = context_window.budget_decision(prompt_tokens).usage_pct;
 
         let completed = TurnLoopEvent::ModelStepCompleted {
             iteration: sample_index,
@@ -342,12 +279,8 @@ impl AgentExecutor {
                 // Preserve the persisted TraceStep contract: this flag records
                 // compaction performed after this model step. Prompt-cache
                 // observations carry the separate pre-request attribution.
-                was_compacted: iteration_compacted,
+                was_compacted: false,
             });
-        }
-
-        ModelStepUsageReport {
-            compacted_after_step: iteration_compacted,
         }
     }
 }

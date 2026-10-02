@@ -95,6 +95,7 @@ pub(super) struct ModelStepContext<'a> {
     pub(super) has_sources: bool,
     pub(super) privacy_cfg: &'a privacy::PrivacyConfig,
     pub(super) messages: &'a mut Vec<Message>,
+    pub(super) active_request: &'a Message,
     /// Exact canonical message projection used for the initial physical
     /// request. Context-recovery rebuilds replace this snapshot in-place.
     pub(super) request_messages: Vec<Message>,
@@ -318,6 +319,7 @@ impl AgentExecutor {
             has_sources,
             privacy_cfg,
             messages,
+            active_request,
             request_messages,
             final_answer_hygiene_scope,
             tool_defs,
@@ -1028,6 +1030,7 @@ impl AgentExecutor {
                                         db,
                                         conversation_id,
                                         turn_id,
+                                        active_request: Some(active_request),
                                     },
                                     total_usage,
                                 )
@@ -1268,22 +1271,10 @@ impl AgentExecutor {
                     Some(&trace),
                 );
             }
-            let context_pipeline = ContextPipeline::new_with_resolution(
-                model,
-                self.config.context_window,
-                self.config.context_window_resolution,
-                self.config
-                    .resolved_max_response_tokens(model)
-                    .min(max_response_tokens),
-            )
-            .with_compact_percent(self.config.auto_compact_percent);
-            let before_trim = prompt_cache::message_sequence_fingerprint(messages);
-            if !self.history_handoff_enabled(conversation_id) {
-                *messages = context_pipeline.trim_after_tool_results(messages);
-            }
+            // Restart with intact evidence; the shared pre-request window
+            // preparation owns all summary/history reduction decisions.
             return Ok(ModelStepOutcome::Restart {
-                prompt_was_compacted: before_trim
-                    != prompt_cache::message_sequence_fingerprint(messages),
+                prompt_was_compacted: false,
             });
         }
 
@@ -1441,6 +1432,7 @@ impl AgentExecutor {
                                             db,
                                             conversation_id,
                                             turn_id,
+                                            active_request: Some(active_request),
                                         },
                                         total_usage,
                                     )

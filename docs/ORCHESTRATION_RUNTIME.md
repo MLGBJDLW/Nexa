@@ -205,7 +205,7 @@ in-turn context; this setting does not enable private Codex backend features.
 
 | Mode | Window transition | Cost and tradeoff |
 | --- | --- | --- |
-| Summary | Generate a recap of complete older turns, with the existing bounded fallback | Requires a summary call when available; earlier facts are condensed |
+| Summary | Generate a recap of older complete exchanges, including an earlier prefix of one long user turn, with the existing bounded fallback | Requires a summary call when available; earlier facts are condensed |
 | History window | Save and verify local history, keep recent complete exchanges and scratchpad notes, then retrieve older evidence when needed | No summary-model call at transition; subsequent searches/reads consume normal tool and input budget |
 
 The history mode takes inspiration from Codex's
@@ -218,7 +218,16 @@ different from the Responses API's
 Nexa implements the notes/history pattern over its own conversation database;
 it does not claim Codex protocol compatibility or equivalent model quality.
 
-Before changing the live message list, Nexa writes a conversation-scoped
+Both modes use one retention plan before the next model request. The original
+active user request is retained from the privacy-processed live input, together
+with recent user messages and the latest complete assistant exchanges. Cuts
+cannot split a tool-call batch from its results or rewrite retained provider
+signatures. Tool dispatch, steering and usage accounting do not independently
+trim the live history. If the required retained input still exceeds a known
+window after safe reduction, the turn stops with an explicit context error
+instead of sending a prompt that silently lost its user request or evidence.
+
+In history mode, before changing the live message list, Nexa writes a conversation-scoped
 archive and verifies its digest inside the transaction. Failure leaves the
 working context intact. Cancellation also retains the live history. A window
 boundary cannot split a tool-call batch from its results. Stable system policy,
@@ -234,7 +243,8 @@ signatures, or opaque provider envelopes. Without the scoped history tool, an
 executor retains the summary policy. A single oversized recent exchange may
 still exceed provider capacity; history mode does not promise unlimited input.
 
-The [handoff implementation](../crates/core/src/agent/context_handoff.rs),
+The [shared context window](../crates/core/src/agent/context_window.rs),
+[handoff implementation](../crates/core/src/agent/context_handoff.rs),
 [archive store](../crates/core/src/context_history.rs), and
 [manual maintenance service](../crates/core/src/context_maintenance/service.rs)
 cover zero-summary-call handoff, tool-pair integrity, persistence failures,

@@ -1,68 +1,8 @@
 //! No-model-call window handoff. Persistence succeeds before live history changes.
 
+use super::context_window::ContextReductionPlan;
 use super::*;
 use crate::context_history::{ContextHistoryArchive, ContextManagementMode};
-use rusqlite::OptionalExtension;
-use std::collections::HashSet;
-
-fn is_checkpoint(message: &Message) -> bool {
-    message.role == Role::System
-        && message
-            .text_content()
-            .starts_with("## Earlier conversation context")
-}
-
-/// Allow a long single user turn to release old completed tool exchanges. Never
-/// split an assistant call batch from its results or discard the newest two
-/// assistant exchanges. The active request is separately retained verbatim.
-fn handoff_boundary(messages: &[Message], model: &str, target: u32) -> Option<usize> {
-    let prefix = messages
-        .iter()
-        .position(|message| message.role != Role::System || is_checkpoint(message))?;
-    let assistants = messages
-        .iter()
-        .enumerate()
-        .skip(prefix)
-        .filter_map(|(index, message)| (message.role == Role::Assistant).then_some(index))
-        .collect::<Vec<_>>();
-    let latest_user = messages
-        .iter()
-        .rposition(|message| message.role == Role::User)?;
-    let last_boundary = assistants
-        .iter()
-        .rev()
-        .nth(1)
-        .copied()
-        .unwrap_or(latest_user);
-    let mut suffix = vec![0_u32; messages.len() + 1];
-    for index in (0..messages.len()).rev() {
-        suffix[index] = suffix[index + 1]
-            .saturating_add(estimate_message_tokens_for_model(model, &messages[index]));
-    }
-    let mut pending = HashSet::new();
-    let mut selected = None;
-    for index in prefix..last_boundary {
-        let message = &messages[index];
-        if let Some(calls) = &message.tool_calls {
-            for call in calls {
-                pending.insert(call.id.as_str());
-            }
-        }
-        if message.role == Role::Tool {
-            if let Some(id) = message.name.as_deref() {
-                pending.remove(id);
-            }
-        }
-        let boundary = index + 1;
-        if pending.is_empty() && messages[boundary].role != Role::Tool {
-            selected = Some(boundary);
-            if suffix[boundary] <= target {
-                break;
-            }
-        }
-    }
-    selected
-}
 
 impl AgentExecutor {
     pub(super) fn history_handoff_enabled(&self, conversation_id: Option<&str>) -> bool {
@@ -85,13 +25,10 @@ impl AgentExecutor {
         let Some(conversation_id) = run.conversation_id else {
             return Ok(false);
         };
-        let Some(boundary) = handoff_boundary(messages, model, target) else {
+        let Some(plan) = ContextReductionPlan::prepare(messages, model, target, run.active_request)
+        else {
             return Ok(false);
         };
-        let prefix = messages
-            .iter()
-            .position(|message| message.role != Role::System || is_checkpoint(message))
-            .unwrap_or(messages.len());
         let notes = run
             .db
             .get_agent_scratchpad(conversation_id)?
@@ -100,52 +37,13 @@ impl AgentExecutor {
         let archive = ContextHistoryArchive::prepare(
             conversation_id,
             run.turn_id,
-            &messages[prefix..boundary],
+            plan.evicted(messages),
             &notes,
         )?;
-        // Locate the original active-turn request in the already-normalized
-        // history; never inject raw database text around privacy redaction.
-        let original: Option<String> = if let Some(turn_id) = run.turn_id {
-            run.db.conn().query_row(
-                "SELECT m.content FROM conversation_turns t JOIN messages m ON m.id=t.user_message_id WHERE t.id=?1 AND t.conversation_id=?2 AND m.role='user'",
-                rusqlite::params![turn_id,conversation_id], |row| row.get(0),
-            ).optional()?
-        } else {
-            None
-        };
-        let user_indices = messages
-            .iter()
-            .enumerate()
-            .filter_map(|(index, message)| (message.role == Role::User).then_some(index))
-            .collect::<Vec<_>>();
-        let mut retained_users = user_indices
-            .iter()
-            .rev()
-            .take(2)
-            .copied()
-            .collect::<Vec<_>>();
-        if let Some(original) = original {
-            if let Some(index) = user_indices
-                .iter()
-                .find(|index| messages[**index].text_content() == original)
-            {
-                retained_users.push(*index);
-            }
-        }
-        retained_users.sort_unstable();
-        retained_users.dedup();
-        let mut next = messages[..prefix].to_vec();
-        next.extend(
-            messages[prefix..boundary]
-                .iter()
-                .filter(|message| message.role == Role::System && !is_checkpoint(message))
-                .cloned(),
+        let next = plan.replacement(
+            messages,
+            Message::text(Role::System, archive.checkpoint_text()),
         );
-        next.push(Message::text(Role::System, archive.checkpoint_text()));
-        for index in retained_users.into_iter().filter(|index| *index < boundary) {
-            next.push(messages[index].clone());
-        }
-        next.extend_from_slice(&messages[boundary..]);
         let tokens = |messages: &[Message]| {
             messages
                 .iter()
@@ -256,7 +154,8 @@ mod tests {
     #[test]
     fn one_long_user_turn_can_switch_without_splitting_tool_batches() {
         let history = history();
-        let boundary = handoff_boundary(&history, "gpt-4o", 1000).unwrap();
+        let plan = ContextReductionPlan::prepare(&history, "gpt-4o", 1000, None).unwrap();
+        let boundary = 1 + plan.evicted(&history).len();
         assert!(boundary > 2);
         assert_eq!(history[boundary].role, Role::Assistant);
         assert_eq!(history[boundary - 1].role, Role::Tool);
@@ -275,8 +174,7 @@ mod tests {
         history.remove(3);
         // No boundary after the incomplete call is safe, even though later
         // unrelated tool pairs are complete.
-        let boundary = handoff_boundary(&history, "gpt-4o", 1000).unwrap();
-        assert_eq!(boundary, 2);
+        assert!(ContextReductionPlan::prepare(&history, "gpt-4o", 1000, None).is_none());
     }
 
     #[tokio::test]
@@ -299,6 +197,7 @@ mod tests {
                     db: &db,
                     conversation_id: Some(&id),
                     turn_id: None,
+                    active_request: None,
                 },
                 None,
             )
@@ -341,6 +240,7 @@ mod tests {
                 db: &db,
                 conversation_id: Some(&id),
                 turn_id: None,
+                active_request: None,
             },
         );
         assert!(result.is_err());

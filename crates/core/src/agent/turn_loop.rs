@@ -23,6 +23,7 @@ struct ProviderContextLimitRecoveryContext<'a> {
     route_kind: AgentRouteKind,
     model: &'a str,
     messages: &'a mut Vec<Message>,
+    active_request: &'a Message,
     total_usage: &'a mut Usage,
     completed_attempts: &'a mut u32,
     trace: &'a mut Option<AgentTrace>,
@@ -431,6 +432,7 @@ impl AgentExecutor {
             route_kind,
             model,
             messages,
+            active_request,
             total_usage,
             completed_attempts,
             trace,
@@ -481,6 +483,7 @@ impl AgentExecutor {
                     db,
                     conversation_id,
                     turn_id,
+                    active_request: Some(active_request),
                 },
                 total_usage,
             )
@@ -597,6 +600,7 @@ impl AgentExecutor {
                     db,
                     conversation_id,
                     turn_id,
+                    active_request: None,
                 },
                 self.config.max_actual_tokens_per_run,
             )
@@ -971,6 +975,12 @@ impl AgentExecutor {
         // provider usage (or a conservative estimate for unreported attempts)
         // so delegated-worker hard caps cover every LLM request, not only the
         // visible ReAct samples.
+        let active_request = messages
+            .iter()
+            .rev()
+            .find(|message| message.role == Role::User)
+            .expect("the current user was retained before privacy processing")
+            .clone();
         let mut total_usage = pre_summarization_usage;
         let mut last_prompt_tokens: u32 = 0;
         let mut last_context_breakdown: Option<context::ContextUsageBreakdown> = None;
@@ -1098,7 +1108,7 @@ impl AgentExecutor {
         // --- 4. ReAct loop ----------------------------------------------------
         let mut last_tool_calls: Option<Vec<ToolCallRequest>> = None;
         let mut context_recovery_attempts = 0u32;
-        let context_pipeline = ContextPipeline::new_with_resolution(
+        let context_window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
             self.config.context_window_resolution,
@@ -1435,12 +1445,6 @@ impl AgentExecutor {
                     "Applied user steering before the next model step.",
                     "info",
                 );
-                let before_trim = prompt_cache::message_sequence_fingerprint(&messages);
-                if !self.history_handoff_enabled(conversation_id) {
-                    messages = context_pipeline.trim_after_tool_results(&messages);
-                }
-                prompt_was_compacted |=
-                    before_trim != prompt_cache::message_sequence_fingerprint(&messages);
             }
             debug!(
                 "Agent provider sample {}; tool rounds used={}, configured_limit={:?}",
@@ -1499,7 +1503,8 @@ impl AgentExecutor {
                     tx: &tx,
                     model,
                     messages: &mut messages,
-                    context_pipeline,
+                    active_request: &active_request,
+                    context_window,
                     tool_defs: effective_tool_defs,
                     loop_recorder: &mut loop_recorder,
                     persisted_trace_items: &mut persisted_trace_items,
@@ -1587,6 +1592,7 @@ impl AgentExecutor {
                     has_sources,
                     privacy_cfg: &privacy_cfg,
                     messages: &mut messages,
+                    active_request: &active_request,
                     request_messages,
                     final_answer_hygiene_scope: &mut final_answer_hygiene_scope,
                     tool_defs: &mut tool_defs,
@@ -1674,42 +1680,40 @@ impl AgentExecutor {
                 );
             }
             // -- 4b. Accumulate usage ------------------------------------------
-            let usage_report = self
-                .record_model_step_usage(
-                    usage_accounting::UsageAccountingContext {
-                        db,
-                        conversation_id,
-                        turn_id,
-                        tx: &tx,
-                        model,
-                        messages: &mut messages,
-                        request_messages: &request_messages,
-                        context_pipeline,
-                        tool_defs: effective_tool_surface(
-                            tool_defs.as_slice(),
-                            suppress_tools_for_step,
-                        ),
-                        loop_recorder: &mut loop_recorder,
-                        persisted_trace_items: &mut persisted_trace_items,
-                        trace: &mut trace,
-                        total_usage: &mut total_usage,
-                        last_prompt_tokens: &mut last_prompt_tokens,
-                        last_context_breakdown: &mut last_context_breakdown,
-                    },
-                    usage_accounting::ModelStepUsageObservation {
-                        sample_index: iteration,
-                        trace_iteration: step_permit.tool_rounds_used,
-                        tool_call_count: tool_calls.len(),
-                        finish_reason: last_finish_reason.clone(),
-                        chunk_usage,
-                        request_latency_ms,
-                        time_to_first_token_ms,
-                        cache_outcome_reason: prompt_cache_observation
-                            .as_ref()
-                            .map(prompt_cache::PromptCacheTraceObservation::cache_outcome_reason),
-                    },
-                )
-                .await;
+            self.record_model_step_usage(
+                usage_accounting::UsageAccountingContext {
+                    db,
+                    conversation_id,
+                    turn_id,
+                    tx: &tx,
+                    model,
+                    request_messages: &request_messages,
+                    context_window,
+                    tool_defs: effective_tool_surface(
+                        tool_defs.as_slice(),
+                        suppress_tools_for_step,
+                    ),
+                    loop_recorder: &mut loop_recorder,
+                    persisted_trace_items: &mut persisted_trace_items,
+                    trace: &mut trace,
+                    total_usage: &mut total_usage,
+                    last_prompt_tokens: &mut last_prompt_tokens,
+                    last_context_breakdown: &mut last_context_breakdown,
+                },
+                usage_accounting::ModelStepUsageObservation {
+                    sample_index: iteration,
+                    trace_iteration: step_permit.tool_rounds_used,
+                    tool_call_count: tool_calls.len(),
+                    finish_reason: last_finish_reason.clone(),
+                    chunk_usage,
+                    request_latency_ms,
+                    time_to_first_token_ms,
+                    cache_outcome_reason: prompt_cache_observation
+                        .as_ref()
+                        .map(prompt_cache::PromptCacheTraceObservation::cache_outcome_reason),
+                },
+            )
+            .await;
             if let Some(observation) = prompt_cache_observation {
                 if let Some(value) = prompt_cache::prompt_cache_observation_to_value(
                     &observation,
@@ -1718,7 +1722,7 @@ impl AgentExecutor {
                     append_persisted_trace_prompt_cache(&mut persisted_trace_items, value);
                 }
             }
-            prompt_was_compacted = usage_report.compacted_after_step;
+            prompt_was_compacted = false;
 
             // Every completed answer-channel sample crosses the same
             // visibility and persistence gate, including samples that also
@@ -1890,6 +1894,7 @@ impl AgentExecutor {
                             route_kind: route_plan.kind,
                             model,
                             messages: &mut messages,
+                            active_request: &active_request,
                             total_usage: &mut total_usage,
                             completed_attempts: &mut context_recovery_attempts,
                             trace: &mut trace,
@@ -1980,6 +1985,7 @@ impl AgentExecutor {
                             route_kind: route_plan.kind,
                             model,
                             messages: &mut messages,
+                            active_request: &active_request,
                             total_usage: &mut total_usage,
                             completed_attempts: &mut context_recovery_attempts,
                             trace: &mut trace,
@@ -2478,12 +2484,7 @@ impl AgentExecutor {
                             has_sources,
                         );
                     }
-                    let before_trim = prompt_cache::message_sequence_fingerprint(&messages);
-                    if !self.history_handoff_enabled(conversation_id) {
-                        messages = context_pipeline.trim_after_tool_results(&messages);
-                    }
-                    prompt_was_compacted |=
-                        before_trim != prompt_cache::message_sequence_fingerprint(&messages);
+
                     next_step_purpose = TurnStepPurpose::Recovery;
                     continue 'react_loop;
                 }
@@ -2935,14 +2936,8 @@ impl AgentExecutor {
                 turn_budget.tool_rounds_used()
             );
 
-            // Re-trim messages to fit context window after appending tool results.
-            // This prevents unbounded growth across iterations.
-            let before_trim = prompt_cache::message_sequence_fingerprint(&messages);
-            if !self.history_handoff_enabled(conversation_id) {
-                messages = context_pipeline.trim_after_tool_results(&messages);
-            }
-            prompt_was_compacted |=
-                before_trim != prompt_cache::message_sequence_fingerprint(&messages);
+            // Keep completed evidence intact until the next request preparation
+            // has produced a valid summary/archive and retention plan.
 
             let completed_tool_round_index = turn_budget.tool_rounds_used().saturating_sub(1);
             if long_task_state.should_checkpoint_after_tool_round(completed_tool_round_index) {
