@@ -424,6 +424,7 @@ jobs:
           e2e/attention-inbox.spec.ts
           e2e/conversation-timeline.spec.ts
           e2e/tool-entities.spec.ts
+          e2e/history-markdown-rendering.spec.ts
           e2e/desktop-control-status.spec.ts
           e2e/subagent-ui.spec.ts
           e2e/subagent-batch-judge-ui.spec.ts

@@ -2121,8 +2121,8 @@ export function ChatMessages(props: ChatMessagesProps) {
                 ? messageTraceGroups.get(assistantIdx)
                 : undefined;
             const chunkIds = assistantMsg
-              ? (chunkIdCacheRef.current.get(assistantMsg.id) ?? [])
-              : [];
+              ? chunkIdCacheRef.current.get(assistantMsg.id)
+              : undefined;
             const turnDiffs =
               isStreaming && idx === latestUserIdx
                 ? undefined
@@ -2238,7 +2238,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                   .reverse()
                   .find((m) => m.role === "user")?.content ?? "")
               : "";
-          const chunkIds = chunkIdCacheRef.current.get(msg.id) ?? [];
+          const chunkIds = chunkIdCacheRef.current.get(msg.id);
           const traceGroup =
             msg.role === "assistant" ? messageTraceGroups.get(idx) : undefined;
           if (traceGroup?.type === "member") return null;
