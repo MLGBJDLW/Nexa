@@ -291,6 +291,7 @@ pub fn extract_pdf_visual_artifacts(
     extract_pdf_visual_artifacts_with_llm_provider_type(pdf_bytes, ocr_config, llm_provider, None)
 }
 
+#[cfg(feature = "document-processing")]
 pub fn extract_pdf_visual_artifacts_with_llm_provider_type(
     pdf_bytes: &[u8],
     ocr_config: &crate::ocr::OcrConfig,
@@ -736,4 +737,14 @@ mod tests {
         assert!(artifact.summary.contains("Q1"));
         assert!(artifact.summary.contains("14"));
     }
+}
+
+#[cfg(not(feature = "document-processing"))]
+pub fn extract_pdf_visual_artifacts_with_llm_provider_type(
+    _pdf_bytes: &[u8],
+    _ocr_config: &crate::ocr::OcrConfig,
+    _llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    _llm_provider_type: Option<crate::llm::ProviderType>,
+) -> Vec<ParsedVisualArtifact> {
+    Vec::new()
 }

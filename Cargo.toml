@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/core",
+    "crates/model-catalog",
     "crates/remote",
     "apps/desktop/src-tauri",
 ]

@@ -305,6 +305,8 @@ mod tests {
             "https://api.deepseek.com:8443",
             "https://api.deepseek.com/v1?tenant=other",
             "https://api.deepseek.com.evil.example/v1",
+            "https://api.deepseek.com//v1",
+            "https://api.deepseek.com/V1",
         ] {
             assert_eq!(
                 provider_type_for_parts("custom", Some(endpoint)),

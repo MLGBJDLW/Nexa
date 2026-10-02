@@ -93,13 +93,20 @@ pub mod agent_memory_tool;
 pub mod appearance_tool;
 pub mod archive_output_tool;
 pub mod browser_evidence_tool;
+#[cfg(feature = "headless-browser")]
 mod browser_navigation;
+#[cfg(feature = "headless-browser")]
+mod browser_session_contract;
+#[cfg(feature = "headless-browser")]
+pub mod browser_session_tool;
+#[cfg(not(feature = "headless-browser"))]
+#[path = "browser_session_contract.rs"]
 pub mod browser_session_tool;
 pub mod chunk_context_tool;
 pub mod code_intelligence_tool;
 pub mod compare_tool;
 pub mod compile_tool;
-#[cfg(any(windows, test))]
+#[cfg(any(all(windows, feature = "desktop-control"), test))]
 mod computer_capture_lifecycle;
 pub mod computer_use_tool;
 pub mod context_history_tool;
@@ -2071,8 +2078,11 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(fetch_url_tool::FetchUrlTool));
     registry.register(Box::new(web_search_tool::WebSearchTool));
     registry.register(Box::new(web_research_context_tool::WebResearchContextTool));
-    registry.register(Box::new(browser_evidence_tool::BrowserEvidenceCaptureTool));
-    registry.register(Box::new(browser_session_tool::BrowserSessionTool::default()));
+    #[cfg(feature = "headless-browser")]
+    {
+        registry.register(Box::new(browser_evidence_tool::BrowserEvidenceCaptureTool));
+        registry.register(Box::new(browser_session_tool::BrowserSessionTool::default()));
+    }
     registry.register(Box::new(download_asset_tool::DownloadAssetTool));
     registry.register(Box::new(write_note_tool::WriteNoteTool));
     registry.register(Box::new(search_playbooks_tool::SearchPlaybooksTool));
@@ -2088,7 +2098,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(date_search_tool::DateSearchTool));
     // User-shared screen reads are portable; native window control is Windows-only.
     registry.register(Box::new(computer_use_tool::ComputerObserveTool));
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     registry.register(Box::new(computer_use_tool::ComputerControlTool));
     registry.register(Box::new(desktop_automation_tool::DesktopAutomationTool));
     registry.register(Box::new(open_in_nexa_tool::OpenInNexaTool::default()));
@@ -2548,9 +2558,7 @@ mod tests {
 
     #[test]
     fn browser_close_one_of_targets_are_validated_before_execution() {
-        let schema = browser_session_tool::BrowserSessionTool::default()
-            .definition()
-            .parameters;
+        let schema = browser_session_tool::browser_session_parameters_schema();
 
         for (arguments, missing) in [
             (r#"{"action":"close_session"}"#, "sessionId"),

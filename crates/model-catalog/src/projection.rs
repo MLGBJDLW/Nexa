@@ -11,11 +11,11 @@ use super::{
     ReasoningCapability,
 };
 
-const TEXT_PRESETS: &str = include_str!("../../../../shared/provider-presets.json");
-const IMAGE_PRESETS: &str = include_str!("../../../../shared/image-provider-presets.json");
-const EMBEDDING_PRESETS: &str = include_str!("../../../../shared/embedding-provider-presets.json");
-const STT_PRESETS: &str = include_str!("../../../../shared/stt-provider-presets.json");
-const TTS_PRESETS: &str = include_str!("../../../../shared/tts-provider-presets.json");
+const TEXT_PRESETS: &str = include_str!("../../../shared/provider-presets.json");
+const IMAGE_PRESETS: &str = include_str!("../../../shared/image-provider-presets.json");
+const EMBEDDING_PRESETS: &str = include_str!("../../../shared/embedding-provider-presets.json");
+const STT_PRESETS: &str = include_str!("../../../shared/stt-provider-presets.json");
+const TTS_PRESETS: &str = include_str!("../../../shared/tts-provider-presets.json");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CatalogSurface {
@@ -554,7 +554,7 @@ pub fn normalize_endpoint_url(value: Option<&str>) -> String {
     if raw.is_empty() {
         return String::new();
     }
-    let Ok(mut url) = reqwest::Url::parse(raw) else {
+    let Ok(mut url) = url::Url::parse(raw) else {
         return raw.trim_end_matches('/').to_string();
     };
     let mut normalized_path = url.path().trim_end_matches('/').to_string();
@@ -564,7 +564,7 @@ pub fn normalize_endpoint_url(value: Option<&str>) -> String {
     if url
         .host_str()
         .is_some_and(|host| host.eq_ignore_ascii_case("api.deepseek.com"))
-        && normalized_path.eq_ignore_ascii_case("/v1")
+        && normalized_path == "/v1"
     {
         normalized_path.clear();
     }
@@ -583,7 +583,7 @@ fn documentation_ref(provider_id: &str) -> Option<String> {
 
 fn infer_region(base_url: &str) -> String {
     let value = base_url.to_ascii_lowercase();
-    let is_z_ai_international = reqwest::Url::parse(base_url).ok().is_some_and(|url| {
+    let is_z_ai_international = url::Url::parse(base_url).ok().is_some_and(|url| {
         url.scheme() == "https" && url.host_str().is_some_and(|host| host == "api.z.ai")
     });
     if value.is_empty() || value.contains("localhost") || value.contains("127.0.0.1") {

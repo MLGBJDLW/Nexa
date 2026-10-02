@@ -264,9 +264,6 @@ fn preset_index(presets: &'static [ProviderPreset]) -> &'static PresetIndex {
         for (index, preset) in presets.iter().enumerate() {
             let endpoint = normalize_base_url(Some(&preset.base_url));
             exact.insert((preset.provider.clone(), endpoint.clone()), index);
-            if preset.provider == "deep_seek" {
-                exact.insert((preset.provider.clone(), format!("{endpoint}/v1")), index);
-            }
             if preset.id == "moonshot" {
                 exact.insert(
                     (preset.provider.clone(), "https://api.moonshot.cn/v1".into()),
