@@ -174,6 +174,8 @@ node scripts/check-cargo-boundaries.mjs
 Use `cargo test -p nexa-core --no-default-features --features host-tools` when
 testing all ordinary host tools without the optional local OCR/embedding models.
 The lightweight `nexa-model-catalog` crate can be checked independently of core.
+The [task evaluation guide](docs/AGENT_TASK_EVALUATION.md) documents reproducible
+runtime tasks, opt-in model calls and version comparisons.
 
 ## Documentation and translations
 

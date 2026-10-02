@@ -67,6 +67,9 @@ headless tools are not registered. Browser schema and committed-open receipts
 remain shared with the native host without requiring Chromium in a protocol
 consumer. OCR additionally enables its document/image processing dependencies.
 
+The [task evaluator](AGENT_TASK_EVALUATION.md) uses the minimal runtime and real
+file tools; its scripted transport is distinct from opt-in model task quality.
+
 ## Prompt source and cache layout
 
 The maintained core prompt is `crates/core/prompts/system.md`, compiled into

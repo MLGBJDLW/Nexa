@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 9 * * *"
   workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the explicitly configured model task suite using the dedicated evaluation secret
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,6 +24,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup task oracle runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
       - name: Cache Cargo
         uses: actions/cache@v5
         with:
@@ -32,3 +42,25 @@ jobs:
 
       - name: Nightly agent eval
         run: cargo test -p nexa-core developer_eval_nightly_workflow
+
+      - name: Task oracle and live-wire contracts
+        run: cargo test -p nexa-agent-eval
+
+      - name: Deterministic real-executor task suite
+        run: cargo run -p nexa-agent-eval -- --output target/eval/scripted-report.json
+
+      - name: Opt-in model task quality
+        if: github.event_name == 'workflow_dispatch' && inputs.run_live
+        env:
+          NEXA_EVAL_CONFIG: ${{ vars.NEXA_EVAL_CONFIG }}
+          NEXA_EVAL_API_KEY: ${{ secrets.NEXA_EVAL_API_KEY }}
+        run: node scripts/run-live-task-eval.mjs
+
+      - name: Upload evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-agent-evaluation
+          path: target/eval/*report.json
+          if-no-files-found: ignore
+          retention-days: 30
