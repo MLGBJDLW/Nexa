@@ -60,6 +60,151 @@ mod tests {
     }
 
     #[test]
+    fn timeline_unrelated_writes_do_not_reparse_traces_or_scale_with_trace_size() {
+        use rusqlite::{functions::FunctionFlags, StatementStatus};
+        let mut content_update_costs = Vec::new();
+        for trace_size in [1, 1_000] {
+            let (db, id) = fixture(1);
+            let items = vec![serde_json::json!({"kind":"thinking","text":"private"}); trace_size];
+            let legacy = serde_json::json!({"kind":"traceTimeline","items":items});
+            let canonical = serde_json::json!({"kind":"turnTrace","items":items});
+            let connection = db.conn();
+            connection.execute("UPDATE messages SET content='private',thinking='private',artifacts_json=?1 WHERE id='a00000'", [legacy.to_string()]).unwrap();
+            connection
+                .execute(
+                    "UPDATE conversation_turns SET trace_json=?1 WHERE id='t00000'",
+                    [canonical.to_string()],
+                )
+                .unwrap();
+
+            // Every trace was classified above. Unrelated writes and clearing
+            // or retaining an existing payload must not enter a JSON parser.
+            for (name, arity) in [
+                ("json_valid", 1),
+                ("json_extract", 2),
+                ("json_type", 2),
+                ("json_remove", -1),
+            ] {
+                connection
+                    .create_scalar_function(
+                        name,
+                        arity,
+                        FunctionFlags::SQLITE_UTF8
+                            | FunctionFlags::SQLITE_DETERMINISTIC
+                            | FunctionFlags::SQLITE_INNOCUOUS,
+                        move |_| -> rusqlite::Result<i32> {
+                            Err(rusqlite::Error::UserFunctionError(Box::new(
+                                std::io::Error::other(format!(
+                                    "unrelated write parsed trace through {name}"
+                                )),
+                            )))
+                        },
+                    )
+                    .unwrap();
+            }
+            let sql = "UPDATE messages SET content='new reply' WHERE id='a00000'";
+            let mut statement = connection.prepare(sql).unwrap();
+            statement.execute([]).unwrap();
+            content_update_costs.push(statement.get_status(StatementStatus::VmStep));
+            let bytecode_functions = connection
+                .prepare(&format!("EXPLAIN {sql}"))
+                .unwrap()
+                .query_map([], |row| row.get::<_, Option<String>>(5))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert!(
+                !bytecode_functions
+                    .iter()
+                    .flatten()
+                    .any(|name| name.starts_with("json_")),
+                "content-only update prepared a JSON classifier"
+            );
+            assert!(!connection
+                .query_row(
+                    "SELECT display_reasoning_candidate FROM messages WHERE id='a00000'",
+                    [],
+                    |row| row.get::<_, bool>(0)
+                )
+                .unwrap());
+
+            connection
+                .execute("UPDATE messages SET role='tool' WHERE id='a00000'", [])
+                .unwrap();
+            connection
+                .execute(
+                    "UPDATE messages SET role='assistant',content=thinking WHERE id='a00000'",
+                    [],
+                )
+                .unwrap();
+            assert!(connection
+                .query_row(
+                    "SELECT display_reasoning_candidate FROM messages WHERE id='a00000'",
+                    [],
+                    |row| row.get::<_, bool>(0)
+                )
+                .unwrap());
+            connection.execute("UPDATE messages SET content=content,thinking=thinking,artifacts_json=artifacts_json WHERE id='a00000'", []).unwrap();
+            connection
+                .execute(
+                    "UPDATE conversation_turns SET trace_json=trace_json WHERE id='t00000'",
+                    [],
+                )
+                .unwrap();
+            assert_eq!(
+                connection
+                    .query_row(
+                        "SELECT display_legacy_trace_flags FROM messages WHERE id='a00000'",
+                        [],
+                        |row| row.get::<_, Option<i64>>(0)
+                    )
+                    .unwrap(),
+                Some(1)
+            );
+            assert_eq!(
+                connection
+                    .query_row(
+                        "SELECT display_trace_flags FROM conversation_turns WHERE id='t00000'",
+                        [],
+                        |row| row.get::<_, Option<i64>>(0)
+                    )
+                    .unwrap(),
+                Some(1)
+            );
+
+            connection
+                .execute(
+                    "UPDATE messages SET artifacts_json=NULL,thinking=NULL WHERE id='a00000'",
+                    [],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "UPDATE conversation_turns SET trace_json=NULL WHERE id='t00000'",
+                    [],
+                )
+                .unwrap();
+            assert_eq!(connection.query_row("SELECT display_artifact_kind,display_legacy_trace_flags,display_reasoning_candidate FROM messages WHERE id='a00000'", [], |row| Ok((row.get::<_,Option<String>>(0)?,row.get::<_,Option<i64>>(1)?,row.get::<_,bool>(2)?))).unwrap(), (None,None,false));
+            assert_eq!(
+                connection
+                    .query_row(
+                        "SELECT display_trace_flags FROM conversation_turns WHERE id='t00000'",
+                        [],
+                        |row| row.get::<_, Option<i64>>(0)
+                    )
+                    .unwrap(),
+                None
+            );
+            for (index, role) in ["user", "assistant", "tool"].iter().enumerate() {
+                connection.execute("INSERT INTO messages(id,conversation_id,role,content,sort_order) VALUES(?1,?2,?3,'plain text',10)", params![format!("plain-{index}"),id,role]).unwrap();
+            }
+            connection.execute("INSERT INTO conversation_turns(id,conversation_id,user_message_id,status) VALUES('plain-turn',?1,'plain-0','running')", [&id]).unwrap();
+        }
+        assert_eq!(content_update_costs[0], content_update_costs[1]);
+        eprintln!("content-only update VM steps for 1/1000 trace items: {content_update_costs:?}");
+    }
+
+    #[test]
     fn timeline_reasoning_only_summary_keeps_guard_without_private_text() {
         let (db, id) = fixture(2);
         let private = "private reasoning accidentally copied into reply";
@@ -461,6 +606,8 @@ mod tests {
         );
         connection.execute("UPDATE messages SET thinking='[reasoning content unavailable in local history]',content='[reasoning content unavailable in local history]',artifacts_json=NULL WHERE id='new'", []).unwrap();
         assert_eq!(read_candidate("new"), (false, None));
+        connection.execute("INSERT INTO messages(id,role,content,thinking) VALUES('unicode-trim','assistant',?1,?2)", params!["\u{feff}first\r\nsecond\u{3000}","\u{85}first\nsecond\u{85}"]).unwrap();
+        assert_eq!(read_candidate("unicode-trim"), (true, None));
         connection
             .execute(
                 "UPDATE conversation_turns SET trace_json='{invalid' WHERE id='new-turn'",
