@@ -346,6 +346,45 @@ pub async fn get_conversation_turns_cmd(
 }
 
 #[tauri::command]
+pub async fn get_conversation_timeline_page_cmd(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+    before: Option<nexa_core::conversation::ConversationTimelineCursor>,
+    after: Option<nexa_core::conversation::ConversationTimelineCursor>,
+    anchor_message_id: Option<String>,
+    limit: Option<usize>,
+) -> Result<nexa_core::conversation::ConversationTimelinePage, String> {
+    state
+        .db_executor
+        .read(move |db| {
+            db.conversation_timeline_page(
+                &conversation_id,
+                before.as_ref(),
+                after.as_ref(),
+                anchor_message_id.as_deref(),
+                limit,
+            )
+        })
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_conversation_timeline_details_cmd(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+    anchor_message_id: String,
+) -> Result<nexa_core::conversation::ConversationTimelineDetails, String> {
+    state
+        .db_executor
+        .read(move |db| db.conversation_timeline_details(&conversation_id, &anchor_message_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn list_interaction_requests_cmd(
     state: tauri::State<'_, AppState>,
     conversation_id: Option<String>,
@@ -830,8 +869,7 @@ pub async fn list_tool_access_map_cmd(
                 warn!("Failed to refresh enabled MCP servers for tool access map: {error}")
             }
         }
-        if let Err(error) = mcp_manager.register_tools(&mut registry)
-        {
+        if let Err(error) = mcp_manager.register_tools(&mut registry) {
             warn!("Failed to register MCP tools for tool access map: {error}");
         }
     }

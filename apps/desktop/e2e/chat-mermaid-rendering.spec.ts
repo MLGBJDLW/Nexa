@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './timeline-test';
 
 test('materializes edge labels and sequence geometry under production style CSP', async ({ page }) => {
   await page.goto('/chat/conv-mermaid');

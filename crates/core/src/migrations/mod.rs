@@ -2878,6 +2878,7 @@ Every answer that uses knowledge base search results.
     ("v132_context_history", include_str!("v132_context_history.sql")),
     ("v133_vector_stores", include_str!("v133_vector_stores.sql")),
     ("v134_project_workspace", "ALTER TABLE projects ADD COLUMN workspace_roots_json TEXT;"),
+    ("v135_conversation_timeline_indexes", include_str!("v135_conversation_timeline_indexes.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

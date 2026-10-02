@@ -913,6 +913,8 @@ fn main() {
             commands::list_archived_conversations_cmd,
             commands::get_conversation_cmd,
             commands::get_conversation_turns_cmd,
+            commands::get_conversation_timeline_page_cmd,
+            commands::get_conversation_timeline_details_cmd,
             commands::list_interaction_requests_cmd,
             commands::get_interaction_request_cmd,
             commands::mark_interaction_presented_cmd,

@@ -583,6 +583,7 @@ export function ChatPage() {
   }, []);
   const chat = useChatSession({
     conversationId,
+    anchorMessageId: new URLSearchParams(location.search).get('message'),
     onConversationCreated,
     systemPrompt: ((location.state as { systemPrompt?: string } | null)?.systemPrompt ?? '').trim(),
     initialSourceIds,
@@ -1919,6 +1920,14 @@ export function ChatPage() {
               conversationId={chat.activeId}
               messages={chat.messages}
               turns={chat.turns}
+              timelineEntries={chat.timelineEntries}
+              hasOlderMessages={chat.hasOlderMessages}
+              hasNewerMessages={chat.hasNewerMessages}
+              loadingOlderMessages={chat.loadingOlderMessages}
+              onLoadOlderMessages={chat.loadOlderMessages}
+              onLoadLatestMessages={chat.loadLatestMessages}
+              onLoadTurnDetails={chat.loadTurnDetails}
+              focusMessageId={new URLSearchParams(location.search).get('message')}
               streamText={chat.streamText}
               streamRounds={chat.streamRounds}
               traceEvents={chat.traceEvents}

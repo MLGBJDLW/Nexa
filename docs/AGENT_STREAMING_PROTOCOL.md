@@ -263,6 +263,51 @@ When a suspended run is replayed after restart, elapsed-time presentation freeze
 at the latest durable suspension event timestamp (falling back to the task
 projection update time for legacy rows), not at the time the UI happens to load.
 
+## Desktop history and attention projections
+
+Desktop history reads use `conversation_timeline_page` and
+`conversation_timeline_details`, independently of the Run Event recovery cursor.
+Pages seek `(sort_order, message_id)` user anchors through the partial root index;
+steering, question-response and checkpoint-continuation rows are controls inside
+their original entry. The default tail contains 20 entries (maximum 50), their
+user messages and final replies, and turn metadata without decoding trace JSON.
+A very long entry previews its latest 32 controls; expanding it reads the complete
+entry. Assistant-only legacy imports retain full details within a bounded message
+page. A deep link resolves the owning entry before paging, and an older page has an
+exclusive end cursor so prepending cannot erase the already-loaded tail.
+
+`ConversationTimeline` owns display pages, lazy detail requests, optimistic
+messages and cancellation generations. Completion refreshes from the current
+tail anchor, preserving earlier entries and unchanged loaded details. A scalar
+database turn revision distinguishes same-second trace writes without reading
+their payloads. Retry, deletion and navigation fence outstanding requests; no
+response may resurrect a removed entry. The page cache is bounded by conversation
+count and bytes, and file-change summaries are scoped to visible turn IDs. Scroll
+restoration uses the visible row identity and its pixel offset after prepending.
+These display projections never rewrite provider context or the durable ledger.
+
+The live projection owns each tool payload once in `StreamToolEntities.byId`.
+Active tool order, round membership and trace membership retain occurrence IDs; their
+compatibility arrays are derived, structurally shared views. Tool progress and
+terminal transitions update the entity once, and cards can subscribe to one call
+ID through the current occurrence. A new provider sample may reuse a call ID
+without changing its retired round or trace. Unrelated tools keep their entity and view references. Reset and eviction
+release unreferenced entities while retaining committed trace entries.
+
+`AttentionInbox` joins live pending approvals and durable interactions for global
+discovery. It owns no responder and does not submit decisions. `InteractionSync`
+refreshes that projection outside the chat route and fences host snapshots against
+newer live approval changes. The inbox can navigate to the owning conversation;
+only the active request surface submits its decision. Request deadlines come from
+the host; countdowns are display-only. Submission failures remain visible and
+retryable, and expired requests disable decisions while awaiting host resolution.
+
+MCP typed result artifacts remain visible in both live and persisted tool cards.
+The UI displays supported inline media, text, embedded text resources and structured
+content, uses explicit HTTP(S) resource links without fetching them automatically,
+and retains notices for unsupported content. Model-facing aliases remain stable
+identities; display labels prefer the artifact's exact tool name.
+
 ## Implementation and verification
 
 - [Core outbox](../crates/core/src/run_event_outbox.rs) and

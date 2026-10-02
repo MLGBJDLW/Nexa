@@ -6,8 +6,13 @@ pub mod memory;
 mod model_selection;
 mod remote_views;
 mod task_history;
+mod timeline;
 pub use model_selection::TurnModelSelection;
 pub use task_history::AgentTaskHistoryItem;
+pub use timeline::{
+    ConversationTimelineCursor, ConversationTimelineDetails, ConversationTimelineEntry,
+    ConversationTimelinePage, ConversationTimelineRange,
+};
 pub mod summarizer;
 
 pub use goal::{ConversationGoal, ConversationGoalStatus};

@@ -42,7 +42,7 @@ function Fixture() {
     <div data-testid="markdown-images"><StreamingMarkdown content={`![Markdown screenshot](${source})\n\n![Local screenshot](D:/workspace/screenshot.png)`} isStreaming={false} /></div>
     <MessageBubble msg={{ id: 'upload', conversationId: 'images', role: 'user', content: 'Attached screenshot', toolCallId: null, toolCalls: [], artifacts: null, tokenCount: 0, createdAt: new Date().toISOString(), sortOrder: 0, thinking: null, imageAttachments: [{ originalName: 'Uploaded screenshot.png', mediaType: 'image/png', base64Data: pixels }] }} />
     <div data-testid="visual-tool-card"><ToolCallCard toolName={tool.toolName} args={tool.arguments} status={tool.status} content={tool.content} artifacts={tool.artifacts} compact={new URLSearchParams(location.search).has('compact')} trace={new URLSearchParams(location.search).has('trace')} /></div>
-    <button onClick={() => setState(previous => { const next = { ...previous }; applyToolRunEvent(next, completed); return next; })}>Reconcile durable tool result</button>
+    <button onClick={() => setState(previous => { const next = createDefaultState(); next.toolCalls = previous.toolCalls; next.streamRounds = previous.streamRounds; next.traceEvents = previous.traceEvents; applyToolRunEvent(next, completed); return next; })}>Reconcile durable tool result</button>
     <ToolCallCard toolName="generate_image" args="{}" status="done" renderKind="image" artifacts={{ kind: 'generatedImage', dataUrl: source, mediaType: 'image/png', prompt: 'Generated screenshot' }} />
   </main>;
 }
@@ -78,6 +78,7 @@ export function renderChatImages() {
   if (session) Object.assign(window, { __TAURI_INTERNALS__: { async invoke(command: string) {
     if (command === 'list_conversations_cmd') return [conversation];
     if (command === 'get_conversation_cmd') return [conversation, structuredClone(localStorage.getItem('image-fixture-done') ? storedMessages : storedMessages.slice(0, 1))];
+    if (command === 'get_conversation_timeline_page_cmd') { const messages = structuredClone(localStorage.getItem('image-fixture-done') ? storedMessages : storedMessages.slice(0, 1)); const first = messages[0]; const cursor = first ? { sortOrder: first.sortOrder, messageId: first.id } : null; return { conversation, messages, turns: [], entries: [], taskRuns: [], range: cursor ? { from: cursor, before: null } : null, oldestCursor: cursor, newestCursor: cursor, hasMoreBefore: false, hasMoreAfter: false }; }
     if (command.startsWith('get_conversation_turns') || command.startsWith('get_agent_task_runs') || command.startsWith('list_agent_configs')) return [];
     return null;
   } } });

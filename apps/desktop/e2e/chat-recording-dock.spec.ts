@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './timeline-test';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -396,6 +396,9 @@ test('recording dock retracts through intermediate layout heights', async ({ pag
   await page.goto('/chat/conv-voice-dock');
   await page.getByRole('button', { name: 'Start voice input' }).click();
   await expect(page.getByTestId('voice-recording-dock')).toBeVisible();
+  // Visibility can become true during the opening frame. Measure retraction
+  // only after the dock has reached its actual open height.
+  await expect.poll(() => page.getByTestId('voice-recording-dock').evaluate(dock => dock.parentElement!.style.height)).toBe('auto');
   const heights = await page.evaluate(async () => {
     const dock = document.querySelector('[data-testid="voice-recording-dock"]')!;
     const container = dock.parentElement!;

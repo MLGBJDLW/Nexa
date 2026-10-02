@@ -1,4 +1,4 @@
-import { expect, type Locator, test } from '@playwright/test';
+import { expect, type Locator, test } from './timeline-test';
 
 async function paintedSurfaceStyle(locator: Locator, includeSelf = true) {
   return locator.evaluate((target, includeTarget) => {
@@ -711,6 +711,12 @@ test('routes one custom wallpaper chrome surface through the active chat sidebar
     scrollWidth: document.documentElement.scrollWidth,
   }));
   expect(compactViewport.scrollWidth).toBeLessThanOrEqual(compactViewport.clientWidth);
+  // Resizing retargets the existing composer position spring. Verify the
+  // settled bound instead of sampling one fractional in-flight transform.
+  await expect.poll(async () => {
+    const bounds = await composer.boundingBox();
+    return bounds ? bounds.x + bounds.width : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(820);
   const compactComposerBounds = await composer.boundingBox();
   expect(compactComposerBounds).not.toBeNull();
   expect(compactComposerBounds!.x).toBeGreaterThanOrEqual(0);
