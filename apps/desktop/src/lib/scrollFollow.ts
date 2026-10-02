@@ -89,7 +89,7 @@ export function observeScrollFollow(
   container.addEventListener('touchmove', touchMove, { passive: true });
   container.addEventListener('keydown', keydown);
   const observer = new ResizeObserver(schedule);
-  observer.observe(content);
+  observer.observe(content, { box: 'border-box' });
   observer.observe(container);
   schedule();
   return () => {

@@ -448,22 +448,69 @@ test('auto-follows only while the user stays near the bottom', async ({ page }) 
   await expect(page.getByText('Streamed answer #2')).toBeVisible();
 });
 
-test('follows delayed layout growth without mistaking it for user scrolling', async ({ page }) => {
+test('follows delayed layout growth without mistaking it for user scrolling', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-auto-follow');
   const root = page.locator('[data-chat-scroll-root="true"]');
   await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
   await root.evaluate(el => {
     const content = el.querySelector<HTMLElement>('[data-chat-follow-content="true"]')!;
+    const audit = { contentBox: [] as number[], borderBox: [] as number[], observers: [] as ResizeObserver[], before: content.getBoundingClientRect().height };
+    for (const box of ['content-box', 'border-box'] as const) {
+      const observer = new ResizeObserver(entries => {
+        for (const entry of entries) (box === 'content-box' ? audit.contentBox : audit.borderBox).push(entry.borderBoxSize[0].blockSize);
+      });
+      observer.observe(content, { box });
+      audit.observers.push(observer);
+    }
+    (window as any).__SCROLL_BOX_AUDIT__ = audit;
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const audit = (window as any).__SCROLL_BOX_AUDIT__;
+    return audit.contentBox.length > 0 && audit.borderBox.length > 0;
+  })).toBe(true);
+  // Let the initial observer notifications and their scheduled follow frame
+  // complete before exercising a later change to the rendered outer box.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await root.evaluate(el => {
+    const content = el.querySelector<HTMLElement>('[data-chat-follow-content="true"]')!;
+    const audit = (window as any).__SCROLL_BOX_AUDIT__;
+    audit.contentBox.length = 0; audit.borderBox.length = 0;
+    audit.before = content.getBoundingClientRect().height;
     content.style.paddingBottom = '600px';
     el.dispatchEvent(new Event('scroll'));
   });
+  await expect.poll(() => page.evaluate(() => (window as any).__SCROLL_BOX_AUDIT__.borderBox.length)).toBeGreaterThan(0);
+  await testInfo.attach('padding-resize-observer-evidence', {
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify(await root.evaluate(el => {
+      const audit = (window as any).__SCROLL_BOX_AUDIT__;
+      return { before: audit.before, after: el.querySelector<HTMLElement>('[data-chat-follow-content="true"]')!.getBoundingClientRect().height, contentBoxNotifications: audit.contentBox, borderBoxNotifications: audit.borderBox, remainingBottomGap: el.scrollHeight - el.scrollTop - el.clientHeight };
+    }))),
+  });
   await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await root.locator('[data-chat-follow-content="true"]').evaluate(el => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'Delayed rendered text growth. '.repeat(200);
+    el.append(paragraph);
+  });
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await page.setViewportSize({ width: 1360, height: 760 });
+  await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  const afterViewportGap = await root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight);
   await root.hover();
   await page.mouse.wheel(0, -400);
   await expect.poll(() => root.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(200);
   const readingTop = await root.evaluate(el => el.scrollTop);
+  const observedGrowth = await page.evaluate(() => (window as any).__SCROLL_BOX_AUDIT__.borderBox.length);
   await root.locator('[data-chat-follow-content="true"]').evaluate(el => { (el as HTMLElement).style.paddingBottom = '900px'; });
+  await expect.poll(() => page.evaluate(() => (window as any).__SCROLL_BOX_AUDIT__.borderBox.length)).toBeGreaterThan(observedGrowth);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect.poll(() => root.evaluate(el => el.scrollTop)).toBe(readingTop);
+  await testInfo.attach('follow-and-user-reading-evidence', {
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify({ afterViewportGap, readingTop, afterGrowthTop: await root.evaluate(el => el.scrollTop) })),
+  });
+  await page.evaluate(() => (window as any).__SCROLL_BOX_AUDIT__.observers.forEach((observer: ResizeObserver) => observer.disconnect()));
 });
 
 test('explicit monitor selection shares the whole selected display and stops native capture', async ({ page }) => {
