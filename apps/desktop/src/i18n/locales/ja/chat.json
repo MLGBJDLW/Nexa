@@ -796,5 +796,10 @@
   "approvalExpiresIn": "{seconds} 秒以内に回答してください",
   "approvalExpired": "このリクエストは期限切れです。タスクの更新を待っています。",
   "approvalSubmitFailed": "判断を送信できませんでした。再試行してください。",
-  "approvalSubmitting": "判断を送信中…"
+  "approvalSubmitting": "判断を送信中…",
+  "mcpMediaUnavailable": "メディアをプレビューできません。",
+  "mcpImage": "ツール結果の画像",
+  "mcpAudio": "ツール結果の音声",
+  "mcpEmbeddedResource": "埋め込みリソース",
+  "mcpStructuredContent": "構造化された結果"
 }

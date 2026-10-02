@@ -796,5 +796,10 @@
   "approvalExpiresIn": "请在 {seconds} 秒内处理",
   "approvalExpired": "此请求已过期，正在等待任务更新。",
   "approvalSubmitFailed": "未能发送决定，请重试。",
-  "approvalSubmitting": "正在发送决定…"
+  "approvalSubmitting": "正在发送决定…",
+  "mcpMediaUnavailable": "无法预览此媒体。",
+  "mcpImage": "工具结果图片",
+  "mcpAudio": "工具结果音频",
+  "mcpEmbeddedResource": "嵌入资源",
+  "mcpStructuredContent": "结构化结果"
 }

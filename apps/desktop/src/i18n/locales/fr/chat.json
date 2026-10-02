@@ -796,5 +796,10 @@
   "approvalExpiresIn": "Répondez sous {seconds} s",
   "approvalExpired": "Cette demande a expiré. En attente de la mise à jour de la tâche.",
   "approvalSubmitFailed": "Impossible d’envoyer votre décision. Réessayez.",
-  "approvalSubmitting": "Envoi de votre décision…"
+  "approvalSubmitting": "Envoi de votre décision…",
+  "mcpMediaUnavailable": "Aperçu du média indisponible.",
+  "mcpImage": "Image du résultat",
+  "mcpAudio": "Audio du résultat",
+  "mcpEmbeddedResource": "Ressource intégrée",
+  "mcpStructuredContent": "Résultat structuré"
 }

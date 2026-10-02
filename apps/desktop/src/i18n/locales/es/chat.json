@@ -796,5 +796,10 @@
   "approvalExpiresIn": "Responde en {seconds} s",
   "approvalExpired": "Esta solicitud ha caducado. Esperando a que se actualice la tarea.",
   "approvalSubmitFailed": "No se pudo enviar tu decisión. Inténtalo de nuevo.",
-  "approvalSubmitting": "Enviando tu decisión…"
+  "approvalSubmitting": "Enviando tu decisión…",
+  "mcpMediaUnavailable": "No se puede previsualizar el contenido.",
+  "mcpImage": "Imagen del resultado",
+  "mcpAudio": "Audio del resultado",
+  "mcpEmbeddedResource": "Recurso integrado",
+  "mcpStructuredContent": "Resultado estructurado"
 }

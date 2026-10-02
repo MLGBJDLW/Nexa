@@ -796,5 +796,10 @@
   "approvalExpiresIn": "Bitte innerhalb von {seconds} s antworten",
   "approvalExpired": "Diese Anfrage ist abgelaufen. Die Aufgabe wird aktualisiert.",
   "approvalSubmitFailed": "Ihre Entscheidung konnte nicht gesendet werden. Versuchen Sie es erneut.",
-  "approvalSubmitting": "Entscheidung wird gesendet…"
+  "approvalSubmitting": "Entscheidung wird gesendet…",
+  "mcpMediaUnavailable": "Medienvorschau nicht verfügbar.",
+  "mcpImage": "Bild im Werkzeugergebnis",
+  "mcpAudio": "Audio im Werkzeugergebnis",
+  "mcpEmbeddedResource": "Eingebettete Ressource",
+  "mcpStructuredContent": "Strukturiertes Ergebnis"
 }

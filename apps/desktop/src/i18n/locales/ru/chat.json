@@ -796,5 +796,10 @@
   "approvalExpiresIn": "Ответьте в течение {seconds} с",
   "approvalExpired": "Срок запроса истёк. Ожидается обновление задачи.",
   "approvalSubmitFailed": "Не удалось отправить решение. Повторите попытку.",
-  "approvalSubmitting": "Отправка решения…"
+  "approvalSubmitting": "Отправка решения…",
+  "mcpMediaUnavailable": "Предпросмотр недоступен.",
+  "mcpImage": "Изображение результата",
+  "mcpAudio": "Аудио результата",
+  "mcpEmbeddedResource": "Встроенный ресурс",
+  "mcpStructuredContent": "Структурированный результат"
 }
