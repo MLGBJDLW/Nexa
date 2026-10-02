@@ -1,6 +1,5 @@
 //! Long-running task resilience helpers.
 
-use super::context;
 use super::*;
 use crate::workflow_ir::WorkflowIr;
 
@@ -103,15 +102,10 @@ impl AgentExecutor {
             total_usage,
         } = ctx;
 
-        let estimated =
-            context::estimate_context_usage_breakdown_for_model(model, messages, tool_defs, None);
-        let budget_decision = context_window.budget_decision(estimated.total_tokens);
+        let input_tokens = self.context_input_tokens(model, messages, tool_defs);
+        let budget_decision = context_window.budget_decision(input_tokens);
         if !budget_decision.should_compact {
-            context_window.validate_request(
-                messages,
-                Some(active_request),
-                estimated.total_tokens,
-            )?;
+            context_window.validate_request(messages, Some(active_request), input_tokens)?;
             return Ok(false);
         }
 
@@ -179,9 +173,8 @@ impl AgentExecutor {
                 false
             }
         };
-        let prepared =
-            context::estimate_context_usage_breakdown_for_model(model, messages, tool_defs, None);
-        context_window.validate_request(messages, Some(active_request), prepared.total_tokens)?;
+        let input_tokens = self.context_input_tokens(model, messages, tool_defs);
+        context_window.validate_request(messages, Some(active_request), input_tokens)?;
         Ok(compacted)
     }
 }

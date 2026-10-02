@@ -25,7 +25,14 @@ impl AgentExecutor {
         let Some(conversation_id) = run.conversation_id else {
             return Ok(false);
         };
-        let Some(plan) = ContextReductionPlan::prepare(messages, model, target, run.active_request)
+        let metrics = self.context_metrics_snapshot(model, messages, &[]);
+        let costs = metrics
+            .messages
+            .iter()
+            .map(|message| message.cache_tokens)
+            .collect::<Vec<_>>();
+        let Some(plan) =
+            ContextReductionPlan::prepare_with_costs(messages, target, run.active_request, &costs)
         else {
             return Ok(false);
         };
@@ -44,13 +51,18 @@ impl AgentExecutor {
             messages,
             Message::text(Role::System, archive.checkpoint_text()),
         );
-        let tokens = |messages: &[Message]| {
-            messages
-                .iter()
-                .map(|message| estimate_message_tokens_for_model(model, message))
-                .fold(0_u32, u32::saturating_add)
-        };
-        if tokens(&next) >= tokens(messages) {
+        let before_tokens = metrics
+            .messages
+            .iter()
+            .map(|message| message.base_tokens)
+            .sum::<u32>();
+        let after_tokens = self
+            .context_metrics_snapshot(model, &next, &[])
+            .messages
+            .iter()
+            .map(|message| message.base_tokens)
+            .sum::<u32>();
+        if after_tokens >= before_tokens {
             return Ok(false);
         }
         if self.cancel_token.is_cancelled() {

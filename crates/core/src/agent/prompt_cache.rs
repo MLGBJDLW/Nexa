@@ -8,13 +8,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use super::*;
+#[cfg(test)]
 use crate::conversation::memory::estimate_message_tokens_for_model;
 use crate::db::Database;
 use crate::llm::prompt_cache::{PromptCacheMode, PromptCacheProfile};
 
 const MIN_CACHE_BREAK_TOKEN_DROP: u32 = 1_000;
 const MAX_STABLE_CACHE_READ_RATIO: f32 = 0.95;
-const PREFIX_HASH_TOKEN_WINDOWS: [u32; 3] = [1_024, 4_096, 16_384];
+const PREFIX_HASH_TOKEN_WINDOWS: [u32; 3] = super::context_metrics::PREFIX_WINDOWS;
 const DEEPSEEK_CACHE_SETTLE_RISK_MS: u64 = 2_000;
 const CACHE_RATIO_BASIS_POINTS: u64 = 10_000;
 
@@ -123,6 +124,7 @@ impl PromptCacheTraceObservation {
 #[derive(Debug, Clone)]
 struct PendingPromptCacheObservation {
     request_kind: String,
+    comparison_snapshot: Option<PromptCacheSnapshot>,
     snapshot: PromptCacheSnapshot,
     previous_snapshot_source: Option<PromptCacheSnapshotSource>,
     diff: PromptCacheDiff,
@@ -155,12 +157,13 @@ pub(super) struct PromptCacheTracker {
     previous_begin_at: Option<Instant>,
 }
 
-fn hash_text(value: &str) -> u64 {
+pub(super) fn hash_text(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
 }
 
+#[cfg(test)]
 fn stable_system_text(messages: &[Message]) -> String {
     messages
         .iter()
@@ -169,12 +172,12 @@ fn stable_system_text(messages: &[Message]) -> String {
         .unwrap_or_default()
 }
 
-fn tool_schema_hash(tools: &[ToolDefinition]) -> u64 {
+pub(super) fn tool_schema_hash(tools: &[ToolDefinition]) -> u64 {
     let serialized = serde_json::to_string(tools).unwrap_or_default();
     hash_text(&serialized)
 }
 
-fn individual_tool_schema_hashes(tools: &[ToolDefinition]) -> Vec<u64> {
+pub(super) fn individual_tool_schema_hashes(tools: &[ToolDefinition]) -> Vec<u64> {
     tools
         .iter()
         .map(|tool| hash_text(&serde_json::to_string(tool).unwrap_or_default()))
@@ -190,7 +193,7 @@ fn role_label(role: &Role) -> &'static str {
     }
 }
 
-fn serialized_message_for_hash(message: &Message) -> String {
+pub(super) fn serialized_message_for_hash(message: &Message) -> String {
     let tool_calls = serde_json::to_string(&message.tool_calls).unwrap_or_default();
     let provider_turn_digest = message
         .provider_turn()
@@ -223,6 +226,7 @@ fn serialized_message_for_hash(message: &Message) -> String {
     }
 }
 
+#[cfg(test)]
 fn estimate_prompt_cache_message_tokens(model: &str, message: &Message) -> u32 {
     let base = estimate_message_tokens_for_model(model, message);
     message
@@ -232,23 +236,24 @@ fn estimate_prompt_cache_message_tokens(model: &str, message: &Message) -> u32 {
         .unwrap_or(base)
 }
 
+#[cfg(test)]
 fn message_hash(message: &Message) -> u64 {
     hash_text(&serialized_message_for_hash(message))
 }
 
-/// A compact structural fingerprint used to detect whether a context
-/// compaction actually rewrote the message sequence. Unlike serializing the
-/// entire history, this avoids materializing another copy of large image data.
+/// Process-local sequence identity for detecting a context rewrite. This is
+/// never persisted or compared across restarts; stable diagnostics use cached
+/// content hashes instead.
 pub(super) fn message_sequence_fingerprint(messages: &[Message]) -> u64 {
     let mut hasher = DefaultHasher::new();
     messages.len().hash(&mut hasher);
     for message in messages {
-        message_hash(message).hash(&mut hasher);
+        message.revision().hash(&mut hasher);
     }
     hasher.finish()
 }
 
-fn message_fingerprint(message: &Message) -> PromptCacheMessageFingerprint {
+pub(super) fn message_fingerprint(message: &Message) -> PromptCacheMessageFingerprint {
     PromptCacheMessageFingerprint {
         role: role_label(&message.role).to_string(),
         text_hash: hash_text(&message.text_content()),
@@ -257,6 +262,7 @@ fn message_fingerprint(message: &Message) -> PromptCacheMessageFingerprint {
     }
 }
 
+#[cfg(test)]
 fn prefix_hash_for_token_budget(model: &str, messages: &[Message], token_budget: u32) -> u64 {
     let mut used = 0u32;
     let mut serialized = String::new();
@@ -282,6 +288,7 @@ fn prefix_hash_for_token_budget(model: &str, messages: &[Message], token_budget:
     hash_text(&serialized)
 }
 
+#[cfg(test)]
 fn system_message_positions(messages: &[Message]) -> Vec<usize> {
     messages
         .iter()
@@ -290,6 +297,7 @@ fn system_message_positions(messages: &[Message]) -> Vec<usize> {
         .collect()
 }
 
+#[cfg(test)]
 fn system_message_hashes(messages: &[Message]) -> Vec<u64> {
     messages
         .iter()
@@ -298,6 +306,7 @@ fn system_message_hashes(messages: &[Message]) -> Vec<u64> {
         .collect()
 }
 
+#[cfg(test)]
 fn dynamic_system_tokens(model: &str, messages: &[Message]) -> u32 {
     messages
         .iter()
@@ -307,6 +316,7 @@ fn dynamic_system_tokens(model: &str, messages: &[Message]) -> u32 {
         .sum()
 }
 
+#[cfg(test)]
 fn tool_result_tokens(model: &str, messages: &[Message]) -> u32 {
     messages
         .iter()
@@ -338,7 +348,8 @@ fn snapshot_for(
     snapshot_for_profile(provider_type, profile, model, messages, tools)
 }
 
-fn snapshot_for_profile(
+#[cfg(test)]
+pub(super) fn snapshot_for_profile(
     provider_type: Option<ProviderType>,
     cache_profile: PromptCacheProfile,
     model: &str,
@@ -375,6 +386,78 @@ fn snapshot_for_profile(
         estimated_tool_tokens,
         estimated_prompt_tokens,
         tool_schema_hashes: individual_tool_schema_hashes(tools),
+    }
+}
+
+pub(super) fn snapshot_from_metrics(
+    provider_type: Option<ProviderType>,
+    cache_profile: PromptCacheProfile,
+    model: &str,
+    metrics: &super::context_metrics::ContextMetricsSnapshot,
+) -> PromptCacheSnapshot {
+    let estimated_message_tokens = metrics
+        .messages
+        .iter()
+        .map(|message| message.cache_tokens)
+        .collect::<Vec<_>>();
+    let estimated_tool_tokens = metrics.tools.tokens;
+    let estimated_prompt_tokens = estimated_message_tokens
+        .iter()
+        .copied()
+        .sum::<u32>()
+        .saturating_add(estimated_tool_tokens);
+    PromptCacheSnapshot {
+        provider_type,
+        model: model.to_string(),
+        cache_profile,
+        stable_system_hash: metrics
+            .messages
+            .iter()
+            .find(|message| message.role == Role::System)
+            .map_or_else(|| hash_text(""), |message| message.text_hash),
+        tool_schema_hash: metrics.tools.hash,
+        tool_count: metrics.tools.names.len(),
+        tool_names: metrics.tools.names.clone(),
+        message_hashes: metrics
+            .messages
+            .iter()
+            .map(|message| message.hash)
+            .collect(),
+        message_fingerprints: metrics
+            .messages
+            .iter()
+            .map(|message| message.fingerprint.clone())
+            .collect(),
+        prefix_hashes: metrics.prefix_hashes,
+        system_message_positions: metrics
+            .messages
+            .iter()
+            .enumerate()
+            .filter_map(|(index, message)| (message.role == Role::System).then_some(index))
+            .collect(),
+        system_message_hashes: metrics
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .map(|message| message.hash)
+            .collect(),
+        dynamic_system_tokens: metrics
+            .messages
+            .iter()
+            .skip(1)
+            .filter(|message| message.role == Role::System)
+            .map(|message| message.base_tokens)
+            .sum(),
+        tool_result_tokens: metrics
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::Tool)
+            .map(|message| message.base_tokens)
+            .sum(),
+        estimated_message_tokens,
+        estimated_tool_tokens,
+        estimated_prompt_tokens,
+        tool_schema_hashes: metrics.tools.hashes.clone(),
     }
 }
 
@@ -621,6 +704,7 @@ impl PromptCacheTracker {
         self.begin_with_profile(request_kind, provider_type, profile, model, messages, tools);
     }
 
+    #[cfg(test)]
     fn begin_with_profile(
         &mut self,
         request_kind: &str,
@@ -630,23 +714,30 @@ impl PromptCacheTracker {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) {
+        self.begin_with_snapshot(
+            request_kind,
+            snapshot_for_profile(provider_type, cache_profile, model, messages, tools),
+        );
+    }
+
+    fn begin_with_snapshot(&mut self, request_kind: &str, next: PromptCacheSnapshot) {
         let now = Instant::now();
         let model_step_interval_ms = self.previous_begin_at.map(|previous| {
             u64::try_from(now.duration_since(previous).as_millis()).unwrap_or(u64::MAX)
         });
         self.previous_begin_at = Some(now);
-        let next = snapshot_for_profile(provider_type, cache_profile, model, messages, tools);
         let diff = self
             .previous_snapshot
             .as_ref()
             .map(|previous| diff_snapshots(previous, &next))
             .unwrap_or_else(|| cold_start_diff(&next));
         let previous_snapshot_source = self.previous_snapshot_source.clone();
-        let fast_cache_settle_risk = matches!(provider_type, Some(ProviderType::DeepSeek))
+        let fast_cache_settle_risk = matches!(next.provider_type, Some(ProviderType::DeepSeek))
             && model_step_interval_ms
                 .is_some_and(|elapsed| elapsed < DEEPSEEK_CACHE_SETTLE_RISK_MS);
         self.pending_observation = Some(PendingPromptCacheObservation {
             request_kind: request_kind.to_string(),
+            comparison_snapshot: self.previous_snapshot.clone(),
             snapshot: next.clone(),
             previous_snapshot_source,
             diff,
@@ -658,6 +749,18 @@ impl PromptCacheTracker {
             kind: "currentTurnPreviousStep".to_string(),
             turn_id: None,
         });
+    }
+
+    fn refresh_pending_snapshot(&mut self, snapshot: PromptCacheSnapshot) {
+        if let Some(pending) = self.pending_observation.as_mut() {
+            pending.diff = pending
+                .comparison_snapshot
+                .as_ref()
+                .map(|previous| diff_snapshots(previous, &snapshot))
+                .unwrap_or_else(|| cold_start_diff(&snapshot));
+            pending.snapshot = snapshot.clone();
+            self.previous_snapshot = Some(snapshot);
+        }
     }
 
     fn seed_previous_turn_snapshot(
@@ -867,15 +970,12 @@ impl AgentExecutor {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) {
+        let metrics = self.context_metrics_snapshot(model, messages, tools);
         if let Ok(mut tracker) = self.prompt_cache_tracker.lock() {
             let cache_profile = self.provider.prompt_cache_profile(model);
-            tracker.begin_with_profile(
+            tracker.begin_with_snapshot(
                 self.config.request_kind.as_str(),
-                self.config.provider_type,
-                cache_profile,
-                model,
-                messages,
-                tools,
+                snapshot_from_metrics(self.config.provider_type, cache_profile, model, &metrics),
             );
         }
     }
@@ -889,6 +989,23 @@ impl AgentExecutor {
             return tracker.complete(usage, was_compacted);
         }
         None
+    }
+
+    pub(super) fn refresh_prompt_cache_observation(
+        &self,
+        model: &str,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+    ) {
+        let metrics = self.context_metrics_snapshot(model, messages, tools);
+        if let Ok(mut tracker) = self.prompt_cache_tracker.lock() {
+            tracker.refresh_pending_snapshot(snapshot_from_metrics(
+                self.config.provider_type,
+                self.provider.prompt_cache_profile(model),
+                model,
+                &metrics,
+            ));
+        }
     }
 }
 

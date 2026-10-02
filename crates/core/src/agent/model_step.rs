@@ -535,13 +535,14 @@ impl AgentExecutor {
                     if steering.recovery_control
                         == Some(AgentRecoveryControl::LowerReasoningAndRetry)
                     {
-                        let discarded_prompt = context::estimate_context_usage_breakdown_for_model(
-                            model,
-                            &current_request.messages,
-                            tool_defs,
-                            None,
-                        )
-                        .total_tokens;
+                        let discarded_prompt = self
+                            .context_usage_breakdown(
+                                model,
+                                &current_request.messages,
+                                tool_defs,
+                                None,
+                            )
+                            .total_tokens;
                         let discarded_output =
                             crate::conversation::memory::estimate_tokens_for_model(
                                 model,
@@ -1286,6 +1287,7 @@ impl AgentExecutor {
             )
         })?;
         let mut accepted_sample_id = accepted_attempt.sample_id;
+        let mut accepted_replay_omitted_units = accepted_attempt.replay_projection_omitted_units;
         let mut accepted_route_snapshot = accepted_attempt.route_snapshot;
 
         let captured_output_payload = crate::llm::provider_turn::ProviderReplayPayload::capture(
@@ -1724,6 +1726,7 @@ impl AgentExecutor {
                 );
             }
             accepted_sample_id = safe_accepted.sample_id;
+            accepted_replay_omitted_units = safe_accepted.replay_projection_omitted_units;
             accepted_route_snapshot = safe_route;
             attempt_timing = safe_timing;
             current_request.messages = safe_request.messages;
@@ -1775,6 +1778,26 @@ impl AgentExecutor {
                     .await;
             }
         }
+
+        self.refresh_prompt_cache_observation(
+            model,
+            &current_request.messages,
+            current_request.tools.as_deref().unwrap_or_default(),
+        );
+        let primary_route = self.provider.route_snapshot(&current_request);
+        let calibration_tokens = if primary_route.same_route_identity(&accepted_route_snapshot)
+            && accepted_replay_omitted_units == 0
+        {
+            chunk_usage.as_ref().map(|usage| usage.prompt_tokens)
+        } else {
+            None
+        };
+        self.observe_context_input_tokens(
+            model,
+            &current_request.messages,
+            current_request.tools.as_deref().unwrap_or_default(),
+            calibration_tokens,
+        );
 
         let prompt_cache_observation =
             self.complete_prompt_cache_observation(chunk_usage.as_ref(), None);

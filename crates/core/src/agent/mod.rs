@@ -58,6 +58,7 @@ mod assistant_turn;
 pub mod context;
 mod context_compaction;
 mod context_handoff;
+mod context_metrics;
 pub mod context_window;
 mod desktop_resume;
 pub use desktop_resume::restore_pending_desktop_evidence;
@@ -723,6 +724,7 @@ pub struct AgentExecutor {
     approval_callback: Option<ApprovalCallback>,
     tool_visual_interpreter: Option<ToolVisualInterpreter>,
     prompt_cache_tracker: StdMutex<PromptCacheTracker>,
+    context_metrics: StdMutex<context_metrics::ContextMetrics>,
     /// Separates invocation ids for short-lived executors that do not have a
     /// persisted conversation turn (notably detached subagents).
     usage_scope_id: String,
@@ -748,6 +750,7 @@ impl AgentExecutor {
             approval_callback: None,
             tool_visual_interpreter: None,
             prompt_cache_tracker: StdMutex::new(PromptCacheTracker::default()),
+            context_metrics: StdMutex::new(context_metrics::ContextMetrics::default()),
             usage_scope_id: Uuid::new_v4().to_string(),
             usage_run_id: None,
             usage_subtask_run_id: None,

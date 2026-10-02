@@ -1522,19 +1522,15 @@ impl AgentExecutor {
                 prompt_ir::messages_for_model_step(&messages, force_answer_only);
             self.append_shared_desktop_context(conversation_id, model, &mut request_messages)
                 .await;
-            let estimated_prompt = if self.config.max_actual_tokens_per_run.is_some()
-                || output_budget_plan.context_cap.is_some()
-            {
-                context::estimate_context_usage_breakdown_for_model(
-                    model,
-                    &request_messages,
-                    effective_tool_defs,
-                    None,
-                )
-                .total_tokens
-            } else {
-                0
-            };
+            let estimated_prompt =
+                self.context_input_tokens(model, &request_messages, effective_tool_defs);
+            // Desktop context is attached after canonical projection. Check
+            // the actual prepared input as well as the retained live window.
+            context_window.validate_request(
+                &request_messages,
+                Some(&active_request),
+                estimated_prompt,
+            )?;
             let Some(model_step_max_response_tokens) = cumulative_run_step_output_budget(
                 output_budget_plan
                     .wire_max_tokens_for_prompt(estimated_prompt)

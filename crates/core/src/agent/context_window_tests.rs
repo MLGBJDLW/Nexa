@@ -263,6 +263,11 @@ async fn run_context_fixture(
         )
         .await;
     drain.await.unwrap();
+    assert_eq!(
+        executor.context_metrics.lock().unwrap().analyzed_tool_message_count(),
+        rounds * tools_per_round,
+        "budgeting, cache diagnostics, compaction, and usage must share each completed tool result analysis"
+    );
     let requests = requests.lock().unwrap().clone();
     (answer, requests, summaries.load(Ordering::SeqCst))
 }

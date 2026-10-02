@@ -317,6 +317,27 @@ are useful as one nudge, but are not sufficient as the terminal safety bound.
 
 ## Prompt-cache invariants
 
+One [ContextMetrics cache](../crates/core/src/agent/context_metrics.rs) supplies
+request budgeting, compaction costs, usage segments, and prompt-cache diagnostics.
+Each immutable message revision is analyzed once for its model and endpoint;
+appending a tail reuses the earlier token counts and stable content hashes.
+Message edits, deserialization, and route changes invalidate the affected
+analysis. Tool definitions are compared before reusing their token/schema
+analysis, and removed message revisions are released from the cache. Prefix
+hashes preserve the existing persisted diagnostic format.
+
+Provider input usage calibrates a later request only while the accepted concrete
+route, replay surface, tool definitions, and entire observed message prefix are
+unchanged. The next estimate adds the new tail and remains at least as large as
+the local estimate. Compaction, editing, and route changes therefore cannot reuse
+a stale provider baseline. This planning estimate is separate from billable usage.
+
+[Message snapshots](../crates/core/src/llm/message.rs) share immutable text,
+image, and replay payloads across request/retry projections. A mutable field
+access creates an isolated copy when necessary and advances a process-local
+revision. Serialization and semantic equality retain the existing message
+contract; allocation and revision identity never enter provider input or storage.
+
 Prompt caching is a runtime layout contract, not a provider-specific sleep or
 retry trick. Nexa keeps the reusable prefix byte-stable: the kernel prompt,
 stable instructions, and the deterministically sorted profile tool schema come

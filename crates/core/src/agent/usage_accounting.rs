@@ -171,12 +171,8 @@ impl AgentExecutor {
         let normalized_cache_miss_tokens = chunk_usage
             .as_ref()
             .and_then(|usage| normalized_cache_miss_tokens(self.config.provider_type, usage));
-        let context_breakdown = context::estimate_context_usage_breakdown_for_model(
-            model,
-            request_messages,
-            tool_defs,
-            actual_prompt_tokens,
-        );
+        let context_breakdown =
+            self.context_usage_breakdown(model, request_messages, tool_defs, actual_prompt_tokens);
         let (prompt_tokens, completion_tokens, _has_actual_usage) =
             model_step_accounting_tokens(chunk_usage.as_ref(), context_breakdown.total_tokens);
         let operation_kind = match self.config.request_kind {

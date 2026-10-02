@@ -3,9 +3,10 @@
 use std::collections::HashSet;
 
 use crate::conversation::memory::{
-    context_safety_buffer, estimate_message_tokens_for_model, estimate_tokens_for_model,
-    resolve_context_window, ResolvedContextWindow,
+    context_safety_buffer, resolve_context_window, ResolvedContextWindow,
 };
+#[cfg(test)]
+use crate::conversation::memory::{estimate_message_tokens_for_model, estimate_tokens_for_model};
 use crate::error::CoreError;
 use crate::llm::{Message, Role};
 
@@ -113,7 +114,8 @@ impl ContextWindow {
 }
 
 fn same_user_request(message: &Message, active: &Message) -> bool {
-    message.role == Role::User && message.parts == active.parts
+    message.role == Role::User
+        && (message.revision() == active.revision() || message.parts == active.parts)
 }
 
 pub(super) fn is_context_checkpoint(message: &Message) -> bool {
@@ -132,12 +134,34 @@ pub(super) struct ContextReductionPlan {
 }
 
 impl ContextReductionPlan {
+    #[cfg(test)]
     pub(super) fn prepare(
         messages: &[Message],
         model: &str,
         target_tokens: u32,
         active_request: Option<&Message>,
     ) -> Option<Self> {
+        let costs = messages
+            .iter()
+            .map(|message| {
+                estimate_message_tokens_for_model(model, message).saturating_add(
+                    message
+                        .reasoning_content
+                        .as_deref()
+                        .map_or(0, |reasoning| estimate_tokens_for_model(model, reasoning)),
+                )
+            })
+            .collect::<Vec<_>>();
+        Self::prepare_with_costs(messages, target_tokens, active_request, &costs)
+    }
+
+    pub(super) fn prepare_with_costs(
+        messages: &[Message],
+        target_tokens: u32,
+        active_request: Option<&Message>,
+        costs: &[u32],
+    ) -> Option<Self> {
+        debug_assert_eq!(messages.len(), costs.len());
         let prefix_end = messages
             .iter()
             .position(|message| message.role != Role::System || is_context_checkpoint(message))?;
@@ -178,17 +202,6 @@ impl ContextReductionPlan {
         {
             protected[index] = true;
         }
-        let costs = messages
-            .iter()
-            .map(|message| {
-                estimate_message_tokens_for_model(model, message).saturating_add(
-                    message
-                        .reasoning_content
-                        .as_deref()
-                        .map_or(0, |reasoning| estimate_tokens_for_model(model, reasoning)),
-                )
-            })
-            .collect::<Vec<_>>();
         let mut suffix = vec![0_u32; messages.len() + 1];
         for index in (0..messages.len()).rev() {
             suffix[index] = suffix[index + 1].saturating_add(costs[index]);

@@ -230,9 +230,9 @@ impl AgentExecutor {
         let Some(budget) = window.context_budget().filter(|budget| *budget > 0) else {
             return Ok((history, Usage::default()));
         };
-        let tokens =
-            context::estimate_context_usage_breakdown_for_model(model, &history, &[], None)
-                .total_tokens;
+        let tokens = self
+            .context_usage_breakdown(model, &history, &[], None)
+            .total_tokens;
         if !window.budget_decision(tokens).should_compact {
             return Ok((history, Usage::default()));
         }
@@ -256,9 +256,11 @@ impl AgentExecutor {
         run: CompactionRunContext<'_>,
         total_usage: &mut Usage,
     ) -> Result<bool, CoreError> {
-        let before_tokens: u32 = messages
+        let before_tokens: u32 = self
+            .context_metrics_snapshot(model, messages, &[])
+            .messages
             .iter()
-            .map(|message| estimate_message_tokens_for_model(model, message))
+            .map(|message| message.base_tokens)
             .sum();
         let before_len = messages.len();
 
@@ -282,9 +284,11 @@ impl AgentExecutor {
             )));
         }
 
-        let after_tokens: u32 = messages
+        let after_tokens: u32 = self
+            .context_metrics_snapshot(model, messages, &[])
+            .messages
             .iter()
-            .map(|message| estimate_message_tokens_for_model(model, message))
+            .map(|message| message.base_tokens)
             .sum();
         Ok(after_tokens < before_tokens || messages.len() < before_len)
     }
@@ -314,7 +318,7 @@ impl AgentExecutor {
             .context_budget()
             .map(|budget| (budget as f32 * COMPACTION_TARGET_USAGE) as u32)
             .unwrap_or_else(|| {
-                context::estimate_context_usage_breakdown_for_model(model, messages, &[], None)
+                self.context_usage_breakdown(model, messages, &[], None)
                     .total_tokens
                     / 2
             });
@@ -346,7 +350,14 @@ impl AgentExecutor {
             let changed = self.handoff_context(messages, model, target, run)?;
             return Ok((Usage::default(), changed));
         }
-        let Some(plan) = ContextReductionPlan::prepare(messages, model, target, run.active_request)
+        let metrics = self.context_metrics_snapshot(model, messages, &[]);
+        let costs = metrics
+            .messages
+            .iter()
+            .map(|message| message.cache_tokens)
+            .collect::<Vec<_>>();
+        let Some(plan) =
+            ContextReductionPlan::prepare_with_costs(messages, target, run.active_request, &costs)
         else {
             return Ok((Usage::default(), false));
         };
@@ -419,10 +430,11 @@ impl AgentExecutor {
             messages,
             reference_summary_message(&result.summary, evicted.len(), "safe context reduction"),
         );
-        let before =
-            context::estimate_context_usage_breakdown_for_model(model, messages, &[], None)
-                .total_tokens;
-        let after = context::estimate_context_usage_breakdown_for_model(model, &next, &[], None)
+        let before = self
+            .context_usage_breakdown(model, messages, &[], None)
+            .total_tokens;
+        let after = self
+            .context_usage_breakdown(model, &next, &[], None)
             .total_tokens;
         if after >= before {
             return Ok((ledger_usage, false));
