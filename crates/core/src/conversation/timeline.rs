@@ -13,7 +13,7 @@ use crate::{db::Database, error::CoreError, llm::ToolCallRequest};
 
 const MAX_PAGE_SIZE: usize = 50;
 const DEFAULT_PAGE_SIZE: usize = 20;
-const ROOT_PREDICATE: &str = "role = 'user' AND COALESCE(CASE WHEN json_valid(artifacts_json) THEN json_extract(artifacts_json, '$.kind') END, '') NOT IN ('steering', 'questionResponse', 'checkpointContinuation')";
+const ROOT_PREDICATE: &str = "role = 'user' AND COALESCE(display_artifact_kind, '') NOT IN ('steering', 'questionResponse', 'checkpointContinuation')";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +56,222 @@ mod tests {
             tx.commit().unwrap();
         }
         (db, conversation.id)
+    }
+
+    #[test]
+    fn timeline_legacy_trace_summary_does_not_execute_json_parsers() {
+        use rusqlite::functions::FunctionFlags;
+        let (db, id) = fixture(2);
+        let artifact = serde_json::json!({"kind":"traceTimeline","version":1,"items":[{"kind":"thinking","text":"large legacy trace ".repeat(100_000)}]});
+        {
+            let connection = db.conn();
+            connection
+                .execute("UPDATE conversation_turns SET trace_json=NULL", [])
+                .unwrap();
+            connection
+                .execute(
+                    "UPDATE messages SET artifacts_json=?1 WHERE id='a00001'",
+                    [artifact.to_string()],
+                )
+                .unwrap();
+            let kind: String = connection
+                .query_row(
+                    "SELECT display_artifact_kind FROM messages WHERE id='a00001'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(kind, "traceTimeline");
+            // Any accidental json_valid/extract/remove on this read fails the
+            // actual storage query. The derived kind was committed beforehand.
+            for (name, arity) in [("json_valid", 1), ("json_extract", 2), ("json_remove", -1)] {
+                connection
+                    .create_scalar_function(
+                        name,
+                        arity,
+                        FunctionFlags::SQLITE_UTF8
+                            | FunctionFlags::SQLITE_DETERMINISTIC
+                            | FunctionFlags::SQLITE_INNOCUOUS,
+                        move |_| -> rusqlite::Result<i32> {
+                            Err(rusqlite::Error::UserFunctionError(Box::new(
+                                std::io::Error::other(format!(
+                                    "summary parsed legacy trace through {name}"
+                                )),
+                            )))
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert!(page
+            .messages
+            .iter()
+            .all(|message| message.artifacts.is_none()));
+        assert!(serde_json::to_vec(&page).unwrap().len() < 32_768);
+        let detail = db.conversation_timeline_details(&id, "u00001").unwrap();
+        assert_eq!(
+            detail
+                .messages
+                .iter()
+                .find(|message| message.id == "a00001")
+                .unwrap()
+                .artifacts
+                .as_ref(),
+            Some(&artifact)
+        );
+    }
+
+    #[test]
+    fn timeline_artifact_kind_tracks_writes_and_keeps_final_image_previews() {
+        let (db, id) = fixture(2);
+        db.conn()
+            .execute("UPDATE conversation_turns SET trace_json=NULL", [])
+            .unwrap();
+        let image =
+            serde_json::json!({"kind":"generatedImage","dataUrl":"data:image/png;base64,fixture"});
+        db.conn()
+            .execute(
+                "UPDATE messages SET artifacts_json=?1 WHERE id='a00001'",
+                [image.to_string()],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .find(|message| message.id == "a00001")
+                .unwrap()
+                .artifacts
+                .as_ref(),
+            Some(&image)
+        );
+        db.conn()
+            .execute(
+                "UPDATE messages SET artifacts_json='{broken trace' WHERE id='a00001'",
+                [],
+            )
+            .unwrap();
+        let kind: String = db
+            .conn()
+            .query_row(
+                "SELECT display_artifact_kind FROM messages WHERE id='a00001'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kind, "__invalid_json__");
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert!(page
+            .messages
+            .iter()
+            .find(|message| message.id == "a00001")
+            .unwrap()
+            .artifacts
+            .is_none());
+        assert!(page.entries[1].has_details);
+        assert!(db.conversation_timeline_details(&id, "u00001").is_err());
+        db.conn()
+            .execute(
+                "UPDATE messages SET artifacts_json=NULL WHERE id='a00001'",
+                [],
+            )
+            .unwrap();
+        let kind: Option<String> = db
+            .conn()
+            .query_row(
+                "SELECT display_artifact_kind FROM messages WHERE id='a00001'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(kind.is_none());
+        db.conn().execute("INSERT INTO messages(id,conversation_id,role,content,artifacts_json,sort_order) VALUES('image-on-insert',?1,'assistant','image',?2,30)",params![id,image.to_string()]).unwrap();
+        let kind: String = db
+            .conn()
+            .query_row(
+                "SELECT display_artifact_kind FROM messages WHERE id='image-on-insert'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kind, "generatedImage");
+    }
+
+    #[test]
+    fn timeline_early_entry_queries_seek_both_bounds_independently_of_history_size() {
+        use rusqlite::{types::Value, StatementStatus};
+        let queries = [
+            controls_query(true),
+            details_query(true),
+            last_assistant_query(true),
+            has_details_query(true),
+            compaction_markers_query(true, true),
+        ];
+        let mut costs = Vec::new();
+        for count in [100, 10_000] {
+            let (db, id) = fixture(count);
+            let connection = db.conn();
+            let mut measurements = Vec::new();
+            for sql in &queries {
+                let mut arguments = vec![
+                    Value::Text(id.clone()),
+                    Value::Integer(10),
+                    Value::Text("u00001".into()),
+                    Value::Integer(20),
+                    Value::Text("u00002".into()),
+                ];
+                if sql.contains("?6") {
+                    arguments.push(Value::Text("a00001".into()));
+                }
+                let mut statement = connection.prepare(sql).unwrap();
+                let rows = statement
+                    .query_map(rusqlite::params_from_iter(arguments.iter()), |_| Ok(()))
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap();
+                let steps = statement.get_status(StatementStatus::VmStep);
+                assert_eq!(statement.get_status(StatementStatus::Sort), 0, "{sql}");
+                let plan = connection
+                    .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                    .unwrap()
+                    .query_map(rusqlite::params_from_iter(arguments.iter()), |row| {
+                        row.get::<_, String>(3)
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+                    .join(" ");
+                assert!(
+                    plan.contains('>') && plan.contains('<'),
+                    "query must seek both entry bounds: {plan}; {sql}"
+                );
+                assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+                assert!(
+                    steps < 256,
+                    "early entry scanned beyond its range: turns={count}, steps={steps}; {sql}"
+                );
+                measurements.push((rows.len(), steps));
+            }
+            costs.push(measurements);
+        }
+        for (small, large) in costs[0].iter().zip(&costs[1]) {
+            assert_eq!(small.0, large.0);
+            assert!(
+                large.1 <= small.1 + 32,
+                "100 vs 10k turns: {small:?} -> {large:?}"
+            );
+        }
+        println!(
+            "timeline early-entry query (rows, VM steps), 100 turns: {:?}; 10k turns: {:?}",
+            costs[0], costs[1]
+        );
     }
 
     #[test]
@@ -351,7 +567,7 @@ fn read_message(
 ) -> Result<Option<ConversationMessage>, CoreError> {
     let thinking = if summary { "NULL" } else { "thinking" };
     let artifacts = if summary {
-        "CASE WHEN json_valid(artifacts_json) THEN CASE WHEN json_extract(artifacts_json,'$.kind')='traceTimeline' THEN json_remove(artifacts_json,'$.items','$.providerTurnEnvelope','$.providerReplayBoundary','$.reasoningEnvelope','$.llmContextContent') ELSE json_remove(artifacts_json,'$.providerTurnEnvelope','$.providerReplayBoundary','$.reasoningEnvelope','$.llmContextContent') END ELSE artifacts_json END"
+        "CASE WHEN artifacts_json IS NULL OR display_artifact_kind IN ('traceTimeline','__invalid_json__') THEN NULL WHEN json_valid(artifacts_json) THEN json_remove(artifacts_json,'$.providerTurnEnvelope','$.providerReplayBoundary','$.reasoningEnvelope','$.llmContextContent') ELSE NULL END"
     } else {
         "artifacts_json"
     };
@@ -413,13 +629,61 @@ fn insert_message(
     }
 }
 
+// Optional OR predicates prevent SQLite from seeking the upper bound, making
+// an early entry walk every later message. Keep absent parameter slots bound
+// without putting an OR around a real cursor comparison.
+fn before_bound(has_before: bool) -> &'static str {
+    if has_before {
+        "(sort_order,id)<(?4,?5)"
+    } else {
+        "(?4 IS NULL AND ?5 IS NULL)"
+    }
+}
+
+fn controls_query(has_before: bool) -> String {
+    format!("SELECT id FROM messages WHERE conversation_id=?1 AND role='user' AND (sort_order,id)>(?2,?3) AND {} ORDER BY sort_order DESC,id DESC LIMIT 32", before_bound(has_before))
+}
+
+fn details_query(has_before: bool) -> String {
+    format!("SELECT id FROM messages WHERE conversation_id=?1 AND (sort_order,id)>=(?2,?3) AND {} ORDER BY sort_order,id", before_bound(has_before))
+}
+
+fn last_assistant_query(has_before: bool) -> String {
+    format!("SELECT id FROM messages WHERE conversation_id=?1 AND role='assistant' AND (tool_calls_json IS NULL OR tool_calls_json='[]') AND (sort_order,id)>(?2,?3) AND {} ORDER BY sort_order DESC,id DESC LIMIT 1", before_bound(has_before))
+}
+
+fn has_details_query(has_before: bool) -> String {
+    format!("SELECT EXISTS(SELECT 1 FROM messages WHERE conversation_id=?1 AND (sort_order,id)>(?2,?3) AND {} AND (?6 IS NULL OR id<>?6) LIMIT 1)", before_bound(has_before))
+}
+
+fn compaction_markers_query(has_from: bool, has_before: bool) -> String {
+    let from = if has_from {
+        "(sort_order,id)>=(?2,?3)"
+    } else {
+        "(?2 IS NULL AND ?3 IS NULL)"
+    };
+    format!("SELECT id FROM messages WHERE conversation_id=?1 AND role='system' AND {from} AND {} AND (lower(content) LIKE '%earlier conversation context%' OR lower(content) LIKE '%auto-compacted%' OR lower(content) LIKE '%compacted context%') ORDER BY sort_order DESC,id DESC LIMIT 64", before_bound(has_before))
+}
+
 fn last_assistant(
     connection: &Connection,
     conversation_id: &str,
     from: &ConversationTimelineCursor,
     before: Option<&ConversationTimelineCursor>,
 ) -> Result<Option<String>, CoreError> {
-    Ok(connection.query_row("SELECT id FROM messages WHERE conversation_id=?1 AND role='assistant' AND (tool_calls_json IS NULL OR tool_calls_json='[]') AND (sort_order,id)>(?2,?3) AND (?4 IS NULL OR (sort_order,id)<(?4,?5)) ORDER BY sort_order DESC,id DESC LIMIT 1", params![conversation_id,from.sort_order,from.message_id,before.map(|cursor|cursor.sort_order),before.map(|cursor|cursor.message_id.as_str())], |row| row.get(0)).optional()?)
+    Ok(connection
+        .query_row(
+            &last_assistant_query(before.is_some()),
+            params![
+                conversation_id,
+                from.sort_order,
+                from.message_id,
+                before.map(|cursor| cursor.sort_order),
+                before.map(|cursor| cursor.message_id.as_str())
+            ],
+            |row| row.get(0),
+        )
+        .optional()?)
 }
 
 fn detail_revision(
@@ -575,14 +839,39 @@ impl Database {
                 // durable position. The role/order index skips tool payload rows.
                 // A very long single turn can have many steering replies. Keep
                 // its latest controls in the summary; expansion restores all.
-                let controls = transaction.prepare("SELECT id FROM messages WHERE conversation_id=?1 AND role='user' AND (sort_order,id)>(?2,?3) AND (?4 IS NULL OR (sort_order,id)<(?4,?5)) ORDER BY sort_order DESC,id DESC LIMIT 32")?.query_map(params![conversation_id,root.sort_order,root.message_id,next.as_ref().map(|cursor|cursor.sort_order),next.as_ref().map(|cursor|cursor.message_id.as_str())], |row| row.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+                let controls = transaction
+                    .prepare(&controls_query(next.is_some()))?
+                    .query_map(
+                        params![
+                            conversation_id,
+                            root.sort_order,
+                            root.message_id,
+                            next.as_ref().map(|cursor| cursor.sort_order),
+                            next.as_ref().map(|cursor| cursor.message_id.as_str())
+                        ],
+                        |row| row.get::<_, String>(0),
+                    )?
+                    .collect::<Result<Vec<_>, _>>()?;
                 for id in controls {
                     insert_message(
                         &mut messages,
                         read_message(&transaction, conversation_id, &id, false, true)?,
                     );
                 }
-                let has_details = has_trace || final_has_details || transaction.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE conversation_id=?1 AND (sort_order,id)>(?2,?3) AND (?4 IS NULL OR (sort_order,id)<(?4,?5)) AND (?6 IS NULL OR id<>?6) LIMIT 1)", params![conversation_id,root.sort_order,root.message_id,next.as_ref().map(|cursor|cursor.sort_order),next.as_ref().map(|cursor|cursor.message_id.as_str()),final_id], |row|row.get::<_,bool>(0))?;
+                let has_details = has_trace
+                    || final_has_details
+                    || transaction.query_row(
+                        &has_details_query(next.is_some()),
+                        params![
+                            conversation_id,
+                            root.sort_order,
+                            root.message_id,
+                            next.as_ref().map(|cursor| cursor.sort_order),
+                            next.as_ref().map(|cursor| cursor.message_id.as_str()),
+                            final_id
+                        ],
+                        |row| row.get::<_, bool>(0),
+                    )?;
                 entries.push(ConversationTimelineEntry {
                     anchor: root.clone(),
                     turn_id: turn.as_ref().map(|(turn, _, _)| turn.id.clone()),
@@ -607,7 +896,22 @@ impl Database {
             false
         };
         if let Some(first) = oldest_cursor.as_ref() {
-            let system_ids = transaction.prepare("SELECT id FROM messages WHERE conversation_id=?1 AND role='system' AND (?2 IS NULL OR (sort_order,id)>=(?2,?3)) AND (?4 IS NULL OR (sort_order,id)<(?4,?5)) AND (lower(content) LIKE '%earlier conversation context%' OR lower(content) LIKE '%auto-compacted%' OR lower(content) LIKE '%compacted context%') ORDER BY sort_order DESC,id DESC LIMIT 64")?.query_map(params![conversation_id,has_more_before.then_some(first.sort_order),has_more_before.then_some(first.message_id.as_str()),end_before.as_ref().map(|cursor|cursor.sort_order),end_before.as_ref().map(|cursor|cursor.message_id.as_str())],|row|row.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+            let system_ids = transaction
+                .prepare(&compaction_markers_query(
+                    has_more_before,
+                    end_before.is_some(),
+                ))?
+                .query_map(
+                    params![
+                        conversation_id,
+                        has_more_before.then_some(first.sort_order),
+                        has_more_before.then_some(first.message_id.as_str()),
+                        end_before.as_ref().map(|cursor| cursor.sort_order),
+                        end_before.as_ref().map(|cursor| cursor.message_id.as_str())
+                    ],
+                    |row| row.get::<_, String>(0),
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
             for id in system_ids {
                 insert_message(
                     &mut messages,
@@ -664,7 +968,19 @@ impl Database {
         let before = root_after(&transaction, conversation_id, &anchor)?;
         let turn = read_turn(&transaction, conversation_id, anchor_message_id, true)?;
         let has_trace = turn.as_ref().is_some_and(|(_, has_trace, _)| *has_trace);
-        let message_ids = transaction.prepare("SELECT id FROM messages WHERE conversation_id=?1 AND (sort_order,id)>=(?2,?3) AND (?4 IS NULL OR (sort_order,id)<(?4,?5)) ORDER BY sort_order,id")?.query_map(params![conversation_id,anchor.sort_order,anchor.message_id,before.as_ref().map(|cursor|cursor.sort_order),before.as_ref().map(|cursor|cursor.message_id.as_str())],|row|row.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+        let message_ids = transaction
+            .prepare(&details_query(before.is_some()))?
+            .query_map(
+                params![
+                    conversation_id,
+                    anchor.sort_order,
+                    anchor.message_id,
+                    before.as_ref().map(|cursor| cursor.sort_order),
+                    before.as_ref().map(|cursor| cursor.message_id.as_str())
+                ],
+                |row| row.get::<_, String>(0),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
         let final_id = turn
             .as_ref()
             .and_then(|(turn, _, _)| turn.assistant_message_id.as_deref());
