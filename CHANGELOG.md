@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.14.22](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.21...nexa-monorepo-v0.14.22) (2026-10-02)
+
+
+### Features
+
+* **chat:** surface background approvals in a global attention inbox ([d800f2f](https://github.com/MLGBJDLW/Nexa/commit/d800f2f567b1edf6ba06c3bed93c8483d5feac6c))
+* **mcp:** render typed media and structured tool results ([e6619ba](https://github.com/MLGBJDLW/Nexa/commit/e6619baa648788cd26b9a41beba4eaa033bc116f))
+
+
+### Bug Fixes
+
+* **agent:** carry endpoint model limits into context budgeting ([dba1562](https://github.com/MLGBJDLW/Nexa/commit/dba156251330f35bc7fba7b04fa27b22e8a9c6f3))
+* **agent:** preserve active requests across long-turn compaction ([c613208](https://github.com/MLGBJDLW/Nexa/commit/c6132086d01eaa79676a51cb2d29842c1530bec3))
+* **agent:** preserve context, isolate MCP calls and page chat history ([4a117c3](https://github.com/MLGBJDLW/Nexa/commit/4a117c36aac15186494530a5f50181fcc3272f99))
+* **agent:** scope cached output limits to the selected model ([8bda276](https://github.com/MLGBJDLW/Nexa/commit/8bda276e0023d962171487d1c5f1f8d897fc2a54))
+* **agent:** target real context reduction during overflow recovery ([98c2242](https://github.com/MLGBJDLW/Nexa/commit/98c22420a94750db24898dc17e043e00f54bcfca))
+* **chat:** follow padding and border growth without overriding user scroll ([8289e05](https://github.com/MLGBJDLW/Nexa/commit/8289e058bcc75103259cf7539e136765f5130dc0))
+* **chat:** preserve newer detail reads when history pages race ([76e9452](https://github.com/MLGBJDLW/Nexa/commit/76e9452bdda769d6a5fbebd614c00e2fa1e8b116))
+* **desktop:** preserve shared messages through event projection ([6e6ebac](https://github.com/MLGBJDLW/Nexa/commit/6e6ebac5cf80c738b39f0dcd282c94d5acd907cc))
+* **eval:** account for cancellation and pin measurement provenance ([0da977f](https://github.com/MLGBJDLW/Nexa/commit/0da977ff22dbcce619a878bd0357e8c9483f0dca))
+* **history:** retain reasoning guards across summary and detail reads ([1550c0a](https://github.com/MLGBJDLW/Nexa/commit/1550c0a5e5b46499756fc23bf475bf6cb00afdcc))
+* **llm:** preserve Alibaba Kimi reasoning across tool calls ([96cd266](https://github.com/MLGBJDLW/Nexa/commit/96cd266f9bca593169105b6eb168cd51028e23da))
+* **llm:** project Kimi tool schemas for the Moonshot dialect ([ecfc55c](https://github.com/MLGBJDLW/Nexa/commit/ecfc55c8bfd4a07648ea5c8e777d666d32e124fe))
+* **mcp:** bind typed tool execution to isolated connector catalogs ([78af77a](https://github.com/MLGBJDLW/Nexa/commit/78af77a0110aa83bac5902bc2a5d86ba6226fc8a))
+* **mcp:** keep idle notifications from blocking catalog refresh ([743eb7b](https://github.com/MLGBJDLW/Nexa/commit/743eb7b1838a251a69d5cd9e3b1a8f421f1cc7fd))
+* **mcp:** open resource links through the browser workspace ([c785a7f](https://github.com/MLGBJDLW/Nexa/commit/c785a7f3ec60360097918bc8fff9c2bccf5b0edc))
+* **mcp:** preserve package ownership across connector renames ([808c890](https://github.com/MLGBJDLW/Nexa/commit/808c890978cc8efd5192cc51823975a265738049))
+
+
+### Performance Improvements
+
+* **agent:** reuse revisioned context metrics across model steps ([49a3c43](https://github.com/MLGBJDLW/Nexa/commit/49a3c430e560fa3f4c5f9b9ca6dbd7b37879c38e))
+* **chat:** keep historical rich messages stable during tool progress ([3ed7d1b](https://github.com/MLGBJDLW/Nexa/commit/3ed7d1b10f29f017fe356dcf140dbd76f6ab8e2b))
+* **chat:** keep one tool entity per invocation and narrow live subscriptions ([67c22a3](https://github.com/MLGBJDLW/Nexa/commit/67c22a30386b3787815ce6cc6bb8546037db0f95))
+* **chat:** page durable history and load turn details on demand ([53b47c9](https://github.com/MLGBJDLW/Nexa/commit/53b47c9eb45445765d2f70243910d96a4e668a8a))
+* **history:** avoid reclassifying unchanged trace payloads ([7c1e299](https://github.com/MLGBJDLW/Nexa/commit/7c1e2999449cacd365800ef90876ca82b08edfa4))
+* **history:** bound early page queries and defer legacy trace decoding ([67591f0](https://github.com/MLGBJDLW/Nexa/commit/67591f0bc2ab6e54267d49c3b2023a52beee33f9))
+* **i18n:** keep translation context stable during background updates ([f1f418e](https://github.com/MLGBJDLW/Nexa/commit/f1f418e450ea9ca2425c5751a0213b52dfc5cc71))
+
 ## [0.14.21](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.20...nexa-monorepo-v0.14.21) (2026-10-01)
 
 
