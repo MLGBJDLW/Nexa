@@ -379,7 +379,11 @@ pub(super) async fn resolve_tool_visual_context_message(
         ToolVisualObservation::unavailable(
             "core",
             "tool_visual_interpreter_unconfigured",
-            "The tool returned current-turn image evidence, but this text-only model has no configured auxiliary Vision Router or OCR interpreter. The pixels were not persisted.",
+            if tool_name.starts_with("mcp__") {
+                "The MCP tool returned image evidence, but this text-only model has no configured auxiliary Vision Router or OCR interpreter. The original pixels remain available in the saved tool artifact."
+            } else {
+                "The tool returned current-turn image evidence, but this text-only model has no configured auxiliary Vision Router or OCR interpreter. The pixels were not persisted."
+            },
         )
     };
     Some(tool_visual_observation_message(tool_name, observation))
@@ -1057,14 +1061,14 @@ impl ToolDispatchRuntime<'_> {
                                         })
                                         .await;
                                     let risk = policy_decision.risk_level;
-                                    let mut req = ApprovalRequest::new(
+                                    let mut req = ApprovalRequest::from_invocation(
                                         Uuid::new_v4().to_string(),
-                                        &tc.name,
-                                        parsed_args,
+                                        &invocation,
                                         risk,
                                         reason,
                                     )
-                                    .with_durable_reason(durable_reason);
+                                    .with_durable_reason(durable_reason)
+                                    .with_default_deadline();
                                     if let Err(error) = crate::tools::computer_use_tool::bind_window_session_approval(&mut req, parsed_args, conversation_id, turn_id) {
                                         let failed = approval_context_failure(&tc.id, &tc.name, error);
                                         return FinishedToolExecution { index, call: tc, timeout: tool_timeout, outcome: ToolExecutionOutcome::Result(failed, ToolRunStatus::Failed), elapsed: Duration::ZERO };

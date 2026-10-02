@@ -759,7 +759,7 @@ fn main() {
                 sessions: nexa_core::runtime::AgentSessionManager::new(),
             });
             app.manage(McpManagerState {
-                manager: Arc::new(TokioMutex::new(nexa_core::mcp::McpManager::new())),
+                manager: Arc::new(nexa_core::mcp::McpManager::new()),
             });
             app.manage(ApprovalState::default());
             app.manage(RealtimeTranscriptionState::default());
@@ -1337,8 +1337,7 @@ fn main() {
             // Shutdown MCP manager: kill all managed processes
             if let Some(mcp_state) = app_handle.try_state::<McpManagerState>() {
                 tauri::async_runtime::block_on(async {
-                    let mut manager = mcp_state.manager.lock().await;
-                    manager.shutdown().await;
+                    mcp_state.manager.shutdown().await;
                 });
             }
         }

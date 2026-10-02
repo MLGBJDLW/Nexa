@@ -29,6 +29,7 @@ use crate::error::CoreError;
 
 /// Max characters of the arguments preview embedded in an [`ApprovalRequest`].
 const ARGUMENTS_PREVIEW_LIMIT: usize = 2_000;
+pub const TOOL_APPROVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Risk classification surfaced in the approval dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +46,12 @@ pub enum ApprovalRisk {
 pub struct ApprovalRequest {
     pub id: String,
     pub tool_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_identity: Option<crate::mcp::McpToolIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
     pub permission_key: String,
     pub target_kind: String,
     pub target_value: String,
@@ -97,6 +104,11 @@ impl ApprovalRequest {
         Self {
             id: id.into(),
             tool_name: tool_name.clone(),
+            tool_identity: None,
+            created_at: Some(
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            ),
+            expires_at: None,
             permission_key: permission.permission_key(),
             target_kind: permission.target_kind,
             target_value: permission.target_value,
@@ -107,6 +119,51 @@ impl ApprovalRequest {
             choices: Vec::new(),
             durable_reason: None,
         }
+    }
+
+    pub fn from_invocation(
+        id: impl Into<String>,
+        invocation: &crate::tools::ToolInvocation,
+        risk_level: ApprovalRisk,
+        reason: impl Into<String>,
+    ) -> Self {
+        let mut request = Self::new(
+            id,
+            &invocation.tool_name,
+            &invocation.arguments,
+            risk_level,
+            reason,
+        );
+        let permission = ToolPermissionKey::from_invocation(invocation);
+        request.tool_identity = invocation.tool_identity.clone();
+        request.permission_key = permission.permission_key();
+        request.target_kind = permission.target_kind;
+        request.target_value = permission.target_value;
+        request
+    }
+
+    /// The event and desktop waiter share this absolute deadline. Queueing or
+    /// renderer reload cannot silently restart the permission window.
+    pub fn with_default_deadline(mut self) -> Self {
+        let now = chrono::Utc::now();
+        self.created_at = Some(now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        self.expires_at = Some(
+            (now + chrono::TimeDelta::seconds(TOOL_APPROVAL_TIMEOUT.as_secs() as i64))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        );
+        self
+    }
+
+    pub fn remaining_timeout(&self) -> std::time::Duration {
+        self.expires_at
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|deadline| {
+                (deadline.with_timezone(&chrono::Utc) - chrono::Utc::now())
+                    .to_std()
+                    .unwrap_or_default()
+            })
+            .unwrap_or(TOOL_APPROVAL_TIMEOUT)
     }
 
     pub fn with_durable_reason(mut self, reason: Option<String>) -> Self {
@@ -182,6 +239,9 @@ impl ToolPermissionKey {
     }
 
     pub fn from_request(req: &ApprovalRequest) -> Self {
+        if let Some(identity) = &req.tool_identity {
+            return Self::for_mcp_identity(&req.tool_name, identity);
+        }
         Self::new(
             req.tool_name.clone(),
             req.target_kind.clone(),
@@ -190,6 +250,9 @@ impl ToolPermissionKey {
     }
 
     pub fn from_invocation(invocation: &crate::tools::ToolInvocation) -> Self {
+        if let Some(identity) = &invocation.tool_identity {
+            return Self::for_mcp_identity(&invocation.tool_name, identity);
+        }
         let args = &invocation.arguments;
         if invocation.tool_name == "run_shell" {
             let shell_enabled = args.get("shell").is_some_and(|value| match value {
@@ -413,6 +476,10 @@ impl ToolPermissionKey {
         }
 
         Self::new(&invocation.tool_name, "tool", "*")
+    }
+
+    fn for_mcp_identity(tool_name: &str, identity: &crate::mcp::McpToolIdentity) -> Self {
+        Self::new(tool_name, "mcp_identity_v1", identity.permission_target())
     }
 }
 
@@ -723,6 +790,11 @@ impl Database {
 }
 
 fn permission_policy_candidates(key: &ToolPermissionKey) -> Vec<String> {
+    // Both session and durable policy resolution must reject name-only grants:
+    // no legacy wildcard proves this connector and trust configuration owner.
+    if key.target_kind == "mcp_identity_v1" {
+        return vec![key.permission_key()];
+    }
     let candidates = [
         key.permission_key(),
         ToolPermissionKey::new(&key.tool_name, &key.target_kind, "*").permission_key(),
@@ -889,6 +961,40 @@ fn checkpoint_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approval_deadline_survives_queueing_serialization_and_legacy_requests() {
+        let request = ApprovalRequest::new(
+            "deadline",
+            "run_shell",
+            &serde_json::json!({}),
+            ApprovalRisk::High,
+            "approval",
+        )
+        .with_default_deadline();
+        let created =
+            chrono::DateTime::parse_from_rfc3339(request.created_at.as_deref().unwrap()).unwrap();
+        let expires =
+            chrono::DateTime::parse_from_rfc3339(request.expires_at.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            (expires - created).num_seconds(),
+            TOOL_APPROVAL_TIMEOUT.as_secs() as i64
+        );
+        let mut serialized = serde_json::to_value(&request).unwrap();
+        let restored: ApprovalRequest = serde_json::from_value(serialized.clone()).unwrap();
+        assert_eq!(restored.expires_at, request.expires_at);
+        assert!(restored.remaining_timeout() <= TOOL_APPROVAL_TIMEOUT);
+        serialized["expiresAt"] =
+            serde_json::json!((chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339());
+        let expired: ApprovalRequest = serde_json::from_value(serialized.clone()).unwrap();
+        assert_eq!(expired.remaining_timeout(), std::time::Duration::ZERO);
+        for field in ["expiresAt", "createdAt", "toolIdentity"] {
+            serialized.as_object_mut().unwrap().remove(field);
+        }
+        let legacy: ApprovalRequest = serde_json::from_value(serialized).unwrap();
+        assert_eq!(legacy.remaining_timeout(), TOOL_APPROVAL_TIMEOUT);
+        assert!(legacy.tool_identity.is_none());
+    }
 
     #[test]
     fn decision_roundtrip() {

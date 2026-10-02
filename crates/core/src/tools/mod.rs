@@ -316,6 +316,8 @@ pub struct ToolAccessProfile {
 pub struct ToolInvocation {
     pub call_id: String,
     pub tool_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_identity: Option<crate::mcp::McpToolIdentity>,
     pub owner: CapabilityOwner,
     pub arguments: serde_json::Value,
     pub capabilities: ToolRunCapabilities,
@@ -708,6 +710,17 @@ pub trait Tool: Send + Sync {
     /// Machine-readable name used in LLM tool-call requests.
     fn name(&self) -> &str;
 
+    /// Host-owned identity, distinct from the model-facing function alias.
+    fn canonical_identity(&self) -> Option<crate::mcp::McpToolIdentity> {
+        None
+    }
+
+    /// Selector used only for capability package declarations. Dynamic tools
+    /// retain their declared package namespace when their callable alias changes.
+    fn ownership_selector(&self) -> &str {
+        self.name()
+    }
+
     /// Human-readable description shown to the LLM.
     fn description(&self) -> &str;
 
@@ -831,12 +844,14 @@ pub trait Tool: Send + Sync {
 
     /// Unified manifest for runtime, permissions, UI projection, and resources.
     fn capability_descriptor(&self, args: &serde_json::Value) -> ToolCapabilityDescriptor {
-        capability_descriptor_for_tool(
+        let mut descriptor = capability_descriptor_for_tool(
             self.name(),
             self.categories(),
             self.run_capabilities(args),
             args,
-        )
+        );
+        descriptor.owner = crate::plugins::capability_owner_for_tool(self.ownership_selector());
+        descriptor
     }
 
     /// Canonical permission and risk descriptor for this invocation.
@@ -891,12 +906,40 @@ impl ToolRegistry {
 
     /// Register a tool.
     pub fn register(&mut self, tool: Box<dyn Tool>) {
-        self.tools.push(Arc::from(tool));
+        self.try_register(tool)
+            .expect("duplicate statically registered tool");
+    }
+
+    /// Dynamic registries must reject duplicate aliases or identities instead
+    /// of letting `get` dispatch to an arbitrary first match.
+    pub fn try_register(&mut self, tool: Box<dyn Tool>) -> Result<(), CoreError> {
+        self.try_register_shared(Arc::from(tool))
     }
 
     /// Register a shared tool instance.
     pub fn register_shared(&mut self, tool: Arc<dyn Tool>) {
+        self.try_register_shared(tool)
+            .expect("duplicate shared tool");
+    }
+
+    fn try_register_shared(&mut self, tool: Arc<dyn Tool>) -> Result<(), CoreError> {
+        let identity = tool.canonical_identity();
+        if self.tools.iter().any(|existing| {
+            existing.name() == tool.name()
+                || identity.as_ref().is_some_and(|identity| {
+                    existing
+                        .canonical_identity()
+                        .as_ref()
+                        .is_some_and(|other| other.id == identity.id)
+                })
+        }) {
+            return Err(CoreError::InvalidInput(format!(
+                "Duplicate tool alias or canonical identity: {}",
+                tool.name()
+            )));
+        }
         self.tools.push(tool);
+        Ok(())
     }
 
     /// Return [`ToolDefinition`]s for every registered tool.
@@ -1042,7 +1085,11 @@ impl ToolRegistry {
     }
 
     pub fn plugin_info(&self, name: &str) -> CapabilityOwner {
-        crate::plugins::capability_owner_for_tool(name)
+        crate::plugins::capability_owner_for_tool(
+            self.get(name)
+                .map(|tool| tool.ownership_selector())
+                .unwrap_or(name),
+        )
     }
 
     pub fn build_invocation(
@@ -1056,9 +1103,11 @@ impl ToolRegistry {
         let capabilities = descriptor.capabilities;
         let access_profile = descriptor.access_profile;
         let owner = descriptor.owner;
+        let tool_identity = self.get(&tool_name).and_then(Tool::canonical_identity);
         ToolInvocation {
             call_id: call_id.into(),
             tool_name,
+            tool_identity,
             owner,
             wait_for_previous: invocation_waits_for_previous(&arguments),
             arguments,

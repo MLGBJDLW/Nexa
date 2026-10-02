@@ -287,7 +287,7 @@ pub struct DesktopAgentSessionDependencyRequest<'a> {
     pub preview_host: Arc<dyn nexa_core::tools::open_in_nexa_tool::NexaPreviewHost>,
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeKind>,
     pub db: &'a Database,
-    pub mcp_manager: &'a Arc<tokio::sync::Mutex<McpManager>>,
+    pub mcp_manager: &'a Arc<McpManager>,
     pub event_seq: &'a AgentRunEventOutbox,
     pub conversation_id: &'a str,
     pub task_run_id: &'a str,

@@ -819,8 +819,8 @@ pub async fn list_tool_access_map_cmd(
             .map_err(|error| error.to_string())?;
     let mut registry = package_assembler.builtin_tool_registry();
     {
-        let mut mcp_manager = mcp_state.manager.lock().await;
-        match sync_enabled_mcp_servers(&state.db, &mut mcp_manager).await {
+        let mcp_manager = &mcp_state.manager;
+        match sync_enabled_mcp_servers(&state.db, mcp_manager).await {
             Ok(errors) => {
                 for (server_id, error) in errors {
                     warn!("Failed to sync MCP server {server_id} for tool access map: {error}");
@@ -830,9 +830,7 @@ pub async fn list_tool_access_map_cmd(
                 warn!("Failed to refresh enabled MCP servers for tool access map: {error}")
             }
         }
-        if let Err(error) = mcp_manager
-            .register_tools_with_recovery(&mut registry, Arc::downgrade(&mcp_state.manager))
-            .await
+        if let Err(error) = mcp_manager.register_tools(&mut registry)
         {
             warn!("Failed to register MCP tools for tool access map: {error}");
         }

@@ -62,9 +62,56 @@ server-defined tool schema. This keeps the ecosystem model clear:
 
 ## Current Implementation
 
-The current runtime stores MCP endpoint configuration as `McpServer` records and
-wraps discovered server tools with `mcp_tool` or `mcp__...` tool names. That
-internal naming can remain while the product language moves to connectors.
+The runtime stores endpoint configuration as `McpServer` records. A tool's
+canonical identity is the stable connector ID plus the exact server tool name.
+Model-facing aliases use `mcp__<tool-label>__<identity-hash>` and are bounded to 63
+ASCII characters. Display names, discovery order, case folding, punctuation and
+another connector's installation cannot redirect a call. Existing package
+ownership declarations are matched through a separate compatibility selector;
+that selector is never an executable name or approval key.
+
+An approval binds the canonical identity and a digest of the launch, endpoint,
+environment and header configuration. Display renames retain approval identity;
+changing that trust configuration requires a new grant. Legacy name-only and
+wildcard grants remain stored for inspection but are not inherited by canonical
+MCP calls. Credentials are hashed rather than exposed in permission keys. A
+prompt carries one absolute 60-second deadline through its event, queue and
+backend waiter; reconnecting the renderer does not restart that deadline.
+
+Each connector owns its connection, cancellation epoch, RPC serialization and
+catalog snapshot. Global manager and desktop registry-cache locks cover only
+short in-memory reads or publications. Discovery admits at most four connectors
+at a time; a slow connector does not lock other connectors' calls or settings
+snapshots. Saving, enabling, testing or enumerating one connector targets that
+connector. Tests use an isolated lifecycle and do not activate runtime tools.
+Disabling or replacing configuration cancels outstanding discovery and prevents
+its late result from becoming executable. Database-backed discovery and calls
+recheck durable activation after waiting for I/O.
+
+Tool catalogs follow every `nextCursor` before publication. A catalog is bounded
+to 128 pages, 4,096 tools and 8 MiB; repeated cursors, duplicate exact names,
+malformed pages, timeouts and failed pages leave the catalog incomplete. A
+snapshot includes connection epoch, catalog revision, completeness and diagnostic
+text. Registry assembly only reads snapshots and never performs discovery.
+`notifications/tools/list_changed` invalidates and refreshes the affected
+connector, with a 25 ms burst debounce. Stdio, legacy SSE and Streamable HTTP
+readers observe notifications while RPC is idle; optional HTTP GET rejection
+still permits POST RPC. A 60-second catalog TTL provides a fallback. A registry
+handle cannot invoke a removed or changed definition after refresh. Transport
+failure can recover the connection for a later call, but never automatically
+replays the failed effectful call.
+
+MCP output is retained as a versioned `mcpToolResult` artifact: text, image, audio,
+embedded text/blob resources, resource links, structured content, metadata and
+`isError` survive the model/display split and history persistence. Valid images
+also enter the existing vision input path. Audio and other binary resources have
+explicit model references and remain available in the artifact; resource links
+are not fetched automatically. Business `isError` results do not reconnect.
+Unsupported or invalid blocks have explicit notices. Results are bounded to 128
+blocks, 4 MiB per binary block, 12 MiB total decoded binary, 512 KiB per text block,
+1 MiB each for structured content and metadata, and 32 megapixels per image.
+Declared image/audio MIME types are checked against signatures. External output
+remains evidence and cannot grant instruction authority.
 
 Advanced users can maintain the versioned `~/.nexa/connectors/mcp.json` file
 (`NEXA_HOME` can override the `.nexa` root). Settings -> Extensions -> MCP

@@ -1,6 +1,6 @@
 //! MCP client for stdio, legacy SSE, and Streamable HTTP transports.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 #[cfg(windows)]
 use std::ffi::OsString;
@@ -14,10 +14,11 @@ use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE};
 use reqwest::{Client as HttpClient, StatusCode, Url};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+use super::events::McpClientEvents;
 use crate::error::CoreError;
 use crate::mcp::McpToolInfo;
 
@@ -30,6 +31,10 @@ const HEADER_MCP_SESSION_ID: &str = "mcp-session-id";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const SSE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_DIAGNOSTIC_BYTES: usize = 16 * 1024;
+const MAX_CATALOG_PAGES: usize = 128;
+const MAX_CATALOG_TOOLS: usize = 4096;
+const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
     ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -40,6 +45,7 @@ struct StdioTransport {
     reader_handle: tokio::task::JoinHandle<()>,
     stderr_buf: Arc<Mutex<String>>,
     stderr_handle: tokio::task::JoinHandle<()>,
+    events: Arc<McpClientEvents>,
 }
 
 impl Drop for StdioTransport {
@@ -60,6 +66,7 @@ struct LegacySseTransport {
     events_rx: mpsc::Receiver<Value>,
     diagnostics: Arc<Mutex<String>>,
     stream_handle: tokio::task::JoinHandle<()>,
+    events: Arc<McpClientEvents>,
 }
 
 impl Drop for LegacySseTransport {
@@ -73,6 +80,17 @@ struct StreamableHttpTransport {
     endpoint_url: Url,
     custom_headers: HeaderMap,
     session_id: Option<String>,
+    events: Arc<McpClientEvents>,
+    notification_reader: Option<tokio::task::JoinHandle<()>>,
+    notification_rx: Option<mpsc::Receiver<Value>>,
+}
+
+impl Drop for StreamableHttpTransport {
+    fn drop(&mut self) {
+        if let Some(reader) = self.notification_reader.take() {
+            reader.abort();
+        }
+    }
 }
 
 enum Transport {
@@ -171,49 +189,166 @@ impl McpClient {
 
     /// List tools available on the connected MCP server.
     pub async fn list_tools(&mut self) -> Result<Vec<McpToolInfo>, CoreError> {
-        let response = self
-            .send_request("tools/list", Some(serde_json::json!({})))
-            .await?;
+        let deadline = self.call_timeout;
+        tokio::time::timeout(deadline, async {
+            let mut tools = Vec::new();
+            let mut cursor: Option<String> = None;
+            let mut cursors = HashSet::new();
+            let mut names = HashSet::new();
+            let mut catalog_bytes = 0usize;
+            for _ in 0..MAX_CATALOG_PAGES {
+                let params = cursor.as_ref().map_or_else(
+                    || serde_json::json!({}),
+                    |cursor| serde_json::json!({"cursor":cursor}),
+                );
+                let response = self.send_request("tools/list", Some(params)).await?;
+                let page: Vec<McpToolInfo> =
+                    serde_json::from_value(response.get("tools").cloned().ok_or_else(|| {
+                        CoreError::Mcp("tools/list response missing 'tools' field".into())
+                    })?)
+                    .map_err(|error| {
+                        CoreError::Mcp(format!("Failed to parse tools list: {error}"))
+                    })?;
+                for tool in page {
+                    if tool.name.is_empty() || !names.insert(tool.name.clone()) {
+                        return Err(CoreError::Mcp(
+                            "MCP catalog contains an empty or duplicate exact tool name".into(),
+                        ));
+                    }
+                    catalog_bytes = catalog_bytes
+                        .saturating_add(serde_json::to_vec(&tool).map_err(CoreError::from)?.len());
+                    if catalog_bytes > MAX_CATALOG_BYTES {
+                        return Err(CoreError::Mcp(format!(
+                            "MCP catalog exceeds the {MAX_CATALOG_BYTES}-byte budget"
+                        )));
+                    }
+                    tools.push(tool);
+                    if tools.len() > MAX_CATALOG_TOOLS {
+                        return Err(CoreError::Mcp(format!(
+                            "MCP catalog exceeds {MAX_CATALOG_TOOLS} tools"
+                        )));
+                    }
+                }
+                cursor = match response.get("nextCursor") {
+                    None | Some(Value::Null) => return Ok(tools),
+                    Some(Value::String(cursor)) if !cursor.is_empty() && cursor.len() <= 4096 => {
+                        Some(cursor.clone())
+                    }
+                    _ => return Err(CoreError::Mcp("Invalid tools/list nextCursor".into())),
+                };
+                if !cursors.insert(cursor.clone().expect("next cursor exists")) {
+                    return Err(CoreError::Mcp(
+                        "MCP tools/list repeated a pagination cursor; catalog is incomplete".into(),
+                    ));
+                }
+            }
+            Err(CoreError::Mcp(format!(
+                "MCP catalog exceeded {MAX_CATALOG_PAGES} pages; catalog is incomplete"
+            )))
+        })
+        .await
+        .map_err(|_| CoreError::McpTransport("MCP full catalog discovery timed out".into()))?
+    }
 
-        let tools_val = response
-            .get("tools")
-            .ok_or_else(|| CoreError::Mcp("tools/list response missing 'tools' field".into()))?;
+    pub(crate) fn events(&self) -> Arc<McpClientEvents> {
+        match &self.transport {
+            Transport::Stdio(transport) => Arc::clone(&transport.events),
+            Transport::LegacySse(transport) => Arc::clone(&transport.events),
+            Transport::StreamableHttp(transport) => Arc::clone(&transport.events),
+        }
+    }
 
-        serde_json::from_value(tools_val.clone())
-            .map_err(|e| CoreError::Mcp(format!("Failed to parse tools list: {e}")))
+    fn start_streamable_notification_reader(&mut self) {
+        let Transport::StreamableHttp(transport) = &mut self.transport else {
+            return;
+        };
+        if transport.notification_reader.is_some() {
+            return;
+        }
+        let mut headers = transport.custom_headers.clone();
+        headers.insert(ACCEPT, HeaderValue::from_static(CONTENT_TYPE_SSE));
+        let Ok(protocol) = HeaderValue::from_str(&self.protocol_version) else {
+            return;
+        };
+        headers.insert(
+            HeaderName::from_static(HEADER_MCP_PROTOCOL_VERSION),
+            protocol,
+        );
+        if let Some(session_id) = &transport.session_id {
+            let Ok(session_id) = HeaderValue::from_str(session_id) else {
+                return;
+            };
+            headers.insert(HeaderName::from_static(HEADER_MCP_SESSION_ID), session_id);
+        }
+        let client = transport.client.clone();
+        let endpoint = transport.endpoint_url.clone();
+        let events = Arc::clone(&transport.events);
+        let (sender, receiver) = mpsc::channel(64);
+        transport.notification_rx = Some(receiver);
+        transport.notification_reader = Some(tokio::spawn(async move {
+            // GET is optional. A 405 or closed notification stream never causes
+            // a tools/call retry or disables a server with working POST RPCs.
+            let Ok(Ok(response)) = tokio::time::timeout(
+                SSE_CONNECT_TIMEOUT,
+                client.get(endpoint).headers(headers).send(),
+            )
+            .await
+            else {
+                return;
+            };
+            if !response.status().is_success()
+                || !response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.contains(CONTENT_TYPE_SSE))
+            {
+                return;
+            }
+            let mut stream = response.bytes_stream();
+            let mut buffer = Vec::new();
+            while let Some(Ok(chunk)) = stream.next().await {
+                if buffer.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                    return;
+                }
+                buffer.extend_from_slice(&chunk);
+                while let Some(raw) = drain_sse_event(&mut buffer) {
+                    let (event, data) = parse_sse_event(&raw);
+                    if data.trim().is_empty() || event.as_deref() == Some("ping") {
+                        continue;
+                    }
+                    let Ok(message) = serde_json::from_str::<Value>(data.trim()) else {
+                        continue;
+                    };
+                    if events.observe(&message) {
+                        continue;
+                    }
+                    if sender.send(message).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }));
     }
 
     /// Call a tool on the MCP server.
-    pub async fn call_tool(&mut self, name: &str, arguments: Value) -> Result<String, CoreError> {
+    pub async fn call_tool(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<super::result::McpCallOutcome, CoreError> {
         let params = serde_json::json!({
             "name": name,
             "arguments": arguments,
         });
-        let response = self.send_request("tools/call", Some(params)).await?;
-        let content = response
-            .get("content")
-            .and_then(Value::as_array)
-            .map(|content| {
-                content
-                    .iter()
-                    .filter_map(|item| {
-                        if item.get("type")?.as_str()? == "text" {
-                            item.get("text")?.as_str()
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .filter(|texts| !texts.is_empty())
-            .map(|texts| texts.join("\n"))
-            .unwrap_or_else(|| serde_json::to_string(&response).unwrap_or_default());
-        if response.get("isError").and_then(Value::as_bool) == Some(true) {
-            // This is a tool business error, not a broken transport. Preserve
-            // its diagnostic without triggering connection recovery/replay.
-            return Err(CoreError::Mcp(content));
-        }
-        Ok(content)
+        // Effectful requests are never reposted after session expiry. The
+        // connector slot may establish a fresh session for a subsequent call.
+        let response = self
+            .send_request_inner("tools/call", Some(params), false)
+            .await?;
+        // isError belongs to the typed result. Business failures can carry
+        // useful structured content or attachments and never request reconnect.
+        super::result::McpCallOutcome::from_response(response)
     }
 
     /// Gracefully shut down the MCP server connection.
@@ -261,6 +396,13 @@ impl McpClient {
                     }
                     self.send_notification("notifications/initialized", None)
                         .await?;
+                    if result
+                        .pointer("/capabilities/tools/listChanged")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                    {
+                        self.start_streamable_notification_reader();
+                    }
                     return Ok(());
                 }
                 Err(error @ CoreError::McpTransport(_)) => return Err(error),
@@ -431,6 +573,34 @@ impl McpClient {
         loop {
             match self.post_streamable_http(&request).await {
                 Ok(StreamablePostOutcome::Accepted) => {
+                    if matches!(&self.transport, Transport::StreamableHttp(transport) if transport.notification_rx.is_some())
+                    {
+                        loop {
+                            let message = match &mut self.transport {
+                                Transport::StreamableHttp(transport) => {
+                                    transport
+                                        .notification_rx
+                                        .as_mut()
+                                        .expect("notification receiver exists")
+                                        .recv()
+                                        .await
+                                }
+                                _ => unreachable!(),
+                            };
+                            let Some(message) = message else {
+                                break;
+                            };
+                            if let Some(result) = self
+                                .process_incoming_message(message, Some(request_id), method)
+                                .await?
+                            {
+                                return Ok(result);
+                            }
+                        }
+                        if let Transport::StreamableHttp(transport) = &mut self.transport {
+                            transport.notification_rx = None;
+                        }
+                    }
                     let response = self.open_streamable_http_get().await.map_err(|err| {
                         streamable_post_error_into_core(err, &self.server_name, method)
                     })?;
@@ -545,6 +715,11 @@ impl McpClient {
                 Err(_) => return Err(self.transport_timeout_error(context).await),
             };
 
+            if buffer.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                return Err(CoreError::Mcp(
+                    "MCP SSE event exceeded the response byte limit".into(),
+                ));
+            }
             buffer.extend_from_slice(&chunk);
             while let Some(raw_event) = drain_sse_event(&mut buffer) {
                 if let Some(result) = self
@@ -598,6 +773,7 @@ impl McpClient {
         }
 
         if message.get("method").is_some() {
+            self.events().observe(&message);
             return Ok(None);
         }
 
@@ -739,12 +915,14 @@ impl McpClient {
             .ok_or_else(|| CoreError::Mcp("MCP stdio child process has no stderr".into()))?;
 
         let diagnostics = Arc::new(Mutex::new(String::new()));
+        let events = Arc::new(McpClientEvents::default());
+        let reader_events = Arc::clone(&events);
         let (stdout_tx, stdout_rx) = mpsc::channel(64);
         let stdout_diagnostics = diagnostics.clone();
         let reader_handle = tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
+            let mut lines = BufReader::new(stdout);
             loop {
-                match lines.next_line().await {
+                match read_bounded_line(&mut lines, MAX_RESPONSE_BYTES).await {
                     Ok(Some(line)) => {
                         let trimmed = line.trim();
                         if trimmed.is_empty() {
@@ -753,6 +931,9 @@ impl McpClient {
 
                         match serde_json::from_str::<Value>(trimmed) {
                             Ok(value) => {
+                                if reader_events.observe(&value) {
+                                    continue;
+                                }
                                 if stdout_tx.send(value).await.is_err() {
                                     break;
                                 }
@@ -805,6 +986,7 @@ impl McpClient {
             reader_handle,
             stderr_buf: diagnostics,
             stderr_handle,
+            events,
         })
     }
 
@@ -844,14 +1026,17 @@ impl McpClient {
 
         let status = response.status();
         if !status.is_success() {
-            let body = tokio::time::timeout(SSE_CONNECT_TIMEOUT, response.text())
-                .await
-                .map_err(|_| {
-                    CoreError::McpTransport(format!(
-                        "Timed out reading legacy SSE MCP error response from {base_url}"
-                    ))
-                })?
-                .unwrap_or_default();
+            let body = tokio::time::timeout(
+                SSE_CONNECT_TIMEOUT,
+                read_bounded_response(response, MAX_DIAGNOSTIC_BYTES),
+            )
+            .await
+            .map_err(|_| {
+                CoreError::McpTransport(format!(
+                    "Timed out reading legacy SSE MCP error response from {base_url}"
+                ))
+            })?
+            .unwrap_or_default();
             return Err(CoreError::Mcp(format!(
                 "Legacy SSE MCP server at {} returned {status}: {}",
                 base_url,
@@ -876,6 +1061,8 @@ impl McpClient {
         let diagnostics = Arc::new(Mutex::new(String::new()));
         let (endpoint_tx, endpoint_rx) = oneshot::channel::<Result<Url, CoreError>>();
         let stream_diagnostics = diagnostics.clone();
+        let events = Arc::new(McpClientEvents::default());
+        let reader_events = Arc::clone(&events);
         let pending_message_url = base_url.clone();
         let stream_handle = tokio::spawn(async move {
             read_legacy_sse_stream(
@@ -884,6 +1071,7 @@ impl McpClient {
                 events_tx,
                 Some(endpoint_tx),
                 stream_diagnostics,
+                reader_events,
             )
             .await;
         });
@@ -896,6 +1084,7 @@ impl McpClient {
             events_rx,
             diagnostics,
             stream_handle,
+            events,
         };
         transport.message_url = match tokio::time::timeout(SSE_CONNECT_TIMEOUT, endpoint_rx).await {
             Ok(Ok(Ok(url))) => url,
@@ -923,6 +1112,9 @@ impl McpClient {
             endpoint_url: parse_url(url, "Streamable HTTP")?,
             custom_headers: build_header_map(headers)?,
             session_id: None,
+            events: Arc::new(McpClientEvents::default()),
+            notification_reader: None,
+            notification_rx: None,
         })
     }
 
@@ -985,7 +1177,9 @@ impl McpClient {
             return Err(StreamablePostError::SessionExpired);
         }
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
+                .await
+                .unwrap_or_else(|error| error.to_string());
             return Err(StreamablePostError::Core(mcp_http_status_error(
                 status,
                 format!(
@@ -1063,7 +1257,9 @@ impl McpClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().await.unwrap_or_default();
+            let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
+                .await
+                .unwrap_or_else(|error| error.to_string());
             return Err(mcp_http_status_error(
                 status,
                 format!(
@@ -1146,7 +1342,9 @@ impl McpClient {
             return Err(StreamablePostError::SessionExpired);
         }
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
+                .await
+                .unwrap_or_else(|error| error.to_string());
             return Err(StreamablePostError::Core(mcp_http_status_error(
                 status,
                 format!(
@@ -1172,12 +1370,7 @@ impl McpClient {
             return Ok(StreamablePostOutcome::Sse(response));
         }
 
-        let body = response.text().await.map_err(|e| {
-            StreamablePostError::Core(CoreError::McpTransport(format!(
-                "Failed to read Streamable HTTP response from {}: {e}",
-                endpoint_url
-            )))
-        })?;
+        let body = read_bounded_response(response, MAX_RESPONSE_BYTES).await?;
         if body.trim().is_empty() {
             return Ok(StreamablePostOutcome::Accepted);
         }
@@ -1192,6 +1385,12 @@ impl McpClient {
     }
 
     async fn reset_streamable_http_session(&mut self) -> Result<(), CoreError> {
+        if let Transport::StreamableHttp(transport) = &mut self.transport {
+            if let Some(reader) = transport.notification_reader.take() {
+                reader.abort();
+            }
+            transport.notification_rx = None;
+        }
         let (client, endpoint_url, custom_headers, session_id) = match &self.transport {
             Transport::StreamableHttp(transport) => (
                 transport.client.clone(),
@@ -1222,8 +1421,13 @@ impl McpClient {
             );
 
             let _ = tokio::time::timeout(self.call_timeout, async {
-                let response = client.delete(endpoint_url).headers(headers).send().await?;
-                response.bytes().await
+                let response = client
+                    .delete(endpoint_url)
+                    .headers(headers)
+                    .send()
+                    .await
+                    .map_err(|error| CoreError::McpTransport(error.to_string()))?;
+                read_bounded_response(response, MAX_DIAGNOSTIC_BYTES).await
             })
             .await;
         }
@@ -1335,6 +1539,7 @@ async fn read_legacy_sse_stream(
     sender: mpsc::Sender<Value>,
     mut endpoint_tx: Option<oneshot::Sender<Result<Url, CoreError>>>,
     diagnostics: Arc<Mutex<String>>,
+    events: Arc<McpClientEvents>,
 ) {
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
@@ -1354,10 +1559,19 @@ async fn read_legacy_sse_stream(
             }
         };
 
+        if buffer.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            append_diagnostics(
+                &diagnostics,
+                "Legacy SSE MCP event exceeded the response byte limit",
+            )
+            .await;
+            return;
+        }
         buffer.extend_from_slice(&chunk);
         while let Some(raw_event) = drain_sse_event(&mut buffer) {
             if let Err(err) =
-                process_legacy_sse_event(&raw_event, &base_url, &sender, &mut endpoint_tx).await
+                process_legacy_sse_event(&raw_event, &base_url, &sender, &mut endpoint_tx, &events)
+                    .await
             {
                 append_diagnostics(&diagnostics, &err.to_string()).await;
                 if let Some(tx) = endpoint_tx.take() {
@@ -1380,6 +1594,7 @@ async fn process_legacy_sse_event(
     base_url: &Url,
     sender: &mpsc::Sender<Value>,
     endpoint_tx: &mut Option<oneshot::Sender<Result<Url, CoreError>>>,
+    events: &McpClientEvents,
 ) -> Result<(), CoreError> {
     let (event_name, data) = parse_sse_event(raw_event);
     let trimmed = data.trim();
@@ -1400,10 +1615,69 @@ async fn process_legacy_sse_event(
             "Failed to parse legacy SSE message '{trimmed}' as JSON: {e}"
         ))
     })?;
+    if events.observe(&message) {
+        return Ok(());
+    }
     sender
         .send(message)
         .await
         .map_err(|_| CoreError::Mcp("Legacy SSE MCP receiver was dropped".into()))
+}
+
+async fn read_bounded_response(
+    response: reqwest::Response,
+    limit: usize,
+) -> Result<String, CoreError> {
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            CoreError::McpTransport(format!("Failed to read MCP response: {error}"))
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(CoreError::Mcp(format!(
+                "MCP response exceeded the {limit}-byte limit; no tool call was retried"
+            )));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes)
+        .map_err(|error| CoreError::Mcp(format!("MCP response was not valid UTF-8: {error}")))
+}
+
+async fn read_bounded_line(
+    reader: &mut (impl AsyncBufRead + Unpin),
+    limit: usize,
+) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            break;
+        }
+        let count = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |index| index + 1);
+        if bytes.len().saturating_add(count) > limit {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "MCP stdout line exceeded the response byte limit",
+            ));
+        }
+        let ended = available[count - 1] == b'\n';
+        bytes.extend_from_slice(&available[..count]);
+        reader.consume(count);
+        if ended {
+            break;
+        }
+    }
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 async fn append_diagnostics(buffer: &Arc<Mutex<String>>, line: &str) {
@@ -1537,7 +1811,7 @@ fn streamable_post_error_into_core(
 ) -> CoreError {
     match error {
         StreamablePostError::Core(error) => error,
-        StreamablePostError::SessionExpired => CoreError::Mcp(format!(
+        StreamablePostError::SessionExpired => CoreError::McpTransport(format!(
             "Streamable HTTP session for MCP server '{server_name}' expired while processing {method}.",
         )),
     }
@@ -1917,6 +2191,7 @@ mod tests {
             events_rx,
             diagnostics: Arc::new(Mutex::new(String::new())),
             stream_handle,
+            events: Arc::new(McpClientEvents::default()),
         };
         drop(transport);
         tokio::task::yield_now().await;
@@ -2044,6 +2319,79 @@ mod tests {
             matches!(result, Ok(Err(CoreError::McpTransport(_)))),
             "a child which stops reading stdin escaped the request deadline: {result:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn streamable_http_does_not_repost_effectful_calls_after_session_expiry() {
+        use std::sync::atomic::AtomicUsize;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let initializes = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let recorded_initializes = Arc::clone(&initializes);
+        let recorded_calls = Arc::clone(&calls);
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let initializes = Arc::clone(&recorded_initializes);
+                let calls = Arc::clone(&recorded_calls);
+                tokio::spawn(async move {
+                    let request = read_http_request(&mut stream).await.unwrap();
+                    if request.method == "DELETE" {
+                        write_empty_response(&mut stream, "204 No Content", None)
+                            .await
+                            .unwrap();
+                        return;
+                    }
+                    let payload: Value = serde_json::from_slice(&request.body).unwrap();
+                    match payload["method"].as_str().unwrap() {
+                        "initialize" => {
+                            initializes.fetch_add(1, Ordering::SeqCst);
+                            write_json_response(&mut stream,"200 OK",Some("expired-session"),&json!({
+                                "jsonrpc":"2.0","id":payload["id"],"result":{
+                                    "protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"once","version":"1"}
+                                }
+                            })).await.unwrap();
+                        }
+                        "notifications/initialized" => {
+                            write_empty_response(&mut stream, "202 Accepted", None)
+                                .await
+                                .unwrap();
+                        }
+                        "tools/call" => {
+                            calls.fetch_add(1, Ordering::SeqCst);
+                            write_text_response(
+                                &mut stream,
+                                "404 Not Found",
+                                None,
+                                "session expired",
+                            )
+                            .await
+                            .unwrap();
+                        }
+                        method => panic!("unexpected method {method}"),
+                    }
+                });
+            }
+        });
+        let mut client =
+            McpClient::connect_streamable_http(&format!("http://{address}/mcp"), None, "once")
+                .await
+                .unwrap();
+        let error = client.call_tool("write", json!({})).await.unwrap_err();
+        assert!(matches!(error, CoreError::McpTransport(_)), "{error}");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "effectful requests must never be automatically replayed"
+        );
+        assert_eq!(
+            initializes.load(Ordering::SeqCst),
+            1,
+            "the failed invocation must not reconnect inline"
+        );
+        client.shutdown().await.unwrap();
+        task.abort();
     }
 
     #[tokio::test]
