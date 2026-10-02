@@ -255,7 +255,7 @@ active answer block; if that sample has no answer block, it appends a final
 reply after the preceding trace instead of rewriting an earlier sample.
 
 The chat surface hydrates an active conversation once. Live events and recovery
-patch that projection instead of initiating a second completion fetch. React
+patch that projection; completion reconciles the bounded tail suffix. React
 stream projection is scheduled as interruptible transition work; stable sidebar
 state is memoized, and incomplete Mermaid programs are rendered only after the
 stream completes so navigation and stop controls retain the urgent UI lane.
@@ -271,6 +271,8 @@ Pages seek `(sort_order, message_id)` user anchors through the partial root inde
 steering, question-response and checkpoint-continuation rows are controls inside
 their original entry. The default tail contains 20 entries (maximum 50), their
 user messages and final replies, and turn metadata without decoding trace JSON.
+Legacy artifact kinds are derived on writes so root-index and summary reads do
+not parse hidden legacy trace payloads just to classify or discard them.
 A very long entry previews its latest 32 controls; expanding it reads the complete
 entry. Assistant-only legacy imports retain full details within a bounded message
 page. A deep link resolves the owning entry before paging, and an older page has an
@@ -280,7 +282,9 @@ exclusive end cursor so prepending cannot erase the already-loaded tail.
 messages and cancellation generations. Completion refreshes from the current
 tail anchor, preserving earlier entries and unchanged loaded details. A scalar
 database turn revision distinguishes same-second trace writes without reading
-their payloads. Retry, deletion and navigation fence outstanding requests; no
+their payloads. A page that races a newer explicit detail commit rereads its same
+bounded range at most once; continued competition keeps the committed detail.
+Retry, deletion and navigation fence outstanding requests; no
 response may resurrect a removed entry. The page cache is bounded by conversation
 count and bytes, and file-change summaries are scoped to visible turn IDs. Scroll
 restoration uses the visible row identity and its pixel offset after prepending.
@@ -304,7 +308,8 @@ retryable, and expired requests disable decisions while awaiting host resolution
 
 MCP typed result artifacts remain visible in both live and persisted tool cards.
 The UI displays supported inline media, text, embedded text resources and structured
-content, uses explicit HTTP(S) resource links without fetching them automatically,
+content, routes explicit HTTP(S) resource clicks to Browser Workspace without
+fetching them automatically,
 and retains notices for unsupported content. Model-facing aliases remain stable
 identities; display labels prefer the artifact's exact tool name.
 

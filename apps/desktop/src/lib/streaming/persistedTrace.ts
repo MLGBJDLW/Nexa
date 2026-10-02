@@ -48,6 +48,12 @@ export function isPersistedReasoningOnlyAssistant(
   message: ConversationMessage,
   traceItems: PersistedTraceItem[] | null | undefined,
 ): boolean {
+  // Bounded history pages omit reasoning/trace payloads. Their write-derived
+  // display marker preserves the legacy quarantine until details are expanded.
+  const displayArtifacts = asRecord(message.artifacts);
+  if (message.role === 'assistant' && message.toolCalls.length === 0
+    && message.content.length === 0 && message.thinking == null
+    && displayArtifacts?.displayReasoningOnly === true) return true;
   if (
     message.role !== 'assistant'
     || message.toolCalls.length > 0

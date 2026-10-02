@@ -14,6 +14,7 @@ use crate::{db::Database, error::CoreError, llm::ToolCallRequest};
 const MAX_PAGE_SIZE: usize = 50;
 const DEFAULT_PAGE_SIZE: usize = 20;
 const ROOT_PREDICATE: &str = "role = 'user' AND COALESCE(display_artifact_kind, '') NOT IN ('steering', 'questionResponse', 'checkpointContinuation')";
+type TimelineTurn = (ConversationTurn, bool, i64, Option<i64>);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +57,426 @@ mod tests {
             tx.commit().unwrap();
         }
         (db, conversation.id)
+    }
+
+    #[test]
+    fn timeline_reasoning_only_summary_keeps_guard_without_private_text() {
+        let (db, id) = fixture(2);
+        let private = "private reasoning accidentally copied into reply";
+        let trace =
+            serde_json::json!({"kind":"turnTrace","items":[{"kind":"thinking","text":private}]});
+        db.conn()
+            .execute(
+                "UPDATE messages SET content=?1,thinking=?1 WHERE id='a00001'",
+                [private],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE conversation_turns SET trace_json=?1 WHERE id='t00001'",
+                [trace.to_string()],
+            )
+            .unwrap();
+
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        let message = page
+            .messages
+            .iter()
+            .find(|message| message.id == "a00001")
+            .unwrap();
+        assert!(
+            message.content.is_empty(),
+            "summary exposed private reasoning: {}",
+            message.content
+        );
+        assert_eq!(
+            message
+                .artifacts
+                .as_ref()
+                .and_then(|value| value.get("displayReasoningOnly")),
+            Some(&serde_json::Value::Bool(true))
+        );
+        assert!(message.thinking.is_none());
+        assert!(!serde_json::to_string(&page).unwrap().contains(private));
+
+        let details = db.conversation_timeline_details(&id, "u00001").unwrap();
+        let message = details
+            .messages
+            .iter()
+            .find(|message| message.id == "a00001")
+            .unwrap();
+        assert_eq!(message.content, private);
+        assert_eq!(message.thinking.as_deref(), Some(private));
+        assert_eq!(details.turns[0].trace.as_ref(), Some(&trace));
+    }
+
+    #[test]
+    fn timeline_details_keep_legacy_only_when_canonical_projection_is_unusable() {
+        let (db, id) = fixture(1);
+        let legacy = serde_json::json!({"kind":"traceTimeline","items":[{"kind":"thinking","text":"private"}]});
+        db.conn().execute("UPDATE messages SET content='private',thinking='private',artifacts_json=?1 WHERE id='a00000'", [legacy.to_string()]).unwrap();
+        let invalid =
+            serde_json::json!({"kind":"turnTrace","items":[{"kind":"unknown","text":"ignored"}]});
+        db.conn()
+            .execute(
+                "UPDATE conversation_turns SET trace_json=?1 WHERE id='t00000'",
+                [invalid.to_string()],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert!(page
+            .messages
+            .iter()
+            .find(|message| message.id == "a00000")
+            .unwrap()
+            .content
+            .is_empty());
+        let details = db.conversation_timeline_details(&id, "u00000").unwrap();
+        let message = details
+            .messages
+            .iter()
+            .find(|message| message.id == "a00000")
+            .unwrap();
+        assert_eq!(message.artifacts.as_ref(), Some(&legacy));
+        assert_eq!(message.thinking.as_deref(), Some("private"));
+
+        // Even empty reply/status items are valid canonical projections and
+        // therefore prevent a legacy thinking-only trace from overriding them.
+        let valid = serde_json::json!({"kind":"turnTrace","items":[{"kind":"status","text":""}]});
+        db.conn()
+            .execute(
+                "UPDATE conversation_turns SET trace_json=?1 WHERE id='t00000'",
+                [valid.to_string()],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .find(|message| message.id == "a00000")
+                .unwrap()
+                .content,
+            "private"
+        );
+        let details = db.conversation_timeline_details(&id, "u00000").unwrap();
+        assert!(details
+            .messages
+            .iter()
+            .find(|message| message.id == "a00000")
+            .unwrap()
+            .artifacts
+            .is_none());
+        assert_eq!(details.turns[0].trace.as_ref(), Some(&valid));
+    }
+
+    #[test]
+    fn timeline_reasoning_marker_is_derived_and_keeps_public_artifacts() {
+        let (db, id) = fixture(1);
+        let image = serde_json::json!({"kind":"generatedImage","dataUrl":"data:image/png;base64,fixture","displayReasoningOnly":true});
+        let trace =
+            serde_json::json!({"kind":"turnTrace","items":[{"kind":"thinking","text":"private"}]});
+        db.conn().execute("UPDATE messages SET content='private',thinking='private',artifacts_json=?1 WHERE id='a00000'", [image.to_string()]).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE conversation_turns SET trace_json=?1 WHERE id='t00000'",
+                [trace.to_string()],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        let message = page
+            .messages
+            .iter()
+            .find(|message| message.id == "a00000")
+            .unwrap();
+        assert!(message.content.is_empty());
+        assert_eq!(message.artifacts.as_ref(), Some(&image));
+
+        // An identical marker persisted on an ordinary final response is not
+        // evidence. Keep its public image payload and discard the forged field.
+        db.conn()
+            .execute(
+                "UPDATE messages SET content='real final answer' WHERE id='a00000'",
+                [],
+            )
+            .unwrap();
+        let mut public_image = image.clone();
+        public_image
+            .as_object_mut()
+            .unwrap()
+            .remove("displayReasoningOnly");
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        let message = page
+            .messages
+            .iter()
+            .find(|message| message.id == "a00000")
+            .unwrap();
+        assert_eq!(message.content, "real final answer");
+        assert_eq!(message.artifacts.as_ref(), Some(&public_image));
+        let details = db.conversation_timeline_details(&id, "u00000").unwrap();
+        assert_eq!(
+            details
+                .messages
+                .iter()
+                .find(|message| message.id == "a00000")
+                .unwrap()
+                .artifacts
+                .as_ref(),
+            Some(&public_image)
+        );
+        db.conn()
+            .execute(
+                "UPDATE messages SET content='',thinking=NULL WHERE id='a00000'",
+                [],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .find(|message| message.id == "a00000")
+                .unwrap()
+                .artifacts
+                .as_ref(),
+            Some(&public_image)
+        );
+    }
+
+    #[test]
+    fn timeline_reasoning_guard_tracks_writes_and_canonical_projection_precedence() {
+        let (db, id) = fixture(2);
+        let private = "first line\nsecond line";
+        let legacy = serde_json::json!({"kind":"traceTimeline","items":[{"kind":"thinking","text":private}]});
+        db.conn()
+            .execute(
+                "UPDATE messages SET content=?1,thinking=?2,artifacts_json=?3 WHERE id='a00001'",
+                params![
+                    "\u{a0}\tfirst line\r\nsecond line\u{3000}",
+                    private,
+                    legacy.to_string()
+                ],
+            )
+            .unwrap();
+        let cases = [
+            (
+                serde_json::json!([{"kind":"reply","text":"confirmed final answer"}]),
+                false,
+            ),
+            (
+                serde_json::json!([{"kind":"reply","text":"\t\r\n\u{a0}"}]),
+                false,
+            ),
+            (
+                serde_json::json!([{"kind":"thinking","text":"\t\r\n\u{a0}"}]),
+                false,
+            ),
+            (serde_json::json!([{"kind":"status","text":""}]), false),
+            (
+                serde_json::json!([{"kind":"tool","toolCall":{"callId":"","toolName":""}}]),
+                false,
+            ),
+            (
+                serde_json::json!([{"kind":"skillSelection","skills":[{"id":"\t skill "}]}]),
+                false,
+            ),
+            (
+                serde_json::json!([{"kind":"unknown","text":"ignored"}]),
+                true,
+            ),
+            (
+                serde_json::json!([{"kind":"tool","toolCall":{"callId":1,"toolName":""}}]),
+                true,
+            ),
+            (
+                serde_json::json!([{"kind":"skillSelection","skills":[{"id":"\u{a0}\t"}]}]),
+                true,
+            ),
+            (
+                serde_json::json!(["not an item",{"kind":"reply","text":1}]),
+                true,
+            ),
+            (
+                serde_json::json!([{"kind":"thinking","text":private}]),
+                true,
+            ),
+            (
+                serde_json::json!([{"kind":"thinking","text":private},{"kind":"reply","text":"answer"}]),
+                false,
+            ),
+        ];
+        for (items, reasoning_only) in cases {
+            let trace = serde_json::json!({"kind":"turnTrace","items":items});
+            db.conn()
+                .execute(
+                    "UPDATE conversation_turns SET trace_json=?1 WHERE id='t00001'",
+                    [trace.to_string()],
+                )
+                .unwrap();
+            let page = db
+                .conversation_timeline_page(&id, None, None, None, None)
+                .unwrap();
+            let message = page
+                .messages
+                .iter()
+                .find(|message| message.id == "a00001")
+                .unwrap();
+            assert_eq!(message.content.is_empty(), reasoning_only, "trace {trace}");
+            assert_eq!(
+                message
+                    .artifacts
+                    .as_ref()
+                    .and_then(|value| value.get("displayReasoningOnly"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+                reasoning_only,
+                "trace {trace}"
+            );
+        }
+        // Legacy-only rows retain the same protection. A message edit must
+        // invalidate the candidate independently from the trace classification.
+        db.conn()
+            .execute(
+                "UPDATE conversation_turns SET trace_json=NULL WHERE id='t00001'",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE messages SET content='a real final answer' WHERE id='a00001'",
+                [],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .find(|message| message.id == "a00001")
+                .unwrap()
+                .content,
+            "a real final answer"
+        );
+        db.conn()
+            .execute("UPDATE messages SET content=thinking WHERE id='a00001'", [])
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert!(page
+            .messages
+            .iter()
+            .find(|message| message.id == "a00001")
+            .unwrap()
+            .content
+            .is_empty());
+        db.conn()
+            .execute(
+                "UPDATE messages SET tool_calls_json=?1 WHERE id='a00001'",
+                [r#"[{"id":"call-1","name":"read_file","arguments":"{}"}]"#],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .find(|message| message.id == "a00001")
+                .unwrap()
+                .content,
+            private
+        );
+        db.conn()
+            .execute(
+                "UPDATE messages SET tool_calls_json=NULL,thinking=NULL WHERE id='a00001'",
+                [],
+            )
+            .unwrap();
+        let page = db
+            .conversation_timeline_page(&id, None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .find(|message| message.id == "a00001")
+                .unwrap()
+                .content,
+            private
+        );
+    }
+
+    #[test]
+    fn timeline_reasoning_guard_migration_backfills_and_tracks_inserted_records() {
+        let connection = Connection::open_in_memory().unwrap();
+        // A pre-v135 schema with existing records exercises the actual migration,
+        // rather than emulating its write-time projections in the test.
+        connection.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,conversation_id TEXT,role TEXT,content TEXT,thinking TEXT,artifacts_json TEXT,sort_order INTEGER);
+            CREATE TABLE conversation_turns(id TEXT PRIMARY KEY,conversation_id TEXT,user_message_id TEXT,assistant_message_id TEXT,status TEXT,route_kind TEXT,trace_json TEXT,created_at TEXT);
+            CREATE TABLE agent_task_runs(conversation_id TEXT,user_message_id TEXT,created_at TEXT,id TEXT);
+            INSERT INTO messages VALUES('old','c','assistant','private','private','{\"kind\":\"traceTimeline\",\"items\":[{\"kind\":\"thinking\",\"text\":\"private\"}]}',0);
+            INSERT INTO conversation_turns(id,trace_json) VALUES('old-turn','{\"kind\":\"turnTrace\",\"items\":[{\"kind\":\"thinking\",\"text\":\"private\"}]}');").unwrap();
+        connection
+            .execute_batch(include_str!(
+                "../migrations/v135_conversation_timeline_indexes.sql"
+            ))
+            .unwrap();
+        let read_candidate = |id: &str| {
+            connection.query_row("SELECT display_reasoning_candidate,display_legacy_trace_flags FROM messages WHERE id=?1", [id], |row| Ok((row.get::<_,bool>(0)?,row.get::<_,Option<i64>>(1)?))).unwrap()
+        };
+        assert_eq!(read_candidate("old"), (true, Some(1)));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT display_trace_flags FROM conversation_turns WHERE id='old-turn'",
+                    [],
+                    |row| row.get::<_, Option<i64>>(0)
+                )
+                .unwrap(),
+            Some(1)
+        );
+        connection.execute("INSERT INTO messages(id,role,content,thinking,artifacts_json) SELECT 'new',role,content,thinking,artifacts_json FROM messages WHERE id='old'", []).unwrap();
+        assert_eq!(read_candidate("new"), (true, Some(1)));
+        connection.execute("INSERT INTO conversation_turns(id,trace_json) SELECT 'new-turn',trace_json FROM conversation_turns WHERE id='old-turn'", []).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT display_trace_flags FROM conversation_turns WHERE id='new-turn'",
+                    [],
+                    |row| row.get::<_, Option<i64>>(0)
+                )
+                .unwrap(),
+            Some(1)
+        );
+        connection.execute("UPDATE messages SET thinking='[reasoning content unavailable in local history]',content='[reasoning content unavailable in local history]',artifacts_json=NULL WHERE id='new'", []).unwrap();
+        assert_eq!(read_candidate("new"), (false, None));
+        connection
+            .execute(
+                "UPDATE conversation_turns SET trace_json='{invalid' WHERE id='new-turn'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT display_trace_flags FROM conversation_turns WHERE id='new-turn'",
+                    [],
+                    |row| row.get::<_, Option<i64>>(0)
+                )
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -524,9 +945,9 @@ fn read_turn(
     conversation_id: &str,
     anchor_id: &str,
     details: bool,
-) -> Result<Option<(ConversationTurn, bool, i64)>, CoreError> {
+) -> Result<Option<TimelineTurn>, CoreError> {
     let trace_column = if details { "trace_json" } else { "NULL" };
-    let sql = format!("SELECT id,conversation_id,launch_project_id,user_message_id,assistant_message_id,status,route_kind,{trace_column},created_at,updated_at,finished_at,trace_json IS NOT NULL,display_revision FROM conversation_turns WHERE conversation_id=?1 AND user_message_id=?2 ORDER BY created_at DESC,id DESC LIMIT 1");
+    let sql = format!("SELECT id,conversation_id,launch_project_id,user_message_id,assistant_message_id,status,route_kind,{trace_column},created_at,updated_at,finished_at,trace_json IS NOT NULL,display_revision,display_trace_flags FROM conversation_turns WHERE conversation_id=?1 AND user_message_id=?2 ORDER BY created_at DESC,id DESC LIMIT 1");
     let row = connection
         .query_row(&sql, params![conversation_id, anchor_id], |row| {
             Ok((
@@ -546,14 +967,20 @@ fn read_turn(
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, bool>(11)?,
                 row.get::<_, i64>(12)?,
+                row.get::<_, Option<i64>>(13)?,
             ))
         })
         .optional()?;
-    row.map(|(mut turn, trace, has_trace, revision)| {
+    row.map(|(mut turn, trace, has_trace, revision, trace_flags)| {
         turn.trace = trace
             .map(|value| serde_json::from_str(&value))
             .transpose()?;
-        Ok((conversation_turn_for_display(turn), has_trace, revision))
+        Ok((
+            conversation_turn_for_display(turn),
+            has_trace,
+            revision,
+            trace_flags,
+        ))
     })
     .transpose()
 }
@@ -563,6 +990,7 @@ fn read_message(
     conversation_id: &str,
     message_id: &str,
     has_turn_trace: bool,
+    canonical_trace_flags: Option<i64>,
     summary: bool,
 ) -> Result<Option<ConversationMessage>, CoreError> {
     let thinking = if summary { "NULL" } else { "thinking" };
@@ -571,8 +999,9 @@ fn read_message(
     } else {
         "artifacts_json"
     };
-    let row = connection.query_row(&format!("SELECT id,conversation_id,role,content,tool_call_id,tool_calls_json,{artifacts},token_count,created_at,sort_order,{thinking},image_attachments_json FROM messages WHERE conversation_id=?1 AND id=?2"), params![conversation_id,message_id], |row| Ok((
+    let row = connection.query_row(&format!("SELECT id,conversation_id,role,content,tool_call_id,tool_calls_json,{artifacts},token_count,created_at,sort_order,{thinking},image_attachments_json,display_reasoning_candidate,display_legacy_trace_flags FROM messages WHERE conversation_id=?1 AND id=?2"), params![conversation_id,message_id], |row| Ok((
         row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?, row.get::<_,String>(3)?, row.get::<_,Option<String>>(4)?, row.get::<_,Option<String>>(5)?, row.get::<_,Option<String>>(6)?, row.get::<_,u32>(7)?, row.get::<_,String>(8)?, row.get::<_,i64>(9)?, row.get::<_,Option<String>>(10)?, row.get::<_,Option<String>>(11)?,
+        row.get::<_,bool>(12)?, row.get::<_,Option<i64>>(13)?,
     ))).optional()?;
     row.map(
         |(
@@ -588,8 +1017,10 @@ fn read_message(
             sort_order,
             thinking,
             images,
+            reasoning_candidate,
+            legacy_trace_flags,
         )| {
-            Ok(conversation_message_for_display_with_turn_trace(
+            let mut message = conversation_message_for_display_with_turn_trace(
                 ConversationMessage {
                     id,
                     conversation_id,
@@ -614,7 +1045,35 @@ fn read_message(
                     }),
                 },
                 has_turn_trace || summary,
-            ))
+            );
+            // A display-only marker is authoritative only when this projection
+            // derives it. Never trust an identically named persisted field.
+            if let Some(artifacts) = message
+                .artifacts
+                .as_mut()
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                artifacts.remove("displayReasoningOnly");
+            }
+            // The full renderer guard needs thinking and projected trace items.
+            // Their write-time classification preserves that guard while summary
+            // reads leave both large/private payloads in storage. A valid canonical
+            // trace takes precedence, including one with an explicit reply.
+            if summary
+                && message.role == crate::llm::Role::Assistant
+                && message.tool_calls.is_empty()
+                && reasoning_candidate
+                && canonical_trace_flags.or(legacy_trace_flags) == Some(1)
+            {
+                message.content.clear();
+                let artifacts = message.artifacts.get_or_insert_with(
+                    || serde_json::json!({"kind":"assistantArtifacts","version":2}),
+                );
+                if let Some(artifacts) = artifacts.as_object_mut() {
+                    artifacts.insert("displayReasoningOnly".into(), serde_json::Value::Bool(true));
+                }
+            }
+            Ok(message)
         },
     )
     .transpose()
@@ -687,17 +1146,18 @@ fn last_assistant(
 }
 
 fn detail_revision(
-    turn: Option<&(ConversationTurn, bool, i64)>,
+    turn: Option<&TimelineTurn>,
     before: Option<&ConversationTimelineCursor>,
 ) -> String {
     format!(
         "{}:{}:{}:{}:{}",
-        turn.map(|(turn, _, _)| turn.id.as_str())
+        turn.map(|(turn, _, _, _)| turn.id.as_str())
             .unwrap_or_default(),
-        turn.map(|(_, _, revision)| *revision).unwrap_or_default(),
-        turn.map(|(turn, _, _)| turn.status.as_str())
+        turn.map(|(_, _, revision, _)| *revision)
             .unwrap_or_default(),
-        turn.and_then(|(turn, _, _)| turn.assistant_message_id.as_deref())
+        turn.map(|(turn, _, _, _)| turn.status.as_str())
+            .unwrap_or_default(),
+        turn.and_then(|(turn, _, _, _)| turn.assistant_message_id.as_deref())
             .unwrap_or_default(),
         before
             .map(|cursor| cursor.message_id.as_str())
@@ -805,8 +1265,8 @@ impl Database {
             } else {
                 read_turn(&transaction, conversation_id, &root.message_id, false)?
             };
-            let has_trace = turn.as_ref().is_some_and(|(_, has_trace, _)| *has_trace);
-            let final_id = if let Some((turn, _, _)) = turn.as_ref() {
+            let has_trace = turn.as_ref().is_some_and(|(_, has_trace, _, _)| *has_trace);
+            let final_id = if let Some((turn, _, _, _)) = turn.as_ref() {
                 turn.assistant_message_id.clone()
             } else if orphan_page {
                 None
@@ -823,6 +1283,7 @@ impl Database {
                     conversation_id,
                     &root.message_id,
                     false,
+                    None,
                     !orphan_page,
                 )?,
             );
@@ -831,7 +1292,14 @@ impl Database {
                 final_has_details = transaction.query_row("SELECT thinking IS NOT NULL OR artifacts_json IS NOT NULL FROM messages WHERE conversation_id=?1 AND id=?2",params![conversation_id,id],|row|row.get::<_,bool>(0)).optional()?.unwrap_or(false);
                 insert_message(
                     &mut messages,
-                    read_message(&transaction, conversation_id, id, has_trace, true)?,
+                    read_message(
+                        &transaction,
+                        conversation_id,
+                        id,
+                        has_trace,
+                        turn.as_ref().and_then(|(_, _, _, flags)| *flags),
+                        true,
+                    )?,
                 );
             }
             if !orphan_page {
@@ -855,7 +1323,7 @@ impl Database {
                 for id in controls {
                     insert_message(
                         &mut messages,
-                        read_message(&transaction, conversation_id, &id, false, true)?,
+                        read_message(&transaction, conversation_id, &id, false, None, true)?,
                     );
                 }
                 let has_details = has_trace
@@ -874,12 +1342,12 @@ impl Database {
                     )?;
                 entries.push(ConversationTimelineEntry {
                     anchor: root.clone(),
-                    turn_id: turn.as_ref().map(|(turn, _, _)| turn.id.clone()),
+                    turn_id: turn.as_ref().map(|(turn, _, _, _)| turn.id.clone()),
                     has_details,
                     detail_revision: detail_revision(turn.as_ref(), next.as_ref()),
                 });
             }
-            if let Some((turn, _, _)) = turn {
+            if let Some((turn, _, _, _)) = turn {
                 turns.push(turn);
             }
             end_before = next;
@@ -915,7 +1383,7 @@ impl Database {
             for id in system_ids {
                 insert_message(
                     &mut messages,
-                    read_message(&transaction, conversation_id, &id, false, true)?,
+                    read_message(&transaction, conversation_id, &id, false, None, true)?,
                 );
             }
         }
@@ -967,7 +1435,9 @@ impl Database {
         let anchor = transaction.query_row(&format!("SELECT sort_order,id FROM messages WHERE conversation_id=?1 AND id=?2 AND {ROOT_PREDICATE}"),params![conversation_id,anchor_message_id],cursor_from_row).optional()?.ok_or_else(||CoreError::NotFound(format!("Conversation entry {anchor_message_id}")))?;
         let before = root_after(&transaction, conversation_id, &anchor)?;
         let turn = read_turn(&transaction, conversation_id, anchor_message_id, true)?;
-        let has_trace = turn.as_ref().is_some_and(|(_, has_trace, _)| *has_trace);
+        let has_trace = turn
+            .as_ref()
+            .is_some_and(|(_, _, _, flags)| flags.is_some());
         let message_ids = transaction
             .prepare(&details_query(before.is_some()))?
             .query_map(
@@ -983,7 +1453,7 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
         let final_id = turn
             .as_ref()
-            .and_then(|(turn, _, _)| turn.assistant_message_id.as_deref());
+            .and_then(|(turn, _, _, _)| turn.assistant_message_id.as_deref());
         let mut messages = Vec::new();
         for id in message_ids {
             if let Some(message) = read_message(
@@ -991,6 +1461,7 @@ impl Database {
                 conversation_id,
                 &id,
                 has_trace && final_id == Some(id.as_str()),
+                None,
                 false,
             )? {
                 messages.push(message);
@@ -1000,7 +1471,7 @@ impl Database {
         let details = ConversationTimelineDetails {
             anchor_id: anchor_message_id.to_string(),
             messages,
-            turns: turn.map(|(turn, _, _)| vec![turn]).unwrap_or_default(),
+            turns: turn.map(|(turn, _, _, _)| vec![turn]).unwrap_or_default(),
             range: ConversationTimelineRange {
                 from: anchor,
                 before,
