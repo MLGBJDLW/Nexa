@@ -39,6 +39,17 @@
 * **history:** bound early page queries and defer legacy trace decoding ([67591f0](https://github.com/MLGBJDLW/Nexa/commit/67591f0bc2ab6e54267d49c3b2023a52beee33f9))
 * **i18n:** keep translation context stable during background updates ([f1f418e](https://github.com/MLGBJDLW/Nexa/commit/f1f418e450ea9ca2425c5751a0213b52dfc5cc71))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 4a117c36aac15186494530a5f50181fcc3272f99 -->
+
+### What's Changed
+* fix(agent): preserve context, isolate MCP calls and page chat history by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/441
+* fix(llm): adapt Kimi tool schemas and reasoning replay by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/440
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.21...nexa-monorepo-v0.14.22
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.21](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.20...nexa-monorepo-v0.14.21) (2026-10-01)
 
 
