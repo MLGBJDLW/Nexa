@@ -2558,7 +2558,11 @@ mod tests {
 
     #[test]
     fn browser_close_one_of_targets_are_validated_before_execution() {
-        let schema = browser_session_tool::browser_session_parameters_schema();
+        // Keep the portable schema probe on the same scheduler augmentation path
+        // as Tool::definition, without requiring the optional headless host.
+        let schema = with_scheduler_control_parameters(
+            browser_session_tool::browser_session_parameters_schema(),
+        );
 
         for (arguments, missing) in [
             (r#"{"action":"close_session"}"#, "sessionId"),

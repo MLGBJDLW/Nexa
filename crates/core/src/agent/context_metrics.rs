@@ -368,6 +368,10 @@ impl AgentExecutor {
 }
 
 #[cfg(test)]
+#[path = "context_metrics_probe.rs"]
+mod performance_probe;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::llm::prompt_cache::{resolve_prompt_cache_profile, PromptCacheApiStyle};
