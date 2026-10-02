@@ -81,6 +81,8 @@ async fn live_mode_crosses_provider_wire_and_real_file_execution() {
     let report = result.unwrap().unwrap();
     assert_eq!((report.passed, report.total), (1, 1), "{:#?}", report.cases);
     assert_eq!(report.cases[0].tool_calls, 2);
+    let case = &report.cases[0];
+    assert!(case.elapsed_ms >= case.preparation_ms + case.executor_elapsed_ms + case.oracle_ms);
     assert_eq!(report.cases[0].provider_invocations.len(), 3);
     assert_eq!(
         report.cases[0]

@@ -15,6 +15,14 @@ use serde::Serialize;
 
 use crate::Task;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InvocationOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderInvocation {
@@ -28,6 +36,7 @@ pub struct ProviderInvocation {
     pub request_messages: usize,
     pub input_image_digests: Vec<String>,
     pub failed: bool,
+    pub outcome: Option<InvocationOutcome>,
 }
 
 pub type Calls = Arc<Mutex<Vec<ProviderInvocation>>>;
@@ -38,7 +47,8 @@ pub struct MeteredProvider {
 }
 
 impl MeteredProvider {
-    fn begin(&self, request: &CompletionRequest) -> usize {
+    fn begin(&self, request: &CompletionRequest) -> InvocationGuard {
+        let started = Instant::now();
         let mut calls = self.calls.lock().unwrap();
         let index = calls.len();
         calls.push(ProviderInvocation {
@@ -46,7 +56,13 @@ impl MeteredProvider {
             input_image_digests: request_image_digests(request),
             ..Default::default()
         });
-        index
+        InvocationGuard {
+            calls: self.calls.clone(),
+            index,
+            started,
+            terminal: None,
+            finalized: false,
+        }
     }
 }
 
@@ -82,11 +98,78 @@ fn apply_usage(call: &mut ProviderInvocation, usage: &Usage) {
     call.usage_reported = true;
 }
 
-struct MeasuredStream<'a> {
-    inner: BoxStream<'a, ProviderStreamEvent>,
+/// Owns one measurement from before the provider await until its final result.
+/// Dropping an opening/completion future must account for cancellation too.
+struct InvocationGuard {
     calls: Calls,
     index: usize,
     started: Instant,
+    terminal: Option<InvocationOutcome>,
+    finalized: bool,
+}
+
+impl InvocationGuard {
+    fn observe(&mut self, event: &ProviderStreamEvent) {
+        let mut calls = self.calls.lock().unwrap();
+        let call = &mut calls[self.index];
+        match event {
+            ProviderStreamEvent::Chunk { chunk } => {
+                if (!chunk.delta.is_empty()
+                    || chunk
+                        .thinking_delta
+                        .as_deref()
+                        .is_some_and(|thinking| !thinking.is_empty())
+                    || chunk.tool_call_delta.is_some())
+                    && call.first_output_ms.is_none()
+                {
+                    call.first_output_ms = Some(self.started.elapsed().as_millis() as u64);
+                }
+                if let Some(usage) = &chunk.usage {
+                    apply_usage(call, usage);
+                }
+            }
+            ProviderStreamEvent::TerminalError { .. }
+            | ProviderStreamEvent::RecoverableError { .. } => {
+                self.terminal.get_or_insert(InvocationOutcome::Failed);
+            }
+            ProviderStreamEvent::Cancelled { .. } => {
+                self.terminal.get_or_insert(InvocationOutcome::Cancelled);
+            }
+            _ => {}
+        }
+    }
+
+    fn finish(&mut self, fallback: InvocationOutcome) {
+        if self.finalized {
+            return;
+        }
+        self.finalized = true;
+        let outcome = self.terminal.unwrap_or(fallback);
+        let mut calls = self.calls.lock().unwrap();
+        let call = &mut calls[self.index];
+        call.elapsed_ms = self.started.elapsed().as_millis() as u64;
+        call.failed = outcome != InvocationOutcome::Completed;
+        call.outcome = Some(outcome);
+    }
+}
+
+impl Drop for InvocationGuard {
+    fn drop(&mut self) {
+        self.finish(InvocationOutcome::Cancelled);
+    }
+}
+
+fn error_outcome(error: &CoreError) -> InvocationOutcome {
+    if matches!(error, CoreError::Cancelled(_)) {
+        InvocationOutcome::Cancelled
+    } else {
+        InvocationOutcome::Failed
+    }
+}
+
+struct MeasuredStream<'a> {
+    inner: BoxStream<'a, ProviderStreamEvent>,
+    invocation: InvocationGuard,
 }
 
 impl Stream for MeasuredStream<'_> {
@@ -94,36 +177,12 @@ impl Stream for MeasuredStream<'_> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let result = self.inner.as_mut().poll_next(cx);
-        if let Poll::Ready(Some(event)) = &result {
-            let mut calls = self.calls.lock().unwrap();
-            let call = &mut calls[self.index];
-            match event {
-                ProviderStreamEvent::Chunk { chunk } => {
-                    if (!chunk.delta.is_empty()
-                        || chunk.thinking_delta.is_some()
-                        || chunk.tool_call_delta.is_some())
-                        && call.first_output_ms.is_none()
-                    {
-                        call.first_output_ms = Some(self.started.elapsed().as_millis() as u64);
-                    }
-                    if let Some(usage) = &chunk.usage {
-                        apply_usage(call, usage);
-                    }
-                }
-                ProviderStreamEvent::TerminalError { .. }
-                | ProviderStreamEvent::RecoverableError { .. }
-                | ProviderStreamEvent::Cancelled { .. } => call.failed = true,
-                _ => {}
-            }
+        match &result {
+            Poll::Ready(Some(event)) => self.invocation.observe(event),
+            Poll::Ready(None) => self.invocation.finish(InvocationOutcome::Completed),
+            Poll::Pending => {}
         }
         result
-    }
-}
-
-impl Drop for MeasuredStream<'_> {
-    fn drop(&mut self) {
-        self.calls.lock().unwrap()[self.index].elapsed_ms =
-            self.started.elapsed().as_millis() as u64;
     }
 }
 
@@ -161,16 +220,18 @@ impl LlmProvider for MeteredProvider {
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
-        let index = self.begin(request);
-        let started = Instant::now();
+        let mut invocation = self.begin(request);
         let result = self.inner.complete(request).await;
-        let mut calls = self.calls.lock().unwrap();
-        let call = &mut calls[index];
-        call.elapsed_ms = started.elapsed().as_millis() as u64;
-        call.failed = result.is_err();
         if let Ok(response) = &result {
-            apply_usage(call, &response.usage);
+            apply_usage(
+                &mut self.calls.lock().unwrap()[invocation.index],
+                &response.usage,
+            );
         }
+        invocation.finish(match &result {
+            Ok(_) => InvocationOutcome::Completed,
+            Err(error) => error_outcome(error),
+        });
         result
     }
 
@@ -178,19 +239,11 @@ impl LlmProvider for MeteredProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-        let index = self.begin(request);
-        let started = Instant::now();
+        let mut invocation = self.begin(request);
         match self.inner.stream_events(request).await {
-            Ok(inner) => Ok(Box::pin(MeasuredStream {
-                inner,
-                calls: self.calls.clone(),
-                index,
-                started,
-            })),
+            Ok(inner) => Ok(Box::pin(MeasuredStream { inner, invocation })),
             Err(error) => {
-                let mut calls = self.calls.lock().unwrap();
-                calls[index].elapsed_ms = started.elapsed().as_millis() as u64;
-                calls[index].failed = true;
+                invocation.finish(error_outcome(&error));
                 Err(error)
             }
         }
@@ -295,6 +348,297 @@ impl LlmProvider for ScriptedProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
+    use nexa_core::llm::{ProviderRecoveryCategory, ProviderStreamFailure};
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct ProbeProvider {
+        pending_open: bool,
+        pending_complete: bool,
+        pending_tail: bool,
+        error_is_cancelled: Option<bool>,
+        events: Vec<ProviderStreamEvent>,
+    }
+
+    impl ProbeProvider {
+        fn error(&self) -> Option<CoreError> {
+            self.error_is_cancelled.map(|cancelled| {
+                if cancelled {
+                    CoreError::Cancelled("fixture cancellation".into())
+                } else {
+                    CoreError::Internal("fixture provider failure".into())
+                }
+            })
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for ProbeProvider {
+        fn name(&self) -> &str {
+            "metering-probe"
+        }
+
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(Vec::new())
+        }
+
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            if self.pending_complete {
+                return futures::future::pending().await;
+            }
+            if let Some(error) = self.error() {
+                return Err(error);
+            }
+            Ok(CompletionResponse {
+                content: "complete".into(),
+                tool_calls: None,
+                finish_reason: FinishReason::Stop,
+                usage: Usage {
+                    prompt_tokens: 25,
+                    completion_tokens: 5,
+                    total_tokens: 30,
+                    ..Default::default()
+                },
+                thinking: None,
+                provider_replay: None,
+            })
+        }
+
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            if self.pending_open {
+                return futures::future::pending().await;
+            }
+            if let Some(error) = self.error() {
+                return Err(error);
+            }
+            let events = stream::iter(self.events.clone());
+            if self.pending_tail {
+                Ok(Box::pin(events.chain(stream::pending())))
+            } else {
+                Ok(Box::pin(events))
+            }
+        }
+    }
+
+    fn metered(probe: ProbeProvider) -> (MeteredProvider, Calls) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            MeteredProvider {
+                inner: Box::new(probe),
+                calls: calls.clone(),
+            },
+            calls,
+        )
+    }
+
+    fn completed_chunk() -> ProviderStreamEvent {
+        ProviderStreamEvent::Chunk {
+            chunk: Box::new(StreamChunk {
+                delta: "complete".into(),
+                thinking_delta: None,
+                tool_call_delta: None,
+                finish_reason: Some(FinishReason::Stop),
+                usage: Some(Usage {
+                    prompt_tokens: 25,
+                    completion_tokens: 5,
+                    total_tokens: 30,
+                    ..Default::default()
+                }),
+            }),
+        }
+    }
+
+    #[test]
+    fn empty_thinking_delta_does_not_start_first_output_timing() {
+        let (provider, calls) = metered(ProbeProvider::default());
+        let mut invocation = provider.begin(&CompletionRequest::default());
+        let mut chunk = StreamChunk {
+            delta: String::new(),
+            thinking_delta: Some(String::new()),
+            tool_call_delta: None,
+            finish_reason: None,
+            usage: None,
+        };
+        invocation.observe(&ProviderStreamEvent::Chunk {
+            chunk: Box::new(chunk.clone()),
+        });
+        assert_eq!(calls.lock().unwrap()[0].first_output_ms, None);
+        chunk.thinking_delta = Some("reasoning".into());
+        invocation.observe(&ProviderStreamEvent::Chunk {
+            chunk: Box::new(chunk),
+        });
+        assert!(calls.lock().unwrap()[0].first_output_ms.is_some());
+        invocation.finish(InvocationOutcome::Completed);
+    }
+
+    #[tokio::test]
+    async fn cancelling_provider_open_and_completion_accounts_for_awaited_time() {
+        let request = CompletionRequest::default();
+        for opening_stream in [true, false] {
+            let (provider, calls) = metered(ProbeProvider {
+                pending_open: opening_stream,
+                pending_complete: !opening_stream,
+                ..Default::default()
+            });
+            let timeout = Duration::from_millis(20);
+            let timed_out = if opening_stream {
+                tokio::time::timeout(timeout, provider.stream_events(&request))
+                    .await
+                    .is_err()
+            } else {
+                tokio::time::timeout(timeout, provider.complete(&request))
+                    .await
+                    .is_err()
+            };
+            assert!(timed_out);
+            let calls = calls.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].outcome, Some(InvocationOutcome::Cancelled));
+            assert!(calls[0].failed);
+            assert!(
+                calls[0].elapsed_ms >= 10,
+                "await time must not become local tool time"
+            );
+            assert!(!calls[0].usage_reported);
+        }
+    }
+
+    #[tokio::test]
+    async fn dropping_an_unfinished_stream_records_cancellation_and_elapsed_time() {
+        let (provider, calls) = metered(ProbeProvider {
+            pending_tail: true,
+            ..Default::default()
+        });
+        let request = CompletionRequest::default();
+        let mut events = provider.stream_events(&request).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), events.next())
+                .await
+                .is_err()
+        );
+        drop(events);
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls[0].outcome, Some(InvocationOutcome::Cancelled));
+        assert!(calls[0].failed);
+        assert!(calls[0].elapsed_ms >= 10);
+    }
+
+    #[tokio::test]
+    async fn completed_stream_is_finalized_at_eof_once_and_keeps_usage() {
+        let (provider, calls) = metered(ProbeProvider {
+            events: vec![completed_chunk()],
+            ..Default::default()
+        });
+        let request = CompletionRequest::default();
+        let mut events = provider.stream_events(&request).await.unwrap();
+        assert!(events.next().await.is_some());
+        assert!(events.next().await.is_none());
+        let completed = calls.lock().unwrap()[0].clone();
+        assert_eq!(completed.outcome, Some(InvocationOutcome::Completed));
+        assert!(!completed.failed);
+        assert!(completed.usage_reported);
+        assert_eq!(
+            (completed.prompt_tokens, completed.completion_tokens),
+            (25, 5)
+        );
+        assert!(completed.first_output_ms.is_some());
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(events.next().await.is_none());
+        drop(events);
+        let final_call = calls.lock().unwrap()[0].clone();
+        assert_eq!(final_call.elapsed_ms, completed.elapsed_ms);
+        assert_eq!(final_call.outcome, completed.outcome);
+    }
+
+    #[tokio::test]
+    async fn stream_errors_keep_their_outcome_when_the_consumer_stops_or_reaches_eof() {
+        let request = CompletionRequest::default();
+        let cases = [
+            (
+                ProviderStreamEvent::RecoverableError {
+                    message: "retryable".into(),
+                    category: ProviderRecoveryCategory::Network,
+                },
+                InvocationOutcome::Failed,
+            ),
+            (
+                ProviderStreamEvent::TerminalError {
+                    failure: ProviderStreamFailure::Internal {
+                        message: "terminal".into(),
+                    },
+                },
+                InvocationOutcome::Failed,
+            ),
+            (
+                ProviderStreamEvent::Cancelled {
+                    message: "cancelled".into(),
+                },
+                InvocationOutcome::Cancelled,
+            ),
+        ];
+        for (event, expected) in cases {
+            for consume_eof in [true, false] {
+                let (provider, calls) = metered(ProbeProvider {
+                    events: vec![event.clone()],
+                    ..Default::default()
+                });
+                let mut events = provider.stream_events(&request).await.unwrap();
+                assert!(events.next().await.is_some());
+                if consume_eof {
+                    assert!(events.next().await.is_none());
+                }
+                drop(events);
+                let calls = calls.lock().unwrap();
+                assert_eq!(calls[0].outcome, Some(expected));
+                assert!(calls[0].failed);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn returned_errors_and_successful_completion_have_distinct_outcomes() {
+        let request = CompletionRequest::default();
+        for cancelled in [true, false] {
+            let (provider, calls) = metered(ProbeProvider {
+                error_is_cancelled: Some(cancelled),
+                ..Default::default()
+            });
+            assert!(provider.complete(&request).await.is_err());
+            assert!(provider.stream_events(&request).await.is_err());
+            let calls = calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            for call in calls.iter() {
+                assert!(call.failed);
+                assert_eq!(
+                    call.outcome,
+                    Some(if cancelled {
+                        InvocationOutcome::Cancelled
+                    } else {
+                        InvocationOutcome::Failed
+                    })
+                );
+            }
+        }
+        let (provider, calls) = metered(ProbeProvider::default());
+        provider.complete(&request).await.unwrap();
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls[0].outcome, Some(InvocationOutcome::Completed));
+        assert!(!calls[0].failed);
+        assert!(calls[0].usage_reported);
+        assert_eq!(
+            (calls[0].prompt_tokens, calls[0].completion_tokens),
+            (25, 5)
+        );
+    }
+
     #[test]
     fn cumulative_usage_is_replaced_and_missing_usage_stays_unknown() {
         let mut call = ProviderInvocation::default();

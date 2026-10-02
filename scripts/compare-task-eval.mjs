@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 export function compareTaskEval(baseline, candidate) {
-  for (const field of ['schemaVersion', 'mode', 'scoreKind', 'corpusDigest', 'model', 'provider', 'apiStyle', 'reasoningEnabled', 'providerEndpointId', 'nodeVersion', 'repetitions', 'maxTokensPerTask', 'maxOutputTokensPerRequest', 'timeoutSeconds']) {
+  for (const field of ['schemaVersion', 'mode', 'scoreKind', 'corpusDigest', 'model', 'provider', 'apiStyle', 'reasoningEnabled', 'providerEndpointId', 'nodeVersion', 'targetTriple', 'buildProfile', 'rustcVersion', 'repetitions', 'maxTokensPerTask', 'maxOutputTokensPerRequest', 'timeoutSeconds']) {
     if (JSON.stringify(baseline[field]) !== JSON.stringify(candidate[field])) throw new Error(`Incomparable reports: ${field} differs`);
   }
   if (baseline.sourceDirty || candidate.sourceDirty) throw new Error('A version baseline requires clean source trees; dirty development runs are diagnostics only');

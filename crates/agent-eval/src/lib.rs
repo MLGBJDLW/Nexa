@@ -180,8 +180,12 @@ pub struct TaskReport {
     pub context_window_tokens: Option<u32>,
     pub error: Option<String>,
     pub oracle_diagnostic: String,
+    /// Complete task time: workspace preparation, executor, oracle and evidence.
     pub elapsed_ms: u64,
-    pub provider_wait_ms: u64,
+    pub preparation_ms: u64,
+    pub executor_elapsed_ms: u64,
+    pub oracle_ms: u64,
+    pub provider_invocation_ms: u64,
     /// Wall-clock remainder, not a CPU measurement: includes tool and scheduling work.
     pub orchestration_and_tools_ms: u64,
     pub provider_invocations: Vec<ProviderInvocation>,
@@ -211,6 +215,9 @@ pub struct SuiteReport {
     pub compiled_source_fingerprint: String,
     pub corpus_digest: String,
     pub node_version: String,
+    pub target_triple: &'static str,
+    pub build_profile: &'static str,
+    pub rustc_version: &'static str,
     pub model: String,
     pub provider: ProviderType,
     pub api_style: nexa_core::llm::reasoning_profile::ReasoningApiStyle,
@@ -379,6 +386,7 @@ async fn run_task(
     config: &EvalConfig,
     api_key: Option<&str>,
 ) -> EvalResult<TaskReport> {
+    let task_started = Instant::now();
     let outer = tempfile::tempdir()?;
     let workspace_path = outer.path().join("workspace");
     prepare_workspace(task, &workspace_path)?;
@@ -455,7 +463,9 @@ async fn run_task(
             match event {
                 AgentEvent::ToolRunCompleted { run } => {
                     tools += 1;
-                    if run.is_error == Some(true) {
+                    if run.status != nexa_core::agent::ToolRunStatus::Completed
+                        || run.is_error == Some(true)
+                    {
                         failures += 1;
                     } else {
                         *completed_tools.entry(run.tool_name).or_default() += 1;
@@ -468,6 +478,7 @@ async fn run_task(
         }
         (tools, failures, approvals, compactions, completed_tools)
     });
+    let preparation_ms = task_started.elapsed().as_millis() as u64;
     let started = Instant::now();
     let mut input = vec![ContentPart::Text {
         text: task.prompt.clone(),
@@ -478,7 +489,7 @@ async fn run_task(
     }));
     let run = executor.run(Vec::new(), input, &db, None, None, tx, 0);
     let result = tokio::time::timeout(Duration::from_secs(config.timeout_seconds), run).await;
-    let elapsed_ms = started.elapsed().as_millis() as u64;
+    let executor_elapsed_ms = started.elapsed().as_millis() as u64;
     let (answer, error) = match result {
         Ok(Ok(message)) => (message.text_content(), None),
         Ok(Err(error)) => (String::new(), Some(error.to_string())),
@@ -500,8 +511,10 @@ async fn run_task(
             .required_tools
             .iter()
             .all(|tool| completed_tools.contains_key(tool));
+    let oracle_started = Instant::now();
     let (oracle_passed, oracle_diagnostic) =
         check_oracle(task, outer.path(), &workspace_path, &answer).await?;
+    let oracle_ms = oracle_started.elapsed().as_millis() as u64;
     let calls = calls.lock().unwrap().clone();
     let expected_images: Vec<_> = task
         .input_images
@@ -514,7 +527,7 @@ async fn run_task(
         .unwrap_or_default();
     runtime_evidence_passed &= observed_images == expected_images.as_slice();
     let observed_input_images = observed_images.len();
-    let provider_wait_ms = calls.iter().map(|call| call.elapsed_ms).sum();
+    let provider_invocation_ms = calls.iter().map(|call| call.elapsed_ms).sum();
     let mut outputs = Vec::new();
     for relative in &task.expected_files {
         let path = safe_relative(&workspace_path, relative)?;
@@ -544,9 +557,12 @@ async fn run_task(
         oracle_passed,
         error,
         oracle_diagnostic,
-        elapsed_ms,
-        provider_wait_ms,
-        orchestration_and_tools_ms: elapsed_ms.saturating_sub(provider_wait_ms),
+        elapsed_ms: task_started.elapsed().as_millis() as u64,
+        preparation_ms,
+        executor_elapsed_ms,
+        oracle_ms,
+        provider_invocation_ms,
+        orchestration_and_tools_ms: executor_elapsed_ms.saturating_sub(provider_invocation_ms),
         tool_calls,
         available_tools: tool_names,
         failed_tool_calls,
@@ -634,7 +650,7 @@ pub async fn run_suite(
         return Err("Source changed during evaluation; rerun from an immutable checkout".into());
     }
     Ok(SuiteReport {
-        schema_version: 1,
+        schema_version: 2,
         mode,
         score_kind: if mode == EvalMode::Live {
             "model_task_quality"
@@ -649,6 +665,9 @@ pub async fn run_suite(
         compiled_source_fingerprint: source.compiled_source_fingerprint,
         corpus_digest,
         node_version: String::from_utf8_lossy(&node_version.stdout).trim().into(),
+        target_triple: env!("NEXA_EVAL_BUILD_TARGET"),
+        build_profile: env!("NEXA_EVAL_BUILD_PROFILE"),
+        rustc_version: env!("NEXA_EVAL_RUSTC_VERSION"),
         model: config.model.clone(),
         provider: contract.provider_type,
         api_style: contract.reasoning.key.api_style,

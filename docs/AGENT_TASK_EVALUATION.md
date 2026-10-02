@@ -51,12 +51,16 @@ without shell or unrestricted filesystem access.
 Reports verify the compiled source SHA and content fingerprint against the checkout,
 rejecting stale binaries or source changes during a suite. Matching dirty development
 builds can run but cannot become version baselines. Reports record source SHA/dirty
-state, corpus digest, Node version, model route, reasoning setting, repetitions,
+state, corpus digest, Node/Rust versions, build target/profile, model route, reasoning setting, repetitions,
 time/token limits, oracle results and output evidence, provider invocations,
-first-output/total time, reported usage, tool failures and approvals. Time remaining
-after provider waits includes tools and scheduling; it is not a CPU profile. Repeated
-cumulative usage chunks replace the prior observation for that provider invocation
-instead of being added again.
+first-output time, reported usage, tool failures and approvals. Schema v2 separates
+workspace preparation, executor execution, provider invocations, oracle validation and
+complete task duration. Provider invocations include adapter work and transport; the
+executor remainder includes tools and scheduling. These are wall times, not CPU
+profiles. Repeated cumulative usage chunks replace the prior observation for that
+provider invocation instead of being added again.
+Cancelled provider waits retain their elapsed time and an explicit invocation
+outcome, including cancellation before response headers or during a completion.
 
 ## Opt-in live run
 
@@ -103,7 +107,8 @@ node scripts/compare-task-eval.mjs docs/local/baseline.json docs/local/candidate
 ```
 
 Comparison rejects different corpora, modes, model routes, reasoning settings, runtimes,
-repetitions and budgets, and rejects dirty source as a version baseline. It reports lost
+build targets/profiles, repetitions and budgets, and rejects dirty source as a version
+baseline. It reports lost
 task successes even if a failing candidate is faster. Use repeated live runs to
 distinguish model/network variability from code changes; retain per-task evidence and
 immutable source revisions.
