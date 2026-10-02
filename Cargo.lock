@@ -3921,7 +3921,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-core"
-version = "0.14.21"
+version = "0.14.22"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -3991,7 +3991,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-desktop"
-version = "0.14.21"
+version = "0.14.22"
 dependencies = [
  "async-trait",
  "axum",
