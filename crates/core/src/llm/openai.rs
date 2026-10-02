@@ -11,10 +11,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use super::prompt_cache::{resolve_prompt_cache_profile, PromptCacheApiStyle, PromptCacheProfile};
+use super::model_contract::{resolve_model_contract, ToolSchemaDialect};
+use super::prompt_cache::PromptCacheProfile;
+#[cfg(test)]
+use super::reasoning_profile::resolve_reasoning_profile;
 use super::reasoning_profile::{
-    resolve_reasoning_profile, ReasoningApiStyle, ReasoningBudgetField, ReasoningEffortField,
-    ReasoningHistoryEncoding, ReasoningReplayPolicy, ThinkingModeControl,
+    ReasoningApiStyle, ReasoningBudgetField, ReasoningEffortField, ReasoningHistoryEncoding,
+    ReasoningReplayPolicy, ThinkingModeControl,
 };
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
@@ -922,12 +925,14 @@ fn build_request_body_with_config(
         .provider_type
         .or_else(|| config.map(|config| config.provider_type))
         .unwrap_or(ProviderType::Custom);
-    let reasoning_profile = resolve_reasoning_profile(
+    let contract = resolve_model_contract(
         provider_type,
         config.and_then(|config| config.base_url.as_deref()),
         ReasoningApiStyle::OpenAiChatCompletions,
         &request.model,
     );
+    let provider_type = contract.provider_type;
+    let reasoning_profile = &contract.reasoning;
     let reasoning_supported = reasoning_profile.id != "openai-reasoning-v1"
         || is_reasoning_model(&request.model, Some(&provider_type));
     let requested_reasoning_mode = reasoning_profile
@@ -995,13 +1000,8 @@ fn build_request_body_with_config(
         && reasoning_profile.omit_stop_when_reasoning
         && requested_reasoning_mode != Some(false);
     // Some providers/models require function arguments as JSON objects, not strings.
-    let raw_tool_args = requires_raw_tool_arguments(&request.model, request.provider_type.as_ref());
-    let cache_profile = resolve_prompt_cache_profile(
-        provider_type,
-        config.and_then(|config| config.base_url.as_deref()),
-        PromptCacheApiStyle::OpenAiCompatible,
-        &request.model,
-    );
+    let raw_tool_args = requires_raw_tool_arguments(&request.model, Some(&provider_type));
+    let cache_profile = &contract.cache;
     let wire_source_indices = chat_completion_wire_order(&request.messages);
     let leading_system_count = request
         .messages
@@ -1107,16 +1107,10 @@ fn build_request_body_with_config(
         preserve_thinking: (reasoning_profile.send_preserve_thinking
             && requested_reasoning_mode != Some(false))
         .then_some(true),
-        tools: request.tools.as_ref().map(|t| {
-            convert_tools(
-                t,
-                super::moonshot_schema::uses_moonshot_schema(
-                    provider_type,
-                    config.and_then(|config| config.base_url.as_deref()),
-                    &request.model,
-                ),
-            )
-        }),
+        tools: request
+            .tools
+            .as_ref()
+            .map(|t| convert_tools(t, contract.tool_schema == ToolSchemaDialect::Moonshot)),
         tool_stream: (native_glm53_contract
             && stream
             && request
@@ -1357,12 +1351,13 @@ fn build_responses_request_with_tools(
         // budget and an effort are mutually exclusive; keep an explicit budget
         // when present, then fall back to the selected effort/mode.
         if super::reasoning_profile::is_openrouter_sonnet55_model(&request.model) {
-            let profile = resolve_reasoning_profile(
+            let contract = resolve_model_contract(
                 ProviderType::OpenRouter,
                 None,
                 ReasoningApiStyle::OpenAiChatCompletions,
                 &request.model,
             );
+            let profile = &contract.reasoning;
             let effort = profile
                 .wire_effort(request.reasoning_effort.as_ref())
                 .or_else(|| profile.wire_effort(profile.default_effort.as_ref()));
@@ -2911,12 +2906,14 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn prompt_cache_profile(&self, model: &str) -> PromptCacheProfile {
-        resolve_prompt_cache_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
-            PromptCacheApiStyle::OpenAiCompatible,
+            ReasoningApiStyle::OpenAiChatCompletions,
             model,
         )
+        .cache
+        .clone()
     }
 
     fn reasoning_replay_policy(&self, model: &str) -> ReasoningReplayPolicy {
@@ -2932,22 +2929,24 @@ impl LlmProvider for OpenAiProvider {
         } else {
             ReasoningApiStyle::OpenAiChatCompletions
         };
-        resolve_reasoning_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             api_style,
             model,
         )
+        .reasoning
         .replay_policy
     }
 
     fn replay_history_projection(&self, request: &CompletionRequest) -> ReplayHistoryProjection {
-        let mandatory_thinking = resolve_reasoning_profile(
+        let mandatory_thinking = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::OpenAiChatCompletions,
             &request.model,
         )
+        .reasoning
         .requested_mode(Some(false), Some(&ReasoningEffort::None), None)
             == Some(true);
         if (request.reasoning_enabled == Some(false)
@@ -2978,13 +2977,13 @@ impl LlmProvider for OpenAiProvider {
             }
             None => ReasoningApiStyle::OpenAiChatCompletions,
         };
-        let profile = resolve_reasoning_profile(
+        let contract = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             api_style,
             &request.model,
         );
-        super::provider_turn::RouteSnapshot::from_profile_for_request(&profile, request)
+        super::provider_turn::RouteSnapshot::from_profile_for_request(&contract.reasoning, request)
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
@@ -4045,6 +4044,52 @@ mod tests {
                     assert_eq!(tool["parameters"], original, "{url} {model}");
                 }
                 assert_eq!(request.tools.as_ref().unwrap()[0].parameters, original);
+            }
+        }
+    }
+
+    #[test]
+    fn custom_moonshot_cn_replays_reasoning_and_projects_schema_in_the_same_request() {
+        for saved in [
+            ProviderType::Custom,
+            ProviderType::OpenAi,
+            ProviderType::Moonshot,
+        ] {
+            let config = endpoint_config(saved, "https://api.moonshot.cn/v1");
+            let mut request = endpoint_reasoning_request("kimi-k3");
+            request.provider_type = Some(saved);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::Low);
+            let mut assistant = Message::text(Role::Assistant, "Checking");
+            assistant.reasoning_content = Some("Retained provider reasoning".into());
+            assistant.tool_calls = Some(vec![ToolCallRequest {
+                id: "read-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.txt"}"#.into(),
+                thought_signature: None,
+            }]);
+            request.messages.push(assistant);
+            request.tools = Some(vec![ToolDefinition {
+                name: "edit_file".into(),
+                description: "Edit".into(),
+                parameters: serde_json::json!({"type":"object","properties":{"content":{"type":"string"}},"anyOf":[{"required":["content"]}]}),
+            }]);
+            for stream in [false, true] {
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    stream,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(
+                    body["messages"][1]["reasoning_content"],
+                    "Retained provider reasoning"
+                );
+                assert_eq!(body["reasoning_effort"], "low");
+                assert!(body["tools"][0]["function"]["parameters"]
+                    .get("anyOf")
+                    .is_none());
+                assert!(body.get("temperature").is_none());
             }
         }
     }

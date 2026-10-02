@@ -136,6 +136,13 @@ pub fn provider_registry_entries() -> &'static [ProviderRegistryEntry] {
     PROVIDER_REGISTRY
 }
 
+pub fn canonical_provider_key(provider_type: ProviderType) -> &'static str {
+    PROVIDER_REGISTRY
+        .iter()
+        .find(|entry| entry.provider_type == provider_type)
+        .map_or("custom", |entry| entry.canonical_key)
+}
+
 pub fn provider_type_from_key(key: &str) -> Option<ProviderType> {
     let normalized = normalize_provider_key(key);
     PROVIDER_REGISTRY
@@ -150,7 +157,15 @@ pub fn provider_type_from_key(key: &str) -> Option<ProviderType> {
 pub fn provider_type_for_parts(provider: &str, base_url: Option<&str>) -> ProviderType {
     let normalized_base_url = crate::model_catalog::normalize_endpoint_url(base_url);
     if !normalized_base_url.is_empty() {
-        if let Ok(catalog) = crate::model_catalog::load_builtin_catalog() {
+        // The preset reader owns exact documented URL aliases as well as
+        // defaults. Resolve those aliases before wire capabilities consume the
+        // saved type; a custom label does not change a known public route.
+        if let Some(provider) = crate::provider_catalog::provider_for_preset_endpoint(base_url)
+            .and_then(provider_type_from_key)
+        {
+            return provider;
+        }
+        if let Ok(catalog) = crate::model_catalog::builtin_catalog() {
             let exact_endpoints = catalog
                 .endpoints
                 .iter()
@@ -191,6 +206,38 @@ fn normalize_provider_key(provider: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moonshot_public_aliases_resolve_before_wire_capabilities() {
+        use crate::llm::reasoning_profile::{resolve_reasoning_profile, ReasoningApiStyle};
+
+        for saved in ["custom", "open_ai", "moonshot"] {
+            for endpoint in ["https://api.moonshot.ai/v1", "https://api.moonshot.cn/v1/"] {
+                let provider = provider_type_for_parts(saved, Some(endpoint));
+                assert_eq!(provider, ProviderType::Moonshot, "{saved}: {endpoint}");
+                let profile = resolve_reasoning_profile(
+                    provider,
+                    Some(endpoint),
+                    ReasoningApiStyle::OpenAiChatCompletions,
+                    "kimi-k3",
+                );
+                assert!(profile.preserve_reasoning_history, "{saved}: {endpoint}");
+            }
+        }
+        for endpoint in [
+            "http://api.moonshot.cn/v1",
+            "https://api.moonshot.cn:8443/v1",
+            "https://api.moonshot.cn/v1?tenant=other",
+            "https://api.moonshot.cn.evil.example/v1",
+            "https://api.moonshot.cn/private/v1",
+        ] {
+            assert_eq!(
+                provider_type_for_parts("custom", Some(endpoint)),
+                ProviderType::Custom,
+                "{endpoint} is not a public route",
+            );
+        }
+    }
 
     #[test]
     fn registry_maps_keys_aliases_and_adapters() {

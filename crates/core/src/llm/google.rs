@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use super::reasoning_profile::{resolve_reasoning_profile, ReasoningApiStyle};
+use super::model_contract::resolve_model_contract;
+use super::reasoning_profile::ReasoningApiStyle;
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
     configured_request_timeout, next_stream_item_with_idle_timeout, send_stream_start_request,
@@ -1751,34 +1752,38 @@ impl LlmProvider for GeminiProvider {
     }
 
     fn prompt_cache_profile(&self, model: &str) -> super::prompt_cache::PromptCacheProfile {
-        super::prompt_cache::resolve_prompt_cache_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
-            super::prompt_cache::PromptCacheApiStyle::Gemini,
+            ReasoningApiStyle::GeminiGenerateContent,
             model,
         )
+        .cache
+        .clone()
     }
 
     fn reasoning_replay_policy(
         &self,
         model: &str,
     ) -> super::reasoning_profile::ReasoningReplayPolicy {
-        resolve_reasoning_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::GeminiGenerateContent,
             model,
         )
+        .reasoning
         .replay_policy
     }
 
     fn route_snapshot(&self, request: &CompletionRequest) -> super::provider_turn::RouteSnapshot {
-        let profile = resolve_reasoning_profile(
+        let contract = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::GeminiGenerateContent,
             &request.model,
         );
+        let profile = &contract.reasoning;
         let trusted_codec =
             profile.confidence == super::reasoning_profile::CapabilityConfidence::Verified;
         let mut snapshot =

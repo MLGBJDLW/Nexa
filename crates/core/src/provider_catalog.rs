@@ -8,10 +8,14 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::conversation::memory::{ContextWindowAuthority, ResolvedContextWindow};
+#[cfg(test)]
+use crate::conversation::memory::ContextWindowAuthority;
+use crate::conversation::memory::ResolvedContextWindow;
 use crate::llm::ProviderType;
+#[cfg(test)]
+use crate::model_catalog::load_builtin_catalog;
 use crate::model_catalog::{
-    load_builtin_catalog, merge_catalog, resolve_or_derive_endpoint_id, CapabilityProbeResult,
+    builtin_catalog, merge_catalog, resolve_or_derive_endpoint_id, CapabilityProbeResult,
     CatalogMergeInput, DiscoveredModel, ModelCatalogSnapshot, ModelDescriptor, ModelLimits,
     NativeWebSearchCapability, MODEL_DESCRIPTOR_SCHEMA_VERSION,
 };
@@ -222,8 +226,102 @@ pub struct ProviderPreset {
 
 const PROVIDER_PRESETS_JSON: &str = include_str!("../../../shared/provider-presets.json");
 
+/// Immutable built-in data is parsed once. Account discovery and user overrides
+/// are deliberately not stored here: those have their own revision/lifetime.
+pub fn provider_presets() -> Result<&'static [ProviderPreset], &'static serde_json::Error> {
+    static PRESETS: OnceLock<Result<Vec<ProviderPreset>, serde_json::Error>> = OnceLock::new();
+    PRESETS
+        .get_or_init(|| serde_json::from_str(PROVIDER_PRESETS_JSON))
+        .as_deref()
+}
+
+/// Owned export for IPC/configuration consumers. Runtime lookups borrow the
+/// immutable catalog through [`provider_presets`] instead of cloning it.
 pub fn load_provider_presets() -> Result<Vec<ProviderPreset>, serde_json::Error> {
-    serde_json::from_str(PROVIDER_PRESETS_JSON)
+    provider_presets()
+        .map(<[ProviderPreset]>::to_vec)
+        .map_err(|error| {
+            serde_json::Error::io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                error.to_string(),
+            ))
+        })
+}
+
+struct PresetIndex {
+    exact: HashMap<(String, String), usize>,
+    provider_by_endpoint: HashMap<String, Option<String>>,
+    by_id: HashMap<String, usize>,
+    defaults: HashMap<String, usize>,
+}
+
+fn preset_index(presets: &'static [ProviderPreset]) -> &'static PresetIndex {
+    static INDEX: OnceLock<PresetIndex> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        let mut exact = HashMap::new();
+        let mut by_id = HashMap::new();
+        let mut providers = HashMap::<String, Vec<usize>>::new();
+        for (index, preset) in presets.iter().enumerate() {
+            let endpoint = normalize_base_url(Some(&preset.base_url));
+            exact.insert((preset.provider.clone(), endpoint.clone()), index);
+            if preset.provider == "deep_seek" {
+                exact.insert((preset.provider.clone(), format!("{endpoint}/v1")), index);
+            }
+            if preset.id == "moonshot" {
+                exact.insert(
+                    (preset.provider.clone(), "https://api.moonshot.cn/v1".into()),
+                    index,
+                );
+            }
+            by_id.insert(preset.id.clone(), index);
+            providers
+                .entry(preset.provider.clone())
+                .or_default()
+                .push(index);
+        }
+        let compact_key = |key: &str| {
+            key.chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>()
+        };
+        let defaults = providers
+            .into_iter()
+            .filter_map(|(provider, indices)| {
+                let selected = indices
+                    .iter()
+                    .copied()
+                    .find(|index| compact_key(&presets[*index].id) == compact_key(&provider))
+                    .or_else(|| (indices.len() == 1).then_some(indices[0]));
+                selected.map(|index| (provider, index))
+            })
+            .collect();
+        let mut provider_by_endpoint = HashMap::<String, Option<String>>::new();
+        for (provider, endpoint) in exact.keys() {
+            let owner = provider_by_endpoint
+                .entry(endpoint.clone())
+                .or_insert_with(|| Some(provider.clone()));
+            if owner.as_ref().is_some_and(|owner| owner != provider) {
+                *owner = None;
+            }
+        }
+        PresetIndex {
+            exact,
+            provider_by_endpoint,
+            by_id,
+            defaults,
+        }
+    })
+}
+
+/// Public route aliases use the same exact index as preset capability lookup.
+/// Ambiguous endpoint ownership never overrides the saved provider type.
+pub(crate) fn provider_for_preset_endpoint(base_url: Option<&str>) -> Option<&'static str> {
+    let presets = provider_presets().ok()?;
+    preset_index(presets)
+        .provider_by_endpoint
+        .get(&normalize_base_url(base_url))?
+        .as_deref()
 }
 
 fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str> {
@@ -255,45 +353,28 @@ fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str> {
     })
 }
 
-pub fn find_provider_preset(provider: &str, base_url: Option<&str>) -> Option<ProviderPreset> {
-    let presets = load_provider_presets().ok()?;
+pub fn find_provider_preset(
+    provider: &str,
+    base_url: Option<&str>,
+) -> Option<&'static ProviderPreset> {
+    let presets = provider_presets().ok()?;
+    let index = preset_index(presets);
     let provider = provider.trim();
     let normalized_base_url = normalize_base_url(base_url);
-    let lookup_provider = provider;
 
     if !normalized_base_url.is_empty() {
-        if let Some(exact) = presets.iter().find(|preset| {
-            preset.provider == lookup_provider
-                && normalize_base_url(Some(&preset.base_url)) == normalized_base_url
-        }) {
-            return Some(exact.clone());
+        if let Some(position) = index
+            .exact
+            .get(&(provider.to_string(), normalized_base_url.clone()))
+        {
+            return Some(&presets[*position]);
         }
-        // DeepSeek documents both the origin and its OpenAI-compatible `/v1`
-        // path. Treat only that exact path variant as the same trusted
-        // endpoint; arbitrary paths, ports, schemes, and hosts still fail.
-        if lookup_provider == "deep_seek" {
-            if let Some(exact) = presets.iter().find(|preset| {
-                preset.provider == lookup_provider
-                    && format!(
-                        "{}/v1",
-                        normalize_base_url(Some(&preset.base_url)).trim_end_matches('/')
-                    ) == normalized_base_url.trim_end_matches('/')
-            }) {
-                return Some(exact.clone());
-            }
-        }
-        if lookup_provider == "moonshot" && normalized_base_url == "https://api.moonshot.cn/v1" {
-            return presets
-                .iter()
-                .find(|preset| preset.id == "moonshot")
-                .cloned();
-        }
-        if lookup_provider == "alibaba_model_studio" {
+        if provider == "alibaba_model_studio" {
             if let Some(preset_id) = alibaba_workspace_preset_id(&normalized_base_url) {
-                return presets
-                    .iter()
-                    .find(|preset| preset.id == preset_id)
-                    .cloned();
+                return index
+                    .by_id
+                    .get(preset_id)
+                    .map(|position| &presets[*position]);
             }
         }
         // A provider label never authorizes projecting a trusted catalog onto
@@ -301,29 +382,10 @@ pub fn find_provider_preset(provider: &str, base_url: Option<&str>) -> Option<Pr
         return None;
     }
 
-    let mut provider_matches = presets
-        .into_iter()
-        .filter(|preset| preset.provider == lookup_provider)
-        .collect::<Vec<_>>();
-    let compact_provider_key = |value: &str| {
-        value
-            .chars()
-            .filter(|character| character.is_ascii_alphanumeric())
-            .flat_map(char::to_lowercase)
-            .collect::<String>()
-    };
-    let compact_lookup_provider = compact_provider_key(lookup_provider);
-    if let Some(default_index) = provider_matches
-        .iter()
-        .position(|preset| compact_provider_key(&preset.id) == compact_lookup_provider)
-    {
-        return Some(provider_matches.swap_remove(default_index));
-    }
-    if provider_matches.len() == 1 {
-        provider_matches.pop()
-    } else {
-        None
-    }
+    index
+        .defaults
+        .get(provider)
+        .map(|position| &presets[*position])
 }
 
 /// Retirement is an exact endpoint/model fact. A familiar ID on a private
@@ -351,7 +413,7 @@ impl ModelRetirementPolicy {
         if let Some(preset) = find_provider_preset(provider, base_url) {
             for model in preset
                 .models
-                .into_iter()
+                .iter()
                 .filter(|model| model.status == Some(ModelLifecycleStatus::Removed))
             {
                 for id in std::iter::once(&model.id).chain(model.aliases.iter()) {
@@ -377,14 +439,14 @@ impl ModelRetirementPolicy {
 }
 
 /// Find catalog metadata for one exact configured provider route.
-fn find_endpoint_model_preset(
+pub(crate) fn find_endpoint_model_preset(
     provider: &str,
     base_url: Option<&str>,
     model: &str,
-) -> Option<ProviderModelPreset> {
+) -> Option<&'static ProviderModelPreset> {
     let normalized_model = normalize_endpoint_model_id(model);
     find_provider_preset(provider, base_url).and_then(|preset| {
-        preset.models.into_iter().find(|candidate| {
+        preset.models.iter().find(|candidate| {
             std::iter::once(&candidate.id)
                 .chain(candidate.aliases.iter())
                 .any(|id| normalize_endpoint_model_id(id) == normalized_model)
@@ -399,7 +461,12 @@ pub fn endpoint_model_catalog_limits_are_authoritative(
     base_url: Option<&str>,
     model: &str,
 ) -> bool {
-    find_endpoint_model_preset(provider, base_url, model).is_some()
+    crate::llm::model_contract::resolve_configured_model_contract(
+        provider_type_from_key(provider).unwrap_or(ProviderType::Custom),
+        base_url,
+        model,
+    )
+    .catalog_authoritative
 }
 
 /// Resolve the context capacity owned by one configured provider route.
@@ -414,26 +481,12 @@ pub fn resolve_endpoint_model_context_window(
     model: &str,
     context_window_override: Option<u32>,
 ) -> ResolvedContextWindow {
-    let catalog_model = find_endpoint_model_preset(provider, base_url, model);
-    if let Some(capacity_tokens) = context_window_override {
-        return ResolvedContextWindow {
-            capacity_tokens: Some(capacity_tokens),
-            authority: ContextWindowAuthority::UserOverride,
-        };
-    }
-
-    let capacity_tokens = catalog_model
-        .and_then(|model| model.context_tokens)
-        .and_then(|tokens| u32::try_from(tokens).ok());
-
-    ResolvedContextWindow {
-        capacity_tokens,
-        authority: if capacity_tokens.is_some() {
-            ContextWindowAuthority::Catalog
-        } else {
-            ContextWindowAuthority::ProviderManaged
-        },
-    }
+    crate::llm::model_contract::resolve_configured_model_contract(
+        provider_type_from_key(provider).unwrap_or(ProviderType::Custom),
+        base_url,
+        model,
+    )
+    .context_window(context_window_override)
 }
 
 pub fn preset_model_ids(provider: &str, base_url: Option<&str>) -> Vec<String> {
@@ -441,9 +494,9 @@ pub fn preset_model_ids(provider: &str, base_url: Option<&str>) -> Vec<String> {
         .map(|preset| {
             preset
                 .models
-                .into_iter()
+                .iter()
                 .filter(|model| model.status != Some(ModelLifecycleStatus::Removed))
-                .map(|model| model.id)
+                .map(|model| model.id.clone())
                 .collect()
         })
         .unwrap_or_default()
@@ -455,9 +508,12 @@ pub fn endpoint_model_output_limit(
     base_url: Option<&str>,
     model: &str,
 ) -> Option<u32> {
-    find_endpoint_model_preset(provider, base_url, model)
-        .and_then(|model| model.max_output_tokens)
-        .and_then(|tokens| u32::try_from(tokens).ok())
+    crate::llm::model_contract::resolve_configured_model_contract(
+        provider_type_from_key(provider).unwrap_or(ProviderType::Custom),
+        base_url,
+        model,
+    )
+    .max_output_tokens
 }
 
 /// Merge the provider's account-scoped live model list with the curated
@@ -600,7 +656,7 @@ fn build_descriptor_snapshot(
     refreshed_at: &str,
 ) -> ModelCatalogSnapshot {
     let endpoint_id = resolve_or_derive_endpoint_id("text", provider, base_url);
-    let builtin = load_builtin_catalog().ok();
+    let builtin = builtin_catalog().ok();
     let inherited_endpoint_id =
         find_provider_preset(provider, base_url).map(|preset| format!("text:{}", preset.id));
     let curated = builtin
@@ -761,23 +817,20 @@ pub fn model_capabilities_from_catalog(
         return None;
     }
 
-    load_provider_presets()
-        .ok()?
-        .into_iter()
-        .find_map(|preset| {
-            let preset_provider_type = provider_type_from_key(&preset.provider)?;
-            if preset_provider_type != provider_type {
-                return None;
-            }
-            let model_preset = preset
-                .models
-                .iter()
-                .find(|candidate| model_preset_matches_id(candidate, &model))?;
-            Some(merge_capabilities(
-                preset.capabilities.as_ref(),
-                model_preset.capabilities.as_ref(),
-            ))
-        })
+    provider_presets().ok()?.iter().find_map(|preset| {
+        let preset_provider_type = provider_type_from_key(&preset.provider)?;
+        if preset_provider_type != provider_type {
+            return None;
+        }
+        let model_preset = preset
+            .models
+            .iter()
+            .find(|candidate| model_preset_matches_id(candidate, &model))?;
+        Some(merge_capabilities(
+            preset.capabilities.as_ref(),
+            model_preset.capabilities.as_ref(),
+        ))
+    })
 }
 
 pub fn model_limits_from_catalog(provider_type: ProviderType, model: &str) -> Option<ModelLimits> {
@@ -785,33 +838,29 @@ pub fn model_limits_from_catalog(provider_type: ProviderType, model: &str) -> Op
     if normalized_model.is_empty() {
         return None;
     }
-    if let Some(limits) = load_provider_presets()
-        .ok()?
-        .into_iter()
-        .find_map(|preset| {
-            (provider_type_from_key(&preset.provider) == Some(provider_type))
-                .then_some(preset)
-                .and_then(|preset| {
-                    preset
-                        .models
-                        .into_iter()
-                        .find(|candidate| model_preset_matches_id(candidate, &normalized_model))
-                })
-                .and_then(|model| {
-                    (model.context_tokens.is_some() || model.max_output_tokens.is_some()).then_some(
-                        ModelLimits {
-                            context_tokens: model.context_tokens,
-                            max_output_tokens: model.max_output_tokens,
-                            ..ModelLimits::default()
-                        },
-                    )
-                })
-        })
-    {
+    if let Some(limits) = provider_presets().ok()?.iter().find_map(|preset| {
+        (provider_type_from_key(&preset.provider) == Some(provider_type))
+            .then_some(preset)
+            .and_then(|preset| {
+                preset
+                    .models
+                    .iter()
+                    .find(|candidate| model_preset_matches_id(candidate, &normalized_model))
+            })
+            .and_then(|model| {
+                (model.context_tokens.is_some() || model.max_output_tokens.is_some()).then_some(
+                    ModelLimits {
+                        context_tokens: model.context_tokens,
+                        max_output_tokens: model.max_output_tokens,
+                        ..ModelLimits::default()
+                    },
+                )
+            })
+    }) {
         return Some(limits);
     }
-    let catalog = load_builtin_catalog().ok()?;
-    catalog.models.into_iter().find_map(|descriptor| {
+    let catalog = builtin_catalog().ok()?;
+    catalog.models.iter().find_map(|descriptor| {
         let model_matches = normalize_model_id(&descriptor.id) == normalized_model
             || descriptor
                 .aliases
@@ -826,7 +875,7 @@ pub fn model_limits_from_catalog(provider_type: ProviderType, model: &str) -> Op
                     && provider_type_from_key(&endpoint.provider_id) == Some(provider_type)
             })
         });
-        provider_matches.then_some(descriptor.limits)
+        provider_matches.then(|| descriptor.limits.clone())
     })
 }
 
@@ -842,14 +891,14 @@ pub fn model_context_tokens_from_shared_catalog(model: &str) -> Option<u64> {
     SHARED_MODEL_CONTEXT_TOKENS
         .get_or_init(|| {
             let mut context_tokens_by_model = HashMap::<String, u64>::new();
-            let Ok(catalog) = load_builtin_catalog() else {
+            let Ok(catalog) = builtin_catalog() else {
                 return context_tokens_by_model;
             };
-            for descriptor in catalog.models {
+            for descriptor in &catalog.models {
                 let Some(context_tokens) = descriptor.limits.context_tokens else {
                     continue;
                 };
-                for id in std::iter::once(descriptor.id).chain(descriptor.aliases) {
+                for id in std::iter::once(&descriptor.id).chain(&descriptor.aliases) {
                     context_tokens_by_model
                         .entry(normalize_model_id(&id))
                         .or_insert(context_tokens);
@@ -929,6 +978,29 @@ fn normalize_endpoint_model_id(model: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_catalog_lookups_share_storage_and_owned_exports_are_isolated() {
+        let first = provider_presets().unwrap();
+        let second = provider_presets().unwrap();
+        assert!(std::ptr::eq(first, second));
+        let route = find_provider_preset("moonshot", Some("https://api.moonshot.cn/v1")).unwrap();
+        let international =
+            find_provider_preset("moonshot", Some("https://api.moonshot.ai/v1/")).unwrap();
+        assert!(std::ptr::eq(route, international));
+        let mut exported = load_provider_presets().unwrap();
+        exported
+            .iter_mut()
+            .find(|preset| preset.id == "moonshot")
+            .unwrap()
+            .models
+            .clear();
+        assert!(
+            !route.models.is_empty(),
+            "an IPC export cannot mutate runtime capabilities"
+        );
+        assert!(find_provider_preset("moonshot", Some("https://private.example/v1")).is_none());
+    }
 
     #[test]
     fn endpoint_context_resolution_preserves_route_and_user_authority() {

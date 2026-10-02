@@ -12,7 +12,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use super::reasoning_profile::{resolve_reasoning_profile, ReasoningApiStyle};
+use super::model_contract::resolve_model_contract;
+#[cfg(test)]
+use super::reasoning_profile::resolve_reasoning_profile;
+use super::reasoning_profile::ReasoningApiStyle;
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
     configured_request_timeout, next_stream_item_with_idle_timeout, send_stream_start_request,
@@ -1492,18 +1495,15 @@ impl AnthropicProvider {
     ) -> Result<CompletionRequest, CoreError> {
         let mut resolved = request.clone();
         if resolved.max_tokens.is_none() {
-            let provider_key = if self.config.provider_type == super::ProviderType::DeepSeek {
-                "deepseek"
-            } else {
-                "anthropic"
-            };
             // The native API requires max_tokens; use the current catalog for
             // its exact route. Custom gateways retain their own default contract.
-            resolved.max_tokens = crate::provider_catalog::endpoint_model_output_limit(
-                provider_key,
+            resolved.max_tokens = resolve_model_contract(
+                self.config.provider_type,
                 self.config.base_url.as_deref(),
+                ReasoningApiStyle::AnthropicMessages,
                 &request.model,
-            );
+            )
+            .max_output_tokens;
         }
         if !uses_adaptive_thinking(&resolved.model) {
             if let (Some(output), Some(thinking)) = (resolved.max_tokens, resolved.thinking_budget)
@@ -2390,36 +2390,41 @@ impl LlmProvider for AnthropicProvider {
     }
 
     fn prompt_cache_profile(&self, model: &str) -> super::prompt_cache::PromptCacheProfile {
-        super::prompt_cache::resolve_prompt_cache_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
-            super::prompt_cache::PromptCacheApiStyle::AnthropicMessages,
+            ReasoningApiStyle::AnthropicMessages,
             model,
         )
+        .cache
+        .clone()
     }
 
     fn reasoning_replay_policy(
         &self,
         model: &str,
     ) -> super::reasoning_profile::ReasoningReplayPolicy {
-        resolve_reasoning_profile(
+        resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::AnthropicMessages,
             model,
         )
+        .reasoning
         .replay_policy
     }
 
     fn route_snapshot(&self, request: &CompletionRequest) -> super::provider_turn::RouteSnapshot {
-        let profile = resolve_reasoning_profile(
+        let contract = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::AnthropicMessages,
             &request.model,
         );
-        let mut snapshot =
-            super::provider_turn::RouteSnapshot::from_profile_for_request(&profile, request);
+        let mut snapshot = super::provider_turn::RouteSnapshot::from_profile_for_request(
+            &contract.reasoning,
+            request,
+        );
         if !sonnet55::is_model(&request.model)
             && request.reasoning_enabled != Some(true)
             && request.reasoning_effort.is_none()

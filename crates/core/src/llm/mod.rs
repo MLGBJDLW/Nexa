@@ -13,6 +13,7 @@ pub mod anthropic;
 pub mod fallback;
 pub mod google;
 pub mod message_validation;
+pub mod model_contract;
 mod moonshot_schema;
 pub mod native_search;
 pub mod ollama;
@@ -1157,6 +1158,10 @@ fn provider_adapter_for_config(config: &ProviderConfig) -> ProviderAdapterKind {
 /// Create a provider instance from configuration.
 pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider>, CoreError> {
     config.base_url = normalize_base_url(config.base_url);
+    config.provider_type = crate::provider_registry::provider_type_for_parts(
+        crate::provider_registry::canonical_provider_key(config.provider_type),
+        config.base_url.as_deref(),
+    );
     let catalog_provider = config.provider_type;
     let catalog_base_url = config.base_url.clone();
 
