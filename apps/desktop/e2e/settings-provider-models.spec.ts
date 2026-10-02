@@ -2741,7 +2741,10 @@ test('bottom-edge model and provider menus stay inside the viewport and reach th
     const box = await select.boundingBox();
     return Boolean(box && box.y >= 8 && box.y + box.height <= 292);
   }).toBe(true);
+  await expect(select.locator('[role="option"][data-value="openai"]')).toBeFocused();
   await page.keyboard.press('End');
+  // Radix moves keyboard focus in a timeout; Enter must target the settled item.
+  await expect(select.locator('[role="option"][data-value="custom-openai-images"]')).toBeFocused();
   await page.keyboard.press('Enter');
   await expectNexaValue(triggers.first(), 'custom-openai-images');
   await page.screenshot({ path: testInfo.outputPath('bottom-edge-selection.png') });

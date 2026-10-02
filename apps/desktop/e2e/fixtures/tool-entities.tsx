@@ -9,7 +9,7 @@ import type { AgentRunEvent } from '../../src/types/conversation';
 const conversationId = 'entity-probe';
 let sequence = 0;
 function emit(index:number,note:string) {
-  const runEvent: AgentRunEvent = { version:2,runId:'entity-run',turnId:'entity-turn',eventSeq:++sequence,kind:note?'toolProgress':'toolStarted',phase:'execution',visibility:'user',persistence:'durable',displayKind:'tool',importance:'normal',label:'fixture_tool',createdAt:new Date().toISOString(),payload:{run:{callId:`call${index}`,toolName:`fixture_tool_${index}`,status:'running',arguments:'{}',progressNote:note,content:'Retained content',renderKind:'generic',owner:{id:'fixture',name:'Fixture',capability:'test',description:''},capabilities:{inputStreaming:'none',renderKind:'generic',readOnly:true,destructive:false,concurrencySafe:true,interruptBehavior:'cancel',resourceKeys:[]}}} };
+  const runEvent: AgentRunEvent = { version:2,runId:'entity-run',turnId:'entity-turn',eventSeq:++sequence,kind:note?'toolProgress':'toolStarted',phase:'tooling',visibility:'user',persistence:'durable',displayKind:'tool',importance:'normal',label:'fixture_tool',createdAt:new Date().toISOString(),payload:{run:{callId:`call${index}`,toolName:`fixture_tool_${index}`,status:'running',arguments:'{}',progressNote:note,content:'Retained content',renderKind:'generic',owner:{id:'fixture',name:'Fixture',capability:'test',description:''},capabilities:{inputStreaming:'none',renderKind:'generic',readOnly:true,destructive:false,concurrencySafe:true,interruptBehavior:'cancel',resourceKeys:[]}}} };
   streamStore.dispatch(conversationId,{conversationId,runEvent});
 }
 function Probe({index}:{index:number}) {
