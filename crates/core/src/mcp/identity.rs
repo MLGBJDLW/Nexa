@@ -80,14 +80,16 @@ pub fn connector_trust_digest(server: &McpServer) -> String {
         .to_string()
 }
 
-/// Compatibility selector for existing package declarations. This is never
-/// registered, called or used as a permission key.
-pub(crate) fn ownership_selector(server_name: &str, tool_name: &str) -> String {
-    format!(
-        "mcp__{}__{}",
-        registry_slug(server_name, "server"),
-        registry_slug(tool_name, "tool")
-    )
+/// Compatibility selector for existing package declarations. Only host-owned
+/// builtin metadata can select a specialized package. Display labels cannot
+/// claim an owner or remove its gate, and this selector is never callable.
+pub(crate) fn ownership_selector(builtin_id: Option<&str>, tool_name: &str) -> String {
+    let namespace = match builtin_id {
+        Some("computer-use") => "computer_use",
+        Some("windows-computer-use") => "windows_computer_use",
+        _ => "connector",
+    };
+    format!("mcp__{}__{}", namespace, registry_slug(tool_name, "tool"))
 }
 
 pub(crate) fn registry_slug(value: &str, fallback: &str) -> String {

@@ -67,8 +67,12 @@ canonical identity is the stable connector ID plus the exact server tool name.
 Model-facing aliases use `mcp__<tool-label>__<identity-hash>` and are bounded to 63
 ASCII characters. Display names, discovery order, case folding, punctuation and
 another connector's installation cannot redirect a call. Existing package
-ownership declarations are matched through a separate compatibility selector;
-that selector is never an executable name or approval key.
+ownership declarations are matched through a separate compatibility selector
+derived from host-owned built-in connector IDs; that selector is never an
+executable name or approval key. Built-in Computer Use connectors retain both
+their specialized package gate and the MCP host gate after display renames.
+Custom connectors belong to the generic MCP package even when their display
+names resemble a built-in connector.
 
 An approval binds the canonical identity and a digest of the launch, endpoint,
 environment and header configuration. Display renames retain approval identity;

@@ -29,6 +29,7 @@ impl McpTool {
         identity: McpToolIdentity,
         authority_epoch: u64,
         connector_name: &str,
+        builtin_id: Option<&str>,
     ) -> Self {
         let description = match info.description.as_deref() {
             Some(text) if !text.trim().is_empty() => {
@@ -38,10 +39,7 @@ impl McpTool {
         };
         Self {
             registry_name: identity.id.model_alias(),
-            ownership_selector: crate::mcp::identity::ownership_selector(
-                connector_name,
-                &info.name,
-            ),
+            ownership_selector: crate::mcp::identity::ownership_selector(builtin_id, &info.name),
             info,
             identity,
             description,

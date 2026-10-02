@@ -856,6 +856,7 @@ impl McpManager {
                     identity,
                     desired.authority_epoch,
                     &desired.server.name,
+                    desired.server.builtin_id.as_deref(),
                 );
                 if let Err(error) = registry.try_register(Box::new(tool)) {
                     errors.push(error.to_string());

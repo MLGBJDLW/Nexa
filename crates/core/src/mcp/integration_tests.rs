@@ -637,54 +637,180 @@ async fn canonical_approval_grants_follow_connector_and_trust_configuration() {
 }
 
 #[tokio::test]
-async fn canonical_alias_keeps_specialized_package_and_mcp_host_gates() {
+async fn canonical_alias_keeps_specialized_package_and_mcp_host_gates_after_builtin_rename() {
     use crate::package_host::{PackageHealthState, PackageLifecycleState, PackageRuntimeAssembler};
-    let computer = peer("desktop-connector", "Computer Use", &["computer"]).await;
-    let manager = McpManager::new();
-    manager
-        .connect_server(&computer.server, Some(3))
-        .await
-        .unwrap();
-    let mut registry = ToolRegistry::new();
-    manager.register_tools(&mut registry).unwrap();
-    let alias = CanonicalToolId::new(&computer.server.id, "computer").model_alias();
-    assert_eq!(registry.plugin_info(&alias).id, "computer-use-connector");
-    assert_eq!(
-        registry
-            .build_invocation("call", &alias, json!({}))
-            .owner
-            .id,
-        "computer-use-connector"
-    );
-    for computer_enabled in [false, true] {
-        for host_enabled in [false, true] {
-            let db = Database::open_memory().unwrap();
-            for (id, enabled) in [
-                ("computer-use-connector", computer_enabled),
-                ("mcp-connectors", host_enabled),
-            ] {
-                db.upsert_package_host_state(
-                    id,
-                    if enabled {
-                        PackageLifecycleState::Enabled
-                    } else {
-                        PackageLifecycleState::Disabled
-                    },
-                    PackageHealthState::Healthy,
-                )
-                .unwrap();
+    for (builtin_id, display_name) in [
+        ("computer-use", "Computer Use"),
+        ("windows-computer-use", "Windows Computer Use"),
+    ] {
+        let remote = peer(
+            &format!("fixture-{builtin_id}"),
+            display_name,
+            &["computer"],
+        )
+        .await;
+        let db = Database::open_memory().unwrap();
+        let saved = db
+            .save_mcp_server(&SaveMcpServerInput {
+                id: None,
+                name: remote.server.name.clone(),
+                transport: remote.server.transport.clone(),
+                command: None,
+                args: None,
+                url: remote.server.url.clone(),
+                env_json: None,
+                headers_json: None,
+                enabled: true,
+            })
+            .unwrap();
+        // Install the same host-owned metadata as a builtin connector seed.
+        // Public SaveMcpServerInput has no builtin_id field and cannot claim it.
+        db.conn()
+            .execute(
+                "UPDATE mcp_servers SET builtin_id = ?1 WHERE id = ?2",
+                rusqlite::params![builtin_id, saved.id],
+            )
+            .unwrap();
+        let original = db.get_mcp_server(&saved.id).unwrap();
+        let manager = McpManager::new();
+        manager
+            .sync_server_from_database(&db, &saved.id, Some(3))
+            .await
+            .unwrap();
+        let mut registry = ToolRegistry::new();
+        manager.register_tools(&mut registry).unwrap();
+        let alias = CanonicalToolId::new(&saved.id, "computer").model_alias();
+        let original_invocation = registry.build_invocation("before", &alias, json!({}));
+        let original_permission = ToolPermissionKey::from_invocation(&original_invocation);
+        assert_eq!(original_invocation.owner.id, "computer-use-connector");
+
+        // Exercise the actual rename save flow, not a hand-edited in-memory
+        // server. Neither package owner nor a session grant may follow a label.
+        let renamed = db
+            .save_mcp_server(&SaveMcpServerInput {
+                id: Some(saved.id.clone()),
+                name: "Presentation label only".into(),
+                transport: original.transport.clone(),
+                command: original.command.clone(),
+                args: original.args.clone(),
+                url: original.url.clone(),
+                env_json: original.env_json.clone(),
+                headers_json: original.headers_json.clone(),
+                enabled: true,
+            })
+            .unwrap();
+        assert_eq!(
+            renamed.builtin_id.as_deref(),
+            Some(builtin_id),
+            "saving a name must preserve the authoritative builtin binding"
+        );
+        assert_eq!(renamed.transport, original.transport);
+        assert_eq!(renamed.command, original.command);
+        manager
+            .sync_server_from_database(&db, &renamed.id, Some(3))
+            .await
+            .unwrap();
+        let mut renamed_registry = ToolRegistry::new();
+        manager.register_tools(&mut renamed_registry).unwrap();
+        assert!(renamed_registry.contains(&alias));
+        assert_eq!(
+            renamed_registry.plugin_info(&alias).id,
+            "computer-use-connector"
+        );
+        let renamed_invocation = renamed_registry.build_invocation("after", &alias, json!({}));
+        assert_eq!(renamed_invocation.owner.id, "computer-use-connector");
+        let renamed_permission = ToolPermissionKey::from_invocation(&renamed_invocation);
+        assert_eq!(renamed_permission, original_permission);
+        let session = SessionApprovalStore::default();
+        session.set(
+            &original_permission.permission_key(),
+            ApprovalDecision::AllowSession,
+        );
+        assert_eq!(
+            session.resolve(&renamed_permission),
+            Some(ApprovalDecision::AllowSession)
+        );
+
+        for computer_enabled in [false, true] {
+            for host_enabled in [false, true] {
+                for (id, enabled) in [
+                    ("computer-use-connector", computer_enabled),
+                    ("mcp-connectors", host_enabled),
+                ] {
+                    db.upsert_package_host_state(
+                        id,
+                        if enabled {
+                            PackageLifecycleState::Enabled
+                        } else {
+                            PackageLifecycleState::Disabled
+                        },
+                        PackageHealthState::Healthy,
+                    )
+                    .unwrap();
+                }
+                let runtime = PackageRuntimeAssembler::database_builtin(&db)
+                    .unwrap()
+                    .assemble_tool_registry(renamed_registry.clone())
+                    .unwrap();
+                assert_eq!(
+                    runtime.tools.contains(&alias),
+                    computer_enabled && host_enabled,
+                    "renamed builtin {builtin_id} must retain both package gates"
+                );
             }
-            let runtime = PackageRuntimeAssembler::database_builtin(&db)
-                .unwrap()
-                .assemble_tool_registry(registry.clone())
-                .unwrap();
-            assert_eq!(
-                runtime.tools.contains(&alias),
-                computer_enabled && host_enabled
-            );
         }
+        manager.shutdown().await;
     }
-    manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn custom_connector_display_names_cannot_claim_a_builtin_package_owner() {
+    use crate::package_host::{PackageHealthState, PackageLifecycleState, PackageRuntimeAssembler};
+    for (index, name) in ["Computer Use", "Windows Computer Use"]
+        .into_iter()
+        .enumerate()
+    {
+        let remote = peer(&format!("custom-{index}"), name, &["computer"]).await;
+        assert!(remote.server.builtin_id.is_none());
+        let manager = McpManager::new();
+        manager
+            .connect_server(&remote.server, Some(3))
+            .await
+            .unwrap();
+        let mut registry = ToolRegistry::new();
+        manager.register_tools(&mut registry).unwrap();
+        let alias = CanonicalToolId::new(&remote.server.id, "computer").model_alias();
+        assert_eq!(registry.plugin_info(&alias).id, "mcp-connectors");
+        assert_eq!(
+            registry
+                .build_invocation("custom", &alias, json!({}))
+                .owner
+                .id,
+            "mcp-connectors"
+        );
+        let db = Database::open_memory().unwrap();
+        db.upsert_package_host_state(
+            "computer-use-connector",
+            PackageLifecycleState::Disabled,
+            PackageHealthState::Healthy,
+        )
+        .unwrap();
+        db.upsert_package_host_state(
+            "mcp-connectors",
+            PackageLifecycleState::Enabled,
+            PackageHealthState::Healthy,
+        )
+        .unwrap();
+        let runtime = PackageRuntimeAssembler::database_builtin(&db)
+            .unwrap()
+            .assemble_tool_registry(registry)
+            .unwrap();
+        assert!(
+            runtime.tools.contains(&alias),
+            "a custom connector belongs to the generic MCP package regardless of display label"
+        );
+        manager.shutdown().await;
+    }
 }
 
 fn catalog_tool(name: &str) -> Value {
