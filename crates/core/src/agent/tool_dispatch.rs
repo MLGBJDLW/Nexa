@@ -322,14 +322,14 @@ fn visual_context_message(
             data: data.to_string(),
         });
     }
-    (parts.len() > 1).then_some(Message {
+    (parts.len() > 1).then_some(Message::from(crate::llm::MessageData {
         role: Role::User,
         parts,
         name: None,
         tool_calls: None,
         reasoning_content: None,
         prompt_cache_hint: None,
-    })
+    }))
 }
 
 fn tool_visual_observation_message(tool_name: &str, observation: ToolVisualObservation) -> Message {
@@ -396,19 +396,19 @@ fn append_provider_safe_tool_round_context(
     messages.extend(tool_results);
     let mut visual_parts = visual_context
         .into_iter()
-        .flat_map(|message| message.parts)
+        .flat_map(|message| message.into_data().parts)
         .collect::<Vec<_>>();
     if visual_parts.is_empty() {
         return;
     }
-    messages.push(Message {
+    messages.push(Message::from(crate::llm::MessageData {
         role: Role::User,
         parts: std::mem::take(&mut visual_parts),
         name: None,
         tool_calls: None,
         reasoning_content: None,
         prompt_cache_hint: None,
-    });
+    }));
 }
 
 pub(super) struct ToolDispatchContext<'a> {

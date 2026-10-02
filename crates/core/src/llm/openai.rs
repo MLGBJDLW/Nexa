@@ -3486,7 +3486,7 @@ mod tests {
         request.reasoning_effort = Some(ReasoningEffort::High);
         request.thinking_budget = Some(2048);
         request.max_tokens = Some(65536);
-        request.messages = vec![Message {
+        request.messages = vec![Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "Checking a file".into(),
@@ -3500,7 +3500,7 @@ mod tests {
                 arguments: "{\"path\":\"README.md\"}".into(),
                 thought_signature: None,
             }]),
-        }];
+        })];
         let body = serde_json::to_value(build_request_body_with_config(
             &request,
             true,
@@ -4823,7 +4823,7 @@ data: [DONE]
 
     #[test]
     fn direct_reasoning_history_uses_each_providers_documented_content_shape() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "final answer".to_string(),
@@ -4832,7 +4832,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("work it out".to_string()),
             prompt_cache_hint: None,
-        };
+        });
 
         let minimax_request = CompletionRequest {
             messages: vec![assistant.clone()],
@@ -5981,7 +5981,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_thinking_history_replays_reasoning_content() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "answer".to_string(),
@@ -5990,7 +5990,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("prior reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "deepseek-v4-pro".to_string(),
             messages: vec![Message::text(Role::User, "hello"), assistant],
@@ -6014,7 +6014,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_thinking_history_replays_reasoning_content_with_tool_calls() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6026,7 +6026,7 @@ data: [DONE]
             }]),
             reasoning_content: Some("Need to check whether python-docx is installed.".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let mut tool = Message::text(Role::Tool, "python-docx 1.2.0");
         tool.name = Some("call_1".to_string());
         let request = CompletionRequest {
@@ -6067,7 +6067,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_thinking_history_never_synthesizes_legacy_reasoning() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6079,7 +6079,7 @@ data: [DONE]
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let mut tool = Message::text(Role::Tool, "ok");
         tool.name = Some("call_legacy".to_string());
         let request = CompletionRequest {
@@ -6106,7 +6106,7 @@ data: [DONE]
 
     #[test]
     fn deepseek_disabled_thinking_omits_reasoning_content() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "answer".to_string(),
@@ -6115,7 +6115,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("prior reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "deepseek-v4-pro".to_string(),
             messages: vec![Message::text(Role::User, "hello"), assistant],
@@ -6194,7 +6194,7 @@ data: [DONE]
 
     #[test]
     fn glm53_trusted_routes_gate_wire_extras_and_preserve_thinking() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text {
                 text: "answer".to_string(),
@@ -6203,7 +6203,7 @@ data: [DONE]
             tool_calls: None,
             reasoning_content: Some("full prior reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
         let request_for = |provider_type: ProviderType, model: &str| CompletionRequest {
             model: model.to_string(),
             messages: vec![Message::text(Role::User, "hello"), assistant.clone()],
@@ -6547,7 +6547,7 @@ data: [DONE]
 
     #[test]
     fn qwen_history_tool_arguments_are_sent_as_json_objects() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6559,7 +6559,7 @@ data: [DONE]
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "qwen3-coder".to_string(),
             messages: vec![assistant],
@@ -6692,7 +6692,7 @@ data: [DONE]
 
     #[test]
     fn qwen_thinking_replays_real_reasoning_content_without_placeholder() {
-        let assistant_with_reasoning = Message {
+        let assistant_with_reasoning = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -6704,15 +6704,15 @@ data: [DONE]
             }]),
             reasoning_content: Some("need lookup".to_string()),
             prompt_cache_hint: None,
-        };
-        let assistant_without_reasoning = Message {
+        });
+        let assistant_without_reasoning = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
             tool_calls: None,
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "qwen3.6-plus".to_string(),
             messages: vec![assistant_with_reasoning, assistant_without_reasoning],
@@ -7274,7 +7274,7 @@ data: [DONE]
 
     #[test]
     fn invalid_history_tool_arguments_are_replaced_before_replay() {
-        let assistant = Message {
+        let assistant = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -7286,7 +7286,7 @@ data: [DONE]
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let request = CompletionRequest {
             model: "qwen3-coder".to_string(),
             messages: vec![assistant],

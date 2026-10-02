@@ -232,7 +232,7 @@ fn submit_terminal_agent_error(
 
 /// State for the MCP server manager.
 pub struct McpManagerState {
-    pub manager: Arc<TokioMutex<nexa_core::mcp::McpManager>>,
+    pub manager: Arc<nexa_core::mcp::McpManager>,
 }
 
 /// State for tracking active model download cancellation.
@@ -287,12 +287,12 @@ pub(crate) fn filter_desktop_workflow_templates_by_package_host(
 
 async fn sync_enabled_mcp_servers(
     db: &Database,
-    manager: &mut nexa_core::mcp::McpManager,
+    manager: &nexa_core::mcp::McpManager,
 ) -> Result<HashMap<String, String>, String> {
-    let enabled_servers = db.get_enabled_mcp_servers().map_err(|e| e.to_string())?;
-    Ok(manager
-        .sync_servers(&enabled_servers, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
-        .await)
+    manager
+        .sync_from_database(db, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// State for the file watcher.
@@ -797,14 +797,14 @@ mod tests {
             arguments: r#"{"query":"rust"}"#.to_string(),
             thought_signature: None,
         }]);
-        let reasoning_only = Message {
+        let reasoning_only = Message::from(nexa_core::llm::MessageData {
             role: Role::Assistant,
             parts: Vec::new(),
             name: None,
             tool_calls: None,
             reasoning_content: Some("private reasoning".to_string()),
             prompt_cache_hint: None,
-        };
+        });
 
         let sanitized = sanitize_tool_call_history(
             vec![

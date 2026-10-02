@@ -231,14 +231,14 @@ impl AgentExecutor {
 
         let draft_reasoning =
             self.reasoning_content_for_iteration(capture.iteration_thinking, false);
-        let mut draft_message = Message {
+        let mut draft_message = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![ContentPart::Text { text: full_content }],
             name: None,
             tool_calls: None,
             reasoning_content: draft_reasoning.clone(),
             prompt_cache_hint: None,
-        };
+        });
         let mut draft_envelope = crate::llm::provider_turn::ProviderTurnEnvelope::capture(
             Uuid::new_v4().to_string(),
             capture.accepted.sample_id.clone(),

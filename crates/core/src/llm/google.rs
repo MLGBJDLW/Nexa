@@ -2274,7 +2274,7 @@ mod tests {
     #[test]
     fn test_convert_messages_maps_tool_call_id_to_function_name() {
         let messages = vec![
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2286,7 +2286,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"ok":true}"#, "call_0"),
         ];
 
@@ -2329,7 +2329,7 @@ mod tests {
     #[test]
     fn test_convert_messages_wraps_non_object_tool_result() {
         let messages = vec![
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2341,7 +2341,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, "plain text result", "call_0"),
         ];
 
@@ -2617,7 +2617,7 @@ mod tests {
     #[test]
     fn test_convert_messages_preserves_function_call_ids() {
         let messages = vec![
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2629,7 +2629,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"content":"ok"}"#, "fc_123"),
         ];
 
@@ -2705,7 +2705,7 @@ mod tests {
         let messages = vec![
             Message::text(Role::User, "Please investigate"),
             Message::text(Role::Assistant, "I will inspect this."),
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2717,7 +2717,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"content":"ok"}"#, "call_1"),
         ];
 
@@ -2749,7 +2749,7 @@ mod tests {
     fn test_convert_messages_keeps_parallel_calls_and_responses_paired() {
         let messages = vec![
             Message::text(Role::User, "Inspect both files"),
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![],
                 name: None,
@@ -2769,7 +2769,7 @@ mod tests {
                 ]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, r#"{"content":"a"}"#, "call_a"),
             Message::text_with_name(Role::Tool, r#"{"content":"b"}"#, "call_b"),
         ];

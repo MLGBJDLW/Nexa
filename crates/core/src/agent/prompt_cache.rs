@@ -1046,21 +1046,23 @@ mod tests {
 
     #[test]
     fn snapshot_hash_detects_image_content_changes() {
-        let message_with_image = |data: &str| Message {
-            role: Role::User,
-            parts: vec![
-                ContentPart::Text {
-                    text: "inspect this image".to_string(),
-                },
-                ContentPart::Image {
-                    media_type: "image/png".to_string(),
-                    data: data.to_string(),
-                },
-            ],
-            name: None,
-            tool_calls: None,
-            reasoning_content: None,
-            prompt_cache_hint: None,
+        let message_with_image = |data: &str| {
+            Message::from(crate::llm::MessageData {
+                role: Role::User,
+                parts: vec![
+                    ContentPart::Text {
+                        text: "inspect this image".to_string(),
+                    },
+                    ContentPart::Image {
+                        media_type: "image/png".to_string(),
+                        data: data.to_string(),
+                    },
+                ],
+                name: None,
+                tool_calls: None,
+                reasoning_content: None,
+                prompt_cache_hint: None,
+            })
         };
         let previous = snapshot_for(None, "m", &[message_with_image("first-image")], &[]);
         let next = snapshot_for(None, "m", &[message_with_image("second-image")], &[]);

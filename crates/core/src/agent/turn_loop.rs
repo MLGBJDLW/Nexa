@@ -50,7 +50,7 @@ fn capture_recovery_assistant_message(ctx: RecoveryAssistantMessageContext<'_>) 
         reasoning_was_requested,
         provider_replay,
     } = ctx;
-    let mut message = Message {
+    let mut message = Message::from(crate::llm::MessageData {
         role: Role::Assistant,
         parts: vec![ContentPart::Text {
             text: full_content.to_string(),
@@ -59,7 +59,7 @@ fn capture_recovery_assistant_message(ctx: RecoveryAssistantMessageContext<'_>) 
         tool_calls: None,
         reasoning_content: recovery_reasoning.clone(),
         prompt_cache_hint: None,
-    };
+    });
     message.set_provider_turn(
         crate::llm::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
             Uuid::new_v4().to_string(),
@@ -1177,7 +1177,7 @@ impl AgentExecutor {
                             "Workflow IR produced an invalid synthetic tool call".to_string(),
                         )
                     })?;
-                let mut synthetic_assistant = Message {
+                let mut synthetic_assistant = Message::from(crate::llm::MessageData {
                     role: Role::Assistant,
                     parts: vec![ContentPart::Text {
                         text: "Nexus is starting the independent reconnaissance wave compiled by Workflow IR."
@@ -1187,7 +1187,7 @@ impl AgentExecutor {
                     tool_calls: Some(vec![call.clone()]),
                     reasoning_content: None,
                     prompt_cache_hint: None,
-                };
+                });
                 let synthetic_route = crate::llm::provider_turn::RouteSnapshot::unknown(
                     "nexaController",
                     model,
@@ -2312,7 +2312,7 @@ impl AgentExecutor {
             // -- 4c. Build assistant message -----------------------------------
             let assistant_reasoning_content =
                 self.reasoning_content_for_iteration(&iteration_thinking, !tool_calls.is_empty());
-            let mut assistant_msg = Message {
+            let mut assistant_msg = Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![ContentPart::Text { text: full_content }],
                 name: None,
@@ -2323,7 +2323,7 @@ impl AgentExecutor {
                 },
                 reasoning_content: assistant_reasoning_content.clone(),
                 prompt_cache_hint: None,
-            };
+            });
             let provider_turn_envelope =
                 crate::llm::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
                     Uuid::new_v4().to_string(),

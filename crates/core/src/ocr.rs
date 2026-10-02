@@ -850,7 +850,7 @@ pub async fn extract_text_via_llm_vision_with_llm_provider_type(
 
     let (b64, media) = prepare_image_for_llm(image_bytes, mime_type)?;
 
-    let messages = vec![Message {
+    let messages = vec![Message::from(crate::llm::MessageData {
         role: Role::User,
         parts: vec![
             ContentPart::Text {
@@ -868,7 +868,7 @@ pub async fn extract_text_via_llm_vision_with_llm_provider_type(
         tool_calls: None,
         reasoning_content: None,
         prompt_cache_hint: None,
-    }];
+    })];
 
     let request = CompletionRequest {
         model: String::new(),

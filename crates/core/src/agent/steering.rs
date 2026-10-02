@@ -166,14 +166,14 @@ impl AgentExecutor {
                     }
                 }
             }
-            messages.push(Message {
+            messages.push(Message::from(crate::llm::MessageData {
                 role: Role::User,
                 parts,
                 name: None,
                 tool_calls: None,
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            });
+            }));
             steering_texts.push(text);
         }
 

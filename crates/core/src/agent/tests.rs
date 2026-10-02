@@ -7124,7 +7124,7 @@ async fn test_runtime_tail_is_ephemeral_between_turns() {
     .into_iter()
     .map(|message| {
         let text = message.text_content();
-        (message.role, text)
+        (message.role.clone(), text)
     })
     .collect::<Vec<_>>();
 
@@ -7568,7 +7568,7 @@ async fn test_exact_prefix_tool_loop_control_state_is_not_persisted_or_replayed(
     .into_iter()
     .map(|message| {
         let text = message.text_content();
-        (message.role, text)
+        (message.role.clone(), text)
     })
     .collect::<Vec<_>>();
 
@@ -7950,7 +7950,7 @@ async fn test_loop_guard_change_strategy_keeps_control_state_ephemeral() {
     .into_iter()
     .map(|message| {
         let text = message.text_content();
-        (message.role, text)
+        (message.role.clone(), text)
     })
     .collect::<Vec<_>>();
 

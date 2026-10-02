@@ -184,14 +184,14 @@ pub fn prepare_messages_with_options(
             .chain(options.volatile_system_sections.iter().copied())
             .chain(std::iter::once(volatile_skills_section.as_str())),
     );
-    let current_user = Message {
+    let current_user = Message::from(crate::llm::MessageData {
         role: Role::User,
         parts: user_parts.to_vec(),
         name: None,
         tool_calls: None,
         reasoning_content: None,
         prompt_cache_hint: None,
-    };
+    });
     let prompt = AgentPrompt {
         policy: PromptBlock::new(PromptLayer::Policy, stable_system_prompt)
             .into_iter()

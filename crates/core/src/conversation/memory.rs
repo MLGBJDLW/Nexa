@@ -690,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_estimate_message_tokens_with_tool_calls() {
-        let msg = Message {
+        let msg = Message::from(crate::llm::MessageData {
             role: Role::Assistant,
             parts: vec![],
             name: None,
@@ -702,7 +702,7 @@ mod tests {
             }]),
             reasoning_content: None,
             prompt_cache_hint: None,
-        };
+        });
         let tokens = estimate_message_tokens(&msg);
         assert!(tokens > 10, "Tool calls should contribute to token count");
     }
@@ -1009,7 +1009,7 @@ mod tests {
         let messages = vec![
             msg(Role::System, "You are helpful."),
             msg(Role::User, "first question"),
-            Message {
+            Message::from(crate::llm::MessageData {
                 role: Role::Assistant,
                 parts: vec![ContentPart::Text {
                     text: "Let me search.".to_string(),
@@ -1023,7 +1023,7 @@ mod tests {
                 }]),
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            },
+            }),
             Message::text_with_name(Role::Tool, "Result: found something", "tc1"),
             msg(Role::Assistant, "Based on the search, here is the answer."),
             msg(Role::User, "second question"),
@@ -1048,18 +1048,20 @@ mod tests {
 
     #[test]
     fn test_trim_never_splits_a_multi_tool_replay_chain() {
-        let tool_call = |id: &str| Message {
-            role: Role::Assistant,
-            parts: vec![],
-            name: None,
-            tool_calls: Some(vec![ToolCallRequest {
-                id: id.to_string(),
-                name: "lookup".to_string(),
-                arguments: "{}".to_string(),
-                thought_signature: None,
-            }]),
-            reasoning_content: Some(format!("reasoning for {id}")),
-            prompt_cache_hint: None,
+        let tool_call = |id: &str| {
+            Message::from(crate::llm::MessageData {
+                role: Role::Assistant,
+                parts: vec![],
+                name: None,
+                tool_calls: Some(vec![ToolCallRequest {
+                    id: id.to_string(),
+                    name: "lookup".to_string(),
+                    arguments: "{}".to_string(),
+                    thought_signature: None,
+                }]),
+                reasoning_content: Some(format!("reasoning for {id}")),
+                prompt_cache_hint: None,
+            })
         };
         let messages = vec![
             msg(Role::System, "policy"),

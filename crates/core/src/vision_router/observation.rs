@@ -269,7 +269,7 @@ async fn run_vision(
         attempted_routes_local &= vision.local;
         let request = CompletionRequest {
             model: vision.model_id.to_string(),
-            messages: vec![Message {
+            messages: vec![Message::from(crate::llm::MessageData {
                 role: Role::User,
                 parts: vec![
                     ContentPart::Text {
@@ -284,7 +284,7 @@ async fn run_vision(
                 tool_calls: None,
                 reasoning_content: None,
                 prompt_cache_hint: None,
-            }],
+            })],
             temperature: Some(0.0),
             max_tokens: None,
             tools: None,
