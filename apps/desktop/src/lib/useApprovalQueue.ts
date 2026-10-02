@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { useAgentStream } from './useAgentStream';
+import { useCallback, useSyncExternalStore } from 'react';
+import { attentionInbox } from './attentionInbox';
 import type { ApprovalRequest, ApprovalDecisionValue } from '../types';
 
 /**
@@ -11,7 +11,8 @@ import type { ApprovalRequest, ApprovalDecisionValue } from '../types';
  * queue via the normal event dispatch path.
  */
 export function useApprovalQueue(conversationId: string) {
-  const { pendingApprovals } = useAgentStream(conversationId);
+  const snapshot = useCallback(() => attentionInbox.getApprovals(conversationId), [conversationId]);
+  const pendingApprovals = useSyncExternalStore(attentionInbox.subscribe, snapshot, snapshot);
   const current: ApprovalRequest | null = pendingApprovals[0] ?? null;
 
   const onResolved = useCallback(

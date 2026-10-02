@@ -611,23 +611,6 @@ export function ChatPage() {
     interactionStore.replaceRequests(null, requests);
   }, []);
 
-  useEffect(() => {
-    let disposed = false;
-    const refresh = async () => {
-      try {
-        const requests = await api.listInteractionRequests(null, false);
-        if (!disposed) interactionStore.replaceRequests(null, requests);
-      } catch {
-        // The durable task/run projection remains available while the host is reconnecting.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 15_000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [chat.taskRun?.status, chat.taskRun?.updatedAt]);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [autoSpeechSaving, setAutoSpeechSaving] = useState(false);
   const { state: speechPlaybackState, speakMessage, stop: stopSpeech } = useSpeechPlayback();

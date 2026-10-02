@@ -694,8 +694,8 @@
   "companionSucceeded": "任务已成功",
   "companionFailed": "任务失败",
   "companionCancelled": "任务已取消",
-  "companionSleeping": "Companion 正在睡觉"
-,"compactUnavailable": "此会话暂不支持手动压缩上下文。",
+  "companionSleeping": "Companion 正在睡觉",
+  "compactUnavailable": "此会话暂不支持手动压缩上下文。",
   "turnChangesTitle": "已更改 {count} 个文件",
   "turnChangesPartial": "文件变化未完整跟踪",
   "turnChangesCoverage": "统计覆盖已记录的原生文件修改。Shell 命令、其他来源的修改或不可用内容可能造成遗漏；未知行数未计入总数。",
@@ -787,5 +787,14 @@
   "slashCommand.nexus.description": "切换 Nexus，或使用 /nexus on|off。首次启用会显示说明。",
   "slashCommand.moa.description": "选择多模型协作，或使用 /moa on|off|fast-review|deep-research|cross-model-code-review|custom。",
   "slashCommand.quality.description": "选择质量档位，或使用 /quality balanced|deep|code-ultra|research-ultra|custom。",
-  "commandUnavailable": "当前会话暂时无法使用此命令。"
+  "commandUnavailable": "当前会话暂时无法使用此命令。",
+  "attentionTitle": "待你处理",
+  "attentionCount": "待你处理（{count}）",
+  "attentionEmpty": "暂无需要你处理的事项。",
+  "attentionApproval": "等待批准",
+  "attentionQuestion": "等待你的答复",
+  "approvalExpiresIn": "请在 {seconds} 秒内处理",
+  "approvalExpired": "此请求已过期，正在等待任务更新。",
+  "approvalSubmitFailed": "未能发送决定，请重试。",
+  "approvalSubmitting": "正在发送决定…"
 }

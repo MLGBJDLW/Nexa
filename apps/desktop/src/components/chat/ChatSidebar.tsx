@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -33,7 +33,7 @@ import * as api from '../../lib/api';
 import { ProjectIcon } from '../../lib/projectIcons';
 import { undoableAction } from '../../lib/undoToast';
 import { formatUserError } from '../../lib/userError';
-import { interactionStore } from '../../lib/interactionStore';
+import { useAttentionInbox } from '../../lib/useAttentionInbox';
 
 import type { Conversation } from '../../types/conversation';
 
@@ -160,6 +160,7 @@ function ConversationItem({
   isActive,
   isRunning,
   hasPendingQuestion,
+  hasPendingApproval,
   isPinned,
   isSelectMode,
   isSelected,
@@ -177,6 +178,7 @@ function ConversationItem({
   isActive: boolean;
   isRunning: boolean;
   hasPendingQuestion: boolean;
+  hasPendingApproval: boolean;
   isPinned: boolean;
   isSelectMode: boolean;
   isSelected: boolean;
@@ -306,18 +308,18 @@ function ConversationItem({
             )}
           </span>
 
-          {hasPendingQuestion && !isSelectMode && (
+          {(hasPendingQuestion || hasPendingApproval) && !isSelectMode && (
             <span
-              data-testid={`conversation-question-${conv.id}`}
+              data-testid={`conversation-${hasPendingApproval ? 'approval' : 'question'}-${conv.id}`}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-accent/12 text-accent"
-              title={t('chat.decisionTrayWaiting')}
-              aria-label={t('chat.decisionTrayWaiting')}
+              title={t(hasPendingApproval ? 'chat.attentionApproval' : 'chat.decisionTrayWaiting')}
+              aria-label={t(hasPendingApproval ? 'chat.attentionApproval' : 'chat.decisionTrayWaiting')}
             >
               <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
             </span>
           )}
 
-          {isRunning && !hasPendingQuestion && !isSelectMode && (
+          {isRunning && !hasPendingQuestion && !hasPendingApproval && !isSelectMode && (
             <span
               data-testid={`conversation-running-${conv.id}`}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent"
@@ -457,14 +459,14 @@ function ChatSidebarComponent({
   onConversationMoved,
 }: ChatSidebarProps) {
   const { t } = useTranslation();
-  const interactionState = useSyncExternalStore(
-    interactionStore.subscribe,
-    interactionStore.getState,
-    interactionStore.getState,
-  );
+  const attentionItems = useAttentionInbox();
   const pendingQuestionConversationIds = useMemo(
-    () => new Set(interactionStore.queue().map((request) => request.conversationId)),
-    [interactionState],
+    () => new Set(attentionItems.filter(item => item.kind === 'interaction').map(item => item.conversationId)),
+    [attentionItems],
+  );
+  const pendingApprovalConversationIds = useMemo(
+    () => new Set(attentionItems.filter(item => item.kind === 'approval').map(item => item.conversationId)),
+    [attentionItems],
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(getPinnedIds);
@@ -1023,6 +1025,7 @@ function ChatSidebarComponent({
                         isActive={conv.id === activeId}
                         isRunning={runningConversationIds.has(conv.id)}
                         hasPendingQuestion={pendingQuestionConversationIds.has(conv.id)}
+                        hasPendingApproval={pendingApprovalConversationIds.has(conv.id)}
                         isPinned={pinnedIds.has(conv.id)}
                         isSelectMode={selectMode}
                         isSelected={selectedIds.has(conv.id)}

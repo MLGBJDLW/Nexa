@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "目前對話輪次無法保留。",
   "connectionNextAction": "請檢查模型服務設定，待連線恢復後重新傳送。",
   "toolInputRedacted": "[已隱藏敏感資訊]",
-  "toolInputInvalid": "[無法解析的參數已隱藏]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[無法解析的參數已隱藏]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "Companion 正在休息",
   "companionThinking": "正在思考",
   "companionSearching": "正在搜尋網路",
@@ -694,8 +694,8 @@
   "companionSucceeded": "任務已成功",
   "companionFailed": "任務失敗",
   "companionCancelled": "任務已取消",
-  "companionSleeping": "Companion 正在睡覺"
-,"compactUnavailable": "此對話暫不支援手動壓縮上下文。",
+  "companionSleeping": "Companion 正在睡覺",
+  "compactUnavailable": "此對話暫不支援手動壓縮上下文。",
   "turnChangesTitle": "已變更 {count} 個檔案",
   "turnChangesPartial": "檔案變化未完整追蹤",
   "turnChangesCoverage": "統計涵蓋已記錄的原生檔案修改。Shell 指令、其他來源的修改或無法使用的內容可能造成遺漏；未知行數未計入總數。",
@@ -787,5 +787,14 @@
   "slashCommand.nexus.description": "切換 Nexus，或使用 /nexus on|off。首次啟用會顯示說明。",
   "slashCommand.moa.description": "選擇多模型協作，或使用 /moa on|off|fast-review|deep-research|cross-model-code-review|custom。",
   "slashCommand.quality.description": "選擇品質設定，或使用 /quality balanced|deep|code-ultra|research-ultra|custom。",
-  "commandUnavailable": "目前對話暫時無法使用此命令。"
+  "commandUnavailable": "目前對話暫時無法使用此命令。",
+  "attentionTitle": "待你處理",
+  "attentionCount": "待你處理（{count}）",
+  "attentionEmpty": "暫無需要你處理的事項。",
+  "attentionApproval": "等待核准",
+  "attentionQuestion": "等待你的答覆",
+  "approvalExpiresIn": "請在 {seconds} 秒內處理",
+  "approvalExpired": "此請求已過期，正在等待任務更新。",
+  "approvalSubmitFailed": "無法傳送決定，請重試。",
+  "approvalSubmitting": "正在傳送決定…"
 }

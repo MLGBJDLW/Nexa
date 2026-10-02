@@ -1266,6 +1266,7 @@ fn main() {
             commands::suggest_explorations_cmd,
             // Tool approval
             commands::approve_tool_call_cmd,
+            commands::list_pending_tool_approvals_cmd,
             commands::list_tool_permission_policies_cmd,
             commands::delete_tool_permission_policy_cmd,
             commands::clear_tool_permission_policies_cmd,

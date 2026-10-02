@@ -2728,6 +2728,9 @@ import type { ApprovalDecisionValue, ToolPermissionPolicyList } from '../types';
 export const approveToolCall = (requestId: string, decision: ApprovalDecisionValue) =>
   invoke<void>('approve_tool_call_cmd', { requestId, decision });
 
+export const listPendingToolApprovals = () =>
+  invoke<import('./attentionInbox').PendingApprovalSnapshot[]>('list_pending_tool_approvals_cmd');
+
 export const listToolPermissionPolicies = () =>
   invoke<ToolPermissionPolicyList>('list_tool_permission_policies_cmd');
 

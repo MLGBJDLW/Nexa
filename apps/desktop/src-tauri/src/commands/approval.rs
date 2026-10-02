@@ -1,5 +1,47 @@
 use super::*;
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingToolApprovalSnapshot {
+    conversation_id: String,
+    run_id: String,
+    request: nexa_core::approval::ApprovalRequest,
+}
+
+/// Recover pending prompts after a WebView reconnect without replaying every run.
+/// The live responder map remains authoritative; this is a disclosure-safe view.
+#[tauri::command]
+pub async fn list_pending_tool_approvals_cmd(
+    state: tauri::State<'_, AppState>,
+    approval_state: tauri::State<'_, ApprovalState>,
+) -> Result<Vec<PendingToolApprovalSnapshot>, String> {
+    let pending: Vec<_> = approval_state
+        .pending
+        .lock()
+        .await
+        .values()
+        .map(|pending| (
+            pending.task_run_id.clone(),
+            pending.request.audit_safe_for_persistence(),
+        ))
+        .collect();
+    if pending.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut snapshot = state.db_executor.read(move |db| {
+        pending.into_iter().map(|(run_id, request)| {
+            let run = db.get_agent_task_run(&run_id)?;
+            Ok(PendingToolApprovalSnapshot { conversation_id: run.conversation_id, run_id, request })
+        }).collect::<Result<Vec<_>, CoreError>>()
+    }).await.map_err(|error| error.to_string())?.value;
+    // Do not republish a request consumed while the database lookup was in flight.
+    let current = approval_state.pending.lock().await;
+    snapshot.retain(|entry| current.get(&entry.request.id)
+        .is_some_and(|pending| pending.task_run_id == entry.run_id));
+    snapshot.sort_by(|left, right| left.run_id.cmp(&right.run_id).then_with(|| left.request.id.cmp(&right.request.id)));
+    Ok(snapshot)
+}
+
 // ── Tool Approval ───────────────────────────────────────────────────
 
 /// Resolve a pending [`ApprovalRequest`] emitted by the agent executor.

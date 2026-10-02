@@ -122,7 +122,15 @@ export class InteractionStore {
       removedRequestIds.push(...Object.keys(requestsById));
       for (const id of removedRequestIds) delete requestsById[id];
     }
-    for (const request of requests) requestsById[request.interactionId] = request;
+    for (const request of requests) {
+      const previous = this.state.requestsById[request.interactionId];
+      requestsById[request.interactionId] = previous && JSON.stringify(previous) === JSON.stringify(request)
+        ? previous : request;
+    }
+    const previousRequests = this.state.requestsById;
+    if ((conversationId ? this.state.hydratedConversationIds[conversationId] : this.state.hydratedAll)
+      && Object.keys(previousRequests).length === Object.keys(requestsById).length
+      && Object.entries(requestsById).every(([id, request]) => previousRequests[id] === request)) return;
     this.state = {
       ...this.state,
       requestsById,

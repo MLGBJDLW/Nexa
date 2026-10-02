@@ -43,6 +43,7 @@ import type {
 } from './streaming/protocol';
 import { armStreamWatchdog, clearStreamWatchdog } from './streaming/watchdog';
 import { ConversationFrameBatcher } from './streaming/frameBatcher';
+import { attentionInbox } from './attentionInbox';
 import {
   classifyAgentRunEventLifecycle,
   suspendAgentRunProjection,
@@ -89,6 +90,7 @@ class StreamStoreImpl {
   private _recency = new Map<string, number>();
   private _recencyTick = 0;
   private _listeners = new Set<StoreListener>();
+  private _attentionProjections = new Map<string, { runId: string | null; requests: StreamState['pendingApprovals'] }>();
   private _gapRecoveries = new Map<string, string>();
   private _notifications = new ConversationFrameBatcher(
     conversationId => this.notify(conversationId),
@@ -100,6 +102,17 @@ class StreamStoreImpl {
   };
 
   private notify(conversationId: string): void {
+    const state = this._streams[conversationId];
+    const previous = this._attentionProjections.get(conversationId);
+    if (!state) {
+      if (this._attentionProjections.delete(conversationId)) attentionInbox.replaceApprovals(conversationId, null, []);
+    } else {
+      const runId = state.turnHandle?.runId ?? state._orderedRunId ?? state.taskRun?.id ?? null;
+      if (previous?.runId !== runId || previous.requests !== state.pendingApprovals) {
+        this._attentionProjections.set(conversationId, { runId, requests: state.pendingApprovals });
+        if (previous || state.pendingApprovals.length) attentionInbox.replaceApprovals(conversationId, runId, state.pendingApprovals);
+      }
+    }
     for (const listener of this._listeners) {
       listener(conversationId);
     }

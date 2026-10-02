@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "Dieser Durchlauf konnte nicht erhalten werden.",
   "connectionNextAction": "Prüfen Sie die Anbietereinstellungen und senden Sie erneut, sobald die Verbindung verfügbar ist.",
   "toolInputRedacted": "[Geschwärzt]",
-  "toolInputInvalid": "[Nicht lesbare Argumente ausgeblendet]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[Nicht lesbare Argumente ausgeblendet]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "Begleiter ruht sich aus",
   "companionThinking": "Denkt nach",
   "companionSearching": "Durchsucht das Web",
@@ -694,8 +694,8 @@
   "companionSucceeded": "Aufgabe erfolgreich",
   "companionFailed": "Aufgabe fehlgeschlagen",
   "companionCancelled": "Aufgabe abgebrochen",
-  "companionSleeping": "Begleiter schläft"
-,"compactUnavailable": "Manuelle Kontextkomprimierung ist für dieses Gespräch nicht verfügbar.",
+  "companionSleeping": "Begleiter schläft",
+  "compactUnavailable": "Manuelle Kontextkomprimierung ist für dieses Gespräch nicht verfügbar.",
   "turnChangesTitle": "{count} Dateien geändert",
   "turnChangesPartial": "Änderungen teilweise erfasst",
   "turnChangesCoverage": "Erfasst werden protokollierte native Dateiänderungen. Shell-Befehle, zwischenzeitliche Änderungen oder fehlende Inhalte können Lücken verursachen. Unbekannte Zeilenzahlen fehlen in der Summe.",
@@ -787,5 +787,14 @@
   "slashCommand.nexus.description": "Nexus umschalten oder /nexus on|off verwenden. Beim ersten Aktivieren erscheint eine Einführung.",
   "slashCommand.moa.description": "Zusammenarbeit wählen oder /moa on|off|fast-review|deep-research|cross-model-code-review|custom verwenden.",
   "slashCommand.quality.description": "Qualität wählen oder /quality balanced|deep|code-ultra|research-ultra|custom verwenden.",
-  "commandUnavailable": "Dieser Befehl ist in der aktuellen Unterhaltung nicht verfügbar."
+  "commandUnavailable": "Dieser Befehl ist in der aktuellen Unterhaltung nicht verfügbar.",
+  "attentionTitle": "Ihre Aufmerksamkeit ist erforderlich",
+  "attentionCount": "Ihre Aufmerksamkeit ist erforderlich ({count})",
+  "attentionEmpty": "Es sind keine Aktionen erforderlich.",
+  "attentionApproval": "Wartet auf Genehmigung",
+  "attentionQuestion": "Wartet auf Ihre Antwort",
+  "approvalExpiresIn": "Bitte innerhalb von {seconds} s antworten",
+  "approvalExpired": "Diese Anfrage ist abgelaufen. Die Aufgabe wird aktualisiert.",
+  "approvalSubmitFailed": "Ihre Entscheidung konnte nicht gesendet werden. Versuchen Sie es erneut.",
+  "approvalSubmitting": "Entscheidung wird gesendet…"
 }

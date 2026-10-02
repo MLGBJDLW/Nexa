@@ -28,6 +28,7 @@ import * as api from "./lib/api";
 import { useAutoCompile } from "./lib/useAutoCompile";
 import { useAutoHealthCheck } from "./lib/useAutoHealthCheck";
 import { useKnowledgeInsights } from "./lib/useKnowledgeInsights";
+import { InteractionSync } from './lib/InteractionSync';
 
 /* ── Page transition wrapper ─────────────────────────────────────── */
 function PageTransition({ children }: { children: ReactNode }) {
@@ -169,6 +170,7 @@ function AppShell() {
         <FilePreviewProvider>
           <AppWindowFrame area={location.pathname === '/' ? 'home' : 'task'}>
             {startupReady && <CommandPalette />}
+            {startupReady && <InteractionSync />}
             {startupReady && wizardCompleted === false && location.pathname !== '/wizard' && (
               <Navigate to="/wizard" replace />
             )}

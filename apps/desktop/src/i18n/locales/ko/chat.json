@@ -666,21 +666,21 @@
   "connectionTurnNotPreserved": "이 턴을 보존할 수 없습니다.",
   "connectionNextAction": "공급자 설정을 확인하고 연결이 복구되면 다시 보내세요.",
   "toolInputRedacted": "[숨김]",
-  "toolInputInvalid": "[해석할 수 없는 인수 숨김]"
-  ,"visionTurnTitle": "Image processing for this turn"
-  ,"visionTurnRequired": "Choose how to process the attached images before sending."
-  ,"visionTurnUseSettings": "Use settings"
-  ,"visionTurnAuto": "Auto"
-  ,"visionTurnOcr": "OCR only"
-  ,"visionTurnVision": "Vision only"
-  ,"visionObservationTitle": "Image observation"
-  ,"visionObservationInspect": "Inspect image observation"
-  ,"visionObservationReady": "Observed"
-  ,"visionObservationCached": "Cached observation"
-  ,"visionObservationUnavailable": "No structured observation is available for this route."
-  ,"visionObservationRerun": "Rerun"
-  ,"visionObservationDeleteCache": "Delete cached result"
-  ,"visionObservationCacheDeleted": "Removed {count} cached result",
+  "toolInputInvalid": "[해석할 수 없는 인수 숨김]",
+  "visionTurnTitle": "Image processing for this turn",
+  "visionTurnRequired": "Choose how to process the attached images before sending.",
+  "visionTurnUseSettings": "Use settings",
+  "visionTurnAuto": "Auto",
+  "visionTurnOcr": "OCR only",
+  "visionTurnVision": "Vision only",
+  "visionObservationTitle": "Image observation",
+  "visionObservationInspect": "Inspect image observation",
+  "visionObservationReady": "Observed",
+  "visionObservationCached": "Cached observation",
+  "visionObservationUnavailable": "No structured observation is available for this route.",
+  "visionObservationRerun": "Rerun",
+  "visionObservationDeleteCache": "Delete cached result",
+  "visionObservationCacheDeleted": "Removed {count} cached result",
   "companionIdle": "컴패니언이 쉬고 있습니다",
   "companionThinking": "생각하는 중",
   "companionSearching": "웹 검색 중",
@@ -694,8 +694,8 @@
   "companionSucceeded": "작업 성공",
   "companionFailed": "작업 실패",
   "companionCancelled": "작업 취소됨",
-  "companionSleeping": "컴패니언이 자고 있습니다"
-,"compactUnavailable": "이 대화에서는 수동 컨텍스트 압축을 사용할 수 없습니다.",
+  "companionSleeping": "컴패니언이 자고 있습니다",
+  "compactUnavailable": "이 대화에서는 수동 컨텍스트 압축을 사용할 수 없습니다.",
   "turnChangesTitle": "파일 {count}개 변경",
   "turnChangesPartial": "변경 사항 일부만 추적됨",
   "turnChangesCoverage": "기록된 기본 파일 변경만 집계합니다. Shell 명령, 외부 수정 또는 사용할 수 없는 내용은 누락될 수 있습니다. 알 수 없는 행 수는 합계에서 제외됩니다.",
@@ -787,5 +787,14 @@
   "slashCommand.nexus.description": "Nexus를 전환하거나 /nexus on|off를 사용합니다. 처음에는 안내를 표시합니다.",
   "slashCommand.moa.description": "협업을 선택하거나 /moa on|off|fast-review|deep-research|cross-model-code-review|custom을 사용합니다.",
   "slashCommand.quality.description": "품질을 선택하거나 /quality balanced|deep|code-ultra|research-ultra|custom을 사용합니다.",
-  "commandUnavailable": "현재 대화에서 이 명령을 사용할 수 없습니다."
+  "commandUnavailable": "현재 대화에서 이 명령을 사용할 수 없습니다.",
+  "attentionTitle": "확인이 필요합니다",
+  "attentionCount": "확인이 필요합니다 ({count})",
+  "attentionEmpty": "확인이 필요한 항목이 없습니다.",
+  "attentionApproval": "승인 대기 중",
+  "attentionQuestion": "답변 대기 중",
+  "approvalExpiresIn": "{seconds}초 이내에 응답하세요",
+  "approvalExpired": "요청이 만료되었습니다. 작업 업데이트를 기다리는 중입니다.",
+  "approvalSubmitFailed": "결정을 보내지 못했습니다. 다시 시도하세요.",
+  "approvalSubmitting": "결정을 보내는 중…"
 }

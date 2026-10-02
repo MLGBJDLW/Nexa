@@ -1017,6 +1017,8 @@ export interface ToolAccessInfo {
 
 export interface ApprovalRequest {
   id: string;
+  createdAt?: string | null;
+  expiresAt?: string | null;
   toolName: string;
   permissionKey: string;
   targetKind: string;

@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ApprovalDecisionValue, ApprovalRequest } from '../../types';
 import { approveToolCall } from '../../lib/api';
 import { useTranslation } from '../../i18n';
+import { useRequestDeadline } from '../../lib/useRequestDeadline';
+import { formatUserError } from '../../lib/userError';
 
 interface ApprovalDialogProps {
   request: ApprovalRequest | null;
@@ -16,29 +18,40 @@ const RISK_COLOR: Record<ApprovalRequest['riskLevel'], string> = {
 };
 
 export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
+  return request ? <PendingApproval key={request.id} request={request} onResolved={onResolved} /> : null;
+}
+
+function PendingApproval({ request, onResolved }: ApprovalDialogProps & { request: ApprovalRequest }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const remaining = useRequestDeadline(request.expiresAt);
+  const expired = remaining === 0;
 
   const preview = useMemo(() => request?.argumentsPreview ?? '', [request]);
 
   const decide = useCallback(
     async (decision: ApprovalDecisionValue) => {
-      if (!request || busy) return;
+      if (inFlight.current || expired) return;
+      inFlight.current = true;
       setBusy(true);
+      setSubmitError(null);
       try {
         await approveToolCall(request.id, decision);
         onResolved?.(request, decision);
+        // The committed approvalResolved event removes the card. Do not offer
+        // another submission while that authoritative acknowledgement arrives.
       } catch (err) {
-        console.error('[approval] decision failed', err);
-      } finally {
+        setSubmitError(formatUserError(t('chat.approvalSubmitFailed'), err));
+        inFlight.current = false;
         setBusy(false);
       }
     },
-    [request, busy, onResolved],
+    [request, expired, onResolved, t],
   );
 
-  if (!request) return null;
   const reusableWindowGrant = request.targetKind === 'desktop_window_task'
     && ['computer_control', 'computer_observe'].includes(request.toolName);
   const choices = request.choices ?? [];
@@ -73,6 +86,9 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
 
         <div className="space-y-3 px-5 py-4">
           <p className="text-sm text-zinc-700 dark:text-zinc-300">{request.reason}</p>
+          {remaining !== null && <p role={expired ? 'status' : undefined} data-testid="approval-deadline" className="text-xs text-warning">{expired ? t('chat.approvalExpired') : t('chat.approvalExpiresIn', { seconds: String(remaining) })}</p>}
+          {submitError && <p role="alert" data-testid="approval-submit-error" className="break-words text-sm text-danger">{submitError}</p>}
+          {busy && !expired && <p role="status" className="text-xs text-text-secondary">{t('chat.approvalSubmitting')}</p>}
           {request.targetKind && request.targetValue && !targetIsInternalScope && (
             <div className="rounded-md border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-700">
               <span className="font-medium text-zinc-600 dark:text-zinc-300">{request.targetKind}</span>
@@ -105,7 +121,7 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-700">
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || expired}
             onClick={() => decide('deny')}
             className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-600 dark:hover:bg-zinc-800"
           >
@@ -114,7 +130,7 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
           {!oneShotOnly && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || expired}
               onClick={() => decide('allow_session')}
               className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-600 dark:hover:bg-zinc-800"
             >
@@ -122,11 +138,11 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
             </button>
           )}
           {choices.length > 0 ? choices.map((label, index) => <button
-            key={index} type="button" disabled={busy} onClick={() => decide(`select_option:${index}`)}
+            key={index} type="button" disabled={busy || expired} onClick={() => decide(`select_option:${index}`)}
             className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
           >{label}</button>) : <button
             type="button"
-            disabled={busy}
+            disabled={busy || expired}
             onClick={() => decide('allow_once')}
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
           >
@@ -147,7 +163,7 @@ export function ApprovalDialog({ request, onResolved }: ApprovalDialogProps) {
             <div className="mt-2">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || expired}
                 onClick={() => decide('never')}
                 className="rounded-md border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-700 dark:text-rose-300 dark:hover:bg-rose-950"
               >
