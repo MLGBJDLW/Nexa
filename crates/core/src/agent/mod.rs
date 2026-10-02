@@ -297,7 +297,7 @@ pub struct AgentConfig {
     /// Limits resolved once for the configured endpoint/model contract. The
     /// route authority flag still gates their use by output budgeting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_catalog_limits: Option<crate::model_catalog::ModelLimits>,
+    pub resolved_catalog_limits: Option<crate::llm::model_contract::ResolvedCatalogLimits>,
     /// Whether to enable reasoning/thinking for models that support it.
     pub reasoning_enabled: Option<bool>,
     /// Thinking budget in tokens (Anthropic, Gemini).

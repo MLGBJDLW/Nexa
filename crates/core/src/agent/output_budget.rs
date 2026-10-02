@@ -117,7 +117,9 @@ impl AgentConfig {
             });
         let catalog_limits = catalog_is_route_authoritative
             .then(|| {
-                self.resolved_catalog_limits.clone().or_else(|| {
+                self.resolved_catalog_limits.as_ref()
+                    .filter(|limits| limits.matches(self.provider_type, model))
+                    .map(|limits| limits.limits.clone()).or_else(|| {
                     self.provider_type.and_then(|provider| {
                         crate::provider_catalog::model_limits_from_catalog(provider, model)
                     })
@@ -186,5 +188,32 @@ impl AgentConfig {
     pub fn resolved_response_token_limit(&self, model: &str) -> u32 {
         let plan = self.resolved_output_budget(model);
         plan.wire_max_tokens().unwrap_or(plan.effective_tokens)
+    }
+}
+
+#[cfg(test)]
+mod route_limit_tests {
+    use super::*;
+
+    #[test]
+    fn changing_model_or_provider_does_not_reuse_cached_route_limits() {
+        let mut config = AgentConfig {
+            provider_type: Some(ProviderType::Moonshot),
+            catalog_limits_authoritative: Some(true),
+            resolved_catalog_limits: Some(crate::llm::model_contract::ResolvedCatalogLimits {
+                model_id: "fixture-original".into(),
+                provider_type: ProviderType::Moonshot,
+                endpoint_id: "fixture-endpoint".into(),
+                limits: crate::model_catalog::ModelLimits {
+                    max_output_tokens: Some(7),
+                    ..Default::default()
+                },
+            }),
+            ..Default::default()
+        };
+        assert_eq!(config.resolved_output_budget("fixture-original").catalog_cap, Some(7));
+        assert_eq!(config.resolved_output_budget("fixture-next").catalog_cap, None);
+        config.provider_type = Some(ProviderType::OpenAi);
+        assert_eq!(config.resolved_output_budget("fixture-original").catalog_cap, None);
     }
 }

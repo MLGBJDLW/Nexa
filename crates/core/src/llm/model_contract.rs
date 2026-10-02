@@ -6,6 +6,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};
+use serde::{Deserialize, Serialize};
 
 use crate::conversation::memory::{ContextWindowAuthority, ResolvedContextWindow};
 use crate::provider_catalog::find_endpoint_model_preset;
@@ -34,14 +35,33 @@ pub struct ResolvedModelContract {
     pub max_output_tokens: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedCatalogLimits {
+    pub model_id: String,
+    pub provider_type: ProviderType,
+    pub endpoint_id: String,
+    pub limits: crate::model_catalog::ModelLimits,
+}
+
+impl ResolvedCatalogLimits {
+    pub fn matches(&self, provider_type: Option<ProviderType>, model: &str) -> bool {
+        provider_type == Some(self.provider_type) && self.model_id.eq_ignore_ascii_case(model.trim())
+    }
+}
+
 impl ResolvedModelContract {
-    pub fn catalog_limits(&self) -> Option<crate::model_catalog::ModelLimits> {
-        self.catalog_authoritative
-            .then(|| crate::model_catalog::ModelLimits {
+    pub fn catalog_limits(&self) -> Option<ResolvedCatalogLimits> {
+        self.catalog_authoritative.then(|| ResolvedCatalogLimits {
+            model_id: self.reasoning.key.model_id.clone(),
+            provider_type: self.provider_type,
+            endpoint_id: self.reasoning.key.endpoint_id.clone(),
+            limits: crate::model_catalog::ModelLimits {
                 context_tokens: self.context_tokens.map(u64::from),
                 max_output_tokens: self.max_output_tokens.map(u64::from),
                 ..Default::default()
-            })
+            },
+        })
     }
 
     pub fn context_window(&self, override_tokens: Option<u32>) -> ResolvedContextWindow {
@@ -191,6 +211,7 @@ mod tests {
             "http://api.moonshot.cn/v1",
             "https://api.moonshot.cn:8443/v1",
             "https://api.moonshot.cn/v1?tenant=other",
+            "https://api.moonshot.cn/V1",
         ] {
             let value = resolve_model_contract(
                 ProviderType::Custom,
