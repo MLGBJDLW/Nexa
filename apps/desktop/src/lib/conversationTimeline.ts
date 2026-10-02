@@ -9,6 +9,7 @@ export interface TimelineEntry extends ConversationTimelineEntry {
   detailsLoading?: boolean;
   detailError?: string | null;
   detailRange?: ConversationTimelineRange;
+  detailsCommittedAt?: number;
 }
 
 export interface TimelineSnapshot {
@@ -55,6 +56,7 @@ export class ConversationTimeline {
   private readonly detailRequests = new Map<string, Promise<void>>();
   private readonly sizes = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
+  private detailCommit = 0;
 
   constructor(private readonly port: TimelinePort) {}
 
@@ -101,10 +103,7 @@ export class ConversationTimeline {
   async openTail(conversationId: string, anchorMessageId?: string | null): Promise<ConversationTimelinePage | null> {
     this.fence(conversationId);
     const generation = this.generation(conversationId);
-    const page = await this.port.page(conversationId, { anchorMessageId });
-    if (this.generation(conversationId) !== generation) return null;
-    this.mergePage(conversationId, page, 'replace');
-    return page;
+    return this.readAndMergePage(conversationId, { anchorMessageId }, 'replace', () => this.generation(conversationId) === generation);
   }
 
   async refreshTail(conversationId: string): Promise<ConversationTimelinePage | null> {
@@ -113,13 +112,16 @@ export class ConversationTimeline {
     const generation = this.generation(conversationId);
     const token = Symbol();
     this.tailRequests.set(conversationId, token);
-    const page = await this.port.page(conversationId, { after: previous.newestCursor });
-    if (this.generation(conversationId) !== generation || this.tailRequests.get(conversationId) !== token) return null;
-    // Retry/compaction may have retired the old cursor. Re-open a bounded tail,
-    // never fall back to fetching all messages from the old endpoint.
-    if (!page.range) return this.openTail(conversationId);
-    this.mergePage(conversationId, page, 'suffix');
-    return page;
+    try {
+      const page = await this.readAndMergePage(conversationId, { after: previous.newestCursor }, 'suffix', () => this.generation(conversationId) === generation && this.tailRequests.get(conversationId) === token);
+      if (!page) return null;
+      // Retry/compaction may have retired the old cursor. Re-open a bounded tail,
+      // never fall back to fetching all messages from the old endpoint.
+      if (!page.range) return this.openTail(conversationId);
+      return page;
+    } finally {
+      if (this.tailRequests.get(conversationId) === token) this.tailRequests.delete(conversationId);
+    }
   }
 
   async loadBefore(conversationId: string): Promise<void> {
@@ -128,8 +130,7 @@ export class ConversationTimeline {
     const generation = this.generation(conversationId);
     this.put(conversationId, { ...previous, loadingOlder: true }, false);
     try {
-      const page = await this.port.page(conversationId, { before: previous.oldestCursor });
-      if (this.generation(conversationId) === generation) this.mergePage(conversationId, page, 'older');
+      await this.readAndMergePage(conversationId, { before: previous.oldestCursor }, 'older', () => this.generation(conversationId) === generation);
     } finally {
       if (this.generation(conversationId) === generation) this.put(conversationId, { ...this.get(conversationId), loadingOlder: false }, false);
     }
@@ -154,7 +155,7 @@ export class ConversationTimeline {
         ...current,
         messages: this.mergeMessages(current.messages, details.messages, details.range),
         turns: this.mergeTurns(current.turns, details.turns, new Set(details.turns.map(turn => turn.id))),
-        entries: current.entries.map(item => item.anchor.messageId === anchorId ? { ...item, detailRevision: details.detailRevision, detailsLoaded: true, detailsLoading: false, detailError: null, detailRange: details.range } : item),
+        entries: current.entries.map(item => item.anchor.messageId === anchorId ? { ...item, detailRevision: details.detailRevision, detailsLoaded: true, detailsLoading: false, detailError: null, detailRange: details.range, detailsCommittedAt: ++this.detailCommit } : item),
       });
     }).catch(error => {
       if (this.generation(conversationId) === generation) this.updateEntry(conversationId, anchorId, { detailError: String(error) });
@@ -168,19 +169,41 @@ export class ConversationTimeline {
 
   private generation(id: string): number { return this.generations.get(id) ?? 0; }
 
+  private async readAndMergePage(id: string, request: TimelinePageRequest, mode: 'replace' | 'older' | 'suffix', isCurrent: () => boolean): Promise<ConversationTimelinePage | null> {
+    const startedAt = this.detailCommit;
+    // A page can start before a newer explicit detail read and arrive afterward.
+    // Revision tokens are opaque: reread that same bounded range once instead of
+    // guessing their order. Continued competition keeps the committed detail.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const page = await this.port.page(id, request);
+      if (!isCurrent()) return null;
+      if (!page || !Array.isArray(page.messages) || !Array.isArray(page.turns) || !Array.isArray(page.entries)) throw new Error('Invalid conversation timeline page');
+      const conflicts = this.get(id).entries.some(entry => entry.detailsLoaded && (entry.detailsCommittedAt ?? 0) > startedAt
+        && (mode === 'replace' || !page.range || inRange(entry.anchor, page.range))
+        && !page.entries.some(next => next.anchor.messageId === entry.anchor.messageId && next.detailRevision === entry.detailRevision));
+      if (!conflicts) {
+        // Commit in this continuation: an await between the conflict check and
+        // merge would let another detail completion enter that gap.
+        if (page.range || mode !== 'suffix') this.mergePage(id, page, mode);
+        return page;
+      }
+    }
+    return null;
+  }
+
   private mergePage(id: string, page: ConversationTimelinePage, mode: 'replace' | 'older' | 'suffix'): void {
     if (!page || !Array.isArray(page.messages) || !Array.isArray(page.turns) || !Array.isArray(page.entries)) throw new Error('Invalid conversation timeline page');
     const previous = this.get(id);
-    const retained = mode === 'replace' ? [] : previous.entries.filter(entry => entry.detailsLoaded && entry.detailRange
+    const retained = previous.entries.filter(entry => entry.detailsLoaded && entry.detailRange
       && page.entries.some(next => next.anchor.messageId === entry.anchor.messageId && next.detailRevision === entry.detailRevision));
     const preserveRanges = retained.flatMap(entry => entry.detailRange ? [entry.detailRange] : []);
     const preservedTurns = new Set(retained.flatMap(entry => entry.turnId ? [entry.turnId] : []));
     const entries = new Map((mode === 'replace' ? [] : previous.entries.filter(entry => !page.range || !inRange(entry.anchor, page.range))).map(entry => [entry.anchor.messageId, entry]));
     for (const entry of page.entries) entries.set(entry.anchor.messageId, retained.find(old => old.anchor.messageId === entry.anchor.messageId) ?? entry);
     const removedTurns = new Set(previous.entries.filter(entry => page.range && inRange(entry.anchor, page.range) && !preservedTurns.has(entry.turnId ?? '')).flatMap(entry => entry.turnId ? [entry.turnId] : []));
-    const turns = mode === 'replace' ? page.turns : this.mergeTurns(previous.turns, page.turns.filter(turn => !preservedTurns.has(turn.id)), removedTurns);
+    const turns = this.mergeTurns(mode === 'replace' ? previous.turns.filter(turn => preservedTurns.has(turn.id)) : previous.turns, page.turns.filter(turn => !preservedTurns.has(turn.id)), removedTurns);
     this.put(id, {
-      messages: mode === 'replace' ? this.port.mergeLocalMessages(previous.messages, page.messages) : this.mergeMessages(previous.messages, page.messages, page.range, preserveRanges),
+      messages: this.mergeMessages(previous.messages, page.messages, page.range, preserveRanges, mode === 'replace'),
       turns,
       taskRuns: page.taskRuns,
       entries: [...entries.values()].sort((left,right) => compare(left.anchor,right.anchor)),
@@ -192,9 +215,9 @@ export class ConversationTimeline {
     });
   }
 
-  private mergeMessages(previous: ConversationMessage[], incoming: ConversationMessage[], range: ConversationTimelineRange | null, preserved: ConversationTimelineRange[] = []): ConversationMessage[] {
+  private mergeMessages(previous: ConversationMessage[], incoming: ConversationMessage[], range: ConversationTimelineRange | null, preserved: ConversationTimelineRange[] = [], replace = false): ConversationMessage[] {
     const keepDetail = (message: ConversationMessage) => preserved.some(range => inRange(key(message), range));
-    const values = new Map(previous.filter(message => !range || !inRange(key(message), range) || keepDetail(message)).map(message => [message.id, message]));
+    const values = new Map(previous.filter(message => keepDetail(message) || (!replace && (!range || !inRange(key(message), range)))).map(message => [message.id, message]));
     for (const message of incoming) if (!keepDetail(message)) values.set(message.id, message);
     const next = [...values.values()].sort((left,right) => compare(key(left),key(right)));
     return this.port.mergeLocalMessages(previous, next);

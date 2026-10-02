@@ -13,8 +13,146 @@ const page = (numbers: number[], before: number | null = null): ConversationTime
   oldestCursor: numbers.length ? cursor(numbers[0]) : null, newestCursor: numbers.length ? cursor(numbers[numbers.length-1]) : null,
   hasMoreBefore: numbers[0] > 1, hasMoreAfter: before != null,
 });
-const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
+const deferred = <T,>() => { let resolve!: (value: T) => void; let reject!: (reason: unknown) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; };
 const details = (n: number): ConversationTimelineDetails => ({ anchorId: `u${n}`, messages: [message(n), { ...message(n,'tool'), id: `tool${n}`, content: 'lazy tool output' }, message(n,'assistant')], turns: [{ ...page([n]).turns[0], trace: { items: ['lazy trace'] } }], range: { from: cursor(n), before: cursor(n+1) }, detailRevision: '1' });
+const revisedPage = (numbers: number[], revision: string) => {
+  const value = page(numbers);
+  value.entries = value.entries.map(entry => ({ ...entry, detailRevision: revision }));
+  return value;
+};
+const revisedDetails = (number: number, revision: string) => {
+  const value = details(number);
+  value.detailRevision = revision;
+  value.messages = value.messages.map(message => message.role === 'user' ? message : { ...message, content: `${revision} ${message.content}` });
+  return value;
+};
+
+async function pageDetailRaces() {
+  for (const mode of ['replace', 'suffix'] as const) {
+    const oldPage = deferred<ConversationTimelinePage>(), freshPage = deferred<ConversationTimelinePage>(), rereading = deferred<void>();
+    const requests: unknown[] = [];
+    const timeline = new ConversationTimeline({
+      page: async (_id, request) => {
+        requests.push(request);
+        if (requests.length === 1) return page([9,10]);
+        if (requests.length === 2) return oldPage.promise;
+        assert(requests.length === 3, 'a conflicting page gets at most one automatic reread');
+        rereading.resolve();
+        return freshPage.promise;
+      },
+      details: async () => revisedDetails(10, 'new-detail'),
+      mergeLocalMessages: (_previous, next) => next,
+      protectedIds: () => [],
+    });
+    await timeline.openTail('chat');
+    const pending = mode === 'replace' ? timeline.openTail('chat', 'a10') : timeline.refreshTail('chat');
+    await timeline.loadDetails('chat', 'u10');
+    const loaded = timeline.get('chat').messages.find(message => message.id === 'tool10');
+    oldPage.resolve(page([10]));
+    await rereading.promise;
+    freshPage.resolve(revisedPage([10], 'new-detail'));
+    assert(await pending != null, `${mode} installs the reread summary`);
+    assert(JSON.stringify(requests[1]) === JSON.stringify(requests[2]), `${mode} rereads exactly the same bounded anchor or suffix`);
+    assert(timeline.get('chat').messages.find(message => message.id === 'tool10') === loaded, `${mode} preserves the newer loaded detail identity`);
+    assert(timeline.get('chat').messages.find(message => message.id === 'a10')?.content.startsWith('new-detail'), `${mode} cannot restore a stale final reply`);
+    assert(timeline.get('chat').entries.find(entry => entry.anchor.messageId === 'u10')?.detailsLoaded, `${mode} keeps the expansion loaded`);
+  }
+
+  const oldPage = deferred<ConversationTimelinePage>(), secondPage = deferred<ConversationTimelinePage>(), rereading = deferred<void>(), laterDetail = deferred<ConversationTimelineDetails>();
+  let reads = 0;
+  const competing = new ConversationTimeline({
+    page: async () => {
+      if (++reads === 1) return page([9,10]);
+      if (reads === 2) return oldPage.promise;
+      assert(reads === 3, 'sustained detail competition cannot create an unbounded retry loop');
+      rereading.resolve();
+      return secondPage.promise;
+    },
+    details: async (_id, anchor) => anchor === 'u9' ? revisedDetails(9, 'detail-two') : laterDetail.promise,
+    mergeLocalMessages: (_previous, next) => next,
+    protectedIds: () => [],
+  });
+  await competing.openTail('chat');
+  const pending = competing.openTail('chat');
+  await competing.loadDetails('chat', 'u9');
+  const pendingDetail = competing.loadDetails('chat', 'u10');
+  oldPage.resolve(page([9,10]));
+  await rereading.promise;
+  laterDetail.resolve(revisedDetails(10, 'detail-three'));
+  await pendingDetail;
+  const staleReread = revisedPage([9,10], 'detail-two');
+  secondPage.resolve(staleReread);
+  assert(await pending === null && reads === 3, 'a second conflicting response is discarded');
+  assert(competing.get('chat').entries.every(entry => entry.detailsLoaded && !entry.detailsLoading), 'discarding a page retains both committed details and closes loading state');
+  assert(competing.get('chat').messages.some(message => message.content.startsWith('detail-three')), 'second detail revision survives the stale reread');
+
+  const suffix = deferred<ConversationTimelinePage>();
+  let unrelatedReads = 0;
+  const unrelated = new ConversationTimeline({
+    page: async () => ++unrelatedReads === 1 ? page([9,10]) : suffix.promise,
+    details: async () => revisedDetails(9, 'older-detail'),
+    mergeLocalMessages: (_previous, next) => next,
+    protectedIds: () => [],
+  });
+  await unrelated.openTail('chat');
+  const refresh = unrelated.refreshTail('chat');
+  await unrelated.loadDetails('chat', 'u9');
+  suffix.resolve(page([10]));
+  await refresh;
+  assert(unrelatedReads === 2 && unrelated.get('chat').messages.some(message => message.id === 'tool9'), 'a detail outside the overwritten range does not cause a reread');
+
+  const abandoned = deferred<ConversationTimelinePage>();
+  let cancelledReads = 0;
+  const cancelled = new ConversationTimeline({
+    page: async () => ++cancelledReads === 1 ? page([9,10]) : abandoned.promise,
+    details: async () => revisedDetails(10, 'cancelled-page-detail'),
+    mergeLocalMessages: (_previous, next) => next,
+    protectedIds: () => [],
+  });
+  await cancelled.openTail('chat');
+  const opening = cancelled.openTail('chat');
+  await cancelled.loadDetails('chat', 'u10');
+  cancelled.fence('chat');
+  abandoned.resolve(page([10]));
+  assert(await opening === null && cancelledReads === 2, 'fencing prevents both a page commit and automatic reread');
+
+  const failingPage = deferred<ConversationTimelinePage>(), failedReread = deferred<ConversationTimelinePage>(), rereadStarted = deferred<void>();
+  let errorReads = 0;
+  const retryable = new ConversationTimeline({
+    page: async () => {
+      if (++errorReads === 1) return page([9,10]);
+      if (errorReads === 2) return failingPage.promise;
+      if (errorReads === 3) { rereadStarted.resolve(); return failedReread.promise; }
+      return revisedPage([10], 'detail-after-error');
+    },
+    details: async () => revisedDetails(10, 'detail-after-error'),
+    mergeLocalMessages: (_previous, next) => next,
+    protectedIds: () => [],
+  });
+  await retryable.openTail('chat');
+  const failingRefresh = retryable.refreshTail('chat').catch(error => error);
+  await retryable.loadDetails('chat', 'u10');
+  failingPage.resolve(page([10]));
+  await rereadStarted.promise;
+  failedReread.reject(new Error('reread unavailable'));
+  assert(await failingRefresh instanceof Error, 'a failed bounded reread remains observable to its caller');
+  assert(retryable.get('chat').entries.find(entry => entry.anchor.messageId === 'u10')?.detailsLoaded, 'a reread error retains the successfully committed detail');
+  assert(await retryable.refreshTail('chat') != null && errorReads === 4, 'a later ordinary refresh can recover after the failed reread');
+
+  const failedOlder = deferred<ConversationTimelinePage>();
+  const errors = new ConversationTimeline({
+    page: async (_id, request) => request?.before ? failedOlder.promise : page([9,10]),
+    details: async () => details(9),
+    mergeLocalMessages: (_previous, next) => next,
+    protectedIds: () => [],
+  });
+  await errors.openTail('chat');
+  const loading = errors.loadBefore('chat').catch(error => error);
+  assert(errors.get('chat').loadingOlder, 'older-page request exposes its loading state');
+  failedOlder.reject(new Error('page unavailable'));
+  assert(await loading instanceof Error && !errors.get('chat').loadingOlder, 'a failed page clears its loading state without losing history');
+  assert(errors.get('chat').messages.length === 4, 'a page error keeps the committed snapshot');
+}
 
 async function main() {
   const requests: unknown[] = [];
@@ -91,6 +229,7 @@ async function main() {
   assert(!cancelled.get('chat').loadingOlder && cancelled.get('chat').entries.find(entry => entry.anchor.messageId === 'u9')?.detailsLoaded, 'new requests finish after the earlier generation was cancelled');
   await cancelled.openTail('chat');
   assert(!cancelled.get('chat').loadingOlder, 'reopening a tail must not inherit an abandoned older-page spinner');
+  await pageDetailRaces();
   console.log('conversation timeline contracts passed');
 }
 void main().catch(error => { console.error(error); throw error; });
