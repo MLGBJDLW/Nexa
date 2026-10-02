@@ -4,9 +4,9 @@
 //! consume this same decision. Request-specific effort and explicit budgets
 //! remain caller overrides; account discovery never mutates the built-in facts.
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};
-use serde::{Deserialize, Serialize};
 
 use crate::conversation::memory::{ContextWindowAuthority, ResolvedContextWindow};
 use crate::provider_catalog::find_endpoint_model_preset;
@@ -46,7 +46,8 @@ pub struct ResolvedCatalogLimits {
 
 impl ResolvedCatalogLimits {
     pub fn matches(&self, provider_type: Option<ProviderType>, model: &str) -> bool {
-        provider_type == Some(self.provider_type) && self.model_id.eq_ignore_ascii_case(model.trim())
+        provider_type == Some(self.provider_type)
+            && self.model_id.eq_ignore_ascii_case(model.trim())
     }
 }
 

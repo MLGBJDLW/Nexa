@@ -210,7 +210,8 @@ fn compact_message_for_frontend(mut message: Message) -> Message {
     });
     message.reasoning_content = message
         .reasoning_content
-        .map(|text| truncate_task_event_text(&text, MAX_TASK_EVENT_TEXT_CHARS));
+        .as_deref()
+        .map(|text| truncate_task_event_text(text, MAX_TASK_EVENT_TEXT_CHARS));
     message
 }
 

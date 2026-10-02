@@ -117,13 +117,15 @@ impl AgentConfig {
             });
         let catalog_limits = catalog_is_route_authoritative
             .then(|| {
-                self.resolved_catalog_limits.as_ref()
+                self.resolved_catalog_limits
+                    .as_ref()
                     .filter(|limits| limits.matches(self.provider_type, model))
-                    .map(|limits| limits.limits.clone()).or_else(|| {
-                    self.provider_type.and_then(|provider| {
-                        crate::provider_catalog::model_limits_from_catalog(provider, model)
+                    .map(|limits| limits.limits.clone())
+                    .or_else(|| {
+                        self.provider_type.and_then(|provider| {
+                            crate::provider_catalog::model_limits_from_catalog(provider, model)
+                        })
                     })
-                })
             })
             .flatten();
         let catalog_cap = catalog_limits
@@ -211,9 +213,22 @@ mod route_limit_tests {
             }),
             ..Default::default()
         };
-        assert_eq!(config.resolved_output_budget("fixture-original").catalog_cap, Some(7));
-        assert_eq!(config.resolved_output_budget("fixture-next").catalog_cap, None);
+        assert_eq!(
+            config
+                .resolved_output_budget("fixture-original")
+                .catalog_cap,
+            Some(7)
+        );
+        assert_eq!(
+            config.resolved_output_budget("fixture-next").catalog_cap,
+            None
+        );
         config.provider_type = Some(ProviderType::OpenAi);
-        assert_eq!(config.resolved_output_budget("fixture-original").catalog_cap, None);
+        assert_eq!(
+            config
+                .resolved_output_budget("fixture-original")
+                .catalog_cap,
+            None
+        );
     }
 }

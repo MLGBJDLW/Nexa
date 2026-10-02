@@ -897,7 +897,7 @@ pub fn model_context_tokens_from_shared_catalog(model: &str) -> Option<u64> {
                 };
                 for id in std::iter::once(&descriptor.id).chain(&descriptor.aliases) {
                     context_tokens_by_model
-                        .entry(normalize_model_id(&id))
+                        .entry(normalize_model_id(id))
                         .or_insert(context_tokens);
                 }
             }

@@ -1027,7 +1027,7 @@ fn build_request_body_with_config(
         request,
         &mut messages,
         &wire_source_indices,
-        &cache_profile,
+        cache_profile,
     );
 
     OaiRequest {
@@ -1037,7 +1037,7 @@ fn build_request_body_with_config(
             .then(|| request.routing_session_id.clone())
             .flatten(),
         prompt_cache_key: super::prompt_cache::openai_prompt_cache_key(
-            &cache_profile,
+            cache_profile,
             &request.model,
             &request.messages,
             request.tools.as_deref(),

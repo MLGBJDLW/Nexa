@@ -1787,7 +1787,7 @@ impl LlmProvider for GeminiProvider {
         let trusted_codec =
             profile.confidence == super::reasoning_profile::CapabilityConfidence::Verified;
         let mut snapshot =
-            super::provider_turn::RouteSnapshot::from_profile_for_request(&profile, request);
+            super::provider_turn::RouteSnapshot::from_profile_for_request(profile, request);
         if trusted_codec && uses_thinking_levels(&request.model) {
             // Gemini 3 function-calling turns require a thought signature even
             // when the client does not request visible thinking.

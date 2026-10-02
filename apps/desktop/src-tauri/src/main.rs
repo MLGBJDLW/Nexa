@@ -41,7 +41,6 @@ use tauri::{
     Emitter, Manager,
 };
 use tauri_plugin_window_state::StateFlags;
-use tokio::sync::Mutex as TokioMutex;
 
 /// One-shot migration of user data from the pre-rebrand "ask-myself" layout
 /// to the new "nexa" layout. Runs on every startup but is a no-op once the

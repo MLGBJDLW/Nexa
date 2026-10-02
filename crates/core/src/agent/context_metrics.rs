@@ -167,7 +167,8 @@ impl PrefixState {
                         .char_indices()
                         .nth(keep_chars)
                         .map_or(message.serialized.len(), |(index, _)| index);
-                    self.hasher.write(message.serialized[..byte_end].as_bytes());
+                    self.hasher
+                        .write(&message.serialized.as_bytes()[..byte_end]);
                     self.complete = true;
                     break;
                 }
