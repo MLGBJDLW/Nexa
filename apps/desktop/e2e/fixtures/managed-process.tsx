@@ -19,7 +19,10 @@ function Fixture() {
   const [state, setState] = useState(initial);
   const call = state.toolCalls[0];
   const ready = () => setState(previous => {
-    const next = { ...previous };
+    const next = createDefaultState();
+    next.toolCalls = previous.toolCalls;
+    next.streamRounds = previous.streamRounds;
+    next.traceEvents = previous.traceEvents;
     applyToolRunEvent(next, { ...run, status: 'completed', artifacts: { kind: 'managedService', activityId: 'server', serviceId: 'server', cursor: 4, status: 'ready', readyUrl: 'http://127.0.0.1:5173/', program: 'npm', stdoutTail: 'Development server ready\n', stderrTail: '' } });
     return next;
   });

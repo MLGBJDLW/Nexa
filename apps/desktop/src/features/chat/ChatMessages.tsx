@@ -64,6 +64,7 @@ import {
 import {
   QuestionRequestTimelineRecord,
   ToolCallCard,
+  TimelineToolCallCard,
 } from "../../components/chat/ToolCallCard";
 import { extractQuestionRequest } from "../../lib/questionCards";
 import {
@@ -637,6 +638,7 @@ function collectQuestionResponses(
 
 export function ChatMessages(props: ChatMessagesProps) {
   const {
+    conversationId,
     turns,
     streamText,
     thinkingText,
@@ -925,24 +927,11 @@ export function ChatMessages(props: ChatMessagesProps) {
           return {
             text: "",
             node: (
-              <ToolCallCard
+              <TimelineToolCallCard
                 key={section.id}
-                callId={section.toolCall.callId}
-                toolName={section.toolCall.toolName}
-                arguments={section.toolCall.arguments}
-                status={section.toolCall.status}
-                owner={section.toolCall.owner}
-                renderKind={section.toolCall.renderKind}
-                capabilities={section.toolCall.capabilities}
-                durationMs={section.toolCall.durationMs}
-                progressNote={section.toolCall.progressNote}
-                activityEvents={section.toolCall.activityEvents}
+                conversationId={conversationId}
+                toolCall={section.toolCall}
                 parentRunActive={parentRunActive}
-                content={section.toolCall.content}
-                isError={section.toolCall.isError}
-                artifacts={section.toolCall.artifacts}
-                argsStatus={section.toolCall.argsStatus}
-                argsBytes={section.toolCall.argsBytes}
                 trace={section.trace}
                 questionAnswered={questionResponses.has(section.toolCall.callId)}
                 questionResponse={questionResponses.get(section.toolCall.callId)}
@@ -954,7 +943,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           return null;
       }
     },
-    [onQuestionSubmit, questionResponses, renderTraceReplyNode, t],
+    [conversationId, onQuestionSubmit, questionResponses, renderTraceReplyNode, t],
   );
 
   const renderTimelineSections = useCallback(

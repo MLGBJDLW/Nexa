@@ -177,6 +177,19 @@ class StreamStoreImpl {
     };
   }
 
+  selectStream<T>(id: string, selector: (state: StreamState | undefined) => T): T {
+    return selector(this._streams[id]);
+  }
+
+  selectTool(id: string, callId: string, occurrence?: import('./streaming/protocol').ToolCallEvent) {
+    const entities = this._streams[id]?._tools;
+    if (occurrence) {
+      const key = entities?.key(occurrence);
+      return key ? entities?.byId.get(key) : undefined;
+    }
+    return entities?.get(callId);
+  }
+
   /** Return every conversation that currently owns a live stream. */
   getRunningConversationIds(): string[] {
     return Object.entries(this._streams)
@@ -386,6 +399,7 @@ class StreamStoreImpl {
     s.thinkingText = '';
     s.isThinking = false;
     s.toolCalls = [];
+    s._tools.prune();
     clearToolPreparingTimers(s);
     s._activeRoundId = null;
     s._activeRoundAcceptingStarts = false;

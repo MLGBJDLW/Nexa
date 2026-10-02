@@ -49,6 +49,7 @@ import { extractManagedProcess } from '../../lib/processArtifacts';
 import { ManagedProcessCard } from './ManagedProcessCard';
 import { extractMcpResult } from '../../lib/mcpResult';
 import { McpResultView } from './McpResultView';
+import { useStreamTool } from '../../lib/useStreamSelector';
 export { extractToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
 import type { ToolCallEvent } from '../../lib/streaming/protocol';
@@ -306,6 +307,13 @@ interface ToolCallCardProps {
   questionAnswered?: boolean;
   questionResponse?: unknown;
 }
+
+/** A live card subscribes to its own immutable entity. Durable cards use the
+ * supplied history projection and never adopt another run's matching call ID. */
+export const TimelineToolCallCard = memo(function TimelineToolCallCard({ conversationId, toolCall, ...props }: Omit<ToolCallCardProps,'status'> & { conversationId?: string | null; toolCall: ToolCallEvent }) {
+  const live = useStreamTool(props.parentRunActive ? conversationId ?? '' : '',toolCall.callId,toolCall);
+  return <ToolCallCard {...toolCall} {...live} {...props} />;
+});
 
 export function QuestionRequestTimelineRecord({
   request,
