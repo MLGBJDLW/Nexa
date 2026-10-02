@@ -828,6 +828,47 @@ async fn idle_list_changed_refreshes_schema_and_removal_without_replaying_old_to
 }
 
 #[tokio::test]
+async fn idle_notification_burst_cannot_starve_the_http_catalog_reader() {
+    let remote = peer("noisy", "Noisy", &["before"]).await;
+    let manager = McpManager::new();
+    manager
+        .connect_server(&remote.server, Some(3))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), remote.stream_ready.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    let original = manager.catalog_snapshot(&remote.server.id).unwrap();
+    *remote.tools.write().unwrap() = vec![catalog_tool("after")];
+
+    // The real HTTP GET reader's response queue has capacity 64. No caller
+    // drains it while idle; ordinary notifications must be consumed before it.
+    for sequence in 0..96 {
+        remote.notifications.send(json!({
+            "jsonrpc":"2.0",
+            "method":if sequence % 2 == 0 { "notifications/message" } else { "notifications/progress" },
+            "params":{"sequence":sequence}
+        })).unwrap();
+    }
+    remote
+        .notifications
+        .send(json!({
+            "jsonrpc":"2.0","method":"notifications/tools/list_changed"
+        }))
+        .unwrap();
+    // Poll only the immutable snapshot: an unrelated RPC must not be needed to
+    // release the notification queue or make the new tool visible.
+    let refreshed =
+        wait_for_catalog(&manager, &remote.server.id, original.catalog_revision + 1).await;
+    assert_eq!(refreshed.tools[0].name, "after");
+    assert_eq!(refreshed.connection_epoch, original.connection_epoch);
+    assert_eq!(remote.list_count.load(Ordering::SeqCst), 2);
+    manager.shutdown().await;
+}
+
+#[tokio::test]
 async fn blocked_connector_discovery_does_not_block_other_calls_or_snapshots() {
     let slow = peer("slow", "Slow", &["slow"]).await;
     let ready = peer("ready", "Ready", &["ready"]).await;
