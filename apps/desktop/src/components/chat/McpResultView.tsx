@@ -1,10 +1,12 @@
 import { useTranslation } from '../../i18n';
 import { mcpExternalLink, mcpInlineMedia, type McpContentBlock, type McpToolResult } from '../../lib/mcpResult';
 import { ImagePreview } from '../ui/ImagePreview';
+import { useFilePreview } from '../../features/preview';
 
 function ResourceLink({ uri, label }: { uri: string; label: string }) {
+  const { openWebLink } = useFilePreview();
   const href = mcpExternalLink(uri);
-  return href ? <a href={href} target="_blank" rel="noopener noreferrer" className="break-all text-accent underline underline-offset-2">{label}</a> : <span className="break-all text-text-secondary" title={uri}>{label}</span>;
+  return href ? <a href={href} onClick={event => { event.preventDefault(); openWebLink(href, label); }} className="break-all text-accent underline underline-offset-2">{label}</a> : <span className="break-all text-text-secondary" title={uri}>{label}</span>;
 }
 
 function ContentBlock({ block }: { block: McpContentBlock }) {
