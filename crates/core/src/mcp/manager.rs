@@ -580,6 +580,13 @@ impl McpConnectorSlot {
         let retrieve = async {
             match request {
                 super::McpContentRequest::ReadResource { uri } => client.read_resource(&uri).await,
+                super::McpContentRequest::ReadResourceTemplate {
+                    uri_template,
+                    arguments,
+                } => {
+                    let uri = super::resource_template::expand(&uri_template, &arguments)?;
+                    client.read_resource(&uri).await
+                }
                 super::McpContentRequest::GetPrompt { name, arguments } => {
                     client
                         .get_prompt(&name, serde_json::to_value(arguments)?)

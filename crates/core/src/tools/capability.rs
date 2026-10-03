@@ -830,8 +830,8 @@ pub fn infer_tool_access_profile(
         ),
         "mcp_context" => (
             "mcp", true, false, false,
-            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "get_prompt")),
-            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "get_prompt")),
+            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "read_resource_template" | "get_prompt")),
+            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "read_resource_template" | "get_prompt")),
             ApprovalRisk::Low,
             "Reads resources or prompt templates from an enabled MCP connector.",
         ),

@@ -4237,6 +4237,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "unicode-normalization",
+ "uri-template-system",
  "url",
  "uuid",
  "walkdir",
@@ -8005,6 +8006,25 @@ dependencies = [
  "http",
  "httparse",
  "log",
+]
+
+[[package]]
+name = "uri-template-system"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed4693c8a4a4ff120a73bd9e0e0b22ae73298f4aadd5bf9a942376d308cec177"
+dependencies = [
+ "uri-template-system-core",
+]
+
+[[package]]
+name = "uri-template-system-core"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26f254395af92efc86d9a0bb0a614dc76865c8a4ea0d71ba66ccd134d7f831fb"
+dependencies = [
+ "fnv",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

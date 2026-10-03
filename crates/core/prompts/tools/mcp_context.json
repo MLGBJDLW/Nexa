@@ -4,11 +4,12 @@
   "parameters": {
     "type": "object",
     "properties": {
-      "action": { "type": "string", "enum": ["list_servers", "list_resources", "list_resource_templates", "list_prompts", "read_resource", "get_prompt"] },
+      "action": { "type": "string", "enum": ["list_servers", "list_resources", "list_resource_templates", "list_prompts", "read_resource", "read_resource_template", "get_prompt"] },
       "server_id": { "type": "string", "description": "Connector ID returned by list_servers; required except for list_servers." },
-      "uri": { "type": "string", "description": "Absolute resource URI for read_resource; use a listed URI or an expanded advertised URI template." },
+      "uri": { "type": "string", "description": "Exact listed resource URI for read_resource. Unlisted URIs are rejected; use read_resource_template to expand an advertised template." },
+      "uri_template": { "type": "string", "description": "Exact advertised URI template for read_resource_template; the host expands it using arguments." },
       "name": { "type": "string", "description": "Exact advertised prompt name for get_prompt." },
-      "arguments": { "type": "object", "additionalProperties": { "type": "string" }, "description": "String argument values matching the selected prompt's declared arguments." },
+      "arguments": { "type": "object", "additionalProperties": { "type": "string" }, "description": "String argument values matching the selected prompt's declared arguments or resource template variables." },
       "offset": { "type": "integer", "minimum": 0, "description": "Catalog page offset, default 0." },
       "limit": { "type": "integer", "minimum": 1, "maximum": 128, "description": "Catalog page size, default 50." }
     },

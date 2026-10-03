@@ -33,6 +33,7 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [mode, setMode] = useState<'resource' | 'prompt'>('resource');
   const [uri, setUri] = useState('');
+  const [uriTemplate, setUriTemplate] = useState('');
   const [prompt, setPrompt] = useState('');
   const [args, setArgs] = useState<Record<string, string>>({});
   const [result, setResult] = useState<ContentResult | null>(null);
@@ -47,7 +48,7 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
   }, []);
   const load = useCallback(async () => {
     const request = ++sequence.current;
-    setCatalog(null); setResult(null); setUri(''); setPrompt(''); setArgs({}); setError(null);
+    setCatalog(null); setResult(null); setUri(''); setUriTemplate(''); setPrompt(''); setArgs({}); setError(null);
     if (!serverId) { setBusy(false); return; }
     setBusy(true);
     try {
@@ -58,13 +59,18 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
   }, [serverId]);
   useEffect(() => { void load(); return () => { sequence.current += 1; }; }, [load]);
   const selectedPrompt = catalog?.prompts.find(item => item.name === prompt);
+  const templateVariables = [...new Set([...uriTemplate.matchAll(/\{([^{}]+)\}/g)].flatMap(match =>
+    match[1].replace(/^[+#./;?&]/, '').split(',').map(variable => variable.replace(/(?::\d+|\*)$/, '')),
+  ))];
   const read = async () => {
     if (!catalog) return;
     const request = ++sequence.current; setBusy(true); setError(null); setResult(null);
-    const target = mode === 'resource' ? uri : prompt;
+    const target = mode === 'resource' ? uriTemplate || uri : prompt;
     try {
       const next = await invoke<ContentResult>('read_mcp_content_cmd', { serverId, authorityEpoch: catalog.authorityEpoch,
-        request: mode === 'resource' ? { action:'read_resource',uri } : { action:'get_prompt',name:prompt,arguments:args },
+        request: mode === 'resource'
+          ? uriTemplate ? { action:'read_resource_template',uri_template:uriTemplate,arguments:args } : { action:'read_resource',uri }
+          : { action:'get_prompt',name:prompt,arguments:args },
       });
       if (request === sequence.current) {
         setResult(next); setSource(`MCP · ${servers.find(item => item.id === serverId)?.name ?? serverId} · ${target}`);
@@ -85,16 +91,23 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
     {catalog?.diagnostics && <p role="status" className="text-xs text-warning">{catalog.diagnostics}</p>}
     {catalog?.contentDiagnostics?.map(diagnostic => <p key={diagnostic} role="status" className="text-xs text-warning">{diagnostic}</p>)}
     {catalog && <>
-      <select disabled={busy} aria-label={t('chat.mcpContentKind')} className={selectClass} value={mode} onChange={event => { setMode(event.target.value as typeof mode); setResult(null); }}>
+      <select disabled={busy} aria-label={t('chat.mcpContentKind')} className={selectClass} value={mode} onChange={event => { setMode(event.target.value as typeof mode); setArgs({}); setResult(null); }}>
         <option value="resource">{t('chat.mcpResources')}</option><option value="prompt">{t('chat.mcpPrompts')}</option>
       </select>
       {mode === 'resource' ? <>
-        <select disabled={busy} aria-label={t('chat.mcpResources')} className={selectClass} value={catalog.resources.some(item => item.uri === uri) || catalog.resourceTemplates.some(item => item.uriTemplate === uri) ? uri : ''} onChange={event => { setUri(event.target.value); setResult(null); }}>
+        <select disabled={busy} aria-label={t('chat.mcpResources')} className={selectClass} value={uriTemplate || (catalog.resources.some(item => item.uri === uri) ? uri : '')} onChange={event => {
+          const target = event.target.value;
+          const isTemplate = catalog.resourceTemplates.some(item => item.uriTemplate === target);
+          setUriTemplate(isTemplate ? target : ''); setUri(isTemplate ? '' : target); setArgs({}); setResult(null);
+        }}>
           <option value="">{t('chat.mcpChooseResource')}</option>
           {catalog.resources.map(item => <option key={item.uri} value={item.uri}>{item.name} · {item.uri}</option>)}
           {catalog.resourceTemplates.map(item => <option key={item.uriTemplate} value={item.uriTemplate}>{item.name} · {item.uriTemplate}</option>)}
         </select>
-        <Input disabled={busy} aria-label={t('chat.mcpResourceUri')} placeholder={t('chat.mcpResourceUri')} value={uri} onChange={event => { setUri(event.target.value); setResult(null); }} />
+        <Input disabled={busy || !!uriTemplate} aria-label={t('chat.mcpResourceUri')} placeholder={t('chat.mcpResourceUri')} value={uriTemplate || uri} onChange={event => { setUri(event.target.value); setResult(null); }} />
+        {templateVariables.map(variable => <label key={variable} className="block text-xs">{variable}
+          <Input disabled={busy} value={args[variable] ?? ''} onChange={event => { setArgs(values => ({ ...values, [variable]: event.target.value })); setResult(null); }} />
+        </label>)}
       </> : <>
         <select disabled={busy} aria-label={t('chat.mcpPrompts')} className={selectClass} value={prompt} onChange={event => { setPrompt(event.target.value); setArgs({}); setResult(null); }}>
           <option value="">{t('chat.mcpChoosePrompt')}</option>{catalog.prompts.map(item => <option key={item.name} value={item.name}>{item.name}</option>)}
@@ -104,7 +117,7 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
           <Input disabled={busy} value={args[argument.name] ?? ''} required={argument.required} title={argument.description} onChange={event => { setArgs(values => ({ ...values,[argument.name]:event.target.value })); setResult(null); }} />
         </label>)}
       </>}
-      <Button size="sm" loading={busy} disabled={busy || !catalog.complete || (mode === 'resource' ? !uri : !prompt || selectedPrompt?.arguments?.some(argument => argument.required && !args[argument.name]))} onClick={() => void read()}>{t('chat.mcpReadContent')}</Button>
+      <Button size="sm" loading={busy} disabled={busy || !catalog.complete || (mode === 'resource' ? !uri && !uriTemplate : !prompt || selectedPrompt?.arguments?.some(argument => argument.required && !args[argument.name]))} onClick={() => void read()}>{t('chat.mcpReadContent')}</Button>
     </>}
     {result && <div className="space-y-3 rounded-lg border border-border p-3">
       <p className="break-all text-xs text-text-tertiary">{source}</p>

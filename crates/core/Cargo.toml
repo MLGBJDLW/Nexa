@@ -25,6 +25,7 @@ globset = "0.4"
 ignore = "0.4"
 regex = "1"
 url = "2"
+uri-template-system = "=0.1.5"
 scraper = "0.27"
 readabilityrs = "0.1.3"
 headless_chrome = { version = "1.0.22", optional = true }

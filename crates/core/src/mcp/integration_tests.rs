@@ -463,6 +463,77 @@ async fn mcp_content_catalogs_reads_and_prompts_reach_the_registry_without_tools
 }
 
 #[tokio::test]
+async fn mcp_content_rejects_unlisted_uris_and_expands_only_advertised_templates() {
+    let remote = peer("scoped-content", "Scoped content", &[]).await;
+    *remote.capabilities.write().unwrap() = json!({"resources":{}});
+    remote.content_responses.write().unwrap().extend([
+        ("resources/list".into(), json!({"resources":[{"uri":"notes://catalog/public","name":"Public"}]})),
+        ("resources/templates/list".into(), json!({"resourceTemplates":[{"uriTemplate":"notes://catalog/{id}{?view}","name":"Note"}]})),
+    ]);
+    let manager = McpManager::new();
+    manager
+        .connect_server(&remote.server, Some(3))
+        .await
+        .unwrap();
+    let mut registry = ToolRegistry::new();
+    manager.register_tools(&mut registry).unwrap();
+    let db = Database::open_memory().unwrap();
+    for arguments in [
+        json!({"action":"read_resource","server_id":"scoped-content","uri":"file:///private/secret"}),
+        json!({"action":"read_resource","server_id":"scoped-content","uri":"notes://catalog/private"}),
+        json!({"action":"read_resource_template","server_id":"scoped-content","uri_template":"file:///{path}","arguments":{"path":"private"}}),
+        json!({"action":"read_resource_template","server_id":"scoped-content","uri_template":"notes://catalog/{id}{?view}","arguments":{"unknown":"private"}}),
+    ] {
+        let before = remote.content_calls.lock().unwrap().len();
+        let arguments = arguments.to_string();
+        let result = registry
+            .execute(
+                "mcp_context",
+                ToolExecutionContext::new("blocked", &arguments, &db, &[]),
+            )
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert_eq!(
+            remote.content_calls.lock().unwrap().len(),
+            before,
+            "invalid targets must not reach the connector"
+        );
+    }
+    let arguments = json!({"action":"read_resource_template","server_id":"scoped-content","uri_template":"notes://catalog/{id}{?view}","arguments":{"id":"folder/private","view":"a&b"}});
+    assert!(
+        registry
+            .access_profile("mcp_context", &arguments)
+            .needs_approval
+    );
+    assert_eq!(
+        registry
+            .build_invocation("template", "mcp_context", arguments.clone())
+            .tool_identity
+            .unwrap()
+            .id
+            .tool_name,
+        "resources/read"
+    );
+    let arguments = arguments.to_string();
+    let result = registry
+        .execute(
+            "mcp_context",
+            ToolExecutionContext::new("template", &arguments, &db, &[]),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert_eq!(
+        remote.content_calls.lock().unwrap().last().unwrap()["params"]["uri"],
+        "notes://catalog/folder%2Fprivate?view=a%26b"
+    );
+    let malformed = registry.prepare_arguments_for_scheduling("mcp_context", "mixed", r#"{"action":"read_resource_template","server_id":"scoped-content","uri":"notes://catalog/private","uri_template":"notes://catalog/{id}"}"#);
+    assert!(malformed.1.unwrap().is_error);
+    manager.shutdown().await;
+}
+
+#[tokio::test]
 async fn mcp_content_optional_templates_and_each_capability_are_independent() {
     for resources in [true, false] {
         let remote = peer("content-only", "Content only", &[]).await;

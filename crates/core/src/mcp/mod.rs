@@ -6,6 +6,7 @@ mod events;
 pub mod identity;
 mod manager;
 pub mod oauth;
+mod resource_template;
 pub mod result;
 pub(crate) use manager::McpConnectorSlot;
 pub use manager::{McpCatalogSnapshot, McpManager};
@@ -98,6 +99,10 @@ pub enum McpContentRequest {
     ReadResource {
         uri: String,
     },
+    ReadResourceTemplate {
+        uri_template: String,
+        arguments: BTreeMap<String, String>,
+    },
     GetPrompt {
         name: String,
         arguments: BTreeMap<String, String>,
@@ -113,8 +118,33 @@ impl McpContentRequest {
                     || uri.len() > 16_384
                     || Url::parse(uri).is_err()
                 {
-                    return Err(CoreError::InvalidInput("Choose an absolute resource URI from this connector or expand one of its advertised URI templates.".into()));
+                    return Err(CoreError::InvalidInput(
+                        "Choose an absolute resource URI from this connector's catalog.".into(),
+                    ));
                 }
+                if !catalog.resources.iter().any(|resource| {
+                    resource.get("uri").and_then(serde_json::Value::as_str) == Some(uri)
+                }) {
+                    return Err(CoreError::InvalidInput("The resource URI is absent from this connector's current catalog; use read_resource_template with an advertised template and its arguments for template resources.".into()));
+                }
+            }
+            Self::ReadResourceTemplate {
+                uri_template,
+                arguments,
+            } => {
+                if catalog.capabilities.get("resources").is_none()
+                    || !catalog.resource_templates.iter().any(|template| {
+                        template
+                            .get("uriTemplate")
+                            .and_then(serde_json::Value::as_str)
+                            == Some(uri_template)
+                    })
+                {
+                    return Err(CoreError::InvalidInput(
+                        "The URI template is absent from this connector's current catalog.".into(),
+                    ));
+                }
+                resource_template::expand(uri_template, arguments)?;
             }
             Self::GetPrompt { name, arguments } => {
                 if !catalog.prompts_complete {
@@ -171,7 +201,7 @@ impl McpContentRequest {
     }
     pub(crate) fn method(&self) -> &'static str {
         match self {
-            Self::ReadResource { .. } => "resources/read",
+            Self::ReadResource { .. } | Self::ReadResourceTemplate { .. } => "resources/read",
             Self::GetPrompt { .. } => "prompts/get",
         }
     }

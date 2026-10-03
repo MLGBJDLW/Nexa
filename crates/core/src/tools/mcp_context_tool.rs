@@ -45,6 +45,7 @@ struct Args {
     action: String,
     server_id: Option<String>,
     uri: Option<String>,
+    uri_template: Option<String>,
     name: Option<String>,
     arguments: Option<BTreeMap<String, String>>,
     offset: Option<usize>,
@@ -53,32 +54,45 @@ struct Args {
 
 impl Args {
     fn validate(&self) -> Result<(), CoreError> {
-        let no_target = self.uri.is_none() && self.name.is_none() && self.arguments.is_none();
+        let no_target = self.uri.is_none()
+            && self.uri_template.is_none()
+            && self.name.is_none()
+            && self.arguments.is_none();
         let no_page = self.offset.is_none() && self.limit.is_none();
-        let valid = match self.action.as_str() {
-            "list_servers" => self.server_id.is_none() && no_target,
-            "list_resources" | "list_resource_templates" | "list_prompts" => no_target,
-            "read_resource" => {
-                no_page
-                    && self.name.is_none()
-                    && self.arguments.is_none()
-                    && self
-                        .uri
-                        .as_ref()
-                        .is_some_and(|uri| uri.len() <= 16_384 && reqwest::Url::parse(uri).is_ok())
-            }
-            "get_prompt" => {
-                no_page
-                    && self.uri.is_none()
-                    && self
-                        .name
-                        .as_ref()
-                        .is_some_and(|name| !name.is_empty() && name.len() <= 4096)
-            }
-            _ => false,
-        } && self.limit.is_none_or(|limit| (1..=128).contains(&limit))
-            && (self.action == "list_servers"
-                || self.server_id.as_ref().is_some_and(|id| !id.is_empty()));
+        let valid =
+            match self.action.as_str() {
+                "list_servers" => self.server_id.is_none() && no_target,
+                "list_resources" | "list_resource_templates" | "list_prompts" => no_target,
+                "read_resource" => {
+                    no_page
+                        && self.uri_template.is_none()
+                        && self.name.is_none()
+                        && self.arguments.is_none()
+                        && self.uri.as_ref().is_some_and(|uri| {
+                            uri.len() <= 16_384 && reqwest::Url::parse(uri).is_ok()
+                        })
+                }
+                "read_resource_template" => {
+                    no_page
+                        && self.uri.is_none()
+                        && self.name.is_none()
+                        && self.uri_template.as_ref().is_some_and(|template| {
+                            !template.is_empty() && template.len() <= 16_384
+                        })
+                }
+                "get_prompt" => {
+                    no_page
+                        && self.uri.is_none()
+                        && self.uri_template.is_none()
+                        && self
+                            .name
+                            .as_ref()
+                            .is_some_and(|name| !name.is_empty() && name.len() <= 4096)
+                }
+                _ => false,
+            } && self.limit.is_none_or(|limit| (1..=128).contains(&limit))
+                && (self.action == "list_servers"
+                    || self.server_id.as_ref().is_some_and(|id| !id.is_empty()));
         if !valid {
             return Err(CoreError::InvalidInput("MCP content action requires its exact target fields; reads do not accept pagination and catalog lists do not accept URI/name/arguments.".into()));
         }
@@ -113,7 +127,7 @@ impl Tool for McpContextTool {
             .get(args.get("server_id")?.as_str()?)?
             .clone();
         identity.id.tool_name = match args.get("action")?.as_str()? {
-            "read_resource" => "resources/read",
+            "read_resource" | "read_resource_template" => "resources/read",
             "get_prompt" => "prompts/get",
             _ => return None,
         }
@@ -130,6 +144,7 @@ impl Tool for McpContextTool {
                 .and_then(Value::as_str)
                 .unwrap_or_default(),
             args.get("uri")
+                .or_else(|| args.get("uri_template"))
                 .or_else(|| args.get("name"))
                 .and_then(Value::as_str)
                 .unwrap_or_default()
@@ -202,6 +217,12 @@ impl Tool for McpContextTool {
                     arguments: args.arguments.unwrap_or_default(),
                 })
             }
+            "read_resource_template" => Some(McpContentRequest::ReadResourceTemplate {
+                uri_template: args
+                    .uri_template
+                    .ok_or_else(|| CoreError::InvalidInput("uri_template is required".into()))?,
+                arguments: args.arguments.unwrap_or_default(),
+            }),
             "list_resources" | "list_resource_templates" | "list_prompts"
                 if args.uri.is_none() && args.name.is_none() && args.arguments.is_none() =>
             {
