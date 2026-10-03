@@ -1106,7 +1106,7 @@ mod tests {
             let scoped = db
                 .get_knowledge_graph(KnowledgeGraphQuery {
                     limit: 10,
-                    source_ids: vec![source],
+                    source_ids: vec![source.clone()],
                     relation_types: vec!["supports".into()],
                     ..Default::default()
                 })
@@ -1129,10 +1129,58 @@ mod tests {
                 .unwrap();
             assert_eq!(read_manual(), manual);
             add_compiled();
+            db.upsert_entity("Orphan", &EntityType::Concept, "No manual relation", &doc)
+                .unwrap();
             db.conn()
                 .execute("DELETE FROM documents WHERE id=?1", [&doc])
                 .unwrap();
             assert_eq!(read_manual(), manual);
+            let assert_manual_visible = |source_exists: bool| {
+                let graph = db
+                    .get_knowledge_graph(KnowledgeGraphQuery {
+                        limit: 10,
+                        relation_types: vec!["supports".into()],
+                        min_strength: Some(0.8),
+                        ..Default::default()
+                    })
+                    .unwrap();
+                assert_eq!(graph.nodes.len(), 2);
+                assert!(graph.nodes.iter().all(|node| {
+                    node.document_count == 0 && node.documents.is_empty() && node.link_count == 1
+                }));
+                assert_eq!(graph.edges.len(), 1);
+                assert_eq!(graph.edges[0].id, manual.0);
+                assert_eq!(graph.edges[0].strength, 0.9);
+                assert_eq!(graph.edges[0].evidence_doc_id, None);
+                assert_eq!(graph.edges[0].evidence_snippet.as_deref(), Some("Manual"));
+                assert_eq!(graph.edges[0].confidence, Some(0.85));
+                for scoped_query in [
+                    KnowledgeGraphQuery {
+                        source_ids: vec![source.clone()],
+                        ..Default::default()
+                    },
+                    KnowledgeGraphQuery {
+                        path_prefix: Some("manual".into()),
+                        ..Default::default()
+                    },
+                ] {
+                    let selects_source = !scoped_query.source_ids.is_empty();
+                    let scoped = db.get_knowledge_graph(scoped_query);
+                    if selects_source && !source_exists {
+                        assert!(matches!(scoped, Err(CoreError::NotFound(_))));
+                        continue;
+                    }
+                    let scoped = scoped.unwrap();
+                    assert!(scoped.nodes.is_empty());
+                    assert!(scoped.edges.is_empty());
+                }
+            };
+            assert_manual_visible(true);
+            db.conn()
+                .execute("DELETE FROM sources WHERE id=?1", [&source])
+                .unwrap();
+            assert_eq!(read_manual(), manual);
+            assert_manual_visible(false);
             assert!(db.integrity_check().unwrap());
         }
     }

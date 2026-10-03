@@ -350,7 +350,14 @@ impl Database {
         let path_patterns =
             scoped_path_patterns(source_root.as_deref(), query.path_prefix.as_deref());
 
-        let mut where_parts = Vec::new();
+        // Manual relations remain usable after their last document is removed.
+        // Source/path predicates below still require an in-scope document.
+        let mut where_parts = vec!["(d.id IS NOT NULL OR EXISTS (
+                SELECT 1 FROM entity_links manual
+                WHERE manual.evidence_doc_id IS NULL
+                  AND (manual.source_entity_id=e.id OR manual.target_entity_id=e.id)
+            ))"
+        .to_owned()];
         let mut params: Vec<Value> = Vec::new();
         if !source_ids.is_empty() {
             where_parts.push(format!(
@@ -380,10 +387,10 @@ impl Database {
         let sql = format!(
             "{ENTITY_DOCUMENT_LINKS_CTE}
              SELECT e.id, e.name, e.entity_type, e.description, e.first_seen_doc, e.mention_count,
-                    COUNT(DISTINCT edl.document_id) AS document_count
+                    COUNT(DISTINCT d.id) AS document_count
              FROM entities e
-             JOIN entity_document_links edl ON e.id = edl.entity_id
-             JOIN documents d ON d.id = edl.document_id
+             LEFT JOIN entity_document_links edl ON e.id = edl.entity_id
+             LEFT JOIN documents d ON d.id = edl.document_id
              {where_sql}
              GROUP BY e.id
              ORDER BY document_count DESC, e.mention_count DESC, e.name COLLATE NOCASE
