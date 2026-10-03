@@ -478,4 +478,63 @@ mod tests {
         assert!(result.is_error);
         assert!(result.content.contains("outside the current source scope"));
     }
+    #[tokio::test]
+    async fn evidence_tools_keep_historical_text_and_enforce_source_scope() {
+        let (db, document, _) = setup_db_with_chunks(2);
+        let (chunk,source):(String,String)=db.conn().query_row("SELECT c.id,d.source_id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.document_id=?1 AND c.chunk_index=0",[&document],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
+        db.conn()
+            .execute("DELETE FROM documents WHERE id=?1", [&document])
+            .unwrap();
+        let args = json!({"chunk_ids":[chunk]}).to_string();
+        let result = RetrieveEvidenceTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "retrieve",
+                &args,
+                &db,
+                std::slice::from_ref(&source),
+            ))
+            .await
+            .unwrap();
+        assert!(result.content.contains("Content of chunk 0"));
+        assert_eq!(
+            result.artifacts.unwrap()[0]["evidenceRef"]["status"],
+            "missing"
+        );
+        let args = json!({"chunk_id":chunk,"context_chunks":1}).to_string();
+        let context = crate::tools::chunk_context_tool::ChunkContextTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "context",
+                &args,
+                &db,
+                std::slice::from_ref(&source),
+            ))
+            .await
+            .unwrap();
+        assert!(context.content.contains("Content of chunk 1"));
+        assert_eq!(context.artifacts.unwrap()["totalChunks"], 2);
+        let denied = crate::tools::chunk_context_tool::ChunkContextTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "denied",
+                &args,
+                &db,
+                &[uuid::Uuid::new_v4().to_string()],
+            ))
+            .await
+            .unwrap();
+        assert!(denied.is_error);
+        assert!(!denied.content.contains("Content of chunk"));
+        db.conn()
+            .execute("DELETE FROM sources WHERE id=?1", [&source])
+            .unwrap();
+        let revoked = crate::tools::chunk_context_tool::ChunkContextTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "revoked",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(revoked.is_error);
+    }
 }
