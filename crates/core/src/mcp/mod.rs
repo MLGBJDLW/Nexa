@@ -75,6 +75,105 @@ pub struct McpToolInfo {
     pub input_schema: serde_json::Value,
 }
 
+/// Preserve server-defined metadata while keeping each catalog inside the transport budget.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct McpContentCatalog {
+    pub capabilities: serde_json::Value,
+    pub resources: Vec<serde_json::Value>,
+    pub resource_templates: Vec<serde_json::Value>,
+    pub prompts: Vec<serde_json::Value>,
+    pub resources_complete: bool,
+    pub resource_templates_complete: bool,
+    pub prompts_complete: bool,
+    pub content_diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum McpContentRequest {
+    ReadResource {
+        uri: String,
+    },
+    GetPrompt {
+        name: String,
+        arguments: BTreeMap<String, String>,
+    },
+}
+
+impl McpContentRequest {
+    pub(crate) fn validate(&self, catalog: &McpContentCatalog) -> Result<(), CoreError> {
+        match self {
+            Self::ReadResource { uri } => {
+                if catalog.capabilities.get("resources").is_none()
+                    || uri.is_empty()
+                    || uri.len() > 16_384
+                    || Url::parse(uri).is_err()
+                {
+                    return Err(CoreError::InvalidInput("Choose an absolute resource URI from this connector or expand one of its advertised URI templates.".into()));
+                }
+            }
+            Self::GetPrompt { name, arguments } => {
+                if !catalog.prompts_complete {
+                    return Err(CoreError::Mcp("Prompt discovery is incomplete; refresh this connector before choosing a template.".into()));
+                }
+                let prompt = catalog
+                    .prompts
+                    .iter()
+                    .find(|prompt| {
+                        prompt.get("name").and_then(serde_json::Value::as_str) == Some(name)
+                    })
+                    .ok_or_else(|| {
+                        CoreError::InvalidInput(
+                            "The prompt is absent from this connector's current catalog.".into(),
+                        )
+                    })?;
+                let definitions = prompt
+                    .get("arguments")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for definition in &definitions {
+                    let key = definition
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    if definition
+                        .get("required")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                        && !arguments.contains_key(key)
+                    {
+                        return Err(CoreError::InvalidInput(format!(
+                            "Prompt argument '{key}' is required."
+                        )));
+                    }
+                }
+                if arguments.len() > 128
+                    || serde_json::to_vec(arguments)?.len() > 64 * 1024
+                    || arguments.keys().any(|key| {
+                        !definitions.iter().any(|definition| {
+                            definition.get("name").and_then(serde_json::Value::as_str) == Some(key)
+                        })
+                    })
+                {
+                    return Err(CoreError::InvalidInput(
+                        "Prompt arguments must match the current catalog and fit within 64 KiB."
+                            .into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn method(&self) -> &'static str {
+        match self {
+            Self::ReadResource { .. } => "resources/read",
+            Self::GetPrompt { .. } => "prompts/get",
+        }
+    }
+}
+
 fn normalize_required_text(field: &str, value: &str) -> Result<String, CoreError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -526,7 +625,7 @@ impl Database {
         Ok(out)
     }
 
-    fn get_mcp_server(&self, id: &str) -> Result<McpServer, CoreError> {
+    pub fn get_mcp_server(&self, id: &str) -> Result<McpServer, CoreError> {
         let conn = self.conn();
         conn.query_row(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,

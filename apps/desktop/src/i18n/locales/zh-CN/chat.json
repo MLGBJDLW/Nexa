@@ -804,5 +804,18 @@
   "mcpImage": "工具结果图片",
   "mcpAudio": "工具结果音频",
   "mcpEmbeddedResource": "嵌入资源",
-  "mcpStructuredContent": "结构化结果"
+  "mcpStructuredContent": "结构化结果",
+  "mcpContentTitle": "MCP 资源与提示模板",
+  "mcpContentHint": "浏览已启用的连接器，审阅内容后再将文本加入草稿，不会自动发送。读取前请填写 URI 模板中的占位符。二进制内容可由 agent 通过资源读取获取。",
+  "mcpConnector": "连接器",
+  "mcpChooseConnector": "选择连接器",
+  "mcpRefreshCatalog": "刷新目录",
+  "mcpContentKind": "内容类型",
+  "mcpResources": "资源",
+  "mcpPrompts": "提示模板",
+  "mcpChooseResource": "选择资源或 URI 模板",
+  "mcpResourceUri": "资源 URI",
+  "mcpChoosePrompt": "选择提示模板",
+  "mcpReadContent": "读取内容",
+  "mcpInsertText": "将文本加入草稿"
 }

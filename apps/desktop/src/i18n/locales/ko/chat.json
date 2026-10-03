@@ -804,5 +804,18 @@
   "mcpImage": "도구 결과 이미지",
   "mcpAudio": "도구 결과 오디오",
   "mcpEmbeddedResource": "포함된 리소스",
-  "mcpStructuredContent": "구조화된 결과"
+  "mcpStructuredContent": "구조화된 결과",
+  "mcpContentTitle": "MCP 리소스와 프롬프트",
+  "mcpContentHint": "활성화된 커넥터의 내용을 검토한 뒤 초안에 텍스트를 추가하세요. 자동 전송하지 않습니다. 읽기 전에 URI 템플릿 변수를 입력하세요. 바이너리는 에이전트의 리소스 읽기로 가져올 수 있습니다.",
+  "mcpConnector": "커넥터",
+  "mcpChooseConnector": "커넥터 선택",
+  "mcpRefreshCatalog": "목록 새로 고침",
+  "mcpContentKind": "콘텐츠 유형",
+  "mcpResources": "리소스",
+  "mcpPrompts": "프롬프트 템플릿",
+  "mcpChooseResource": "리소스 또는 URI 템플릿 선택",
+  "mcpResourceUri": "리소스 URI",
+  "mcpChoosePrompt": "프롬프트 템플릿 선택",
+  "mcpReadContent": "내용 읽기",
+  "mcpInsertText": "초안에 텍스트 추가"
 }

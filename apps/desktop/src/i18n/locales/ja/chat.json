@@ -804,5 +804,18 @@
   "mcpImage": "ツール結果の画像",
   "mcpAudio": "ツール結果の音声",
   "mcpEmbeddedResource": "埋め込みリソース",
-  "mcpStructuredContent": "構造化された結果"
+  "mcpStructuredContent": "構造化された結果",
+  "mcpContentTitle": "MCP リソースとプロンプト",
+  "mcpContentHint": "有効なコネクターの内容を確認してから下書きにテキストを追加します。自動送信はしません。URI テンプレートの変数を入力してください。バイナリはエージェントのリソース読み取りで取得できます。",
+  "mcpConnector": "コネクター",
+  "mcpChooseConnector": "コネクターを選択",
+  "mcpRefreshCatalog": "一覧を更新",
+  "mcpContentKind": "コンテンツの種類",
+  "mcpResources": "リソース",
+  "mcpPrompts": "プロンプトテンプレート",
+  "mcpChooseResource": "リソースまたは URI テンプレートを選択",
+  "mcpResourceUri": "リソース URI",
+  "mcpChoosePrompt": "プロンプトを選択",
+  "mcpReadContent": "内容を読み込む",
+  "mcpInsertText": "下書きにテキストを追加"
 }

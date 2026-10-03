@@ -563,7 +563,7 @@ fn main() {
             let db_path = data_dir.join("nexa.db");
             let db = Database::new(&db_path).expect("failed to initialize database");
             if let Err(error) = db.recover_project_hook_runs() {
-                tracing::warn!(%error, "Could not recover interrupted project hooks");
+                log::warn!("Could not recover interrupted project hooks: {error}");
             }
             if let Err(error) = db.recover_pending_file_changes() {
                 log::warn!("Could not settle file changes interrupted by the previous process: {error}");
@@ -1233,6 +1233,8 @@ fn main() {
             commands::test_mcp_server_cmd,
             commands::test_mcp_server_direct_cmd,
             commands::list_mcp_tools_cmd,
+            commands::get_mcp_content_catalog_cmd,
+            commands::read_mcp_content_cmd,
             // Trace analytics
             commands::get_trace_summary,
             commands::get_recent_traces,

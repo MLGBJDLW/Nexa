@@ -804,5 +804,18 @@
   "mcpImage": "Image du résultat",
   "mcpAudio": "Audio du résultat",
   "mcpEmbeddedResource": "Ressource intégrée",
-  "mcpStructuredContent": "Résultat structuré"
+  "mcpStructuredContent": "Résultat structuré",
+  "mcpContentTitle": "Ressources et modèles MCP",
+  "mcpContentHint": "Vérifiez le contenu des connecteurs actifs avant d’ajouter du texte au brouillon. Aucun envoi automatique. Remplissez les variables URI avant la lecture. L’agent peut lire les ressources binaires.",
+  "mcpConnector": "Connecteur",
+  "mcpChooseConnector": "Choisir un connecteur",
+  "mcpRefreshCatalog": "Actualiser le catalogue",
+  "mcpContentKind": "Type de contenu",
+  "mcpResources": "Ressources",
+  "mcpPrompts": "Modèles de prompts",
+  "mcpChooseResource": "Choisir une ressource ou un modèle URI",
+  "mcpResourceUri": "URI de la ressource",
+  "mcpChoosePrompt": "Choisir un modèle",
+  "mcpReadContent": "Lire le contenu",
+  "mcpInsertText": "Ajouter le texte au brouillon"
 }

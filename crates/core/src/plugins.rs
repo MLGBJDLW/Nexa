@@ -414,7 +414,7 @@ const MCP_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
     description:
         "Exposes server-defined tools from configured MCP connectors with explicit approval policy.",
     surface: EcosystemSurfaceKind::Connector,
-    tools: &["mcp_tool"],
+    tools: &["mcp_tool", "mcp_context"],
     settings_surfaces: &["mcp"],
     workflows: &["connector-tool-call"],
 };

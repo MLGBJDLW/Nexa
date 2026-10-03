@@ -133,6 +133,7 @@ pub mod list_documents_tool;
 pub mod list_sources_tool;
 pub mod manage_skill_tool;
 pub mod manage_source_tool;
+pub mod mcp_context_tool;
 pub mod mcp_tool;
 #[cfg(feature = "ocr")]
 pub mod ocr_tool;
@@ -723,6 +724,15 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// Host adapters selecting a connector through arguments still bind per-call
+    /// approvals to that connector's immutable trust identity.
+    fn canonical_identity_for_arguments(
+        &self,
+        _args: &serde_json::Value,
+    ) -> Option<crate::mcp::McpToolIdentity> {
+        self.canonical_identity()
+    }
+
     /// Selector used only for capability package declarations. Dynamic tools
     /// retain their declared package namespace when their callable alias changes.
     fn ownership_selector(&self) -> &str {
@@ -1115,7 +1125,9 @@ impl ToolRegistry {
         let capabilities = descriptor.capabilities;
         let access_profile = descriptor.access_profile;
         let owner = descriptor.owner;
-        let tool_identity = self.get(&tool_name).and_then(Tool::canonical_identity);
+        let tool_identity = self
+            .get(&tool_name)
+            .and_then(|tool| tool.canonical_identity_for_arguments(&arguments));
         ToolInvocation {
             call_id: call_id.into(),
             tool_name,
@@ -1413,6 +1425,16 @@ impl ToolRegistry {
         let schema = tool.definition().parameters;
         match normalize_tool_arguments(name, arguments, &schema) {
             Ok(arguments) => {
+                if name == "mcp_context" {
+                    if let Err(error) = mcp_context_tool::validate_arguments(&arguments) {
+                        return Err(tool_contract_error_result(
+                            call_id,
+                            "invalid_mcp_content_arguments",
+                            error.to_string(),
+                            schema,
+                        ));
+                    }
+                }
                 if name == "run_shell" {
                     let value: serde_json::Value =
                         serde_json::from_str(&arguments).expect("normalized JSON");

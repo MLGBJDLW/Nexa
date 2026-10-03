@@ -804,5 +804,18 @@
   "mcpImage": "Tool result image",
   "mcpAudio": "Tool result audio",
   "mcpEmbeddedResource": "Embedded resource",
-  "mcpStructuredContent": "Structured result"
+  "mcpStructuredContent": "Structured result",
+  "mcpContentTitle": "MCP resources and prompts",
+  "mcpContentHint": "Browse enabled connectors and review their content before adding text to the draft. Nothing is sent automatically. Fill URI template placeholders before reading. Binary content is available through agent resource reads.",
+  "mcpConnector": "Connector",
+  "mcpChooseConnector": "Choose a connector",
+  "mcpRefreshCatalog": "Refresh catalog",
+  "mcpContentKind": "Content type",
+  "mcpResources": "Resources",
+  "mcpPrompts": "Prompt templates",
+  "mcpChooseResource": "Choose a resource or URI template",
+  "mcpResourceUri": "Resource URI",
+  "mcpChoosePrompt": "Choose a prompt template",
+  "mcpReadContent": "Read content",
+  "mcpInsertText": "Add text to draft"
 }

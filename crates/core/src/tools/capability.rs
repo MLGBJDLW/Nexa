@@ -823,6 +823,13 @@ pub fn infer_tool_access_profile(
             ApprovalRisk::Low,
             "Steers or cooperatively cancels an already-authorized delegated agent.",
         ),
+        "mcp_context" => (
+            "mcp", true, false, false,
+            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "get_prompt")),
+            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "get_prompt")),
+            ApprovalRisk::Low,
+            "Reads resources or prompt templates from an enabled MCP connector.",
+        ),
         tool if tool == "mcp_tool" || tool.starts_with("mcp__") => (
             "mcp",
             true,

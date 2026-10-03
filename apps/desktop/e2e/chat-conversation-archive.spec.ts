@@ -1,5 +1,41 @@
 import { expect, test } from './timeline-test';
 
+test('MCP resources and prompt templates are reviewed before adding text to the draft', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command:string,args?:Record<string,unknown>) => Promise<unknown> }; __mcpReads:Array<Record<string,unknown>> };
+    const original = state.__TAURI_INTERNALS__.invoke; state.__mcpReads = [];
+    state.__TAURI_INTERNALS__.invoke = async (command,args) => {
+      if (command === 'list_mcp_servers_cmd') return [{ id:'knowledge',name:'Knowledge',enabled:true }];
+      if (command === 'get_mcp_content_catalog_cmd') return { authorityEpoch:7,complete:true,diagnostics:null,resources:[{ name:'Report',uri:'notes://report' }],resourceTemplates:[{name:'Note',uriTemplate:'notes://{id}'}],prompts:[{name:'summarize',arguments:[{name:'topic',required:true}]}] };
+      if (command === 'read_mcp_content_cmd') {
+        state.__mcpReads.push(args!); const request=args?.request as { action:string };
+        const content=request.action === 'read_resource' ? 'Quarterly report evidence' : 'Selected prompt template';
+        return { content,isError:false,artifacts:{ kind:'mcpToolResult',version:1,contentBlocks:[{type:'text',text:content}],notices:[] } };
+      }
+      return original(command,args);
+    };
+  });
+  const input=page.getByTestId('chat-input-textarea'); await input.fill('Keep my draft');
+  await page.keyboard.press('Control+Shift+P'); const palette=page.getByRole('dialog',{name:/command palette/i});
+  await palette.getByRole('combobox').fill('MCP resources'); await palette.getByRole('option',{name:'MCP resources and prompts',exact:true}).click();
+  const panel=page.getByTestId('mcp-content-panel'); await panel.getByRole('combobox',{name:'Connector',exact:true}).selectOption('knowledge');
+  await panel.getByRole('combobox',{name:'Resources',exact:true}).selectOption('notes://report');
+  expect(await page.evaluate(() => (window as unknown as {__mcpReads:unknown[]}).__mcpReads)).toEqual([]);
+  await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Quarterly report evidence');
+  await page.screenshot({path:testInfo.outputPath('mcp-resources.png')});
+  await panel.getByRole('button',{name:'Add text to draft'}).click(); await expect(panel).toBeHidden(); await expect(input).toHaveValue(/Keep my draft\n\nMCP · Knowledge · notes:\/\/report\nQuarterly report evidence/);
+  await input.fill('/mcp-context'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
+  await panel.getByRole('combobox',{name:'Connector',exact:true}).selectOption('knowledge');
+  await panel.getByRole('combobox',{name:'Content type',exact:true}).selectOption('prompt');
+  await panel.getByRole('combobox',{name:'Prompt templates',exact:true}).selectOption('summarize');
+  await expect(panel.getByRole('button',{name:'Read content',exact:true})).toBeDisabled();
+  await panel.getByRole('textbox',{name:'topic *',exact:true}).fill('quarter');
+  await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Selected prompt template');
+  const reads=await page.evaluate(() => (window as unknown as {__mcpReads:Array<{authorityEpoch:number;request:{action:string;arguments?:Record<string,string>}}>}).__mcpReads);
+  expect(reads.map(read => read.authorityEpoch)).toEqual([7,7]); expect(reads[1].request.arguments).toEqual({topic:'quarter'});
+});
+
 test('project checks require explicit enablement and expose receipts through hooks command', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active');
   await page.getByTestId('chat-input-textarea').waitFor();

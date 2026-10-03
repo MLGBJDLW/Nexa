@@ -60,6 +60,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`manage_skill`](../crates/core/prompts/tools/manage_skill.json) | List, load, activate, inspect available skills and their bundled resources, execute a declared script resource helper through the skill resource helper sandbox, and create, insp... |
 | [`manage_source`](../crates/core/prompts/tools/manage_source.json) | Add, remove, or refresh knowledge source directories |
 | [`manage_user_memory`](../crates/core/prompts/tools/manage_user_memory.json) | List, search, record, update, or delete cross-session user memories |
+| [`mcp_context`](../crates/core/prompts/tools/mcp_context.json) | Discover MCP resources, URI templates and prompt templates |
 | [`office_artifact`](../crates/core/prompts/tools/office_artifact.json) | Inspect, assess, create, edit, verify, publish, discard, or restore DOCX, XLSX, and PPTX artifacts through Nexa's transactional OfficeArtifactEngine |
 | [`open_in_nexa`](../crates/core/prompts/tools/open_in_nexa.json) | Open an authorized local file inside Nexa |
 | [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |

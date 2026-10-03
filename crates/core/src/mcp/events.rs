@@ -37,7 +37,13 @@ impl McpClientEvents {
         let Some(method) = message.get("method").and_then(Value::as_str) else {
             return false;
         };
-        if method == "notifications/tools/list_changed" {
+        if matches!(
+            method,
+            "notifications/tools/list_changed"
+                | "notifications/resources/list_changed"
+                | "notifications/prompts/list_changed"
+                | "notifications/resources/updated"
+        ) {
             self.catalog_revision.fetch_add(1, Ordering::AcqRel);
             let observer = self
                 .observer

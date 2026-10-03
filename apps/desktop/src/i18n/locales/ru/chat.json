@@ -804,5 +804,18 @@
   "mcpImage": "Изображение результата",
   "mcpAudio": "Аудио результата",
   "mcpEmbeddedResource": "Встроенный ресурс",
-  "mcpStructuredContent": "Структурированный результат"
+  "mcpStructuredContent": "Структурированный результат",
+  "mcpContentTitle": "Ресурсы и шаблоны MCP",
+  "mcpContentHint": "Просмотрите содержимое активных подключений перед добавлением текста в черновик. Автоматической отправки нет. Перед чтением заполните переменные URI. Двоичные данные доступны через чтение ресурсов агентом.",
+  "mcpConnector": "Подключение",
+  "mcpChooseConnector": "Выберите подключение",
+  "mcpRefreshCatalog": "Обновить каталог",
+  "mcpContentKind": "Тип содержимого",
+  "mcpResources": "Ресурсы",
+  "mcpPrompts": "Шаблоны запросов",
+  "mcpChooseResource": "Выберите ресурс или шаблон URI",
+  "mcpResourceUri": "URI ресурса",
+  "mcpChoosePrompt": "Выберите шаблон",
+  "mcpReadContent": "Прочитать содержимое",
+  "mcpInsertText": "Добавить текст в черновик"
 }

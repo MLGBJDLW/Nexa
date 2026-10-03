@@ -804,5 +804,18 @@
   "mcpImage": "Imagem do resultado",
   "mcpAudio": "Áudio do resultado",
   "mcpEmbeddedResource": "Recurso incorporado",
-  "mcpStructuredContent": "Resultado estruturado"
+  "mcpStructuredContent": "Resultado estruturado",
+  "mcpContentTitle": "Recursos e modelos MCP",
+  "mcpContentHint": "Revise o conteúdo dos conectores ativos antes de adicionar texto ao rascunho. Nada é enviado automaticamente. Preencha as variáveis de URI antes de ler. O agente pode obter conteúdo binário pela leitura de recursos.",
+  "mcpConnector": "Conector",
+  "mcpChooseConnector": "Escolher conector",
+  "mcpRefreshCatalog": "Atualizar catálogo",
+  "mcpContentKind": "Tipo de conteúdo",
+  "mcpResources": "Recursos",
+  "mcpPrompts": "Modelos de instruções",
+  "mcpChooseResource": "Escolher recurso ou modelo de URI",
+  "mcpResourceUri": "URI do recurso",
+  "mcpChoosePrompt": "Escolher modelo",
+  "mcpReadContent": "Ler conteúdo",
+  "mcpInsertText": "Adicionar texto ao rascunho"
 }

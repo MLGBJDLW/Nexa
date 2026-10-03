@@ -510,6 +510,63 @@ pub async fn list_mcp_tools_cmd(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn get_mcp_content_catalog_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    server_id: String,
+) -> Result<nexa_core::mcp::McpCatalogSnapshot, String> {
+    let server = state
+        .db
+        .get_mcp_server(&server_id)
+        .map_err(|error| error.to_string())?;
+    if !server.enabled {
+        return Err("MCP connector is disabled".into());
+    }
+    mcp_state
+        .manager
+        .sync_server_from_database(&state.db, &server_id, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+        .await
+        .map_err(|error| error.to_string())?;
+    mcp_state
+        .manager
+        .refresh_server(&server_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    mcp_state
+        .manager
+        .catalog_snapshot(&server_id)
+        .ok_or_else(|| "MCP content catalog is unavailable".into())
+}
+
+#[tauri::command]
+pub async fn read_mcp_content_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    server_id: String,
+    authority_epoch: u64,
+    request: nexa_core::mcp::McpContentRequest,
+) -> Result<nexa_core::tools::ToolResult, String> {
+    let server = state
+        .db
+        .get_mcp_server(&server_id)
+        .map_err(|error| error.to_string())?;
+    if !server.enabled {
+        return Err("MCP connector is disabled".into());
+    }
+    mcp_state
+        .manager
+        .read_content(
+            &server_id,
+            authority_epoch,
+            request,
+            None,
+            &uuid::Uuid::new_v4().to_string(),
+        )
+        .await
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod mcp_command_tests {
     use super::*;

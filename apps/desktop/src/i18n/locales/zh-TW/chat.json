@@ -804,5 +804,18 @@
   "mcpImage": "工具結果圖片",
   "mcpAudio": "工具結果音訊",
   "mcpEmbeddedResource": "嵌入資源",
-  "mcpStructuredContent": "結構化結果"
+  "mcpStructuredContent": "結構化結果",
+  "mcpContentTitle": "MCP 資源與提示範本",
+  "mcpContentHint": "瀏覽已啟用的連接器，檢閱內容後再將文字加入草稿，不會自動傳送。讀取前請填寫 URI 範本的佔位符。二進位內容可由 agent 透過資源讀取取得。",
+  "mcpConnector": "連接器",
+  "mcpChooseConnector": "選擇連接器",
+  "mcpRefreshCatalog": "重新整理目錄",
+  "mcpContentKind": "內容類型",
+  "mcpResources": "資源",
+  "mcpPrompts": "提示範本",
+  "mcpChooseResource": "選擇資源或 URI 範本",
+  "mcpResourceUri": "資源 URI",
+  "mcpChoosePrompt": "選擇提示範本",
+  "mcpReadContent": "讀取內容",
+  "mcpInsertText": "將文字加入草稿"
 }

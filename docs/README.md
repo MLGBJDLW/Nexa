@@ -23,6 +23,7 @@ English is the canonical language for maintained technical documentation.
 | [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
 | [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |
 | [Project lifecycle checks](PROJECT_HOOKS.md) | Enable version-bound commands, inspect their receipts, and enforce completion checks |
+| [MCP resources and prompt templates](MCP_CONTENT.md) | Browse connector content, validate template arguments, and add reviewed text to drafts |
 | [Office add-in](../integrations/office-addin/README.md) | Pair or deploy the separate Word/Excel/PowerPoint live adapter |
 | [Tool reference](TOOLS.md) | Choose an agent tool and inspect its schema, scope, and result contract |
 

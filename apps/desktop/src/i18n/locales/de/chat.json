@@ -804,5 +804,18 @@
   "mcpImage": "Bild im Werkzeugergebnis",
   "mcpAudio": "Audio im Werkzeugergebnis",
   "mcpEmbeddedResource": "Eingebettete Ressource",
-  "mcpStructuredContent": "Strukturiertes Ergebnis"
+  "mcpStructuredContent": "Strukturiertes Ergebnis",
+  "mcpContentTitle": "MCP-Ressourcen und Vorlagen",
+  "mcpContentHint": "Inhalte aktivierter Verbindungen prüfen und Text zum Entwurf hinzufügen. Es wird nichts automatisch gesendet. URI-Platzhalter vor dem Lesen ausfüllen. Binärinhalte sind über Ressourcenabrufe des Agenten verfügbar.",
+  "mcpConnector": "Verbindung",
+  "mcpChooseConnector": "Verbindung auswählen",
+  "mcpRefreshCatalog": "Katalog aktualisieren",
+  "mcpContentKind": "Inhaltstyp",
+  "mcpResources": "Ressourcen",
+  "mcpPrompts": "Promptvorlagen",
+  "mcpChooseResource": "Ressource oder URI-Vorlage auswählen",
+  "mcpResourceUri": "Ressourcen-URI",
+  "mcpChoosePrompt": "Promptvorlage auswählen",
+  "mcpReadContent": "Inhalt lesen",
+  "mcpInsertText": "Text zum Entwurf hinzufügen"
 }
