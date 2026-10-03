@@ -24,7 +24,7 @@ and optional public phone access use the network.
 
 | Area | Current capabilities |
 | --- | --- |
-| Knowledge and search | Folder ingestion, incremental indexing, OCR, keyword and vector retrieval, source filters, Recall Mode, and a knowledge graph for navigating back to supporting documents |
+| Knowledge and search | Bilingual keyword/vector retrieval, structured PDF and Office locations, historical evidence, resumable compilation, saved research comparisons, and a knowledge graph for navigating back to supporting documents |
 | Conversations | Cited answers, collection and project context, durable task history, streaming tool activity, checkpoints, archive/restore, and Markdown with math and Mermaid diagrams |
 | Models and agents | API and local model connections, endpoint-aware capability discovery, model/reasoning selection, supported subscription agents, reusable skills, and configured API subagents |
 | Files and Office | Scoped file edits, document analysis and generation, Office artifact validation and review, local previews, and a separately paired Office.js add-in |

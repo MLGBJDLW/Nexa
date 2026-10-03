@@ -440,6 +440,8 @@ jobs:
           e2e/file-preview-agent-edit.spec.ts
           e2e/chat-image-preview.spec.ts
           e2e/chat-managed-process.spec.ts
+          e2e/knowledge-evidence.spec.ts
+          e2e/search-ask-ai-scope.spec.ts
           e2e/knowledge-graph-filters.spec.ts
           e2e/knowledge-graph-dark-theme.spec.ts
           e2e/app-window-frame.spec.ts
