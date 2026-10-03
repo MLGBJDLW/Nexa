@@ -473,4 +473,74 @@ mod tests {
             && item.chunks == item.keyword_chunks
             && item.needs_reparse == 0));
     }
+    #[test]
+    fn later_exclusions_revoke_deleted_file_archives_and_saved_research() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("confidential.md");
+        std::fs::write(&path, "Confidential budget is 500 yuan.").unwrap();
+        let db = Database::open_memory().unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: dir.path().to_string_lossy().into(),
+                include_globs: vec!["**/*.md".into()],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        crate::ingest::scan_source(&db, &source.id).unwrap();
+        let reference = search(
+            &db,
+            &SearchQuery {
+                text: "budget".into(),
+                filters: Default::default(),
+                limit: 2,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .remove(0)
+        .evidence_ref
+        .unwrap();
+        let set = crate::research_workspace::create(
+            &db,
+            crate::research_workspace::CreateResearchSet {
+                title: "Budget".into(),
+                questions: vec!["budget".into()],
+                documents: vec![reference.clone()],
+            },
+        )
+        .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        crate::ingest::scan_source(&db, &source.id).unwrap();
+        assert_eq!(
+            resolve_evidence_ref(&db, &reference)
+                .unwrap()
+                .evidence_ref
+                .unwrap()
+                .status,
+            "missing"
+        );
+        let claim=db.create_knowledge_claim(None,&serde_json::from_value(serde_json::json!({"subject":"Budget","predicate":"is","object":"500 yuan","sourceRef":reference.block_id.to_string(),"reviewState":"accepted"})).unwrap()).unwrap();
+        assert_eq!(claim.review_state, "needs_review");
+        let bound:(String,String,i64)=db.conn().query_row("SELECT document_id,document_revision,stale FROM knowledge_evidence WHERE claim_id=?1",[&claim.id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(
+            bound,
+            (
+                reference.document_id.to_string(),
+                reference.revision.clone(),
+                1
+            )
+        );
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.exclude_patterns.push("**/confidential.md".into());
+        db.save_privacy_config(&privacy).unwrap();
+        let scan = crate::ingest::scan_source(&db, &source.id).unwrap();
+        assert_eq!(scan.files_purged, 1);
+        assert!(resolve_evidence_ref(&db, &reference).is_err());
+        assert!(crate::research_workspace::get(&db, &set.summary.id)
+            .unwrap()
+            .documents
+            .is_empty());
+    }
 }

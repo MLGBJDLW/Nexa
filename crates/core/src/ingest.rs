@@ -475,16 +475,14 @@ fn scan_source_inner(
         batch_update_documents(db, &update_docs)?;
     }
 
-    // Purge stale documents: entries in the DB whose files no longer exist on disk.
-    for doc_path in existing_docs.keys() {
+    // Exclusion changes also apply to files already removed from the live index.
+    let scope_paths = db.knowledge_scope_paths(source_id)?;
+    for doc_path in &scope_paths {
         let existing_path = Path::new(doc_path);
-        let relative = existing_path
-            .strip_prefix(root)
-            .unwrap_or(existing_path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        let excluded =
-            (has_includes && !include_set.is_match(&relative)) || exclude_set.is_match(&relative);
+        let relative = relative_source_path(root, existing_path);
+        let excluded = relative.as_ref().is_none_or(|relative| {
+            (has_includes && !include_set.is_match(relative)) || exclude_set.is_match(relative)
+        });
         if excluded || is_code_source_file(existing_path) || is_unhandled_binary_file(existing_path)
         {
             info!(
@@ -733,6 +731,15 @@ impl Database {
         Ok(map)
     }
 
+    fn knowledge_scope_paths(&self, source_id: &str) -> Result<Vec<String>, CoreError> {
+        let conn = self.conn();
+        let mut statement=conn.prepare("SELECT path FROM documents WHERE source_id=?1 UNION SELECT document_path FROM evidence_snapshots WHERE source_id=?1 UNION SELECT path FROM research_documents WHERE source_id=?1")?;
+        let rows = statement
+            .query_map([source_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn get_document_in_source(
         &self,
         source_id: &str,
@@ -764,12 +771,16 @@ impl Database {
             "DELETE FROM documents WHERE source_id=?1 AND path=?2",
             params![source_id, path],
         )? > 0;
-        transaction.execute(
+        let archived = transaction.execute(
             "DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_path=?2",
             params![source_id, path],
         )?;
+        let research = transaction.execute(
+            "DELETE FROM research_documents WHERE source_id=?1 AND path=?2",
+            params![source_id, path],
+        )?;
         transaction.commit()?;
-        Ok(changed)
+        Ok(changed || archived > 0 || research > 0)
     }
 
     /// Insert a new document and all its chunks within a single transaction.
@@ -1110,13 +1121,34 @@ fn ingest_file(
         )));
     }
 
+    let source = db.get_source(source_id)?;
+    let canonical_root = std::fs::canonicalize(&source.root_path)?;
+    let canonical_path = std::fs::canonicalize(path)?;
+    let relative = canonical_path
+        .strip_prefix(&canonical_root)
+        .map_err(|_| CoreError::InvalidInput("File is outside the selected source".into()))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let privacy_cfg = db.load_privacy_config()?;
+    let includes = build_glob_set(&source.include_globs)?;
+    let mut excludes = source.exclude_globs.clone();
+    excludes.extend(privacy_cfg.exclude_patterns.iter().cloned());
+    if (!source.include_globs.is_empty() && !includes.is_match(&relative))
+        || build_glob_set(&excludes)?.is_match(&relative)
+    {
+        db.forget_document_in_source(source_id, &path.to_string_lossy())?;
+        return Err(CoreError::InvalidInput(
+            "File is excluded by source or privacy rules".into(),
+        ));
+    }
+
     if is_code_source_file(path) {
         debug!(
             "Skipping source code file for knowledge embedding: {}",
             path.display()
         );
         let path_str = path.to_string_lossy();
-        let _ = db.delete_document_in_source(source_id, path_str.as_ref())?;
+        let _ = db.forget_document_in_source(source_id, path_str.as_ref())?;
         return Ok(IngestFileResult::Unchanged);
     }
 
@@ -1127,7 +1159,7 @@ fn ingest_file(
         );
         let path_str = path.to_string_lossy();
         let _ = db.clear_scan_error(source_id, &path_str);
-        let _ = db.delete_document_in_source(source_id, path_str.as_ref())?;
+        let _ = db.forget_document_in_source(source_id, path_str.as_ref())?;
         return Ok(IngestFileResult::Unchanged);
     }
 
@@ -1157,9 +1189,6 @@ fn ingest_file(
         debug!("Skipping file with repeated failures: {}", path.display());
         return Ok(IngestFileResult::Unchanged);
     }
-
-    // Load privacy config for redaction.
-    let privacy_cfg = db.load_privacy_config()?;
 
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
@@ -1267,6 +1296,40 @@ fn ingest_file(
 }
 
 /// Recursively walk a directory, collecting all file paths (sorted).
+fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
+    fn normalized(path: &Path) -> String {
+        let value = path.to_string_lossy().replace('\\', "/");
+        if let Some(rest) = value.strip_prefix("//?/UNC/") {
+            format!("//{rest}")
+        } else {
+            value.strip_prefix("//?/").unwrap_or(&value).to_string()
+        }
+    }
+    if path.exists() {
+        let canonical_root = std::fs::canonicalize(root).ok()?;
+        let canonical_path = std::fs::canonicalize(path).ok()?;
+        if !canonical_path.starts_with(canonical_root) {
+            return None;
+        }
+    }
+    let root = normalized(root);
+    let root = root.trim_end_matches('/');
+    let path = normalized(path);
+    let prefix = path.get(..root.len())?;
+    if !(if cfg!(windows) {
+        prefix.eq_ignore_ascii_case(root)
+    } else {
+        prefix == root
+    }) {
+        return None;
+    }
+    let relative = path.get(root.len()..)?.strip_prefix('/')?;
+    if relative.split('/').any(|segment| segment == "..") {
+        return None;
+    }
+    Some(relative.to_string())
+}
+
 fn walk_directory(root: &Path) -> Result<Vec<PathBuf>, CoreError> {
     let mut files = Vec::new();
     walk_recursive(root, &mut files)?;
@@ -1279,6 +1342,9 @@ fn walk_recursive(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), CoreError>
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
+        if entry.file_type()?.is_symlink() {
+            continue;
+        }
         if path.is_dir() {
             walk_recursive(&path, files)?;
         } else if path.is_file() {

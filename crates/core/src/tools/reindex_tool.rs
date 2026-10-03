@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use async_trait::async_trait;
 use serde::Deserialize;
 
+#[cfg(test)]
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::ingest;
@@ -26,20 +27,20 @@ pub struct ReindexTool;
 
 /// Find the source whose `root_path` contains the given file path.
 fn find_source_for_path(
-    db: &Database,
+    sources: &[crate::models::Source],
     file_path: &Path,
-) -> Result<Option<crate::models::Source>, CoreError> {
-    let sources = db.list_sources()?;
-    let canonical = std::fs::canonicalize(file_path).unwrap_or_else(|_| file_path.to_path_buf());
-
-    for source in sources {
-        if let Ok(root) = std::fs::canonicalize(Path::new(&source.root_path)) {
-            if canonical.starts_with(&root) {
-                return Ok(Some(source));
-            }
-        }
-    }
-    Ok(None)
+) -> Option<crate::models::Source> {
+    let canonical = std::fs::canonicalize(file_path).ok()?;
+    sources
+        .iter()
+        .filter_map(|source| {
+            let root = std::fs::canonicalize(&source.root_path).ok()?;
+            canonical
+                .starts_with(&root)
+                .then_some((root.components().count(), source))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, source)| source.clone())
 }
 
 #[async_trait]
@@ -119,7 +120,7 @@ impl Tool for ReindexTool {
             let file_path = resolve_existing_file_in_sources(Path::new(file_path_str), &sources)
                 .map_err(CoreError::InvalidInput)?;
 
-            let source = match find_source_for_path(&db, &file_path)? {
+            let source = match find_source_for_path(&sources, &file_path) {
                 Some(s) => s,
                 None => {
                     return Ok(ToolResult {
@@ -136,7 +137,13 @@ impl Tool for ReindexTool {
 
             // Preserve document identity and archived evidence even when its
             // file hash is unchanged. Mutations stay inside the selected source.
-            let outcome = ingest::reindex_single_file(&db, &source.id, &file_path)?;
+            // Reuse the stored spelling (including legacy Windows verbatim paths)
+            // so the same physical file cannot acquire a second document identity.
+            let existing = db.get_document_paths_for_source(&source.id)?;
+            let mut aliases=existing.keys().filter(|path|std::fs::canonicalize(path).is_ok_and(|candidate|candidate==file_path)).collect::<Vec<_>>();
+            aliases.sort();
+            let index_path=aliases.first().map(|path|Path::new(path.as_str())).unwrap_or(&file_path);
+            let outcome = ingest::reindex_single_file(&db, &source.id, index_path)?;
             let status = match outcome {
                 ingest::IngestFileResult::Added => "added (re-indexed)",
                 ingest::IngestFileResult::Updated => "updated",
@@ -262,5 +269,69 @@ mod tests {
             .expect("execute");
         assert!(result.is_error);
         assert!(result.content.contains("At least one"));
+    }
+    #[tokio::test]
+    async fn reindex_path_keeps_the_authorized_nested_source_and_document_identity() {
+        let root = TempDir::new().unwrap();
+        let nested = root.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let file = create_test_file(&nested, "policy.md", "Policy allowance is 500 yuan.");
+        let (db, parent) = setup_db_with_source(root.path());
+        let child = db
+            .add_source(crate::sources::CreateSourceInput {
+                root_path: nested.to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        for source in [&parent, &child.id] {
+            ingest::ingest_single_file(&db, source, &file).unwrap();
+        }
+        let revision = |source: &str| {
+            db.conn()
+                .query_row(
+                    "SELECT id,index_revision FROM documents WHERE source_id=?1",
+                    [source],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .unwrap()
+        };
+        let parent_before = revision(&parent);
+        let child_before = revision(&child.id);
+        let args = serde_json::json!({"path":file.to_string_lossy()}).to_string();
+        let result = ReindexTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "scoped-reindex",
+                &args,
+                &db,
+                std::slice::from_ref(&child.id),
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert_eq!(revision(&parent), parent_before);
+        let child_after = revision(&child.id);
+        assert_eq!(child_after.0, child_before.0);
+        assert_ne!(child_after.1, child_before.1);
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT COUNT(*) FROM documents", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.exclude_patterns.push("**/policy.md".into());
+        db.save_privacy_config(&privacy).unwrap();
+        assert!(ReindexTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "excluded-reindex",
+                &args,
+                &db,
+                std::slice::from_ref(&child.id)
+            ))
+            .await
+            .is_err());
     }
 }

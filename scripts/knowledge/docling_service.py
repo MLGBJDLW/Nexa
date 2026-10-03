@@ -13,6 +13,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
+def resolved_source_path(value: Path) -> Path:
+    """Compare Rust's Windows verbatim paths with ordinary configured roots."""
+    text = str(value.resolve(strict=True))
+    if text.startswith("\\\\?\\UNC\\"):
+        text = "\\\\" + text[8:]
+    elif text.startswith("\\\\?\\"):
+        text = text[4:]
+    return Path(text)
+
+
 def convert_pdf(path: Path, cache: Path, converter, languages: list[str]) -> dict:
     from docling_core.types.doc import TableItem, TextItem
 
@@ -65,7 +75,7 @@ def main() -> None:
     parser.add_argument("--allow-model-downloads", action="store_true",
                         help="Explicitly allow first-use downloads in this separate environment")
     args = parser.parse_args()
-    roots = [root.resolve(strict=True) for root in args.root]
+    roots = [resolved_source_path(root) for root in args.root]
     languages = [value.strip() for value in args.ocr_languages.split(",") if value.strip()]
     if not args.allow_model_downloads:
         os.environ["HF_HUB_OFFLINE"] = "1"
@@ -87,7 +97,7 @@ def main() -> None:
                 if not 0 < length <= 32_768:
                     raise ValueError("Invalid request size")
                 request = json.loads(self.rfile.read(length))
-                path = Path(request["path"]).resolve(strict=True)
+                path = resolved_source_path(Path(request["path"]))
                 if path.suffix.lower() != ".pdf" or not any(path.is_relative_to(root) for root in roots):
                     raise ValueError("PDF is outside configured source roots")
                 if path.stat().st_size > 100 * 1024 * 1024:

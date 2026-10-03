@@ -54,10 +54,15 @@ UPDATE entities SET mention_count=(SELECT COUNT(*) FROM document_entities WHERE 
 -- Resolve indexed block IDs and document IDs to the revision read at creation.
 CREATE TRIGGER bind_knowledge_evidence AFTER INSERT ON knowledge_evidence BEGIN
     UPDATE knowledge_evidence SET
-      document_id=COALESCE((SELECT document_id FROM chunks WHERE id=NEW.source_ref),(SELECT id FROM documents WHERE id=NEW.source_ref)),
-      document_revision=(SELECT index_revision FROM documents WHERE id=COALESCE((SELECT document_id FROM chunks WHERE id=NEW.source_ref),(SELECT id FROM documents WHERE id=NEW.source_ref))),
-      locator_json=COALESCE((SELECT metadata_json FROM chunks WHERE id=NEW.source_ref),'{}')
+      document_id=COALESCE((SELECT document_id FROM evidence_records WHERE chunk_id=NEW.source_ref ORDER BY (status='current') DESC,archived_at DESC LIMIT 1),(SELECT id FROM documents WHERE id=NEW.source_ref)),
+      document_revision=COALESCE((SELECT revision FROM evidence_records WHERE chunk_id=NEW.source_ref ORDER BY (status='current') DESC,archived_at DESC LIMIT 1),(SELECT index_revision FROM documents WHERE id=NEW.source_ref)),
+      locator_json=COALESCE((SELECT metadata_json FROM evidence_records WHERE chunk_id=NEW.source_ref ORDER BY (status='current') DESC,archived_at DESC LIMIT 1),'{}'),
+      stale=COALESCE((SELECT status!='current' FROM evidence_records WHERE chunk_id=NEW.source_ref ORDER BY (status='current') DESC,archived_at DESC LIMIT 1),0)
     WHERE id=NEW.id AND NEW.document_id IS NULL;
+    UPDATE knowledge_claims SET review_state='needs_review',provenance_json=json_set(provenance_json,'$.staleEvidence',1)
+      WHERE id=NEW.claim_id AND EXISTS(SELECT 1 FROM knowledge_evidence WHERE id=NEW.id AND stale=1);
+    UPDATE knowledge_events SET review_state='needs_review',provenance_json=json_set(provenance_json,'$.staleEvidence',1)
+      WHERE id=NEW.event_id AND EXISTS(SELECT 1 FROM knowledge_evidence WHERE id=NEW.id AND stale=1);
 END;
 -- Unversioned legacy assertions remain reviewable; never certify them retroactively.
 UPDATE knowledge_claims SET review_state='needs_review' WHERE id IN (SELECT claim_id FROM knowledge_evidence WHERE document_revision IS NULL);
