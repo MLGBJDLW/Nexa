@@ -13,6 +13,25 @@ export interface McpServer {
   createdAt: string;
   updatedAt: string;
   builtinId: string | null;
+  oauthEpoch?: number;
+}
+
+export interface McpOAuthConfig {
+  clientId: string | null;
+  issuer: string | null;
+  resource: string | null;
+  scopes: string[];
+  redirectPort: number | null;
+}
+export interface McpOAuthStatus {
+  connectorId: string;
+  config: McpOAuthConfig | null;
+  status: string;
+  authorizationEpoch: number;
+  expiresAt: number | null;
+  scopes: string[];
+  detail: string | null;
+  loginId: string | null;
 }
 
 export interface SaveMcpServerInput {

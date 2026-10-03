@@ -5,6 +5,8 @@ pub mod config_file;
 mod events;
 pub mod identity;
 mod manager;
+pub mod oauth;
+mod resource_template;
 pub mod result;
 pub(crate) use manager::McpConnectorSlot;
 pub use manager::{McpCatalogSnapshot, McpManager};
@@ -48,6 +50,8 @@ pub struct McpServer {
     /// Non-`None` for built-in servers managed by the app.
     /// Built-in connectors cannot be deleted and have their process lifecycle managed.
     pub builtin_id: Option<String>,
+    #[serde(default)]
+    pub oauth_epoch: u64,
 }
 
 /// Input for creating or updating an MCP connector configuration.
@@ -73,6 +77,134 @@ pub struct McpToolInfo {
     pub description: Option<String>,
     #[serde(rename = "inputSchema")]
     pub input_schema: serde_json::Value,
+}
+
+/// Preserve server-defined metadata while keeping each catalog inside the transport budget.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct McpContentCatalog {
+    pub capabilities: serde_json::Value,
+    pub resources: Vec<serde_json::Value>,
+    pub resource_templates: Vec<serde_json::Value>,
+    pub prompts: Vec<serde_json::Value>,
+    pub resources_complete: bool,
+    pub resource_templates_complete: bool,
+    pub prompts_complete: bool,
+    pub content_diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum McpContentRequest {
+    ReadResource {
+        uri: String,
+    },
+    ReadResourceTemplate {
+        uri_template: String,
+        arguments: BTreeMap<String, String>,
+    },
+    GetPrompt {
+        name: String,
+        arguments: BTreeMap<String, String>,
+    },
+}
+
+impl McpContentRequest {
+    pub(crate) fn validate(&self, catalog: &McpContentCatalog) -> Result<(), CoreError> {
+        match self {
+            Self::ReadResource { uri } => {
+                if catalog.capabilities.get("resources").is_none()
+                    || uri.is_empty()
+                    || uri.len() > 16_384
+                    || Url::parse(uri).is_err()
+                {
+                    return Err(CoreError::InvalidInput(
+                        "Choose an absolute resource URI from this connector's catalog.".into(),
+                    ));
+                }
+                if !catalog.resources.iter().any(|resource| {
+                    resource.get("uri").and_then(serde_json::Value::as_str) == Some(uri)
+                }) {
+                    return Err(CoreError::InvalidInput("The resource URI is absent from this connector's current catalog; use read_resource_template with an advertised template and its arguments for template resources.".into()));
+                }
+            }
+            Self::ReadResourceTemplate {
+                uri_template,
+                arguments,
+            } => {
+                if catalog.capabilities.get("resources").is_none()
+                    || !catalog.resource_templates.iter().any(|template| {
+                        template
+                            .get("uriTemplate")
+                            .and_then(serde_json::Value::as_str)
+                            == Some(uri_template)
+                    })
+                {
+                    return Err(CoreError::InvalidInput(
+                        "The URI template is absent from this connector's current catalog.".into(),
+                    ));
+                }
+                resource_template::expand(uri_template, arguments)?;
+            }
+            Self::GetPrompt { name, arguments } => {
+                if !catalog.prompts_complete {
+                    return Err(CoreError::Mcp("Prompt discovery is incomplete; refresh this connector before choosing a template.".into()));
+                }
+                let prompt = catalog
+                    .prompts
+                    .iter()
+                    .find(|prompt| {
+                        prompt.get("name").and_then(serde_json::Value::as_str) == Some(name)
+                    })
+                    .ok_or_else(|| {
+                        CoreError::InvalidInput(
+                            "The prompt is absent from this connector's current catalog.".into(),
+                        )
+                    })?;
+                let definitions = prompt
+                    .get("arguments")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for definition in &definitions {
+                    let key = definition
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    if definition
+                        .get("required")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                        && !arguments.contains_key(key)
+                    {
+                        return Err(CoreError::InvalidInput(format!(
+                            "Prompt argument '{key}' is required."
+                        )));
+                    }
+                }
+                if arguments.len() > 128
+                    || serde_json::to_vec(arguments)?.len() > 64 * 1024
+                    || arguments.keys().any(|key| {
+                        !definitions.iter().any(|definition| {
+                            definition.get("name").and_then(serde_json::Value::as_str) == Some(key)
+                        })
+                    })
+                {
+                    return Err(CoreError::InvalidInput(
+                        "Prompt arguments must match the current catalog and fit within 64 KiB."
+                            .into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn method(&self) -> &'static str {
+        match self {
+            Self::ReadResource { .. } | Self::ReadResourceTemplate { .. } => "resources/read",
+            Self::GetPrompt { .. } => "prompts/get",
+        }
+    }
 }
 
 fn normalize_required_text(field: &str, value: &str) -> Result<String, CoreError> {
@@ -335,6 +467,7 @@ fn runtime_config_changed(current: &McpServer, desired: &McpServer) -> bool {
         || current.env_json != desired.env_json
         || current.headers_json != desired.headers_json
         || current.builtin_id != desired.builtin_id
+        || current.oauth_epoch != desired.oauth_epoch
 }
 
 fn expand_managed_arg(arg: &str, port: u16) -> String {
@@ -351,7 +484,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              ORDER BY created_at DESC",
         )?;
@@ -369,6 +502,7 @@ impl Database {
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
                 builtin_id: row.get(11)?,
+                oauth_epoch: row.get(12)?,
             })
         })?;
         let mut out = Vec::new();
@@ -498,7 +632,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              WHERE enabled = 1
              ORDER BY created_at ASC",
@@ -517,6 +651,7 @@ impl Database {
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
                 builtin_id: row.get(11)?,
+                oauth_epoch: row.get(12)?,
             })
         })?;
         let mut out = Vec::new();
@@ -526,11 +661,11 @@ impl Database {
         Ok(out)
     }
 
-    fn get_mcp_server(&self, id: &str) -> Result<McpServer, CoreError> {
+    pub fn get_mcp_server(&self, id: &str) -> Result<McpServer, CoreError> {
         let conn = self.conn();
         conn.query_row(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              WHERE id = ?1",
             rusqlite::params![id],
@@ -548,6 +683,7 @@ impl Database {
                     created_at: row.get(9)?,
                     updated_at: row.get(10)?,
                     builtin_id: row.get(11)?,
+                    oauth_epoch: row.get(12)?,
                 })
             },
         )
@@ -917,6 +1053,7 @@ mod tests {
                 created_at: String::new(),
                 updated_at: String::new(),
                 builtin_id: None,
+                oauth_epoch: 0,
             },
             fail_listing,
             initialize_calls,
@@ -1174,6 +1311,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             builtin_id: None,
+            oauth_epoch: 0,
         };
         let mut registry = ToolRegistry::new();
         {

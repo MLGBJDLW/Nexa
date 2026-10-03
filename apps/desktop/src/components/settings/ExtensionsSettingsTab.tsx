@@ -11,6 +11,8 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { McpServerForm } from './McpServerForm';
+import { McpContentDisclosure } from '../chat/McpContentPanel';
+import { McpOAuthDisclosure } from './McpOAuthPanel';
 import { PackageHostSettingsPanel } from './PackageHostSettingsPanel';
 import { ProjectToolsPanel } from './ProjectToolsPanel';
 import { Section } from './SettingsSection';
@@ -1168,6 +1170,8 @@ export function ExtensionsSettingsTab({
                       </div>
                     </div>
                     <AnimatePresence initial={false}>
+                      {server.transport !== 'stdio' && !server.builtinId && <McpOAuthDisclosure serverId={server.id} enabled={server.enabled} />}
+                      {server.enabled && <McpContentDisclosure serverId={server.id} />}
                       {mcpToolsExpanded[server.id] && mcpToolCounts[server.id]?.tools.length > 0 && (
                         <motion.div
                           {...getSoftCollapseMotion(!!shouldReduceMotion)}

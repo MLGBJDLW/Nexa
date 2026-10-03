@@ -38,6 +38,22 @@ const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
     ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
+fn content_catalog_part(
+    result: Result<Vec<Value>, CoreError>,
+    complete: &mut bool,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<Value>, CoreError> {
+    match result {
+        Ok(items) => Ok(items),
+        Err(error @ CoreError::McpTransport(_)) => Err(error),
+        Err(error) => {
+            *complete = false;
+            diagnostics.push(error.to_string());
+            Ok(Vec::new())
+        }
+    }
+}
+
 struct StdioTransport {
     child: Child,
     stdin: tokio::io::BufWriter<tokio::process::ChildStdin>,
@@ -105,8 +121,10 @@ pub struct McpClient {
     request_id: AtomicI64,
     server_name: String,
     protocol_version: String,
+    server_capabilities: Value,
     /// Timeout for individual JSON-RPC requests. Defaults to [`DEFAULT_TIMEOUT`].
     call_timeout: Duration,
+    auth: Option<super::oauth::RequestAuth>,
 }
 
 enum StreamablePostOutcome {
@@ -140,7 +158,9 @@ impl McpClient {
             request_id: AtomicI64::new(1),
             server_name: server_name.to_string(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].to_string(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: DEFAULT_TIMEOUT,
+            auth: None,
         };
         client.initialize_handshake().await?;
         Ok(client)
@@ -152,16 +172,7 @@ impl McpClient {
         headers: Option<&HashMap<String, String>>,
         server_name: &str,
     ) -> Result<Self, CoreError> {
-        let transport = Self::build_legacy_sse_transport(url, headers).await?;
-        let mut client = Self {
-            transport: Transport::LegacySse(transport),
-            request_id: AtomicI64::new(1),
-            server_name: server_name.to_string(),
-            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].to_string(),
-            call_timeout: DEFAULT_TIMEOUT,
-        };
-        client.initialize_handshake().await?;
-        Ok(client)
+        Self::connect_remote_authorized(url, headers, server_name, true, None).await
     }
 
     /// Connect to an MCP server via Streamable HTTP transport.
@@ -170,13 +181,31 @@ impl McpClient {
         headers: Option<&HashMap<String, String>>,
         server_name: &str,
     ) -> Result<Self, CoreError> {
-        let transport = Self::build_streamable_http_transport(url, headers)?;
+        Self::connect_remote_authorized(url, headers, server_name, false, None).await
+    }
+
+    pub(crate) async fn connect_remote_authorized(
+        url: &str,
+        headers: Option<&HashMap<String, String>>,
+        server_name: &str,
+        legacy: bool,
+        auth: Option<super::oauth::RequestAuth>,
+    ) -> Result<Self, CoreError> {
+        let transport = if legacy {
+            Transport::LegacySse(
+                Self::build_legacy_sse_transport(url, headers, auth.as_ref()).await?,
+            )
+        } else {
+            Transport::StreamableHttp(Self::build_streamable_http_transport(url, headers)?)
+        };
         let mut client = Self {
-            transport: Transport::StreamableHttp(transport),
+            transport,
             request_id: AtomicI64::new(1),
             server_name: server_name.to_string(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].to_string(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: DEFAULT_TIMEOUT,
+            auth,
         };
         client.initialize_handshake().await?;
         Ok(client)
@@ -189,6 +218,15 @@ impl McpClient {
 
     /// List tools available on the connected MCP server.
     pub async fn list_tools(&mut self) -> Result<Vec<McpToolInfo>, CoreError> {
+        // Keep the historical fallback for peers with an empty capability object,
+        // while honoring explicit resource-only or prompt-only capabilities.
+        if self
+            .server_capabilities
+            .as_object()
+            .is_some_and(|caps| !caps.is_empty() && !caps.contains_key("tools"))
+        {
+            return Ok(Vec::new());
+        }
         let deadline = self.call_timeout;
         tokio::time::timeout(deadline, async {
             let mut tools = Vec::new();
@@ -258,6 +296,215 @@ impl McpClient {
         }
     }
 
+    pub async fn list_content(&mut self) -> Result<super::McpContentCatalog, CoreError> {
+        let deadline = self.call_timeout;
+        tokio::time::timeout(deadline, async {
+            let mut content = super::McpContentCatalog {
+                capabilities: self.server_capabilities.clone(),
+                resources_complete: true,
+                resource_templates_complete: true,
+                prompts_complete: true,
+                ..Default::default()
+            };
+            if self.server_capabilities.get("resources").is_some() {
+                content.resources = content_catalog_part(
+                    self.list_content_pages("resources/list", "resources", "uri")
+                        .await,
+                    &mut content.resources_complete,
+                    &mut content.content_diagnostics,
+                )?;
+                content.resource_templates = content_catalog_part(
+                    self.list_content_pages(
+                        "resources/templates/list",
+                        "resourceTemplates",
+                        "uriTemplate",
+                    )
+                    .await,
+                    &mut content.resource_templates_complete,
+                    &mut content.content_diagnostics,
+                )?;
+            }
+            if self.server_capabilities.get("prompts").is_some() {
+                content.prompts = content_catalog_part(
+                    self.list_content_pages("prompts/list", "prompts", "name")
+                        .await,
+                    &mut content.prompts_complete,
+                    &mut content.content_diagnostics,
+                )?;
+            }
+            Ok(content)
+        })
+        .await
+        .map_err(|_| CoreError::McpTransport("MCP content catalog discovery timed out".into()))?
+    }
+
+    async fn list_content_pages(
+        &mut self,
+        method: &str,
+        field: &str,
+        key: &str,
+    ) -> Result<Vec<Value>, CoreError> {
+        let mut items = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut cursors = HashSet::new();
+        let mut identities = HashSet::new();
+        let mut bytes = 0usize;
+        for _ in 0..MAX_CATALOG_PAGES {
+            let params = cursor.as_ref().map_or_else(
+                || serde_json::json!({}),
+                |cursor| serde_json::json!({"cursor":cursor}),
+            );
+            let response = match self.send_request(method, Some(params)).await {
+                Ok(response) => response,
+                Err(CoreError::McpRpc {
+                    code: METHOD_NOT_FOUND_CODE,
+                    ..
+                }) if method == "resources/templates/list" && cursor.is_none() => {
+                    return Ok(Vec::new())
+                }
+                Err(error) => return Err(error),
+            };
+            let page = response
+                .get(field)
+                .and_then(Value::as_array)
+                .ok_or_else(|| CoreError::Mcp(format!("{method} response is missing {field}")))?;
+            for item in page {
+                if item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_none_or(|name| name.is_empty())
+                {
+                    return Err(CoreError::Mcp(format!(
+                        "Invalid {method} entry: missing name"
+                    )));
+                }
+                if method == "prompts/list" {
+                    if let Some(arguments) = item.get("arguments") {
+                        let arguments = arguments.as_array().ok_or_else(|| {
+                            CoreError::Mcp("Prompt arguments must be an array".into())
+                        })?;
+                        let mut names = HashSet::new();
+                        for argument in arguments {
+                            let name = argument
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .filter(|name| !name.is_empty())
+                                .ok_or_else(|| {
+                                    CoreError::Mcp("Prompt argument has no name".into())
+                                })?;
+                            if !names.insert(name)
+                                || argument
+                                    .get("required")
+                                    .is_some_and(|value| !value.is_boolean())
+                            {
+                                return Err(CoreError::Mcp("Prompt arguments contain duplicate names or invalid required flags".into()));
+                            }
+                        }
+                    }
+                }
+                let identity = item
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty() && value.len() <= 16_384)
+                    .ok_or_else(|| {
+                        CoreError::Mcp(format!("Invalid {method} entry: missing {key}"))
+                    })?;
+                if !identities.insert(identity.to_string()) {
+                    return Err(CoreError::Mcp(format!("Duplicate {key} in {method}")));
+                }
+                bytes = bytes.saturating_add(serde_json::to_vec(item)?.len());
+                if bytes > MAX_CATALOG_BYTES || items.len() >= MAX_CATALOG_TOOLS {
+                    return Err(CoreError::Mcp(format!(
+                        "{method} catalog exceeds its size budget"
+                    )));
+                }
+                items.push(item.clone());
+            }
+            cursor = match response.get("nextCursor") {
+                None | Some(Value::Null) => return Ok(items),
+                Some(Value::String(value)) if !value.is_empty() && value.len() <= 4096 => {
+                    Some(value.clone())
+                }
+                _ => return Err(CoreError::Mcp(format!("Invalid {method} nextCursor"))),
+            };
+            if !cursors.insert(cursor.clone().expect("cursor exists")) {
+                return Err(CoreError::Mcp(format!(
+                    "{method} repeated a pagination cursor"
+                )));
+            }
+        }
+        Err(CoreError::Mcp(format!("{method} exceeded the page budget")))
+    }
+
+    pub async fn read_resource(
+        &mut self,
+        uri: &str,
+    ) -> Result<super::result::McpCallOutcome, CoreError> {
+        if self.server_capabilities.get("resources").is_none() {
+            return Err(CoreError::Mcp(
+                "This connector does not advertise resources".into(),
+            ));
+        }
+        if uri.is_empty() || uri.len() > 16_384 {
+            return Err(CoreError::InvalidInput("Invalid MCP resource URI".into()));
+        }
+        let response = self
+            .send_request("resources/read", Some(serde_json::json!({"uri":uri})))
+            .await?;
+        let contents = response
+            .get("contents")
+            .and_then(Value::as_array)
+            .ok_or_else(|| CoreError::Mcp("resources/read response is missing contents".into()))?;
+        super::result::McpCallOutcome::from_response(serde_json::json!({
+            "content":contents.iter().map(|resource| serde_json::json!({"type":"resource","resource":resource})).collect::<Vec<_>>(),
+            "_meta":response.get("_meta"),
+        }))
+    }
+
+    pub async fn get_prompt(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<super::result::McpCallOutcome, CoreError> {
+        if self.server_capabilities.get("prompts").is_none() {
+            return Err(CoreError::Mcp(
+                "This connector does not advertise prompts".into(),
+            ));
+        }
+        let response = self
+            .send_request(
+                "prompts/get",
+                Some(serde_json::json!({"name":name,"arguments":arguments})),
+            )
+            .await?;
+        let messages = response
+            .get("messages")
+            .and_then(Value::as_array)
+            .ok_or_else(|| CoreError::Mcp("prompts/get response is missing messages".into()))?;
+        let mut content = Vec::new();
+        for message in messages {
+            let role = message
+                .get("role")
+                .and_then(Value::as_str)
+                .filter(|role| matches!(*role, "user" | "assistant"))
+                .ok_or_else(|| {
+                    CoreError::Mcp("MCP prompt contains an invalid message role".into())
+                })?;
+            content.push(
+                serde_json::json!({"type":"text","text":format!("Prompt message ({role}):")}),
+            );
+            content.push(
+                message.get("content").cloned().ok_or_else(|| {
+                    CoreError::Mcp("MCP prompt message is missing content".into())
+                })?,
+            );
+        }
+        // Template messages are returned as evidence; never install their roles in model history.
+        super::result::McpCallOutcome::from_response(
+            serde_json::json!({"content":content,"structuredContent":response}),
+        )
+    }
+
     fn start_streamable_notification_reader(&mut self) {
         let Transport::StreamableHttp(transport) = &mut self.transport else {
             return;
@@ -282,6 +529,7 @@ impl McpClient {
         }
         let client = transport.client.clone();
         let endpoint = transport.endpoint_url.clone();
+        let auth = self.auth.clone();
         let events = Arc::clone(&transport.events);
         let (sender, receiver) = mpsc::channel(64);
         transport.notification_rx = Some(receiver);
@@ -290,7 +538,7 @@ impl McpClient {
             // a tools/call retry or disables a server with working POST RPCs.
             let Ok(Ok(response)) = tokio::time::timeout(
                 SSE_CONNECT_TIMEOUT,
-                client.get(endpoint).headers(headers).send(),
+                send_authorized(&client, &endpoint, headers, None, auth.as_ref()),
             )
             .await
             else {
@@ -388,6 +636,13 @@ impl McpClient {
                 .await
             {
                 Ok(result) => {
+                    self.server_capabilities = result
+                        .get("capabilities")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    if !self.server_capabilities.is_object() {
+                        return Err(CoreError::Mcp("Invalid MCP server capabilities".into()));
+                    }
                     if let Some(negotiated) = result
                         .get("protocolVersion")
                         .and_then(|value| value.as_str())
@@ -396,11 +651,13 @@ impl McpClient {
                     }
                     self.send_notification("notifications/initialized", None)
                         .await?;
-                    if result
-                        .pointer("/capabilities/tools/listChanged")
-                        .and_then(Value::as_bool)
-                        == Some(true)
-                    {
+                    if ["tools", "resources", "prompts"].iter().any(|capability| {
+                        self.server_capabilities
+                            .get(capability)
+                            .and_then(|value| value.get("listChanged"))
+                            .and_then(Value::as_bool)
+                            == Some(true)
+                    }) {
                         self.start_streamable_notification_reader();
                     }
                     return Ok(());
@@ -786,11 +1043,14 @@ impl McpClient {
         }
 
         if let Some(error) = message.get("error") {
-            return Err(CoreError::Mcp(format!(
-                "MCP {context} failed on server '{}': {}",
-                self.server_name,
-                format_json_rpc_error(error)
-            )));
+            return Err(CoreError::McpRpc {
+                code: error.get("code").and_then(Value::as_i64).unwrap_or(-32000),
+                message: format!(
+                    "MCP {context} failed on server '{}': {}",
+                    self.server_name,
+                    format_json_rpc_error(error)
+                ),
+            });
         }
 
         if let Some(result) = message.get("result") {
@@ -993,6 +1253,7 @@ impl McpClient {
     async fn build_legacy_sse_transport(
         url: &str,
         headers: Option<&HashMap<String, String>>,
+        auth: Option<&super::oauth::RequestAuth>,
     ) -> Result<LegacySseTransport, CoreError> {
         let client = build_http_client()?;
         let base_url = parse_url(url, "legacy SSE")?;
@@ -1008,7 +1269,7 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             SSE_CONNECT_TIMEOUT,
-            client.get(base_url.clone()).headers(request_headers).send(),
+            send_authorized(&client, &base_url, request_headers, None, auth),
         )
         .await
         .map_err(|_| {
@@ -1016,15 +1277,12 @@ impl McpClient {
                 "Timed out connecting to legacy SSE MCP server at {}",
                 base_url
             ))
-        })?
-        .map_err(|e| {
-            CoreError::McpTransport(format!(
-                "Failed to connect to legacy SSE MCP server at {}: {e}",
-                base_url
-            ))
-        })?;
+        })??;
 
         let status = response.status();
+        if let Some(error) = http_auth_error(&response) {
+            return Err(error);
+        }
         if !status.is_success() {
             let body = tokio::time::timeout(
                 SSE_CONNECT_TIMEOUT,
@@ -1158,7 +1416,7 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            client.get(endpoint_url.clone()).headers(headers).send(),
+            send_authorized(&client, &endpoint_url, headers, None, self.auth.as_ref()),
         )
         .await
         .map_err(|_| {
@@ -1166,15 +1424,14 @@ impl McpClient {
                 "Timed out opening the Streamable HTTP event stream at {endpoint_url}"
             )))
         })?
-        .map_err(|e| {
-            StreamablePostError::Core(CoreError::McpTransport(format!(
-                "Failed to open the Streamable HTTP event stream at {endpoint_url}: {e}"
-            )))
-        })?;
+        .map_err(StreamablePostError::Core)?;
 
         let status = response.status();
         if status == StatusCode::NOT_FOUND && session_id.is_some() {
             return Err(StreamablePostError::SessionExpired);
+        }
+        if let Some(error) = http_auth_error(&response) {
+            return Err(StreamablePostError::Core(error));
         }
         if !status.is_success() {
             let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
@@ -1237,24 +1494,24 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            client
-                .post(message_url.clone())
-                .headers(headers)
-                .json(payload)
-                .send(),
+            send_authorized(
+                &client,
+                &message_url,
+                headers,
+                Some(payload),
+                self.auth.as_ref(),
+            ),
         )
         .await
         .map_err(|_| {
             CoreError::McpTransport(format!(
                 "Timed out sending a request to legacy SSE MCP server at {message_url}"
             ))
-        })?
-        .map_err(|e| {
-            CoreError::McpTransport(format!(
-                "Failed to send a request to legacy SSE MCP server at {message_url}: {e}"
-            ))
-        })?;
+        })??;
 
+        if let Some(error) = http_auth_error(&response) {
+            return Err(error);
+        }
         if !response.status().is_success() {
             let status = response.status();
             let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
@@ -1319,11 +1576,13 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            client
-                .post(endpoint_url.clone())
-                .headers(headers)
-                .json(payload)
-                .send(),
+            send_authorized(
+                &client,
+                &endpoint_url,
+                headers,
+                Some(payload),
+                self.auth.as_ref(),
+            ),
         )
         .await
         .map_err(|_| {
@@ -1331,15 +1590,14 @@ impl McpClient {
                 "Timed out sending a Streamable HTTP request to {endpoint_url}"
             )))
         })?
-        .map_err(|e| {
-            StreamablePostError::Core(CoreError::McpTransport(format!(
-                "Failed to send a Streamable HTTP request to {endpoint_url}: {e}"
-            )))
-        })?;
+        .map_err(StreamablePostError::Core)?;
 
         let status = response.status();
         if status == StatusCode::NOT_FOUND && session_id.is_some() {
             return Err(StreamablePostError::SessionExpired);
+        }
+        if let Some(error) = http_auth_error(&response) {
+            return Err(StreamablePostError::Core(error));
         }
         if !status.is_success() {
             let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
@@ -1458,9 +1716,82 @@ impl McpClient {
     }
 }
 
+async fn send_authorized(
+    client: &HttpClient,
+    url: &Url,
+    mut headers: HeaderMap,
+    payload: Option<&Value>,
+    auth: Option<&super::oauth::RequestAuth>,
+) -> Result<reqwest::Response, CoreError> {
+    let safe_retry = payload.is_none()
+        || matches!(
+            payload
+                .and_then(|p| p.get("method"))
+                .and_then(Value::as_str),
+            Some(
+                "initialize"
+                    | "tools/list"
+                    | "resources/list"
+                    | "resources/templates/list"
+                    | "prompts/list"
+                    | "resources/read"
+                    | "prompts/get"
+            )
+        );
+    for attempt in 0..=1 {
+        if let Some(auth) = auth {
+            auth.validate_target(url)?;
+            auth.apply(&mut headers, attempt == 1).await?;
+        }
+        let request = if let Some(payload) = payload {
+            client.post(url.clone()).json(payload)
+        } else {
+            client.get(url.clone())
+        };
+        let response = request.headers(headers.clone()).send().await.map_err(|_| {
+            CoreError::McpTransport(
+                "MCP HTTP request failed; its effect may be unknown. No operation was replayed."
+                    .into(),
+            )
+        })?;
+        if response.status() == StatusCode::UNAUTHORIZED
+            && auth.is_some()
+            && safe_retry
+            && attempt == 0
+        {
+            continue;
+        }
+        if matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) {
+            if let Some(auth) = auth {
+                auth.note_rejection(
+                    response.status().as_u16(),
+                    super::oauth::bearer_challenge(response.headers()).as_ref(),
+                );
+            }
+        }
+        return Ok(response);
+    }
+    unreachable!("bounded authorization retry")
+}
+
+fn http_auth_error(response: &reqwest::Response) -> Option<CoreError> {
+    matches!(
+        response.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+    )
+    .then(|| CoreError::McpHttpAuth {
+        status: response.status().as_u16(),
+        challenge: super::oauth::bearer_challenge(response.headers()),
+    })
+}
+
 fn build_http_client() -> Result<HttpClient, CoreError> {
     HttpClient::builder()
         .connect_timeout(SSE_CONNECT_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| CoreError::Mcp(format!("Failed to build HTTP client for MCP: {e}")))
 }
@@ -1980,7 +2311,9 @@ mod tests {
             request_id: AtomicI64::new(1),
             server_name: "stalled-body".into(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(Duration::from_millis(500), client.list_tools()).await;
         server.abort();
@@ -2017,7 +2350,9 @@ mod tests {
             request_id: AtomicI64::new(1),
             server_name: "unavailable-handshake".into(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: DEFAULT_TIMEOUT,
+            auth: None,
         };
         let result = client.initialize_handshake().await;
         server.abort();
@@ -2134,7 +2469,9 @@ mod tests {
             request_id: AtomicI64::new(1),
             server_name: "heartbeat-only".into(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(Duration::from_millis(500), client.list_tools()).await;
         server.abort();
@@ -2165,7 +2502,9 @@ mod tests {
             request_id: AtomicI64::new(1),
             server_name: "stalled-shutdown".into(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(Duration::from_millis(500), client.shutdown()).await;
         server.abort();
@@ -2307,7 +2646,9 @@ mod tests {
             request_id: AtomicI64::new(1),
             server_name: "blocked-stdin".into(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(
             Duration::from_millis(500),

@@ -9,6 +9,98 @@ use nexa_core::package_host::{
 // ── Project Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
+pub async fn get_project_hooks_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+) -> Result<serde_json::Value, String> {
+    state.db_executor.read(move |db| {
+        let project = db.get_project(&project_id)?;
+        let workspace = nexa_core::workspace::Workspace { roots: project.workspace_roots.unwrap_or_default() };
+        Ok(serde_json::json!({
+            "hooks": db.project_hooks(&project_id)?,
+            "runs": db.project_hook_runs(&project_id)?,
+            "catalog": nexa_core::tools::project_tool::workspace_project_tool_catalog(db, &workspace)?,
+        }))
+    }).await.map(|result| result.value).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_project_hook_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    hook: nexa_core::project_hooks::ProjectHook,
+) -> Result<nexa_core::project_hooks::ProjectHook, String> {
+    state
+        .db_executor
+        .write(move |db| db.save_project_hook(&project_id, hook))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_project_hook_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.delete_project_hook(&project_id, &id))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_project_rules_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    conversation_id: Option<String>,
+    path: Option<String>,
+) -> Result<nexa_core::workspace_rules::WorkspaceRules, String> {
+    let activity = conversation_id
+        .as_deref()
+        .map(|id| nexa_core::chat_worktrees::activity(&state.db, id))
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let workspace = state
+        .db_executor
+        .read(move |db| {
+            if let Some(conversation_id) = conversation_id {
+                let conversation = db.get_conversation(&conversation_id)?;
+                if conversation.project_id.as_deref() != Some(&project_id) {
+                    return Err(CoreError::InvalidInput(
+                        "The conversation no longer belongs to this project".into(),
+                    ));
+                }
+                return db.conversation_workspace(&conversation_id)?.ok_or_else(|| {
+                    CoreError::InvalidInput("This chat has no configured workspace".into())
+                });
+            }
+            let project = db.get_project(&project_id)?;
+            Ok(nexa_core::workspace::Workspace {
+                roots: project.workspace_roots.unwrap_or_default(),
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .value;
+    tokio::task::spawn_blocking(move || {
+        let _activity = activity;
+        nexa_core::workspace_rules::load(
+            &workspace,
+            &path
+                .map(std::path::PathBuf::from)
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn create_project_cmd(
     state: tauri::State<'_, AppState>,
     input: CreateProjectInput,

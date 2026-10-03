@@ -21,6 +21,12 @@ English is the canonical language for maintained technical documentation.
 | [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |
 | [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
 | [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
+| [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |
+| [Project lifecycle checks](PROJECT_HOOKS.md) | Enable version-bound commands, inspect their receipts, and enforce completion checks |
+| [MCP resources and prompt templates](MCP_CONTENT.md) | Browse connector content, validate template arguments, and add reviewed text to drafts |
+| [MCP OAuth sign-in](MCP_OAUTH.md) | Sign in, renew or disconnect remote connector accounts with system credential storage |
+| [Chat worktrees](CHAT_WORKTREES.md) | Keep parallel chat checkouts, archive work safely, and restore local snapshots |
+| [Code review and GitHub PRs](CODE_REVIEW.md) | Record version-bound findings, hand selected fixes to the Agent, and inspect PR checks and threads |
 | [Office add-in](../integrations/office-addin/README.md) | Pair or deploy the separate Word/Excel/PowerPoint live adapter |
 | [Tool reference](TOOLS.md) | Choose an agent tool and inspect its schema, scope, and result contract |
 

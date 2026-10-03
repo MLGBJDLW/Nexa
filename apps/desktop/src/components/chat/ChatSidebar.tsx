@@ -939,7 +939,7 @@ function ChatSidebarComponent({
 
       {/* Project switcher */}
       <div className="px-2 py-1.5 border-b border-border">
-        <ProjectSwitcher activeProjectId={activeProjectId} onProjectChange={onProjectChange} />
+        <ProjectSwitcher activeProjectId={activeProjectId} conversationId={activeId} onProjectChange={onProjectChange} />
       </div>
 
       <div className="border-b border-border px-2 py-1.5">

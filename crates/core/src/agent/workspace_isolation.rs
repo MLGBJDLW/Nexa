@@ -28,7 +28,7 @@ const FILESYSTEM_TOOLS: &[&str] = &[
 const MUTATION_TOOLS: &[&str] = &["create_file", "edit_file", "run_shell"];
 
 pub(super) fn is_unscoped_isolation_tool(name: &str) -> bool {
-    name == "project_tool" || name == "mcp_tool" || name.starts_with("mcp__")
+    matches!(name, "project_tool" | "mcp_tool" | "mcp_context") || name.starts_with("mcp__")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -562,6 +562,16 @@ fn main() {
 
             let db_path = data_dir.join("nexa.db");
             let db = Database::new(&db_path).expect("failed to initialize database");
+            if let Err(error) = db.recover_project_hook_runs() {
+                log::warn!("Could not recover interrupted project hooks: {error}");
+            }
+            if let Err(error) = nexa_core::mcp::oauth::McpAuthService::recover_logins(&db) {
+                log::warn!("Could not recover interrupted MCP sign-ins: {error}");
+            }
+            let oauth = nexa_core::mcp::oauth::McpAuthService::shared(&db);
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = oauth.cleanup().await { log::warn!("MCP credential cleanup is pending: {error}"); }
+            });
             if let Err(error) = db.recover_pending_file_changes() {
                 log::warn!("Could not settle file changes interrupted by the previous process: {error}");
             }
@@ -883,6 +893,10 @@ fn main() {
             commands::delete_project_cmd,
             commands::list_project_memories_cmd,
             commands::get_project_workspace_cmd,
+            commands::get_project_rules_cmd,
+            commands::get_project_hooks_cmd,
+            commands::save_project_hook_cmd,
+            commands::delete_project_hook_cmd,
             commands::get_project_narrative_cmd,
             commands::get_companion_projection_cmd,
             commands::scan_companion_packs_cmd,
@@ -934,6 +948,9 @@ fn main() {
             commands::get_agent_run_event_page_cmd,
             commands::get_run_usage_snapshot_cmd,
             commands::conversation_git_status_cmd,
+            commands::get_chat_worktree_cmd,
+            commands::code_review_cmd,
+            commands::change_chat_worktree_cmd,
             commands::conversation_git_diff_cmd,
             commands::get_conversation_usage_snapshot_cmd,
             commands::get_ai_usage_analytics_cmd,
@@ -1226,6 +1243,12 @@ fn main() {
             commands::test_mcp_server_cmd,
             commands::test_mcp_server_direct_cmd,
             commands::list_mcp_tools_cmd,
+            commands::get_mcp_content_catalog_cmd,
+            commands::read_mcp_content_cmd,
+            commands::get_mcp_oauth_status_cmd,
+            commands::configure_mcp_oauth_cmd,
+            commands::begin_mcp_oauth_cmd,
+            commands::disconnect_mcp_oauth_cmd,
             // Trace analytics
             commands::get_trace_summary,
             commands::get_recent_traces,

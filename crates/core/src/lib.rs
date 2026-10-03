@@ -24,7 +24,9 @@ pub mod behavioral_eval;
 pub mod browser_runtime;
 pub mod capability_package;
 pub mod capability_registry;
+pub mod chat_worktrees;
 pub mod citations;
+pub mod code_review;
 pub mod companion;
 pub mod compile;
 pub mod context_history;
@@ -93,6 +95,7 @@ pub mod policy_engine;
 pub mod preview;
 pub mod privacy;
 pub mod project;
+pub mod project_hooks;
 pub mod project_memory;
 pub mod project_runtime;
 pub mod protocol_exports;
@@ -145,6 +148,7 @@ pub mod workflow_execution;
 pub mod workflow_ir;
 pub mod workflow_scheduler;
 pub mod workspace;
+pub mod workspace_rules;
 
 #[cfg(test)]
 mod architecture_fitness;

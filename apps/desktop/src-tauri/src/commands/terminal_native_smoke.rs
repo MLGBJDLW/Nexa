@@ -153,6 +153,8 @@ fn native_wsl_terminal_close_reaps_job_control_children() {
             cwd: cwd.display().to_string(),
             process_id: child.process_id(),
             conversation_id: None,
+            workspace_owner: None,
+            _workspace_lease: None,
             output: Arc::new(Mutex::new(TerminalOutputBuffer::default())),
         };
         (session, child, output)

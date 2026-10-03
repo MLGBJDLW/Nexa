@@ -13,6 +13,13 @@ pub(super) fn selected(db: &Database, ids: &[String]) -> Result<Vec<McpServer>> 
     for id in ids {
         let server = servers.iter().find(|server| server.id == *id && server.enabled && server.builtin_id.is_none())
             .ok_or_else(|| error("A selected MCP connector is disabled, unavailable, or managed internally by Nexa. Review this profile's connectors."))?;
+        if nexa_core::mcp::oauth::McpAuthService::shared(db)
+            .status(id)?
+            .config
+            .is_some()
+        {
+            return Err(error("This connector uses Nexa-managed OAuth. Use it with a Nexa API agent, or configure OAuth in the external agent's own MCP settings; Nexa does not export account tokens to native ACP processes."));
+        }
         if !selected.iter().any(|item: &McpServer| item.id == *id) {
             selected.push(server.clone());
         }

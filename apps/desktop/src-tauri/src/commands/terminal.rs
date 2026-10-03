@@ -34,6 +34,8 @@ pub struct TerminalState {
 }
 
 struct TerminalSession {
+    _workspace_lease: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
+    workspace_owner: Option<String>,
     wsl: Option<Arc<nexa_core::shell_environment::wsl_process::WslProcessLease>>,
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -106,6 +108,11 @@ pub fn terminal_start_session_cmd(
     input: TerminalStartInput,
 ) -> Result<TerminalSessionInfo, String> {
     let conversation_id = normalize_conversation_id(input.conversation_id);
+    let workspace_lease = conversation_id
+        .as_deref()
+        .map(|id| nexa_core::chat_worktrees::activity(&app_state.db, id))
+        .transpose()
+        .map_err(|e| e.to_string())?;
     let workspace = conversation_id
         .as_deref()
         .map(|id| app_state.db.conversation_workspace(id))
@@ -201,6 +208,8 @@ pub fn terminal_start_session_cmd(
         let session_id = Uuid::new_v4().to_string();
         let output = Arc::new(Mutex::new(TerminalOutputBuffer::default()));
         let session = TerminalSession {
+            _workspace_lease: workspace_lease,
+            workspace_owner: conversation_id.clone(),
             wsl: wsl.clone(),
             master: Arc::new(Mutex::new(pair.master)),
             writer: Arc::new(Mutex::new(writer)),
@@ -535,6 +544,9 @@ impl TerminalState {
             .get_mut(session_id)
             .ok_or_else(|| "terminal session is no longer running".to_string())?;
         let previous_conversation_id = session.conversation_id.clone();
+        if conversation_id.is_some() && conversation_id != session.workspace_owner {
+            return Err("Open a new terminal in the target chat to use its workspace".into());
+        }
         session.conversation_id = normalize_conversation_id(conversation_id);
         let info = session_info(session_id, session);
         drop(sessions);

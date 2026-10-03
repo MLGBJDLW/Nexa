@@ -73,6 +73,18 @@ pub enum CoreError {
     #[error("MCP error: {0}")]
     Mcp(String),
 
+    #[error("MCP JSON-RPC error {code}: {message}")]
+    McpRpc { code: i64, message: String },
+
+    #[error("MCP authorization {code}: {message}")]
+    McpAuth { code: String, message: String },
+
+    #[error("MCP HTTP {status}: authorization rejected; sign in from settings. The operation was not replayed.")]
+    McpHttpAuth {
+        status: u16,
+        challenge: Option<crate::mcp::oauth::BearerChallenge>,
+    },
+
     /// An MCP failure that means the underlying connection can no longer be
     /// trusted (for example, a timeout, closed stream, or transient HTTP 5xx).
     /// Keeping this distinct from JSON-RPC/application errors prevents a tool

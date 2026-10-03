@@ -394,6 +394,12 @@ pub async fn save_mcp_server_cmd(
     } else {
         manager.disconnect_server(&saved.id).await.ok();
     }
+    if let Err(error) = nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .cleanup()
+        .await
+    {
+        warn!("MCP credential cleanup is pending: {error}");
+    }
     Ok(saved)
 }
 
@@ -403,6 +409,19 @@ pub async fn delete_mcp_server_cmd(
     mcp_state: tauri::State<'_, McpManagerState>,
     id: String,
 ) -> Result<(), String> {
+    if state
+        .db
+        .get_mcp_server(&id)
+        .map_err(|e| e.to_string())?
+        .builtin_id
+        .is_some()
+    {
+        return Err("Cannot delete built-in MCP connector".into());
+    }
+    nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .disconnect(&id, false)
+        .await
+        .map_err(|e| e.to_string())?;
     state.db.delete_mcp_server(&id).map_err(|e| e.to_string())?;
     let manager = &mcp_state.manager;
     manager.disconnect_server(&id).await.ok();
@@ -433,12 +452,20 @@ pub async fn toggle_mcp_server_cmd(
         manager.disconnect_server(&id).await.ok();
     }
 
+    if let Err(error) = nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .cleanup()
+        .await
+    {
+        warn!("MCP credential cleanup is pending: {error}");
+    }
+
     Ok(())
 }
 
 #[tauri::command]
 pub async fn test_mcp_server_cmd(
     state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
     id: String,
 ) -> Result<Vec<McpToolInfo>, String> {
     let servers = state.db.list_mcp_servers().map_err(|e| e.to_string())?;
@@ -446,9 +473,85 @@ pub async fn test_mcp_server_cmd(
         .into_iter()
         .find(|s| s.id == id)
         .ok_or_else(|| format!("MCP server {id} not found"))?;
+    if nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .status(&id)
+        .map_err(|e| e.to_string())?
+        .config
+        .is_some()
+    {
+        mcp_state
+            .manager
+            .sync_server_from_database(&state.db, &id, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+            .await
+            .map_err(|e| e.to_string())?;
+        return mcp_state
+            .manager
+            .refresh_server(&id)
+            .await
+            .map_err(|e| e.to_string());
+    }
     nexa_core::mcp::McpManager::probe_server(&server, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_mcp_oauth_status_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<nexa_core::mcp::oauth::OAuthStatus, String> {
+    nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .status(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn configure_mcp_oauth_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    id: String,
+    config: Option<nexa_core::mcp::oauth::OAuthConfig>,
+) -> Result<nexa_core::mcp::oauth::OAuthStatus, String> {
+    let status = nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .configure(&id, config)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = mcp_state.manager.disconnect_server(&id).await;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn begin_mcp_oauth_cmd(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    id: String,
+) -> Result<nexa_core::mcp::oauth::OAuthStatus, String> {
+    use tauri_plugin_shell::ShellExt;
+    let service = nexa_core::mcp::oauth::McpAuthService::shared(&state.db);
+    let login = service.begin(&id).await.map_err(|e| e.to_string())?;
+    let _ = mcp_state.manager.disconnect_server(&id).await;
+    #[allow(deprecated)]
+    if app.shell().open(&login.authorization_url, None).is_err() {
+        let _ = service.disconnect(&id, false).await;
+        return Err("The system browser could not open. Start sign-in again from settings.".into());
+    }
+    service.status(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn disconnect_mcp_oauth_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    id: String,
+    revoke_remote: bool,
+) -> Result<nexa_core::mcp::oauth::DisconnectReceipt, String> {
+    let receipt = nexa_core::mcp::oauth::McpAuthService::shared(&state.db)
+        .disconnect(&id, revoke_remote)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = mcp_state.manager.disconnect_server(&id).await;
+    Ok(receipt)
 }
 
 #[tauri::command]
@@ -475,6 +578,7 @@ pub async fn test_mcp_server_direct_cmd(
         created_at: String::new(),
         updated_at: String::new(),
         builtin_id: None,
+        oauth_epoch: 0,
     };
     nexa_core::mcp::McpManager::probe_server(&server, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
         .await
@@ -510,6 +614,63 @@ pub async fn list_mcp_tools_cmd(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn get_mcp_content_catalog_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    server_id: String,
+) -> Result<nexa_core::mcp::McpCatalogSnapshot, String> {
+    let server = state
+        .db
+        .get_mcp_server(&server_id)
+        .map_err(|error| error.to_string())?;
+    if !server.enabled {
+        return Err("MCP connector is disabled".into());
+    }
+    mcp_state
+        .manager
+        .sync_server_from_database(&state.db, &server_id, Some(DEFAULT_MCP_CALL_TIMEOUT_SECS))
+        .await
+        .map_err(|error| error.to_string())?;
+    mcp_state
+        .manager
+        .refresh_server(&server_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    mcp_state
+        .manager
+        .catalog_snapshot(&server_id)
+        .ok_or_else(|| "MCP content catalog is unavailable".into())
+}
+
+#[tauri::command]
+pub async fn read_mcp_content_cmd(
+    state: tauri::State<'_, AppState>,
+    mcp_state: tauri::State<'_, McpManagerState>,
+    server_id: String,
+    authority_epoch: u64,
+    request: nexa_core::mcp::McpContentRequest,
+) -> Result<nexa_core::tools::ToolResult, String> {
+    let server = state
+        .db
+        .get_mcp_server(&server_id)
+        .map_err(|error| error.to_string())?;
+    if !server.enabled {
+        return Err("MCP connector is disabled".into());
+    }
+    mcp_state
+        .manager
+        .read_content(
+            &server_id,
+            authority_epoch,
+            request,
+            None,
+            &uuid::Uuid::new_v4().to_string(),
+        )
+        .await
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod mcp_command_tests {
     use super::*;
@@ -528,6 +689,7 @@ mod mcp_command_tests {
             created_at: String::new(),
             updated_at: String::new(),
             builtin_id: builtin.then(|| "builtin-test".into()),
+            oauth_epoch: 0,
         }
     }
 

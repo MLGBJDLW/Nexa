@@ -73,6 +73,7 @@ export function useGitWorkspace(conversationId: string | null | undefined, activ
     const timer = window.setInterval(schedule, active ? 5000 : 15000);
     const onFocus = () => { if (!document.hidden) schedule(); };
     window.addEventListener('focus', onFocus);
+    window.addEventListener('nexa:workspace-changed', refresh);
     document.addEventListener('visibilitychange', onFocus);
     return () => {
       disposed = true;
@@ -80,9 +81,10 @@ export function useGitWorkspace(conversationId: string | null | undefined, activ
       if (queued !== null) clearTimeout(queued);
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('nexa:workspace-changed', refresh);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [conversationId, active]);
+  }, [conversationId, active, refresh]);
   useEffect(refresh, [revision, refresh]);
   const current = state?.id === conversationId ? state : null;
   return { ...(current?.snapshot ?? EMPTY_SNAPSHOT), error: current?.error ?? null, loaded: current !== null, diffRevision, refresh };

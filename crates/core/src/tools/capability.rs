@@ -112,6 +112,8 @@ pub fn scheduled_workspace_tool_class(name: &str) -> ScheduledWorkspaceToolClass
         | "query_knowledge_graph"
         | "read_file"
         | "read_files"
+        | "workspace_rules"
+        | "code_review"
         | "retrieve_evidence"
         | "search_by_date"
         | "search_files"
@@ -680,7 +682,7 @@ pub fn infer_tool_access_profile(
             "Reads local Office/PDF/document content for inspection and comparison.",
         ),
         "read_file" | "read_files" | "list_dir" | "glob_files" | "search_files"
-        | "grep_files" | "code_intelligence" => (
+        | "grep_files" | "code_intelligence" | "workspace_rules" => (
             "filesystem",
             true,
             false,
@@ -689,6 +691,10 @@ pub fn infer_tool_access_profile(
             false,
             ApprovalRisk::Low,
             "Reads local files or directories for source-scoped inspection.",
+        ),
+        "code_review" => (
+            "code_review", true, args.get("action").and_then(|value| value.as_str()) == Some("add_finding"), false, false, false,
+            ApprovalRisk::Low, "Reads the selected local diff and persists version-bound review findings; does not edit files or publish remote changes.",
         ),
         "project_tool" => {
             if args.get("action").and_then(|value| value.as_str()) == Some("run") {
@@ -821,6 +827,13 @@ pub fn infer_tool_access_profile(
             false,
             ApprovalRisk::Low,
             "Steers or cooperatively cancels an already-authorized delegated agent.",
+        ),
+        "mcp_context" => (
+            "mcp", true, false, false,
+            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "read_resource_template" | "get_prompt")),
+            matches!(args.get("action").and_then(serde_json::Value::as_str), Some("read_resource" | "read_resource_template" | "get_prompt")),
+            ApprovalRisk::Low,
+            "Reads resources or prompt templates from an enabled MCP connector.",
         ),
         tool if tool == "mcp_tool" || tool.starts_with("mcp__") => (
             "mcp",

@@ -30,6 +30,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`archive_output`](../crates/core/prompts/tools/archive_output.json) | Archive an agent response or generated content as a new document in the knowledge base |
 | [`browser_evidence_capture`](../crates/core/prompts/tools/browser_evidence_capture.json) | Open and inspect a public or loopback local-development web page in a real browser |
 | [`code_intelligence`](../crates/core/prompts/tools/code_intelligence.json) | Find source-scoped code symbols or textual references in registered local source directories |
+| [`code_review`](../crates/core/prompts/tools/code_review.json) | Inspect the local code review selected by the user in /review, and record structured findings |
 | [`compare_documents`](../crates/core/prompts/tools/compare_documents.json) | Compare content between two documents or chunks, showing differences and similarities |
 | [`compile_document`](../crates/core/prompts/tools/compile_document.json) | Check the compilation status of knowledge base documents |
 | [`computer_control`](../crates/core/prompts/tools/computer_control.json) | Perform one approval-gated action against a fresh Windows observation |
@@ -60,6 +61,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`manage_skill`](../crates/core/prompts/tools/manage_skill.json) | List, load, activate, inspect available skills and their bundled resources, execute a declared script resource helper through the skill resource helper sandbox, and create, insp... |
 | [`manage_source`](../crates/core/prompts/tools/manage_source.json) | Add, remove, or refresh knowledge source directories |
 | [`manage_user_memory`](../crates/core/prompts/tools/manage_user_memory.json) | List, search, record, update, or delete cross-session user memories |
+| [`mcp_context`](../crates/core/prompts/tools/mcp_context.json) | Discover MCP resources, URI templates and prompt templates |
 | [`office_artifact`](../crates/core/prompts/tools/office_artifact.json) | Inspect, assess, create, edit, verify, publish, discard, or restore DOCX, XLSX, and PPTX artifacts through Nexa's transactional OfficeArtifactEngine |
 | [`open_in_nexa`](../crates/core/prompts/tools/open_in_nexa.json) | Open an authorized local file inside Nexa |
 | [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |
@@ -88,6 +90,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`update_scratchpad`](../crates/core/prompts/tools/update_scratchpad.json) | Update the per-conversation agent scratchpad — a small self-maintained notebook visible at the start of every turn via the system prompt |
 | [`web_research_context`](../crates/core/prompts/tools/web_research_context.json) | Build a compact model-ready web research context pack |
 | [`web_search`](../crates/core/prompts/tools/web_search.json) | Search the public web through Nexa's built-in no-key providers |
+| [`workspace_rules`](../crates/core/prompts/tools/workspace_rules.json) | Read the user-owned AGENTS.md/AGENTS.override.md rules applying to a workspace file or directory |
 | [`write_note`](../crates/core/prompts/tools/write_note.json) | Create or update a note file in the knowledge base |
 
 <!-- END GENERATED TOOL SCHEMAS -->

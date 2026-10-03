@@ -1,5 +1,175 @@
 import { expect, test } from './timeline-test';
 
+test('chat worktree keeps the draft and requires a snapshot decision before archive', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __worktreeActions: string[] };
+    const original = state.__TAURI_INTERNALS__.invoke; state.__worktreeActions = [];
+    let record: Record<string, unknown> | null = null;
+    state.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'get_chat_worktree_cmd') return record;
+      if (command === 'change_chat_worktree_cmd') {
+        const action = String(args?.action); state.__worktreeActions.push(action);
+        record = { id: 'worktree-one', conversationId: 'conv-active', path: 'D:/Nexa/chat-worktrees/one', branch: 'nexa/chat-one', startSha: 'a'.repeat(40), status: action === 'archive' ? 'archived' : 'ready', snapshotSha: action === 'create' ? null : 'b'.repeat(40), detail: null };
+        return record;
+      }
+      return original(command, args);
+    };
+  });
+  const input = page.getByTestId('chat-input-textarea'); await input.fill('Keep my worktree draft');
+  await page.keyboard.press('Control+Shift+P'); const palette = page.getByRole('dialog', { name: /Command Palette/i });
+  await palette.getByRole('combobox').fill('Chat worktree'); await palette.getByRole('option', { name: 'Chat worktree', exact: true }).click();
+  const panel = page.getByTestId('chat-worktree-panel'); await expect(panel).toBeVisible();
+  await panel.getByRole('textbox', { name: 'Starting reference' }).fill('main');
+  await panel.getByRole('button', { name: 'Create worktree', exact: true }).click();
+  await expect(panel).toContainText('nexa/chat-one');
+  await expect(panel.getByRole('button', { name: 'Archive with snapshot' })).toBeDisabled();
+  await panel.getByRole('checkbox').check();
+  await page.screenshot({ path: testInfo.outputPath('chat-worktree.png') });
+  await panel.getByRole('button', { name: 'Archive with snapshot' }).click();
+  await expect(panel).toContainText('archived');
+  await panel.getByRole('button', { name: 'Restore snapshot' }).click(); await expect(panel).toContainText('ready');
+  await page.keyboard.press('Escape'); await expect(input).toHaveValue('Keep my worktree draft');
+  await input.fill('/worktree'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __worktreeActions: string[] }).__worktreeActions)).toEqual(['create', 'archive', 'restore']);
+});
+
+test('MCP resources and prompt templates are reviewed before adding text to the draft', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command:string,args?:Record<string,unknown>) => Promise<unknown> }; __mcpReads:Array<Record<string,unknown>> };
+    const original = state.__TAURI_INTERNALS__.invoke; state.__mcpReads = [];
+    state.__TAURI_INTERNALS__.invoke = async (command,args) => {
+      if (command === 'list_mcp_servers_cmd') return [{ id:'knowledge',name:'Knowledge',enabled:true }];
+      if (command === 'get_mcp_content_catalog_cmd') return { authorityEpoch:7,complete:true,diagnostics:null,resources:[{ name:'Report',uri:'notes://report' }],resourceTemplates:[{name:'Note',uriTemplate:'notes://{id}'}],prompts:[{name:'summarize',arguments:[{name:'topic',required:true}]}] };
+      if (command === 'read_mcp_content_cmd') {
+        state.__mcpReads.push(args!); const request=args?.request as { action:string };
+        const content=request.action === 'get_prompt' ? 'Selected prompt template' : 'Quarterly report evidence';
+        return { content,isError:false,artifacts:{ kind:'mcpToolResult',version:1,contentBlocks:[{type:'text',text:content}],notices:[] } };
+      }
+      return original(command,args);
+    };
+  });
+  const input=page.getByTestId('chat-input-textarea'); await input.fill('Keep my draft');
+  await page.keyboard.press('Control+Shift+P'); const palette=page.getByRole('dialog',{name:/command palette/i});
+  await palette.getByRole('combobox').fill('MCP resources'); await palette.getByRole('option',{name:'MCP resources and prompts',exact:true}).click();
+  const panel=page.getByTestId('mcp-content-panel'); await panel.getByRole('combobox',{name:'Connector',exact:true}).selectOption('knowledge');
+  await panel.getByRole('combobox',{name:'Resources',exact:true}).selectOption('notes://report');
+  expect(await page.evaluate(() => (window as unknown as {__mcpReads:unknown[]}).__mcpReads)).toEqual([]);
+  await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Quarterly report evidence');
+  await page.screenshot({path:testInfo.outputPath('mcp-resources.png')});
+  await panel.getByRole('button',{name:'Add text to draft'}).click(); await expect(panel).toBeHidden(); await expect(input).toHaveValue(/Keep my draft\n\nMCP · Knowledge · notes:\/\/report\nQuarterly report evidence/);
+  await input.fill('/mcp-context'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
+  await panel.getByRole('combobox',{name:'Connector',exact:true}).selectOption('knowledge');
+  await panel.getByRole('combobox',{name:'Resources',exact:true}).selectOption('notes://{id}');
+  await panel.getByRole('textbox',{name:'id',exact:true}).fill('folder/private');
+  await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Quarterly report evidence');
+  await page.screenshot({path:testInfo.outputPath('mcp-resource-template.png')});
+  await panel.getByRole('combobox',{name:'Content type',exact:true}).selectOption('prompt');
+  await panel.getByRole('combobox',{name:'Prompt templates',exact:true}).selectOption('summarize');
+  await expect(panel.getByRole('button',{name:'Read content',exact:true})).toBeDisabled();
+  await panel.getByRole('textbox',{name:'topic *',exact:true}).fill('quarter');
+  await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Selected prompt template');
+  const reads=await page.evaluate(() => (window as unknown as {__mcpReads:Array<{authorityEpoch:number;request:{action:string;arguments?:Record<string,string>}}>}).__mcpReads);
+  expect(reads.map(read => read.authorityEpoch)).toEqual([7,7,7]);
+  expect(reads[1].request).toEqual({action:'read_resource_template',uri_template:'notes://{id}',arguments:{id:'folder/private'}});
+  expect(reads[2].request.arguments).toEqual({topic:'quarter'});
+});
+
+test('project checks require explicit enablement and expose receipts through hooks command', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __hookSaves: unknown[] };
+    state.__hookSaves = [];
+    const original = state.__TAURI_INTERNALS__.invoke;
+    let hooks: Array<Record<string, unknown>> = [];
+    state.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'get_project_hooks_cmd') return {
+        hooks, runs: hooks.length ? [{ id:'run-1',event:'before_complete',status:'failed',detail:'check: test assertions failed',createdAt:'2026-10-03 08:00:00' }] : [],
+        catalog: { errors:[],tools:[{ name:'check',manifestHash:'a'.repeat(64),commandPreview:'npm test',runnable:true,warnings:[] }] },
+      };
+      if (command === 'save_project_hook_cmd') {
+        state.__hookSaves.push(args);
+        const hook = { ...(args?.hook as Record<string, unknown>),id:'hook-1' }; hooks = [hook]; return hook;
+      }
+      if (command === 'delete_project_hook_cmd') { hooks = []; return null; }
+      return original(command, args);
+    };
+  });
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep this draft');
+  await page.keyboard.press('Control+Shift+P');
+  const palette = page.getByRole('dialog', { name:/command palette/i });
+  await palette.getByRole('combobox').fill('Project checks');
+  await palette.getByRole('option', { name:'Project checks',exact:true }).click();
+  const panel = page.getByTestId('project-hooks-panel');
+  await panel.getByRole('combobox', { name:'Project tool',exact:true }).selectOption(`check:${'a'.repeat(64)}`);
+  await expect(panel).toContainText('npm test');
+  expect(await page.evaluate(() => (window as unknown as { __hookSaves: unknown[] }).__hookSaves)).toEqual([]);
+  await panel.getByRole('button', { name:'Enable check',exact:true }).click();
+  await expect(panel.getByRole('button', { name:'Disable',exact:true })).toBeVisible();
+  await panel.locator('summary').click();
+  await expect(panel).toContainText('check: test assertions failed');
+  await page.screenshot({ path:testInfo.outputPath('project-checks.png') });
+  await panel.getByRole('button', { name:'Disable',exact:true }).click();
+  await expect(panel).toContainText('Disabled');
+  await page.keyboard.press('Escape'); await expect(input).toHaveValue('Keep this draft');
+  await input.fill('/hooks'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
+  const saves = await page.evaluate(() => (window as unknown as { __hookSaves:Array<{ projectId:string;hook:{enabled:boolean;manifestHash:string;event:string} }> }).__hookSaves);
+  expect(saves.map(save => save.hook.enabled)).toEqual([true,false]);
+  expect(saves.every(save => save.projectId === 'project-legacy' && save.hook.manifestHash === 'a'.repeat(64) && save.hook.event === 'before_complete')).toBe(true);
+});
+
+test('project file rules share a local command and inspector without changing the draft', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __ruleRequests: unknown[] };
+    state.__ruleRequests = [];
+    const original = state.__TAURI_INTERNALS__.invoke;
+    state.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command !== 'get_project_rules_cmd') return original(command, args);
+      state.__ruleRequests.push(args);
+      const child = args?.path === 'src/example.ts';
+      return { revision: child ? 'child-snapshot' : 'root-snapshot', diagnostics: [], files: [{
+        path: child ? 'D:/Project/src/AGENTS.md' : 'D:/Project/AGENTS.md',
+        scope: child ? 'D:/Project/src' : 'D:/Project',
+        revision: child ? 'updated-child-revision' : 'root-revision',
+        content: child ? 'Run the frontend verification.' : 'Preserve manually entered report cells.',
+        truncated: false,
+      }] };
+    };
+  });
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep my draft');
+  await page.keyboard.press('Control+Shift+P');
+  const palette = page.getByRole('dialog', { name: /command palette/i });
+  await palette.getByRole('combobox').fill('File rules');
+  await palette.getByRole('option', { name: 'File rules', exact: true }).click();
+  const panel = page.getByTestId('workspace-rules-panel');
+  await expect(panel).toBeVisible();
+  await panel.locator('summary').click();
+  await expect(panel).toContainText('Preserve manually entered report cells.');
+  await panel.getByRole('textbox', { name: 'File or folder path (optional)' }).fill('src/example.ts');
+  await panel.getByRole('button', { name: 'Refresh rules' }).click();
+  await expect(panel.locator('summary')).toHaveText('D:/Project/src/AGENTS.md');
+  await panel.locator('summary').click();
+  await expect(panel).toContainText('Run the frontend verification.');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(input).toHaveValue('Keep my draft');
+  await input.fill('/rules');
+  await page.keyboard.press('Enter');
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('summary')).toHaveText('D:/Project/AGENTS.md');
+  const requests = await page.evaluate(() => (window as unknown as { __ruleRequests: Array<{ projectId: string; conversationId: string | null; path: string | null }> }).__ruleRequests);
+  expect(requests.every(request => request.projectId === 'project-legacy' && request.conversationId === 'conv-active')).toBe(true);
+  expect(requests.some(request => request.path === 'src/example.ts')).toBe(true);
+  await panel.locator('summary').click();
+  await page.screenshot({ path: testInfo.outputPath('workspace-file-rules.png') });
+});
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('nexa-locale', 'en');
@@ -783,4 +953,49 @@ test('project workspace exposes its folders and explicitly saves a new primary r
   await page.getByTestId('project-save').click();
   await expect.poll(() => page.evaluate(() => (window as any).__PROJECT_UPDATE_INPUT__?.workspaceRoots))
     .toEqual(['D:/work/shared', 'D:/work/primary']);
+});
+
+
+test('review preserves drafts, deduplicates selected feedback and keeps old findings stale', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state=window as unknown as {__TAURI_INTERNALS__:{invoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>};__reviewChanged:boolean;__reviewActions:string[]};
+    const original=state.__TAURI_INTERNALS__.invoke; state.__reviewChanged=false; state.__reviewActions=[];
+    let review:any=null;
+    state.__TAURI_INTERNALS__.invoke=async(command,args)=>{
+      if(command!=='code_review_cmd')return original(command,args);
+      const request=args?.request as any; state.__reviewActions.push(request.action);
+      if(request.action==='list')return review?[{id:review.id,mode:review.mode,baseRef:review.baseRef,createdAt:review.createdAt}]:[];
+      if(request.action==='start')review={id:'review-one',mode:request.mode,baseRef:'HEAD',baseSha:'a'.repeat(40),workspaceRoot:'D:/work/project',createdAt:'2026-10-03T03:00:00Z',snapshot:{revision:'a'.repeat(64),headSha:'b'.repeat(40),baseline:'a'.repeat(40),truncated:false,files:[{path:'代码.txt',patch:'--- a/代码.txt\n+++ b/代码.txt\n@@ -1,2 +1,2 @@\n first\n-old\n+new\n',truncated:false,binary:false}]},findings:[],pullRequest:null};
+      if(request.action==='add')review.findings=[{id:'finding-one',...request.finding,status:'open',stale:false}];
+      if(request.action==='feedback')return {marker:'[nexa-review:packet-one]',text:'[nexa-review:packet-one]\nFix the selected current finding.'};
+      if(request.action==='get'&&review&&state.__reviewChanged){review.snapshot.revision='c'.repeat(64);review.findings=review.findings.map((finding:any)=>({...finding,stale: finding.status!=='resolved'}));}
+      if(request.action==='disposition')review.findings=review.findings.map((finding:any)=>({...finding,status:request.status,stale:false}));
+      if(request.action==='attach_pr')review.pullRequest={url:request.url,title:'Correct the parser',headSha:'d'.repeat(40),state:'OPEN',draft:false,reviewDecision:null,observedAt:'2026-10-03T03:01:00Z',matchesLocalHead:false,partial:true,checks:[{name:'Rust tests',state:'SUCCESS',url:null}],unresolvedThreads:[{id:'thread-one',path:'代码.txt',line:2,outdated:true,body:'Please check the changed branch.',url:null}]};
+      return structuredClone(review);
+    };
+  });
+  const input=page.getByTestId('chat-input-textarea'); await input.fill('Keep this draft');
+  const open=async()=>{await page.keyboard.press('Control+Shift+P');const palette=page.getByRole('dialog',{name:/command palette/i});await palette.getByRole('combobox').fill('Code review');await palette.getByRole('option',{name:'Code review',exact:true}).click();};
+  await open(); const panel=page.getByTestId('code-review-panel');
+  await panel.getByRole('button',{name:'Start review',exact:true}).click(); await panel.getByRole('button',{name:'new 2',exact:true}).click();
+  await panel.getByRole('textbox',{name:'Finding title',exact:true}).fill('Wrong result');
+  await panel.getByRole('textbox',{name:'Explain the bug and its impact',exact:true}).fill('The changed branch drops the result.');
+  await panel.getByRole('button',{name:'Record finding',exact:true}).click();
+  await panel.getByRole('checkbox',{name:'Wrong result',exact:true}).check();
+  await panel.getByRole('button',{name:/Add selected fixes to draft/}).click();
+  await expect(input).toHaveValue('Keep this draft\n\n[nexa-review:packet-one]\nFix the selected current finding.');
+  await open(); await panel.getByRole('checkbox',{name:'Wrong result',exact:true}).check();await panel.getByRole('button',{name:/Add selected fixes to draft/}).click();
+  expect((await input.inputValue()).match(/nexa-review:packet-one/g)).toHaveLength(1);
+  await open(); await page.evaluate(()=>{(window as unknown as {__reviewChanged:boolean}).__reviewChanged=true;});
+  await panel.getByRole('button',{name:'Refresh diff',exact:true}).click(); await expect(panel.getByRole('checkbox',{name:'Wrong result',exact:true})).toBeDisabled();
+  await expect(panel.getByRole('button',{name:'Accept',exact:true})).toBeDisabled();
+  await panel.getByRole('textbox',{name:'GitHub PR URL',exact:true}).fill('https://github.com/example/repo/pull/1');
+  await panel.getByRole('button',{name:'Read / refresh PR',exact:true}).click(); await expect(panel).toContainText('The PR head differs from this local review.');
+  await panel.getByText('Checks at this SHA (1)',{exact:true}).click(); await expect(panel).toContainText('Rust tests');
+  await page.screenshot({path:testInfo.outputPath('code-review.png')});
+  await panel.getByRole('button',{name:'Verified fixed',exact:true}).click(); await expect(panel).toContainText('Resolved');
+  await page.keyboard.press('Escape'); await expect(input).toHaveValue(/^Keep this draft/);
+  await input.fill('/review');await page.keyboard.press('Enter');await expect(panel).toBeVisible();
+  expect(await page.evaluate(()=>(window as unknown as {__reviewActions:string[]}).__reviewActions)).not.toContain('publish');
 });

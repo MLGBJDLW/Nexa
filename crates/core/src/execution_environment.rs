@@ -595,7 +595,7 @@ impl ExecutionEnvironment for LocalProcessExecutionEnvironment {
         }
         crate::background_process::configure_tokio_background(&mut command);
 
-        let mut child = command.spawn()?;
+        let (mut child, _process_tree) = crate::managed_process::spawn(&mut command)?;
         let stdin_task = if let Some(stdin) = request.stdin.clone() {
             let mut child_stdin = child
                 .stdin

@@ -135,6 +135,13 @@ pub fn build_desktop_agent_turn_config(
         source_scope_section.push_str("\n\n");
         source_scope_section.push_str(&workspace.prompt());
     }
+    let workspace_rule_section = workspace.as_ref().map(|workspace| {
+        if nexa_core::external_agent::preset(&db_config.provider).is_some() {
+            "The external ACP runtime owns loading workspace instruction files. Follow its native AGENTS.md or equivalent discovery within the selected workspace; Nexa does not duplicate those files into this prompt.".to_string()
+        } else {
+            nexa_core::workspace_rules::load(workspace, &[]).prompt()
+        }
+    }).unwrap_or_default();
     let collection_context_section =
         nexa_core::conversation::build_collection_context_prompt_section(
             conversation.collection_context.as_ref(),
@@ -415,6 +422,14 @@ pub fn build_desktop_agent_turn_config(
             ContextTrustLevel::UserSelected,
             950,
             project_instruction_section,
+        ),
+        stable_instruction(
+            "workspace-file-instructions",
+            "workspace.rules",
+            "directory-scoped user-owned workspace instructions",
+            ContextTrustLevel::UserSelected,
+            940,
+            workspace_rule_section,
         ),
         volatile_instruction(
             "execution-mode",

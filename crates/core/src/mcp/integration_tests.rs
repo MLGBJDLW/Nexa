@@ -20,6 +20,9 @@ pub(super) struct TestPeer {
     calls: Arc<StdMutex<Vec<String>>>,
     pub(super) tools: Arc<RwLock<Vec<Value>>>,
     result: Arc<RwLock<Option<Value>>>,
+    capabilities: Arc<RwLock<Value>>,
+    content_responses: Arc<RwLock<HashMap<String, Value>>>,
+    content_calls: Arc<StdMutex<Vec<Value>>>,
     pages: Arc<RwLock<HashMap<String, Value>>>,
     list_gate: Arc<RwLock<Option<Arc<tokio::sync::Semaphore>>>>,
     listing_started: Arc<tokio::sync::Semaphore>,
@@ -98,6 +101,12 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
     let discovered = Arc::clone(&tools);
     let result = Arc::new(RwLock::new(None::<Value>));
     let response_result = Arc::clone(&result);
+    let capabilities = Arc::new(RwLock::new(json!({"tools":{"listChanged":true}})));
+    let response_capabilities = Arc::clone(&capabilities);
+    let content_responses = Arc::new(RwLock::new(HashMap::<String, Value>::new()));
+    let response_content = Arc::clone(&content_responses);
+    let content_calls = Arc::new(StdMutex::new(Vec::new()));
+    let recorded_content = Arc::clone(&content_calls);
     let pages = Arc::new(RwLock::new(HashMap::<String, Value>::new()));
     let list_gate = Arc::new(RwLock::new(None::<Arc<tokio::sync::Semaphore>>));
     let listing_started = Arc::new(tokio::sync::Semaphore::new(0));
@@ -116,6 +125,9 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
             let recorded = Arc::clone(&recorded);
             let discovered = Arc::clone(&discovered);
             let response_result = Arc::clone(&response_result);
+            let response_capabilities = Arc::clone(&response_capabilities);
+            let response_content = Arc::clone(&response_content);
+            let recorded_content = Arc::clone(&recorded_content);
             let response_pages = Arc::clone(&response_pages);
             let response_gate = Arc::clone(&response_gate);
             let response_started = Arc::clone(&response_started);
@@ -148,7 +160,7 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
                 let result = match request["method"].as_str().unwrap() {
                     "initialize" => json!({
                         "protocolVersion":"2025-11-25",
-                        "capabilities":{"tools":{"listChanged":true}},
+                        "capabilities":response_capabilities.read().unwrap().clone(),
                         "serverInfo":{"name":"identity-test-peer","version":"1"}
                     }),
                     "tools/list" => {
@@ -175,14 +187,32 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
                             .clone()
                             .unwrap_or_else(|| json!({"content":[{"type":"text","text":tool}]}))
                     }
+                    method @ ("resources/list"
+                    | "resources/templates/list"
+                    | "prompts/list"
+                    | "resources/read"
+                    | "prompts/get") => {
+                        recorded_content.lock().unwrap().push(request.clone());
+                        let cursor = request["params"]["cursor"].as_str().unwrap_or("");
+                        let responses = response_content.read().unwrap();
+                        responses.get(&format!("{method}:{cursor}")).or_else(|| responses.get(method)).cloned().unwrap_or_else(|| match method {
+                            "resources/list" => json!({"resources":[]}),
+                            "resources/templates/list" => json!({"resourceTemplates":[]}),
+                            "prompts/list" => json!({"prompts":[]}),
+                            "resources/read" => json!({"contents":[{"uri":request["params"]["uri"],"mimeType":"text/plain","text":"RESOURCE_EVIDENCE"}]}),
+                            _ => json!({"messages":[{"role":"assistant","content":{"type":"text","text":"TEMPLATE_EVIDENCE"}}]}),
+                        })
+                    }
                     other => panic!("unexpected method {other}"),
                 };
                 reply(
                     &mut stream,
                     "200 OK",
-                    Some(json!({
-                        "jsonrpc":"2.0","id":request["id"],"result":result
-                    })),
+                    Some(if let Some(error) = result.get("_rpc_error") {
+                        json!({"jsonrpc":"2.0","id":request["id"],"error":error})
+                    } else {
+                        json!({"jsonrpc":"2.0","id":request["id"],"result":result})
+                    }),
                 )
                 .await;
             });
@@ -202,10 +232,14 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
             created_at: String::new(),
             updated_at: String::new(),
             builtin_id: None,
+            oauth_epoch: 0,
         },
         calls,
         tools,
         result,
+        capabilities,
+        content_responses,
+        content_calls,
         pages,
         list_gate,
         listing_started,
@@ -290,6 +324,293 @@ fn png_data() -> String {
         .write_to(&mut bytes, image::ImageFormat::Png)
         .unwrap();
     base64::engine::general_purpose::STANDARD.encode(bytes.into_inner())
+}
+
+#[tokio::test]
+async fn mcp_content_catalogs_reads_and_prompts_reach_the_registry_without_tools_capability() {
+    let remote = peer("content", "Knowledge", &[]).await;
+    *remote.capabilities.write().unwrap() =
+        json!({"resources":{"listChanged":true},"prompts":{"listChanged":true}});
+    remote.content_responses.write().unwrap().extend([
+        (
+            "resources/list:".into(),
+            json!({"resources":[{"uri":"notes://one","name":"One"}],"nextCursor":"next"}),
+        ),
+        (
+            "resources/list:next".into(),
+            json!({"resources":[{"uri":"notes://two","name":"Two"}]}),
+        ),
+        (
+            "resources/templates/list".into(),
+            json!({"resourceTemplates":[{"uriTemplate":"notes://{id}","name":"Note"}]}),
+        ),
+        (
+            "prompts/list".into(),
+            json!({"prompts":[{"name":"review","arguments":[{"name":"subject","required":true}]}]}),
+        ),
+    ]);
+    let manager = McpManager::new();
+    assert!(manager
+        .connect_server(&remote.server, Some(3))
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(remote.list_count.load(Ordering::SeqCst), 0);
+    let catalog = manager.catalog_snapshot(&remote.server.id).unwrap();
+    assert_eq!(catalog.content.resources.len(), 2);
+    assert_eq!(catalog.content.prompts.len(), 1);
+    let mut registry = ToolRegistry::new();
+    manager.register_tools(&mut registry).unwrap();
+    assert!(registry.contains("mcp_context"));
+    let invocation = registry.build_invocation(
+        "identity",
+        "mcp_context",
+        json!({"action":"read_resource","server_id":"content","uri":"notes://one"}),
+    );
+    let identity = invocation
+        .tool_identity
+        .expect("content reads bind connector approvals");
+    assert_eq!(identity.id.connector_id, "content");
+    assert_eq!(identity.id.tool_name, "resources/read");
+    assert_eq!(
+        identity.trust_config_digest,
+        super::identity::connector_trust_digest(&remote.server)
+    );
+    let db = Database::open_memory().unwrap();
+    let bad = registry.prepare_arguments_for_scheduling(
+        "mcp_context",
+        "bad",
+        r#"{"action":"read_resource","server_id":"content","name":"review"}"#,
+    );
+    assert!(bad.1.unwrap().is_error);
+    let page = registry
+        .execute(
+            "mcp_context",
+            ToolExecutionContext::new(
+                "list",
+                r#"{"action":"list_resources","server_id":"content","limit":1}"#,
+                &db,
+                &[],
+            ),
+        )
+        .await
+        .unwrap();
+    let page: Value = serde_json::from_str(&page.content).unwrap();
+    assert_eq!(page["nextOffset"], 1);
+    let read = registry
+        .execute(
+            "mcp_context",
+            ToolExecutionContext::new(
+                "read",
+                r#"{"action":"read_resource","server_id":"content","uri":"notes://one"}"#,
+                &db,
+                &[],
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(!read.is_error);
+    assert!(read.llm_context_content().contains("RESOURCE_EVIDENCE"));
+    assert_eq!(
+        read.artifacts.as_ref().unwrap()["contentMethod"],
+        "resources/read"
+    );
+    let before = remote.content_calls.lock().unwrap().len();
+    let missing = registry
+        .execute(
+            "mcp_context",
+            ToolExecutionContext::new(
+                "missing",
+                r#"{"action":"get_prompt","server_id":"content","name":"review"}"#,
+                &db,
+                &[],
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(missing.is_error);
+    assert_eq!(remote.content_calls.lock().unwrap().len(), before);
+    let prompt = registry.execute("mcp_context", ToolExecutionContext::new("prompt",r#"{"action":"get_prompt","server_id":"content","name":"review","arguments":{"subject":"files"}}"#,&db,&[])).await.unwrap();
+    assert!(!prompt.is_error);
+    assert!(prompt.llm_context_content().contains("TEMPLATE_EVIDENCE"));
+    assert!(prompt.llm_context_content().contains("untrusted evidence"));
+    assert!(
+        registry
+            .access_profile("mcp_context", &json!({"action":"get_prompt"}))
+            .needs_approval
+    );
+    assert!(
+        !registry
+            .run_capabilities("mcp_context", &json!({"action":"get_prompt"}))
+            .destructive
+    );
+    manager.disconnect_server(&remote.server.id).await.unwrap();
+    let before = remote.content_calls.lock().unwrap().len();
+    let stale = registry
+        .execute(
+            "mcp_context",
+            ToolExecutionContext::new(
+                "stale",
+                r#"{"action":"read_resource","server_id":"content","uri":"notes://one"}"#,
+                &db,
+                &[],
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(stale.is_error);
+    assert_eq!(remote.content_calls.lock().unwrap().len(), before);
+}
+
+#[tokio::test]
+async fn mcp_content_rejects_unlisted_uris_and_expands_only_advertised_templates() {
+    let remote = peer("scoped-content", "Scoped content", &[]).await;
+    *remote.capabilities.write().unwrap() = json!({"resources":{}});
+    remote.content_responses.write().unwrap().extend([
+        ("resources/list".into(), json!({"resources":[{"uri":"notes://catalog/public","name":"Public"}]})),
+        ("resources/templates/list".into(), json!({"resourceTemplates":[{"uriTemplate":"notes://catalog/{id}{?view}","name":"Note"}]})),
+    ]);
+    let manager = McpManager::new();
+    manager
+        .connect_server(&remote.server, Some(3))
+        .await
+        .unwrap();
+    let mut registry = ToolRegistry::new();
+    manager.register_tools(&mut registry).unwrap();
+    let db = Database::open_memory().unwrap();
+    for arguments in [
+        json!({"action":"read_resource","server_id":"scoped-content","uri":"file:///private/secret"}),
+        json!({"action":"read_resource","server_id":"scoped-content","uri":"notes://catalog/private"}),
+        json!({"action":"read_resource_template","server_id":"scoped-content","uri_template":"file:///{path}","arguments":{"path":"private"}}),
+        json!({"action":"read_resource_template","server_id":"scoped-content","uri_template":"notes://catalog/{id}{?view}","arguments":{"unknown":"private"}}),
+    ] {
+        let before = remote.content_calls.lock().unwrap().len();
+        let arguments = arguments.to_string();
+        let result = registry
+            .execute(
+                "mcp_context",
+                ToolExecutionContext::new("blocked", &arguments, &db, &[]),
+            )
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert_eq!(
+            remote.content_calls.lock().unwrap().len(),
+            before,
+            "invalid targets must not reach the connector"
+        );
+    }
+    let arguments = json!({"action":"read_resource_template","server_id":"scoped-content","uri_template":"notes://catalog/{id}{?view}","arguments":{"id":"folder/private","view":"a&b"}});
+    assert!(
+        registry
+            .access_profile("mcp_context", &arguments)
+            .needs_approval
+    );
+    assert_eq!(
+        registry
+            .build_invocation("template", "mcp_context", arguments.clone())
+            .tool_identity
+            .unwrap()
+            .id
+            .tool_name,
+        "resources/read"
+    );
+    let arguments = arguments.to_string();
+    let result = registry
+        .execute(
+            "mcp_context",
+            ToolExecutionContext::new("template", &arguments, &db, &[]),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert_eq!(
+        remote.content_calls.lock().unwrap().last().unwrap()["params"]["uri"],
+        "notes://catalog/folder%2Fprivate?view=a%26b"
+    );
+    let malformed = registry.prepare_arguments_for_scheduling("mcp_context", "mixed", r#"{"action":"read_resource_template","server_id":"scoped-content","uri":"notes://catalog/private","uri_template":"notes://catalog/{id}"}"#);
+    assert!(malformed.1.unwrap().is_error);
+    manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn mcp_content_optional_templates_and_each_capability_are_independent() {
+    for resources in [true, false] {
+        let remote = peer("content-only", "Content only", &[]).await;
+        *remote.capabilities.write().unwrap() = if resources {
+            json!({"resources":{}})
+        } else {
+            json!({"prompts":{}})
+        };
+        remote.content_responses.write().unwrap().insert(
+            "resources/templates/list".into(),
+            json!({"_rpc_error":{"code":-32601,"message":"No templates"}}),
+        );
+        let manager = McpManager::new();
+        manager
+            .connect_server(&remote.server, Some(3))
+            .await
+            .unwrap();
+        assert!(
+            manager
+                .catalog_snapshot(&remote.server.id)
+                .unwrap()
+                .complete
+        );
+        assert_eq!(remote.list_count.load(Ordering::SeqCst), 0);
+        let calls = remote.content_calls.lock().unwrap();
+        assert!(calls.iter().all(|call| call["method"]
+            .as_str()
+            .unwrap()
+            .starts_with(if resources { "resources/" } else { "prompts/" })));
+        drop(calls);
+        manager.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn mcp_content_repeated_pagination_is_rejected_and_notifications_refresh_catalogs() {
+    let remote = peer("content-page", "Content page", &["kept"]).await;
+    *remote.capabilities.write().unwrap() = json!({"resources":{"listChanged":true},"tools":{}});
+    remote.content_responses.write().unwrap().insert(
+        "resources/list".into(),
+        json!({"resources":[],"nextCursor":"again"}),
+    );
+    let manager = McpManager::new();
+    manager
+        .connect_server(&remote.server, Some(3))
+        .await
+        .unwrap();
+    let partial = manager.catalog_snapshot(&remote.server.id).unwrap();
+    assert!(!partial.content.resources_complete);
+    assert_eq!(partial.tools[0].name, "kept");
+    assert!(partial
+        .content
+        .content_diagnostics
+        .iter()
+        .any(|message| message.contains("cursor")));
+    remote.content_responses.write().unwrap().insert(
+        "resources/list".into(),
+        json!({"resources":[{"uri":"notes://one","name":"One"}]}),
+    );
+    manager.refresh_server(&remote.server.id).await.unwrap();
+    let before = manager.catalog_snapshot(&remote.server.id).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), remote.stream_ready.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    remote.content_responses.write().unwrap().insert(
+        "resources/list".into(),
+        json!({"resources":[{"uri":"notes://two","name":"Two"}]}),
+    );
+    remote
+        .notifications
+        .send(json!({"jsonrpc":"2.0","method":"notifications/resources/list_changed"}))
+        .unwrap();
+    let after = wait_for_catalog(&manager, &remote.server.id, before.catalog_revision + 1).await;
+    assert_eq!(after.content.resources[0]["uri"], "notes://two");
+    manager.shutdown().await;
 }
 
 #[tokio::test]

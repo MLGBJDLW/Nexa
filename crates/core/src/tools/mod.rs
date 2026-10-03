@@ -104,6 +104,7 @@ pub mod browser_session_tool;
 pub mod browser_session_tool;
 pub mod chunk_context_tool;
 pub mod code_intelligence_tool;
+pub mod code_review_tool;
 pub mod compare_tool;
 pub mod compile_tool;
 #[cfg(any(all(windows, feature = "desktop-control"), test))]
@@ -133,6 +134,7 @@ pub mod list_documents_tool;
 pub mod list_sources_tool;
 pub mod manage_skill_tool;
 pub mod manage_source_tool;
+pub mod mcp_context_tool;
 pub mod mcp_tool;
 #[cfg(feature = "ocr")]
 pub mod ocr_tool;
@@ -166,6 +168,7 @@ pub mod update_plan_tool;
 pub mod user_memory_tool;
 pub mod web_research_context_tool;
 pub mod web_search_tool;
+pub mod workspace_rules_tool;
 pub mod write_note_tool;
 
 // ---------------------------------------------------------------------------
@@ -722,6 +725,15 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// Host adapters selecting a connector through arguments still bind per-call
+    /// approvals to that connector's immutable trust identity.
+    fn canonical_identity_for_arguments(
+        &self,
+        _args: &serde_json::Value,
+    ) -> Option<crate::mcp::McpToolIdentity> {
+        self.canonical_identity()
+    }
+
     /// Selector used only for capability package declarations. Dynamic tools
     /// retain their declared package namespace when their callable alias changes.
     fn ownership_selector(&self) -> &str {
@@ -880,6 +892,7 @@ pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
     file_change_owner: Option<crate::turn_file_changes::FileChangeOwner>,
     workspace: Option<crate::workspace::Workspace>,
+    workspace_rules: Arc<crate::workspace_rules::WorkspaceRuleState>,
 }
 
 fn stable_tool_definitions(mut definitions: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
@@ -981,6 +994,7 @@ impl ToolRegistry {
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -991,12 +1005,37 @@ impl ToolRegistry {
         registry
     }
 
+    /// Narrow an execution allowlist while retaining its rule-control dependency.
+    /// Plain filtering stays exact for package authority and prompt projections.
+    pub fn filtered_for_execution(&self, allowed_names: &[String]) -> ToolRegistry {
+        let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
+        // Rule acknowledgement is a prerequisite of scoped filesystem/process
+        // tools. Keep that read-only control available to narrowed workers;
+        // otherwise their first guarded mutation can never be retried.
+        // Root workflow registries may be filtered before binding a workspace.
+        let needs_rules = self.tools.iter().any(|tool| {
+            allowed.contains(tool.name())
+                && tool.categories().iter().any(|category| {
+                    matches!(
+                        category,
+                        ToolCategory::FileSystem | ToolCategory::Process | ToolCategory::Terminal
+                    )
+                })
+        });
+        let mut names = allowed_names.to_vec();
+        if needs_rules && self.contains("workspace_rules") && !allowed.contains("workspace_rules") {
+            names.push("workspace_rules".into());
+        }
+        self.filtered(&names)
+    }
+
     /// Build a filtered registry excluding the provided tool names.
     pub fn without_names(&self, blocked_names: &[&str]) -> ToolRegistry {
         let blocked: HashSet<&str> = blocked_names.iter().copied().collect();
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -1016,6 +1055,7 @@ impl ToolRegistry {
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
             ..ToolRegistry::new()
         };
         let empty_args = serde_json::json!({});
@@ -1110,7 +1150,9 @@ impl ToolRegistry {
         let capabilities = descriptor.capabilities;
         let access_profile = descriptor.access_profile;
         let owner = descriptor.owner;
-        let tool_identity = self.get(&tool_name).and_then(Tool::canonical_identity);
+        let tool_identity = self
+            .get(&tool_name)
+            .and_then(|tool| tool.canonical_identity_for_arguments(&arguments));
         ToolInvocation {
             call_id: call_id.into(),
             tool_name,
@@ -1217,6 +1259,40 @@ impl ToolRegistry {
             Err(result) => return Ok(result),
         };
         let call_id = ctx.call_id;
+        let workspace = ctx.workspace.or(self.workspace.as_ref());
+        let parsed_arguments = serde_json::from_str(&arguments).unwrap_or_default();
+        let rule_targets = crate::workspace_rules::invocation_targets(&parsed_arguments);
+        let rules = workspace
+            .filter(|_| {
+                name != "workspace_rules"
+                    && tool.categories().iter().any(|category| {
+                        matches!(
+                            category,
+                            ToolCategory::FileSystem
+                                | ToolCategory::Process
+                                | ToolCategory::Terminal
+                        )
+                    })
+            })
+            .map(|workspace| crate::workspace_rules::load(workspace, &rule_targets));
+        let rules_pending = rules.as_ref().is_some_and(|rules| {
+            self.workspace_rules.needs_acknowledgement(
+                ctx.conversation_id.unwrap_or_default(),
+                ctx.turn_id.unwrap_or_default(),
+                rules,
+            )
+        });
+        if let Some(rules) = &rules {
+            let access = tool.access_profile(&parsed_arguments);
+            if (access.can_write || access.can_execute) && rules_pending {
+                return Ok(ToolResult {
+                    call_id: call_id.into(),
+                    content: format!("No operation was performed. Review these workspace rules, then call workspace_rules with action=acknowledge, paths={}, revision={} before retrying.\n{}", serde_json::to_string(&rule_targets).unwrap_or_default(), rules.revision, rules.prompt()),
+                    is_error: true,
+                    artifacts: Some(serde_json::json!({"workspaceRules": rules, "operationPerformed": false})),
+                });
+            }
+        }
         let mut scope_context =
             ToolExecutionContext::new(call_id, &arguments, ctx.db, ctx.source_scope)
                 .with_conversation_id(ctx.conversation_id)
@@ -1239,14 +1315,39 @@ impl ToolRegistry {
                 source_scope: ctx.source_scope,
                 conversation_id: ctx.conversation_id,
                 turn_id: ctx.turn_id,
-                tool_registry: ctx.tool_registry,
+                tool_registry: ctx.tool_registry.or(Some(self)),
                 cancel_token: ctx.cancel_token,
                 activity_runtime: ctx.activity_runtime,
                 event_tx: ctx.event_tx,
             })
             .await;
-        let result =
+        let mut result =
             normalize_tool_execution_result(call_id, name, || tool.parameters_schema(), result);
+        if let Some(rules) = rules.filter(|_| rules_pending) {
+            let guidance = format!(
+                "\n\n{}\nWorkspace rules revision: {}",
+                rules.prompt(),
+                rules.revision
+            );
+            if let Some(artifacts) = result
+                .artifacts
+                .get_or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+            {
+                artifacts.insert("workspaceRules".into(), serde_json::to_value(&rules)?);
+                if let Some(output) = artifacts
+                    .get_mut(ToolResult::OUTPUT_ARTIFACT_KEY)
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    for field in ["llmContent", "displayContent"] {
+                        if let Some(serde_json::Value::String(content)) = output.get_mut(field) {
+                            content.push_str(&guidance);
+                        }
+                    }
+                }
+            }
+            result.content.push_str(&guidance);
+        }
         if result
             .artifacts
             .as_ref()
@@ -1349,6 +1450,26 @@ impl ToolRegistry {
         let schema = tool.definition().parameters;
         match normalize_tool_arguments(name, arguments, &schema) {
             Ok(arguments) => {
+                if name == "code_review" {
+                    if let Err(error) = code_review_tool::validate_arguments(&arguments) {
+                        return Err(tool_contract_error_result(
+                            call_id,
+                            "invalid_code_review_arguments",
+                            error.to_string(),
+                            schema,
+                        ));
+                    }
+                }
+                if name == "mcp_context" {
+                    if let Err(error) = mcp_context_tool::validate_arguments(&arguments) {
+                        return Err(tool_contract_error_result(
+                            call_id,
+                            "invalid_mcp_content_arguments",
+                            error.to_string(),
+                            schema,
+                        ));
+                    }
+                }
                 if name == "run_shell" {
                     let value: serde_json::Value =
                         serde_json::from_str(&arguments).expect("normalized JSON");
@@ -2064,6 +2185,8 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(search_files_tool::GrepFilesTool));
     registry.register(Box::new(code_intelligence_tool::CodeIntelligenceTool));
     registry.register(Box::new(project_tool::ProjectTool));
+    registry.register(Box::new(workspace_rules_tool::WorkspaceRulesTool));
+    registry.register(Box::new(code_review_tool::CodeReviewTool));
     registry.register(Box::new(playbook_tool::PlaybookTool));
     registry.register(Box::new(
         prepare_document_tools_tool::PrepareDocumentToolsTool,

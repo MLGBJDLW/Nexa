@@ -212,6 +212,8 @@ struct ManagedService {
     stdout_task: Option<tokio::task::JoinHandle<()>>,
     stderr_task: Option<tokio::task::JoinHandle<()>>,
     loopback_permit_issuer: ManagedLoopbackPermitIssuer,
+    // Last field: owned process/tree teardown precedes releasing workspace ownership.
+    _workspace_activity: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
 }
 
 fn new_process_activity_id() -> String {
@@ -429,15 +431,9 @@ fn spawn_service_monitor(runtime: &tokio::runtime::Runtime, service_id: String) 
                         ActivityState::Failed,
                         serde_json::json!({ "error": error.to_string() }),
                     );
-                    cache_completed_service(
-                        &service_id,
-                        error_result(
-                            &service_id,
-                            format!("failed to inspect managed process: {error}"),
-                        ),
-                        service.conversation_id.clone(),
-                    )
-                    .await;
+                    // An observation error is not proof that descendants exited.
+                    // Keep ownership until an explicit cleanup attempt succeeds.
+                    retain_service_for_cleanup_retry(&service_id, service).await;
                     return;
                 }
             }
@@ -943,9 +939,55 @@ struct ManagedServiceRequest<'a> {
     auto_promoted: bool,
     activity_runtime: ActivityRuntime,
     conversation_id: Option<&'a str>,
+    workspace_activity: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
 }
 
 async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult {
+    let call_id = request.call_id.to_owned();
+    let failure_id = call_id.clone();
+    let program = request.program.to_owned();
+    let args = request.args.to_vec();
+    let cwd = request.cwd.to_path_buf();
+    let conversation = request.conversation_id.map(str::to_owned);
+    owned_process_operation(&failure_id, async move {
+        start_managed_service_owned(ManagedServiceRequest {
+            call_id: &call_id,
+            program: &program,
+            args: &args,
+            cwd: &cwd,
+            conversation_id: conversation.as_deref(),
+            ready_url_candidate: request.ready_url_candidate,
+            persistent_invocation: request.persistent_invocation,
+            auto_promoted: request.auto_promoted,
+            activity_runtime: request.activity_runtime,
+            workspace_activity: request.workspace_activity,
+        })
+        .await
+    })
+    .await
+}
+
+async fn owned_process_operation(
+    call_id: &str,
+    work: impl std::future::Future<Output = ToolResult> + Send + 'static,
+) -> ToolResult {
+    // Once admitted, startup/settlement belongs to the host, not a short-lived
+    // tool waiter. Closing that waiter cannot release workspace ownership while
+    // the process is still starting, stopping, or draining its output.
+    let runtime = match managed_service_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => return error_result(call_id, error),
+    };
+    match runtime.spawn(work).await {
+        Ok(result) => result,
+        Err(error) => error_result(
+            call_id,
+            format!("Managed process operation failed: {error}"),
+        ),
+    }
+}
+
+async fn start_managed_service_owned(request: ManagedServiceRequest<'_>) -> ToolResult {
     let ManagedServiceRequest {
         call_id,
         program,
@@ -956,6 +998,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
         auto_promoted,
         activity_runtime,
         conversation_id,
+        workspace_activity,
     } = request;
     let persistent_service =
         !auto_promoted || ready_url_candidate.is_some() || persistent_invocation;
@@ -1053,10 +1096,6 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
             Ok(Some(status)) => {
                 // The leader may have exited while descendants still hold its pipes.
                 // Terminate the whole tree before draining so finalization cannot hang.
-                process_tree.terminate();
-                drain_service_output_tasks(stdout_task, stderr_task, SERVICE_LOG_DRAIN_TIMEOUT)
-                    .await;
-                let log_snapshot = service_log_snapshot(&logs).await;
                 let service = ManagedService {
                     child,
                     process_tree,
@@ -1072,18 +1111,12 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     started_at,
                     activity_runtime,
                     conversation_id: conversation_id.map(str::to_string),
-                    stdout_task: None,
-                    stderr_task: None,
+                    stdout_task,
+                    stderr_task,
                     loopback_permit_issuer,
+                    _workspace_activity: workspace_activity,
                 };
-                return exited_service_result(
-                    call_id,
-                    &service_id,
-                    &service,
-                    status,
-                    &log_snapshot,
-                )
-                .await;
+                return finalize_exited_service(call_id, &service_id, service, status).await;
             }
             Ok(None) => {}
             Err(error) => {
@@ -1094,6 +1127,33 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     ActivityState::Failed,
                     serde_json::json!({ "error": error.to_string() }),
                 );
+                if let Err(cleanup) = process_tree.wait_for_cleanup().await {
+                    retain_service_for_cleanup_retry(
+                        &service_id,
+                        ManagedService {
+                            child,
+                            process_tree,
+                            activity_id,
+                            process_id,
+                            program: program.to_owned(),
+                            ready_url: None,
+                            ready_url_candidate: None,
+                            logs,
+                            auto_promoted,
+                            started_at,
+                            activity_runtime,
+                            conversation_id: conversation_id.map(str::to_owned),
+                            stdout_task,
+                            stderr_task,
+                            loopback_permit_issuer,
+                            _workspace_activity: workspace_activity,
+                        },
+                    )
+                    .await;
+                    return error_result(call_id, format!("Failed to inspect process; cleanup remains unconfirmed for service_id {service_id}: {cleanup}"));
+                }
+                drain_service_output_tasks(stdout_task, stderr_task, SERVICE_LOG_DRAIN_TIMEOUT)
+                    .await;
                 return error_result(
                     call_id,
                     format!("failed to inspect background service: {error}"),
@@ -1137,6 +1197,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                         stdout_task,
                         stderr_task,
                         loopback_permit_issuer,
+                        _workspace_activity: workspace_activity,
                     },
                 );
                 spawn_service_monitor(process_runtime, service_id.clone());
@@ -1188,6 +1249,7 @@ async fn start_managed_service(request: ManagedServiceRequest<'_>) -> ToolResult
                     stdout_task,
                     stderr_task,
                     loopback_permit_issuer,
+                    _workspace_activity: workspace_activity,
                 },
             );
             spawn_service_monitor(process_runtime, service_id.clone());
@@ -1289,6 +1351,21 @@ pub(crate) async fn observe_managed_service(
 }
 
 async fn status_service(
+    call_id: &str,
+    service_id: &str,
+    conversation_id: Option<&str>,
+) -> ToolResult {
+    let failure_id = call_id.to_owned();
+    let call_id = call_id.to_owned();
+    let service_id = service_id.to_owned();
+    let conversation = conversation_id.map(str::to_owned);
+    owned_process_operation(&failure_id, async move {
+        status_service_owned(&call_id, &service_id, conversation.as_deref()).await
+    })
+    .await
+}
+
+async fn status_service_owned(
     call_id: &str,
     service_id: &str,
     conversation_id: Option<&str>,
@@ -1419,6 +1496,23 @@ async fn manage_service(
     service_id: &str,
     conversation_id: Option<&str>,
 ) -> ToolResult {
+    let failure_id = call_id.to_owned();
+    let call_id = call_id.to_owned();
+    let action = action.to_owned();
+    let service_id = service_id.to_owned();
+    let conversation = conversation_id.map(str::to_owned);
+    owned_process_operation(&failure_id, async move {
+        manage_service_owned(&call_id, &action, &service_id, conversation.as_deref()).await
+    })
+    .await
+}
+
+async fn manage_service_owned(
+    call_id: &str,
+    action: &str,
+    service_id: &str,
+    conversation_id: Option<&str>,
+) -> ToolResult {
     if action == "status" {
         return status_service(call_id, service_id, conversation_id).await;
     }
@@ -1464,7 +1558,7 @@ async fn manage_service(
             SERVICE_LOG_DRAIN_TIMEOUT,
         )
         .await;
-        cache_completed_service(service_id, result.clone(), service.conversation_id.clone()).await;
+        retain_service_for_cleanup_retry(service_id, service).await;
         return result;
     }
     drain_service_output_tasks(
@@ -1610,7 +1704,7 @@ async fn finalize_exited_service(
             SERVICE_LOG_DRAIN_TIMEOUT,
         )
         .await;
-        cache_completed_service(service_id, result.clone(), service.conversation_id.clone()).await;
+        retain_service_for_cleanup_retry(service_id, service).await;
         return result;
     }
     drain_service_output_tasks(
@@ -1633,6 +1727,16 @@ async fn finalize_exited_service(
     result
 }
 
+async fn retain_service_for_cleanup_retry(service_id: &str, service: ManagedService) {
+    // Keep the lease and process-tree handle when cleanup cannot be proved.
+    // A subsequent status/stop call can retry; archiving remains blocked.
+    managed_services()
+        .lock()
+        .await
+        .insert(service_id.to_owned(), service);
+    finalizing_services().lock().await.remove(service_id);
+}
+
 /// Poll a managed service until it exits or the wait budget runs out.
 ///
 /// This is the "check back in a moment" loop: the agent gets the final exit
@@ -1640,6 +1744,28 @@ async fn finalize_exited_service(
 /// to block, and gets a still-running snapshot when the budget elapses so it can
 /// keep working and poll again later.
 async fn wait_for_service(
+    call_id: &str,
+    service_id: &str,
+    wait_timeout_secs: u64,
+    conversation_id: Option<&str>,
+) -> ToolResult {
+    let failure_id = call_id.to_owned();
+    let call_id = call_id.to_owned();
+    let service_id = service_id.to_owned();
+    let conversation = conversation_id.map(str::to_owned);
+    owned_process_operation(&failure_id, async move {
+        wait_for_service_owned(
+            &call_id,
+            &service_id,
+            wait_timeout_secs,
+            conversation.as_deref(),
+        )
+        .await
+    })
+    .await
+}
+
+async fn wait_for_service_owned(
     call_id: &str,
     service_id: &str,
     wait_timeout_secs: u64,
@@ -1875,6 +2001,7 @@ mod review_regression_tests {
             auto_promoted: false,
             activity_runtime: runtime.clone(),
             conversation_id: Some("delayed-owner"),
+            workspace_activity: None,
         })
         .await;
         assert!(!launched.is_error, "{}", launched.content);
@@ -1923,6 +2050,53 @@ mod review_regression_tests {
         println!("output-after-worker-finished");
     }
 
+    #[test]
+    #[ignore = "subprocess fixture for workspace ownership"]
+    fn workspace_lease_service_fixture() {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !Path::new("release-service").exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[tokio::test]
+    async fn managed_service_holds_workspace_after_turn_and_releases_only_after_stop() {
+        use crate::tools::ToolExecutionContext;
+        let directory = tempfile::tempdir().unwrap();
+        let db = crate::db::Database::open_memory().unwrap();
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = crate::app_settings::ShellAccessMode::Open;
+        db.save_app_config(&config).unwrap();
+        let owner = format!("workspace-service-{}", uuid::Uuid::new_v4());
+        let foreground = crate::chat_worktrees::activity(&db, &owner).unwrap();
+        let arguments = serde_json::json!({"program":std::env::current_exe().unwrap(),"args":["--ignored","--exact","tools::run_shell_tool::tool_impl::review_regression_tests::workspace_lease_service_fixture","--nocapture"],"cwd":directory.path(),"background":true}).to_string();
+        let result = RunShellTool
+            .execute(
+                ToolExecutionContext::new("launch", &arguments, &db, &[])
+                    .with_conversation_id(Some(&owner)),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error, "{}", result.content);
+        let service = result.artifacts.as_ref().unwrap()["serviceId"]
+            .as_str()
+            .unwrap();
+        drop(foreground);
+        let blocked = crate::chat_worktrees::exclusive(&db, &owner).is_err();
+        let unrelated = crate::chat_worktrees::exclusive(&db, "other-workspace").is_ok();
+        let stopped = manage_service("stop", "stop", service, Some(&owner)).await;
+        assert!(!stopped.is_error, "{}", stopped.content);
+        assert!(
+            blocked,
+            "a background process must retain the workspace after its turn returns"
+        );
+        assert!(
+            unrelated,
+            "the lease belongs only to its owning conversation"
+        );
+        assert!(crate::chat_worktrees::exclusive(&db, &owner).is_ok());
+    }
+
     #[tokio::test]
     async fn managed_process_and_logs_outlive_the_spawning_worker_runtime() {
         let id = format!("worker-service-{}", uuid::Uuid::new_v4());
@@ -1942,6 +2116,7 @@ mod review_regression_tests {
                 call_id: &worker_id, program: executable.to_str().unwrap(), args: &args,
                 cwd: executable.parent().unwrap(), ready_url_candidate: None, persistent_invocation: false, auto_promoted: true,
                 activity_runtime: ActivityRuntime::new(), conversation_id: process_conversation_id(&context),
+                workspace_activity: None,
             }));
             drop(runtime);
             result
@@ -2004,6 +2179,7 @@ mod review_regression_tests {
             auto_promoted: true,
             activity_runtime: ActivityRuntime::new(),
             conversation_id: Some("collision-owner"),
+            workspace_activity: None,
         };
         let (first, second) = tokio::join!(
             start_managed_service(request()),
@@ -2302,6 +2478,11 @@ impl Tool for RunShellTool {
                 "Code Ultra isolation does not allow detached processes.",
             ));
         }
+        // A managed command may outlive both the tool call and its parent turn.
+        // Acquire before cwd resolution, then transfer ownership to the process.
+        let workspace_activity = conversation_id
+            .map(|conversation| crate::chat_worktrees::activity(db, conversation))
+            .transpose()?;
         let app_config = db.load_app_config().unwrap_or_default();
         let shell_access_mode = app_config.shell_access_mode;
 
@@ -2438,6 +2619,7 @@ impl Tool for RunShellTool {
                 auto_promoted,
                 activity_runtime: activity_runtime.cloned().unwrap_or_default(),
                 conversation_id,
+                workspace_activity,
             })
             .await);
         }

@@ -20,6 +20,9 @@ import { Button } from '../ui/Button';
 import { WorkspaceRootsPicker } from './WorkspaceRootsPicker';
 import { formatUserError } from '../../lib/userError';
 import { ProjectWorkspacePanel } from './ProjectWorkspacePanel';
+import { WorkspaceRulesPanel } from './WorkspaceRulesPanel';
+import { ProjectHooksPanel } from './ProjectHooksPanel';
+import { useAppCommand } from '../../lib/appCommands';
 
 const PROJECT_STORAGE_KEY = 'active-project-id';
 
@@ -41,6 +44,7 @@ function setStoredProjectId(id: string | null) {
 
 interface ProjectSwitcherProps {
   activeProjectId: string | null;
+  conversationId?: string | null;
   onProjectChange: (projectId: string | null) => void;
 }
 
@@ -55,7 +59,7 @@ export function useActiveProject() {
   return { activeProjectId, setProject };
 }
 
-export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChange }: ProjectSwitcherProps) {
   const { t } = useTranslation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [open, setOpen] = useState(false);
@@ -77,6 +81,10 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
   const [projectBusy, setProjectBusy] = useState(false);
   const [showMemoryPanel, setShowMemoryPanel] = useState(false);
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false);
+  const [showRulesPanel, setShowRulesPanel] = useState(false);
+  const [showHooksPanel, setShowHooksPanel] = useState(false);
+  useAppCommand({ id: 'chat.hooks', label: 'project.hooks', keywords: 'hooks checks lifecycle 校验 钩子', enabled: !!activeProjectId, run: () => setShowHooksPanel(true) });
+  useAppCommand({ id: 'chat.rules', label: 'project.fileRules', keywords: 'rules instructions AGENTS.md 规则', enabled: !!activeProjectId, run: () => setShowRulesPanel(true) });
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const loadProjects = useCallback(async () => {
@@ -421,6 +429,17 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
             </button>
           )}
 
+          {activeProjectId && <button type="button" data-testid="project-rules-open"
+            onClick={() => { setShowRulesPanel(true); setOpen(false); }}
+            className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary">
+            <FolderOpen className="h-3 w-3 shrink-0" /><span className="flex-1 text-left">{t('project.fileRules')}</span>
+          </button>}
+          {activeProjectId && <button type="button" data-testid="project-hooks-open"
+            onClick={() => { setShowHooksPanel(true); setOpen(false); }}
+            className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary">
+            <Check className="h-3 w-3 shrink-0" /><span className="flex-1 text-left">{t('project.hooks')}</span>
+          </button>}
+
           {activeProjectId && (
             <button
               onClick={() => {
@@ -502,6 +521,12 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
         onClose={() => setShowWorkspacePanel(false)}
         onManageFolders={project => { setShowWorkspacePanel(false); startEditProject(project); }}
       />
+      <Modal open={showRulesPanel && !!activeProjectId} onClose={() => setShowRulesPanel(false)} title={t('project.fileRules')}>
+        {showRulesPanel && activeProjectId && <WorkspaceRulesPanel projectId={activeProjectId} conversationId={conversationId} />}
+      </Modal>
+      <Modal open={showHooksPanel && !!activeProjectId} onClose={() => setShowHooksPanel(false)} title={t('project.hooks')}>
+        {showHooksPanel && activeProjectId && <ProjectHooksPanel projectId={activeProjectId} />}
+      </Modal>
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

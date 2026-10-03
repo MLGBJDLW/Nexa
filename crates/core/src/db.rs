@@ -134,6 +134,10 @@ impl Database {
         self.path.as_deref()
     }
 
+    pub(crate) fn runtime_identity(&self) -> usize {
+        Arc::as_ptr(&self.conn) as usize
+    }
+
     pub fn list_document_chunks_by_path(
         &self,
         file_path: &str,

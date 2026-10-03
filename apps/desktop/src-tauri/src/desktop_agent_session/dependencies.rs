@@ -411,7 +411,7 @@ pub(crate) fn filter_root_tool_registry(
         .filter(|name| !name.is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>();
-    tools.filtered(&normalized)
+    tools.filtered_for_execution(&normalized)
 }
 
 pub(crate) fn elapsed_ms(started: Instant) -> u64 {
