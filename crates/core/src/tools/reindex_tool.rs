@@ -137,13 +137,8 @@ impl Tool for ReindexTool {
 
             // Preserve document identity and archived evidence even when its
             // file hash is unchanged. Mutations stay inside the selected source.
-            // Reuse the stored spelling (including legacy Windows verbatim paths)
-            // so the same physical file cannot acquire a second document identity.
-            let existing = db.get_document_paths_for_source(&source.id)?;
-            let mut aliases=existing.keys().filter(|path|std::fs::canonicalize(path).is_ok_and(|candidate|candidate==file_path)).collect::<Vec<_>>();
-            aliases.sort();
-            let index_path=aliases.first().map(|path|Path::new(path.as_str())).unwrap_or(&file_path);
-            let outcome = ingest::reindex_single_file(&db, &source.id, index_path)?;
+            // Shared ingestion resolves both current and legacy path spellings.
+            let outcome = ingest::reindex_single_file(&db, &source.id, &file_path)?;
             let status = match outcome {
                 ingest::IngestFileResult::Added => "added (re-indexed)",
                 ingest::IngestFileResult::Updated => "updated",
@@ -333,6 +328,106 @@ mod tests {
             ))
             .await
             .is_err());
+        assert_eq!(revision(&parent), parent_before);
+        assert!(db
+            .get_document_paths_for_source(&child.id)
+            .unwrap()
+            .is_empty());
+    }
+    #[tokio::test]
+    async fn excluded_legacy_paths_revoke_current_historical_and_research_evidence() {
+        let folder = TempDir::new().unwrap();
+        let inner = folder.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        let alias = inner.join("..");
+        let file = create_test_file(folder.path(), "policy.md", "Policy allowance is 500 yuan.");
+        let (db, source) = setup_db_with_source(&alias);
+        ingest::ingest_single_file(&db, &source, &file).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE documents SET path=?2 WHERE source_id=?1",
+                rusqlite::params![
+                    source,
+                    std::fs::canonicalize(&file).unwrap().to_string_lossy()
+                ],
+            )
+            .unwrap();
+        let query = crate::models::SearchQuery {
+            text: "allowance".into(),
+            filters: Default::default(),
+            limit: 2,
+            offset: 0,
+        };
+        let reference = crate::search::search(&db, &query)
+            .unwrap()
+            .evidence_cards
+            .remove(0)
+            .evidence_ref
+            .unwrap();
+        let set = crate::research_workspace::create(
+            &db,
+            crate::research_workspace::CreateResearchSet {
+                title: "Policy".into(),
+                questions: vec!["allowance".into()],
+                documents: vec![reference.clone()],
+            },
+        )
+        .unwrap();
+        // Keep an older revision and a saved comparison under the legacy spelling.
+        ingest::reindex_single_file(&db, &source, &file).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE documents SET path=?2 WHERE source_id=?1",
+                rusqlite::params![
+                    source,
+                    std::fs::canonicalize(&file).unwrap().to_string_lossy()
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            crate::search::resolve_evidence_ref(&db, &reference)
+                .unwrap()
+                .evidence_ref
+                .unwrap()
+                .status,
+            "historical"
+        );
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.exclude_patterns.push("**/policy.md".into());
+        db.save_privacy_config(&privacy).unwrap();
+        let args = serde_json::json!({"path":file.to_string_lossy()}).to_string();
+        assert!(ReindexTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "excluded-legacy",
+                &args,
+                &db,
+                std::slice::from_ref(&source),
+            ))
+            .await
+            .is_err());
+        assert!(crate::search::search(&db, &query)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        assert!(crate::search::resolve_evidence_ref(&db, &reference).is_err());
+        assert!(crate::research_workspace::get(&db, &set.summary.id)
+            .unwrap()
+            .documents
+            .is_empty());
+        for table in [
+            "documents",
+            "evidence_snapshots",
+            "research_documents",
+            "research_cells",
+        ] {
+            let count: i64 = db
+                .conn()
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "excluded evidence remains in {table}");
+        }
     }
     #[tokio::test]
     async fn tool_first_ingestion_survives_scans_with_an_aliased_root_and_legacy_path() {

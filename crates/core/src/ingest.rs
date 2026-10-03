@@ -766,12 +766,8 @@ impl Database {
         if exact.is_some() {
             return Ok(exact);
         }
-        let Ok(canonical) = std::fs::canonicalize(path) else {
-            return Ok(None);
-        };
-        let canonical = canonical.to_string_lossy();
-        let simple = canonical.strip_prefix(r"\\?\").unwrap_or(&canonical);
-        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path IN (?2,?3,?4,?5) ORDER BY indexed_at DESC LIMIT 1", params![source_id, canonical.as_ref(), simple, canonical.replace('\\',"/"), simple.replace('\\',"/")], read).optional()?)
+        let aliases = serde_json::to_string(&document_path_aliases(path))?;
+        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
     }
 
     pub fn delete_document_in_source(
@@ -790,19 +786,32 @@ impl Database {
         source_id: &str,
         path: &str,
     ) -> Result<bool, CoreError> {
+        let aliases = serde_json::to_string(&document_path_aliases(path))?;
         let mut conn = self.conn();
         let transaction = conn.transaction()?;
+        // Resolve identity before deleting: revisions may retain a different
+        // path spelling, and deleted files may only have archive/research rows.
+        let document_ids = {
+            let mut statement = transaction.prepare(
+                "SELECT id FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))
+                 UNION SELECT document_id FROM evidence_snapshots WHERE source_id=?1 AND document_path IN (SELECT value FROM json_each(?2))
+                 UNION SELECT document_id FROM research_documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))",
+            )?;
+            let rows =
+                statement.query_map(params![source_id, aliases], |row| row.get::<_, String>(0))?;
+            serde_json::to_string(&rows.collect::<Result<Vec<_>, _>>()?)?
+        };
         let changed = transaction.execute(
-            "DELETE FROM documents WHERE source_id=?1 AND path=?2",
-            params![source_id, path],
+            "DELETE FROM documents WHERE source_id=?1 AND id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
         )? > 0;
         let archived = transaction.execute(
-            "DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_path=?2",
-            params![source_id, path],
+            "DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
         )?;
         let research = transaction.execute(
-            "DELETE FROM research_documents WHERE source_id=?1 AND path=?2",
-            params![source_id, path],
+            "DELETE FROM research_documents WHERE source_id=?1 AND document_id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
         )?;
         transaction.commit()?;
         Ok(changed || archived > 0 || research > 0)
@@ -1324,7 +1333,38 @@ fn ingest_file(
     }
 }
 
-/// Recursively walk a directory, collecting all file paths (sorted).
+/// Bounded path spellings shared by identity lookup and explicit revocation.
+fn document_path_aliases(path: &str) -> Vec<String> {
+    let mut aliases = vec![path.to_string()];
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        aliases.push(canonical.to_string_lossy().into());
+    }
+    #[cfg(windows)]
+    for alias in aliases.clone() {
+        let windows = alias.replace('/', "\\");
+        let simple = if let Some(rest) = windows.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{rest}")
+        } else {
+            windows
+                .strip_prefix(r"\\?\")
+                .unwrap_or(&windows)
+                .to_string()
+        };
+        let extended = if let Some(rest) = simple.strip_prefix(r"\\") {
+            format!(r"\\?\UNC\{rest}")
+        } else {
+            format!(r"\\?\{simple}")
+        };
+        for spelling in [windows, simple, extended] {
+            aliases.push(spelling.replace('\\', "/"));
+            aliases.push(spelling);
+        }
+    }
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
 fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
     fn normalized(path: &Path) -> String {
         let value = path.to_string_lossy().replace('\\', "/");
@@ -1379,6 +1419,7 @@ fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
     None
 }
 
+/// Recursively walk a directory, collecting all file paths (sorted).
 fn walk_directory(root: &Path) -> Result<Vec<PathBuf>, CoreError> {
     let mut files = Vec::new();
     walk_recursive(root, &mut files)?;
