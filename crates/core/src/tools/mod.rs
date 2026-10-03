@@ -994,18 +994,16 @@ impl ToolRegistry {
         // Rule acknowledgement is a prerequisite of scoped filesystem/process
         // tools. Keep that read-only control available to narrowed workers;
         // otherwise their first guarded mutation can never be retried.
-        let needs_rules = self.workspace.is_some()
-            && self.tools.iter().any(|tool| {
-                allowed.contains(tool.name())
-                    && tool.categories().iter().any(|category| {
-                        matches!(
-                            category,
-                            ToolCategory::FileSystem
-                                | ToolCategory::Process
-                                | ToolCategory::Terminal
-                        )
-                    })
-            });
+        // Root workflow registries may be filtered before binding a workspace.
+        let needs_rules = self.tools.iter().any(|tool| {
+            allowed.contains(tool.name())
+                && tool.categories().iter().any(|category| {
+                    matches!(
+                        category,
+                        ToolCategory::FileSystem | ToolCategory::Process | ToolCategory::Terminal
+                    )
+                })
+        });
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),

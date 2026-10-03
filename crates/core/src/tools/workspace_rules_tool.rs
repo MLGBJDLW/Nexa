@@ -182,11 +182,15 @@ mod tests {
         std::fs::write(root.path().join("child/AGENTS.md"), "Use child tests.").unwrap();
         let count = Arc::new(AtomicUsize::new(0));
         let workspace = Workspace::validate(&[root.path().to_string_lossy().into_owned()]).unwrap();
-        let mut registry = ToolRegistry::new().with_workspace(Some(workspace));
+        let mut registry = ToolRegistry::new().with_workspace(Some(workspace.clone()));
         registry.register(Box::new(Writer(count.clone())));
         registry.register(Box::new(Reader));
         registry.register(Box::new(WorkspaceRulesTool));
-        let filtered = registry.filtered(&["create_file".into()]);
+        let filtered = registry
+            .clone()
+            .with_workspace(None)
+            .filtered(&["create_file".into()])
+            .with_workspace(Some(workspace));
         assert!(
             filtered.contains("workspace_rules"),
             "a narrowed worker must retain the acknowledgement prerequisite"
