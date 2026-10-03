@@ -191,7 +191,7 @@ pub fn context(
     let radius = radius.min(5) as i64;
     let rows = {
         let conn = db.conn();
-        let mut statement = conn.prepare("SELECT chunk_id,block_hash,chunk_index FROM evidence_records WHERE source_id=?1 AND document_id=?2 AND revision=?3 AND chunk_index BETWEEN ?4 AND ?5 ORDER BY chunk_index,(chunk_id=?6) DESC,(status='current') DESC,archived_at DESC LIMIT 128")?;
+        let mut statement = conn.prepare("SELECT chunk_id,block_hash,chunk_index FROM evidence_records WHERE source_id=?1 AND document_id=?2 AND revision=?3 AND chunk_index BETWEEN ?4 AND ?5 AND (kind!='summary' OR (chunk_id=?6 AND block_hash=?7)) ORDER BY chunk_index,(chunk_id=?6 AND block_hash=?7) DESC,(status='current') DESC,archived_at DESC LIMIT 128")?;
         let rows = statement
             .query_map(
                 rusqlite::params![
@@ -200,7 +200,8 @@ pub fn context(
                     reference.revision,
                     target.chunk_index - radius,
                     target.chunk_index + radius,
-                    reference.block_id.to_string()
+                    reference.block_id.to_string(),
+                    reference.content_hash
                 ],
                 |row| {
                     Ok((
@@ -327,6 +328,89 @@ mod tests {
         search::{resolve_evidence_ref, search},
         sources::CreateSourceInput,
     };
+
+    #[test]
+    fn source_context_excludes_generated_neighbors_but_resolves_an_explicit_summary_version() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("source.md");
+        std::fs::write(&path, "# Original source\nneedle This is original document evidence with enough text to form a complete source block.").unwrap();
+        let db = Database::open_memory().unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: folder.path().to_string_lossy().into(),
+                include_globs: vec!["**/*.md".into()],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        crate::ingest::scan_source(&db, &source.id).unwrap();
+        let original = search(
+            &db,
+            &SearchQuery {
+                text: "needle".into(),
+                filters: Default::default(),
+                limit: 1,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .remove(0)
+        .evidence_ref
+        .unwrap();
+        let doc_id = original.document_id.to_string();
+        db.upsert_summary_chunk(&doc_id, "MODEL_ORIGINAL summary is generated", &[], &[])
+            .unwrap();
+        let summary_id: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM chunks WHERE document_id=?1 AND kind='summary'",
+                [&doc_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let summary = crate::search::get_evidence_card(&db, &summary_id)
+            .unwrap()
+            .evidence_ref
+            .unwrap();
+        let revised = "MODEL_REVISED summary is generated";
+        db.conn()
+            .execute(
+                "UPDATE chunks SET content=?2,content_hash=?3 WHERE id=?1",
+                rusqlite::params![
+                    summary_id,
+                    revised,
+                    blake3::hash(revised.as_bytes()).to_hex().to_string()
+                ],
+            )
+            .unwrap();
+        let adjacent = context(&db, &original, 2).unwrap();
+        assert!(adjacent
+            .cards
+            .iter()
+            .all(|card| card.chunk_kind != "summary"));
+        let explicit = context(&db, &summary, 2).unwrap();
+        assert_eq!(explicit.reference.extraction_method, "model_summary");
+        let summaries: Vec<_> = explicit
+            .cards
+            .iter()
+            .filter(|card| card.chunk_kind == "summary")
+            .collect();
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].content.contains("MODEL_ORIGINAL"));
+        assert!(!explicit
+            .cards
+            .iter()
+            .any(|card| card.content.contains("MODEL_REVISED")));
+        std::fs::write(&path,"# Changed source\nneedle This is updated document evidence; the earlier source revision remains independently addressable.").unwrap();
+        crate::ingest::ingest_single_file(&db, &source.id, &path).unwrap();
+        let historical = context(&db, &original, 2).unwrap();
+        assert_eq!(historical.reference.status, "historical");
+        assert!(historical
+            .cards
+            .iter()
+            .all(|card| card.chunk_kind != "summary"));
+    }
 
     #[test]
     fn a_search_hit_in_overlap_opens_the_source_range_containing_that_text() {
