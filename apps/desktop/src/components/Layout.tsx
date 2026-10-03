@@ -265,7 +265,7 @@ export function Layout() {
         {/* Navigation */}
         <div className="px-2 pb-2">
           <Tooltip content={t('nav.commandPalette')} side="right" delay={180}>
-            <button type="button" data-testid="open-command-palette" aria-label={t('nav.commandPalette')} onClick={openCommandPalette} className="grid h-10 w-full place-items-center rounded-lg text-text-secondary hover:bg-surface-2 hover:text-text-primary"><Command size={18} /></button>
+            <button type="button" data-testid="open-command-palette" aria-label={t('nav.commandPalette')} onClick={openCommandPalette} className="grid h-10 w-10 place-items-center rounded-lg text-text-secondary hover:bg-surface-2 hover:text-text-primary"><Command size={18} /></button>
           </Tooltip>
         </div>
         <nav className="flex-1 space-y-0.5 px-2" role="navigation">
