@@ -78,7 +78,7 @@ function searchModeLabel(
   const labels = [mode.startsWith('hybrid') ? t('search.hybrid') : t('search.fts')];
   if (mode.includes('+cloud')) labels.push(t('search.cloudVectors'));
   if (mode.includes('+fusion')) labels.push(t('search.vectorFusion'));
-  if (mode.includes('+local-fallback')) labels.push(t('search.localFallback'));
+  if (mode.includes('+local-fallback') || mode.includes('+tfidf-fallback')) labels.push(t('search.localFallback'));
   if (mode.endsWith('+graph')) labels.push(t('search.graph'));
   return labels.join(' + ');
 }

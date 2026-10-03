@@ -60,6 +60,8 @@ per document across that same result set. Equal scores have deterministic order.
 Page consistency assumes unchanged indexed data, feedback, configuration and
 service responses; this is a live query, not a saved search snapshot. If retrieval
 or ranking falls back during active UI pagination, the UI restarts at page one.
+TF-IDF fallback from a configured embedding service is reported separately from
+cloud-to-local dense-vector fallback so either transition changes that basis.
 
 ## Read the cited version
 

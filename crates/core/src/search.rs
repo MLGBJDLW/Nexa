@@ -774,6 +774,7 @@ fn hybrid_search_packed(
                         // If create_embedder fell back to an empty TF-IDF
                         // (e.g. ONNX not downloaded), its dimensions will be 0.
                         if embedder.dimensions() == 0 {
+                            vector_mode = "hybrid+tfidf-fallback";
                             tracing::warn!(
                                 "Configured embedder ({}) returned empty dimensions, \
                                  falling back to TF-IDF state from DB",
@@ -803,6 +804,7 @@ fn hybrid_search_packed(
                                         })
                                         .unwrap_or_else(
                                             |e| {
+                                                vector_mode = "hybrid+tfidf-fallback";
                                                 tracing::warn!(
                                                     "Vector search with {} failed: {e}, \
                                                  trying TF-IDF fallback",
@@ -819,6 +821,7 @@ fn hybrid_search_packed(
                                     }
                                 }
                                 Err(e) => {
+                                    vector_mode = "hybrid+tfidf-fallback";
                                     tracing::warn!(
                                         "Failed to embed query with {}: {e}, \
                                          trying TF-IDF fallback",
@@ -835,6 +838,7 @@ fn hybrid_search_packed(
                         }
                     }
                     Err(e) => {
+                        vector_mode = "hybrid+tfidf-fallback";
                         tracing::warn!(
                             "Failed to create embedder ({}): {e}, \
                              trying TF-IDF fallback",
@@ -846,6 +850,9 @@ fn hybrid_search_packed(
             }
             _ => {
                 // TF-IDF or unknown provider — use TF-IDF from DB state.
+                if config.provider != "tfidf" {
+                    vector_mode = "hybrid+tfidf-fallback";
+                }
                 tfidf_vector_search_scoped(db, trimmed, vector_limit, &query.filters)
             }
         }
@@ -1947,7 +1954,7 @@ mod tests {
         }
     }
 
-    struct PaginationReranker {
+    struct PaginationInferenceService {
         url: String,
         requests: std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>,
         stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -1955,7 +1962,7 @@ mod tests {
         worker: Option<std::thread::JoinHandle<()>>,
     }
 
-    impl PaginationReranker {
+    impl PaginationInferenceService {
         fn new() -> Self {
             use std::io::{Read, Write};
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1994,8 +2001,27 @@ mod tests {
                         }
                     }
                 };
-                let texts: Vec<String> = serde_json::from_value(request["texts"].clone()).unwrap();
                 let response_mode = worker_mode.load(std::sync::atomic::Ordering::SeqCst);
+                if response_mode >= 3 {
+                    let inputs: Vec<String> =
+                        serde_json::from_value(request["input"].clone()).unwrap();
+                    worker_requests.lock().unwrap().push(inputs);
+                    let (status, payload) = if response_mode == 3 {
+                        (
+                            "200 OK",
+                            serde_json::json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}),
+                        )
+                    } else {
+                        (
+                            "400 Bad Request",
+                            serde_json::json!({"error":{"message":"fixture embedding provider failure"}}),
+                        )
+                    };
+                    let response = payload.to_string();
+                    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+                    continue;
+                }
+                let texts: Vec<String> = serde_json::from_value(request["texts"].clone()).unwrap();
                 let mut scores: Vec<_> = texts
                     .iter()
                     .enumerate()
@@ -2027,7 +2053,7 @@ mod tests {
         }
     }
 
-    impl Drop for PaginationReranker {
+    impl Drop for PaginationInferenceService {
         fn drop(&mut self) {
             self.stopped
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -2117,7 +2143,7 @@ mod tests {
     #[test]
     fn semantic_pagination_ranks_one_pool_before_document_and_research_packing() {
         let db = pagination_fixture(65, 2);
-        let service = PaginationReranker::new();
+        let service = PaginationInferenceService::new();
         for (max_candidates, mode) in [(128, 0), (1, 1), (64, 1), (128, 2)] {
             service
                 .mode
@@ -2207,7 +2233,7 @@ mod tests {
         assert!(result.search_mode.starts_with("hybrid"));
         assert_pagination_matches_whole(&db, hybrid_search, 24);
         assert_pagination_matches_whole(&db, research_search, 72);
-        let service = PaginationReranker::new();
+        let service = PaginationInferenceService::new();
         db.save_knowledge_services_config(&crate::knowledge_services::KnowledgeServicesConfig {
             reranker_url: service.url.clone(),
             max_candidates: 64,
@@ -2250,6 +2276,65 @@ mod tests {
         }
         assert_pagination_matches_whole(&db, search, 45);
         assert_pagination_matches_whole(&db, hybrid_search, 45);
+    }
+
+    #[test]
+    fn embedding_failure_changes_pagination_basis_before_returning_tfidf_evidence() {
+        let db = pagination_fixture(2, 1);
+        let service = PaginationInferenceService::new();
+        service.mode.store(3, std::sync::atomic::Ordering::SeqCst);
+        let config = crate::embed::EmbedderConfig {
+            provider: "api".into(),
+            api_base_url: format!("{}/v1", service.url.trim_end_matches("/rerank")),
+            api_model: "pagination-fixture".into(),
+            vector_dimensions: 2,
+            ..Default::default()
+        };
+        db.save_embedder_config(&config).unwrap();
+        let space = crate::embed::ApiEmbedder::configured_space_id(&config);
+        let chunks: Vec<String> = {
+            let conn = db.conn();
+            let mut statement = conn.prepare("SELECT id FROM chunks ORDER BY id").unwrap();
+            statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        db.store_embedding(&chunks[0], &space, &[1.0, 0.0]).unwrap();
+        db.store_embedding(&chunks[1], &space, &[0.0, 1.0]).unwrap();
+        db.save_embedder_state(
+            "tfidf-v1",
+            &HashMap::from([("pagination".into(), 0)]),
+            &[1.0],
+        )
+        .unwrap();
+        db.store_embedding(&chunks[0], "tfidf-v1", &[0.0]).unwrap();
+        db.store_embedding(&chunks[1], "tfidf-v1", &[1.0]).unwrap();
+        let query = SearchQuery {
+            limit: 1,
+            ..default_query("pagination")
+        };
+        let first = hybrid_search(&db, &query).unwrap();
+        service.mode.store(4, std::sync::atomic::Ordering::SeqCst);
+        let next = hybrid_search(
+            &db,
+            &SearchQuery {
+                offset: 1,
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        let restarted = hybrid_search(&db, &query).unwrap();
+        assert_eq!(first.evidence_cards[0].chunk_id.to_string(), chunks[0]);
+        assert_eq!(restarted.evidence_cards[0].chunk_id.to_string(), chunks[1]);
+        assert_eq!(
+            next.evidence_cards[0].chunk_id,
+            first.evidence_cards[0].chunk_id
+        );
+        assert_eq!(first.search_mode, "hybrid");
+        assert_eq!(next.search_mode, "hybrid+tfidf-fallback");
+        assert_eq!(restarted.search_mode, next.search_mode);
     }
 
     #[test]

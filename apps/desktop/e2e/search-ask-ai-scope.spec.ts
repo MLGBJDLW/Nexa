@@ -450,6 +450,7 @@ async function installPagedRanking(page: import('@playwright/test').Page) {
       host.__pagingOffsets.push(offset);
       return {
         ...result,
+        searchMode: host.__retrievalMode ?? result.searchMode,
         totalMatches: 45,
         candidateLimitReached: true,
         ranking: { method: host.__rankingMethod, candidates: 64, elapsedMs: 5, fallbackReason: host.__rankingMethod === 'lexical_rules' ? 'Fixture reranker unavailable' : null },
@@ -477,6 +478,19 @@ test('bounded result sets tell the user to narrow the search', async ({ page }) 
   await installPagedRanking(page);
   await page.getByPlaceholder('Search by keyword...').fill('pagination');
   await expect(page.getByTestId('search-candidate-limit')).toContainText('Narrow');
+});
+
+test('TF-IDF fallback changes the paging basis and stays visible', async ({ page }) => {
+  await page.goto('/');
+  await installPagedRanking(page);
+  await page.evaluate(() => { (window as any).__retrievalMode = 'hybrid'; });
+  await page.getByPlaceholder('Search by keyword...').fill('embedding pagination');
+  await expect(page.getByRole('button', { name: 'semantic_cross_encoder result 0', exact: true })).toBeVisible();
+  await page.evaluate(() => { (window as any).__retrievalMode = 'hybrid+tfidf-fallback'; });
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__pagingOffsets)).toEqual([0, 20, 0]);
+  await expect(page.getByText('Hybrid + Local fallback', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('search-ranking-reset')).toBeVisible();
 });
 
 test('a late pagination restart cannot replace a newer query', async ({ page }) => {
