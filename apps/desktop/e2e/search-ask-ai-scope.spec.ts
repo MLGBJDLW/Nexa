@@ -509,3 +509,19 @@ test('returning from a follow-up restores and refreshes the search workspace', a
   await expect(page.getByRole('button', { name: 'retained workspace evidence retries', exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).__kbAuditCalls.length)).toBe(2);
 });
+
+test('research failures cannot become source indexing retries', async ({page}) => {
+  await page.addInitScript(() => {
+    const host=window as any; const invoke=host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke=(command:string,args:any)=> {
+      if(command==='list_knowledge_jobs')return Promise.resolve([{id:'research-failure',kind:'research',sourceId:null,status:'failed',error:'research-failure-marker',progress:{setId:'saved-research'},revision:2,startedAt:new Date().toISOString(),finishedAt:new Date().toISOString()}]);
+      if(command==='get_source_index_health')return Promise.resolve([]);
+      return invoke(command,args);
+    };
+  });
+  await page.goto('/sources');
+  await expect(page.getByRole('button',{name:'Scan All',exact:true})).toBeEnabled();
+  await expect(page.getByText('research-failure-marker',{exact:false})).toHaveCount(0);
+  await page.evaluate(() => (window as any).__emitKnowledgeFixture('knowledge:job',{id:'research-active',kind:'research',sourceId:null,status:'running',error:null,progress:{setId:'saved-research',current:1,total:6},revision:1,startedAt:new Date().toISOString(),finishedAt:null}));
+  await expect(page.getByRole('button',{name:'Scan All',exact:true})).toBeEnabled();
+});

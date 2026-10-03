@@ -141,4 +141,25 @@ mod tests {
             .start_knowledge_job("embed", Some("missing-source"))
             .is_err());
     }
+    #[test]
+    fn failed_terminal_persistence_remains_retryable() {
+        let db = Database::open_memory().unwrap();
+        let job = db.start_knowledge_job("research", None).unwrap();
+        db.conn().execute_batch("CREATE TRIGGER reject_finish BEFORE UPDATE OF status ON knowledge_jobs BEGIN SELECT RAISE(ABORT,'injected storage failure'); END;").unwrap();
+        assert!(db.finish_knowledge_job(&job.id, None).is_err());
+        assert_eq!(
+            db.knowledge_job(&job.id).unwrap().unwrap().status,
+            "running"
+        );
+        db.conn()
+            .execute_batch("DROP TRIGGER reject_finish")
+            .unwrap();
+        assert_eq!(
+            db.finish_knowledge_job(&job.id, None)
+                .unwrap()
+                .unwrap()
+                .status,
+            "completed"
+        );
+    }
 }

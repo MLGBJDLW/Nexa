@@ -191,7 +191,7 @@ pub async fn compile_document_cmd(
     )
     .await
     .map_err(|e| e.to_string());
-    job.finish(&result);
+    job.finish(&result)?;
     let result = result?;
 
     serde_json::to_value(&result).map_err(|e| e.to_string())
@@ -232,7 +232,7 @@ pub async fn compile_pending_documents_cmd(
     )
     .await
     .map_err(|e| e.to_string());
-    job.finish(&results);
+    job.finish(&results)?;
     let results = results?;
 
     serde_json::to_value(&results).map_err(|e| e.to_string())

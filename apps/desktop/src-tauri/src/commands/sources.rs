@@ -37,23 +37,23 @@ impl TrackedKnowledgeJob {
         })
     }
 
-    pub(super) fn finish<T>(&mut self, result: &Result<T, String>) {
-        match self
-            .db
-            .finish_knowledge_job(&self.id, result.as_ref().err().map(String::as_str))
-        {
-            Ok(Some(job)) => emit_app_event(&self.app, "knowledge:job", &job),
-            Ok(None) => (),
-            Err(error) => warn!("Could not persist knowledge completion: {error}"),
+    pub(super) fn finish<T>(&mut self, result: &Result<T, String>) -> Result<(), String> {
+        let job=self.db.finish_knowledge_job(&self.id,result.as_ref().err().map(String::as_str))
+            .map_err(|error|format!("Could not persist knowledge completion; retry recovery after storage is available: {error}"))?;
+        if let Some(job) = job {
+            emit_app_event(&self.app, "knowledge:job", &job);
         }
         self.finished = true;
+        Ok(())
     }
 }
 
 impl Drop for TrackedKnowledgeJob {
     fn drop(&mut self) {
         if !self.finished {
-            self.finish::<()>(&Err("runtime_interrupted".into()));
+            if let Err(error) = self.finish::<()>(&Err("runtime_interrupted".into())) {
+                warn!("Knowledge completion still needs recovery: {error}");
+            }
         }
     }
 }
@@ -245,7 +245,7 @@ pub async fn scan_source(
             report(serde_json::json!(progress));
         })
         .map_err(|e| e.to_string());
-        job.finish(&result);
+        job.finish(&result)?;
         result
     })
     .await
@@ -295,7 +295,7 @@ pub async fn scan_all_sources(
             }
             Ok::<_, String>(results)
         })();
-        job.finish(&result);
+        job.finish(&result)?;
         result
     })
     .await
@@ -646,7 +646,7 @@ pub async fn embed_source(
             &control,
         )
         .map_err(|error| error.to_string());
-        job.finish(&result);
+        job.finish(&result)?;
         result
     })
     .await
@@ -679,7 +679,7 @@ pub async fn rebuild_embeddings(
             &control,
         )
         .map_err(|error| error.to_string());
-        job.finish(&result);
+        job.finish(&result)?;
         result
     })
     .await
@@ -1199,45 +1199,67 @@ pub fn delete_local_model_cmd(
 }
 
 #[tauri::command]
-pub fn get_knowledge_services_config(
+pub async fn get_knowledge_services_config(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::knowledge_services::KnowledgeServicesConfig, String> {
     state
-        .db
-        .knowledge_services_config()
+        .db_executor
+        .read(|db| db.knowledge_services_config())
+        .await
+        .map(|result| result.value)
         .map_err(|error| error.to_string())
 }
 #[tauri::command]
-pub fn save_knowledge_services_config(
+pub async fn save_knowledge_services_config(
     state: tauri::State<'_, AppState>,
     config: nexa_core::knowledge_services::KnowledgeServicesConfig,
 ) -> Result<(), String> {
     state
-        .db
-        .save_knowledge_services_config(&config)
+        .db_executor
+        .write(move |db| db.save_knowledge_services_config(&config))
+        .await
+        .map(|result| result.value)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_research_sets(
+pub async fn list_research_sets(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<nexa_core::research_workspace::ResearchSetSummary>, String> {
-    nexa_core::research_workspace::list(&state.db).map_err(|error| error.to_string())
+    state
+        .db_executor
+        .read(move |db| nexa_core::research_workspace::list(db))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }
+
 #[tauri::command]
-pub fn get_research_set(
+pub async fn get_research_set(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<nexa_core::research_workspace::ResearchSet, String> {
-    nexa_core::research_workspace::get(&state.db, &id).map_err(|error| error.to_string())
+    state
+        .db_executor
+        .read(move |db| nexa_core::research_workspace::get(db, &id))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }
+
 #[tauri::command]
-pub fn create_research_set(
+pub async fn create_research_set(
     state: tauri::State<'_, AppState>,
     input: nexa_core::research_workspace::CreateResearchSet,
 ) -> Result<nexa_core::research_workspace::ResearchSet, String> {
-    nexa_core::research_workspace::create(&state.db, input).map_err(|error| error.to_string())
+    state
+        .db_executor
+        .write(move |db| nexa_core::research_workspace::create(db, input))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }
+
 #[tauri::command]
 pub async fn refresh_research_set(
     state: tauri::State<'_, AppState>,
@@ -1255,17 +1277,31 @@ pub async fn refresh_research_set(
     .await
     .map_err(|error| error.to_string())
     .and_then(|value| value.map_err(|error| error.to_string()));
-    job.finish(&result);
+    job.finish(&result)?;
     result
 }
 #[tauri::command]
-pub fn review_research_cell(
+pub async fn review_research_cell(
     state: tauri::State<'_, AppState>,
     input: nexa_core::research_workspace::ReviewResearchCell,
 ) -> Result<nexa_core::research_workspace::ResearchSet, String> {
-    nexa_core::research_workspace::review(&state.db, input).map_err(|error| error.to_string())
+    state
+        .db_executor
+        .write(move |db| nexa_core::research_workspace::review(db, input))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }
+
 #[tauri::command]
-pub fn delete_research_set(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
-    nexa_core::research_workspace::delete(&state.db, &id).map_err(|error| error.to_string())
+pub async fn delete_research_set(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| nexa_core::research_workspace::delete(db, &id))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }

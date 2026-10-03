@@ -126,6 +126,8 @@ const EXCLUDE_PRESETS = [
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
+const INDEX_JOB_KINDS = new Set(['scan', 'embed', 'scan-all', 'rebuild-embeddings']);
+
 export function SourcesPage() {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
@@ -175,7 +177,7 @@ export function SourcesPage() {
 
   // Scan/embed progress (from global store)
   const progress = useProgress();
-  const activeJobs = progress.knowledgeJobs.filter((job) => job.status === 'running' && job.kind !== 'compile');
+  const activeJobs = progress.knowledgeJobs.filter((job) => job.status === 'running' && INDEX_JOB_KINDS.has(job.kind));
   const scanningId = activeJobs.find((job) => job.kind === 'scan')?.sourceId ?? pendingScanId;
   const embeddingId = activeJobs.find((job) => job.kind === 'embed')?.sourceId ?? pendingEmbedId;
   const scanningAll = pendingScanAll || activeJobs.some((job) => job.kind === 'scan-all');
@@ -195,7 +197,7 @@ export function SourcesPage() {
   const videoProcessing = progress.videoProcessing;
   // Merge batch:scan-progress and batch:rebuild-progress into one batchProgress
   const batchProgress = useMemo(() => {
-    const job = progress.knowledgeJobs.find((item) => item.status === 'running' && !item.sourceId && item.kind !== 'compile');
+    const job = progress.knowledgeJobs.find((item) => item.status === 'running' && !item.sourceId && INDEX_JOB_KINDS.has(item.kind));
     if (job) return {
       operation: job.kind, sourceIndex: 0, sourceCount: 0, sourceId: '',
       phase: 'queued', current: 0, total: 0, currentFile: null, ...job.progress,
@@ -638,7 +640,7 @@ export function SourcesPage() {
       {/* Source list or empty state */}
       {healthError && <div role="alert" className="mb-3 rounded-lg border border-warning/30 p-3 text-xs text-warning">{healthError} <button onClick={() => void loadSources()}>{t('common.retry')}</button></div>}
       {jobsError && <div role="alert" className="mb-3 rounded-lg border border-warning/30 p-3 text-xs text-warning">{jobsError} <button onClick={() => void refreshJobs()}>{t('common.retry')}</button></div>}
-      {progress.knowledgeJobs.filter((job) => job.kind !== 'compile' && (job.status === 'failed' || job.status === 'interrupted') && !progress.knowledgeJobs.some((newer) => newer.kind === job.kind && newer.sourceId === job.sourceId && newer.startedAt > job.startedAt)).slice(0, 5).map((job) => (
+      {progress.knowledgeJobs.filter((job) => INDEX_JOB_KINDS.has(job.kind) && (job.status === 'failed' || job.status === 'interrupted') && !progress.knowledgeJobs.some((newer) => newer.kind === job.kind && newer.sourceId === job.sourceId && newer.startedAt > job.startedAt)).slice(0, 5).map((job) => (
         <div key={job.id} role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-warning/30 p-3 text-xs text-warning">
           <span>
             <strong>{t(job.kind === 'scan' ? 'sources.scan' : job.kind === 'embed' ? 'sources.embed' : job.kind === 'scan-all' ? 'sources.scanAll' : 'sources.rebuildEmbeddings')}</strong>
