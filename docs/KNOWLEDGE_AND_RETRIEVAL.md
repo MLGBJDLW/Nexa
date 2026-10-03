@@ -216,6 +216,12 @@ IDs or versioned references. A scan started under earlier settings cannot commit
 its old output after this change. Saving unchanged rules preserves rebuilt content
 and safe history. Invalid redaction/exclusion expressions are rejected before the
 saved policy or index is changed.
+Copied research titles, section labels, frontmatter, and visual metadata follow
+the same redaction rules. A masked worksheet name becomes extracted evidence
+without an exact worksheet locator. Retained manual graph relationships keep
+their identities while protected labels are masked and matching aliases removed.
+Source deletion under a stricter scan policy revokes the resulting archive within
+the deletion transaction, including when the file was still indexed at scan start.
 
 Compilation reads every non-summary source character in bounded 12,000-character
 sections, with eight new model calls per action. Completed sections are cached

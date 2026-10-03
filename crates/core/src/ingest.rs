@@ -106,6 +106,37 @@ fn apply_privacy(
         .insert("redaction_enabled".into(), config.enabled.to_string());
     if config.enabled {
         parsed.title = privacy::redact_content(&parsed.title, &config.redact_patterns);
+        parsed.metadata.retain(|key, value| {
+            // Preserve operational identities/counts; everything else is source
+            // display metadata, including frontmatter and parser warning text.
+            if !matches!(
+                key.as_str(),
+                "privacy_config_fingerprint"
+                    | "redaction_profile"
+                    | "redaction_enabled"
+                    | "parser_profile"
+                    | "page_count"
+                    | "searchable_pages"
+                    | "uncovered_pages"
+                    | "duration_secs"
+                    | "thumbnail_path"
+                    | "video_width"
+                    | "video_height"
+                    | "video_bitrate"
+                    | "video_framerate"
+                    | "video_codec"
+                    | "visual_artifact_count"
+                    | "visual_artifact_kinds"
+                    | "ocr_source"
+                    | "media_analysis"
+            ) {
+                if privacy::redact_content(key, &config.redact_patterns) != *key {
+                    return false;
+                }
+                *value = privacy::redact_content(value, &config.redact_patterns);
+            }
+            true
+        });
         for chunk in &mut parsed.chunks {
             let content = privacy::redact_content(&chunk.content, &config.redact_patterns);
             if content != chunk.content {
@@ -116,6 +147,7 @@ fn apply_privacy(
             if let Some(heading) = &mut chunk.heading_context {
                 *heading = privacy::redact_content(heading, &config.redact_patterns);
             }
+            privacy::redact_locator(&mut chunk.locator, &config.redact_patterns);
         }
         crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
             privacy::redact_content(value, &config.redact_patterns)
@@ -598,7 +630,12 @@ fn scan_source_inner(
                 "Purging stale document (file removed from disk): {}",
                 doc_path
             );
-            match db.delete_document_in_source(source_id, doc_path) {
+            match db.delete_document_with_scan_privacy(
+                source_id,
+                doc_path,
+                privacy_cfg,
+                &stored_fingerprint,
+            ) {
                 Ok(true) => result.files_purged += 1,
                 Ok(false) => {
                     debug!("Stale document already removed: {}", doc_path);
@@ -874,10 +911,36 @@ impl Database {
         source_id: &str,
         path: &str,
     ) -> Result<bool, CoreError> {
-        Ok(self.conn().execute(
+        let config = self.load_privacy_config()?;
+        let fingerprint = privacy::config_fingerprint(&config)?;
+        self.delete_document_with_scan_privacy(source_id, path, &config, &fingerprint)
+    }
+
+    fn delete_document_with_scan_privacy(
+        &self,
+        source_id: &str,
+        path: &str,
+        config: &PrivacyConfig,
+        stored_fingerprint: &str,
+    ) -> Result<bool, CoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        if stored_fingerprint != privacy::config_fingerprint(&privacy::load_config_on(&tx)?)? {
+            return Err(CoreError::Conflict(
+                "Privacy settings changed before removal; retry the source scan".into(),
+            ));
+        }
+        let changed = tx.execute(
             "DELETE FROM documents WHERE source_id=?1 AND path=?2",
             params![source_id, path],
-        )? > 0)
+        )? > 0;
+        if config.enabled {
+            // Deletion archives old chunks; revoke mismatched copies within the
+            // same transaction, before any reader can observe them.
+            tx.execute("DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_path=?2 AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?3", params![source_id,path,privacy::redaction_fingerprint(config)?])?;
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     pub fn forget_document_in_source(

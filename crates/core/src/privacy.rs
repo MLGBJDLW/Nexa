@@ -179,6 +179,120 @@ pub(crate) fn validate_config(config: &PrivacyConfig) -> Result<(), CoreError> {
     Ok(())
 }
 
+pub(crate) fn redact_locator(locator: &mut crate::evidence::EvidenceLocator, rules: &[RedactRule]) {
+    use crate::evidence::EvidenceLocator;
+    match locator {
+        EvidenceLocator::Extracted { section } => *section = redact_content(section, rules),
+        EvidenceLocator::Sheet { sheet, .. } => {
+            let safe = redact_content(sheet, rules);
+            if safe != *sheet {
+                // A masked worksheet name is no longer an exact navigation key.
+                *locator = EvidenceLocator::Extracted { section: safe };
+            }
+        }
+        _ => {} // Numeric positions and native package parts are structural.
+    }
+}
+
+fn redact_captured_labels(
+    conn: &rusqlite::Connection,
+    config: &PrivacyConfig,
+) -> Result<(), CoreError> {
+    let rows = {
+        let mut statement =
+            conn.prepare("SELECT set_id,document_id,title FROM research_documents")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    for (set_id, document_id, title) in rows {
+        conn.execute("UPDATE research_documents SET title=?3,reference_json=json_set(reference_json,'$.locator',json('{\"kind\":\"unknown\"}')) WHERE set_id=?1 AND document_id=?2", params![set_id,document_id,redact_content(&title,&config.redact_patterns)])?;
+    }
+    conn.execute("UPDATE research_cells SET evidence_json='[]'", [])?;
+    conn.execute("UPDATE research_sets SET revision=revision+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", [])?;
+
+    // Keep explicit manual relationships and their IDs, but mask source labels
+    // on retained nodes (including old nodes whose provenance was already lost).
+    let entities = {
+        let mut statement =
+            conn.prepare("SELECT id,name,entity_type,description FROM entities ORDER BY id")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    let mut names = entities
+        .iter()
+        .map(|(_, name, kind, _)| (name.clone(), kind.clone()))
+        .collect::<std::collections::HashSet<_>>();
+    let mut suffixes = std::collections::HashMap::new();
+    for (id, name, kind, description) in entities {
+        let safe = redact_content(&name, &config.redact_patterns);
+        let safe_description = redact_content(&description, &config.redact_patterns);
+        let mut safe_name = safe.clone();
+        if safe != name {
+            names.remove(&(name.clone(), kind.clone()));
+            let base = if safe.trim().is_empty() {
+                "[REDACTED]".to_string()
+            } else {
+                safe
+            };
+            safe_name = base.clone();
+            while names.contains(&(safe_name.clone(), kind.clone())) {
+                let suffix = suffixes.entry((base.clone(), kind.clone())).or_insert(2);
+                safe_name = format!("{base} ({suffix})");
+                *suffix += 1;
+            }
+            names.insert((safe_name.clone(), kind.clone()));
+        }
+        if safe_name != name || safe_description != description {
+            conn.execute(
+                "UPDATE entities SET name=?2,description=?3 WHERE id=?1",
+                params![id, safe_name, safe_description],
+            )?;
+        }
+    }
+    let aliases = {
+        let mut statement =
+            conn.prepare("SELECT entity_id,normalized_alias,alias FROM entity_aliases")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    for (id, normalized, alias) in aliases {
+        if redact_content(&alias, &config.redact_patterns) != alias
+            || redact_content(&normalized, &config.redact_patterns) != normalized
+        {
+            conn.execute(
+                "DELETE FROM entity_aliases WHERE entity_id=?1 AND normalized_alias=?2",
+                params![id, normalized],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 impl Database {
     /// Persist a [`PrivacyConfig`] to the database.
     pub fn save_privacy_config(&self, config: &PrivacyConfig) -> Result<(), CoreError> {
@@ -201,13 +315,14 @@ impl Database {
             // for files already removed. Delete snapshots AFTER deletion triggers
             // run so old text cannot be archived back into the accessible corpus.
             tx.execute(
-                "DELETE FROM entities WHERE id IN (SELECT entity_id FROM document_entities) AND NOT EXISTS(SELECT 1 FROM entity_links l WHERE l.evidence_doc_id IS NULL AND (l.source_entity_id=entities.id OR l.target_entity_id=entities.id))",
+                "DELETE FROM entities WHERE (first_seen_doc IS NOT NULL OR id IN (SELECT entity_id FROM document_entities)) AND NOT EXISTS(SELECT 1 FROM entity_links l WHERE l.evidence_doc_id IS NULL AND (l.source_entity_id=entities.id OR l.target_entity_id=entities.id))",
                 [],
             )?;
             tx.execute("UPDATE documents SET index_revision=lower(hex(randomblob(16))),title='',metadata='{}'", [])?;
             tx.execute("DELETE FROM document_summaries", [])?;
             tx.execute("DELETE FROM chunks", [])?;
             tx.execute("DELETE FROM evidence_snapshots", [])?;
+            redact_captured_labels(&tx, config)?;
             tx.execute(
                 "UPDATE knowledge_evidence SET locator_json='{}' WHERE document_id IS NOT NULL",
                 [],
@@ -318,6 +433,20 @@ mod tests {
                 )
                 .unwrap();
         }
+        db.conn()
+            .execute(
+                "UPDATE entities SET first_seen_doc=?2 WHERE id=?1",
+                params![generated, current_document],
+            )
+            .unwrap();
+        db.conn().execute("UPDATE entities SET name='alice@example.com',description='privateCODE' WHERE id=?1", [&manual_a]).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE entities SET name='bob@example.com' WHERE id=?1",
+                [&manual_b],
+            )
+            .unwrap();
+        db.conn().execute("INSERT INTO entity_aliases(entity_id,alias,normalized_alias,entity_type) VALUES(?1,'alice@example.com','alice@example.com','concept')", [&manual_a]).unwrap();
         db.conn().execute("INSERT INTO entity_links(id,source_entity_id,target_entity_id,relation_type,evidence_doc_id) VALUES(?1,?2,?3,'manual',NULL)", params![uuid::Uuid::new_v4().to_string(), manual_a, manual_b]).unwrap();
         let research = crate::research_workspace::create(
             &db,
@@ -356,7 +485,7 @@ mod tests {
         .is_ok()));
         // Model-generated membership belongs to the latest indexed revision;
         // the earlier file update correctly invalidated previous membership.
-        for entity in [&manual_a, &generated] {
+        for entity in [&manual_a] {
             db.conn()
                 .execute(
                     "INSERT INTO document_entities(document_id,entity_id) VALUES(?1,?2)",
@@ -373,6 +502,27 @@ mod tests {
         db.save_privacy_config(&config).unwrap();
         assert!(db.get_entity_by_id(&manual_a).is_ok());
         assert_eq!(db.get_entity_links(&manual_a).unwrap().len(), 1);
+        let retained = [
+            db.get_entity_by_id(&manual_a).unwrap(),
+            db.get_entity_by_id(&manual_b).unwrap(),
+        ];
+        let labels = serde_json::to_string(&retained).unwrap();
+        assert!(
+            !labels.contains("alice@example.com")
+                && !labels.contains("bob@example.com")
+                && !labels.contains("privateCODE")
+        );
+        assert_ne!(retained[0].name, retained[1].name);
+        assert_eq!(
+            db.conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM entity_aliases WHERE entity_id=?1",
+                    [&manual_a],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
         assert!(db.get_entity_by_id(&generated).is_err());
         assert!(search::search(&db, &query)
             .unwrap()
@@ -503,11 +653,145 @@ mod tests {
         .evidence_cards
         .remove(0);
         std::fs::remove_file(&path).unwrap();
-        ingest::scan_source(&db, &source.id).unwrap();
-        assert!(search::resolve_evidence_ref(&db, card.evidence_ref.as_ref().unwrap()).is_ok());
         ingest::scan_source_with_privacy(&db, &source.id, Some(&PrivacyConfig::default())).unwrap();
         assert!(search::resolve_evidence_ref(&db, card.evidence_ref.as_ref().unwrap()).is_err());
         assert!(!db.load_privacy_config().unwrap().enabled);
+    }
+
+    #[test]
+    fn redaction_covers_research_titles_html_sections_and_frontmatter_display_fields() {
+        use crate::{
+            ingest, models::SearchQuery, research_workspace as research, search,
+            sources::CreateSourceInput,
+        };
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("page.html"), "<html><head><title>alice@example.com privateCODE</title></head>\n<body>\nneedle privateCODE. This HTML document contains a detailed policy explanation for local testing of source metadata.</body></html>").unwrap();
+        std::fs::write(folder.path().join("note.md"), "---\ntitle: alice@example.com privateCODE\ndate: privateCODE\n---\nneedle privateCODE. This Markdown document contains a detailed policy explanation for local testing of source metadata.").unwrap();
+        let db = Database::open_memory().unwrap();
+        let mut config = PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        db.save_privacy_config(&config).unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: folder.path().to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        ingest::scan_source(&db, &source.id).unwrap();
+        let query = SearchQuery {
+            text: "needle".into(),
+            filters: Default::default(),
+            limit: 10,
+            offset: 0,
+        };
+        let cards = search::search(&db, &query).unwrap().evidence_cards;
+        assert_eq!(
+            cards.len(),
+            2,
+            "{:?}",
+            cards
+                .iter()
+                .map(|card| (&card.document_path, &card.content))
+                .collect::<Vec<_>>()
+        );
+        let set = research::create(
+            &db,
+            research::CreateResearchSet {
+                title: "Manual research".into(),
+                questions: vec!["needle".into()],
+                documents: cards
+                    .into_iter()
+                    .map(|card| card.evidence_ref.unwrap())
+                    .collect(),
+            },
+        )
+        .unwrap();
+        config.enabled = true;
+        config.redact_patterns.push(RedactRule {
+            name: "code".into(),
+            pattern: "privateCODE".into(),
+            replacement: "[PRIVATE]".into(),
+        });
+        db.save_privacy_config(&config).unwrap();
+        let encoded = serde_json::to_string(&research::get(&db, &set.summary.id).unwrap()).unwrap();
+        assert!(
+            !encoded.contains("alice@example.com"),
+            "copied research fields: {encoded}"
+        );
+        assert!(
+            !encoded.contains("privateCODE"),
+            "copied research fields: {encoded}"
+        );
+        ingest::scan_source(&db, &source.id).unwrap();
+        let cards = search::search(&db, &query).unwrap().evidence_cards;
+        assert_eq!(cards.len(), 2);
+        let encoded = serde_json::to_string(&cards).unwrap();
+        assert!(
+            !encoded.contains("alice@example.com"),
+            "repopulated display fields: {encoded}"
+        );
+        assert!(
+            !encoded.contains("privateCODE"),
+            "repopulated display fields: {encoded}"
+        );
+    }
+
+    #[test]
+    fn redaction_masks_location_labels_and_visual_metadata_without_fake_coordinates() {
+        use crate::evidence::EvidenceLocator;
+        let mut sheet = EvidenceLocator::Sheet {
+            sheet: "alice@example.com".into(),
+            range: "B3:C4".into(),
+            context_range: None,
+        };
+        redact_locator(&mut sheet, &[]);
+        assert_eq!(
+            sheet,
+            EvidenceLocator::Extracted {
+                section: "[EMAIL]".into()
+            }
+        );
+        let mut pdf = EvidenceLocator::Pdf {
+            page: 3,
+            bbox: Some([0.1, 0.2, 0.3, 0.4]),
+        };
+        let original = pdf.clone();
+        redact_locator(&mut pdf, &[]);
+        assert_eq!(pdf, original);
+        let mut artifacts = vec![crate::visual_document::ParsedVisualArtifact {
+            artifact_index: 0,
+            kind: "chart".into(),
+            source: "xlsx".into(),
+            location: Some("alice@example.com".into()),
+            title: Some("alice@example.com".into()),
+            summary: "alice@example.com".into(),
+            extracted_text: Some("alice@example.com".into()),
+            chart_type: Some("bar".into()),
+            confidence: 0.9,
+            metadata: std::collections::HashMap::from([(
+                "label".into(),
+                "alice@example.com".into(),
+            )]),
+        }];
+        crate::visual_document::redact_visual_artifacts(&mut artifacts, |text| {
+            redact_content(text, &[])
+        });
+        assert!(!artifacts[0]
+            .to_chunk_content()
+            .contains("alice@example.com"));
+        assert!(
+            !serde_json::to_string(&crate::visual_document::build_visual_artifact_metadata(
+                &artifacts[0]
+            ))
+            .unwrap()
+            .contains("alice@example.com")
+        );
+        assert_eq!(artifacts[0].artifact_index, 0);
+        assert_eq!(artifacts[0].chart_type.as_deref(), Some("bar"));
     }
 
     // -- Exclude patterns ---------------------------------------------------
