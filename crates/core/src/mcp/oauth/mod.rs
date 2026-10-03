@@ -623,7 +623,23 @@ impl McpAuthService {
         let operation = self.operation(id);
         let _guard = operation.lock().await;
         let server = self.current(id, epoch)?;
-        let (old_id, mut credential) = self.credential(id).await?;
+        let expected_credential_id = self.row(id)?.and_then(|row| row.credential_id);
+        let (old_id, mut credential) = match self.credential(id).await {
+            Ok(credential) => credential,
+            Err(error) => {
+                self.current(id, epoch)?;
+                if matches!(&error, CoreError::McpAuth { code, .. } if code == "login_required" || code == "invalid_credential")
+                {
+                    if let Some(key) = expected_credential_id {
+                        // An intentional empty reference during browser sign-in is
+                        // not lost credentials. Only invalidate the published
+                        // record that failed, never a pending or newer login.
+                        self.db.conn().execute("UPDATE mcp_oauth SET status='reauthorization_required',detail=?4 WHERE connector_id=?1 AND credential_id=?3 AND login_id IS NULL AND EXISTS(SELECT 1 FROM mcp_servers WHERE id=?1 AND oauth_epoch=?2)", params![id, epoch, key, error.to_string()])?;
+                    }
+                }
+                return Err(error);
+            }
+        };
         self.current(id, epoch)?;
         let status = self.status(id)?.status;
         if status == "reauthorization_required" {

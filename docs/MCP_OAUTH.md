@@ -63,6 +63,8 @@ A rotated refresh token replaces its predecessor through an immutable vault reco
 and an atomic database reference update. A response without expiry does not display
 a fabricated expiry date. Missing refresh tokens require a later explicit sign-in.
 `invalid_grant` and temporary server failures have distinct status values.
+Missing or corrupt system credentials change the persisted status to
+`reauthorization_required` on the next request, with an actionable sign-in detail.
 
 An actual HTTP 401 allows one renewal/retry for initialization, catalog listing,
 resource reads and prompt reads. **`tools/call` is never transparently reposted**,

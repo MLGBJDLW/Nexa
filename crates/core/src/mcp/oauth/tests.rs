@@ -295,6 +295,15 @@ async fn finish_login(
         .await
         .unwrap();
     let login = service.begin(&server.id).await.unwrap();
+    complete_started_login(service, server, peer, login).await
+}
+
+async fn complete_started_login(
+    service: &Arc<McpAuthService>,
+    server: &McpServer,
+    peer: &Peer,
+    login: LoginOperation,
+) -> LoginOperation {
     let url = Url::parse(&login.authorization_url).unwrap();
     let params = url.query_pairs().into_owned().collect::<BTreeMap<_, _>>();
     assert_eq!(params["code_challenge_method"], "S256");
@@ -559,6 +568,75 @@ async fn expired_credentials_without_refresh_show_reauthorization_required() {
         .detail
         .unwrap()
         .contains("no refresh token"));
+}
+
+#[tokio::test]
+async fn missing_and_corrupt_credentials_persist_reauthorization_and_allow_new_login() {
+    let peer = peer().await;
+    let (service, server) = test_service(&peer);
+    for corrupt in [false, true] {
+        finish_login(&service, &server, &peer).await;
+        let active = service.db.get_mcp_server(&server.id).unwrap();
+        let (key, _) = service.credential(&server.id).await.unwrap();
+        if corrupt {
+            service
+                .vault
+                .write(&key, "invalid-json-secret-must-not-leak".into())
+                .await
+                .unwrap();
+        } else {
+            service.vault.delete(&key).await.unwrap();
+        }
+        let error = service
+            .token(&server.id, active.oauth_epoch, None)
+            .await
+            .unwrap_err();
+        assert!(!error.to_string().contains("secret-must-not-leak"));
+        let status = service.status(&server.id).unwrap();
+        assert_eq!(status.status, "reauthorization_required");
+        assert!(status.detail.unwrap().contains("sign in again"));
+        assert_eq!(
+            service
+                .db
+                .conn()
+                .query_row(
+                    "SELECT status FROM mcp_oauth WHERE connector_id=?1",
+                    [&server.id],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "reauthorization_required"
+        );
+    }
+    finish_login(&service, &server, &peer).await;
+    assert_eq!(service.status(&server.id).unwrap().status, "connected");
+}
+
+#[tokio::test]
+async fn connector_request_during_sign_in_preserves_pending_callback() {
+    let peer = peer().await;
+    let (service, server) = test_service(&peer);
+    service
+        .configure(
+            &server.id,
+            Some(OAuthConfig {
+                scopes: vec!["read".into()],
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+    let login = service.begin(&server.id).await.unwrap();
+    let active = service.db.get_mcp_server(&server.id).unwrap();
+    assert!(service
+        .token(&server.id, active.oauth_epoch, None)
+        .await
+        .is_err());
+    let status = service.status(&server.id).unwrap();
+    assert_eq!(status.status, "authorizing");
+    assert_eq!(status.login_id.as_deref(), Some(login.login_id.as_str()));
+    complete_started_login(&service, &server, &peer, login).await;
+    assert_eq!(service.status(&server.id).unwrap().status, "connected");
 }
 
 #[tokio::test]

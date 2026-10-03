@@ -11,7 +11,22 @@ enum Operation {
 struct Request {
     id: String,
     operation: Operation,
-    reply: oneshot::Sender<Result<Option<String>, String>>,
+    reply: oneshot::Sender<Result<Option<String>, VaultError>>,
+}
+#[derive(Debug)]
+enum VaultError {
+    Unavailable,
+    InvalidCredential,
+}
+impl From<keyring_core::Error> for VaultError {
+    fn from(error: keyring_core::Error) -> Self {
+        match error {
+            keyring_core::Error::BadEncoding(_) | keyring_core::Error::BadDataFormat(_, _) => {
+                Self::InvalidCredential
+            }
+            _ => Self::Unavailable,
+        }
+    }
 }
 #[derive(Clone)]
 pub(super) struct Vault(mpsc::SyncSender<Request>);
@@ -41,22 +56,34 @@ impl Vault {
     }
     pub fn shared() -> Self {
         static INSTANCE: OnceLock<Vault> = OnceLock::new();
-        INSTANCE.get_or_init(|| {
-            let (tx, rx) = mpsc::sync_channel::<Request>(64);
-            std::thread::Builder::new().name("mcp-credential-vault".into()).spawn(move || {
-                let mut store = None;
-                for request in rx {
-                    let result = (|| {
-                        if store.is_none() { store = Some(open_store().map_err(|_| "System credential store is unavailable; unlock it and retry.".to_string())?); }
-                        operate(store.as_deref().expect("initialized store"), &request.id, request.operation)
-                            .map_err(|_| "System credential store operation failed; unlock it and retry.".to_string())
-                    })();
-                    if result.is_err() { store = None; }
-                    let _ = request.reply.send(result);
-                }
-            }).expect("start credential worker");
-            Vault(tx)
-        }).clone()
+        INSTANCE
+            .get_or_init(|| {
+                let (tx, rx) = mpsc::sync_channel::<Request>(64);
+                std::thread::Builder::new()
+                    .name("mcp-credential-vault".into())
+                    .spawn(move || {
+                        let mut store = None;
+                        for request in rx {
+                            let result = (|| {
+                                if store.is_none() {
+                                    store = Some(open_store().map_err(VaultError::from)?);
+                                }
+                                operate(
+                                    store.as_deref().expect("initialized store"),
+                                    &request.id,
+                                    request.operation,
+                                )
+                            })();
+                            if result.is_err() {
+                                store = None;
+                            }
+                            let _ = request.reply.send(result);
+                        }
+                    })
+                    .expect("start credential worker");
+                Vault(tx)
+            })
+            .clone()
     }
     async fn request(&self, id: &str, operation: Operation) -> Result<Option<String>, CoreError> {
         let (reply, response) = oneshot::channel();
@@ -77,7 +104,10 @@ impl Vault {
                 )
             })?
             .map_err(|_| CoreError::Mcp("Credential worker stopped.".into()))?
-            .map_err(CoreError::Mcp)
+            .map_err(|error| match error {
+                VaultError::Unavailable => CoreError::Mcp("System credential store operation failed; unlock it and retry.".into()),
+                VaultError::InvalidCredential => super::auth_error("invalid_credential", "Stored OAuth credential is incomplete or corrupt; disconnect and sign in again."),
+            })
     }
     pub async fn read(&self, id: &str) -> Result<Option<String>, CoreError> {
         self.request(id, Operation::Read).await
@@ -136,7 +166,7 @@ fn operate(
     store: &keyring_core::CredentialStore,
     id: &str,
     operation: Operation,
-) -> keyring_core::Result<Option<String>> {
+) -> Result<Option<String>, VaultError> {
     use base64::{engine::general_purpose::STANDARD, Engine};
     let root = entry(store, id)?;
     let manifest = || match root.get_password() {
@@ -144,20 +174,16 @@ fn operate(
             .parse::<usize>()
             .ok()
             .filter(|n| (1..=128).contains(n))
-            .ok_or_else(|| {
-                keyring_core::Error::NotSupportedByStore("Invalid OAuth vault record".into())
-            })
+            .ok_or(VaultError::InvalidCredential)
             .map(Some),
         Err(keyring_core::Error::NoEntry) => Ok(None),
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     };
     match operation {
         Operation::Write(value) => {
             let chunks = value.as_bytes().chunks(600).collect::<Vec<_>>();
             if chunks.is_empty() || chunks.len() > 128 {
-                return Err(keyring_core::Error::NotSupportedByStore(
-                    "OAuth credentials exceed the vault budget".into(),
-                ));
+                return Err(VaultError::InvalidCredential);
             }
             root.set_password(&chunks.len().to_string())?;
             for (index, chunk) in chunks.iter().enumerate() {
@@ -171,31 +197,96 @@ fn operate(
             };
             let mut data = Vec::new();
             for index in 0..count {
+                let chunk = match entry(store, &format!("{id}/{index}"))?.get_password() {
+                    Ok(chunk) => chunk,
+                    Err(keyring_core::Error::NoEntry) => return Err(VaultError::InvalidCredential),
+                    Err(error) => return Err(error.into()),
+                };
                 data.extend(
                     STANDARD
-                        .decode(entry(store, &format!("{id}/{index}"))?.get_password()?)
-                        .map_err(|_| {
-                            keyring_core::Error::NotSupportedByStore(
-                                "Invalid OAuth vault data".into(),
-                            )
-                        })?,
+                        .decode(chunk)
+                        .map_err(|_| VaultError::InvalidCredential)?,
                 );
             }
-            String::from_utf8(data).map(Some).map_err(|_| {
-                keyring_core::Error::NotSupportedByStore("Invalid OAuth vault encoding".into())
-            })
+            String::from_utf8(data)
+                .map(Some)
+                .map_err(|_| VaultError::InvalidCredential)
         }
         Operation::Delete => {
-            if let Some(count) = manifest()? {
-                for index in 0..count {
-                    match entry(store, &format!("{id}/{index}"))?.delete_credential() {
-                        Ok(()) | Err(keyring_core::Error::NoEntry) => (),
-                        Err(error) => return Err(error),
-                    }
+            let count = match manifest() {
+                Ok(Some(count)) => count,
+                // A corrupt manifest cannot identify its chunks. Every credential
+                // uses a random owned ID and at most 128 chunks, so clean only that
+                // bounded namespace before removing its manifest.
+                Ok(None) | Err(VaultError::InvalidCredential) => 128,
+                Err(error) => return Err(error),
+            };
+            for index in 0..count {
+                match entry(store, &format!("{id}/{index}"))?.delete_credential() {
+                    Ok(()) | Err(keyring_core::Error::NoEntry) => (),
+                    Err(error) => return Err(error.into()),
                 }
-                root.delete_credential()?;
+            }
+            match root.delete_credential() {
+                Ok(()) | Err(keyring_core::Error::NoEntry) => (),
+                Err(error) => return Err(error.into()),
             }
             Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_data_errors_are_permanent_without_retaining_secret_bytes() {
+        for error in [
+            keyring_core::Error::BadEncoding(b"secret-bytes".to_vec()),
+            keyring_core::Error::BadDataFormat(
+                b"secret-bytes".to_vec(),
+                Box::new(std::io::Error::other("secret-detail")),
+            ),
+        ] {
+            let error = VaultError::from(error);
+            assert!(matches!(error, VaultError::InvalidCredential));
+            assert!(!format!("{error:?}").contains("secret"));
+        }
+        assert!(matches!(
+            VaultError::from(keyring_core::Error::NoDefaultStore),
+            VaultError::Unavailable
+        ));
+    }
+
+    #[test]
+    #[ignore = "explicit native vault corruption/recovery smoke; random temporary credential only"]
+    fn native_corrupt_manifest_is_classified_and_cleaned() {
+        let store = open_store().unwrap();
+        for corrupt in [true, false] {
+            let id = format!("fixture-corrupt-{}", uuid::Uuid::new_v4());
+            let root = entry(store.as_ref(), &id).unwrap();
+            let chunk = entry(store.as_ref(), &format!("{id}/0")).unwrap();
+            if corrupt {
+                root.set_password("invalid-manifest").unwrap();
+            }
+            chunk.set_password("temporary-fixture-chunk").unwrap();
+            let result = operate(store.as_ref(), &id, Operation::Read);
+            let cleanup = operate(store.as_ref(), &id, Operation::Delete);
+            if corrupt {
+                assert!(matches!(result, Err(VaultError::InvalidCredential)));
+            } else {
+                assert!(matches!(result, Ok(None)));
+            }
+            cleanup.unwrap();
+            assert!(matches!(
+                root.get_password(),
+                Err(keyring_core::Error::NoEntry)
+            ));
+            assert!(matches!(
+                chunk.get_password(),
+                Err(keyring_core::Error::NoEntry)
+            ));
         }
     }
 }
