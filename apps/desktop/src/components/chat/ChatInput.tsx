@@ -58,6 +58,7 @@ import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from
 import { UserMarkdown } from './UserMessageText';
 import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
+import { CodeReviewPanel } from './CodeReviewPanel';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -242,6 +243,8 @@ const LOCALIZED_COMMON_SLASH_COMMANDS = new Set([
 ]);
 
 function commonSlashCommandKey(name: string, field: "title" | "description"): TranslationKey | null {
+  if (name === 'review') return field === 'description' ? 'chat.reviewHelp' : 'chat.reviewTitle';
+  if (name === 'review-prompt') return `chat.slashCommand.review.${field}` as TranslationKey;
   if (field === 'description' && ['nexus', 'moa', 'quality'].includes(name)) return `chat.slashCommand.${name}.description` as TranslationKey;
   const composerKeys: Record<string, TranslationKey> = { model: 'settings.defaultModel', preview: field === 'description' ? 'chat.previewHint' : 'chat.previewDraft', options: 'chat.moreOptions', attach: 'chat.attachImage', commands: 'nav.commandPalette' };
   Object.assign(composerKeys, { nexus: 'chat.nexusMode', moa: 'chat.moaMode', quality: 'chat.qualityProfile', normal: 'chat.normalLabel', voice: 'voice.startRecording', screen: 'chat.shareScreen', emoji: 'chat.insertEmoji', checkpoints: 'chat.checkpoints', stop: 'chat.stop', resume: 'chat.resumeTask' });
@@ -409,6 +412,7 @@ export function ChatInput({
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [mcpContentOpen, setMcpContentOpen] = useState(false);
   const [worktreeOpen, setWorktreeOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   useEffect(() => { setMcpContentOpen(false); }, [draftKey]);
   const [moaPickerOpen, setMoaPickerOpen] = useState(false);
   const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
@@ -959,6 +963,7 @@ export function ChatInput({
   }, [agentRuntime, attachmentLocked, changeNexusMode, draftPreview, inputLocked, moaPreset, nativeAgent, persistRuntimePolicy, setPlanMode]);
   useAppCommand({ id: 'chat.mcp-context', label: 'chat.mcpContentTitle', keywords: '/mcp-context resources prompts 资源 提示模板', enabled: !inputLocked, run: () => setMcpContentOpen(true) });
   useAppCommand({ id: 'chat.worktree', label: 'chat.worktreeTitle', keywords: '/worktree git workspace 工作树', enabled: Boolean(conversationId) && !inputLocked, run: () => setWorktreeOpen(true) });
+  useAppCommand({ id: 'chat.review', label: 'chat.reviewTitle', keywords: '/review diff findings pr 审阅 评审', enabled: Boolean(conversationId) && !inputLocked, run: () => setReviewOpen(true) });
   useAppCommand({ id: 'chat.preview', label: 'chat.previewDraft', keywords: '/preview markdown draft 预览', enabled: !inputLocked, run: () => runComposerAction('preview') });
   useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
@@ -2264,6 +2269,7 @@ export function ChatInput({
             />
             <button type="button" disabled={inputLocked} onClick={() => runAppCommand('chat.mcp-context')} className="flex h-8 items-center rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2">{t('chat.mcpContentTitle')}</button>
             <button type="button" disabled={inputLocked || !conversationId} onClick={() => runAppCommand('chat.worktree')} className="flex h-8 items-center rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2">{t('chat.worktreeTitle')}</button>
+            <button type="button" disabled={inputLocked || !conversationId} onClick={() => runAppCommand('chat.review')} className="flex h-8 items-center rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2">{t('chat.reviewTitle')}</button>
             <button type="button" onClick={openCommandPalette} className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2"><Command className="h-3.5 w-3.5" />{t('nav.commandPalette')}</button>
           </div>
         </div>
@@ -2462,6 +2468,14 @@ export function ChatInput({
       </Modal>
       <Modal open={worktreeOpen} onClose={() => setWorktreeOpen(false)} title={t('chat.worktreeTitle')}>
         {worktreeOpen && conversationId && <ChatWorktreePanel conversationId={conversationId} />}
+      </Modal>
+      <Modal open={reviewOpen} onClose={() => setReviewOpen(false)} title={t('chat.reviewTitle')} surfaceClassName="bg-surface-2 !w-[min(94vw,64rem)]">
+        {reviewOpen && conversationId && <CodeReviewPanel key={conversationId} conversationId={conversationId} onInsert={packet => {
+          const current = draftsRef.current[draftKey]?.value ?? value;
+          const next = current.includes(packet.marker) ? current : current ? `${current}\n\n${packet.text}` : packet.text;
+          resetInputHistoryNavigation(); setValue(next); persistDraft(next); setReviewOpen(false);
+          requestAnimationFrame(() => textareaRef.current?.focus());
+        }} />}
       </Modal>
     </div>
     </NexaPopover>

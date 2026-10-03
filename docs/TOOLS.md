@@ -30,6 +30,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`archive_output`](../crates/core/prompts/tools/archive_output.json) | Archive an agent response or generated content as a new document in the knowledge base |
 | [`browser_evidence_capture`](../crates/core/prompts/tools/browser_evidence_capture.json) | Open and inspect a public or loopback local-development web page in a real browser |
 | [`code_intelligence`](../crates/core/prompts/tools/code_intelligence.json) | Find source-scoped code symbols or textual references in registered local source directories |
+| [`code_review`](../crates/core/prompts/tools/code_review.json) | Inspect the local code review selected by the user in /review, and record structured findings |
 | [`compare_documents`](../crates/core/prompts/tools/compare_documents.json) | Compare content between two documents or chunks, showing differences and similarities |
 | [`compile_document`](../crates/core/prompts/tools/compile_document.json) | Check the compilation status of knowledge base documents |
 | [`computer_control`](../crates/core/prompts/tools/computer_control.json) | Perform one approval-gated action against a fresh Windows observation |

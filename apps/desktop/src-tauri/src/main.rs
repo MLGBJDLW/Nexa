@@ -949,6 +949,7 @@ fn main() {
             commands::get_run_usage_snapshot_cmd,
             commands::conversation_git_status_cmd,
             commands::get_chat_worktree_cmd,
+            commands::code_review_cmd,
             commands::change_chat_worktree_cmd,
             commands::conversation_git_diff_cmd,
             commands::get_conversation_usage_snapshot_cmd,

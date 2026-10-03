@@ -948,3 +948,48 @@ test('project workspace exposes its folders and explicitly saves a new primary r
   await expect.poll(() => page.evaluate(() => (window as any).__PROJECT_UPDATE_INPUT__?.workspaceRoots))
     .toEqual(['D:/work/shared', 'D:/work/primary']);
 });
+
+
+test('review preserves drafts, deduplicates selected feedback and keeps old findings stale', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state=window as unknown as {__TAURI_INTERNALS__:{invoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>};__reviewChanged:boolean;__reviewActions:string[]};
+    const original=state.__TAURI_INTERNALS__.invoke; state.__reviewChanged=false; state.__reviewActions=[];
+    let review:any=null;
+    state.__TAURI_INTERNALS__.invoke=async(command,args)=>{
+      if(command!=='code_review_cmd')return original(command,args);
+      const request=args?.request as any; state.__reviewActions.push(request.action);
+      if(request.action==='list')return review?[{id:review.id,mode:review.mode,baseRef:review.baseRef,createdAt:review.createdAt}]:[];
+      if(request.action==='start')review={id:'review-one',mode:request.mode,baseRef:'HEAD',baseSha:'a'.repeat(40),workspaceRoot:'D:/work/project',createdAt:'2026-10-03T03:00:00Z',snapshot:{revision:'a'.repeat(64),headSha:'b'.repeat(40),baseline:'a'.repeat(40),truncated:false,files:[{path:'代码.txt',patch:'--- a/代码.txt\n+++ b/代码.txt\n@@ -1,2 +1,2 @@\n first\n-old\n+new\n',truncated:false,binary:false}]},findings:[],pullRequest:null};
+      if(request.action==='add')review.findings=[{id:'finding-one',...request.finding,status:'open',stale:false}];
+      if(request.action==='feedback')return {marker:'[nexa-review:packet-one]',text:'[nexa-review:packet-one]\nFix the selected current finding.'};
+      if(request.action==='get'&&review&&state.__reviewChanged){review.snapshot.revision='c'.repeat(64);review.findings=review.findings.map((finding:any)=>({...finding,stale: finding.status!=='resolved'}));}
+      if(request.action==='disposition')review.findings=review.findings.map((finding:any)=>({...finding,status:request.status,stale:false}));
+      if(request.action==='attach_pr')review.pullRequest={url:request.url,title:'Correct the parser',headSha:'d'.repeat(40),state:'OPEN',draft:false,reviewDecision:null,observedAt:'2026-10-03T03:01:00Z',matchesLocalHead:false,partial:true,checks:[{name:'Rust tests',state:'SUCCESS',url:null}],unresolvedThreads:[{id:'thread-one',path:'代码.txt',line:2,outdated:true,body:'Please check the changed branch.',url:null}]};
+      return structuredClone(review);
+    };
+  });
+  const input=page.getByTestId('chat-input-textarea'); await input.fill('Keep this draft');
+  const open=async()=>{await page.keyboard.press('Control+Shift+P');const palette=page.getByRole('dialog',{name:/command palette/i});await palette.getByRole('combobox').fill('Code review');await palette.getByRole('option',{name:'Code review',exact:true}).click();};
+  await open(); const panel=page.getByTestId('code-review-panel');
+  await panel.getByRole('button',{name:'Start review',exact:true}).click(); await panel.getByRole('button',{name:'new 2',exact:true}).click();
+  await panel.getByRole('textbox',{name:'Finding title',exact:true}).fill('Wrong result');
+  await panel.getByRole('textbox',{name:'Explain the bug and its impact',exact:true}).fill('The changed branch drops the result.');
+  await panel.getByRole('button',{name:'Record finding',exact:true}).click();
+  await panel.getByRole('checkbox',{name:'Wrong result',exact:true}).check();
+  await panel.getByRole('button',{name:/Add selected fixes to draft/}).click();
+  await expect(input).toHaveValue('Keep this draft\n\n[nexa-review:packet-one]\nFix the selected current finding.');
+  await open(); await panel.getByRole('checkbox',{name:'Wrong result',exact:true}).check();await panel.getByRole('button',{name:/Add selected fixes to draft/}).click();
+  expect((await input.inputValue()).match(/nexa-review:packet-one/g)).toHaveLength(1);
+  await open(); await page.evaluate(()=>{(window as unknown as {__reviewChanged:boolean}).__reviewChanged=true;});
+  await panel.getByRole('button',{name:'Refresh diff',exact:true}).click(); await expect(panel.getByRole('checkbox',{name:'Wrong result',exact:true})).toBeDisabled();
+  await expect(panel.getByRole('button',{name:'Accept',exact:true})).toBeDisabled();
+  await panel.getByRole('textbox',{name:'GitHub PR URL',exact:true}).fill('https://github.com/example/repo/pull/1');
+  await panel.getByRole('button',{name:'Read / refresh PR',exact:true}).click(); await expect(panel).toContainText('The PR head differs from this local review.');
+  await panel.getByText('Checks at this SHA (1)',{exact:true}).click(); await expect(panel).toContainText('Rust tests');
+  await page.screenshot({path:testInfo.outputPath('code-review.png')});
+  await panel.getByRole('button',{name:'Verified fixed',exact:true}).click(); await expect(panel).toContainText('Resolved');
+  await page.keyboard.press('Escape'); await expect(input).toHaveValue(/^Keep this draft/);
+  await input.fill('/review');await page.keyboard.press('Enter');await expect(panel).toBeVisible();
+  expect(await page.evaluate(()=>(window as unknown as {__reviewActions:string[]}).__reviewActions)).not.toContain('publish');
+});

@@ -112,6 +112,8 @@ mod agent_chat;
 mod app_config;
 mod approval;
 mod chat_worktrees;
+mod code_review;
+pub use code_review::*;
 mod companion;
 mod context_policy;
 mod conversation;

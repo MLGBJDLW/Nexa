@@ -113,6 +113,7 @@ pub fn scheduled_workspace_tool_class(name: &str) -> ScheduledWorkspaceToolClass
         | "read_file"
         | "read_files"
         | "workspace_rules"
+        | "code_review"
         | "retrieve_evidence"
         | "search_by_date"
         | "search_files"
@@ -690,6 +691,10 @@ pub fn infer_tool_access_profile(
             false,
             ApprovalRisk::Low,
             "Reads local files or directories for source-scoped inspection.",
+        ),
+        "code_review" => (
+            "code_review", true, args.get("action").and_then(|value| value.as_str()) == Some("add_finding"), false, false, false,
+            ApprovalRisk::Low, "Reads the selected local diff and persists version-bound review findings; does not edit files or publish remote changes.",
         ),
         "project_tool" => {
             if args.get("action").and_then(|value| value.as_str()) == Some("run") {

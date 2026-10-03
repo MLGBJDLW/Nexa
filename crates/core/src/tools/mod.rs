@@ -104,6 +104,7 @@ pub mod browser_session_tool;
 pub mod browser_session_tool;
 pub mod chunk_context_tool;
 pub mod code_intelligence_tool;
+pub mod code_review_tool;
 pub mod compare_tool;
 pub mod compile_tool;
 #[cfg(any(all(windows, feature = "desktop-control"), test))]
@@ -1425,6 +1426,16 @@ impl ToolRegistry {
         let schema = tool.definition().parameters;
         match normalize_tool_arguments(name, arguments, &schema) {
             Ok(arguments) => {
+                if name == "code_review" {
+                    if let Err(error) = code_review_tool::validate_arguments(&arguments) {
+                        return Err(tool_contract_error_result(
+                            call_id,
+                            "invalid_code_review_arguments",
+                            error.to_string(),
+                            schema,
+                        ));
+                    }
+                }
                 if name == "mcp_context" {
                     if let Err(error) = mcp_context_tool::validate_arguments(&arguments) {
                         return Err(tool_contract_error_result(
@@ -2151,6 +2162,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(code_intelligence_tool::CodeIntelligenceTool));
     registry.register(Box::new(project_tool::ProjectTool));
     registry.register(Box::new(workspace_rules_tool::WorkspaceRulesTool));
+    registry.register(Box::new(code_review_tool::CodeReviewTool));
     registry.register(Box::new(playbook_tool::PlaybookTool));
     registry.register(Box::new(
         prepare_document_tools_tool::PrepareDocumentToolsTool,

@@ -81,6 +81,12 @@ const COMMON_COMMANDS: Array<Omit<SlashCommandOption, "id" | "kind" | "sourceLab
   },
   {
     name: "review",
+    title: "Code review",
+    description: "Open the local diff review and preserve the current draft.",
+    action: "composer",
+  },
+  {
+    name: "review-prompt",
     title: "Review",
     description: "Review code or a proposal for defects, regressions, and missing tests.",
     action: "prompt",
