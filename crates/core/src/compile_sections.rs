@@ -1,5 +1,5 @@
 //! Bounded resumable compilation. Every source character enters a section;
-//! source revisions and provider routes own their saved section results.
+//! Source revisions, compiler contracts and provider routes own saved results.
 use super::*;
 use rusqlite::{params, OptionalExtension};
 
@@ -129,9 +129,13 @@ pub(super) async fn compile_document(
     let sections = sections(&content);
     let route_request = request(model, provider_type, "", 0, sections.len());
     let route = provider.route_snapshot(&route_request);
-    let route_key = blake3::hash(&serde_json::to_vec(&route)?)
-        .to_hex()
-        .to_string();
+    let route_key = blake3::hash(&serde_json::to_vec(&(
+        COMPILE_CONTRACT_VERSION,
+        COMPILE_SYSTEM_PROMPT,
+        &route,
+    ))?)
+    .to_hex()
+    .to_string();
     let mut outputs = Vec::new();
     let mut compiled = 0;
     let mut covered_chars = 0;

@@ -181,7 +181,8 @@ configured API embedding or generation services from receiving scoped input.
 
 Compilation reads every non-summary source character in bounded 12,000-character
 sections, with eight new model calls per action. Completed sections are cached
-by input revision and provider route. Partial coverage is explicit and can resume;
+by input revision, provider route, prompt contents, and compiler contract version.
+Partial coverage is explicit and can resume;
 it never becomes a complete summary search chunk. Model responses and aggregate
 summary lengths are bounded. Entity contexts and relationship evidence must quote
 the input; unsupported edges are discarded. This is grounding validation, not a

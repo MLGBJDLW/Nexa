@@ -123,6 +123,9 @@ struct LlmRelation {
 
 // ── Constants ──
 
+// Bump when request semantics, output validation, or aggregation rules change.
+// Prompt edits are additionally included verbatim in the persisted cache key.
+const COMPILE_CONTRACT_VERSION: u32 = 1;
 const COMPILE_SYSTEM_PROMPT: &str = include_str!("../prompts/compile.md");
 const COMPILE_INPUT_CHAR_BUDGET: usize = 12_000;
 
@@ -843,6 +846,60 @@ mod tests {
             .get_uncompiled_document_ids(20)
             .unwrap()
             .contains(&doc_id));
+    }
+
+    #[tokio::test]
+    async fn compilation_replaces_sections_from_older_compiler_contracts() {
+        for stale_contract in ["unversioned", "schema", "prompt"] {
+            let db = Database::open_memory().unwrap();
+            let doc_id = insert_compile_doc(&db, "A document about a pending decision.");
+            let provider = RecordingCompiler {
+                seen: Default::default(),
+                change: None,
+            };
+            compile_document(&db, &doc_id, &provider, "test", None)
+                .await
+                .unwrap();
+            let route = provider.route_snapshot(&CompletionRequest {
+                model: "test".into(),
+                ..Default::default()
+            });
+            let previous_contract = match stale_contract {
+                "unversioned" => serde_json::to_vec(&route).unwrap(),
+                "schema" => serde_json::to_vec(&(0, COMPILE_SYSTEM_PROMPT, &route)).unwrap(),
+                _ => serde_json::to_vec(&(
+                    COMPILE_CONTRACT_VERSION,
+                    "Previous compiler prompt",
+                    &route,
+                ))
+                .unwrap(),
+            };
+            let previous_key = blake3::hash(&previous_contract).to_hex().to_string();
+            db.conn().execute(
+                "UPDATE document_section_compilations SET route_key=?2,output_json=?3 WHERE document_id=?1",
+                rusqlite::params![doc_id, previous_key, r#"{"summary":"OUTDATED CONTRACT RESULT","key_points":[],"tags":[],"entities":[]}"#],
+            ).unwrap();
+            let refreshed = compile_document(&db, &doc_id, &provider, "test", None)
+                .await
+                .unwrap();
+            assert_eq!(
+                refreshed.sections_compiled, 1,
+                "reused {stale_contract} section"
+            );
+            assert!(!refreshed
+                .summary
+                .summary
+                .contains("OUTDATED CONTRACT RESULT"));
+            let resumed = compile_document(&db, &doc_id, &provider, "test", None)
+                .await
+                .unwrap();
+            assert_eq!(
+                resumed.sections_compiled, 0,
+                "current contract should resume from cache"
+            );
+            assert_eq!(resumed.summary.summary, refreshed.summary.summary);
+            assert_eq!(provider.seen.lock().unwrap().len(), 2);
+        }
     }
 
     #[tokio::test]
