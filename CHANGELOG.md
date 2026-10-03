@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.14.23](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.22...nexa-monorepo-v0.14.23) (2026-10-03)
+
+
+### Features
+
+* complete project rules, MCP auth, worktrees and review workflows ([0db823f](https://github.com/MLGBJDLW/Nexa/commit/0db823f5d8fb5fbb49ba85fe8e92854b06d432fd))
+* **mcp:** add browser OAuth with system credential storage ([ba0042e](https://github.com/MLGBJDLW/Nexa/commit/ba0042e3c29906b68b792ef13da8c145425ab219))
+* **mcp:** browse resources and prompt templates with scoped reads ([7177fd3](https://github.com/MLGBJDLW/Nexa/commit/7177fd3a4248388dc7c86de266a95382d992c8d0))
+* **review:** add version-bound findings and GitHub PR observations ([335d7eb](https://github.com/MLGBJDLW/Nexa/commit/335d7eb898047ec155cfd47d26991f5e8896f79d))
+* **workspace:** add chat worktrees with recoverable archive snapshots ([594c63b](https://github.com/MLGBJDLW/Nexa/commit/594c63be7efd135542612c2b52ccfbc694d6c0d6))
+* **workspace:** add explicit lifecycle checks and completion gates ([c865814](https://github.com/MLGBJDLW/Nexa/commit/c86581447a3e2386eb3814b23ebf96993cf7200a))
+* **workspace:** load scoped project file rules with visible provenance ([fb766cf](https://github.com/MLGBJDLW/Nexa/commit/fb766cf76a63daaf2180e36bec7d2b573d60f477))
+
+
+### Bug Fixes
+
+* **agent:** invalidate checks when later hooks change files ([dfec942](https://github.com/MLGBJDLW/Nexa/commit/dfec9422b14989c16490dcfc0c3f7f373a3da410))
+* **agent:** prevent completion events when project checks fail ([bd777b2](https://github.com/MLGBJDLW/Nexa/commit/bd777b2dfdd4482d38c0b4925c0863e7d4f5b181))
+* **mcp:** bind resource reads to advertised catalogs ([41293a9](https://github.com/MLGBJDLW/Nexa/commit/41293a9e2028fed6e31c7ba405db762626452d11))
+* **mcp:** persist OAuth reauthorization requirements ([6598a19](https://github.com/MLGBJDLW/Nexa/commit/6598a191af873b87e74cf3097eb0ab6d1b6a6895))
+* **mcp:** recover missing and corrupt OAuth credentials ([c421a42](https://github.com/MLGBJDLW/Nexa/commit/c421a4207cc5eaf303baa9293bde938d621cb77a))
+* **mcp:** reject unexpected scopes during initial OAuth sign-in ([a25f9e4](https://github.com/MLGBJDLW/Nexa/commit/a25f9e442f5eec9c247246a60ee87872035df597))
+* **ui:** center sidebar command palette entry ([0ab470d](https://github.com/MLGBJDLW/Nexa/commit/0ab470dd80efe52b708741cf2c1da06ae958a065))
+* **workspace:** persist failed ownership checks and validate Git pointers ([f530e92](https://github.com/MLGBJDLW/Nexa/commit/f530e92007741e92010b4f47438ee94c8131aafa))
+* **workspace:** preserve rule access in workers and chat inspectors ([ff9dce2](https://github.com/MLGBJDLW/Nexa/commit/ff9dce206791882cbd4687938493abd6f3ffcd87))
+* **workspace:** retain activity leases across Git observations ([6eab11a](https://github.com/MLGBJDLW/Nexa/commit/6eab11a83e160b2d5e42eda02ac23d4308bba825))
+* **workspace:** retain chat ownership through managed process settlement ([2837b33](https://github.com/MLGBJDLW/Nexa/commit/2837b337298122577d46f5b306629f9dbd3793bc))
+* **workspace:** retain rule prerequisite before late workspace binding ([68a7873](https://github.com/MLGBJDLW/Nexa/commit/68a78733e69b2ebaf108f224606962bd126eca7e))
+* **workspace:** scope rule prerequisites to execution allowlists ([2753b28](https://github.com/MLGBJDLW/Nexa/commit/2753b28249fbeef319c1ed158712ae695614e6b2))
+
 ## [0.14.22](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.21...nexa-monorepo-v0.14.22) (2026-10-02)
 
 
