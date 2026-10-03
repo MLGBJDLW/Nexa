@@ -48,12 +48,17 @@ import { getModelStatus } from '../lib/modelStatusCache';
 import { getSoftCollapseMotion, INSTANT_TRANSITION } from '../lib/uiMotion';
 import { formatUserError } from '../lib/userError';
 import { useTheme } from '../lib/ThemeProvider';
+import { ResearchWorkspace } from '../features/knowledge/ResearchWorkspace';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
 const PAGE_SIZE = 20;
+// Per-window navigation state; results are revalidated against the index on return.
+let searchWorkspace: { query: string; filters: SearchFilters; mode: 'fts' | 'hybrid'; page: number; scrollTop: number } = {
+  query: '', filters: { sourceIds: [], fileTypes: [], dateFrom: null, dateTo: null }, mode: 'fts', page: 1, scrollTop: 0,
+};
 const FILE_TYPE_OPTIONS: { value: FileType; labelKey: 'search.markdown' | 'search.plaintext' | 'search.log' | 'search.pdf' | 'search.docx' | 'search.excel' | 'search.pptx' | 'search.video' | 'search.audio' }[] = [
   { value: 'markdown', labelKey: 'search.markdown' },
   { value: 'plaintext', labelKey: 'search.plaintext' },
@@ -73,7 +78,7 @@ function searchModeLabel(
   const labels = [mode.startsWith('hybrid') ? t('search.hybrid') : t('search.fts')];
   if (mode.includes('+cloud')) labels.push(t('search.cloudVectors'));
   if (mode.includes('+fusion')) labels.push(t('search.vectorFusion'));
-  if (mode.includes('+local-fallback')) labels.push(t('search.localFallback'));
+  if (mode.includes('+local-fallback') || mode.includes('+tfidf-fallback')) labels.push(t('search.localFallback'));
   if (mode.endsWith('+graph')) labels.push(t('search.graph'));
   return labels.join(' + ');
 }
@@ -137,29 +142,29 @@ function buildRecallSearchQuery(input: {
 /* ------------------------------------------------------------------ */
 
 export function SearchPage() {
+  const initialWorkspace = useRef(searchWorkspace);
+  const restoredPage = useRef<number | null>(initialWorkspace.current.page);
+  const restoredScroll = useRef(initialWorkspace.current.scrollTop);
   const { content: themeContent } = useTheme();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const shouldReduceMotion = useReducedMotion();
   // 鈹€鈹€ Core search state 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialWorkspace.current.query);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchMode, setSearchMode] = useState<'fts' | 'hybrid'>('fts');
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [paginationReset, setPaginationReset] = useState(false);
+  const [searchMode, setSearchMode] = useState<'fts' | 'hybrid'>(initialWorkspace.current.mode);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({});
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(initialWorkspace.current.page);
 
   // 鈹€鈹€ Filters 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
-  const [filters, setFilters] = useState<SearchFilters>({
-    sourceIds: [],
-    fileTypes: [],
-    dateFrom: null,
-    dateTo: null,
-  });
+  const [filters, setFilters] = useState<SearchFilters>(initialWorkspace.current.filters);
 
   const [recallClue, setRecallClue] = useState('');
   const [recallWhere, setRecallWhere] = useState('');
@@ -172,6 +177,10 @@ export function SearchPage() {
   const [convResults, setConvResults] = useState<ConversationSearchResult[]>([]);
   const [convLoading, setConvLoading] = useState(false);
   const [convQuery, setConvQuery] = useState('');
+  const [convError, setConvError] = useState<string | null>(null);
+  const convGeneration = useRef(0);
+  const currentConvQuery = useRef(convQuery);
+  currentConvQuery.current = convQuery;
 
   // ── Embedding model status ────────────────────────────────────────
   const [embeddingModelMissing, setEmbeddingModelMissing] = useState(false);
@@ -179,7 +188,31 @@ export function SearchPage() {
   // 鈹€鈹€ Refs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const skipDebouncedSearchRef = useRef<string | null>(null);
+  const searchGeneration = useRef(0);
+  const lastRequestedKey = useRef<string | null>(null);
+  const lastCompletedRanking = useRef<{ key: string; basis: string } | null>(null);
+  const searchKey = JSON.stringify([query.trim(), filters, searchMode]);
+  const currentSearchKey = useRef(searchKey);
+  currentSearchKey.current = searchKey;
+  const initialSearchKey = useRef(searchKey);
+
+  useEffect(() => {
+    searchWorkspace = { ...searchWorkspace, query, filters, mode: searchMode, page: currentPage };
+  }, [query, filters, searchMode, currentPage]);
+
+  useEffect(() => {
+    const scrollContainer = inputRef.current?.closest('main');
+    if (!scrollContainer) return;
+    const rememberScroll = () => { searchWorkspace.scrollTop = scrollContainer.scrollTop; };
+    scrollContainer.addEventListener('scroll', rememberScroll, { passive: true });
+    return () => scrollContainer.removeEventListener('scroll', rememberScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!result || loading || restoredScroll.current === 0) return;
+    inputRef.current?.closest('main')?.scrollTo({ top: restoredScroll.current });
+    restoredScroll.current = 0;
+  }, [result, loading]);
 
   // ── Recent queries dropdown ────────────────────────────────────────
   const [inputFocused, setInputFocused] = useState(false);
@@ -207,12 +240,13 @@ export function SearchPage() {
   );
 
   // Navigate to full chat page (optional one-off initial message)
-  const openChatWithMessage = useCallback((message: string, sourceIds?: string[]) => {
+  const openChatWithMessage = useCallback((message: string, sourceIds?: string[], evidenceContext?: import('../types/evidence').EvidenceCard) => {
     const trimmed = message.trim();
     navigate('/chat', {
       state: trimmed
         ? {
             initialMessage: trimmed,
+            evidenceContext,
             sourceIds: sourceIds && sourceIds.length > 0 ? sourceIds : undefined,
           }
         : null,
@@ -260,22 +294,6 @@ export function SearchPage() {
   useEffect(() => {
     loadRecentQueries();
   }, [loadRecentQueries]);
-
-  // ── Auto-trigger search on debounced value change ────────────────
-  useEffect(() => {
-    const trimmedDebouncedQuery = debouncedQuery.trim();
-    if (!trimmedDebouncedQuery) return;
-
-    if (skipDebouncedSearchRef.current === trimmedDebouncedQuery) {
-      skipDebouncedSearchRef.current = null;
-      return;
-    }
-
-    if (trimmedDebouncedQuery.length >= 2) {
-      handleSearch(trimmedDebouncedQuery);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
 
   // ── Filtered recent queries for dropdown ──────────────────────────
   const filteredRecent = useMemo(() => {
@@ -326,17 +344,20 @@ export function SearchPage() {
   }, []);
 
   // 鈹€鈹€ Reset page when query or filters change 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchMode, filters]);
-
   // 鈹€鈹€ Search handler 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-  const handleSearch = async (text?: string, page?: number) => {
-    const q = text ?? query;
-    if (!q.trim()) return;
+  const handleSearch = useCallback(async (text?: string, page?: number) => {
+    const q = (text ?? query).trim();
+    if (!q) return;
+    const key = JSON.stringify([q, filters, searchMode]);
+    const generation = ++searchGeneration.current;
+    lastRequestedKey.current = key;
+    const isCurrent = () => generation === searchGeneration.current && key === currentSearchKey.current;
     const targetPage = page ?? 1;
-    if (!page) setCurrentPage(1);
+    setCurrentPage(targetPage);
     setLoading(true);
+    setResult(null);
+    setSearchError(null);
+    setPaginationReset(false);
     setFeedbackMap({});
     const offset = (targetPage - 1) * PAGE_SIZE;
     const apiFilters = {
@@ -345,10 +366,23 @@ export function SearchPage() {
       dateTo: filters.dateTo ? filters.dateTo + "T23:59:59Z" : null,
     };
     try {
-      const res =
+      const fetchPage = (pageOffset: number) =>
         searchMode === 'hybrid'
-          ? await api.hybridSearch(q.trim(), PAGE_SIZE, offset, filters)
-          : await api.search(q.trim(), PAGE_SIZE, offset, apiFilters);
+          ? api.hybridSearch(q, PAGE_SIZE, pageOffset, apiFilters)
+          : api.search(q, PAGE_SIZE, pageOffset, apiFilters);
+      const rankingBasis = (value: SearchResult) => `${value.searchMode ?? searchMode}:${value.ranking?.method ?? 'lexical_rules'}`;
+      let res = await fetchPage(offset);
+      if (!isCurrent()) return;
+      const previous = lastCompletedRanking.current;
+      if (targetPage > 1 && (
+        (previous?.key === key && previous.basis !== rankingBasis(res)) || res.evidenceCards.length === 0
+      )) {
+        res = await fetchPage(0);
+        if (!isCurrent()) return;
+        setCurrentPage(1);
+        setPaginationReset(true);
+      }
+      lastCompletedRanking.current = { key, basis: rankingBasis(res) };
       setResult({ ...res, searchMode: res.searchMode ?? searchMode });
       loadRecentQueries();
 
@@ -359,16 +393,50 @@ export function SearchPage() {
         for (const fb of feedbacks) {
           map[fb.chunkId] = fb;
         }
-        setFeedbackMap(map);
+        if (isCurrent()) setFeedbackMap(map);
       } catch {
         // non-critical
       }
     } catch (e) {
-      toast.error(formatUserError(t('search.searchError'), e));
+      if (isCurrent()) setSearchError(formatUserError(t('search.searchError'), e));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  };
+  }, [filters, loadRecentQueries, query, searchMode, t]);
+
+  // Invalidate immediately when the input changes, including during debounce.
+  useEffect(() => {
+    if (lastRequestedKey.current === searchKey) return;
+    searchGeneration.current += 1;
+    lastRequestedKey.current = null;
+    setResult(null);
+    setSearchError(null);
+    setPaginationReset(false);
+    setFeedbackMap({});
+    setLoading(false);
+    if (searchKey !== initialSearchKey.current) {
+      restoredPage.current = null;
+      restoredScroll.current = 0;
+    }
+    setCurrentPage(restoredPage.current ?? 1);
+  }, [searchKey]);
+
+  useEffect(() => {
+    if (debouncedQuery.trim() !== query.trim() || query.trim().length < 2) return;
+    const timer = setTimeout(() => {
+      if (lastRequestedKey.current !== searchKey) {
+        void handleSearch(undefined, restoredPage.current ?? 1);
+        restoredPage.current = null;
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [debouncedQuery, handleSearch, query, searchKey]);
+
+  useEffect(() => () => {
+    searchGeneration.current += 1;
+    convGeneration.current += 1;
+    lastRequestedKey.current = null;
+  }, []);
 
   // ── Conversation search handler ───────────────────────────────────
   const handleRecallWithAi = useCallback(() => {
@@ -407,14 +475,18 @@ export function SearchPage() {
   const handleConvSearch = useCallback(async (text?: string) => {
     const q = (text ?? convQuery).trim();
     if (!q) return;
+    const generation = ++convGeneration.current;
+    const isCurrent = () => generation === convGeneration.current && q === currentConvQuery.current.trim();
     setConvLoading(true);
+    setConvError(null);
+    setConvResults([]);
     try {
       const results = await api.searchConversations(q, 20);
-      setConvResults(results);
+      if (isCurrent()) setConvResults(results);
     } catch (e) {
-      toast.error(formatUserError(t('search.searchError'), e));
+      if (isCurrent()) setConvError(formatUserError(t('search.searchError'), e));
     } finally {
-      setConvLoading(false);
+      if (isCurrent()) setConvLoading(false);
     }
   }, [convQuery, t]);
 
@@ -424,10 +496,12 @@ export function SearchPage() {
     action: 'upvote' | 'downvote' | 'pin',
   ) => {
     if (!result) return;
+    const generation = searchGeneration.current;
     try {
       const existing = feedbackMap[chunkId];
       if (existing && existing.action === action) {
         await api.deleteFeedback(existing.id);
+        if (generation !== searchGeneration.current) return;
         setFeedbackMap((prev) => {
           const next = { ...prev };
           delete next[chunkId];
@@ -439,6 +513,7 @@ export function SearchPage() {
         await api.deleteFeedback(existing.id);
       }
       const fb = await api.addFeedback(chunkId, result.query, action);
+      if (generation !== searchGeneration.current) return;
       setFeedbackMap((prev) => ({ ...prev, [chunkId]: fb }));
     } catch (e) {
       toast.error(formatUserError(t('search.feedbackError'), e));
@@ -505,10 +580,6 @@ export function SearchPage() {
               if (e.key === 'Enter') {
                 const trimmedQuery = query.trim();
                 if (!trimmedQuery) return;
-
-                if (trimmedQuery !== debouncedQuery.trim()) {
-                  skipDebouncedSearchRef.current = trimmedQuery;
-                }
 
                 handleSearch(trimmedQuery);
               }
@@ -872,7 +943,13 @@ export function SearchPage() {
           <Input
             icon={<Search size={16} />}
             value={convQuery}
-            onChange={(e) => setConvQuery(e.target.value)}
+            onChange={(e) => {
+              convGeneration.current += 1;
+              setConvQuery(e.target.value);
+              setConvResults([]);
+              setConvError(null);
+              setConvLoading(false);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConvSearch();
             }}
@@ -930,7 +1007,8 @@ export function SearchPage() {
           </>
         )}
 
-        {!convLoading && convQuery.trim() && convResults.length === 0 && (
+        {convError && <div role="alert" className="mb-3 text-sm text-danger">{convError} <button onClick={() => void handleConvSearch()}>{t('common.retry')}</button></div>}
+        {!convError && !convLoading && convQuery.trim() && convResults.length === 0 && (
           <EmptyState
             icon={<MessageSquare size={32} />}
             title={t('search.conversationsNoResults')}
@@ -1052,7 +1130,7 @@ export function SearchPage() {
               {/* Date range filters */}
               <div className="mb-3">
                 <label className="mb-1.5 block text-[11px] font-medium text-text-tertiary">
-                  {t('search.dateRange')}
+                  {t('search.indexedDateRange')}
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-1.5">
@@ -1149,6 +1227,15 @@ export function SearchPage() {
         </div>
       )}
 
+      {searchError && !loading && (
+        <div role="alert" data-testid="search-error" className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/5 p-4 text-sm text-danger">
+          <span>{searchError}</span>
+          <Button variant="ghost" onClick={() => void handleSearch()}>{t('common.retry')}</Button>
+        </div>
+      )}
+
+      <ResearchWorkspace cards={result && !loading ? result.evidenceCards : []} sourceIds={filters.sourceIds} />
+
       {/* 鈹€鈹€ Results 鈹€鈹€ */}
       {result && !loading && (
         <>
@@ -1175,6 +1262,13 @@ export function SearchPage() {
             </span>
           </div>
 
+          {paginationReset && <p role="status" data-testid="search-ranking-reset" className="mb-3 text-xs text-text-secondary">{t('search.paginationReset')}</p>}
+          {result.candidateLimitReached && <p role="status" data-testid="search-candidate-limit" className="mb-3 text-xs text-text-secondary">{t('search.candidateLimit')}</p>}
+          {result.ranking && <details className="mb-3 text-xs text-text-tertiary">
+            <summary className="cursor-pointer">{t('knowledge.rankingDetails')}</summary>
+            <p className="mt-1">{t(result.ranking.method === 'semantic_cross_encoder' ? 'knowledge.semanticRanking' : 'knowledge.ruleRanking')} · {result.ranking.candidates} · {result.ranking.elapsedMs} ms</p>
+            {result.ranking.fallbackReason && <p role="status" className="mt-1 text-warning">{t('knowledge.rankingFallback')} {result.ranking.fallbackReason}</p>}
+          </details>}
           {/* Uncertainty banner */}
           {showUncertainty && (
             <motion.div
@@ -1242,7 +1336,7 @@ export function SearchPage() {
                         feedbackMap[card.chunkId]?.action === 'downvote',
                       pinned: feedbackMap[card.chunkId]?.action === 'pin',
                     }}
-                    onAskAbout={openChatWithMessage}
+                    onAskAbout={(message) => openChatWithMessage(message, filters.sourceIds.length ? filters.sourceIds : [card.sourceId], card)}
                   />
                 </motion.div>
               ))}
@@ -1316,7 +1410,7 @@ export function SearchPage() {
       )}
 
       {/* 鈹€鈹€ Initial empty state 鈹€鈹€ */}
-      {!result && !loading && (
+      {!result && !loading && !searchError && (
         <EmptyState
           icon={<Logo size={64} />}
           title={themeContent.statusText || t('search.initialTitle')}

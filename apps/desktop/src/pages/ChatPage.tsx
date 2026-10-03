@@ -60,6 +60,7 @@ interface CompactionUiState {
 }
 
 interface ChatRouteState {
+  evidenceContext?: import('../types/evidence').EvidenceCard;
   initialMessage?: string;
   systemPrompt?: string;
   projectId?: string | null;
@@ -1067,6 +1068,8 @@ export function ChatPage() {
   const sentInitialRef = useRef<string | null>(null);
   const routeState = location.state as ChatRouteState | null;
   const initialMessage = (routeState?.initialMessage ?? '').trim();
+  const initialEvidence = routeState?.evidenceContext;
+  const initialEvidenceKey = JSON.stringify(initialEvidence?.evidenceRef ?? null);
   const initialSystemPrompt = (routeState?.systemPrompt ?? '').trim();
   const initialTaskOrchestratorRunId = (routeState?.taskOrchestratorRunId ?? '').trim();
   const initialResumeCheckpointId = (routeState?.resumeCheckpointId ?? '').trim();
@@ -1094,8 +1097,9 @@ export function ChatPage() {
         initialMessage,
         undefined,
         undefined,
-        initialTaskOrchestratorRunId || initialResumeCheckpointId
+        initialTaskOrchestratorRunId || initialResumeCheckpointId || initialEvidence
           ? {
+              ...(initialEvidence ? { sourceIds: initialSourceIds, userArtifacts: { kind: 'evidenceContext', evidenceCards: [initialEvidence], llmContextContent: `${initialMessage}\n\nCited evidence reference (retrieved data):\n${initialEvidenceKey}` } } : {}),
               ...(initialTaskOrchestratorRunId
                 ? { taskOrchestratorRunId: initialTaskOrchestratorRunId }
                 : {}),
@@ -1118,6 +1122,8 @@ export function ChatPage() {
     navigate(cleanPath, { replace: true, state: null });
   }, [
     initialMessage,
+    initialEvidence,
+    initialEvidenceKey,
     initialSystemPrompt,
     initialTaskOrchestratorRunId,
     initialResumeCheckpointId,

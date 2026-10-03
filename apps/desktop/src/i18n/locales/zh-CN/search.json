@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "入库日期范围",
   "placeholder": "输入关键词搜索...",
   "fts": "全文搜索",
   "hybrid": "混合搜索",
@@ -82,5 +83,7 @@
   "embeddingWarningAction": "立即安装",
   "cloudVectors": "云端向量",
   "vectorFusion": "本地/云端融合",
-  "localFallback": "已回退本地"
+  "localFallback": "已回退本地",
+  "candidateLimit": "搜索已达到结果上限。请缩小关键词或来源范围，继续查找。",
+  "paginationReset": "搜索结果已变化，已返回第一页。"
 }

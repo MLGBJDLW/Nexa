@@ -38,6 +38,8 @@ pub struct GraphRetrievalPlan {
     pub query_expansion_terms: Vec<String>,
     pub entities: Vec<GraphEntityHit>,
     pub documents: Vec<GraphDocumentHit>,
+    #[serde(default)]
+    pub candidate_limit_reached: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -50,6 +52,8 @@ pub struct GraphRetrievalReport {
     pub candidate_documents: Vec<GraphDocumentHit>,
     pub expanded_chunk_ids: Vec<String>,
     pub boosted_chunk_ids: Vec<String>,
+    #[serde(default)]
+    pub candidate_limit_reached: bool,
 }
 
 impl GraphRetrievalReport {
@@ -62,6 +66,7 @@ impl GraphRetrievalReport {
             candidate_documents: plan.documents.clone(),
             expanded_chunk_ids: Vec::new(),
             boosted_chunk_ids: Vec::new(),
+            candidate_limit_reached: plan.candidate_limit_reached,
         }
     }
 }
@@ -86,6 +91,7 @@ pub fn merge_reports(
     let mut boosted = HashSet::new();
 
     for report in reports {
+        merged.candidate_limit_reached |= report.candidate_limit_reached;
         for term in report.query_expansion_terms {
             if terms.insert(term.to_lowercase()) {
                 merged.query_expansion_terms.push(term);
@@ -161,6 +167,19 @@ pub fn build_plan(
         );
     }
 
+    if !filters.document_ids.is_empty() {
+        where_parts.push(format!(
+            "d.id IN ({})",
+            repeat_placeholders(filters.document_ids.len())
+        ));
+        params.extend(
+            filters
+                .document_ids
+                .iter()
+                .map(|value| Value::Text(value.to_string())),
+        );
+    }
+
     if !filters.file_types.is_empty() {
         let mimes: Vec<String> = filters
             .file_types
@@ -185,7 +204,8 @@ pub fn build_plan(
         params.push(Value::Text(to.to_rfc3339()));
     }
 
-    params.push(Value::Integer((document_limit * 8).clamp(8, 120) as i64));
+    let row_limit = document_limit.saturating_mul(8).clamp(8, 120);
+    params.push(Value::Integer((row_limit + 1) as i64));
 
     let sql = format!(
         "SELECT e.id, e.name, e.entity_type, e.description, e.mention_count,
@@ -197,13 +217,13 @@ pub fn build_plan(
          JOIN documents d ON d.id = de.document_id
          WHERE {}
          GROUP BY e.id, d.id
-         ORDER BY relevance DESC, e.mention_count DESC, d.modified_at DESC
+         ORDER BY relevance DESC, e.mention_count DESC, d.modified_at DESC, e.id, d.id
          LIMIT ?",
         where_parts.join(" AND ")
     );
 
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt
+    let mut rows = stmt
         .query_map(rusqlite::params_from_iter(params.iter()), |row| {
             Ok(GraphRow {
                 entity_id: row.get(0)?,
@@ -224,6 +244,8 @@ pub fn build_plan(
     if rows.is_empty() {
         return Ok(None);
     }
+    let mut candidate_limit_reached = rows.len() > row_limit;
+    rows.truncate(row_limit);
 
     let mut entity_scores: HashMap<String, GraphEntityHit> = HashMap::new();
     let mut document_scores: HashMap<String, GraphDocumentAccumulator> = HashMap::new();
@@ -262,11 +284,7 @@ pub fn build_plan(
     }
 
     let mut entities: Vec<GraphEntityHit> = entity_scores.into_values().collect();
-    entities.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    entities.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
     entities.truncate(12);
     normalize_entity_scores(&mut entities);
 
@@ -276,9 +294,10 @@ pub fn build_plan(
         .collect();
     documents.sort_by(|a, b| {
         b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score)
+            .then_with(|| a.document_id.cmp(&b.document_id))
     });
+    candidate_limit_reached |= documents.len() > document_limit;
     documents.truncate(document_limit);
     normalize_document_scores(&mut documents);
 
@@ -299,6 +318,7 @@ pub fn build_plan(
         query_expansion_terms,
         entities,
         documents,
+        candidate_limit_reached,
     }))
 }
 

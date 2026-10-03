@@ -1,6 +1,23 @@
 {
+  "paragraph": "Absatz {number}",
+  "tableRow": "Tabelle {table}, Zeile {row}",
+  "slide": "Folie {number}",
+  "locationUnknown": "Position nicht verfügbar; Quelle erneut scannen.",
+  "version": "Indexierte Version",
+  "historical": "Die Quelle wurde geändert. Dies ist die zitierte Version.",
+  "fileRemoved": "Die Datei wurde entfernt. Gespeicherte Belege werden angezeigt.",
+  "ocrText": "OCR-Text; unklare Zeichen im Original prüfen.",
+  "cachedValues": "Gespeicherte Formelwerte; keine Neuberechnung durchgeführt.",
+  "modelSummary": "Generierte Zusammenfassung; Originalbelege prüfen.",
+  "contents": "Dokumentabschnitte",
+  "moreSections": "Weitere Abschnitte laden",
+  "openCurrent": "Aktuelle Quelle öffnen",
+  "fileChanged": "Die Datei wurde seit der Indexierung geändert. Alte Markierungen werden nicht übernommen.",
+  "previewLocationMissing": "Diese Position liegt außerhalb der verfügbaren Vorschau. Der zitierte Text bleibt im Belegleser verfügbar.",
+  "loadError": "Dieses Zitat konnte nicht geladen werden.",
   "evidence": "Beleg",
   "openFile": "Datei öffnen",
   "showInFolder": "Im Ordner anzeigen",
-  "copy": "Kopieren"
+  "copy": "Kopieren",
+  "extractedText": "Extrahierter Text; die genaue Stelle in der Quelle ist nicht verfügbar."
 }

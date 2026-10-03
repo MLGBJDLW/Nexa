@@ -1,6 +1,23 @@
 {
+  "paragraph": "Paragraph {number}",
+  "tableRow": "Table {table}, row {row}",
+  "slide": "Slide {number}",
+  "locationUnknown": "Location unavailable; rescan this source.",
+  "version": "Indexed version",
+  "historical": "The source has changed. This is the cited version.",
+  "fileRemoved": "The file was removed. Saved evidence is shown.",
+  "ocrText": "OCR text; verify unclear characters in the original.",
+  "cachedValues": "Stored formula values; no recalculation was performed.",
+  "modelSummary": "Generated summary; consult the original evidence.",
+  "contents": "Document sections",
+  "moreSections": "Load more sections",
+  "openCurrent": "Open current source",
+  "fileChanged": "The file changed after indexing. The current file is shown without the old highlight.",
+  "previewLocationMissing": "This location is outside the available preview. The cited text remains in the evidence reader.",
+  "loadError": "Unable to load this citation.",
   "evidence": "Evidence",
   "openFile": "Open File",
   "showInFolder": "Show in Folder",
-  "copy": "Copy"
+  "copy": "Copy",
+  "extractedText": "Extracted text; an exact source location is unavailable."
 }

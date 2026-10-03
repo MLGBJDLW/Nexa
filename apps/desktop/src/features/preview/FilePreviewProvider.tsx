@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type SyntheticEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -47,6 +48,9 @@ import { useResizablePanel } from '../../lib/useResizablePanel';
 import { openNexaBrowser } from '../browser';
 import { requestNexaBrowser } from '../browser/openNexaBrowser';
 import { FilePreviewContext } from './filePreviewContext';
+import type { PreviewLocation } from './filePreviewContext';
+import type { EvidenceRef, EvidenceLocator } from '../../types/evidence';
+import { EvidenceReader } from './EvidenceReader';
 import { useAgentPreviewRequests, type AgentPreviewRequest } from './useAgentPreviewRequests';
 
 import { createPreviewLabels, TextPreview, MarkdownPreview, StructuredPreviewRenderer, type PreviewLabels } from './StructuredPreview';
@@ -55,12 +59,13 @@ type PreviewMode = 'preview' | 'text' | 'edit' | 'split';
 
 const isMediaPreview = (preview: api.FilePreview) => ['image', 'audio', 'video'].includes(preview.kind);
 
-function MediaPreview({ preview, ready, failed }: { preview: api.FilePreview; ready: () => void; failed: () => void }) {
+function MediaPreview({ preview, ready, failed, startMs }: { preview: api.FilePreview; ready: () => void; failed: () => void; startMs?: number }) {
   const source = `${convertFileSrc(preview.path)}?preview=${encodeURIComponent(preview.hash)}`;
+  const loaded = (event: SyntheticEvent<HTMLMediaElement>) => { if (startMs != null) event.currentTarget.currentTime = Math.max(0, startMs / 1000); ready(); };
   return <div className="flex h-full min-h-60 items-center justify-center bg-surface-0 p-4" data-testid="file-preview-media">
     {preview.kind === 'image' ? <img src={source} alt={preview.displayName} className="max-h-full max-w-full object-contain" onLoad={ready} onError={failed} />
-      : preview.kind === 'audio' ? <audio src={source} controls preload="metadata" className="w-full" onLoadedMetadata={ready} onError={failed} />
-        : <video src={source} controls playsInline preload="metadata" className="max-h-full max-w-full" onLoadedMetadata={ready} onError={failed} />}
+      : preview.kind === 'audio' ? <audio src={source} controls preload="metadata" className="w-full" onLoadedMetadata={loaded} onError={failed} />
+        : <video src={source} controls playsInline preload="metadata" className="max-h-full max-w-full" onLoadedMetadata={loaded} onError={failed} />}
   </div>;
 }
 
@@ -164,6 +169,17 @@ function normalizeRenderedSelection(text: string): string {
   return text.replace(/\r\n?/g, '\n');
 }
 
+function selectionFromTextarea(content: string, start: number, end: number, origin: TextSelectionState['origin']): TextSelectionState {
+  const sourceOffset = (offset: number) => {
+    let source = 0;
+    for (let displayed = 0; displayed < offset && source < content.length; displayed += 1) {
+      source += content[source] === '\r' && content[source + 1] === '\n' ? 2 : 1;
+    }
+    return source;
+  };
+  return { start: sourceOffset(start), end: sourceOffset(end), origin };
+}
+
 function isOfficeDocumentPreview(preview: api.FilePreview): boolean {
   return ['.docx', '.pptx', '.xlsx'].includes(preview.extension.toLowerCase());
 }
@@ -222,11 +238,23 @@ function buildAgentEditPrompt({
 function OfficeRenderedPreview({
   rendered,
   labels,
+  locator,
 }: {
   rendered: api.RenderedPreview;
   labels: PreviewLabels;
+  locator?: EvidenceLocator;
 }) {
   const [zoom, setZoom] = useState(1);
+  const root = useRef<HTMLDivElement>(null);
+  const [anchorMissing, setAnchorMissing] = useState(false);
+  const { t } = useTranslation();
+  useEffect(() => {
+    const page = locator?.kind === 'pdf' ? locator.page : locator?.kind === 'slide' ? locator.slide : undefined;
+    if (page == null) { setAnchorMissing(false); return; }
+    const target = root.current?.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
+    setAnchorMissing(!target);
+    target?.scrollIntoView({ block: 'start' });
+  }, [rendered, locator]);
 
   useEffect(() => {
     setZoom(1);
@@ -239,7 +267,8 @@ function OfficeRenderedPreview({
     : `${rendered.pageCount} ${labels.pages}`;
 
   return (
-    <div data-testid="file-preview-rendered-content" className="flex h-full min-h-0 flex-col bg-surface-0">
+    <div ref={root} data-testid="file-preview-rendered-content" className="flex h-full min-h-0 flex-col bg-surface-0">
+      {anchorMissing && <p role="status" className="p-2 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <div className="shrink-0 border-b border-border bg-surface-1/95 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-2">
           <div className="flex min-w-0 items-center gap-2 text-xs text-text-tertiary">
@@ -286,6 +315,7 @@ function OfficeRenderedPreview({
             <figure
               key={`${page.page}-${page.path}`}
               data-testid="file-preview-rendered-page"
+              data-preview-page={page.page}
               className="m-0"
               style={{
                 width: pageWidth,
@@ -380,6 +410,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const textPreview = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const selectionGeneration = useRef(0);
+  const [evidenceRef, setEvidenceRef] = useState<EvidenceRef | null>(null);
+  const [previewLocation, setPreviewLocation] = useState<PreviewLocation | null>(null);
   const currentLocationKey = useRef(location.key);
   currentLocationKey.current = location.key;
   const mediaReady = useRef<{ path: string; resolve: () => void; reject: (error: Error) => void } | null>(null);
@@ -412,7 +444,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const loadFile = useCallback(
     async (
       path: string,
-      options: { preferredMode?: PreviewMode; conversationId?: string | null } = {},
+      options: { preferredMode?: PreviewMode; conversationId?: string | null } & PreviewLocation = {},
     ) => {
       const generation = ++loadGeneration.current;
       // An explicit null is an unscoped request, not the currently visible chat.
@@ -423,15 +455,18 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setError(null);
       setActivePath(path);
       try {
-        const next = await api.previewFile(path, owner ?? undefined);
+        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash));
         if (generation !== loadGeneration.current) return null;
+        const changed = Boolean(options.expectedHash && options.expectedHash !== next.hash);
+        if (changed) next.warning = t('citation.fileChanged');
+        setPreviewLocation(changed ? null : options);
         previewConversationId.current = owner;
         setPreview(next);
         setDraft(next.content ?? '');
         setTextSelection(null);
         setAgentInstruction('');
         setCopiedAgentRequest(false);
-        setMode(options.preferredMode ?? defaultModeForPreview(next));
+        setMode(options.preferredMode ?? (!changed && options.locator?.kind === 'text' ? 'text' : defaultModeForPreview(next)));
         setActivePath(next.path);
         return next;
       } catch (err) {
@@ -448,7 +483,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
         if (generation === loadGeneration.current) setLoading(false);
       }
     },
-    [labels.loadFailed, location.pathname],
+    [labels.loadFailed, location.pathname, t],
   );
 
   useAgentPreviewRequests(async (request: AgentPreviewRequest) => {
@@ -478,14 +513,14 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (agentPreviewRequest.current !== request.requestId) throw new Error('The preview request was cancelled.');
     if (request.line && next.content != null) {
       const deadline = performance.now() + 5_000;
-      while (!textPreview.current || textPreview.current.value !== next.content) {
+      while (!textPreview.current || textPreview.current.value !== normalizeRenderedSelection(next.content)) {
         if (agentPreviewRequest.current !== request.requestId || performance.now() > deadline) throw new Error('The text preview did not become ready.');
         await new Promise(resolve => setTimeout(resolve, 25));
       }
-      const lines = next.content.split('\n');
+      const lines = textPreview.current.value.split('\n');
       const line = Math.min(request.line, lines.length);
       const start = lines.slice(0, line - 1).reduce((sum, text) => sum + text.length + 1, 0);
-      setTextSelection({ start, end: start + (lines[line - 1]?.length ?? 0), origin: 'preview' });
+      setTextSelection(selectionFromTextarea(next.content, start, start + (lines[line - 1]?.length ?? 0), 'preview'));
       if (textPreview.current) {
         textPreview.current.focus(); textPreview.current.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
         textPreview.current.scrollTop = Math.max(0, line - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
@@ -501,7 +536,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (!dirtyRef.current) setOpen(false);
   });
 
-  const openFilePreview = useCallback((path: string) => {
+  const openFilePreview = useCallback((path: string, position?: PreviewLocation) => {
     if (dirtyRef.current && !window.confirm(labels.discardPrompt)) {
       return;
     }
@@ -509,9 +544,23 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     agentPreviewRequest.current = null;
     htmlRequest.current?.abort();
     mediaReady.current?.reject(new Error('The media preview was replaced.')); mediaReady.current = null;
-    if (/\.html?$/i.test(path)) { void openHtml(path).catch(error => toast.error(`${labels.loadFailed}: ${String(error)}`)); }
-    else { setOpen(true); void loadFile(path); }
+    if (/\.html?$/i.test(path) && !position) { void openHtml(path).catch(error => toast.error(`${labels.loadFailed}: ${String(error)}`)); }
+    else { setOpen(true); void loadFile(path, position); }
   }, [labels.discardPrompt, labels.loadFailed, loadFile, openHtml]);
+
+  useEffect(() => {
+    const locator = previewLocation?.locator;
+    if (mode !== 'text' || locator?.kind !== 'text' || !preview?.content || !textPreview.current) return;
+    const displayed = textPreview.current.value;
+    const lines = displayed.split('\n');
+    if (locator.lineStart > lines.length) { setError(t('citation.previewLocationMissing')); return; }
+    const start = lines.slice(0, locator.lineStart - 1).reduce((sum, line) => sum + line.length + 1, 0);
+    const end = Math.min(displayed.length, start + lines.slice(locator.lineStart - 1, locator.lineEnd).join('\n').length);
+    textPreview.current.focus();
+    textPreview.current.setSelectionRange(start, end);
+    textPreview.current.scrollTop = Math.max(0, locator.lineStart - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
+    setTextSelection(selectionFromTextarea(preview.content, start, end, 'preview'));
+  }, [previewLocation, preview, mode, t]);
 
   const openWebLink = useCallback((url: string, title?: string) => {
     const trimmed = url.trim();
@@ -607,8 +656,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [dirty, draft, labels.reindexFailed, labels.saveFailed, labels.saved, preview]);
 
   const selectedText = useMemo(
-    () => getSelectionSummary(draft, textSelection),
-    [draft, textSelection],
+    () => getSelectionSummary(textSelection?.origin === 'preview' && mode === 'text' ? preview?.content ?? '' : draft, textSelection),
+    [draft, textSelection, mode, preview?.content],
   );
 
   const quickActions = useMemo(
@@ -649,9 +698,10 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setCopiedAgentRequest(false);
       return;
     }
-    setTextSelection({ start, end, origin: 'editor' });
+    const original = target.readOnly ? preview?.content ?? '' : draft;
+    setTextSelection(selectionFromTextarea(original, start, end, target.readOnly ? 'preview' : 'editor'));
     setCopiedAgentRequest(false);
-  }, []);
+  }, [draft, preview?.content]);
 
   const captureRenderedSelection = useCallback(() => {
     if (!preview || !draft) return;
@@ -659,15 +709,16 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     const selected = normalizeRenderedSelection(raw);
     if (!selected.trim()) return;
 
-    const start = draft.indexOf(selected);
-    if (start < 0) {
+    const normalized = normalizeRenderedSelection(draft);
+    const start = normalized.indexOf(selected);
+    if (start < 0 || normalized.lastIndexOf(selected) !== start) {
       setTextSelection(null);
       setCopiedAgentRequest(false);
       toast.info(labels.selectionMapFailed);
       return;
     }
 
-    setTextSelection({ start, end: start + selected.length, origin: 'preview' });
+    setTextSelection(selectionFromTextarea(draft, start, start + selected.length, 'preview'));
     setCopiedAgentRequest(false);
   }, [draft, labels.selectionMapFailed, preview]);
 
@@ -769,7 +820,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [open]);
 
   const contextValue = useMemo(
-    () => ({ openFilePreview, openWebLink, togglePreviewPanel, previewPanelOpen: open }),
+    () => ({ openFilePreview, openWebLink, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
     [openFilePreview, openWebLink, togglePreviewPanel, open],
   );
   const content = preview?.content ?? '';
@@ -1060,7 +1111,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
               ) : isMediaPreview(preview) && error ? (
                 <div role="alert" className="flex h-full items-center justify-center p-6 text-sm text-text-secondary">{error}</div>
               ) : isMediaPreview(preview) ? (
-                <MediaPreview key={`${preview.path}:${loadGeneration.current}`} preview={preview} ready={() => { if (mediaReady.current?.path === preview.path) { mediaReady.current.resolve(); mediaReady.current = null; } }} failed={() => { setError(labels.unsupported); mediaReady.current?.reject(new Error(labels.unsupported)); mediaReady.current = null; toast.error(labels.unsupported); }} />
+                <MediaPreview key={`${preview.path}:${loadGeneration.current}`} preview={preview} startMs={previewLocation?.locator?.kind === 'media' ? previewLocation.locator.startMs : undefined} ready={() => { if (mediaReady.current?.path === preview.path) { mediaReady.current.resolve(); mediaReady.current = null; } }} failed={() => { setError(labels.unsupported); mediaReady.current?.reject(new Error(labels.unsupported)); mediaReady.current = null; toast.error(labels.unsupported); }} />
               ) : mode === 'edit' && preview.editable ? (
                 <textarea
                   data-testid="file-preview-editor"
@@ -1092,12 +1143,14 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
                 mode === 'preview' && preview.structuredPreview ? (
                   <StructuredPreviewRenderer
                     preview={preview.structuredPreview}
+                    locator={previewLocation?.locator}
+                    focusText={previewLocation?.focusText}
                     labels={labels}
                     onMouseUp={captureRenderedSelection}
                     onOpenWebLink={openWebLink}
                   />
                 ) : hasRenderedPreview && mode === 'preview' && preview.renderedPreview ? (
-                  <OfficeRenderedPreview rendered={preview.renderedPreview} labels={labels} />
+                  <OfficeRenderedPreview rendered={preview.renderedPreview} labels={labels} locator={previewLocation?.locator} />
                 ) : preview.content ? (
                 <div
                   data-testid="file-preview-readable-content"
@@ -1243,6 +1296,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     <FilePreviewContext.Provider value={contextValue}>
       {children}
       {workspace && createPortal(panel, workspace)}
+      {evidenceRef && <EvidenceReader key={`${evidenceRef.blockId}:${evidenceRef.revision}`} reference={evidenceRef} onClose={() => setEvidenceRef(null)} />}
     </FilePreviewContext.Provider>
   );
 }

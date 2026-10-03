@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { FileText, Film, Music, Clock, ExternalLink, Copy, Check, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
@@ -8,6 +9,9 @@ import { getSoftDropdownMotion } from '../../lib/uiMotion';
 import { VideoPreviewModal } from '../media/VideoPreviewModal';
 import type { CitationCardData } from '../../lib/citationParser';
 import { isWebUrl, sourceBasename, sourceHost } from '../../lib/sourceDisplay';
+import { useOverlayRoot } from '../ui/overlay/OverlayProvider';
+import { formatUserError } from '../../lib/userError';
+import { toast } from 'sonner';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -51,17 +55,32 @@ function formatScore(score: number): string {
   return `${(score * 100).toFixed(0)}%`;
 }
 
+function popupStyle(anchorRect: DOMRect | null): React.CSSProperties {
+  const width = Math.min(340, Math.max(0, window.innerWidth - 16));
+  const height = Math.min(300, Math.max(0, window.innerHeight - 16));
+  return {
+    position: 'fixed',
+    top: Math.max(8, Math.min((anchorRect?.bottom ?? 8) + 6, window.innerHeight - height - 8)),
+    left: Math.max(8, Math.min(anchorRect?.left ?? 8, window.innerWidth - width - 8)),
+    width,
+    maxHeight: height,
+    zIndex: 100,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
 export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPopupProps) {
   const { t } = useTranslation();
+  const overlayRoot = useOverlayRoot();
   const shouldReduceMotion = useReducedMotion();
-  const { openFilePreview, openWebLink, remote } = useFilePreview();
+  const { openFilePreview, openWebLink, openEvidence, remote } = useFilePreview();
   const popupRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const [videoPreviewPath, setVideoPreviewPath] = useState<string | null>(null);
+  useEffect(() => { popupRef.current?.querySelector<HTMLButtonElement>('button')?.focus(); }, []);
 
   // Close on click outside
   useEffect(() => {
@@ -84,6 +103,7 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
   }, [onClose]);
 
   const handleOpenFile = useCallback(() => {
+    if (card.evidenceRef && openEvidence) { onClose(); openEvidence(card.evidenceRef); return; }
     if (!card.documentPath) return;
     if (isWebUrl(card.documentPath)) {
       openWebLink(card.documentPath, card.documentTitle || sourceHost(card.documentPath));
@@ -92,32 +112,28 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
     if (remote || canPreviewInApp(card.documentPath)) {
       openFilePreview(card.documentPath);
     } else {
-      openFileInDefaultApp(card.documentPath);
+      void openFileInDefaultApp(card.documentPath).catch((error) => toast.error(formatUserError(t('card.fileNotFound'), error)));
     }
-  }, [card.documentPath, card.documentTitle, openFilePreview, openWebLink, remote]);
+  }, [card.documentPath, card.documentTitle, card.evidenceRef, openFilePreview, openWebLink, openEvidence, onClose, remote, t]);
 
   const handleShowInExplorer = useCallback(() => {
-    if (card.documentPath && !isWebUrl(card.documentPath)) showInFileExplorer(card.documentPath);
-  }, [card.documentPath]);
+    if (card.documentPath && !isWebUrl(card.documentPath)) {
+      void showInFileExplorer(card.documentPath).catch((error) => toast.error(formatUserError(t('card.fileNotFound'), error)));
+    }
+  }, [card.documentPath, t]);
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(card.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // silently fail
+    } catch (error) {
+      toast.error(formatUserError(t('common.error'), error));
     }
-  }, [card.content]);
+  }, [card.content, t]);
 
   // Position: below the anchor, clamped to viewport
-  const style: React.CSSProperties = {};
-  if (anchorRect) {
-    style.position = 'fixed';
-    style.top = Math.min(anchorRect.bottom + 6, window.innerHeight - 320);
-    style.left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - 360));
-    style.zIndex = 100;
-  }
+  const style = popupStyle(anchorRect);
 
   const isWebSource = isWebUrl(card.documentPath);
   const title = card.documentTitle || sourceBasename(card.documentPath) || t('citation.evidence');
@@ -132,12 +148,12 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
 
   return (
     <>
-    <AnimatePresence>
+    {createPortal(<AnimatePresence>
       <motion.div
         ref={popupRef}
         {...getSoftDropdownMotion(!!shouldReduceMotion)}
         style={style}
-        className="w-[340px] max-h-[300px] rounded-lg border border-border bg-surface-1 shadow-xl overflow-hidden"
+        className="rounded-lg border border-border bg-surface-1 shadow-xl overflow-y-auto"
         role="dialog"
         aria-label={t('citation.evidence')}
       >
@@ -200,7 +216,7 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
             <>
               <button
                 type="button"
-                onClick={isVideo && !remote ? () => setVideoPreviewPath(card.documentPath) : handleOpenFile}
+                onClick={isVideo && !remote && !card.evidenceRef ? () => setVideoPreviewPath(card.documentPath) : handleOpenFile}
                 className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md
                   bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer"
               >
@@ -240,7 +256,7 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
           </button>
         </div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>, overlayRoot ?? document.body)}
 
     {videoPreviewPath && (
       <VideoPreviewModal
@@ -264,49 +280,80 @@ interface CitationChipProps {
 }
 
 export function CitationChip({ chunkId, displayText, card }: CitationChipProps) {
+  const { t } = useTranslation();
+  const overlayRoot = useOverlayRoot();
   const { loadEvidence } = useFilePreview();
   const [popupOpen, setPopupOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const [fetchedCard, setFetchedCard] = useState<CitationCardData | null>(null);
   const [fetching, setFetching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fetchGeneration = useRef(0);
   const chipRef = useRef<HTMLButtonElement>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
 
-  const resolvedCard = card ?? fetchedCard;
+  const resolvedCard = fetchedCard ?? card;
 
-  const handleClick = useCallback(async (e: React.MouseEvent) => {
+  useEffect(() => {
+    setFetchedCard(null);
+    setError(null);
+    setFetching(false);
+    setPopupOpen(false);
+    return () => { fetchGeneration.current += 1; };
+  }, [chunkId]);
+
+  const fetchCard = useCallback(async () => {
+    const generation = ++fetchGeneration.current;
+    setFetching(true);
+    setError(null);
+    try {
+      const ec = await (loadEvidence ?? getEvidenceCard)(chunkId, card?.evidenceRef);
+      if (generation === fetchGeneration.current) setFetchedCard(ec);
+    } catch (cause) {
+      if (generation === fetchGeneration.current) setError(formatUserError(t('citation.loadError'), cause));
+    } finally {
+      if (generation === fetchGeneration.current) setFetching(false);
+    }
+  }, [chunkId, card?.evidenceRef, loadEvidence, t]);
+
+  useEffect(() => {
+    if (!popupOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPopupOpen(false);
+        chipRef.current?.focus();
+      }
+    };
+    const dismiss = (event: MouseEvent) => {
+      if (!chipRef.current?.contains(event.target as Node) && !statusRef.current?.contains(event.target as Node) && (!resolvedCard || fetching || error)) setPopupOpen(false);
+    };
+    const reposition = () => setAnchorRect(chipRef.current?.getBoundingClientRect() ?? null);
+    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('mousedown', dismiss);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.removeEventListener('mousedown', dismiss);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [popupOpen, resolvedCard, fetching, error]);
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (chipRef.current) {
       setAnchorRect(chipRef.current.getBoundingClientRect());
     }
 
-    // If no card data available, fetch from backend
-    if (!card && !fetchedCard && !fetching) {
-      setFetching(true);
-      try {
-        const ec = await (loadEvidence ?? getEvidenceCard)(chunkId);
-        setFetchedCard({
-          chunkId: ec.chunkId,
-          documentPath: ec.documentPath,
-          documentTitle: ec.documentTitle,
-          sourceName: ec.sourceName,
-          content: ec.content,
-          score: ec.score,
-          headingPath: ec.headingPath,
-          snippet: ec.snippet,
-        });
-      } catch {
-        // Silently fail — popup won't show detailed info
-      } finally {
-        setFetching(false);
-      }
-    }
-
+    if (!fetchedCard && !fetching && !popupOpen) void fetchCard();
     setPopupOpen((prev) => !prev);
-  }, [card, fetchedCard, fetching, chunkId, loadEvidence]);
+  }, [fetchedCard, fetching, popupOpen, fetchCard]);
 
   const handleClose = useCallback(() => {
     setPopupOpen(false);
+    chipRef.current?.focus();
   }, []);
 
   const title = resolvedCard?.documentTitle || sourceBasename(resolvedCard?.documentPath) || chunkId.slice(0, 8);
@@ -320,6 +367,8 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
         type="button"
         onClick={handleClick}
         title={tooltipText}
+        aria-expanded={popupOpen}
+        aria-haspopup="dialog"
         className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[11px] font-medium
           rounded-full border cursor-pointer transition-all duration-150
           bg-accent/10 text-accent border-accent/20
@@ -330,8 +379,15 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
         {isWebSource ? <ExternalLink className="h-2.5 w-2.5 shrink-0" /> : isVideoFile(resolvedCard?.documentPath ?? '') ? <Film className="h-2.5 w-2.5 shrink-0" /> : isAudioFile(resolvedCard?.documentPath ?? '') ? <Music className="h-2.5 w-2.5 shrink-0" /> : <FileText className="h-2.5 w-2.5 shrink-0" />}
         <span className="truncate max-w-[120px]">{displayText || title}</span>
       </button>
-      {popupOpen && resolvedCard && (
+      {popupOpen && resolvedCard && !fetching && !error && (
         <EvidenceCardPopup card={resolvedCard} anchorRect={anchorRect} onClose={handleClose} />
+      )}
+      {popupOpen && (!resolvedCard || fetching || error) && createPortal(
+        <div ref={statusRef} role="dialog" aria-label={t('citation.evidence')} style={popupStyle(anchorRect)} className="rounded-lg border border-border bg-surface-1 p-3 shadow-xl overflow-y-auto">
+          <button type="button" onClick={handleClose} aria-label={t('common.close')} className="float-right p-1"><X size={14} /></button>
+          <p role={error ? 'alert' : 'status'} className="pr-6 text-xs text-text-secondary">{error ?? t('common.loading')}</p>
+          {error && <button type="button" className="mt-2 text-xs text-accent" onClick={() => void fetchCard()}>{t('common.retry')}</button>}
+        </div>, overlayRoot ?? document.body,
       )}
     </>
   );

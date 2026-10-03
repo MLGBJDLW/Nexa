@@ -70,68 +70,37 @@ impl Tool for RetrieveEvidenceTool {
             });
         }
 
+        if args.chunk_ids.len() > 20 {
+            return Err(CoreError::InvalidInput(
+                "retrieve_evidence accepts at most 20 chunks".into(),
+            ));
+        }
         let db = db.clone();
         let call_id = call_id.to_string();
         let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
-            let conn = db.conn();
-
             let mut text = String::new();
             let mut found = 0usize;
             let mut artifacts: Vec<serde_json::Value> = Vec::new();
-
             for chunk_id in &args.chunk_ids {
-                let row = conn.query_row(
-                    "SELECT c.id, c.content, d.path, d.title, d.source_id
-                     FROM chunks c
-                     JOIN documents d ON d.id = c.document_id
-                     WHERE c.id = ?1",
-                    params![chunk_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, String>(3)?,
-                            row.get::<_, String>(4)?,
-                        ))
-                    },
-                );
-
-                match row {
-                    Ok((id, content, path, title, source_id)) => {
-                        if ensure_source_in_scope(&source_id, &source_scope).is_err() {
-                            text.push_str(&format!(
-                                "--- Chunk {} ---\n{}\n\n",
-                                chunk_id,
-                                current_scope_miss_message()
-                            ));
+                match crate::search::get_evidence_card(&db, chunk_id) {
+                    Ok(mut card) => {
+                        if ensure_source_in_scope(&card.source_id.to_string(), &source_scope).is_err() {
+                            text.push_str(&format!("--- Chunk {chunk_id} ---\n{}\n\n",current_scope_miss_message()));
                             continue;
                         }
-                        found += 1;
-                        text.push_str(&format!(
-                            "--- Chunk ---\n\
-                             [chunk_id: {}]\n\
-                             Path: {}\n\
-                             Title: {}\n\
-                             Content:\n{}\n\n",
-                            id, path, title, content
-                        ));
-                        artifacts.push(json!({
-                            "chunkId": id,
-                            "path": path,
-                            "title": title,
-                            "sourceId": source_id,
-                            "content": content,
-                        }));
+                        let truncated=card.content.chars().count()>32_000;
+                        card.content=card.content.chars().take(32_000).collect();
+                        found+=1;
+                        text.push_str(&format!("--- Chunk ---\n[chunk_id: {}]\nPath: {}\nTitle: {}\nEvidence reference: {}\nContent{}:\n{}\n\n",card.chunk_id,card.document_path,card.document_title,serde_json::to_string(&card.evidence_ref)?,if truncated {" (truncated to 32000 characters)"}else{""},card.content));
+                        let mut artifact=serde_json::to_value(&card)?;
+                        artifact["path"]=json!(card.document_path);artifact["title"]=json!(card.document_title);
+                        artifacts.push(artifact);
                     }
-                    Err(rusqlite::Error::QueryReturnedNoRows) => {
-                        text.push_str(&format!("--- Chunk {} ---\nNot found.\n\n", chunk_id));
-                    }
-                    Err(e) => return Err(CoreError::Database(e)),
+                    Err(CoreError::NotFound(_))=>text.push_str(&format!("--- Chunk {chunk_id} ---\nNot found.\n\n")),
+                    Err(error)=>return Err(error),
                 }
             }
-
             let header = format!(
                 "Retrieved {found} of {} requested chunk(s).\n\n",
                 args.chunk_ids.len()
@@ -508,5 +477,64 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("outside the current source scope"));
+    }
+    #[tokio::test]
+    async fn evidence_tools_keep_historical_text_and_enforce_source_scope() {
+        let (db, document, _) = setup_db_with_chunks(2);
+        let (chunk,source):(String,String)=db.conn().query_row("SELECT c.id,d.source_id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.document_id=?1 AND c.chunk_index=0",[&document],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
+        db.conn()
+            .execute("DELETE FROM documents WHERE id=?1", [&document])
+            .unwrap();
+        let args = json!({"chunk_ids":[chunk]}).to_string();
+        let result = RetrieveEvidenceTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "retrieve",
+                &args,
+                &db,
+                std::slice::from_ref(&source),
+            ))
+            .await
+            .unwrap();
+        assert!(result.content.contains("Content of chunk 0"));
+        assert_eq!(
+            result.artifacts.unwrap()[0]["evidenceRef"]["status"],
+            "missing"
+        );
+        let args = json!({"chunk_id":chunk,"context_chunks":1}).to_string();
+        let context = crate::tools::chunk_context_tool::ChunkContextTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "context",
+                &args,
+                &db,
+                std::slice::from_ref(&source),
+            ))
+            .await
+            .unwrap();
+        assert!(context.content.contains("Content of chunk 1"));
+        assert_eq!(context.artifacts.unwrap()["totalChunks"], 2);
+        let denied = crate::tools::chunk_context_tool::ChunkContextTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "denied",
+                &args,
+                &db,
+                &[uuid::Uuid::new_v4().to_string()],
+            ))
+            .await
+            .unwrap();
+        assert!(denied.is_error);
+        assert!(!denied.content.contains("Content of chunk"));
+        db.conn()
+            .execute("DELETE FROM sources WHERE id=?1", [&source])
+            .unwrap();
+        let revoked = crate::tools::chunk_context_tool::ChunkContextTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "revoked",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(revoked.is_error);
     }
 }

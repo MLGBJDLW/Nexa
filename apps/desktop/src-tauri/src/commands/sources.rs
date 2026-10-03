@@ -1,5 +1,87 @@
 use super::*;
 
+pub(super) struct TrackedKnowledgeJob {
+    db: Arc<Database>,
+    app: AppHandle,
+    id: String,
+    finished: bool,
+}
+
+impl TrackedKnowledgeJob {
+    pub(super) fn start(
+        db: Arc<Database>,
+        app: AppHandle,
+        kind: &str,
+        source_id: Option<&str>,
+    ) -> Result<Self, String> {
+        let job = db
+            .start_knowledge_job(kind, source_id)
+            .map_err(|error| error.to_string())?;
+        emit_app_event(&app, "knowledge:job", &job);
+        Ok(Self {
+            db,
+            app,
+            id: job.id,
+            finished: false,
+        })
+    }
+
+    pub(super) fn reporter(&self) -> Arc<dyn Fn(serde_json::Value) + Send + Sync> {
+        let (db, app, id) = (self.db.clone(), self.app.clone(), self.id.clone());
+        Arc::new(move |progress| {
+            match db.update_knowledge_job(&id, &progress) {
+                Ok(Some(job)) => emit_app_event(&app, "knowledge:job", &job),
+                Ok(None) => (), // The source may have been removed.
+                Err(error) => warn!("Could not persist knowledge progress: {error}"),
+            }
+        })
+    }
+
+    pub(super) fn finish<T>(&mut self, result: &Result<T, String>) -> Result<(), String> {
+        let job=self.db.finish_knowledge_job(&self.id,result.as_ref().err().map(String::as_str))
+            .map_err(|error|format!("Could not persist knowledge completion; retry recovery after storage is available: {error}"))?;
+        if let Some(job) = job {
+            emit_app_event(&self.app, "knowledge:job", &job);
+        }
+        self.finished = true;
+        Ok(())
+    }
+}
+
+impl Drop for TrackedKnowledgeJob {
+    fn drop(&mut self) {
+        if !self.finished {
+            if let Err(error) = self.finish::<()>(&Err("runtime_interrupted".into())) {
+                warn!("Knowledge completion still needs recovery: {error}");
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn list_knowledge_jobs(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<nexa_core::knowledge_jobs::KnowledgeJob>, String> {
+    state
+        .db_executor
+        .read(|db| db.list_knowledge_jobs())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_source_index_health(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<nexa_core::index::SourceIndexHealth>, String> {
+    state
+        .db_executor
+        .read(|db| db.source_index_health())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
 // ── Source Commands ──────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -153,12 +235,18 @@ pub async fn scan_source(
     let scan_lock = state.scan_lock.clone();
     let sid = source_id.clone();
     let progress_handle = app_handle.clone();
+    let mut job =
+        TrackedKnowledgeJob::start(db.clone(), app_handle.clone(), "scan", Some(&source_id))?;
+    let report = job.reporter();
     let result = tokio::task::spawn_blocking(move || {
-        let _lock = scan_lock.lock().map_err(|e| format!("scan lock: {e}"))?;
-        ingest::scan_source_with_progress(&db, &sid, |progress| {
+        let _lock = scan_lock.lock().unwrap_or_else(|error| error.into_inner());
+        let result = ingest::scan_source_with_progress(&db, &sid, |progress| {
             emit_app_event(&progress_handle, "source:scan-progress", &progress);
+            report(serde_json::json!(progress));
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+        job.finish(&result)?;
+        result
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -176,20 +264,21 @@ pub async fn scan_all_sources(
     let db = state.db.clone();
     let scan_lock = state.scan_lock.clone();
     let progress_handle = app_handle.clone();
+    let mut job = TrackedKnowledgeJob::start(db.clone(), app_handle.clone(), "scan-all", None)?;
+    let report = job.reporter();
     let results = tokio::task::spawn_blocking(move || {
-        let _lock = scan_lock.lock().map_err(|e| format!("scan lock: {e}"))?;
-        let sources = db.list_sources().map_err(|e| e.to_string())?;
-        let source_count = sources.len();
-        let mut results = Vec::with_capacity(source_count);
-        for (i, source) in sources.iter().enumerate() {
-            let ah = progress_handle.clone();
-            let sid = source.id.clone();
-            let result = ingest::scan_source_with_progress(&db, &source.id, move |progress| {
-                emit_app_event(
-                    &ah,
-                    "batch:scan-progress",
-                    &BatchProgress {
-                        operation: "scan-all".to_string(),
+        let result = (|| {
+            let _lock = scan_lock.lock().unwrap_or_else(|error| error.into_inner());
+            let sources = db.list_sources().map_err(|e| e.to_string())?;
+            let source_count = sources.len();
+            let mut results = Vec::with_capacity(source_count);
+            for (i, source) in sources.iter().enumerate() {
+                let ah = progress_handle.clone();
+                let sid = source.id.clone();
+                let report = report.clone();
+                let result = ingest::scan_source_with_progress(&db, &source.id, move |progress| {
+                    let batch = BatchProgress {
+                        operation: "scan-all".into(),
                         source_index: i + 1,
                         source_count,
                         source_id: sid.clone(),
@@ -197,13 +286,17 @@ pub async fn scan_all_sources(
                         current: progress.current,
                         total: progress.total,
                         current_file: progress.current_file.clone(),
-                    },
-                );
-            })
-            .map_err(|e| e.to_string())?;
-            results.push(result);
-        }
-        Ok::<_, String>(results)
+                    };
+                    report(serde_json::json!(batch));
+                    emit_app_event(&ah, "batch:scan-progress", &batch);
+                })
+                .map_err(|e| e.to_string())?;
+                results.push(result);
+            }
+            Ok::<_, String>(results)
+        })();
+        job.finish(&result)?;
+        result
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -235,7 +328,7 @@ fn emit_file_changed_after_scan(app_handle: &AppHandle, result: &IngestResult) {
 // ── Search Commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn search(
+pub async fn search(
     state: tauri::State<'_, AppState>,
     query_text: String,
     filters: Option<SearchFilters>,
@@ -248,14 +341,19 @@ pub fn search(
         limit: limit.unwrap_or(20),
         offset: offset.unwrap_or(0),
     };
-    let result = search::search(&state.db, &query).map_err(|e| e.to_string())?;
-
-    // Log the query for analytics (best-effort; ignore errors).
-    let _ = state.db.log_query(
-        &query.text,
-        result.total_matches as i32,
-        result.search_time_ms as i64,
-    );
+    let db = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let result = search::search(&db, &query)?;
+        let _ = db.log_query(
+            &query.text,
+            result.total_matches as i32,
+            result.search_time_ms as i64,
+        );
+        Ok::<_, nexa_core::error::CoreError>(result)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
 
     Ok(result)
 }
@@ -266,6 +364,46 @@ pub fn get_evidence_card(
     chunk_id: String,
 ) -> Result<EvidenceCard, String> {
     search::get_evidence_card(&state.db, &chunk_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn resolve_evidence_ref(
+    state: tauri::State<'_, AppState>,
+    reference: nexa_core::evidence::EvidenceRef,
+) -> Result<EvidenceCard, String> {
+    state
+        .db_executor
+        .read(move |db| search::resolve_evidence_ref(db, &reference))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_evidence_context(
+    state: tauri::State<'_, AppState>,
+    reference: nexa_core::evidence::EvidenceRef,
+) -> Result<nexa_core::evidence::EvidenceContext, String> {
+    state
+        .db_executor
+        .read(move |db| nexa_core::evidence::context(db, &reference, 2))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_document_outline(
+    state: tauri::State<'_, AppState>,
+    reference: nexa_core::evidence::EvidenceRef,
+    after_index: Option<i64>,
+) -> Result<nexa_core::evidence::DocumentOutline, String> {
+    state
+        .db_executor
+        .read(move |db| nexa_core::evidence::outline(db, &reference, after_index))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -458,7 +596,7 @@ pub async fn clear_recent_queries(state: tauri::State<'_, AppState>) -> Result<(
 // ── Hybrid Search Commands ──────────────────────────────────────────────
 
 #[tauri::command]
-pub fn hybrid_search(
+pub async fn hybrid_search(
     state: tauri::State<'_, AppState>,
     query_text: String,
     filters: Option<SearchFilters>,
@@ -471,7 +609,11 @@ pub fn hybrid_search(
         limit: limit.unwrap_or(20),
         offset: offset.unwrap_or(0),
     };
-    search::hybrid_search(&state.db, &query).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || search::hybrid_search(&db, &query))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 // ── Embedding Commands ──────────────────────────────────────────────────
@@ -485,7 +627,11 @@ pub async fn embed_source(
     let db = state.db.clone();
     let sid = source_id.clone();
     let scan_lock = state.scan_lock.clone();
+    let mut job =
+        TrackedKnowledgeJob::start(db.clone(), app_handle.clone(), "embed", Some(&source_id))?;
+    let report = job.reporter();
     let progress: Arc<dyn Fn(ingest::ScanProgress) + Send + Sync> = Arc::new(move |progress| {
+        report(serde_json::json!(progress));
         emit_app_event(&app_handle, "source:scan-progress", &progress);
     });
     let control = state
@@ -493,12 +639,15 @@ pub async fn embed_source(
         .cooperative_embedding_control(Some(progress));
     tokio::task::spawn_blocking(move || {
         let _scan_guard = scan_lock.lock().unwrap_or_else(|error| error.into_inner());
-        nexa_core::embedding_job::run_source(
+        let result = nexa_core::embedding_job::run_source(
             &db,
             &sid,
             nexa_core::embedding_job::EmbeddingJobLimits::default(),
             &control,
         )
+        .map_err(|error| error.to_string());
+        job.finish(&result)?;
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -512,7 +661,11 @@ pub async fn rebuild_embeddings(
 ) -> Result<EmbedResult, String> {
     let db = state.db.clone();
     let scan_lock = state.scan_lock.clone();
+    let mut job =
+        TrackedKnowledgeJob::start(db.clone(), app_handle.clone(), "rebuild-embeddings", None)?;
+    let report = job.reporter();
     let progress: Arc<dyn Fn(ingest::ScanProgress) + Send + Sync> = Arc::new(move |progress| {
+        report(serde_json::json!(progress));
         emit_app_event(&app_handle, "batch:rebuild-progress", &progress);
     });
     let control = state
@@ -520,11 +673,14 @@ pub async fn rebuild_embeddings(
         .cooperative_embedding_control(Some(progress));
     tokio::task::spawn_blocking(move || {
         let _scan_guard = scan_lock.lock().unwrap_or_else(|error| error.into_inner());
-        nexa_core::embedding_job::rebuild_all(
+        let result = nexa_core::embedding_job::rebuild_all(
             &db,
             nexa_core::embedding_job::EmbeddingJobLimits::default(),
             &control,
         )
+        .map_err(|error| error.to_string());
+        job.finish(&result)?;
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1040,4 +1196,112 @@ pub fn delete_local_model_cmd(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_knowledge_services_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::knowledge_services::KnowledgeServicesConfig, String> {
+    state
+        .db_executor
+        .read(|db| db.knowledge_services_config())
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+#[tauri::command]
+pub async fn save_knowledge_services_config(
+    state: tauri::State<'_, AppState>,
+    config: nexa_core::knowledge_services::KnowledgeServicesConfig,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.save_knowledge_services_config(&config))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_research_sets(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<nexa_core::research_workspace::ResearchSetSummary>, String> {
+    state
+        .db_executor
+        .read(move |db| nexa_core::research_workspace::list(db))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_research_set(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<nexa_core::research_workspace::ResearchSet, String> {
+    state
+        .db_executor
+        .read(move |db| nexa_core::research_workspace::get(db, &id))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn create_research_set(
+    state: tauri::State<'_, AppState>,
+    input: nexa_core::research_workspace::CreateResearchSet,
+) -> Result<nexa_core::research_workspace::ResearchSet, String> {
+    state
+        .db_executor
+        .write(move |db| nexa_core::research_workspace::create(db, input))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn refresh_research_set(
+    state: tauri::State<'_, AppState>,
+    app_handle: AppHandle,
+    id: String,
+) -> Result<nexa_core::research_workspace::ResearchSet, String> {
+    let mut job = TrackedKnowledgeJob::start(state.db.clone(), app_handle, "research", None)?;
+    let reporter = job.reporter();
+    let db = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        nexa_core::research_workspace::refresh(&db, &id, |current, total| {
+            reporter(serde_json::json!({"setId":id,"current":current,"total":total}))
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())
+    .and_then(|value| value.map_err(|error| error.to_string()));
+    job.finish(&result)?;
+    result
+}
+#[tauri::command]
+pub async fn review_research_cell(
+    state: tauri::State<'_, AppState>,
+    input: nexa_core::research_workspace::ReviewResearchCell,
+) -> Result<nexa_core::research_workspace::ResearchSet, String> {
+    state
+        .db_executor
+        .write(move |db| nexa_core::research_workspace::review(db, input))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_research_set(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| nexa_core::research_workspace::delete(db, &id))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }

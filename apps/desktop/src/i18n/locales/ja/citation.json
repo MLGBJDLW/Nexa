@@ -1,6 +1,23 @@
 {
+  "paragraph": "段落 {number}",
+  "tableRow": "表 {table}、行 {row}",
+  "slide": "スライド {number}",
+  "locationUnknown": "位置情報がありません。ソースを再スキャンしてください。",
+  "version": "索引の版",
+  "historical": "ソースは更新されています。引用時の版を表示しています。",
+  "fileRemoved": "ファイルは削除されています。保存済みの根拠を表示しています。",
+  "ocrText": "OCR の文字です。不明瞭な文字は原文で確認してください。",
+  "cachedValues": "保存済みの数式キャッシュ値です。再計算はしていません。",
+  "modelSummary": "モデルが生成した要約です。原文の根拠を確認してください。",
+  "contents": "文書の各部分",
+  "moreSections": "続きを読み込む",
+  "openCurrent": "現在のソースを開く",
+  "fileChanged": "索引後にファイルが変わりました。古い位置の強調表示を解除しています。",
+  "previewLocationMissing": "この位置はプレビュー範囲外です。引用本文は根拠ビューで確認できます。",
+  "loadError": "この引用を読み込めませんでした。",
   "evidence": "証拠",
   "openFile": "ファイルを開く",
   "showInFolder": "フォルダで表示",
-  "copy": "コピー"
+  "copy": "コピー",
+  "extractedText": "抽出されたテキストです。原文内の正確な位置は不明です。"
 }

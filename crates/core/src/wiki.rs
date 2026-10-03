@@ -89,7 +89,7 @@ impl Database {
 
         let total_docs: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))?;
         let compiled_docs: i64 =
-            conn.query_row("SELECT COUNT(*) FROM document_summaries", [], |r| r.get(0))?;
+            conn.query_row("SELECT COUNT(*) FROM document_summaries ds JOIN documents d ON d.id=ds.document_id WHERE ds.input_revision=d.index_revision AND COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=1", [], |r| r.get(0))?;
 
         Ok(WikiIndex {
             total_entities: entries.len(),
@@ -132,7 +132,7 @@ impl Database {
             "SELECT d.id, d.path, de.relevance, ds.summary
              FROM documents d
              JOIN document_entities de ON d.id = de.document_id
-             LEFT JOIN document_summaries ds ON d.id = ds.document_id
+             LEFT JOIN document_summaries ds ON d.id = ds.document_id AND ds.input_revision=d.index_revision AND COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=1
              WHERE de.entity_id = ?1 ORDER BY de.relevance DESC",
         )?;
         let documents: Vec<DocumentRef> = stmt

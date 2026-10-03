@@ -88,20 +88,24 @@ impl Database {
 
         let path_str = file_path.to_string_lossy().to_string();
         let mut ingest_result = crate::ingest::ingest_single_file(self, &source_id, &file_path)?;
-        let mut document = self.get_document_by_path(&path_str)?.ok_or_else(|| {
-            CoreError::Internal(format!(
-                "Archived document was not indexed after write: {path_str}"
-            ))
-        })?;
-
-        if document_chunk_count(self, &document.0)? == 0 {
-            let _ = self.delete_document_by_path(&path_str)?;
-            ingest_result = crate::ingest::ingest_single_file(self, &source_id, &file_path)?;
-            document = self.get_document_by_path(&path_str)?.ok_or_else(|| {
+        let mut document = self
+            .get_document_in_source(&source_id, &path_str)?
+            .ok_or_else(|| {
                 CoreError::Internal(format!(
-                    "Archived document was not indexed after stale-row repair: {path_str}"
+                    "Archived document was not indexed after write: {path_str}"
                 ))
             })?;
+
+        if document_chunk_count(self, &document.id)? == 0 {
+            let _ = self.delete_document_in_source(&source_id, &path_str)?;
+            ingest_result = crate::ingest::ingest_single_file(self, &source_id, &file_path)?;
+            document = self
+                .get_document_in_source(&source_id, &path_str)?
+                .ok_or_else(|| {
+                    CoreError::Internal(format!(
+                        "Archived document was not indexed after stale-row repair: {path_str}"
+                    ))
+                })?;
         }
 
         if !matches!(ingest_result, crate::ingest::IngestFileResult::Unchanged) {
@@ -111,7 +115,7 @@ impl Database {
         }
 
         Ok(ArchiveResult {
-            document_id: document.0,
+            document_id: document.id,
             source: path_str,
             title: title.to_string(),
         })

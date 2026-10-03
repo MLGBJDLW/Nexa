@@ -1,6 +1,23 @@
 {
+  "paragraph": "第 {number} 段",
+  "tableRow": "表格 {table}，第 {row} 列",
+  "slide": "第 {number} 張投影片",
+  "locationUnknown": "原文位置尚不可用，請重新掃描此來源。",
+  "version": "索引版本",
+  "historical": "來源已更新，目前顯示引用時的版本。",
+  "fileRemoved": "檔案已刪除，目前顯示儲存的證據。",
+  "ocrText": "這是 OCR 辨識文字，模糊字元請核對原文。",
+  "cachedValues": "顯示檔案中儲存的公式快取值，未重新計算。",
+  "modelSummary": "這是模型產生的摘要，請核對原始證據。",
+  "contents": "文件分段",
+  "moreSections": "載入更多分段",
+  "openCurrent": "開啟目前來源",
+  "fileChanged": "檔案在索引後發生變更，目前檔案不會沿用舊的醒目提示位置。",
+  "previewLocationMissing": "此位置超出目前預覽範圍，引用文字仍可在證據閱讀器中查看。",
+  "loadError": "無法讀取這條引用。",
   "evidence": "證據",
   "openFile": "開啟檔案",
   "showInFolder": "在資料夾中顯示",
-  "copy": "複製"
+  "copy": "複製",
+  "extractedText": "擷取的文字，暫時無法精確定位原文位置。"
 }

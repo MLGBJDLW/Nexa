@@ -8,6 +8,34 @@ export interface IngestResult {
   errors: string[];
 }
 
+export interface KnowledgeJob {
+  id: string;
+  kind: 'scan' | 'scan-all' | 'embed' | 'rebuild-embeddings' | 'compile' | 'research';
+  sourceId: string | null;
+  status: 'running' | 'completed' | 'failed' | 'interrupted';
+  progress: Partial<BatchProgress> & { documentId?: string; documentTitle?: string | null };
+  error: string | null;
+  revision: number;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface SourceIndexHealth {
+  sourceId: string;
+  documents: number;
+  chunks: number;
+  keywordChunks: number;
+  embeddedChunks: number;
+  compiledDocuments: number;
+  staleDocuments: number;
+  partialDocuments: number;
+  parseWarnings: number;
+  failedFiles: number;
+  needsReparse: number;
+  embeddingSpace: string;
+  lastScan: IngestResult | null;
+}
+
 export interface ScanProgress {
   sourceId: string;
   phase: string;

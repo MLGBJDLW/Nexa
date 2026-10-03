@@ -869,6 +869,23 @@ pub trait LlmProvider: Send + Sync {
     /// Send a completion request and return the full response.
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError>;
 
+    /// Return the response with the concrete route that produced it. Adapters
+    /// that can switch routes must override this instead of sampling shared
+    /// routing state after the response has arrived.
+    async fn complete_with_route(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<(CompletionResponse, provider_turn::RouteSnapshot), CoreError> {
+        let route = self.route_snapshot(request);
+        let response = self.complete(request).await?;
+        if self.route_snapshot(request) != route {
+            return Err(CoreError::Conflict(
+                "Completion route changed without response provenance".into(),
+            ));
+        }
+        Ok((response, route))
+    }
+
     /// Open the canonical provider-event stream for this request.
     async fn stream_events(
         &self,
@@ -971,6 +988,14 @@ impl LlmProvider for MessageValidatingProvider {
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         self.validate(request)?;
         self.inner.complete(request).await
+    }
+
+    async fn complete_with_route(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<(CompletionResponse, provider_turn::RouteSnapshot), CoreError> {
+        self.validate(request)?;
+        self.inner.complete_with_route(request).await
     }
 
     async fn stream_events(

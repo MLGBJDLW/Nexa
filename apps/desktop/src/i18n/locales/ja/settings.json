@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "例: **/.env* または **/*.log",
   "addPattern": "追加",
   "redactRules": "墨消しルール",
-  "redactRulesDesc": "一致するコンテンツは指定されたテキストに置換されます",
+  "redactRulesDesc": "一致する内容を置換します。匿名化の有効化や有効なルールの変更により、索引内の本文と保存済み引用履歴が削除されます。参照元を再スキャンして索引を再構築してください。",
   "ruleName": "名前",
   "rulePattern": "パターン",
   "ruleReplacement": "置換テキスト",

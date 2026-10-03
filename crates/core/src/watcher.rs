@@ -3,6 +3,7 @@
 //! Uses the `notify` crate to watch source directories recursively and
 //! emit debounced events when files are created, modified, or removed.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -25,6 +26,40 @@ pub enum WatcherEventKind {
     Created,
     Modified,
     Removed,
+}
+
+/// Route an event to every registered source containing it and normalize its
+/// spelling before debounce. Overlapping sources own independent index rows.
+pub fn source_paths_for_event<'a>(
+    sources: impl IntoIterator<Item = (&'a str, &'a str)>,
+    path: &Path,
+) -> Vec<(String, PathBuf)> {
+    let mut matches: Vec<_> = sources
+        .into_iter()
+        .filter_map(|(id, root)| {
+            crate::ingest::relative_source_path(Path::new(root), path)
+                .map(|relative| (id.to_owned(), Path::new(root).join(relative)))
+        })
+        .collect();
+    matches.sort_by(|left, right| left.0.cmp(&right.0));
+    matches
+}
+
+pub fn record_debounced_watcher_path(
+    changed_paths: &mut HashSet<PathBuf>,
+    removed_paths: &mut HashSet<PathBuf>,
+    path: PathBuf,
+    kind: WatcherEventKind,
+) {
+    if kind == WatcherEventKind::Removed {
+        changed_paths.remove(&path);
+        removed_paths.insert(path);
+    } else {
+        // Atomic saves commonly emit Removed followed by Created/Modified.
+        // Keep the latest observed state for this source-relative identity.
+        removed_paths.remove(&path);
+        changed_paths.insert(path);
+    }
 }
 
 /// Watches directories for file system changes.
@@ -92,5 +127,62 @@ impl FileWatcher {
             .map_err(|e| CoreError::Io(std::io::Error::other(e)))?;
         info!("Stopped watching: {}", path.display());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_alias_events_route_to_each_source_and_share_debounce_identity() {
+        let folder = tempfile::tempdir().unwrap();
+        let actual = folder.path().join("actual");
+        std::fs::create_dir_all(actual.join("inner")).unwrap();
+        let root = actual.join("inner").join("..");
+        let unrelated = folder.path().join("outside");
+        std::fs::create_dir(&unrelated).unwrap();
+        let file = actual.join("event.md");
+        std::fs::write(&file, "event").unwrap();
+        let canonical = std::fs::canonicalize(&file).unwrap();
+        let root = root.to_string_lossy().to_string();
+        let parent = folder.path().to_string_lossy().to_string();
+        let outside = unrelated.to_string_lossy().to_string();
+        let sources = [
+            ("child", root.as_str()),
+            ("parent", parent.as_str()),
+            ("outside", outside.as_str()),
+        ];
+        let created = source_paths_for_event(sources, &Path::new(&root).join("event.md"));
+        assert_eq!(created.len(), 2);
+        std::fs::remove_file(&file).unwrap();
+        let removed = source_paths_for_event(sources, &canonical);
+        assert_eq!(removed, created);
+        for ((_, created), (_, removed)) in created.into_iter().zip(removed) {
+            let mut changed = HashSet::new();
+            let mut deleted = HashSet::new();
+            record_debounced_watcher_path(
+                &mut changed,
+                &mut deleted,
+                created.clone(),
+                WatcherEventKind::Created,
+            );
+            record_debounced_watcher_path(
+                &mut changed,
+                &mut deleted,
+                removed,
+                WatcherEventKind::Removed,
+            );
+            assert!(changed.is_empty());
+            assert_eq!(deleted.len(), 1);
+            record_debounced_watcher_path(
+                &mut changed,
+                &mut deleted,
+                created,
+                WatcherEventKind::Modified,
+            );
+            assert!(deleted.is_empty());
+            assert_eq!(changed.len(), 1);
+        }
     }
 }

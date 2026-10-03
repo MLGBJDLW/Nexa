@@ -948,6 +948,7 @@ pub async fn preview_file_cmd(
     app_handle: AppHandle,
     path: String,
     conversation_id: Option<String>,
+    verify_content_hash: Option<bool>,
 ) -> Result<FilePreview, String> {
     let db = state.db.clone();
     let data_dir = app_handle
@@ -961,6 +962,9 @@ pub async fn preview_file_cmd(
             .transpose()
             .map_err(|e| e.to_string())?;
         let mut preview = build_file_preview(&db, &path, Some(&data_dir))?;
+        if verify_content_hash.unwrap_or(false) && preview.hash.starts_with("metadata:") {
+            preview.hash = hash_file(Path::new(&preview.path))?;
+        }
         if let Some(conversation) = conversation_id.as_deref() {
             let workspace = db
                 .conversation_workspace(conversation)

@@ -37,6 +37,7 @@ import { ThemeSettingsTab } from '../../components/settings/ThemeSettingsTab';
 import { UsageAnalyticsSettingsTab } from '../../components/settings/UsageAnalyticsSettingsTab';
 import { DataPrivacySettingsTab } from '../../components/settings/DataPrivacySettingsTab';
 import { EmbeddingConfigSection } from '../../components/settings/EmbeddingConfigSection';
+import { KnowledgeServicesPanel } from '../../components/settings/KnowledgeServicesPanel';
 import { ExtensionsSettingsTab, type SkillFilter } from '../../components/settings/ExtensionsSettingsTab';
 import { ModelDownloadsSection } from '../../components/settings/ModelDownloadsSection';
 import { OcrSettingsSection } from '../../components/settings/OcrSettingsSection';
@@ -1805,6 +1806,7 @@ export function SettingsPage() {
           onRebuild={handleRebuildEmbeddings}
         />
         <VectorStoreSection />
+        <KnowledgeServicesPanel />
       </>
       )}
 

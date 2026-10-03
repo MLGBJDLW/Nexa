@@ -19,6 +19,9 @@ struct XmlNode {
     attrs: HashMap<String, String>,
     children: Vec<XmlNode>,
     text: String,
+    source_paragraph: Option<u32>,
+    source_table: Option<u32>,
+    source_row: Option<u32>,
 }
 
 impl XmlNode {
@@ -97,7 +100,8 @@ pub fn preview_docx(
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let document_xml = read_zip_text(&mut archive, "word/document.xml")?;
-    let document = parse_xml(&document_xml)?;
+    let mut document = parse_xml(&document_xml)?;
+    assign_source_indices(&mut document, &mut 0, &mut 0, &mut 0);
 
     let rels = read_zip_text(&mut archive, "word/_rels/document.xml.rels")
         .ok()
@@ -234,6 +238,31 @@ fn parse_xml(xml: &str) -> Result<XmlNode, String> {
     stack
         .pop()
         .ok_or_else(|| "XML parser stack ended empty".to_string())
+}
+
+// Count source XML nodes before filtering empty or unsupported preview blocks.
+// These identities must agree with indexing even when visible text is repeated.
+fn assign_source_indices(node: &mut XmlNode, paragraph: &mut u32, table: &mut u32, row: &mut u32) {
+    if node.name == "p" {
+        *paragraph += 1;
+        node.source_paragraph = Some(*paragraph);
+    }
+    if node.name == "tbl" {
+        *table += 1;
+        node.source_table = Some(*table);
+        let mut local_row = 0;
+        for child in &mut node.children {
+            assign_source_indices(child, paragraph, table, &mut local_row);
+        }
+    } else {
+        if node.name == "tr" {
+            *row += 1;
+            node.source_row = Some(*row);
+        }
+        for child in &mut node.children {
+            assign_source_indices(child, paragraph, table, row);
+        }
+    }
 }
 
 fn parse_relationships(xml: &str) -> Result<HashMap<String, Relationship>, String> {
@@ -421,7 +450,11 @@ fn parse_blocks(parent: &XmlNode, ctx: &DocxContext) -> Vec<PreviewBlock> {
     let mut blocks = Vec::new();
     for child in &parent.children {
         match child.name.as_str() {
-            "p" => push_paragraph_blocks(&mut blocks, parse_paragraph(child, ctx)),
+            "p" => push_paragraph_blocks(
+                &mut blocks,
+                parse_paragraph(child, ctx),
+                child.source_paragraph,
+            ),
             "tbl" => blocks.push(parse_table(child, ctx)),
             _ => {}
         }
@@ -429,7 +462,11 @@ fn parse_blocks(parent: &XmlNode, ctx: &DocxContext) -> Vec<PreviewBlock> {
     blocks
 }
 
-fn push_paragraph_blocks(blocks: &mut Vec<PreviewBlock>, paragraph: ParsedParagraph) {
+fn push_paragraph_blocks(
+    blocks: &mut Vec<PreviewBlock>,
+    paragraph: ParsedParagraph,
+    source_paragraph: Option<u32>,
+) {
     let has_text = paragraph.runs.iter().any(|run| !run.text.trim().is_empty());
     if has_text {
         if let Some(list) = paragraph.list {
@@ -441,6 +478,7 @@ fn push_paragraph_blocks(blocks: &mut Vec<PreviewBlock>, paragraph: ParsedParagr
             {
                 if *ordered == list.ordered && *level == list.level {
                     items.push(PreviewListItem {
+                        source_paragraph,
                         runs: paragraph.runs,
                     });
                 } else {
@@ -448,6 +486,7 @@ fn push_paragraph_blocks(blocks: &mut Vec<PreviewBlock>, paragraph: ParsedParagr
                         ordered: list.ordered,
                         level: list.level,
                         items: vec![PreviewListItem {
+                            source_paragraph,
                             runs: paragraph.runs,
                         }],
                     });
@@ -457,18 +496,21 @@ fn push_paragraph_blocks(blocks: &mut Vec<PreviewBlock>, paragraph: ParsedParagr
                     ordered: list.ordered,
                     level: list.level,
                     items: vec![PreviewListItem {
+                        source_paragraph,
                         runs: paragraph.runs,
                     }],
                 });
             }
         } else if let Some(level) = paragraph.heading_level {
             blocks.push(PreviewBlock::Heading {
+                source_paragraph,
                 level,
                 runs: paragraph.runs,
                 alignment: paragraph.alignment,
             });
         } else {
             blocks.push(PreviewBlock::Paragraph {
+                source_paragraph,
                 runs: paragraph.runs,
                 alignment: paragraph.alignment,
             });
@@ -666,6 +708,7 @@ fn parse_table(node: &XmlNode, ctx: &DocxContext) -> PreviewBlock {
     let rows = node
         .children_named("tr")
         .map(|row| PreviewTableRow {
+            source_row: row.source_row,
             cells: row
                 .children_named("tc")
                 .map(|cell| PreviewTableCell {
@@ -674,7 +717,10 @@ fn parse_table(node: &XmlNode, ctx: &DocxContext) -> PreviewBlock {
                 .collect(),
         })
         .collect();
-    PreviewBlock::Table { rows }
+    PreviewBlock::Table {
+        rows,
+        source_table: node.source_table,
+    }
 }
 
 #[cfg(test)]
@@ -738,6 +784,32 @@ mod tests {
     }
 
     #[test]
+    fn preview_preserves_native_positions_before_omitting_empty_blocks() {
+        let mut document = parse_xml(r#"<w:document xmlns:w="word"><w:body>
+          <w:p/><w:p><w:r><w:t>Approved</w:t></w:r></w:p><w:p><w:r><w:t>Approved</w:t></w:r></w:p>
+          <w:tbl/><w:tbl><w:tr/><w:tr><w:tc><w:p><w:r><w:t>Value</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+          </w:body></w:document>"#).unwrap();
+        assign_source_indices(&mut document, &mut 0, &mut 0, &mut 0);
+        let body = document.child("document").unwrap().child("body").unwrap();
+        let blocks = parse_blocks(body, &DocxContext::default());
+        let json = serde_json::to_value(&blocks).unwrap();
+        assert_eq!(json[0]["sourceParagraph"], 2);
+        assert_eq!(json[1]["sourceParagraph"], 3);
+        assert_eq!(json[3]["sourceTable"], 2);
+        assert_eq!(json[3]["rows"][1]["sourceRow"], 2);
+        assert_eq!(
+            json[3]["rows"][1]["cells"][0]["blocks"][0]["sourceParagraph"],
+            4
+        );
+        let image = serde_json::to_value(PreviewBlock::Image {
+            asset_id: "image-1".into(),
+            alt: None,
+        })
+        .unwrap();
+        assert_eq!(image["assetId"], "image-1");
+    }
+
+    #[test]
     fn preview_docx_extracts_structured_blocks_and_assets() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("sample.docx");
@@ -757,7 +829,7 @@ mod tests {
             .any(|block| matches!(block, PreviewBlock::List { ordered: true, .. })));
         assert!(blocks
             .iter()
-            .any(|block| matches!(block, PreviewBlock::Table { rows } if rows.len() == 1)));
+            .any(|block| matches!(block, PreviewBlock::Table { rows, .. } if rows.len() == 1)));
         assert!(blocks.iter().any(
             |block| matches!(block, PreviewBlock::Image { asset_id, .. } if asset_id == "rIdImage")
         ));

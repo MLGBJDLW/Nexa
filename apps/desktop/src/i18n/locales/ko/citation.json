@@ -1,6 +1,23 @@
 {
+  "paragraph": "문단 {number}",
+  "tableRow": "표 {table}, 행 {row}",
+  "slide": "슬라이드 {number}",
+  "locationUnknown": "위치가 없습니다. 이 소스를 다시 스캔하세요.",
+  "version": "인덱스 버전",
+  "historical": "소스가 변경되었습니다. 인용 당시 버전을 표시합니다.",
+  "fileRemoved": "파일이 삭제되었습니다. 저장된 근거를 표시합니다.",
+  "ocrText": "OCR로 읽은 텍스트입니다. 불명확한 문자는 원문에서 확인하세요.",
+  "cachedValues": "파일에 저장된 수식 캐시 값입니다. 다시 계산하지 않았습니다.",
+  "modelSummary": "모델이 생성한 요약입니다. 원문 근거를 확인하세요.",
+  "contents": "문서 구간",
+  "moreSections": "구간 더 불러오기",
+  "openCurrent": "현재 소스 열기",
+  "fileChanged": "인덱싱 후 파일이 변경되었습니다. 이전 강조 위치는 적용하지 않습니다.",
+  "previewLocationMissing": "현재 미리보기 범위를 벗어난 위치입니다. 인용문은 근거 보기에서 확인할 수 있습니다.",
+  "loadError": "이 인용을 불러올 수 없습니다.",
   "evidence": "증거",
   "openFile": "파일 열기",
   "showInFolder": "폴더에서 보기",
-  "copy": "복사"
+  "copy": "복사",
+  "extractedText": "추출된 텍스트이며 원문의 정확한 위치를 확인할 수 없습니다."
 }

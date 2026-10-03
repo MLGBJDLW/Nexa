@@ -53,7 +53,7 @@ impl Tool for CompileTool {
             call_id,
             arguments,
             db,
-            source_scope: _source_scope,
+            source_scope,
             ..
         } = context;
         let args: CompileArgs = serde_json::from_str(arguments).map_err(|e| {
@@ -62,15 +62,21 @@ impl Tool for CompileTool {
 
         let db = db.clone();
         let call_id = call_id.to_string();
+        let source_scope = source_scope.to_vec();
 
         tokio::task::spawn_blocking(move || {
             if let Some(ref doc_id) = args.document_id {
+                let source_id = db.conn().query_row("SELECT source_id FROM documents WHERE id=?1", [doc_id], |row| row.get::<_,String>(0))?;
+                super::ensure_source_in_scope(&source_id, &source_scope).map_err(CoreError::InvalidInput)?;
                 // Return compilation status for a specific document
                 let summary = db.get_document_summary(doc_id)?;
                 let entities = db.get_entities_for_document(doc_id)?;
-                let stats = db.get_compile_stats()?;
+                let stats = db.get_compile_stats_scoped(&source_scope)?;
 
                 let status = if let Some(ref s) = summary {
+                    if s.stale || !s.coverage.complete {
+                        return Ok(ToolResult { call_id, content: format!("Document {doc_id} needs compilation. Stored revision: {}; stale: {}; section coverage: {}/{}. Do not treat the stored summary as complete current evidence.", s.input_revision, s.stale, s.coverage.completed_sections, s.coverage.total_sections), is_error: false, artifacts: Some(serde_json::json!({"summary":s})) });
+                    }
                     format!(
                         "**Document {} — Compiled**\n\n**Summary:** {}\n\n**Key Points:**\n{}\n\n**Tags:** {}\n\n**Entities found:** {}\n\n**Model:** {}\n**Compiled at:** {}\n\n**KB Stats:** {}/{} docs compiled, {} entities, {} links",
                         doc_id,
@@ -98,8 +104,8 @@ impl Tool for CompileTool {
                 })
             } else if args.compile_all {
                 // List uncompiled documents
-                let pending = db.get_uncompiled_document_ids(args.limit)?;
-                let stats = db.get_compile_stats()?;
+                let pending = db.get_uncompiled_document_ids_scoped(args.limit, &source_scope)?;
+                let stats = db.get_compile_stats_scoped(&source_scope)?;
 
                 if pending.is_empty() {
                     Ok(ToolResult {
@@ -130,7 +136,7 @@ impl Tool for CompileTool {
                 }
             } else {
                 // No arguments — return general stats
-                let stats = db.get_compile_stats()?;
+                let stats = db.get_compile_stats_scoped(&source_scope)?;
                 Ok(ToolResult {
                     call_id,
                     content: format!(

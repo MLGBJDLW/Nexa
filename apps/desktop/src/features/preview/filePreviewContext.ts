@@ -1,8 +1,14 @@
 import { createContext, useContext } from 'react';
 import type { getEvidenceCard } from '../../lib/api';
+import type { EvidenceRef, EvidenceLocator, EvidenceContext, DocumentOutline } from '../../types/evidence';
+
+export interface PreviewLocation { locator?: EvidenceLocator; expectedHash?: string; focusText?: string }
 
 interface FilePreviewContextValue {
-  openFilePreview: (path: string) => void;
+  openFilePreview: (path: string, location?: PreviewLocation) => void;
+  openEvidence?: (reference: EvidenceRef) => void;
+  loadEvidenceContext?: (reference: EvidenceRef) => Promise<EvidenceContext>;
+  loadDocumentOutline?: (reference: EvidenceRef, afterIndex?: number | null) => Promise<DocumentOutline>;
   openWebLink: (url: string, title?: string) => void;
   resolveFileUrl?: (path: string) => Promise<string>;
   loadEvidence?: typeof getEvidenceCard;

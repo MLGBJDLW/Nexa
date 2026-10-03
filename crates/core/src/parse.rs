@@ -13,6 +13,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 
 use crate::error::CoreError;
+use crate::evidence::EvidenceLocator;
 use crate::visual_document::{OoxmlPackageKind, ParsedVisualArtifact};
 
 // ---------------------------------------------------------------------------
@@ -145,6 +146,8 @@ pub struct ParsedDocument {
 /// A single chunk extracted from a document.
 #[derive(Debug, Clone)]
 pub struct ParsedChunk {
+    pub locator: crate::evidence::EvidenceLocator,
+    pub extraction_method: String,
     pub content: String,
     pub chunk_index: i32,
     pub start_offset: i64,
@@ -163,9 +166,6 @@ pub struct ParsedChunk {
 /// Default max chunk size (chars) — used as a fallback/cap when no
 /// model-specific value is provided.
 const DEFAULT_MAX_CHUNK_CHARS: usize = 2000;
-
-/// Chunks smaller than this are discarded.
-const MIN_CHUNK_CHARS: usize = 50;
 
 /// Compute overlap chars proportional to max chunk size (~10%).
 fn overlap_chars_for(max_chunk_chars: usize) -> usize {
@@ -435,7 +435,7 @@ fn parse_file_inner(
     let file_size = fs_meta.len() as i64;
     // Content hash is computed on the raw file content, not the chunked content,
     // so chunk overlap does not affect change detection.
-    let content_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+    let content_hash = hash_file_content(path)?;
 
     // Extract filesystem timestamps as baseline metadata.
     let mut doc_metadata = extract_fs_metadata(path);
@@ -451,7 +451,29 @@ fn parse_file_inner(
                 .get("title")
                 .cloned()
                 .unwrap_or_else(|| file_name.clone());
-            (title, chunk_markdown(body, max_chars))
+            let mut chunks = chunk_markdown(body, max_chars);
+            let body_offset = byte_offset_of_line(&content, body);
+            let line_offset = content[..body_offset]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count() as u32;
+            for chunk in &mut chunks {
+                chunk.start_offset += body_offset as i64;
+                chunk.end_offset += body_offset as i64;
+                if let EvidenceLocator::Text {
+                    byte_start,
+                    byte_end,
+                    line_start,
+                    line_end,
+                } = &mut chunk.locator
+                {
+                    *byte_start += body_offset as u64;
+                    *byte_end += body_offset as u64;
+                    *line_start += line_offset;
+                    *line_end += line_offset;
+                }
+            }
+            (title, chunks)
         }
         _ => (file_name.clone(), chunk_plaintext(&content, max_chars)),
     };
@@ -527,26 +549,29 @@ pub fn parse_pdf_with_llm_provider_type(
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
 
-    // Try native text extraction first (fast).
-    let text = match extract_pdf_text_lopdf(&bytes) {
-        Ok(t) if !t.trim().is_empty() => t,
-        _ => {
-            // Native extraction failed or returned empty — scanned PDF.
-            tracing::info!("PDF has no text layer, attempting OCR: {}", path.display());
-            crate::ocr::ocr_pdf_with_llm_provider_type(
-                &bytes,
+    let document = panic::catch_unwind(AssertUnwindSafe(|| lopdf::Document::load_mem(&bytes)))
+        .map_err(|payload| CoreError::Parse(panic_payload_to_string(payload)))?
+        .map_err(|error| CoreError::Parse(format!("PDF load failed: {error}")))?;
+    let (chunks, missing_pages, warnings) =
+        pdf_page_chunks(&document, max_chunk_chars, |page_id| {
+            if !ocr_config.enabled {
+                return Ok(None);
+            }
+            crate::ocr::ocr_pdf_page_with_llm_provider_type(
+                &document,
+                page_id,
                 ocr_config,
                 llm_provider,
                 llm_provider_type,
             )
-            .unwrap_or_default()
-        }
-    };
-
-    // Normalize: replace \r\n with \n, collapse excessive blank lines.
-    let text = text.replace("\r\n", "\n");
-
-    let chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+            .map(Some)
+        });
+    if chunks.is_empty() {
+        return Err(CoreError::Parse(
+            "PDF contains no searchable text. Enable OCR or a structured parser, then rescan."
+                .into(),
+        ));
+    }
     let visual_artifacts =
         crate::visual_document::extract_pdf_visual_artifacts_with_llm_provider_type(
             &bytes,
@@ -560,6 +585,23 @@ pub fn parse_pdf_with_llm_provider_type(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let mut metadata = extract_fs_metadata(path);
+    metadata.insert("page_count".into(), document.get_pages().len().to_string());
+    metadata.insert(
+        "searchable_pages".into(),
+        (document.get_pages().len() - missing_pages.len()).to_string(),
+    );
+    metadata.insert(
+        "uncovered_pages".into(),
+        missing_pages
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    if !warnings.is_empty() {
+        metadata.insert("parse_warnings".into(), warnings.join("; "));
+    }
+
     crate::visual_document::annotate_document_metadata(&mut metadata, &visual_artifacts);
     Ok(ParsedDocument {
         file_path: path.to_string_lossy().to_string(),
@@ -574,44 +616,71 @@ pub fn parse_pdf_with_llm_provider_type(
     })
 }
 
-/// Extract PDF text with `lopdf`, tolerating per-chunk decode errors.
-///
-/// Returns extracted text when at least one text chunk is decodable.
 #[cfg(feature = "document-processing")]
-fn extract_pdf_text_lopdf(bytes: &[u8]) -> Result<String, String> {
-    panic::catch_unwind(AssertUnwindSafe(|| {
-        let doc = lopdf::Document::load_mem(bytes).map_err(|e| format!("load failed: {e}"))?;
-
-        let page_numbers: Vec<u32> = doc.get_pages().keys().copied().collect();
-        let mut text = String::new();
-        let mut decode_error_count: usize = 0;
-        let mut first_decode_error: Option<String> = None;
-
-        for chunk in doc.extract_text_chunks(&page_numbers) {
-            match chunk {
-                Ok(fragment) => text.push_str(&fragment),
-                Err(err) => {
-                    decode_error_count += 1;
-                    if first_decode_error.is_none() {
-                        first_decode_error = Some(err.to_string());
-                    }
+fn pdf_page_chunks(
+    document: &lopdf::Document,
+    max_chars: usize,
+    mut ocr: impl FnMut(lopdf::ObjectId) -> Result<Option<crate::ocr::PdfPageOcr>, CoreError>,
+) -> (Vec<ParsedChunk>, Vec<u32>, Vec<String>) {
+    let mut chunks = Vec::new();
+    let mut missing = Vec::new();
+    let mut warnings = Vec::new();
+    for (page, page_id) in document.get_pages() {
+        let native = panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut text = String::new();
+            let mut failed = false;
+            for fragment in document.extract_text_chunks(&[page]) {
+                match fragment {
+                    Ok(fragment) => text.push_str(&fragment),
+                    Err(_) => failed = true,
                 }
             }
+            (text, failed)
+        }))
+        .unwrap_or_else(|_| (String::new(), true));
+        let (mut text, native_failed) = native;
+        let mut method = "native";
+        if text.trim().chars().count() < 40 || native_failed {
+            match ocr(page_id) {
+                Ok(Some(result)) => {
+                    if !result.text.trim().is_empty() {
+                        method = if text.trim().is_empty() {
+                            "embedded_image_ocr"
+                        } else {
+                            "native_and_ocr"
+                        };
+                        if !text.contains(result.text.trim()) {
+                            text.push_str("\n\n");
+                            text.push_str(&result.text);
+                        }
+                    }
+                    if result.images_failed > 0 {
+                        warnings.push(format!(
+                            "Page {page}: {}/{} images could not be read",
+                            result.images_failed, result.images_seen
+                        ));
+                    }
+                }
+                Ok(None) => (),
+                Err(error) => warnings.push(format!("Page {page}: {error}")),
+            }
         }
-
-        if !text.trim().is_empty() {
-            Ok(text)
-        } else if decode_error_count > 0 {
-            Err(format!(
-                "no decodable text ({} decode errors; first error: {})",
-                decode_error_count,
-                first_decode_error.unwrap_or_else(|| "unknown error".to_string())
-            ))
-        } else {
-            Ok(text)
+        if native_failed {
+            warnings.push(format!("Page {page}: native text decoding was incomplete"));
         }
-    }))
-    .map_err(|payload| format!("panic: {}", panic_payload_to_string(payload)))?
+        if text.trim().is_empty() {
+            missing.push(page);
+            warnings.push(format!("Page {page}: no searchable text"));
+        }
+        for mut chunk in chunk_plaintext(&text.replace("\r\n", "\n"), max_chars) {
+            chunk.chunk_index = chunks.len() as i32;
+            chunk.locator = EvidenceLocator::Pdf { page, bbox: None };
+            chunk.heading_context = Some(format!("Page {page}"));
+            chunk.extraction_method = method.into();
+            chunks.push(chunk);
+        }
+    }
+    (chunks, missing, warnings)
 }
 
 /// Convert a panic payload into a readable string for error reporting.
@@ -679,54 +748,13 @@ fn read_zip_entry_text(
     Ok(fragments.join("\n"))
 }
 
-fn extract_docx_text_from_xml(bytes: &[u8]) -> Result<String, String> {
-    let xml = read_zip_entry_text(bytes, |name| {
-        name == "word/document.xml"
-            || name.starts_with("word/header")
-            || name.starts_with("word/footer")
-            || name == "word/footnotes.xml"
-            || name == "word/endnotes.xml"
-    })?;
-
-    let with_breaks = xml
-        .replace("<w:tab/>", "\t")
-        .replace("<w:tab />", "\t")
-        .replace("<w:br/>", "\n")
-        .replace("<w:br />", "\n")
-        .replace("<w:cr/>", "\n")
-        .replace("<w:cr />", "\n")
-        .replace("</w:p>", "\n")
-        .replace("</w:tr>", "\n");
-
-    strip_ooxml_tags(&with_breaks)
-}
-
-fn extract_pptx_text_from_xml(bytes: &[u8]) -> Result<String, String> {
-    let xml = read_zip_entry_text(bytes, |name| {
-        name.starts_with("ppt/slides/slide") && name.ends_with(".xml")
-    })?;
-
-    let with_breaks = xml
-        .replace("<a:tab/>", "\t")
-        .replace("<a:tab />", "\t")
-        .replace("<a:br/>", "\n")
-        .replace("<a:br />", "\n")
-        .replace("</a:p>", "\n");
-
-    strip_ooxml_tags(&with_breaks)
-}
-
 /// Parse a .docx file by extracting its text content.
 pub fn parse_docx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
     let bytes = std::fs::read(path)?;
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
 
-    let text = extract_docx_text_from_xml(&bytes)
-        .map_err(|e| CoreError::Parse(format!("DOCX read failed for {}: {}", path.display(), e)))?;
-
-    let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    let chunks = crate::document_structure::docx_chunks(&bytes, max_chunk_chars)?;
     let visual_artifacts =
         crate::visual_document::extract_ooxml_visual_artifacts(&bytes, OoxmlPackageKind::Docx);
 
@@ -753,45 +781,10 @@ pub fn parse_docx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument,
 /// Parse an Excel file (.xlsx / .xls) by extracting text from all sheets.
 #[cfg(feature = "document-processing")]
 pub fn parse_xlsx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
-    use calamine::{open_workbook_auto, Data, Reader};
-
     let bytes = std::fs::read(path)?;
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
-
-    let mut wb = open_workbook_auto(path).map_err(|e| {
-        CoreError::Parse(format!("Excel open failed for {}: {}", path.display(), e))
-    })?;
-
-    let sheet_names = wb.sheet_names().to_vec();
-    let mut all_text = String::new();
-
-    for name in &sheet_names {
-        if let Ok(range) = wb.worksheet_range(name) {
-            all_text.push_str(&format!("Sheet: {}\n", name));
-            for row in range.rows() {
-                let cells: Vec<String> = row
-                    .iter()
-                    .map(|cell| match cell {
-                        Data::Empty => String::new(),
-                        Data::String(s) => s.clone(),
-                        Data::Float(f) => f.to_string(),
-                        Data::Int(i) => i.to_string(),
-                        Data::Bool(b) => b.to_string(),
-                        Data::Error(e) => format!("#ERR:{:?}", e),
-                        Data::DateTime(dt) => dt.to_string(),
-                        Data::DateTimeIso(s) => s.clone(),
-                        Data::DurationIso(s) => s.clone(),
-                    })
-                    .collect();
-                all_text.push_str(&cells.join("\t"));
-                all_text.push('\n');
-            }
-            all_text.push('\n');
-        }
-    }
-
-    let chunks = chunk_plaintext_preserving_short_document(&all_text, max_chunk_chars);
+    let chunks = crate::document_structure::workbook_chunks(path, max_chunk_chars)?;
     let visual_artifacts =
         crate::visual_document::extract_ooxml_visual_artifacts(&bytes, OoxmlPackageKind::Xlsx);
 
@@ -820,11 +813,7 @@ pub fn parse_pptx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument,
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
 
-    let text = extract_pptx_text_from_xml(&bytes)
-        .map_err(|e| CoreError::Parse(format!("PPTX read failed for {}: {}", path.display(), e)))?;
-
-    let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    let chunks = crate::document_structure::pptx_chunks(&bytes, max_chunk_chars)?;
     let visual_artifacts =
         crate::visual_document::extract_ooxml_visual_artifacts(&bytes, OoxmlPackageKind::Pptx);
 
@@ -914,10 +903,12 @@ pub fn parse_image_with_llm_provider_type(
             }
         };
 
-    let chunks = if ocr_source != crate::ocr::OcrSource::None {
+    let mut chunks = if ocr_source != crate::ocr::OcrSource::None {
         chunk_plaintext_preserving_short_document(&text_content, max_chunk_chars)
     } else {
         vec![ParsedChunk {
+            locator: EvidenceLocator::Unknown,
+            extraction_method: "metadata".into(),
             content: text_content.clone(),
             chunk_index: 0,
             start_offset: 0,
@@ -926,6 +917,18 @@ pub fn parse_image_with_llm_provider_type(
             overlap_start: 0,
         }]
     };
+
+    for chunk in &mut chunks {
+        chunk.locator = EvidenceLocator::Extracted {
+            section: "image".into(),
+        };
+        chunk.extraction_method = if ocr_source == crate::ocr::OcrSource::None {
+            "metadata"
+        } else {
+            "ocr"
+        }
+        .into();
+    }
 
     let mut doc_metadata = extract_fs_metadata(path);
     doc_metadata.insert("ocr_source".into(), format!("{:?}", ocr_source));
@@ -996,6 +999,11 @@ fn parse_audio(
                 end_secs % 60,
             );
             ParsedChunk {
+                locator: EvidenceLocator::Media {
+                    start_ms: seg.start_ms,
+                    end_ms: seg.end_ms,
+                },
+                extraction_method: "transcript".into(),
                 content: seg.text.clone(),
                 chunk_index: i as i32,
                 start_offset: seg.start_ms,
@@ -1078,6 +1086,57 @@ fn get_first_sentence(text: &str) -> Option<&str> {
 }
 
 #[cfg(feature = "video")]
+fn video_transcript_chunks(segments: &[crate::video::TranscriptSegment]) -> Vec<ParsedChunk> {
+    segments
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            let mut text = String::new();
+            let mut overlap_start = 0;
+            let mut start_ms = segment.start_ms;
+            let mut end_ms = segment.end_ms;
+            if index > 0 {
+                let previous = &segments[index - 1];
+                if let Some(tail) = get_last_sentence(&previous.text) {
+                    text.push_str(tail);
+                    text.push(' ');
+                    overlap_start = text.len();
+                    start_ms = start_ms.min(previous.start_ms);
+                }
+            }
+            text.push_str(&segment.text);
+            if let Some(next) = segments.get(index + 1) {
+                if let Some(head) = get_first_sentence(&next.text) {
+                    text.push(' ');
+                    text.push_str(head);
+                    end_ms = end_ms.max(next.end_ms);
+                }
+            }
+            let start_secs = start_ms / 1000;
+            let end_secs = end_ms / 1000;
+            ParsedChunk {
+                locator: EvidenceLocator::Media { start_ms, end_ms },
+                extraction_method: "transcript".into(),
+                content: text,
+                chunk_index: index as i32,
+                start_offset: start_ms,
+                end_offset: end_ms,
+                heading_context: Some(format!(
+                    "{:02}:{:02}:{:02} - {:02}:{:02}:{:02}",
+                    start_secs / 3600,
+                    (start_secs % 3600) / 60,
+                    start_secs % 60,
+                    end_secs / 3600,
+                    (end_secs % 3600) / 60,
+                    end_secs % 60
+                )),
+                overlap_start,
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "video")]
 fn parse_video(
     path: &Path,
     mime_type: &str,
@@ -1107,51 +1166,7 @@ fn parse_video(
             }
         })?;
 
-    let segments = &result.transcript_segments;
-    let mut chunks: Vec<ParsedChunk> = segments
-        .iter()
-        .enumerate()
-        .map(|(i, seg)| {
-            let start_secs = seg.start_ms / 1000;
-            let end_secs = seg.end_ms / 1000;
-            let timestamp = format!(
-                "{:02}:{:02}:{:02} - {:02}:{:02}:{:02}",
-                start_secs / 3600,
-                (start_secs % 3600) / 60,
-                start_secs % 60,
-                end_secs / 3600,
-                (end_secs % 3600) / 60,
-                end_secs % 60,
-            );
-
-            // Build chunk text with overlap from adjacent segments
-            let mut chunk_text = String::new();
-            let mut overlap_len = 0usize;
-            if i > 0 {
-                if let Some(tail) = get_last_sentence(&segments[i - 1].text) {
-                    chunk_text.push_str(tail);
-                    chunk_text.push(' ');
-                    overlap_len = chunk_text.len();
-                }
-            }
-            chunk_text.push_str(&seg.text);
-            if i + 1 < segments.len() {
-                if let Some(head) = get_first_sentence(&segments[i + 1].text) {
-                    chunk_text.push(' ');
-                    chunk_text.push_str(head);
-                }
-            }
-
-            ParsedChunk {
-                content: chunk_text,
-                chunk_index: i as i32,
-                start_offset: seg.start_ms,
-                end_offset: seg.end_ms,
-                heading_context: Some(timestamp),
-                overlap_start: overlap_len,
-            }
-        })
-        .collect();
+    let mut chunks = video_transcript_chunks(&result.transcript_segments);
 
     // Add frame OCR text as additional chunks with timestamp correlation.
     let base_index = chunks.len() as i32;
@@ -1162,6 +1177,11 @@ fn parse_video(
         let ts_m = (ts_secs % 3600) / 60;
         let ts_s = ts_secs % 60;
         chunks.push(ParsedChunk {
+            locator: EvidenceLocator::Media {
+                start_ms: event.timestamp_ms,
+                end_ms: event.end_ms,
+            },
+            extraction_method: "frame_ocr".into(),
             content: event.text.clone(),
             chunk_index: base_index + i as i32,
             start_offset: event.timestamp_ms,
@@ -1345,16 +1365,10 @@ fn parse_doc(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
 
-    // Try as zip first (handles renamed .docx files).
-    let text = if let Ok(xml_text) = extract_docx_text_from_xml(&bytes) {
-        if !xml_text.trim().is_empty() {
-            xml_text
-        } else {
-            extract_text_from_binary(&bytes)
-        }
-    } else {
-        extract_text_from_binary(&bytes)
-    };
+    if bytes.starts_with(b"PK") {
+        return parse_docx(path, max_chunk_chars);
+    }
+    let text = extract_text_from_binary(&bytes);
 
     if text.trim().is_empty() {
         return Err(CoreError::Parse(format!(
@@ -1364,7 +1378,13 @@ fn parse_doc(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
     }
 
     let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    let mut chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    for chunk in &mut chunks {
+        chunk.locator = EvidenceLocator::Extracted {
+            section: "legacy document text".into(),
+        };
+        chunk.extraction_method = "binary_heuristic".into();
+    }
 
     let file_name = path
         .file_name()
@@ -1379,7 +1399,11 @@ fn parse_doc(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
         content_hash,
         chunks,
         visual_artifacts: Vec::new(),
-        metadata: extract_fs_metadata(path),
+        metadata: {
+            let mut metadata = extract_fs_metadata(path);
+            metadata.insert("parse_warnings".into(), "Legacy binary text extraction is incomplete. Convert to DOCX/PPTX for structured evidence.".into());
+            metadata
+        },
     })
 }
 
@@ -1393,16 +1417,10 @@ fn parse_ppt(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
 
-    // Try as zip first (handles renamed .pptx files).
-    let text = if let Ok(xml_text) = extract_pptx_text_from_xml(&bytes) {
-        if !xml_text.trim().is_empty() {
-            xml_text
-        } else {
-            extract_text_from_binary(&bytes)
-        }
-    } else {
-        extract_text_from_binary(&bytes)
-    };
+    if bytes.starts_with(b"PK") {
+        return parse_pptx(path, max_chunk_chars);
+    }
+    let text = extract_text_from_binary(&bytes);
 
     if text.trim().is_empty() {
         return Err(CoreError::Parse(format!(
@@ -1412,7 +1430,13 @@ fn parse_ppt(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
     }
 
     let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    let mut chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    for chunk in &mut chunks {
+        chunk.locator = EvidenceLocator::Extracted {
+            section: "legacy slide text".into(),
+        };
+        chunk.extraction_method = "binary_heuristic".into();
+    }
 
     let file_name = path
         .file_name()
@@ -1427,7 +1451,11 @@ fn parse_ppt(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
         content_hash,
         chunks,
         visual_artifacts: Vec::new(),
-        metadata: extract_fs_metadata(path),
+        metadata: {
+            let mut metadata = extract_fs_metadata(path);
+            metadata.insert("parse_warnings".into(), "Legacy binary text extraction is incomplete. Convert to DOCX/PPTX for structured evidence.".into());
+            metadata
+        },
     })
 }
 
@@ -1442,7 +1470,7 @@ fn parse_html(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Cor
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let file_size = fs_meta.len() as i64;
-    let content_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+    let content_hash = hash_file_content(path)?;
 
     let clean_text = strip_html_tags(&content);
 
@@ -1455,7 +1483,15 @@ fn parse_html(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Cor
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| file_name.clone());
 
-    let chunks = chunk_plaintext_preserving_short_document(&clean_text, max_chunk_chars);
+    let mut chunks = chunk_markdown(&clean_text, max_chunk_chars);
+    for chunk in &mut chunks {
+        chunk.locator = EvidenceLocator::Extracted {
+            section: chunk
+                .heading_context
+                .clone()
+                .unwrap_or_else(|| title.clone()),
+        };
+    }
 
     Ok(ParsedDocument {
         file_path,
@@ -1565,38 +1601,39 @@ fn parse_epub(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Cor
         (items, idrefs, title)
     };
 
-    // 3. Read chapter content in spine order.
-    let mut all_text = String::new();
+    let mut chunks = Vec::new();
     for idref in &spine_idrefs {
-        if let Some((href, media_type)) = manifest_items.get(idref) {
-            if !media_type.contains("html") && !media_type.contains("xml") {
-                continue;
-            }
-
-            let full_path = format!("{}{}", opf_dir, href);
-            if let Ok(mut entry) = archive.by_name(&full_path) {
-                let mut xhtml = String::new();
-                if entry.read_to_string(&mut xhtml).is_ok() {
-                    let chapter_text = strip_html_tags(&xhtml);
-                    if !chapter_text.trim().is_empty() {
-                        if !all_text.is_empty() {
-                            all_text.push_str("\n\n---\n\n");
-                        }
-                        all_text.push_str(&chapter_text);
-                    }
-                }
-            }
+        let (href, media_type) = manifest_items
+            .get(idref)
+            .ok_or_else(|| CoreError::Parse(format!("Missing EPUB spine item {idref}")))?;
+        if !media_type.contains("html") && !media_type.contains("xml") {
+            continue;
+        }
+        let full_path = format!("{}{}", opf_dir, href);
+        let mut entry = archive.by_name(&full_path).map_err(|error| {
+            CoreError::Parse(format!("Missing EPUB chapter {full_path}: {error}"))
+        })?;
+        if entry.size() > 64 * 1024 * 1024 {
+            return Err(CoreError::Parse(format!(
+                "EPUB chapter exceeds 64 MiB: {full_path}"
+            )));
+        }
+        let mut xhtml = String::new();
+        entry.read_to_string(&mut xhtml)?;
+        for mut chunk in chunk_markdown(&strip_html_tags(&xhtml), max_chunk_chars) {
+            chunk.chunk_index = chunks.len() as i32;
+            chunk.locator = EvidenceLocator::Extracted {
+                section: full_path.clone(),
+            };
+            chunks.push(chunk);
         }
     }
-
-    if all_text.trim().is_empty() {
+    if chunks.is_empty() {
         return Err(CoreError::Parse(format!(
             "EPUB contains no extractable text: {}",
             path.display()
         )));
     }
-
-    let chunks = chunk_plaintext_preserving_short_document(&all_text, max_chunk_chars);
 
     let file_name = path
         .file_name()
@@ -1652,7 +1689,13 @@ fn parse_odf(
     }
 
     let text = text.replace("\r\n", "\n");
-    let chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    let mut chunks = chunk_plaintext_preserving_short_document(&text, max_chunk_chars);
+    for chunk in &mut chunks {
+        chunk.locator = EvidenceLocator::Extracted {
+            section: "content.xml".into(),
+        };
+        chunk.extraction_method = "native".into();
+    }
 
     let file_name = path
         .file_name()
@@ -1768,147 +1811,120 @@ pub fn is_image_file(path: &Path) -> bool {
 /// Split markdown content by headings, then by paragraphs if a section is
 /// too large. Each chunk records the heading it falls under.
 pub fn chunk_markdown(content: &str, max_chunk_chars: usize) -> Vec<ParsedChunk> {
-    // Collect (heading, section_text, byte_start) tuples.
-    let mut sections: Vec<(Option<String>, String, usize)> = Vec::new();
-    let mut current_heading: Option<String> = None;
-    let mut current_text = String::new();
-    let mut section_start: usize = 0;
-
-    for line in content.lines() {
-        if let Some(heading) = parse_heading(line) {
-            // Flush previous section.
-            if !current_text.is_empty() {
-                sections.push((current_heading.clone(), current_text.clone(), section_start));
-            }
-            current_heading = Some(heading);
-            current_text.clear();
-            // The new section starts at the current byte offset.
-            section_start = byte_offset_of_line(content, line);
-        } else {
-            if current_text.is_empty() && sections.is_empty() && current_heading.is_none() {
-                section_start = byte_offset_of_line(content, line);
-            }
-            if !current_text.is_empty() {
-                current_text.push('\n');
-            }
-            current_text.push_str(line);
-        }
-    }
-    // Flush last section.
-    if !current_text.is_empty() {
-        sections.push((current_heading, current_text, section_start));
-    }
-
-    // Convert sections into chunks, splitting large ones by paragraph.
-    let mut chunks = Vec::new();
-    for (heading, text, start) in sections {
-        let trimmed = text.trim();
-        if trimmed.len() < MIN_CHUNK_CHARS {
-            continue;
-        }
-
-        if trimmed.len() <= max_chunk_chars {
-            let end = start + text.len();
-            chunks.push(make_chunk(
-                trimmed.to_string(),
-                0, // index assigned later
-                start as i64,
-                end as i64,
-                heading.clone(),
-            ));
-        } else {
-            // Sub-split by paragraphs (double newline).
-            let parts = split_by_paragraphs(trimmed, max_chunk_chars);
-            let mut offset = start;
-            for part in parts {
-                let len = part.len();
-                if len < MIN_CHUNK_CHARS {
-                    offset += len;
-                    continue;
+    let mut sections = Vec::new();
+    let mut heading = None;
+    let mut start = 0;
+    let mut offset = 0;
+    let mut fence: Option<(char, usize)> = None;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let marker = trimmed.chars().next().filter(|ch| matches!(ch, '`' | '~'));
+        let marker_len = marker
+            .map(|ch| trimmed.chars().take_while(|current| *current == ch).count())
+            .unwrap_or(0);
+        if marker_len >= 3 {
+            if let Some((ch, count)) = fence {
+                if marker == Some(ch) && marker_len >= count {
+                    fence = None;
                 }
-                chunks.push(make_chunk(
-                    part.clone(),
-                    0,
-                    offset as i64,
-                    (offset + len) as i64,
-                    heading.clone(),
-                ));
-                offset += len;
+            } else {
+                fence = marker.map(|ch| (ch, marker_len));
+            }
+        } else if fence.is_none() {
+            if let Some(next_heading) = parse_heading(line) {
+                if offset > start {
+                    sections.push((start, offset, heading));
+                }
+                start = offset;
+                heading = Some(next_heading);
             }
         }
+        offset += line.len();
     }
-
-    // Assign sequential chunk indices.
-    for (i, chunk) in chunks.iter_mut().enumerate() {
-        chunk.chunk_index = i as i32;
-    }
-
-    // Apply overlap from previous chunks for search continuity.
-    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chunk_chars));
-
-    chunks
+    sections.push((start, content.len(), heading));
+    chunk_sections(content, sections, max_chunk_chars)
 }
 
-// ---------------------------------------------------------------------------
-// Plain-text / log chunker
-// ---------------------------------------------------------------------------
-
-/// Split plain text by double newlines (paragraphs). Large paragraphs are
-/// further split by single newlines.
+/// Keep every nonempty paragraph, with Unicode character budgets and exact
+/// decoded UTF-8 offsets. Short conclusions and table notes are evidence too.
 pub fn chunk_plaintext(content: &str, max_chunk_chars: usize) -> Vec<ParsedChunk> {
-    let paragraphs = split_by_paragraphs(content, max_chunk_chars);
-
-    let mut chunks = Vec::new();
-    let mut offset: usize = 0;
-
-    for para in &paragraphs {
-        let trimmed = para.trim();
-        let len = para.len();
-
-        if trimmed.len() < MIN_CHUNK_CHARS {
-            offset += len;
-            continue;
-        }
-
-        if trimmed.len() <= max_chunk_chars {
-            chunks.push(make_chunk(
-                trimmed.to_string(),
-                0,
-                offset as i64,
-                (offset + len) as i64,
-                None,
-            ));
-        } else {
-            // Sub-split by single newlines.
-            let sub_parts = split_by_lines(trimmed, max_chunk_chars);
-            let mut sub_offset = offset;
-            for part in sub_parts {
-                let plen = part.len();
-                if part.trim().len() < MIN_CHUNK_CHARS {
-                    sub_offset += plen;
-                    continue;
-                }
-                chunks.push(make_chunk(
-                    part.trim().to_string(),
-                    0,
-                    sub_offset as i64,
-                    (sub_offset + plen) as i64,
-                    None,
-                ));
-                sub_offset += plen;
+    let mut sections = Vec::new();
+    let mut start = 0;
+    let mut offset = 0;
+    for line in content.split_inclusive('\n') {
+        if line.trim().is_empty() {
+            if offset > start {
+                sections.push((start, offset, None));
             }
+            start = offset + line.len();
         }
-
-        offset += len;
+        offset += line.len();
     }
+    sections.push((start, content.len(), None));
+    chunk_sections(content, sections, max_chunk_chars)
+}
 
-    for (i, chunk) in chunks.iter_mut().enumerate() {
-        chunk.chunk_index = i as i32;
+fn chunk_sections(
+    content: &str,
+    sections: Vec<(usize, usize, Option<String>)>,
+    max_chars: usize,
+) -> Vec<ParsedChunk> {
+    let line_starts = std::iter::once(0)
+        .chain(
+            content
+                .bytes()
+                .enumerate()
+                .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
+        )
+        .collect::<Vec<_>>();
+    let mut chunks = Vec::new();
+    for (mut start, end, heading) in sections {
+        while start < end {
+            let remainder = &content[start..end];
+            start += remainder.len() - remainder.trim_start().len();
+            if start == end {
+                break;
+            }
+            let remainder = &content[start..end];
+            let cap = remainder
+                .char_indices()
+                .nth(max_chars.max(1))
+                .map(|(index, _)| index)
+                .unwrap_or(remainder.len());
+            let mut cut = cap;
+            if cap < remainder.len() {
+                let prefix = &remainder[..cap];
+                if let Some(boundary) = prefix
+                    .rfind("\n\n")
+                    .or_else(|| prefix.rfind('\n'))
+                    .or_else(|| prefix.rfind(char::is_whitespace))
+                    .filter(|offset| *offset >= cap / 2 && *offset > 0)
+                {
+                    cut = boundary;
+                }
+            }
+            let text = remainder[..cut].trim_end();
+            if !text.is_empty() {
+                let finish = start + text.len();
+                let mut chunk = make_chunk(
+                    text.into(),
+                    chunks.len() as i32,
+                    start as i64,
+                    finish as i64,
+                    heading.clone(),
+                );
+                chunk.locator = EvidenceLocator::Text {
+                    byte_start: start as u64,
+                    byte_end: finish as u64,
+                    line_start: line_starts.partition_point(|line| *line <= start) as u32,
+                    line_end: line_starts.partition_point(|line| *line < finish) as u32,
+                };
+                chunks.push(chunk);
+            }
+            start += cut;
+        }
     }
-
-    // Apply overlap from previous chunks for search continuity.
-    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chunk_chars));
-
+    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chars), &line_starts);
     chunks
 }
 
@@ -1922,50 +1938,43 @@ pub fn chunk_plaintext(content: &str, max_chunk_chars: usize) -> Vec<ParsedChunk
 /// The first chunk is left unchanged (`overlap_start` remains 0).
 /// Subsequent chunks receive an overlap prefix and their `overlap_start`
 /// field is set to the byte length of that prefix.
-fn apply_chunk_overlap(chunks: &mut [ParsedChunk], overlap_chars: usize) {
-    if chunks.len() <= 1 {
+fn apply_chunk_overlap(chunks: &mut [ParsedChunk], overlap_chars: usize, line_starts: &[usize]) {
+    if overlap_chars == 0 {
         return;
     }
-
-    // Collect tail text from each chunk (except the last).
-    let tails: Vec<String> = chunks[..chunks.len() - 1]
+    let tails = chunks
         .iter()
-        .map(|c| {
-            let content = &c.content;
-            if content.len() <= overlap_chars {
-                content.clone()
-            } else {
-                let mut start = content.len() - overlap_chars;
-                // Ensure we land on a valid UTF-8 character boundary.
-                while start < content.len() && !content.is_char_boundary(start) {
-                    start += 1;
-                }
-                // Advance to the next whitespace to avoid mid-word cuts.
-                let adjusted = if let Some(ws_pos) = content[start..].find(char::is_whitespace) {
-                    let ws_start = start + ws_pos;
-                    // Skip past the whitespace character (may be multi-byte).
-                    let ws_char_len = content[ws_start..]
-                        .chars()
-                        .next()
-                        .map(|ch| ch.len_utf8())
-                        .unwrap_or(1);
-                    ws_start + ws_char_len
-                } else {
-                    start
-                };
-                content[adjusted..].to_string()
-            }
+        .map(|chunk| {
+            let tail = chunk
+                .content
+                .chars()
+                .rev()
+                .take(overlap_chars.saturating_sub(2))
+                .collect::<Vec<_>>();
+            tail.into_iter().rev().collect::<String>()
         })
-        .collect();
-
-    for i in 1..chunks.len() {
-        let overlap = &tails[i - 1];
-        if overlap.is_empty() {
+        .collect::<Vec<_>>();
+    for index in 1..chunks.len() {
+        if chunks[index].heading_context != chunks[index - 1].heading_context
+            || tails[index - 1].is_empty()
+        {
             continue;
         }
-        let overlap_len = overlap.len();
-        chunks[i].content = format!("{}{}", overlap, chunks[i].content);
-        chunks[i].overlap_start = overlap_len;
+        let prefix = format!("{}\n\n", tails[index - 1]);
+        let prefix_start = chunks[index - 1].end_offset as usize - tails[index - 1].len();
+        if let EvidenceLocator::Text {
+            byte_start,
+            line_start,
+            ..
+        } = &mut chunks[index].locator
+        {
+            // The surfaced card includes this copied tail. Its citation must
+            // cover that source range too; core offsets still exclude overlap.
+            *byte_start = prefix_start as u64;
+            *line_start = line_starts.partition_point(|line| *line <= prefix_start) as u32;
+        }
+        chunks[index].overlap_start = prefix.len();
+        chunks[index].content.insert_str(0, &prefix);
     }
 }
 
@@ -2068,8 +2077,9 @@ fn parse_heading(line: &str) -> Option<String> {
     if trimmed.starts_with('#') {
         let hashes = trimmed.chars().take_while(|&c| c == '#').count();
         if hashes <= 6 {
-            let rest = trimmed[hashes..].trim();
-            if !rest.is_empty() || hashes <= 6 {
+            let suffix = &trimmed[hashes..];
+            if suffix.is_empty() || suffix.starts_with(char::is_whitespace) {
+                let rest = suffix.trim();
                 return Some(rest.to_string());
             }
         }
@@ -2087,34 +2097,6 @@ fn byte_offset_of_line(content: &str, line: &str) -> usize {
     line_start.saturating_sub(content_start)
 }
 
-/// Split text at double-newline boundaries. If any resulting piece exceeds
-/// `max_chars`, it is kept as-is (the caller may sub-split further).
-fn split_by_paragraphs(text: &str, _max_chars: usize) -> Vec<String> {
-    text.split("\n\n").map(|s| s.to_string()).collect()
-}
-
-/// Split text at single-newline boundaries, grouping lines until the
-/// accumulated size would exceed `max_chars`.
-fn split_by_lines(text: &str, max_chars: usize) -> Vec<String> {
-    let mut result = Vec::new();
-    let mut current = String::new();
-
-    for line in text.lines() {
-        if !current.is_empty() && current.len() + line.len() + 1 > max_chars {
-            result.push(current.clone());
-            current.clear();
-        }
-        if !current.is_empty() {
-            current.push('\n');
-        }
-        current.push_str(line);
-    }
-    if !current.is_empty() {
-        result.push(current);
-    }
-    result
-}
-
 /// Convenience builder for a [`ParsedChunk`].
 fn make_chunk(
     content: String,
@@ -2124,6 +2106,8 @@ fn make_chunk(
     heading_context: Option<String>,
 ) -> ParsedChunk {
     ParsedChunk {
+        locator: EvidenceLocator::Unknown,
+        extraction_method: "native".into(),
         content,
         chunk_index,
         start_offset,
@@ -2142,6 +2126,167 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+
+    #[cfg(feature = "video")]
+    #[test]
+    fn transcript_overlap_locators_cover_every_quoted_segment() {
+        use crate::video::TranscriptSegment;
+        let chunks = video_transcript_chunks(&[
+            TranscriptSegment {
+                start_ms: 1_000,
+                end_ms: 2_000,
+                text: "Earlier. BEFORE".into(),
+            },
+            TranscriptSegment {
+                start_ms: 3_000,
+                end_ms: 4_000,
+                text: "CURRENT".into(),
+            },
+            TranscriptSegment {
+                start_ms: 5_000,
+                end_ms: 6_000,
+                text: "AFTER. Later".into(),
+            },
+        ]);
+        assert!(chunks[1].content.contains("BEFORE CURRENT AFTER"));
+        assert_eq!(
+            chunks[1].locator,
+            EvidenceLocator::Media {
+                start_ms: 1_000,
+                end_ms: 6_000
+            }
+        );
+        assert_eq!(
+            (chunks[1].start_offset, chunks[1].end_offset),
+            (1_000, 6_000)
+        );
+    }
+
+    #[test]
+    fn unicode_chunks_keep_short_facts_and_exact_source_ranges() {
+        let content = format!(
+            "第一条事实。\r\n\r\n{}\n\n结论：不通过。",
+            "预算说明中英文Budget。".repeat(60)
+        );
+        let chunks = chunk_plaintext(&content, 80);
+        assert!(chunks.len() > 3);
+        for chunk in &chunks {
+            assert_eq!(
+                &content[chunk.start_offset as usize..chunk.end_offset as usize],
+                &chunk.content[chunk.overlap_start..]
+            );
+            assert!(chunk.content.chars().count() <= 88);
+            let EvidenceLocator::Text {
+                byte_start,
+                byte_end,
+                line_start,
+                ..
+            } = chunk.locator
+            else {
+                panic!("text locator missing")
+            };
+            assert_eq!(
+                line_start as usize,
+                1 + content[..byte_start as usize]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count()
+            );
+            let highlighted = &content[byte_start as usize..byte_end as usize];
+            assert!(highlighted.contains(&chunk.content[chunk.overlap_start..]));
+            if chunk.overlap_start > 0 {
+                assert!(highlighted.contains(chunk.content[..chunk.overlap_start].trim_end()));
+            }
+        }
+        assert!(chunks
+            .iter()
+            .any(|chunk| chunk.content.contains("结论：不通过。")));
+    }
+
+    #[test]
+    fn markdown_locations_include_frontmatter_and_ignore_fenced_headings() {
+        let file = NamedTempFile::with_suffix(".md").unwrap();
+        let content = "---\ntitle: Test\n---\n# 结论\n不通过。\n```rust\n# not a heading\n```\n";
+        std::fs::write(file.path(), content).unwrap();
+        let parsed = parse_file(
+            file.path(),
+            None,
+            #[cfg(feature = "video")]
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(parsed.chunks.len(), 1);
+        assert_eq!(parsed.chunks[0].heading_context.as_deref(), Some("结论"));
+        assert!(matches!(
+            parsed.chunks[0].locator,
+            EvidenceLocator::Text { line_start: 4, .. }
+        ));
+        assert_eq!(
+            &content[parsed.chunks[0].start_offset as usize..parsed.chunks[0].end_offset as usize],
+            parsed.chunks[0].content
+        );
+    }
+
+    #[cfg(feature = "document-processing")]
+    #[test]
+    fn mixed_pdf_invokes_ocr_only_for_uncovered_pages_and_keeps_page_anchors() {
+        use lopdf::{
+            content::{Content, Operation},
+            dictionary, Document, Object, Stream,
+        };
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let font = doc.add_object(
+            dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" },
+        );
+        let resources = doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font } });
+        let mut kids: Vec<Object> = Vec::new();
+        for text in [
+            "A native page with more than forty readable characters and direct evidence.",
+            "",
+        ] {
+            let content = Content {
+                operations: vec![
+                    Operation::new("BT", vec![]),
+                    Operation::new("Tf", vec!["F1".into(), 12.into()]),
+                    Operation::new("Tj", vec![Object::string_literal(text)]),
+                    Operation::new("ET", vec![]),
+                ],
+            };
+            let stream = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+            let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => stream, "Resources" => resources, "MediaBox" => vec![0.into(),0.into(),612.into(),792.into()] });
+            kids.push(page.into());
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 2 }),
+        );
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog);
+        let mut calls = 0;
+        let (chunks, missing, warnings) = pdf_page_chunks(&doc, 2000, |_| {
+            calls += 1;
+            Ok(Some(crate::ocr::PdfPageOcr {
+                text: "扫描页报销额度：500元。".into(),
+                images_seen: 1,
+                images_failed: 0,
+            }))
+        });
+        assert_eq!(calls, 1);
+        assert!(missing.is_empty() && warnings.is_empty());
+        assert!(chunks.iter().any(|chunk| chunk.content.contains("500元")
+            && chunk.locator
+                == EvidenceLocator::Pdf {
+                    page: 2,
+                    bbox: None
+                }));
+        let (_, missing, warnings) = pdf_page_chunks(&doc, 2000, |_| Ok(None));
+        assert_eq!(missing, [2]);
+        assert!(warnings.iter().any(|warning| warning.contains("Page 2")));
+    }
 
     // -- MIME detection -----------------------------------------------------
 
@@ -2327,10 +2472,11 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
     }
 
     #[test]
-    fn test_markdown_skips_tiny_chunks() {
+    fn test_markdown_preserves_short_facts() {
         let md = "# Heading\nTiny.\n";
         let chunks = chunk_markdown(md, DEFAULT_MAX_CHUNK_CHARS);
-        assert!(chunks.is_empty(), "Chunks < 50 chars should be skipped");
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].content.contains("Tiny."));
     }
 
     // -- Plain text chunking ------------------------------------------------
@@ -2350,10 +2496,10 @@ Final thoughts go here with enough text to pass the minimum chunk size threshold
     }
 
     #[test]
-    fn test_plaintext_skips_small() {
+    fn test_plaintext_preserves_small_paragraphs() {
         let text = "hi\n\nbye";
         let chunks = chunk_plaintext(text, DEFAULT_MAX_CHUNK_CHARS);
-        assert!(chunks.is_empty());
+        assert_eq!(chunks.len(), 2);
     }
 
     #[test]

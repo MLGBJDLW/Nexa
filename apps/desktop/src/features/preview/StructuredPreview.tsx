@@ -1,8 +1,9 @@
-import { lazy, Suspense, useState, useMemo, useEffect, type CSSProperties } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect, useRef, type CSSProperties } from 'react';
 import { FileSpreadsheet } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type * as api from '../../lib/api';
 import { PreviewImage } from './PreviewImage';
+import type { EvidenceLocator } from '../../types/evidence';
 type TranslateFn = ReturnType<typeof useTranslation>['t'];
 export function createPreviewLabels(t: TranslateFn) {
   return {
@@ -227,14 +228,14 @@ function DocumentBlockView({
             ? 'mt-6 text-xl font-semibold leading-tight'
             : 'mt-5 text-base font-semibold leading-snug';
       return (
-        <Tag className={`${headingClass} first:mt-0 ${textAlignClass(block.alignment)}`}>
+        <Tag data-docx-paragraph={block.sourceParagraph} className={`${headingClass} first:mt-0 ${textAlignClass(block.alignment)}`}>
           <DocumentRuns runs={block.runs} onOpenWebLink={onOpenWebLink} />
         </Tag>
       );
     }
     case 'paragraph':
       return (
-        <p className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
+        <p data-docx-paragraph={block.sourceParagraph} className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
           <DocumentRuns runs={block.runs} onOpenWebLink={onOpenWebLink} />
         </p>
       );
@@ -248,7 +249,7 @@ function DocumentBlockView({
           style={{ paddingLeft: `${1.5 + block.level * 1.25}rem` }}
         >
           {block.items.map((item, index) => (
-            <li key={index}>
+            <li key={index} data-docx-paragraph={item.sourceParagraph}>
               <DocumentRuns runs={item.runs} onOpenWebLink={onOpenWebLink} />
             </li>
           ))}
@@ -258,10 +259,10 @@ function DocumentBlockView({
     case 'table':
       return (
         <div className="my-4 overflow-x-auto rounded-md border border-border">
-          <table className="min-w-full border-collapse text-sm">
+          <table data-docx-table={block.sourceTable} className="min-w-full border-collapse text-sm">
             <tbody>
               {block.rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="border-b border-border last:border-b-0">
+                <tr key={rowIndex} data-docx-row={row.sourceRow} className="border-b border-border last:border-b-0">
                   {row.cells.map((cell, cellIndex) => (
                     <td
                       key={cellIndex}
@@ -331,38 +332,66 @@ function DocumentBlockView({
   }
 }
 
-function StructuredDocumentPreview({
-  preview,
-  labels,
-  onMouseUp,
-  onOpenWebLink,
-}: {
+function markEvidenceLocations(primary: HTMLElement[], context: HTMLElement[]) {
+  primary[0]?.scrollIntoView({ block: 'center', inline: 'center' });
+  const groups = [
+    { elements: primary, attribute: 'data-evidence-anchor', classes: ['ring-2', 'ring-accent/50'] },
+    { elements: context.filter(element => !primary.includes(element)), attribute: 'data-evidence-context-anchor', classes: ['ring-1', 'ring-accent/30'] },
+  ];
+  for (const group of groups) for (const element of group.elements) {
+    element.setAttribute(group.attribute, 'true');
+    element.classList.add(...group.classes);
+  }
+  return () => { for (const group of groups) for (const element of group.elements) {
+    element.removeAttribute(group.attribute);
+    element.classList.remove(...group.classes);
+  } };
+}
+
+function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, locator }: {
   preview: api.DocumentStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
+  locator?: EvidenceLocator;
+  focusText?: string;
 }) {
-  const assetMap = useMemo(
-    () => new Map(preview.assets.map((asset) => [asset.id, asset])),
-    [preview.assets],
-  );
-
+  const { t } = useTranslation();
+  const root = useRef<HTMLDivElement>(null);
+  const [anchorMissing, setAnchorMissing] = useState(false);
+  const assetMap = useMemo(() => new Map(preview.assets.map((asset) => [asset.id, asset])), [preview.assets]);
+  const blockPages = useMemo(() => {
+    let page = 1;
+    return preview.blocks.map((block) => { if (block.type === 'pageBreak') page += 1; return page; });
+  }, [preview.blocks]);
+  useEffect(() => {
+    if (!locator || !root.current) { setAnchorMissing(false); return; }
+    let target: HTMLElement | undefined | null;
+    let context: HTMLElement | null = null;
+    if (locator.kind === 'pdf' || locator.kind === 'slide') {
+      const page = locator.kind === 'pdf' ? locator.page : locator.slide;
+      target = root.current.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
+    } else if (locator.kind === 'document' && locator.part === 'word/document.xml') {
+      if (locator.table) {
+        const table = root.current.querySelector<HTMLElement>(`[data-docx-table="${locator.table}"]`);
+        target = locator.row ? table?.querySelector<HTMLElement>(`:scope > tbody > [data-docx-row="${locator.row}"]`) : table;
+        if (locator.contextRow) context = table?.querySelector<HTMLElement>(`:scope > tbody > [data-docx-row="${locator.contextRow}"]`) ?? null;
+      }
+      else {
+        target = root.current.querySelector<HTMLElement>(`[data-docx-paragraph="${locator.paragraph}"]`);
+      }
+    }
+    setAnchorMissing(!target || (locator.kind === 'document' && Boolean(locator.contextRow) && !context));
+    if (!target) return;
+    return markEvidenceLocations([target], context ? [context] : []);
+  }, [locator, preview]);
   return (
-    <div
-      data-testid="file-preview-structured-document"
-      className="h-full overflow-auto bg-surface-0 px-4 py-5"
-      onMouseUp={onMouseUp}
-    >
+    <div ref={root} data-testid="file-preview-structured-document" className="h-full overflow-auto bg-surface-0 px-4 py-5" onMouseUp={onMouseUp}>
+      {anchorMissing && <p role="status" className="mb-3 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <article className="mx-auto min-h-full max-w-[900px] rounded-md border border-border/70 bg-surface-1 px-6 py-6 text-text-primary shadow-[0_18px_45px_rgba(0,0,0,0.18)] sm:px-8 sm:py-7">
-        {preview.blocks.map((block, index) => (
-          <DocumentBlockView
-            key={index}
-            block={block}
-            assetMap={assetMap}
-            labels={labels}
-            onOpenWebLink={onOpenWebLink}
-          />
-        ))}
+        {preview.blocks.map((block, index) => <div key={index} data-preview-page={blockPages[index]}>
+          <DocumentBlockView block={block} assetMap={assetMap} labels={labels} onOpenWebLink={onOpenWebLink} />
+        </div>)}
       </article>
     </div>
   );
@@ -383,18 +412,47 @@ function WorkbookPreview({
   preview,
   labels,
   onMouseUp,
+  locator,
 }: {
   preview: api.WorkbookStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
+  locator?: EvidenceLocator;
 }) {
+  const { t } = useTranslation();
+  const root = useRef<HTMLDivElement>(null);
+  const [anchorMissing, setAnchorMissing] = useState(false);
   const [selectedSheetIndex, setSelectedSheetIndex] = useState(0);
 
   useEffect(() => {
-    setSelectedSheetIndex(0);
-  }, [preview]);
+    const index = locator?.kind === 'sheet' ? preview.sheets.findIndex((sheet) => sheet.name === locator.sheet) : 0;
+    setSelectedSheetIndex(Math.max(0, index));
+  }, [preview, locator]);
 
   const sheet = preview.sheets[Math.min(selectedSheetIndex, Math.max(preview.sheets.length - 1, 0))];
+  useEffect(() => {
+    if (locator?.kind !== 'sheet' || !root.current) { setAnchorMissing(false); return; }
+    if (sheet?.name !== locator.sheet) { setAnchorMissing(!preview.sheets.some((value) => value.name === locator.sheet)); return; }
+    const coordinate = (address: string) => {
+      const match = /^([A-Z]+)([1-9]\d*)$/.exec(address.replace(/\$/g, '').toUpperCase());
+      return match ? { column: [...match[1]].reduce((value, char) => value * 26 + char.charCodeAt(0) - 64, 0), row: Number(match[2]) } : null;
+    };
+    const cells = [...root.current.querySelectorAll<HTMLElement>('[data-cell-address]')];
+    const inRange = (range?: string) => {
+      if (!range) return [];
+      const [first, last = first] = range.split(':');
+      const start = coordinate(first), end = coordinate(last);
+      if (!start || !end) return [];
+      return cells.filter(element => {
+        const cell = coordinate(element.dataset.cellAddress ?? '');
+        return cell && cell.row >= start.row && cell.row <= end.row && cell.column >= start.column && cell.column <= end.column;
+      });
+    };
+    const targets = inRange(locator.range), context = inRange(locator.contextRange);
+    setAnchorMissing(!targets.length || Boolean(locator.contextRange && !context.length));
+    if (!targets.length) return;
+    return markEvidenceLocations(targets, context);
+  }, [locator, sheet, preview]);
   const cellMap = useMemo(() => {
     const map = new Map<string, api.WorkbookPreviewCell>();
     for (const cell of sheet?.cells ?? []) {
@@ -438,7 +496,8 @@ function WorkbookPreview({
   };
 
   return (
-    <div data-testid="file-preview-workbook" className="flex h-full min-h-0 flex-col bg-surface-0">
+    <div ref={root} data-testid="file-preview-workbook" className="flex h-full min-h-0 flex-col bg-surface-0">
+      {anchorMissing && <p role="status" className="p-2 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <div className="shrink-0 border-b border-border bg-surface-1/95 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <FileSpreadsheet size={14} className="shrink-0 text-accent" />
@@ -483,7 +542,7 @@ function WorkbookPreview({
               className="sticky top-0 z-20 flex h-8 items-center justify-center border-b border-r border-border bg-surface-2 font-medium text-text-tertiary"
               style={{ gridColumn: column + 2, gridRow: 1 }}
             >
-              {columnName(column)}
+              {columnName(column + (sheet.startColumn ?? 0))}
             </div>
           ))}
           {rows.map((row) => (
@@ -492,7 +551,7 @@ function WorkbookPreview({
               className="sticky left-0 z-10 flex h-8 items-center justify-end border-b border-r border-border bg-surface-2 px-2 font-medium text-text-tertiary"
               style={{ gridColumn: 1, gridRow: row + 2 }}
             >
-              {row + 1}
+              {row + 1 + (sheet.startRow ?? 0)}
             </div>
           ))}
           {rows.flatMap((row) =>
@@ -507,6 +566,7 @@ function WorkbookPreview({
               return (
                 <div
                   key={`${row}-${column}`}
+                  data-cell-address={`${columnName(column + (sheet.startColumn ?? 0))}${row + 1 + (sheet.startRow ?? 0)}`}
                   className={`min-h-8 overflow-hidden border-b border-r border-border px-2 py-1.5 leading-5 ${
                     cell?.formula ? 'bg-accent/5' : 'bg-surface-1'
                   }`}
@@ -542,18 +602,24 @@ export function StructuredPreviewRenderer({
   labels,
   onMouseUp,
   onOpenWebLink,
+  locator,
+  focusText,
 }: {
   preview: api.StructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
+  locator?: EvidenceLocator;
+  focusText?: string;
 }) {
   if (preview.type === 'workbook') {
-    return <WorkbookPreview preview={preview} labels={labels} onMouseUp={onMouseUp} />;
+    return <WorkbookPreview preview={preview} locator={locator} labels={labels} onMouseUp={onMouseUp} />;
   }
   return (
     <StructuredDocumentPreview
       preview={preview}
+      locator={locator}
+      focusText={focusText}
       labels={labels}
       onMouseUp={onMouseUp}
       onOpenWebLink={onOpenWebLink}

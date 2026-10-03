@@ -289,6 +289,15 @@ impl LlmProvider for AutomaticFallbackProvider {
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        self.complete_with_route(request)
+            .await
+            .map(|(response, _)| response)
+    }
+
+    async fn complete_with_route(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<(CompletionResponse, super::provider_turn::RouteSnapshot), CoreError> {
         let active_position = self.active_position();
         let (selected_position, end_position) = self.route_window(request);
         if selected_position != active_position {
@@ -301,12 +310,12 @@ impl LlmProvider for AutomaticFallbackProvider {
             let route_request = self.request_for_route(request, position);
             match self.routes[position]
                 .provider
-                .complete(&route_request)
+                .complete_with_route(&route_request)
                 .await
             {
-                Ok(response) => {
+                Ok(response_and_route) => {
                     self.select_route(selected_position, position)?;
-                    return Ok(response);
+                    return Ok(response_and_route);
                 }
                 Err(error) if automatic_fallback_error(&error) => last_retryable = Some(error),
                 Err(error) => return Err(error),

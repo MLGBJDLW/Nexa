@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "Example: **/.env* or **/*.log",
   "addPattern": "Add",
   "redactRules": "Redaction Rules",
-  "redactRulesDesc": "Matched content will be replaced with the specified text",
+  "redactRulesDesc": "Matched content is replaced. Enabling redaction or changing active rules clears indexed text and saved citation history. Rescan sources to rebuild the index.",
   "ruleName": "Name",
   "rulePattern": "Pattern",
   "ruleReplacement": "Replacement",

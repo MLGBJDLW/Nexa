@@ -295,6 +295,9 @@ pub async fn check_contradictions(
     let mut doc_summaries = Vec::new();
     for (doc_id, path) in &docs {
         if let Ok(Some(summary)) = db.get_document_summary(doc_id) {
+            if summary.stale || !summary.coverage.complete {
+                continue;
+            }
             doc_summaries.push(format!("Document '{path}': {}", summary.summary));
         }
     }

@@ -72,7 +72,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`record_verification`](../crates/core/prompts/tools/record_verification.json) | Record what was verified before finishing a multi-step task |
 | [`reindex_document`](../crates/core/prompts/tools/reindex_document.json) | Trigger re-indexing of a specific document by path or an entire source directory |
 | [`request_user_input`](../crates/core/prompts/tools/request_user_input.json) | Ask the user one to six concise, structured questions when their input is genuinely needed |
-| [`retrieve_evidence`](../crates/core/prompts/tools/retrieve_evidence.json) | Retrieve specific evidence chunks by their chunk IDs |
+| [`retrieve_evidence`](../crates/core/prompts/tools/retrieve_evidence.json) | Retrieve up to 20 evidence chunks by their IDs, including retained historical versions |
 | [`run_health_check`](../crates/core/prompts/tools/run_health_check.json) | Run knowledge base health diagnostics to find stale documents, orphaned content, duplicate entities, and coverage gaps |
 | [`search_by_date`](../crates/core/prompts/tools/search_by_date.json) | Browse documents by modification/creation date range |
 | [`search_files`](../crates/core/prompts/tools/search_files.json) | Search plain-text files by content inside registered source directories, similar to a safe rg/ripgrep query |

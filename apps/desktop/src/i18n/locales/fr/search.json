@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "Période d’indexation",
   "placeholder": "Rechercher par mot-clé...",
   "fts": "Texte intégral",
   "hybrid": "Hybride",
@@ -82,5 +83,7 @@
   "embeddingWarningAction": "Installer maintenant",
   "cloudVectors": "Vecteurs cloud",
   "vectorFusion": "Fusion locale/cloud",
-  "localFallback": "Repli local"
+  "localFallback": "Repli local",
+  "candidateLimit": "La limite de résultats est atteinte. Précisez les mots-clés ou les sources pour poursuivre la recherche.",
+  "paginationReset": "Les résultats ont changé. Retour à la première page."
 }

@@ -62,148 +62,27 @@ impl Tool for ChunkContextTool {
         let call_id = call_id.to_string();
         let source_scope = source_scope.to_vec();
         tokio::task::spawn_blocking(move || {
-            let context_count = args.context_chunks.min(5);
-            let conn = db.conn();
-
-            // 1. Look up the target chunk to get its document_id and chunk_index.
-            let target = conn.query_row(
-                "SELECT c.id, c.document_id, c.chunk_index, c.kind, c.content, d.path, d.title, d.source_id
-                 FROM chunks c
-                 JOIN documents d ON d.id = c.document_id
-                 WHERE c.id = ?1",
-                params![&args.chunk_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, String>(6)?,
-                        row.get::<_, String>(7)?,
-                    ))
-                },
-            );
-
-            let (
-                chunk_id,
-                document_id,
-                target_index,
-                _target_kind,
-                _target_content,
-                doc_path,
-                doc_title,
-                source_id,
-            ) = match target {
-                Ok(row) => row,
-                Err(rusqlite::Error::QueryReturnedNoRows) => {
-                    return Ok(ToolResult {
-                        call_id: call_id.clone(),
-                        content: format!("Chunk '{}' not found.", args.chunk_id),
-                        is_error: true,
-                        artifacts: None,
-                    });
-                }
-                Err(e) => return Err(CoreError::Database(e)),
+            let card=match crate::search::get_evidence_card(&db,&args.chunk_id) {
+                Ok(card)=>card,
+                Err(CoreError::NotFound(_))=>return Ok(ToolResult {call_id,content:format!("Chunk '{}' not found.",args.chunk_id),is_error:true,artifacts:None}),
+                Err(error)=>return Err(error),
             };
-
-            if ensure_source_in_scope(&source_id, &source_scope).is_err() {
-                return Ok(ToolResult {
-                    call_id,
-                    content: current_scope_miss_message().to_string(),
-                    is_error: true,
-                    artifacts: None,
-                });
+            if ensure_source_in_scope(&card.source_id.to_string(),&source_scope).is_err() {
+                return Ok(ToolResult {call_id,content:current_scope_miss_message().to_string(),is_error:true,artifacts:None});
             }
-
-            // 2. Get all chunks for the same document, ordered by chunk_index.
-            let mut stmt = conn.prepare(
-                "SELECT c.id, c.chunk_index, c.kind, c.content
-                 FROM chunks c
-                 WHERE c.document_id = ?1
-                 ORDER BY c.chunk_index",
-            )?;
-
-            let all_chunks: Vec<(String, i64, String, String)> = stmt
-                .query_map(params![&document_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-
-            // 3. Find the target chunk's position in the ordered list.
-            let target_pos = all_chunks
-                .iter()
-                .position(|(id, _, _, _)| id == &chunk_id)
-                .unwrap_or(0);
-
-            let start = target_pos.saturating_sub(context_count);
-            let end = (target_pos + context_count + 1).min(all_chunks.len());
-            let window = &all_chunks[start..end];
-
-            // 4. Format output with clear markers.
-            let mut text = format!(
-                "Document: {doc_title}\nPath: {doc_path}\nShowing chunks {} to {} of {} total\n\n",
-                start + 1,
-                end,
-                all_chunks.len()
-            );
-
-            let mut artifacts = Vec::new();
-
-            for (id, idx, kind, content) in window {
-                let marker = if *id == chunk_id {
-                    format!("--- [TARGET CHUNK (index {idx}, kind: {kind})] ---")
-                } else {
-                    format!("--- [chunk index {idx}, kind: {kind}] ---")
-                };
-                text.push_str(&marker);
-                text.push('\n');
-                text.push_str(content);
-                text.push_str("\n\n");
-
-                artifacts.push(json!({
-                    "chunkId": id,
-                    "chunkIndex": idx,
-                    "chunkKind": kind,
-                    "isTarget": *id == chunk_id,
-                    "content": content,
-                }));
+            let reference=card.evidence_ref.as_ref().ok_or_else(||CoreError::NotFound("Evidence reference unavailable".into()))?;
+            let context=crate::evidence::context(&db,reference,args.context_chunks)?;
+            let total:usize=db.conn().query_row("SELECT COUNT(DISTINCT chunk_index) FROM evidence_records WHERE source_id=?1 AND document_id=?2 AND revision=?3",params![reference.source_id.to_string(),reference.document_id.to_string(),reference.revision],|row|row.get(0))?;
+            let mut text=format!("Document: {}\nPath: {}\nIndexed version: {} ({})\nShowing {} of {total} chunks from this version.\n\n",card.document_title,card.document_path,reference.revision,reference.status,context.cards.len());
+            let mut artifacts=Vec::new();
+            for neighbor in &context.cards {
+                let is_target=neighbor.chunk_id==card.chunk_id;
+                text.push_str(&format!("--- [{} (index {}, kind: {})] ---\n[chunk_id: {}]\n{}\n\n",if is_target{"TARGET CHUNK"}else{"context chunk"},neighbor.chunk_index,neighbor.chunk_kind,neighbor.chunk_id,neighbor.content));
+                let mut value=serde_json::to_value(neighbor)?;value["isTarget"]=json!(is_target);artifacts.push(value);
             }
+            if context.truncated {text.push_str("The context text reached the 64000-character budget. Read the source for omitted text.\n");}
+            Ok(ToolResult {call_id,content:text,is_error:false,artifacts:Some(json!({"documentId":card.document_id,"documentPath":card.document_path,"documentTitle":card.document_title,"sourceId":card.source_id,"targetChunkIndex":card.chunk_index,"totalChunks":total,"evidenceRef":reference,"truncated":context.truncated,"chunks":artifacts}))})
 
-            // Include navigation hint if there's more beyond the window.
-            if start > 0 {
-                text.push_str(&format!(
-                    "(\u{2026} {} earlier chunk(s) not shown)\n",
-                    start
-                ));
-            }
-            if end < all_chunks.len() {
-                text.push_str(&format!(
-                    "(\u{2026} {} later chunk(s) not shown)\n",
-                    all_chunks.len() - end
-                ));
-            }
-
-            Ok(ToolResult {
-                call_id,
-                content: text,
-                is_error: false,
-                artifacts: Some(json!({
-                    "documentId": document_id,
-                    "documentPath": doc_path,
-                    "documentTitle": doc_title,
-                    "sourceId": source_id,
-                    "targetChunkIndex": target_index,
-                    "totalChunks": all_chunks.len(),
-                    "chunks": artifacts,
-                })),
-            })
         })
         .await
         .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?

@@ -1,13 +1,14 @@
 import type { FileType } from "./document";
 
 export interface SearchFilters {
+  documentIds?: string[];
   sourceIds: string[];
   fileTypes: FileType[];
   dateFrom: string | null;
   dateTo: string | null;
 }
 
-export type SearchMode = 'fts' | 'fts+graph' | `hybrid${'' | '+cloud' | '+fusion' | '+local-fallback'}${'' | '+graph'}`;
+export type SearchMode = 'fts' | 'fts+graph' | `hybrid${'' | '+cloud' | '+fusion' | '+local-fallback' | '+tfidf-fallback'}${'' | '+graph'}`;
 
 export interface GraphEntityHit {
   id: string;
@@ -35,15 +36,18 @@ export interface GraphRetrievalReport {
   candidateDocuments: GraphDocumentHit[];
   expandedChunkIds: string[];
   boostedChunkIds: string[];
+  candidateLimitReached?: boolean;
 }
 
 export interface SearchResult {
   query: string;
   totalMatches: number;
+  candidateLimitReached?: boolean;
   evidenceCards: import("./evidence").EvidenceCard[];
   searchTimeMs: number;
   searchMode?: SearchMode;
   graphRetrieval?: GraphRetrievalReport | null;
+  ranking?: { method: 'lexical_rules' | 'semantic_cross_encoder'; candidates: number; elapsedMs: number; fallbackReason: string | null } | null;
 }
 
 export type ContextItemRole =

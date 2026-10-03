@@ -38,6 +38,7 @@ pub mod crypto;
 pub mod dashscope_speech;
 pub mod db;
 pub mod db_executor;
+mod document_structure;
 pub mod dreaming;
 pub mod dreaming_scope;
 pub mod ecosystem;
@@ -47,6 +48,7 @@ pub mod embedding_provider_catalog;
 pub mod error;
 pub mod eval_harness;
 pub mod event_claim_graph;
+pub mod evidence;
 pub mod evidence_verifier;
 pub mod evolution;
 pub mod execution_environment;
@@ -63,8 +65,10 @@ pub mod ingest;
 pub mod intelligence;
 pub mod interaction;
 pub mod knowledge_graph;
+pub mod knowledge_jobs;
 pub mod knowledge_loop;
 pub mod learning;
+mod lexical;
 pub mod lint;
 pub mod live_analysis;
 pub mod llm;
@@ -152,3 +156,7 @@ pub mod workspace_rules;
 
 #[cfg(test)]
 mod architecture_fitness;
+
+pub mod knowledge_services;
+
+pub mod research_workspace;

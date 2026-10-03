@@ -1,6 +1,23 @@
 {
+  "paragraph": "Parágrafo {number}",
+  "tableRow": "Tabela {table}, linha {row}",
+  "slide": "Slide {number}",
+  "locationUnknown": "Posição indisponível; analise esta fonte novamente.",
+  "version": "Versão indexada",
+  "historical": "A fonte mudou. A versão citada é exibida.",
+  "fileRemoved": "O arquivo foi removido. As evidências salvas são exibidas.",
+  "ocrText": "Texto OCR; confira caracteres incertos no original.",
+  "cachedValues": "Valores de fórmulas salvos; nenhum recálculo foi realizado.",
+  "modelSummary": "Resumo gerado; consulte as evidências originais.",
+  "contents": "Seções do documento",
+  "moreSections": "Carregar mais seções",
+  "openCurrent": "Abrir fonte atual",
+  "fileChanged": "O arquivo mudou após a indexação. O destaque antigo não será aplicado.",
+  "previewLocationMissing": "Esta posição está fora da prévia disponível. O texto citado permanece no leitor de evidências.",
+  "loadError": "Não foi possível carregar esta citação.",
   "evidence": "Evidência",
   "openFile": "Abrir arquivo",
   "showInFolder": "Mostrar na pasta",
-  "copy": "Copiar"
+  "copy": "Copiar",
+  "extractedText": "Texto extraído; a localização exata na fonte não está disponível."
 }

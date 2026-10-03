@@ -26,12 +26,13 @@ Return a JSON object with exactly this structure:
 
 Rules:
 
-- Extract 3-10 entities per document, focus on the MOST important ones
+- Extract up to 10 entities per section, focusing on supported facts. Return no entities when the section has none.
 - Entity names should be normalized (capitalize properly, no duplicates)
 - Include aliases only when the document clearly uses alternate names, acronyms, casing variants, or translated names for the same entity
 - Relations should connect extracted entities to each other
 - Relation confidence must be a number from 0.0 to 1.0; use 0.9-1.0 only for explicit statements, 0.5-0.8 for strong implication, and avoid weak guesses
-- Relation evidence must be a short quote or paraphrased phrase from the document, not a new claim
+- Entity context and relation evidence must be short verbatim quotes from this section. Never invent a quote or infer that co-occurrence proves causation.
+- When the input is a partial section, do not claim that it covers the whole document. Treat OCR text, cached spreadsheet values, and visual metadata according to their stated provenance.
 - Tags should be lowercase, 2-5 per document
 - Keep summaries concise but informative
 - Return ONLY valid JSON, no markdown fencing

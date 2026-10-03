@@ -911,6 +911,53 @@ pub async fn extract_text_via_llm_vision_with_llm_provider_type(
 
 // ── PDF OCR ─────────────────────────────────────────────────────────
 
+pub struct PdfPageOcr {
+    pub text: String,
+    pub images_seen: usize,
+    pub images_failed: usize,
+}
+
+pub fn ocr_pdf_page_with_llm_provider_type(
+    document: &lopdf::Document,
+    page_id: lopdf::ObjectId,
+    config: &OcrConfig,
+    llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    llm_provider_type: Option<crate::llm::ProviderType>,
+) -> Result<PdfPageOcr, CoreError> {
+    let images = extract_images_from_pdf_page(document, page_id);
+    let mut result = PdfPageOcr {
+        text: String::new(),
+        images_seen: images.len(),
+        images_failed: 0,
+    };
+    for image in images {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        if image
+            .write_to(&mut buffer, image::ImageFormat::Png)
+            .is_err()
+        {
+            result.images_failed += 1;
+            continue;
+        }
+        match extract_text_from_image_with_llm_provider_type(
+            &buffer.into_inner(),
+            "image/png",
+            config,
+            llm_provider,
+            llm_provider_type,
+        ) {
+            Ok(ocr) if !ocr.full_text.trim().is_empty() => {
+                if !result.text.is_empty() {
+                    result.text.push_str("\n\n");
+                }
+                result.text.push_str(&ocr.full_text);
+            }
+            _ => result.images_failed += 1,
+        }
+    }
+    Ok(result)
+}
+
 /// Extract text from a scanned PDF by extracting embedded images and running OCR.
 ///
 /// Scanned PDFs store each page as an embedded image.  This function uses

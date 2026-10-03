@@ -86,6 +86,8 @@ pub fn preview_xlsx(path: &Path) -> Result<StructuredPreview, String> {
         sheets.push(PreviewSheet {
             name,
             index,
+            start_row: start.0,
+            start_column: start.1,
             row_count,
             column_count,
             preview_row_count,

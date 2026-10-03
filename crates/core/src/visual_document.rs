@@ -136,9 +136,23 @@ pub fn redact_visual_artifacts(
 ) {
     for artifact in artifacts {
         artifact.summary = redact(&artifact.summary);
-        if let Some(text) = artifact.extracted_text.as_mut() {
-            *text = redact(text);
+        for value in [
+            &mut artifact.extracted_text,
+            &mut artifact.title,
+            &mut artifact.location,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *value = redact(value);
         }
+        artifact.metadata.retain(|key, value| {
+            if redact(key) != *key {
+                return false;
+            }
+            *value = redact(value);
+            true
+        });
     }
 }
 

@@ -25,6 +25,170 @@ use crate::parse::{
 };
 use crate::privacy::{self, PrivacyConfig};
 
+pub const NATIVE_PARSER_PROFILE: &str = "native-v3";
+
+#[derive(Debug, Clone)]
+pub struct IndexedDocument {
+    pub id: String,
+    pub content_hash: String,
+    pub parser_profile: String,
+    pub parsed_hash: String,
+    pub redaction_profile: String,
+}
+
+fn parsed_hash(parsed: &ParsedDocument) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(parsed.title.as_bytes());
+    hasher.update(
+        parsed
+            .metadata
+            .get("redaction_profile")
+            .map(String::as_str)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    for chunk in &parsed.chunks {
+        hasher.update(chunk.content.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(
+            serde_json::to_string(&chunk.locator)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        hasher.update(chunk.extraction_method.as_bytes());
+        hasher.update(
+            chunk
+                .heading_context
+                .as_deref()
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+    }
+    for artifact in &parsed.visual_artifacts {
+        hasher.update(artifact.to_chunk_content().as_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+fn parsed_metadata_json(parsed: &ParsedDocument) -> Result<String, CoreError> {
+    let mut metadata = parsed.metadata.clone();
+    metadata.insert("parsed_hash".into(), parsed_hash(parsed));
+    metadata
+        .entry("parser_profile".into())
+        .or_insert_with(|| NATIVE_PARSER_PROFILE.into());
+    Ok(serde_json::to_string(&metadata)?)
+}
+
+fn parser_profile(parsed: &ParsedDocument) -> &str {
+    parsed
+        .metadata
+        .get("parser_profile")
+        .map(String::as_str)
+        .unwrap_or(NATIVE_PARSER_PROFILE)
+}
+
+fn apply_privacy(
+    parsed: &mut ParsedDocument,
+    config: &PrivacyConfig,
+    stored_fingerprint: &str,
+) -> Result<(), CoreError> {
+    privacy::validate_config(config)?;
+    parsed.metadata.insert(
+        "privacy_config_fingerprint".into(),
+        stored_fingerprint.into(),
+    );
+    parsed.metadata.insert(
+        "redaction_profile".into(),
+        privacy::redaction_fingerprint(config)?,
+    );
+    parsed
+        .metadata
+        .insert("redaction_enabled".into(), config.enabled.to_string());
+    if config.enabled {
+        parsed.title = privacy::redact_content(&parsed.title, &config.redact_patterns);
+        parsed.metadata.retain(|key, value| {
+            // Preserve operational identities/counts; everything else is source
+            // display metadata, including frontmatter and parser warning text.
+            if !matches!(
+                key.as_str(),
+                "privacy_config_fingerprint"
+                    | "redaction_profile"
+                    | "redaction_enabled"
+                    | "parser_profile"
+                    | "page_count"
+                    | "searchable_pages"
+                    | "uncovered_pages"
+                    | "duration_secs"
+                    | "thumbnail_path"
+                    | "video_width"
+                    | "video_height"
+                    | "video_bitrate"
+                    | "video_framerate"
+                    | "video_codec"
+                    | "visual_artifact_count"
+                    | "visual_artifact_kinds"
+                    | "ocr_source"
+                    | "media_analysis"
+            ) {
+                if privacy::redact_content(key, &config.redact_patterns) != *key {
+                    return false;
+                }
+                *value = privacy::redact_content(value, &config.redact_patterns);
+            }
+            true
+        });
+        for chunk in &mut parsed.chunks {
+            let content = privacy::redact_content(&chunk.content, &config.redact_patterns);
+            if content != chunk.content {
+                // Original byte counts cannot trim an altered redacted prefix.
+                chunk.overlap_start = 0;
+                chunk.content = content;
+            }
+            if let Some(heading) = &mut chunk.heading_context {
+                *heading = privacy::redact_content(heading, &config.redact_patterns);
+            }
+            privacy::redact_locator(&mut chunk.locator, &config.redact_patterns);
+        }
+        crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
+            privacy::redact_content(value, &config.redact_patterns)
+        });
+    }
+    Ok(())
+}
+
+fn validate_privacy_at_commit(
+    conn: &rusqlite::Connection,
+    parsed: &ParsedDocument,
+) -> Result<(), CoreError> {
+    if let Some(expected) = parsed.metadata.get("privacy_config_fingerprint") {
+        if *expected != privacy::config_fingerprint(&privacy::load_config_on(conn)?)? {
+            return Err(CoreError::Conflict(
+                "Privacy settings changed while scanning; retry with the current rules".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn revoke_changed_redaction_history(
+    conn: &rusqlite::Connection,
+    doc_id: &str,
+    parsed: &ParsedDocument,
+) -> Result<(), CoreError> {
+    if parsed
+        .metadata
+        .get("redaction_enabled")
+        .is_some_and(|value| value == "true")
+    {
+        if let Some(profile) = parsed.metadata.get("redaction_profile") {
+            // Also cover explicit scan_source_with_privacy overrides, which need
+            // not change the globally saved configuration.
+            conn.execute("DELETE FROM evidence_snapshots WHERE document_id=?1 AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?2", params![doc_id, profile])?;
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // File size limits
 // ---------------------------------------------------------------------------
@@ -194,6 +358,7 @@ fn scan_source_inner(
     on_progress: Option<&dyn Fn(ScanProgress)>,
 ) -> Result<IngestResult, CoreError> {
     let source = db.get_source(source_id)?;
+    let services = db.knowledge_services_config()?;
 
     // Load file size limits from app config.
     let app_cfg = db.load_app_config().unwrap_or_default();
@@ -204,22 +369,24 @@ fn scan_source_inner(
     };
 
     // Resolve privacy config: explicit > stored > default.
-    let default_config;
-    let privacy_cfg = match privacy {
-        Some(cfg) => cfg,
-        None => {
-            default_config = db.load_privacy_config()?;
-            &default_config
+    let stored_config = db.load_privacy_config()?;
+    let stored_fingerprint = privacy::config_fingerprint(&stored_config)?;
+    let privacy_cfg = privacy.unwrap_or(&stored_config);
+    privacy::validate_config(privacy_cfg)?;
+    if privacy_cfg.enabled {
+        let conn = db.conn();
+        if stored_fingerprint != privacy::config_fingerprint(&privacy::load_config_on(&conn)?)? {
+            return Err(CoreError::Conflict(
+                "Privacy settings changed before scanning; retry with the current rules".into(),
+            ));
         }
-    };
+        conn.execute("DELETE FROM evidence_snapshots WHERE source_id=?1 AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?2", params![source_id, privacy::redaction_fingerprint(privacy_cfg)?])?;
+    }
 
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
     let video_config = db.load_video_config().ok();
-    #[cfg(all(feature = "video", feature = "ocr"))]
     let ocr_config = db.load_ocr_config().ok();
-    #[cfg(all(feature = "video", not(feature = "ocr")))]
-    let ocr_config = Some(crate::ocr::OcrConfig::default());
     #[cfg(feature = "video")]
     let speech_config = app_cfg.speech_to_text.clone();
 
@@ -385,7 +552,7 @@ fn scan_source_inner(
             file_path,
             &existing_docs,
             privacy_cfg,
-            #[cfg(feature = "video")]
+            &stored_fingerprint,
             ocr_config.as_ref(),
             #[cfg(feature = "video")]
             video_config.as_ref(),
@@ -393,6 +560,7 @@ fn scan_source_inner(
             Some(&speech_config),
             Some(&media_progress),
             max_chunk_chars,
+            &services,
         ) {
             Ok(FileClassification::New(parsed)) => {
                 // File succeeded — clear any previous error record.
@@ -432,15 +600,21 @@ fn scan_source_inner(
         batch_update_documents(db, &update_docs)?;
     }
 
-    // Purge stale documents: entries in the DB whose files no longer exist on disk.
-    for (doc_path, (_doc_id, _hash)) in &existing_docs {
+    // Exclusion changes also apply to files already removed from the live index.
+    let scope_paths = db.knowledge_scope_paths(source_id)?;
+    for doc_path in &scope_paths {
         let existing_path = Path::new(doc_path);
-        if is_code_source_file(existing_path) || is_unhandled_binary_file(existing_path) {
+        let relative = relative_source_path(root, existing_path);
+        let excluded = relative.as_ref().is_none_or(|relative| {
+            (has_includes && !include_set.is_match(relative)) || exclude_set.is_match(relative)
+        });
+        if excluded || is_code_source_file(existing_path) || is_unhandled_binary_file(existing_path)
+        {
             info!(
                 "Purging unsupported document from knowledge source: {}",
                 doc_path
             );
-            match db.delete_document_by_path(doc_path) {
+            match db.forget_document_in_source(source_id, doc_path) {
                 Ok(true) => result.files_purged += 1,
                 Ok(false) => {
                     debug!("Unsupported document already removed: {}", doc_path);
@@ -456,7 +630,12 @@ fn scan_source_inner(
                 "Purging stale document (file removed from disk): {}",
                 doc_path
             );
-            match db.delete_document_by_path(doc_path) {
+            match db.delete_document_with_scan_privacy(
+                source_id,
+                doc_path,
+                privacy_cfg,
+                &stored_fingerprint,
+            ) {
                 Ok(true) => result.files_purged += 1,
                 Ok(false) => {
                     debug!("Stale document already removed: {}", doc_path);
@@ -505,6 +684,7 @@ fn scan_source_inner(
         result.files_purged
     );
 
+    db.record_source_scan(&result)?;
     Ok(result)
 }
 
@@ -555,9 +735,9 @@ pub fn batch_insert_documents(
     let tx = conn.transaction()?;
     let mut count = 0usize;
     for parsed in parsed_docs {
+        validate_privacy_at_commit(&tx, parsed)?;
         let doc_id = uuid::Uuid::new_v4().to_string();
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
                                     modified_at, content_hash, metadata)
@@ -593,12 +773,13 @@ pub fn batch_update_documents(
     let tx = conn.transaction()?;
     let mut count = 0usize;
     for (doc_id, parsed) in updates {
+        validate_privacy_at_commit(&tx, parsed)?;
         // Delete old chunks — FTS triggers fire automatically.
         tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
+        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
 
         // Update the document record.
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "UPDATE documents
              SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
@@ -654,23 +835,150 @@ impl Database {
     pub fn get_document_paths_for_source(
         &self,
         source_id: &str,
-    ) -> Result<HashMap<String, (String, String)>, CoreError> {
+    ) -> Result<HashMap<String, IndexedDocument>, CoreError> {
+        let source = self.get_source(source_id)?;
         let conn = self.conn();
         let mut stmt =
-            conn.prepare("SELECT id, path, content_hash FROM documents WHERE source_id = ?1")?;
+            conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),''), COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id = ?1")?;
         let rows = stmt.query_map(params![source_id], |row| {
             Ok((
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
             ))
         })?;
+        let records = rows.collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        drop(conn);
         let mut map = HashMap::new();
-        for row in rows {
-            let (path, id, hash) = row?;
-            map.insert(path, (id, hash));
+        for (path, id, content_hash, parser_profile, parsed_hash, redaction_profile) in records {
+            let key = relative_source_path(Path::new(&source.root_path), Path::new(&path))
+                .map(|relative| {
+                    Path::new(&source.root_path)
+                        .join(relative)
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .unwrap_or(path);
+            map.entry(key).or_insert(IndexedDocument {
+                id,
+                content_hash,
+                parser_profile,
+                parsed_hash,
+                redaction_profile,
+            });
         }
         Ok(map)
+    }
+
+    fn knowledge_scope_paths(&self, source_id: &str) -> Result<Vec<String>, CoreError> {
+        let conn = self.conn();
+        let mut statement=conn.prepare("SELECT path FROM documents WHERE source_id=?1 UNION SELECT document_path FROM evidence_snapshots WHERE source_id=?1 UNION SELECT path FROM research_documents WHERE source_id=?1")?;
+        let rows = statement
+            .query_map([source_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_document_in_source(
+        &self,
+        source_id: &str,
+        path: &str,
+    ) -> Result<Option<IndexedDocument>, CoreError> {
+        use rusqlite::OptionalExtension;
+        let read = |row: &rusqlite::Row<'_>| {
+            Ok(IndexedDocument {
+                id: row.get(0)?,
+                content_hash: row.get(1)?,
+                parser_profile: row.get(2)?,
+                parsed_hash: row.get(3)?,
+                redaction_profile: row.get(4)?,
+            })
+        };
+        let exact = self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], read).optional()?;
+        if exact.is_some() {
+            return Ok(exact);
+        }
+        let aliases = serde_json::to_string(&source_document_path_aliases(
+            &self.conn(),
+            source_id,
+            path,
+        )?)?;
+        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
+    }
+
+    pub fn delete_document_in_source(
+        &self,
+        source_id: &str,
+        path: &str,
+    ) -> Result<bool, CoreError> {
+        let config = self.load_privacy_config()?;
+        let fingerprint = privacy::config_fingerprint(&config)?;
+        self.delete_document_with_scan_privacy(source_id, path, &config, &fingerprint)
+    }
+
+    fn delete_document_with_scan_privacy(
+        &self,
+        source_id: &str,
+        path: &str,
+        config: &PrivacyConfig,
+        stored_fingerprint: &str,
+    ) -> Result<bool, CoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        if stored_fingerprint != privacy::config_fingerprint(&privacy::load_config_on(&tx)?)? {
+            return Err(CoreError::Conflict(
+                "Privacy settings changed before removal; retry the source scan".into(),
+            ));
+        }
+        let aliases = source_document_path_aliases(&tx, source_id, path)?;
+        let document_ids =
+            serde_json::to_string(&document_ids_for_aliases(&tx, source_id, &aliases)?)?;
+        let changed = tx.execute(
+            "DELETE FROM documents WHERE source_id=?1 AND id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
+        )? > 0;
+        if config.enabled {
+            // Deletion archives old chunks; revoke mismatched copies within the
+            // same transaction, before any reader can observe them.
+            tx.execute("DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_id IN (SELECT value FROM json_each(?2)) AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?3", params![source_id,document_ids,privacy::redaction_fingerprint(config)?])?;
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
+    pub fn forget_document_in_source(
+        &self,
+        source_id: &str,
+        path: &str,
+    ) -> Result<bool, CoreError> {
+        let mut conn = self.conn();
+        let transaction = conn.transaction()?;
+        // Resolve identity before deleting: revisions may retain a different
+        // path spelling, and deleted files may only have archive/research rows.
+        let aliases = source_document_path_aliases(&transaction, source_id, path)?;
+        let document_ids = serde_json::to_string(&document_ids_for_aliases(
+            &transaction,
+            source_id,
+            &aliases,
+        )?)?;
+        let changed = transaction.execute(
+            "DELETE FROM documents WHERE source_id=?1 AND id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
+        )? > 0;
+        let archived = transaction.execute(
+            "DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
+        )?;
+        let research = transaction.execute(
+            "DELETE FROM research_documents WHERE source_id=?1 AND document_id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
+        )?;
+        transaction.commit()?;
+        Ok(changed || archived > 0 || research > 0)
     }
 
     /// Insert a new document and all its chunks within a single transaction.
@@ -686,8 +994,9 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        validate_privacy_at_commit(&tx, parsed)?;
+
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
                                     modified_at, content_hash, metadata)
@@ -719,12 +1028,14 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
+        validate_privacy_at_commit(&tx, parsed)?;
+
         // Delete old chunks — FTS triggers fire automatically.
         tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
+        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
 
         // Update the document record.
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "UPDATE documents
              SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
@@ -789,25 +1100,29 @@ enum FileClassification {
 #[allow(clippy::too_many_arguments)]
 fn classify_file(
     path: &Path,
-    existing_docs: &HashMap<String, (String, String)>,
+    existing_docs: &HashMap<String, IndexedDocument>,
     privacy: &PrivacyConfig,
-    #[cfg(feature = "video")] ocr_config: Option<&crate::ocr::OcrConfig>,
+    stored_fingerprint: &str,
+    ocr_config: Option<&crate::ocr::OcrConfig>,
     #[cfg(feature = "video")] video_config: Option<&crate::video::VideoConfig>,
     #[cfg(feature = "video")] speech_config: Option<&crate::app_settings::SpeechToTextConfig>,
     progress_callback: Option<&dyn Fn(f32)>,
     max_chunk_chars: Option<usize>,
+    services: &crate::knowledge_services::KnowledgeServicesConfig,
 ) -> Result<FileClassification, CoreError> {
     #[cfg(feature = "video")]
     let file_path = path.to_string_lossy().to_string();
     #[cfg(feature = "video")]
     let known_content_hash = {
+        let redaction_profile = privacy::redaction_fingerprint(privacy)?;
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
-            if existing_docs
-                .get(&file_path)
-                .is_some_and(|(_, existing_hash)| existing_hash == &hash)
-            {
+            if existing_docs.get(&file_path).is_some_and(|existing| {
+                existing.content_hash == hash
+                    && existing.parser_profile == NATIVE_PARSER_PROFILE
+                    && existing.redaction_profile == redaction_profile
+            }) {
                 debug!("Skipping unchanged media before analysis: {}", file_path);
                 return Ok(FileClassification::Unchanged);
             }
@@ -817,43 +1132,41 @@ fn classify_file(
         }
     };
 
-    let mut parsed = parse_file_with_media_config(
-        path,
-        #[cfg(feature = "video")]
-        ocr_config,
-        #[cfg(not(feature = "video"))]
-        None,
-        #[cfg(feature = "video")]
-        video_config,
-        #[cfg(feature = "video")]
-        speech_config,
-        None,
-        progress_callback,
-        max_chunk_chars,
-        #[cfg(feature = "video")]
-        known_content_hash.as_deref(),
-        #[cfg(not(feature = "video"))]
-        None,
-    )?;
+    let mut parsed = if let Some(parsed) =
+        crate::knowledge_services::parse_pdf(services, path, max_chunk_chars.unwrap_or(2000))?
+    {
+        parsed
+    } else {
+        parse_file_with_media_config(
+            path,
+            ocr_config,
+            #[cfg(feature = "video")]
+            video_config,
+            #[cfg(feature = "video")]
+            speech_config,
+            None,
+            progress_callback,
+            max_chunk_chars,
+            #[cfg(feature = "video")]
+            known_content_hash.as_deref(),
+            #[cfg(not(feature = "video"))]
+            None,
+        )?
+    };
 
-    // Apply content redaction when privacy is enabled.
-    if privacy.enabled {
-        for chunk in &mut parsed.chunks {
-            chunk.content = privacy::redact_content(&chunk.content, &privacy.redact_patterns);
-        }
-        crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
-            privacy::redact_content(value, &privacy.redact_patterns)
-        });
-    }
+    apply_privacy(&mut parsed, privacy, stored_fingerprint)?;
 
     match existing_docs.get(&parsed.file_path) {
-        Some((doc_id, existing_hash)) => {
-            if *existing_hash == parsed.content_hash {
+        Some(existing) => {
+            if existing.content_hash == parsed.content_hash
+                && existing.parser_profile == parser_profile(&parsed)
+                && existing.parsed_hash == parsed_hash(&parsed)
+            {
                 debug!("Skipping unchanged file: {}", parsed.file_path);
                 Ok(FileClassification::Unchanged)
             } else {
                 debug!("File changed: {}", parsed.file_path);
-                Ok(FileClassification::Changed(doc_id.clone(), parsed))
+                Ok(FileClassification::Changed(existing.id.clone(), parsed))
             }
         }
         None => {
@@ -872,9 +1185,21 @@ fn insert_chunks(
     for chunk in chunks {
         let chunk_id = uuid::Uuid::new_v4().to_string();
         let chunk_hash = blake3::hash(chunk.content.as_bytes()).to_hex().to_string();
-        let line_end = chunk.content.lines().count().max(1) as i64;
+        let (line_start, line_end) = match &chunk.locator {
+            crate::evidence::EvidenceLocator::Text {
+                line_start,
+                line_end,
+                ..
+            } => (*line_start as i64, *line_end as i64),
+            _ => (0, 0),
+        };
         let metadata = {
             let mut meta = serde_json::Map::new();
+            meta.insert("locator".into(), serde_json::to_value(&chunk.locator)?);
+            meta.insert(
+                "extraction_method".into(),
+                serde_json::json!(chunk.extraction_method),
+            );
             if let Some(h) = &chunk.heading_context {
                 meta.insert(
                     "heading_context".to_string(),
@@ -894,7 +1219,7 @@ fn insert_chunks(
             "INSERT INTO chunks (id, document_id, chunk_index, kind, content,
                                  start_offset, end_offset, line_start, line_end,
                                  content_hash, metadata_json)
-             VALUES (?1, ?2, ?3, 'text', ?4, ?5, ?6, 1, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, 'text', ?4, ?5, ?6, ?10, ?7, ?8, ?9)",
             params![
                 &chunk_id,
                 doc_id,
@@ -905,6 +1230,7 @@ fn insert_chunks(
                 line_end,
                 &chunk_hash,
                 &metadata,
+                line_start,
             ],
         )?;
     }
@@ -970,11 +1296,55 @@ pub fn ingest_single_file(
     source_id: &str,
     path: &Path,
 ) -> Result<IngestFileResult, CoreError> {
+    ingest_file(db, source_id, path, false)
+}
+
+pub fn reindex_single_file(
+    db: &Database,
+    source_id: &str,
+    path: &Path,
+) -> Result<IngestFileResult, CoreError> {
+    ingest_file(db, source_id, path, true)
+}
+
+fn ingest_file(
+    db: &Database,
+    source_id: &str,
+    path: &Path,
+    force: bool,
+) -> Result<IngestFileResult, CoreError> {
     if !path.is_file() {
         return Err(CoreError::InvalidInput(format!(
             "Path is not a file: {}",
             path.display()
         )));
+    }
+
+    let source = db.get_source(source_id)?;
+    let canonical_root = std::fs::canonicalize(&source.root_path)?;
+    let canonical_path = std::fs::canonicalize(path)?;
+    let relative = canonical_path
+        .strip_prefix(&canonical_root)
+        .map_err(|_| CoreError::InvalidInput("File is outside the selected source".into()))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    // Match directory scanning at every single-file entry point, including
+    // watcher and tool paths containing a Windows verbatim prefix or root alias.
+    let stable_path = Path::new(&source.root_path).join(&relative);
+    let path = stable_path.as_path();
+    let privacy_cfg = db.load_privacy_config()?;
+    privacy::validate_config(&privacy_cfg)?;
+    let stored_fingerprint = privacy::config_fingerprint(&privacy_cfg)?;
+    let includes = build_glob_set(&source.include_globs)?;
+    let mut excludes = source.exclude_globs.clone();
+    excludes.extend(privacy_cfg.exclude_patterns.iter().cloned());
+    if (!source.include_globs.is_empty() && !includes.is_match(&relative))
+        || build_glob_set(&excludes)?.is_match(&relative)
+    {
+        db.forget_document_in_source(source_id, &path.to_string_lossy())?;
+        return Err(CoreError::InvalidInput(
+            "File is excluded by source or privacy rules".into(),
+        ));
     }
 
     if is_code_source_file(path) {
@@ -983,7 +1353,7 @@ pub fn ingest_single_file(
             path.display()
         );
         let path_str = path.to_string_lossy();
-        let _ = db.delete_document_by_path(path_str.as_ref())?;
+        let _ = db.forget_document_in_source(source_id, path_str.as_ref())?;
         return Ok(IngestFileResult::Unchanged);
     }
 
@@ -994,7 +1364,7 @@ pub fn ingest_single_file(
         );
         let path_str = path.to_string_lossy();
         let _ = db.clear_scan_error(source_id, &path_str);
-        let _ = db.delete_document_by_path(path_str.as_ref())?;
+        let _ = db.forget_document_in_source(source_id, path_str.as_ref())?;
         return Ok(IngestFileResult::Unchanged);
     }
 
@@ -1020,21 +1390,15 @@ pub fn ingest_single_file(
 
     // Skip files that have repeatedly failed (backoff).
     let path_str = path.to_string_lossy();
-    if !db.should_retry_scan(source_id, &path_str).unwrap_or(true) {
+    if !force && !db.should_retry_scan(source_id, &path_str).unwrap_or(true) {
         debug!("Skipping file with repeated failures: {}", path.display());
         return Ok(IngestFileResult::Unchanged);
     }
 
-    // Load privacy config for redaction.
-    let privacy_cfg = db.load_privacy_config()?;
-
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
     let video_config = db.load_video_config().ok();
-    #[cfg(all(feature = "video", feature = "ocr"))]
     let ocr_config = db.load_ocr_config().ok();
-    #[cfg(all(feature = "video", not(feature = "ocr")))]
-    let ocr_config = Some(crate::ocr::OcrConfig::default());
     #[cfg(feature = "video")]
     let speech_config = app_cfg.speech_to_text.clone();
 
@@ -1046,16 +1410,19 @@ pub fn ingest_single_file(
         .ok()
         .map(|cfg| cfg.local_embedding_model().max_chunk_chars().max(1500));
 
-    let existing_document = db.get_document_by_path(&path_str)?;
+    let existing_document = db.get_document_in_source(source_id, &path_str)?;
     #[cfg(feature = "video")]
     let known_content_hash = {
+        let redaction_profile = privacy::redaction_fingerprint(&privacy_cfg)?;
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
-            if existing_document
-                .as_ref()
-                .is_some_and(|(_, existing_hash)| existing_hash == &hash)
-            {
+            if existing_document.as_ref().is_some_and(|existing| {
+                !force
+                    && existing.content_hash == hash
+                    && existing.parser_profile == NATIVE_PARSER_PROFILE
+                    && existing.redaction_profile == redaction_profile
+            }) {
                 debug!("Single-file ingest: unchanged media before analysis {path_str}");
                 return Ok(IngestFileResult::Unchanged);
             }
@@ -1065,24 +1432,29 @@ pub fn ingest_single_file(
         }
     };
 
-    let parsed_result = parse_file_with_media_config(
-        path,
-        #[cfg(feature = "video")]
-        ocr_config.as_ref(),
-        #[cfg(not(feature = "video"))]
-        None,
-        #[cfg(feature = "video")]
-        video_config.as_ref(),
-        #[cfg(feature = "video")]
-        Some(&speech_config),
-        None,
-        None,
-        max_chunk_chars,
-        #[cfg(feature = "video")]
-        known_content_hash.as_deref(),
-        #[cfg(not(feature = "video"))]
-        None,
-    );
+    let services = db.knowledge_services_config()?;
+    let parsed_result =
+        crate::knowledge_services::parse_pdf(&services, path, max_chunk_chars.unwrap_or(2000))
+            .and_then(|enhanced| {
+                if let Some(parsed) = enhanced {
+                    return Ok(parsed);
+                }
+                parse_file_with_media_config(
+                    path,
+                    ocr_config.as_ref(),
+                    #[cfg(feature = "video")]
+                    video_config.as_ref(),
+                    #[cfg(feature = "video")]
+                    Some(&speech_config),
+                    None,
+                    None,
+                    max_chunk_chars,
+                    #[cfg(feature = "video")]
+                    known_content_hash.as_deref(),
+                    #[cfg(not(feature = "video"))]
+                    None,
+                )
+            });
 
     let mut parsed = match parsed_result {
         Ok(p) => p,
@@ -1093,28 +1465,24 @@ pub fn ingest_single_file(
         }
     };
 
-    // Apply content redaction when privacy is enabled.
-    if privacy_cfg.enabled {
-        for chunk in &mut parsed.chunks {
-            chunk.content = privacy::redact_content(&chunk.content, &privacy_cfg.redact_patterns);
-        }
-        crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
-            privacy::redact_content(value, &privacy_cfg.redact_patterns)
-        });
-    }
+    apply_privacy(&mut parsed, &privacy_cfg, &stored_fingerprint)?;
 
     // Clear any previous scan error on success.
     let _ = db.clear_scan_error(source_id, &path_str);
 
     // Check if the document already exists.
     match existing_document {
-        Some((doc_id, existing_hash)) => {
-            if existing_hash == parsed.content_hash {
+        Some(existing) => {
+            if !force
+                && existing.content_hash == parsed.content_hash
+                && existing.parser_profile == parser_profile(&parsed)
+                && existing.parsed_hash == parsed_hash(&parsed)
+            {
                 debug!("Single-file ingest: unchanged {}", parsed.file_path);
                 Ok(IngestFileResult::Unchanged)
             } else {
                 debug!("Single-file ingest: updating {}", parsed.file_path);
-                db.update_document(&doc_id, &parsed)?;
+                db.update_document(&existing.id, &parsed)?;
                 Ok(IngestFileResult::Updated)
             }
         }
@@ -1124,6 +1492,142 @@ pub fn ingest_single_file(
             Ok(IngestFileResult::Added)
         }
     }
+}
+
+/// Bounded path spellings shared by identity lookup and explicit revocation.
+fn document_path_aliases(path: &str) -> Vec<String> {
+    let mut aliases = vec![path.to_string()];
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        aliases.push(canonical.to_string_lossy().into());
+    }
+    #[cfg(windows)]
+    for alias in aliases.clone() {
+        let windows = alias.replace('/', "\\");
+        let simple = if let Some(rest) = windows.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{rest}")
+        } else {
+            windows
+                .strip_prefix(r"\\?\")
+                .unwrap_or(&windows)
+                .to_string()
+        };
+        let extended = if let Some(rest) = simple.strip_prefix(r"\\") {
+            format!(r"\\?\UNC\{rest}")
+        } else {
+            format!(r"\\?\{simple}")
+        };
+        for spelling in [windows, simple, extended] {
+            aliases.push(spelling.replace('\\', "/"));
+            aliases.push(spelling);
+        }
+    }
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
+fn source_document_path_aliases(
+    conn: &rusqlite::Connection,
+    source_id: &str,
+    path: &str,
+) -> Result<Vec<String>, CoreError> {
+    use rusqlite::OptionalExtension;
+    let root: Option<String> = conn
+        .query_row(
+            "SELECT root_path FROM sources WHERE id=?1",
+            [source_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let mut aliases = document_path_aliases(path);
+    if let Some(root) = root {
+        let root = Path::new(&root);
+        if let Some(relative) = relative_source_path(root, Path::new(path)) {
+            aliases.extend(document_path_aliases(
+                &root.join(&relative).to_string_lossy(),
+            ));
+            if let Ok(canonical_root) = fs::canonicalize(root) {
+                aliases.extend(document_path_aliases(
+                    &canonical_root.join(relative).to_string_lossy(),
+                ));
+            }
+        }
+    }
+    aliases.sort();
+    aliases.dedup();
+    Ok(aliases)
+}
+
+fn document_ids_for_aliases(
+    conn: &rusqlite::Connection,
+    source_id: &str,
+    aliases: &[String],
+) -> Result<Vec<String>, CoreError> {
+    let mut statement = conn.prepare(
+        "SELECT id FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))
+         UNION SELECT document_id FROM evidence_snapshots WHERE source_id=?1 AND document_path IN (SELECT value FROM json_each(?2))
+         UNION SELECT document_id FROM research_documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))",
+    )?;
+    let rows = statement.query_map(params![source_id, serde_json::to_string(aliases)?], |row| {
+        row.get(0)
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Match configured and canonical source roots, including after the leaf is
+/// removed. This is shared by ingestion identity and watcher event routing.
+pub fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
+    fn normalized(path: &Path) -> String {
+        let value = path.to_string_lossy().replace('\\', "/");
+        if let Some(rest) = value.strip_prefix("//?/UNC/") {
+            format!("//{rest}")
+        } else {
+            value.strip_prefix("//?/").unwrap_or(&value).to_string()
+        }
+    }
+    if path.exists() {
+        let canonical_root = std::fs::canonicalize(root).ok()?;
+        let canonical_path = std::fs::canonicalize(path).ok()?;
+        return canonical_path
+            .strip_prefix(canonical_root)
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"));
+    }
+    let roots = [
+        normalized(root),
+        std::fs::canonicalize(root)
+            .ok()
+            .map(|value| normalized(&value))
+            .unwrap_or_default(),
+    ];
+    let path = normalized(path);
+    for root in roots {
+        if root.is_empty() {
+            continue;
+        }
+        let root = root.trim_end_matches('/');
+        let Some(prefix) = path.get(..root.len()) else {
+            continue;
+        };
+        if !(if cfg!(windows) {
+            prefix.eq_ignore_ascii_case(root)
+        } else {
+            prefix == root
+        }) {
+            continue;
+        }
+        let Some(relative) = path
+            .get(root.len()..)
+            .and_then(|value| value.strip_prefix('/'))
+        else {
+            continue;
+        };
+        if relative.split('/').any(|segment| segment == "..") {
+            continue;
+        }
+        return Some(relative.to_string());
+    }
+    None
 }
 
 /// Recursively walk a directory, collecting all file paths (sorted).
@@ -1139,6 +1643,9 @@ fn walk_recursive(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), CoreError>
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
+        if entry.file_type()?.is_symlink() {
+            continue;
+        }
         if path.is_dir() {
             walk_recursive(&path, files)?;
         } else if path.is_file() {
@@ -1192,6 +1699,210 @@ mod tests {
             .join("..")
             .join("testdata")
             .join("sample_vault")
+    }
+
+    fn source_reference(db: &Database, source: &str) -> crate::evidence::EvidenceRef {
+        crate::search::search(
+            db,
+            &crate::models::SearchQuery {
+                text: "needle".into(),
+                filters: Default::default(),
+                limit: 20,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .into_iter()
+        .find(|card| card.source_id.to_string() == source)
+        .unwrap()
+        .evidence_ref
+        .unwrap()
+    }
+
+    #[test]
+    fn watcher_removal_resolves_missing_aliases_without_cross_source_deletion() {
+        use crate::{research_workspace as research, search::resolve_evidence_ref};
+        let folder = TempDir::new().unwrap();
+        let actual_root = folder.path().join("actual");
+        fs::create_dir_all(actual_root.join("inner")).unwrap();
+        #[allow(unused_mut)]
+        let mut roots = vec![actual_root.join("inner").join("..")];
+        #[cfg(unix)]
+        {
+            let alias = folder.path().join("linked");
+            std::os::unix::fs::symlink(&actual_root, &alias).unwrap();
+            roots.push(alias);
+        }
+        for root in roots {
+            for stored_canonical in [false, true] {
+                let file = actual_root.join("removed.md");
+                let unrelated = actual_root.join("unrelated.md");
+                fs::write(&file, "needle Original evidence 500.").unwrap();
+                fs::write(&unrelated, "Unrelated source document remains indexed.").unwrap();
+                let canonical = fs::canonicalize(&file)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let configured = root.join("removed.md").to_string_lossy().to_string();
+                let db = test_db();
+                let source = create_test_source(&db, &root, vec![], vec![]);
+                let parent = create_test_source(&db, folder.path(), vec![], vec![]);
+                ingest_single_file(&db, &source, &file).unwrap();
+                ingest_single_file(&db, &source, &unrelated).unwrap();
+                let original = source_reference(&db, &source);
+                fs::write(&file, "needle Updated evidence 600.").unwrap();
+                ingest_single_file(&db, &source, &file).unwrap();
+                ingest_single_file(&db, &parent, &file).unwrap();
+                let parent_reference = source_reference(&db, &parent);
+                if stored_canonical {
+                    db.conn()
+                        .execute(
+                            "UPDATE documents SET path=?2 WHERE id=?1",
+                            params![original.document_id.to_string(), canonical],
+                        )
+                        .unwrap();
+                }
+                let current = source_reference(&db, &source);
+                let research = research::create(
+                    &db,
+                    research::CreateResearchSet {
+                        title: "Watcher evidence".into(),
+                        questions: vec!["needle".into()],
+                        documents: vec![current.clone()],
+                    },
+                )
+                .unwrap();
+                fs::remove_file(&file).unwrap();
+                let event_path = if stored_canonical {
+                    &configured
+                } else {
+                    &canonical
+                };
+                assert!(db.delete_document_in_source(&source, event_path).unwrap());
+                assert!(db
+                    .get_document_in_source(&source, event_path)
+                    .unwrap()
+                    .is_none());
+                assert!(crate::search::search(
+                    &db,
+                    &crate::models::SearchQuery {
+                        text: "needle".into(),
+                        filters: Default::default(),
+                        limit: 20,
+                        offset: 0,
+                    }
+                )
+                .unwrap()
+                .evidence_cards
+                .iter()
+                .all(|card| card.source_id.to_string() != source));
+                for reference in [&original, &current] {
+                    assert_eq!(
+                        resolve_evidence_ref(&db, reference)
+                            .unwrap()
+                            .evidence_ref
+                            .unwrap()
+                            .status,
+                        "missing"
+                    );
+                }
+                assert!(resolve_evidence_ref(&db, &original)
+                    .unwrap()
+                    .content
+                    .contains("500"));
+                assert!(research::get(&db, &research.summary.id).unwrap().documents[0].unavailable);
+                assert!(!db.delete_document_in_source(&source, event_path).unwrap());
+                assert!(db
+                    .get_document_in_source(&source, &unrelated.to_string_lossy())
+                    .unwrap()
+                    .is_some());
+                assert_eq!(
+                    resolve_evidence_ref(&db, &parent_reference)
+                        .unwrap()
+                        .evidence_ref
+                        .unwrap()
+                        .status,
+                    "current"
+                );
+                assert!(db.forget_document_in_source(&source, event_path).unwrap());
+                assert!(resolve_evidence_ref(&db, &original).is_err());
+                assert!(resolve_evidence_ref(&db, &current).is_err());
+                assert!(research::get(&db, &research.summary.id)
+                    .unwrap()
+                    .documents
+                    .is_empty());
+                assert!(resolve_evidence_ref(&db, &parent_reference).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn scan_privacy_removal_revokes_alias_history_by_identity() {
+        use crate::search::resolve_evidence_ref;
+        let folder = TempDir::new().unwrap();
+        fs::create_dir(folder.path().join("inner")).unwrap();
+        let root = folder.path().join("inner").join("..");
+        let file = folder.path().join("removed.md");
+        fs::write(&file, "needle contact alice@example.com").unwrap();
+        let canonical = fs::canonicalize(&file)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let db = test_db();
+        let disabled = PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        db.save_privacy_config(&disabled).unwrap();
+        let source = create_test_source(&db, &root, vec![], vec![]);
+        ingest_single_file(&db, &source, &file).unwrap();
+        let original = source_reference(&db, &source);
+        fs::write(&file, "needle contact bob@example.com").unwrap();
+        ingest_single_file(&db, &source, &file).unwrap();
+        let current = source_reference(&db, &source);
+        // A prior revision can have a spelling unrelated to the current event;
+        // deletion must purge it through document identity, not just path text.
+        db.conn().execute("UPDATE evidence_snapshots SET document_path='old-root/removed.md' WHERE document_id=?1", [original.document_id.to_string()]).unwrap();
+        fs::remove_file(&file).unwrap();
+        let strict = PrivacyConfig::default();
+        assert!(matches!(
+            db.delete_document_with_scan_privacy(&source, &canonical, &strict, "stale-policy"),
+            Err(CoreError::Conflict(_))
+        ));
+        assert!(resolve_evidence_ref(&db, &current).is_ok());
+        assert!(db
+            .delete_document_with_scan_privacy(
+                &source,
+                &canonical,
+                &strict,
+                &privacy::config_fingerprint(&disabled).unwrap()
+            )
+            .unwrap());
+        assert!(resolve_evidence_ref(&db, &original).is_err());
+        assert!(resolve_evidence_ref(&db, &current).is_err());
+
+        // A later stricter cleanup also reaches a file with archives only.
+        fs::write(&file, "needle archived contact alice@example.com").unwrap();
+        ingest_single_file(&db, &source, &file).unwrap();
+        let archived = source_reference(&db, &source);
+        fs::remove_file(&file).unwrap();
+        db.conn()
+            .execute(
+                "DELETE FROM documents WHERE id=?1",
+                [archived.document_id.to_string()],
+            )
+            .unwrap();
+        assert!(resolve_evidence_ref(&db, &archived).is_ok());
+        assert!(!db
+            .delete_document_with_scan_privacy(
+                &source,
+                &canonical,
+                &strict,
+                &privacy::config_fingerprint(&disabled).unwrap()
+            )
+            .unwrap());
+        assert!(resolve_evidence_ref(&db, &archived).is_err());
     }
 
     // ── Scan sample vault ───────────────────────────────────────────────
@@ -1819,7 +2530,17 @@ mod tests {
         .unwrap();
         let path_string = path.to_string_lossy().to_string();
         let hash = hash_file_content(&path).unwrap();
-        let existing = HashMap::from([(path_string, ("doc-1".to_string(), hash))]);
+        let existing = HashMap::from([(
+            path_string,
+            IndexedDocument {
+                id: "doc-1".into(),
+                content_hash: hash,
+                parser_profile: NATIVE_PARSER_PROFILE.into(),
+                parsed_hash: String::new(),
+                redaction_profile: privacy::redaction_fingerprint(&PrivacyConfig::default())
+                    .unwrap(),
+            },
+        )]);
         let video = crate::video::VideoConfig {
             enabled: true,
             ffmpeg_path: Some("/definitely/missing/ffmpeg".into()),
@@ -1830,11 +2551,13 @@ mod tests {
             &path,
             &existing,
             &PrivacyConfig::default(),
+            &privacy::config_fingerprint(&PrivacyConfig::default()).unwrap(),
             Some(&crate::ocr::OcrConfig::default()),
             Some(&video),
             Some(&crate::app_settings::SpeechToTextConfig::default()),
             None,
             None,
+            &crate::knowledge_services::KnowledgeServicesConfig::default(),
         )
         .unwrap();
 

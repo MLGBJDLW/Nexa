@@ -22,6 +22,10 @@ use crate::rag;
 /// Default search result limit when the caller doesn't specify one.
 const DEFAULT_SEARCH_LIMIT: u32 = 20;
 
+/// A query-stable horizon; page size and offset never change candidate ranking.
+const SEARCH_CANDIDATE_LIMIT: usize = 200;
+const GRAPH_DOCUMENT_LIMIT: usize = 120;
+
 /// Maximum length for the snippet preview field.
 const SNIPPET_MAX_LEN: usize = 150;
 
@@ -54,30 +58,28 @@ fn make_snippet(content: &str) -> Option<String> {
     }
 }
 
-/// Deduplicate evidence cards by document: keep only the highest-scored card
-/// per `document_id`.
+/// Pack finalized, ranked cards by document while preferring direct evidence
+/// over supporting summaries and retaining the selected cards' rank order.
 fn deduplicate_by_document(cards: Vec<EvidenceCard>) -> Vec<EvidenceCard> {
-    let mut best: HashMap<Uuid, EvidenceCard> = HashMap::new();
-    for card in cards {
+    let mut best: HashMap<Uuid, (usize, EvidenceCard)> = HashMap::new();
+    for (rank, card) in cards.into_iter().enumerate() {
         best.entry(card.document_id)
-            .and_modify(|existing| {
+            .and_modify(|(existing_rank, existing)| {
                 let existing_is_summary = rag::is_supporting_summary_card(existing);
                 let card_is_summary = rag::is_supporting_summary_card(&card);
                 let should_replace = (existing_is_summary && !card_is_summary)
                     || (existing_is_summary == card_is_summary && card.score > existing.score);
                 if should_replace {
+                    *existing_rank = rank;
                     *existing = card.clone();
                 }
             })
-            .or_insert(card);
+            .or_insert((rank, card));
     }
-    let mut result: Vec<EvidenceCard> = best.into_values().collect();
-    result.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    result
+    // Preserve the finalized ordering, including the unscored reranker tail.
+    let mut result: Vec<_> = best.into_values().collect();
+    result.sort_by_key(|(rank, _)| *rank);
+    result.into_iter().map(|(_, card)| card).collect()
 }
 
 /// Minimum cosine similarity to include a vector search result.
@@ -92,12 +94,17 @@ const DEFAULT_MIN_SEARCH_SIMILARITY: f32 = 0.2;
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
     pub query: String,
+    /// Final packed cards available for pagination within the bounded horizon.
     pub total_matches: usize,
+    #[serde(default)]
+    pub candidate_limit_reached: bool,
     pub evidence_cards: Vec<EvidenceCard>,
     pub search_time_ms: u64,
     pub search_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph_retrieval: Option<GraphRetrievalReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ranking: Option<crate::knowledge_services::RankingReport>,
 }
 
 // ---------------------------------------------------------------------------
@@ -126,10 +133,12 @@ fn search_internal(
         return Ok(SearchResult {
             query: query.text.clone(),
             total_matches: 0,
+            candidate_limit_reached: false,
             evidence_cards: Vec::new(),
             search_time_ms: start.elapsed().as_millis() as u64,
             search_mode: "fts".to_string(),
             graph_retrieval: None,
+            ranking: None,
         });
     }
 
@@ -138,10 +147,12 @@ fn search_internal(
         return Ok(SearchResult {
             query: query.text.clone(),
             total_matches: 0,
+            candidate_limit_reached: false,
             evidence_cards: Vec::new(),
             search_time_ms: start.elapsed().as_millis() as u64,
             search_mode: "fts".to_string(),
             graph_retrieval: None,
+            ranking: None,
         });
     }
 
@@ -154,7 +165,7 @@ fn search_internal(
     } else {
         let extras = extra_terms
             .iter()
-            .map(|t| format!("\"{}\"", t))
+            .map(|t| build_fts_query(t))
             .collect::<Vec<_>>()
             .join(" OR ");
         format!("({}) OR ({})", base_fts, extras)
@@ -163,11 +174,10 @@ fn search_internal(
     let limit = if query.limit == 0 {
         DEFAULT_SEARCH_LIMIT
     } else {
-        query.limit
+        query.limit.min(200)
     };
-    // Over-fetch so feedback reranking can surface high-value results
-    // that BM25 alone might rank outside the requested limit.
-    let internal_limit = std::cmp::min(limit * 3, limit + 30);
+    // All pages rank the same bounded prefix before applying their offset.
+    let internal_limit = SEARCH_CANDIDATE_LIMIT;
     let terms = extract_terms(trimmed);
 
     // -- build dynamic SQL ------------------------------------------------
@@ -199,6 +209,20 @@ fn search_internal(
         sql.push_str(&format!(" AND d.source_id IN ({})", placeholders.join(",")));
         for sid in &filters.source_ids {
             param_values.push(Box::new(sid.to_string()));
+            param_idx += 1;
+        }
+    }
+
+    if !filters.document_ids.is_empty() {
+        let placeholders = filters
+            .document_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", param_idx + i))
+            .collect::<Vec<_>>();
+        sql.push_str(&format!(" AND d.id IN ({})", placeholders.join(",")));
+        for id in &filters.document_ids {
+            param_values.push(Box::new(id.to_string()));
             param_idx += 1;
         }
     }
@@ -240,23 +264,19 @@ fn search_internal(
     }
 
     // FTS5 `rank` is negative BM25 — lower (more negative) = better match.
-    sql.push_str(" ORDER BY fts.rank");
+    sql.push_str(" ORDER BY fts.rank, c.id");
     sql.push_str(&format!(" LIMIT ?{}", param_idx));
-    param_values.push(Box::new(internal_limit as i64));
-    param_idx += 1;
-
-    sql.push_str(&format!(" OFFSET ?{}", param_idx));
-    param_values.push(Box::new(query.offset as i64));
+    param_values.push(Box::new((internal_limit + 1) as i64));
 
     // -- execute ----------------------------------------------------------
 
-    let (cards, total_matches) = {
+    let (cards, candidate_limit_reached) = {
         let conn = db.conn();
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
         let mut stmt = conn.prepare(&sql)?;
 
-        let cards: Vec<EvidenceCard> = stmt
+        let mut cards: Vec<EvidenceCard> = stmt
             .query_map(param_refs.as_slice(), |row| {
                 let chunk_id: String = row.get(0)?;
                 let document_id: String = row.get(1)?;
@@ -277,6 +297,7 @@ fn search_internal(
 
                 let snippet = make_snippet(&content);
                 Ok(EvidenceCard {
+                    evidence_ref: None,
                     chunk_id: Uuid::parse_str(&chunk_id).unwrap_or_default(),
                     document_id: Uuid::parse_str(&document_id).unwrap_or_default(),
                     source_id: Uuid::parse_str(&_source_id).unwrap_or_default(),
@@ -297,83 +318,9 @@ fn search_internal(
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Count total matches (without LIMIT/OFFSET) for accurate pagination info.
-        let total_matches = if cards.len() < internal_limit as usize && query.offset == 0 {
-            // If we got fewer results than the internal limit on the first page, total = len.
-            cards.len()
-        } else {
-            // Run a separate count query for the true total.
-            let mut count_sql = String::from(
-                "SELECT COUNT(*)
-             FROM fts_chunks fts
-             JOIN chunks c ON c.rowid = fts.rowid
-             JOIN documents d ON d.id = c.document_id
-             JOIN sources s ON s.id = d.source_id
-             WHERE fts_chunks MATCH ?1",
-            );
-            // Re-apply the same filters (reuse the filter params before limit/offset).
-            // The param_values list has filters then limit then offset at the end.
-            // Rebuild a minimal count param list with just the fts_query + filters.
-            let mut count_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-            count_params.push(Box::new(fts_query.clone()));
-            let mut cp_idx: usize = 2;
-
-            if !filters.source_ids.is_empty() {
-                let placeholders: Vec<String> = filters
-                    .source_ids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("?{}", cp_idx + i))
-                    .collect();
-                count_sql.push_str(&format!(" AND d.source_id IN ({})", placeholders.join(",")));
-                for sid in &filters.source_ids {
-                    count_params.push(Box::new(sid.to_string()));
-                    cp_idx += 1;
-                }
-            }
-            if !filters.file_types.is_empty() {
-                let all_mimes: Vec<String> = filters
-                    .file_types
-                    .iter()
-                    .flat_map(file_type_to_mimes)
-                    .collect();
-                let placeholders: Vec<String> = all_mimes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("?{}", cp_idx + i))
-                    .collect();
-                count_sql.push_str(&format!(" AND d.mime_type IN ({})", placeholders.join(",")));
-                for mime in all_mimes {
-                    count_params.push(Box::new(mime));
-                    cp_idx += 1;
-                }
-            }
-            if let Some(ref from) = filters.date_from {
-                count_sql.push_str(&format!(
-                    " AND julianday(d.indexed_at) >= julianday(?{})",
-                    cp_idx
-                ));
-                count_params.push(Box::new(from.to_rfc3339()));
-                cp_idx += 1;
-            }
-            if let Some(ref to) = filters.date_to {
-                count_sql.push_str(&format!(
-                    " AND julianday(d.indexed_at) <= julianday(?{})",
-                    cp_idx
-                ));
-                count_params.push(Box::new(to.to_rfc3339()));
-                let _ = cp_idx;
-            }
-
-            let count_refs: Vec<&dyn rusqlite::types::ToSql> =
-                count_params.iter().map(|p| p.as_ref()).collect();
-            conn.query_row(&count_sql, count_refs.as_slice(), |row| {
-                row.get::<_, usize>(0)
-            })
-            .unwrap_or(cards.len())
-        };
-
-        (cards, total_matches)
+        let candidate_limit_reached = cards.len() > internal_limit;
+        cards.truncate(internal_limit);
+        (cards, candidate_limit_reached)
     }; // conn dropped here
 
     if apply_graph {
@@ -381,33 +328,42 @@ fn search_internal(
             db,
             query,
             cards,
-            total_matches,
+            candidate_limit_reached,
             start,
             "fts",
             limit as usize,
+            1,
         );
     }
 
     Ok(SearchResult {
         query: query.text.clone(),
-        total_matches,
+        total_matches: cards.len(),
+        candidate_limit_reached,
         evidence_cards: cards,
         search_time_ms: start.elapsed().as_millis() as u64,
         search_mode: "fts".to_string(),
         graph_retrieval: None,
+        ranking: None,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finalize_search_result(
     db: &Database,
     query: &SearchQuery,
     mut cards: Vec<EvidenceCard>,
-    total_matches: usize,
+    candidate_limit_reached: bool,
     start: Instant,
     base_mode: &str,
     limit: usize,
+    blocks_per_document: usize,
 ) -> Result<SearchResult, CoreError> {
-    let graph_retrieval = apply_graph_retrieval(db, query, &mut cards, limit)?;
+    let graph_retrieval = apply_graph_retrieval(db, query, &mut cards, GRAPH_DOCUMENT_LIMIT)?;
+    let candidate_limit_reached = candidate_limit_reached
+        || graph_retrieval
+            .as_ref()
+            .is_some_and(|report| report.candidate_limit_reached);
     let allowed = scoped_chunk_ids(
         db,
         &cards
@@ -426,8 +382,38 @@ fn finalize_search_result(
     rag::rerank_evidence_cards(&mut cards, query.text.trim());
     apply_graph_final_boost(&mut cards, graph_retrieval.as_ref());
 
-    let cards = deduplicate_by_document(cards);
-    let cards: Vec<EvidenceCard> = cards.into_iter().take(limit).collect();
+    let ranking = Some(crate::knowledge_services::rerank(
+        db,
+        query.text.trim(),
+        &mut cards,
+    )?);
+    let cards = if blocks_per_document == 1 {
+        deduplicate_by_document(cards)
+    } else {
+        let mut counts = HashMap::new();
+        let mut seen = HashSet::new();
+        cards
+            .into_iter()
+            .filter(|card| {
+                let count = counts.entry(card.document_id).or_insert(0usize);
+                if *count >= blocks_per_document
+                    || !seen.insert(card.chunk_id)
+                    || rag::is_supporting_summary_card(card)
+                {
+                    return false;
+                }
+                *count += 1;
+                true
+            })
+            .collect()
+    };
+    let total_matches = cards.len();
+    let mut cards: Vec<EvidenceCard> = cards
+        .into_iter()
+        .skip(query.offset as usize)
+        .take(limit)
+        .collect();
+    crate::evidence::hydrate_references(db, &mut cards)?;
     let graph_active = graph_retrieval
         .as_ref()
         .map(|report| {
@@ -444,11 +430,13 @@ fn finalize_search_result(
 
     Ok(SearchResult {
         query: query.text.clone(),
-        total_matches: total_matches.max(cards.len()),
+        total_matches,
+        candidate_limit_reached,
         evidence_cards: cards,
         search_time_ms: start.elapsed().as_millis() as u64,
         search_mode,
         graph_retrieval,
+        ranking,
     })
 }
 
@@ -471,8 +459,8 @@ fn apply_graph_final_boost(cards: &mut [EvidenceCard], report: Option<&GraphRetr
     }
     cards.sort_by(|a, b| {
         b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score)
+            .then_with(|| a.chunk_id.cmp(&b.chunk_id))
     });
 }
 
@@ -623,16 +611,37 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
 
 /// Retrieve a single evidence card by chunk ID (for playbook citation lookups).
 pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, CoreError> {
+    read_evidence_record(db, chunk_id, None)
+}
+
+pub fn resolve_evidence_ref(
+    db: &Database,
+    reference: &crate::evidence::EvidenceRef,
+) -> Result<EvidenceCard, CoreError> {
+    read_evidence_record(db, &reference.block_id.to_string(), Some(reference))
+}
+
+fn read_evidence_record(
+    db: &Database,
+    chunk_id: &str,
+    reference: Option<&crate::evidence::EvidenceRef>,
+) -> Result<EvidenceCard, CoreError> {
     let conn = db.conn();
     conn.query_row(
-        "SELECT c.id, c.document_id, c.content, c.chunk_index, c.kind, c.metadata_json,
-                d.path, d.title, d.source_id, s.root_path,
-                COALESCE(d.metadata, '{}')
-         FROM chunks c
-         JOIN documents d ON d.id = c.document_id
-         JOIN sources s ON s.id = d.source_id
-         WHERE c.id = ?1",
-        params![chunk_id],
+        "SELECT chunk_id, document_id, content, chunk_index, kind, metadata_json,
+                document_path, document_title, source_id, root_path, document_metadata,
+                revision, block_hash, status, document_hash
+         FROM evidence_records WHERE chunk_id = ?1
+           AND (?2 IS NULL OR source_id=?2) AND (?3 IS NULL OR document_id=?3)
+           AND (?4 IS NULL OR revision=?4) AND (?5 IS NULL OR block_hash=?5)
+         ORDER BY (status='current') DESC, archived_at DESC LIMIT 1",
+        params![
+            chunk_id,
+            reference.map(|r| r.source_id.to_string()),
+            reference.map(|r| r.document_id.to_string()),
+            reference.map(|r| &r.revision),
+            reference.map(|r| &r.content_hash)
+        ],
         |row| {
             let cid: String = row.get(0)?;
             let did: String = row.get(1)?;
@@ -647,7 +656,8 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
             let doc_metadata: String = row.get(10)?;
 
             let snippet = make_snippet(&content);
-            Ok(EvidenceCard {
+            let mut card = EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&cid).unwrap_or_default(),
                 document_id: Uuid::parse_str(&did).unwrap_or_default(),
                 source_id: Uuid::parse_str(&_source_id).unwrap_or_default(),
@@ -664,7 +674,17 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
                 document_date: extract_document_date(&doc_metadata),
                 credibility: None,
                 freshness_days: None,
-            })
+            };
+            card.evidence_ref = Some(crate::evidence::from_record(
+                &card,
+                row.get(11)?,
+                row.get(14)?,
+                row.get(12)?,
+                &metadata_json,
+                &card.chunk_kind,
+                row.get(13)?,
+            ));
+            Ok(card)
         },
     )
     .map_err(|e| match e {
@@ -696,6 +716,17 @@ pub fn get_evidence_cards(
 ///
 /// Falls back to graph-aware FTS5 when no embeddings or embedder state exist.
 pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreError> {
+    hybrid_search_packed(db, query, 1)
+}
+/// Research retains complementary blocks within each selected document.
+pub fn research_search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreError> {
+    hybrid_search_packed(db, query, 3)
+}
+fn hybrid_search_packed(
+    db: &Database,
+    query: &SearchQuery,
+    blocks_per_document: usize,
+) -> Result<SearchResult, CoreError> {
     let start = Instant::now();
     let trimmed = query.text.trim();
 
@@ -703,20 +734,21 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         return Ok(SearchResult {
             query: query.text.clone(),
             total_matches: 0,
+            candidate_limit_reached: false,
             evidence_cards: Vec::new(),
             search_time_ms: start.elapsed().as_millis() as u64,
             search_mode: "hybrid".to_string(),
             graph_retrieval: None,
+            ranking: None,
         });
     }
 
     let user_limit = if query.limit == 0 {
         DEFAULT_SEARCH_LIMIT
     } else {
-        query.limit
+        query.limit.min(200)
     } as usize;
-    // Over-fetch so reranking has more candidates to work with.
-    let internal_limit: usize = std::cmp::min(user_limit * 3, user_limit + 30);
+    let internal_limit = SEARCH_CANDIDATE_LIMIT;
     let terms = extract_terms(trimmed);
 
     // Step 1: FTS5 search with larger internal limit.
@@ -730,7 +762,9 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
 
     let mut vector_mode = "hybrid";
     // Step 2: Vector search — use the configured embedder model.
-    let vec_results = {
+    // Cloud adapters share the same 200-candidate maximum.
+    let vector_limit = internal_limit;
+    let mut vec_results = {
         let config = db.get_embedder_config()?;
         match config.provider.as_str() {
             "local" | "api" => {
@@ -740,12 +774,13 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                         // If create_embedder fell back to an empty TF-IDF
                         // (e.g. ONNX not downloaded), its dimensions will be 0.
                         if embedder.dimensions() == 0 {
+                            vector_mode = "hybrid+tfidf-fallback";
                             tracing::warn!(
                                 "Configured embedder ({}) returned empty dimensions, \
                                  falling back to TF-IDF state from DB",
                                 config.provider
                             );
-                            tfidf_vector_search_scoped(db, trimmed, internal_limit, &query.filters)
+                            tfidf_vector_search_scoped(db, trimmed, vector_limit, &query.filters)
                         } else if !db.has_embeddings_for_space(model_name)? {
                             // A new/migrated space has no useful vector query
                             // yet. Preserve FTS results without a paid API call.
@@ -761,7 +796,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                             model_name,
                                             &query_vec,
                                             &query.filters,
-                                            internal_limit,
+                                            vector_limit,
                                         )
                                         .map(|(hits, mode)| {
                                             vector_mode = mode;
@@ -769,6 +804,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                         })
                                         .unwrap_or_else(
                                             |e| {
+                                                vector_mode = "hybrid+tfidf-fallback";
                                                 tracing::warn!(
                                                     "Vector search with {} failed: {e}, \
                                                  trying TF-IDF fallback",
@@ -777,7 +813,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                                 tfidf_vector_search_scoped(
                                                     db,
                                                     trimmed,
-                                                    internal_limit,
+                                                    vector_limit,
                                                     &query.filters,
                                                 )
                                             },
@@ -785,6 +821,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                     }
                                 }
                                 Err(e) => {
+                                    vector_mode = "hybrid+tfidf-fallback";
                                     tracing::warn!(
                                         "Failed to embed query with {}: {e}, \
                                          trying TF-IDF fallback",
@@ -793,7 +830,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                                     tfidf_vector_search_scoped(
                                         db,
                                         trimmed,
-                                        internal_limit,
+                                        vector_limit,
                                         &query.filters,
                                     )
                                 }
@@ -801,18 +838,22 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                         }
                     }
                     Err(e) => {
+                        vector_mode = "hybrid+tfidf-fallback";
                         tracing::warn!(
                             "Failed to create embedder ({}): {e}, \
                              trying TF-IDF fallback",
                             config.provider
                         );
-                        tfidf_vector_search_scoped(db, trimmed, internal_limit, &query.filters)
+                        tfidf_vector_search_scoped(db, trimmed, vector_limit, &query.filters)
                     }
                 }
             }
             _ => {
                 // TF-IDF or unknown provider — use TF-IDF from DB state.
-                tfidf_vector_search_scoped(db, trimmed, internal_limit, &query.filters)
+                if config.provider != "tfidf" {
+                    vector_mode = "hybrid+tfidf-fallback";
+                }
+                tfidf_vector_search_scoped(db, trimmed, vector_limit, &query.filters)
             }
         }
     };
@@ -823,12 +864,17 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
             db,
             query,
             fts_result.evidence_cards,
-            fts_result.total_matches,
+            fts_result.candidate_limit_reached,
             start,
             "fts",
             user_limit,
+            blocks_per_document,
         );
     }
+
+    let mut candidate_limit_reached =
+        fts_result.candidate_limit_reached || vec_results.len() >= internal_limit;
+    vec_results.truncate(internal_limit);
 
     // Step 3: Build ranked ID lists for RRF.
     let fts_ranked: Vec<(String, f32)> = fts_result
@@ -853,6 +899,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
             offset: 0,
         };
         if let Ok(exp_result) = search_internal(db, &expansion_query, false) {
+            candidate_limit_reached |= exp_result.candidate_limit_reached;
             if !exp_result.evidence_cards.is_empty() {
                 let k = 60.0_f32;
                 let mut score_map: HashMap<String, f32> = merged.into_iter().collect();
@@ -861,12 +908,13 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
                     *score_map.entry(card.chunk_id.to_string()).or_insert(0.0) += 1.0 / (k + r);
                 }
                 merged = score_map.into_iter().collect();
-                merged.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                merged.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             }
         }
     }
 
-    // Step 5: Assemble EvidenceCards for the top results.
+    candidate_limit_reached |= merged.len() > internal_limit;
+    // Step 5: Assemble EvidenceCards for the same bounded pool on every page.
     let fts_card_map: HashMap<String, EvidenceCard> = fts_result
         .evidence_cards
         .into_iter()
@@ -874,7 +922,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         .collect();
 
     let mut cards = Vec::new();
-    for (chunk_id, rrf_score) in merged.iter().take(user_limit) {
+    for (chunk_id, rrf_score) in merged.iter().take(internal_limit) {
         let mut card = if let Some(fts_card) = fts_card_map.get(chunk_id) {
             fts_card.clone()
         } else {
@@ -893,10 +941,11 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         db,
         query,
         cards,
-        merged.len(),
+        candidate_limit_reached,
         start,
         vector_mode,
         user_limit,
+        blocks_per_document,
     )
 }
 
@@ -982,6 +1031,14 @@ fn append_vector_filters(
         filters.source_ids.iter().map(ToString::to_string).collect(),
     );
     add_in(
+        "d.id",
+        filters
+            .document_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+    );
+    add_in(
         "d.mime_type",
         filters
             .file_types
@@ -1038,11 +1095,20 @@ pub(crate) fn vector_search_top_k_scoped(
     const BATCH_SIZE: usize = 10_000;
     let min_similarity = min_sim.unwrap_or(DEFAULT_MIN_SEARCH_SIMILARITY);
     let mut top_k: Vec<(String, f32)> = Vec::with_capacity(k + 1);
-    let mut threshold: f32 = min_similarity;
+    let lowest_ranked_index = |entries: &[(String, f32)]| {
+        entries
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(index, _)| index)
+            .unwrap()
+    };
+    let mut worst_index = 0;
 
     let mut offset = 0usize;
     loop {
         let batch = if filters.source_ids.is_empty()
+            && filters.document_ids.is_empty()
             && filters.file_types.is_empty()
             && filters.date_from.is_none()
             && filters.date_to.is_none()
@@ -1086,20 +1152,13 @@ pub(crate) fn vector_search_top_k_scoped(
             if top_k.len() < k {
                 top_k.push((chunk_id, sim));
                 if top_k.len() == k {
-                    threshold = top_k.iter().map(|(_, s)| *s).fold(f32::INFINITY, f32::min);
+                    worst_index = lowest_ranked_index(&top_k);
                 }
-            } else if sim > threshold {
-                // Replace the element with the lowest score.
-                let min_idx = top_k
-                    .iter()
-                    .enumerate()
-                    .min_by(|(_, a), (_, b)| {
-                        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .map(|(i, _)| i)
-                    .unwrap();
-                top_k[min_idx] = (chunk_id, sim);
-                threshold = top_k.iter().map(|(_, s)| *s).fold(f32::INFINITY, f32::min);
+            } else if sim > top_k[worst_index].1
+                || (sim == top_k[worst_index].1 && chunk_id < top_k[worst_index].0)
+            {
+                top_k[worst_index] = (chunk_id, sim);
+                worst_index = lowest_ranked_index(&top_k);
             }
         }
 
@@ -1109,7 +1168,7 @@ pub(crate) fn vector_search_top_k_scoped(
         offset += BATCH_SIZE;
     }
 
-    top_k.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    top_k.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     Ok(top_k)
 }
 
@@ -1320,8 +1379,8 @@ fn apply_credibility_scoring(cards: &mut [EvidenceCard]) {
     }
     cards.sort_by(|a, b| {
         b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score)
+            .then_with(|| a.chunk_id.cmp(&b.chunk_id))
     });
 }
 
@@ -1394,8 +1453,8 @@ fn apply_query_relevance_adjustment(cards: &mut [EvidenceCard], query_text: &str
 
     cards.sort_by(|a, b| {
         b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score)
+            .then_with(|| a.chunk_id.cmp(&b.chunk_id))
     });
 }
 
@@ -1467,8 +1526,8 @@ fn apply_feedback_reranking(
     }
     cards.sort_by(|a, b| {
         b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score)
+            .then_with(|| a.chunk_id.cmp(&b.chunk_id))
     });
     Ok(())
 }
@@ -1479,32 +1538,7 @@ fn apply_feedback_reranking(
 /// characters. A trailing `*` on the last token is preserved for prefix
 /// search (e.g. `"depl"*`).
 fn build_fts_query(input: &str) -> String {
-    let tokens: Vec<&str> = input.split_whitespace().collect();
-    if tokens.is_empty() {
-        return String::new();
-    }
-
-    let mut parts: Vec<String> = Vec::with_capacity(tokens.len());
-    for (i, token) in tokens.iter().enumerate() {
-        let is_last = i == tokens.len() - 1;
-        if is_last && token.ends_with('*') {
-            let base = &token[..token.len() - 1];
-            if base.is_empty() {
-                continue; // lone `*` — skip
-            }
-            // Prefix search: "term"*
-            parts.push(format!("\"{}\"*", escape_fts_quotes(base)));
-        } else {
-            parts.push(format!("\"{}\"", escape_fts_quotes(token)));
-        }
-    }
-
-    parts.join(" OR ")
-}
-
-/// Escape double-quotes inside a token so it can be safely wrapped in `"…"`.
-fn escape_fts_quotes(s: &str) -> String {
-    s.replace('"', "\"\"")
+    crate::lexical::query(input)
 }
 
 /// Extract search terms from the user query for highlight computation.
@@ -1523,7 +1557,17 @@ fn extract_terms(input: &str) -> Vec<String> {
 /// Returns highlights sorted by start position.
 fn compute_highlights(content: &str, terms: &[String]) -> Vec<Highlight> {
     let mut highlights = Vec::new();
-    let content_lower = content.to_lowercase();
+    let mut content_lower = String::new();
+    let mut positions = Vec::new();
+    let mut utf16_offset = 0;
+    for ch in content.chars() {
+        let end = utf16_offset + ch.len_utf16();
+        for lower in ch.to_lowercase() {
+            content_lower.push(lower);
+            positions.extend(std::iter::repeat_n((utf16_offset, end), lower.len_utf8()));
+        }
+        utf16_offset = end;
+    }
 
     for term in terms {
         if term.is_empty() {
@@ -1534,16 +1578,27 @@ fn compute_highlights(content: &str, terms: &[String]) -> Vec<Highlight> {
             let abs_start = start + pos;
             let abs_end = abs_start + term.len();
             highlights.push(Highlight {
-                start: abs_start,
-                end: abs_end,
+                start: positions[abs_start].0,
+                end: positions[abs_end - 1].1,
                 term: term.clone(),
             });
             start = abs_end;
         }
     }
 
-    highlights.sort_by_key(|h| h.start);
-    highlights
+    highlights.sort_by_key(|h| (h.start, h.end));
+    let mut merged: Vec<Highlight> = Vec::new();
+    for highlight in highlights {
+        if let Some(previous) = merged
+            .last_mut()
+            .filter(|previous| previous.end > highlight.start)
+        {
+            previous.end = previous.end.max(highlight.end);
+        } else {
+            merged.push(highlight);
+        }
+    }
+    merged
 }
 
 /// Extract `heading_context` from the chunk's `metadata_json`.
@@ -1680,7 +1735,7 @@ fn rrf_merge(
     }
 
     let mut merged: Vec<(String, f32)> = scores.into_iter().collect();
-    merged.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    merged.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     merged
 }
 
@@ -1705,6 +1760,95 @@ mod tests {
         })
         .expect("set tfidf config for test");
         db
+    }
+
+    #[test]
+    fn knowledge_bilingual_lexical_update_delete_and_rebuild() {
+        let db = test_db();
+        let (source, chunk) = {
+            let conn = db.conn();
+            let source = insert_source(&conn);
+            let document = insert_document(&conn, &source, "text/plain");
+            let chunk = insert_chunk(&conn, &document, "公司差旅报销标准规定员工每日住宿上限为五百元。English retry_guard uses ERR-429 with backoff.");
+            (source, chunk)
+        };
+        let query = |text: &str| SearchQuery {
+            text: text.into(),
+            filters: SearchFilters::default(),
+            limit: 10,
+            offset: 0,
+        };
+        for text in [
+            "报销标准",
+            "住宿上限",
+            "差旅",
+            "元",
+            "retry_guard",
+            "ERR-429",
+            "backo*",
+        ] {
+            assert_eq!(
+                search_internal(&db, &query(text), false)
+                    .unwrap()
+                    .evidence_cards
+                    .len(),
+                1,
+                "missing {text}"
+            );
+        }
+        let mut scoped = query("报销标准");
+        scoped.filters.source_ids = vec![Uuid::new_v4()];
+        assert!(search_internal(&db, &scoped, false)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        db.conn()
+            .execute(
+                "UPDATE chunks SET content='新版差旅报销规范规定住宿限额为六百元。' WHERE id=?1",
+                [&chunk],
+            )
+            .unwrap();
+        assert!(search_internal(&db, &query("住宿上限"), false)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        assert_eq!(
+            search_internal(&db, &query("住宿限额"), false)
+                .unwrap()
+                .evidence_cards
+                .len(),
+            1
+        );
+        db.rebuild_fts_index().unwrap();
+        assert!(db.integrity_check().unwrap());
+        assert_eq!(
+            search_internal(&db, &query("住宿限额"), false)
+                .unwrap()
+                .evidence_cards
+                .len(),
+            1
+        );
+        db.conn()
+            .execute("DELETE FROM sources WHERE id=?1", [source])
+            .unwrap();
+        assert!(search_internal(&db, &query("住宿限额"), false)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        assert!(db.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn knowledge_highlights_use_utf16_offsets_and_merge_overlaps() {
+        let content = "😀中文报销标准和报销";
+        let spans = compute_highlights(content, &["报销".into(), "报销标准".into()]);
+        let utf16: Vec<u16> = content.encode_utf16().collect();
+        let highlighted = spans
+            .iter()
+            .map(|span| String::from_utf16(&utf16[span.start..span.end]).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(highlighted, ["报销标准", "报销"]);
+        assert_eq!(spans[0].start, 4);
     }
 
     fn new_id() -> String {
@@ -1810,8 +1954,434 @@ mod tests {
         }
     }
 
+    struct PaginationInferenceService {
+        url: String,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>,
+        stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        mode: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl PaginationInferenceService {
+        fn new() -> Self {
+            use std::io::{Read, Write};
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let worker_stopped = stopped.clone();
+            let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let worker_requests = requests.clone();
+            let mode = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let worker_mode = mode.clone();
+            let worker = std::thread::spawn(move || loop {
+                let (mut stream, _) = listener.accept().unwrap();
+                if worker_stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0; 8192];
+                let request: serde_json::Value = loop {
+                    let length = stream.read(&mut buffer).unwrap();
+                    assert!(length > 0);
+                    bytes.extend_from_slice(&buffer[..length]);
+                    if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+                        let size: usize = headers
+                            .lines()
+                            .find_map(|line| {
+                                line.strip_prefix("content-length:")
+                                    .map(|value| value.trim().parse().unwrap())
+                            })
+                            .unwrap();
+                        if bytes.len() >= end + 4 + size {
+                            break serde_json::from_slice(&bytes[end + 4..end + 4 + size]).unwrap();
+                        }
+                    }
+                };
+                let response_mode = worker_mode.load(std::sync::atomic::Ordering::SeqCst);
+                if response_mode >= 3 {
+                    let inputs: Vec<String> =
+                        serde_json::from_value(request["input"].clone()).unwrap();
+                    worker_requests.lock().unwrap().push(inputs);
+                    let (status, payload) = if response_mode == 3 {
+                        (
+                            "200 OK",
+                            serde_json::json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}),
+                        )
+                    } else {
+                        (
+                            "400 Bad Request",
+                            serde_json::json!({"error":{"message":"fixture embedding provider failure"}}),
+                        )
+                    };
+                    let response = payload.to_string();
+                    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+                    continue;
+                }
+                let texts: Vec<String> = serde_json::from_value(request["texts"].clone()).unwrap();
+                let mut scores: Vec<_> = texts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, text)| {
+                        let rank = text
+                            .split_whitespace()
+                            .find_map(|word| {
+                                word.strip_prefix("rank_")
+                                    .and_then(|rank| rank.parse::<f64>().ok())
+                            })
+                            .unwrap();
+                        serde_json::json!({"index":index,"score":if response_mode == 1 {0.5} else {rank / 1000.0}})
+                    })
+                    .collect();
+                if response_mode == 2 {
+                    scores.clear();
+                }
+                worker_requests.lock().unwrap().push(texts);
+                let response = serde_json::to_string(&scores).unwrap();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+            });
+            Self {
+                url: format!("http://{address}/rerank"),
+                requests,
+                stopped,
+                mode,
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for PaginationInferenceService {
+        fn drop(&mut self) {
+            self.stopped
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let address = reqwest::Url::parse(&self.url).unwrap();
+            let _ = std::net::TcpStream::connect(("127.0.0.1", address.port().unwrap()));
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+
+    fn pagination_fixture(documents: usize, chunks: usize) -> Database {
+        let db = test_db();
+        {
+            let conn = db.conn();
+            let source = insert_source(&conn);
+            for index in 0..documents {
+                let document = insert_document(&conn, &source, "text/plain");
+                for block in 0..chunks {
+                    insert_chunk(
+                        &conn,
+                        &document,
+                        &format!("pagination evidence rank_{index:03} block_{block:03}"),
+                    );
+                }
+            }
+        }
+        db
+    }
+
+    fn assert_pagination_matches_whole(
+        db: &Database,
+        search_fn: fn(&Database, &SearchQuery) -> Result<SearchResult, CoreError>,
+        expected_cards: usize,
+    ) {
+        let query = SearchQuery {
+            text: "pagination".into(),
+            limit: 200,
+            ..default_query("pagination")
+        };
+        let all = search_fn(db, &query).unwrap();
+        let expected: Vec<_> = all
+            .evidence_cards
+            .iter()
+            .map(|card| card.chunk_id)
+            .collect();
+        assert_eq!(expected.len(), expected_cards);
+        let mut pages = Vec::new();
+        for offset in (0..expected_cards).step_by(20) {
+            let page = search_fn(
+                db,
+                &SearchQuery {
+                    limit: 20,
+                    offset: offset as u32,
+                    ..query.clone()
+                },
+            )
+            .unwrap();
+            assert_eq!(page.total_matches, all.total_matches);
+            pages.extend(page.evidence_cards.into_iter().map(|card| card.chunk_id));
+        }
+        assert_eq!(
+            pages.iter().collect::<HashSet<_>>().len(),
+            pages.len(),
+            "adjacent pages must not repeat evidence"
+        );
+        assert_eq!(
+            pages, expected,
+            "page concatenation must equal the same complete ranking"
+        );
+        assert_eq!(pages.iter().collect::<HashSet<_>>().len(), expected_cards);
+        assert_eq!(
+            all.total_matches, expected_cards,
+            "total must describe pageable cards after packing"
+        );
+        let beyond = search_fn(
+            db,
+            &SearchQuery {
+                limit: 20,
+                offset: u32::MAX,
+                ..query
+            },
+        )
+        .unwrap();
+        assert!(beyond.evidence_cards.is_empty());
+        assert_eq!(beyond.total_matches, expected_cards);
+    }
+
+    #[test]
+    fn semantic_pagination_ranks_one_pool_before_document_and_research_packing() {
+        let db = pagination_fixture(65, 2);
+        let service = PaginationInferenceService::new();
+        for (max_candidates, mode) in [(128, 0), (1, 1), (64, 1), (128, 2)] {
+            service
+                .mode
+                .store(mode, std::sync::atomic::Ordering::SeqCst);
+            db.save_knowledge_services_config(
+                &crate::knowledge_services::KnowledgeServicesConfig {
+                    reranker_url: service.url.clone(),
+                    max_candidates,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            for (search_fn, expected) in [
+                (search as fn(&Database, &SearchQuery) -> _, 65),
+                (hybrid_search, 65),
+                (research_search, 130),
+            ] {
+                service.requests.lock().unwrap().clear();
+                assert_pagination_matches_whole(&db, search_fn, expected);
+                let ranking = search_fn(&db, &default_query("pagination"))
+                    .unwrap()
+                    .ranking
+                    .unwrap();
+                assert_eq!(
+                    ranking.method,
+                    if mode == 2 {
+                        "lexical_rules"
+                    } else {
+                        "semantic_cross_encoder"
+                    }
+                );
+                assert_eq!(ranking.fallback_reason.is_some(), mode == 2);
+                let requests = service.requests.lock().unwrap();
+                assert!(requests.len() > 1);
+                assert!(requests
+                    .iter()
+                    .all(|request| request == &requests[0] && request.len() <= max_candidates));
+            }
+        }
+    }
+
+    #[test]
+    fn rule_and_vector_pagination_have_stable_ties_and_packed_totals() {
+        let db = pagination_fixture(24, 3);
+        let promoted: String = db
+            .conn()
+            .query_row(
+                "SELECT id FROM chunks ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.add_feedback(
+            &promoted,
+            "pagination",
+            crate::feedback::FeedbackAction::Pin,
+        )
+        .unwrap();
+        assert_eq!(
+            search(&db, &default_query("pagination"))
+                .unwrap()
+                .evidence_cards[0]
+                .chunk_id
+                .to_string(),
+            promoted
+        );
+        assert_pagination_matches_whole(&db, search, 24);
+        assert_pagination_matches_whole(&db, hybrid_search, 24);
+        db.save_embedder_state(
+            "tfidf-v1",
+            &HashMap::from([("pagination".to_string(), 0)]),
+            &[1.0],
+        )
+        .unwrap();
+        let chunks: Vec<String> = {
+            let conn = db.conn();
+            let mut stmt = conn.prepare("SELECT id FROM chunks").unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        for chunk in chunks {
+            db.store_embedding(&chunk, "tfidf-v1", &[1.0]).unwrap();
+        }
+        let result = hybrid_search(&db, &default_query("pagination")).unwrap();
+        assert!(result.search_mode.starts_with("hybrid"));
+        assert_pagination_matches_whole(&db, hybrid_search, 24);
+        assert_pagination_matches_whole(&db, research_search, 72);
+        let service = PaginationInferenceService::new();
+        db.save_knowledge_services_config(&crate::knowledge_services::KnowledgeServicesConfig {
+            reranker_url: service.url.clone(),
+            max_candidates: 64,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_pagination_matches_whole(&db, hybrid_search, 24);
+        assert_pagination_matches_whole(&db, research_search, 72);
+    }
+
+    #[test]
+    fn graph_only_pagination_uses_one_expansion_budget() {
+        let db = test_db();
+        let documents: Vec<_> = {
+            let conn = db.conn();
+            let source = insert_source(&conn);
+            (0..45)
+                .map(|index| {
+                    let document = insert_document(&conn, &source, "text/plain");
+                    insert_chunk(
+                        &conn,
+                        &document,
+                        &format!("Original paragraph for record {index}"),
+                    );
+                    document
+                })
+                .collect()
+        };
+        let entity = db
+            .upsert_entity(
+                "Pagination concept",
+                &EntityType::Concept,
+                "pagination",
+                &documents[0],
+            )
+            .unwrap();
+        for document in &documents {
+            db.link_document_entity(document, &entity.id, 1.0, "pagination")
+                .unwrap();
+        }
+        assert_pagination_matches_whole(&db, search, 45);
+        assert_pagination_matches_whole(&db, hybrid_search, 45);
+    }
+
+    #[test]
+    fn embedding_failure_changes_pagination_basis_before_returning_tfidf_evidence() {
+        let db = pagination_fixture(2, 1);
+        let service = PaginationInferenceService::new();
+        service.mode.store(3, std::sync::atomic::Ordering::SeqCst);
+        let config = crate::embed::EmbedderConfig {
+            provider: "api".into(),
+            api_base_url: format!("{}/v1", service.url.trim_end_matches("/rerank")),
+            api_model: "pagination-fixture".into(),
+            vector_dimensions: 2,
+            ..Default::default()
+        };
+        db.save_embedder_config(&config).unwrap();
+        let space = crate::embed::ApiEmbedder::configured_space_id(&config);
+        let chunks: Vec<String> = {
+            let conn = db.conn();
+            let mut statement = conn.prepare("SELECT id FROM chunks ORDER BY id").unwrap();
+            statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        db.store_embedding(&chunks[0], &space, &[1.0, 0.0]).unwrap();
+        db.store_embedding(&chunks[1], &space, &[0.0, 1.0]).unwrap();
+        db.save_embedder_state(
+            "tfidf-v1",
+            &HashMap::from([("pagination".into(), 0)]),
+            &[1.0],
+        )
+        .unwrap();
+        db.store_embedding(&chunks[0], "tfidf-v1", &[0.0]).unwrap();
+        db.store_embedding(&chunks[1], "tfidf-v1", &[1.0]).unwrap();
+        let query = SearchQuery {
+            limit: 1,
+            ..default_query("pagination")
+        };
+        let first = hybrid_search(&db, &query).unwrap();
+        service.mode.store(4, std::sync::atomic::Ordering::SeqCst);
+        let next = hybrid_search(
+            &db,
+            &SearchQuery {
+                offset: 1,
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        let restarted = hybrid_search(&db, &query).unwrap();
+        assert_eq!(first.evidence_cards[0].chunk_id.to_string(), chunks[0]);
+        assert_eq!(restarted.evidence_cards[0].chunk_id.to_string(), chunks[1]);
+        assert_eq!(
+            next.evidence_cards[0].chunk_id,
+            first.evidence_cards[0].chunk_id
+        );
+        assert_eq!(first.search_mode, "hybrid");
+        assert_eq!(next.search_mode, "hybrid+tfidf-fallback");
+        assert_eq!(restarted.search_mode, next.search_mode);
+    }
+
+    #[test]
+    fn pagination_horizon_is_bounded_after_filters() {
+        let db = pagination_fixture(SEARCH_CANDIDATE_LIMIT + 3, 1);
+        let query = default_query("pagination");
+        let first = search(&db, &query).unwrap();
+        assert_eq!(first.total_matches, SEARCH_CANDIDATE_LIMIT);
+        assert!(first.candidate_limit_reached);
+        let beyond = search(
+            &db,
+            &SearchQuery {
+                offset: u32::MAX,
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        assert!(beyond.evidence_cards.is_empty());
+        assert_eq!(beyond.total_matches, SEARCH_CANDIDATE_LIMIT);
+        assert!(beyond.candidate_limit_reached);
+        let document: String = db
+            .conn()
+            .query_row(
+                "SELECT document_id FROM chunks ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let scoped = search(
+            &db,
+            &SearchQuery {
+                filters: SearchFilters {
+                    document_ids: vec![Uuid::parse_str(&document).unwrap()],
+                    ..Default::default()
+                },
+                ..query
+            },
+        )
+        .unwrap();
+        assert_eq!(scoped.total_matches, 1);
+        assert_eq!(scoped.evidence_cards[0].document_id.to_string(), document);
+        assert!(!scoped.candidate_limit_reached);
+    }
+
     fn test_card(path: &str, title: &str, content: &str, score: f64) -> EvidenceCard {
         EvidenceCard {
+            evidence_ref: None,
             chunk_id: Uuid::new_v4(),
             document_id: Uuid::new_v4(),
             source_id: Uuid::new_v4(),
@@ -1850,7 +2420,7 @@ mod tests {
     }
 
     #[test]
-    fn test_search_multiple_results() {
+    fn test_search_counts_multiple_matching_chunks_as_one_pageable_document() {
         let db = test_db();
         {
             let conn = db.conn();
@@ -1866,7 +2436,9 @@ mod tests {
         }
 
         let result = search(&db, &default_query("rust")).unwrap();
-        assert_eq!(result.total_matches, 2);
+        assert_eq!(result.total_matches, 1);
+        assert_eq!(result.evidence_cards.len(), 1);
+        assert!(result.evidence_cards[0].content.contains("rust"));
     }
 
     #[test]
@@ -2482,6 +3054,30 @@ mod tests {
     // ── Feedback re-ranking tests ───────────────────────────────────
 
     #[test]
+    fn vector_search_top_k_breaks_ties_independently_of_insertion_order() {
+        let db = pagination_fixture(24, 1);
+        let ids: Vec<String> = {
+            let conn = db.conn();
+            let mut statement = conn
+                .prepare("SELECT id FROM chunks ORDER BY id DESC")
+                .unwrap();
+            statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        for id in &ids {
+            db.store_embedding(id, "ties", &[1.0]).unwrap();
+        }
+        let ranked = vector_search_top_k(&db, &[1.0], "ties", 7, None).unwrap();
+        assert_eq!(
+            ranked.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+            ids.into_iter().rev().take(7).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_feedback_boosts_search_ranking() {
         use crate::feedback::FeedbackAction;
 
@@ -2604,6 +3200,7 @@ mod tests {
         // Build cards with known scores.
         let mut cards = vec![
             EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&chunk_a).unwrap(),
                 document_id: Uuid::nil(),
                 source_id: Uuid::nil(),
@@ -2622,6 +3219,7 @@ mod tests {
                 freshness_days: None,
             },
             EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&chunk_b).unwrap(),
                 document_id: Uuid::nil(),
                 source_id: Uuid::nil(),
@@ -2640,6 +3238,7 @@ mod tests {
                 freshness_days: None,
             },
             EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&chunk_c).unwrap(),
                 document_id: Uuid::nil(),
                 source_id: Uuid::nil(),

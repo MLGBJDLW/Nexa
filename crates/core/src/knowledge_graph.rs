@@ -350,7 +350,14 @@ impl Database {
         let path_patterns =
             scoped_path_patterns(source_root.as_deref(), query.path_prefix.as_deref());
 
-        let mut where_parts = Vec::new();
+        // Manual relations remain usable after their last document is removed.
+        // Source/path predicates below still require an in-scope document.
+        let mut where_parts = vec!["(d.id IS NOT NULL OR EXISTS (
+                SELECT 1 FROM entity_links manual
+                WHERE manual.evidence_doc_id IS NULL
+                  AND (manual.source_entity_id=e.id OR manual.target_entity_id=e.id)
+            ))"
+        .to_owned()];
         let mut params: Vec<Value> = Vec::new();
         if !source_ids.is_empty() {
             where_parts.push(format!(
@@ -380,11 +387,10 @@ impl Database {
         let sql = format!(
             "{ENTITY_DOCUMENT_LINKS_CTE}
              SELECT e.id, e.name, e.entity_type, e.description, e.first_seen_doc, e.mention_count,
-                    COUNT(DISTINCT edl.document_id) AS document_count,
-                    (SELECT COUNT(*) FROM entity_links el WHERE el.source_entity_id = e.id OR el.target_entity_id = e.id) AS link_count
+                    COUNT(DISTINCT d.id) AS document_count
              FROM entities e
-             JOIN entity_document_links edl ON e.id = edl.entity_id
-             JOIN documents d ON d.id = edl.document_id
+             LEFT JOIN entity_document_links edl ON e.id = edl.entity_id
+             LEFT JOIN documents d ON d.id = edl.document_id
              {where_sql}
              GROUP BY e.id
              ORDER BY document_count DESC, e.mention_count DESC, e.name COLLATE NOCASE
@@ -404,7 +410,7 @@ impl Database {
                     first_seen_doc: row.get(4)?,
                     mention_count: row.get(5)?,
                     document_count: row.get(6)?,
-                    link_count: row.get(7)?,
+                    link_count: 0,
                     documents: Vec::new(),
                 })
             })?
@@ -441,6 +447,13 @@ impl Database {
             }
             graph_edges
         };
+
+        for node in &mut nodes {
+            node.link_count = edges
+                .iter()
+                .filter(|edge| edge.source == node.id || edge.target == node.id)
+                .count() as i64;
+        }
 
         let scope_label = graph_scope_label(&source_ids, query.path_prefix.as_deref());
         let total_nodes = nodes.len();
@@ -706,6 +719,11 @@ fn query_cooccurrence_edges(
     } else {
         format!("WHERE {}", scope_where_parts.join(" AND "))
     };
+    let unscoped_manual_relation = if source_ids.is_empty() && path_patterns.is_empty() {
+        "OR (els.document_id IS NULL AND el.evidence_doc_id IS NULL)"
+    } else {
+        ""
+    };
 
     let node_placeholders = repeat_placeholders(node_ids.len());
     params.extend(node_ids.iter().map(|id| Value::Text(id.clone())));
@@ -716,11 +734,15 @@ fn query_cooccurrence_edges(
 
     let sql = format!(
         "{ENTITY_DOCUMENT_LINKS_CTE},
+         scoped_documents AS (
+            SELECT d.id, d.title, d.path, d.index_revision
+            FROM documents d
+            {scope_where_sql}
+         ),
          scoped_links AS (
             SELECT edl.entity_id, edl.document_id, COALESCE(d.title, d.path) AS evidence_title
             FROM entity_document_links edl
-            JOIN documents d ON d.id = edl.document_id
-            {scope_where_sql}
+            JOIN scoped_documents d ON d.id = edl.document_id
          ),
          pairs AS (
             SELECT
@@ -736,8 +758,15 @@ fn query_cooccurrence_edges(
               AND NOT EXISTS (
                 SELECT 1
                 FROM entity_links el
-                WHERE (el.source_entity_id = a.entity_id AND el.target_entity_id = b.entity_id)
-                   OR (el.source_entity_id = b.entity_id AND el.target_entity_id = a.entity_id)
+                LEFT JOIN entity_link_support els
+                  ON els.source_entity_id = el.source_entity_id
+                 AND els.target_entity_id = el.target_entity_id
+                 AND els.relation_type = el.relation_type
+                LEFT JOIN scoped_documents ed
+                  ON ed.id = els.document_id AND ed.index_revision = els.revision
+                WHERE ((el.source_entity_id = a.entity_id AND el.target_entity_id = b.entity_id)
+                   OR (el.source_entity_id = b.entity_id AND el.target_entity_id = a.entity_id))
+                  AND (ed.id IS NOT NULL {unscoped_manual_relation})
               )
             GROUP BY a.entity_id, b.entity_id
          ),
@@ -790,7 +819,7 @@ fn query_cooccurrence_edges(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compile::EntityType;
+    use crate::compile::{EntityLinkEvidence, EntityType};
     use crate::sources::CreateSourceInput;
 
     fn insert_doc(db: &Database, source_id: &str, path: &str, title: &str) -> String {
@@ -803,6 +832,355 @@ mod tests {
             )
             .expect("insert document");
         doc_id
+    }
+
+    struct ScopedRelationFixture {
+        db: Database,
+        source_id: String,
+        other_source_id: String,
+        local_doc: String,
+        folder_doc: String,
+        other_doc: String,
+        cooccurrence_doc: String,
+        _directories: [tempfile::TempDir; 2],
+    }
+
+    fn scoped_relation_fixture() -> ScopedRelationFixture {
+        let db = Database::open_memory().unwrap();
+        let directories = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let sources: Vec<_> = directories
+            .iter()
+            .map(|dir| {
+                db.add_source(CreateSourceInput {
+                    root_path: dir.path().to_string_lossy().into_owned(),
+                    include_globs: vec![],
+                    exclude_globs: vec![],
+                    watch_enabled: true,
+                })
+                .unwrap()
+            })
+            .collect();
+        let documents: Vec<_> = [
+            (0, "root.md", "Local evidence"),
+            (0, "folder/chapter.md", "Folder evidence"),
+            (1, "root.md", "Other source evidence"),
+            (0, "notes/chapter.md", "Co-occurrence only"),
+        ]
+        .into_iter()
+        .map(|(source, path, title)| {
+            insert_doc(
+                &db,
+                &sources[source].id,
+                &directories[source].path().join(path).to_string_lossy(),
+                title,
+            )
+        })
+        .collect();
+        let hero = db
+            .upsert_entity("Lin", &EntityType::Person, "", &documents[0])
+            .unwrap();
+        let city = db
+            .upsert_entity("Mirror City", &EntityType::Place, "", &documents[0])
+            .unwrap();
+        for document in &documents {
+            for entity in [&hero, &city] {
+                db.link_document_entity(document, &entity.id, 1.0, &entity.name)
+                    .unwrap();
+            }
+        }
+        for (index, strength, snippet, confidence) in [
+            (0, 0.7, "Local relation", Some(0.6)),
+            (1, 0.5, "Folder relation", None),
+            (2, 0.95, "Other source relation", Some(0.9)),
+        ] {
+            db.upsert_entity_link_with_evidence(
+                &hero.id,
+                &city.id,
+                "located_in",
+                EntityLinkEvidence {
+                    strength,
+                    evidence_doc: Some(&documents[index]),
+                    evidence_snippet: Some(snippet),
+                    confidence,
+                },
+            )
+            .unwrap();
+        }
+        ScopedRelationFixture {
+            db,
+            source_id: sources[0].id.clone(),
+            other_source_id: sources[1].id.clone(),
+            local_doc: documents[0].clone(),
+            folder_doc: documents[1].clone(),
+            other_doc: documents[2].clone(),
+            cooccurrence_doc: documents[3].clone(),
+            _directories: directories,
+        }
+    }
+
+    #[test]
+    fn graph_selects_relation_evidence_within_each_scope() {
+        let fixture = scoped_relation_fixture();
+        for (source_ids, path_prefix, document, strength, snippet, confidence, count) in [
+            (
+                vec![fixture.source_id.clone()],
+                None,
+                &fixture.local_doc,
+                0.7,
+                "Local relation",
+                Some(0.6),
+                2,
+            ),
+            (
+                vec![fixture.source_id.clone()],
+                Some("folder"),
+                &fixture.folder_doc,
+                0.5,
+                "Folder relation",
+                None,
+                1,
+            ),
+            (
+                vec![fixture.other_source_id.clone()],
+                None,
+                &fixture.other_doc,
+                0.95,
+                "Other source relation",
+                Some(0.9),
+                1,
+            ),
+            (
+                vec![fixture.source_id.clone(), fixture.other_source_id.clone()],
+                None,
+                &fixture.other_doc,
+                0.95,
+                "Other source relation",
+                Some(0.9),
+                3,
+            ),
+        ] {
+            let graph = fixture
+                .db
+                .get_knowledge_graph(KnowledgeGraphQuery {
+                    limit: 20,
+                    source_ids,
+                    path_prefix: path_prefix.map(str::to_string),
+                    relation_types: vec!["located_in".to_string()],
+                    ..KnowledgeGraphQuery::default()
+                })
+                .unwrap();
+            assert_eq!(graph.edges.len(), 1, "missing supported relation in scope");
+            let edge = &graph.edges[0];
+            assert_eq!(edge.evidence_doc_id.as_ref(), Some(document));
+            assert_eq!(edge.strength, strength);
+            assert_eq!(edge.evidence_snippet.as_deref(), Some(snippet));
+            assert_eq!(edge.confidence, confidence);
+            assert_eq!(edge.evidence_count, count);
+            assert_eq!(edge.evidence_titles.len() as i64, count);
+            let (title, path): (String, String) = fixture
+                .db
+                .conn()
+                .query_row(
+                    "SELECT title,path FROM documents WHERE id=?1",
+                    [document],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(edge.evidence_title.as_ref(), Some(&title));
+            assert_eq!(edge.evidence_path.as_ref(), Some(&path));
+            assert!(graph.nodes.iter().all(|node| node.link_count == 1));
+        }
+        let filtered = fixture
+            .db
+            .get_knowledge_graph(KnowledgeGraphQuery {
+                limit: 20,
+                source_id: Some(fixture.source_id),
+                path_prefix: Some("folder".to_string()),
+                min_strength: Some(0.6),
+                ..KnowledgeGraphQuery::default()
+            })
+            .unwrap();
+        assert!(
+            filtered.edges.is_empty(),
+            "out-of-scope strength must not pass the filter"
+        );
+        assert!(filtered.nodes.iter().all(|node| node.link_count == 0));
+    }
+
+    #[test]
+    fn out_of_scope_relations_do_not_suppress_scoped_cooccurrence() {
+        let fixture = scoped_relation_fixture();
+        let graph = fixture
+            .db
+            .get_knowledge_graph(KnowledgeGraphQuery {
+                limit: 20,
+                source_id: Some(fixture.source_id),
+                path_prefix: Some("notes".to_string()),
+                ..KnowledgeGraphQuery::default()
+            })
+            .unwrap();
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.edges[0].relation_type, "co_occurs");
+        assert_eq!(
+            graph.edges[0].evidence_doc_id.as_ref(),
+            Some(&fixture.cooccurrence_doc)
+        );
+        assert!(graph.nodes.iter().all(|node| node.link_count == 1));
+    }
+
+    #[test]
+    fn scoped_compile_stats_count_supported_relations_once() {
+        let fixture = scoped_relation_fixture();
+        for source_ids in [
+            vec![fixture.source_id.clone()],
+            vec![fixture.other_source_id.clone()],
+            vec![],
+        ] {
+            assert_eq!(
+                fixture
+                    .db
+                    .get_compile_stats_scoped(&source_ids)
+                    .unwrap()
+                    .total_links,
+                1
+            );
+        }
+        fixture
+            .db
+            .conn()
+            .execute(
+                "UPDATE documents SET content_hash='changed' WHERE id=?1",
+                [&fixture.local_doc],
+            )
+            .unwrap();
+        fixture
+            .db
+            .conn()
+            .execute("DELETE FROM documents WHERE id=?1", [&fixture.folder_doc])
+            .unwrap();
+        assert_eq!(
+            fixture
+                .db
+                .get_compile_stats_scoped(std::slice::from_ref(&fixture.source_id))
+                .unwrap()
+                .total_links,
+            0
+        );
+        assert_eq!(
+            fixture
+                .db
+                .get_compile_stats_scoped(std::slice::from_ref(&fixture.other_source_id))
+                .unwrap()
+                .total_links,
+            1
+        );
+        for (source_id, expected_document) in [
+            (fixture.source_id, None),
+            (fixture.other_source_id, Some(fixture.other_doc)),
+        ] {
+            let graph = fixture
+                .db
+                .get_knowledge_graph(KnowledgeGraphQuery {
+                    limit: 20,
+                    source_id: Some(source_id),
+                    relation_types: vec!["located_in".to_string()],
+                    ..KnowledgeGraphQuery::default()
+                })
+                .unwrap();
+            assert_eq!(graph.edges.len(), usize::from(expected_document.is_some()));
+            if let Some(document) = expected_document {
+                assert_eq!(graph.edges[0].evidence_doc_id.as_ref(), Some(&document));
+                assert_eq!(
+                    graph.edges[0].evidence_snippet.as_deref(),
+                    Some("Other source relation")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scoped_relations_preserve_identity_and_unscoped_manual_edges() {
+        let fixture = scoped_relation_fixture();
+        let hero = fixture.db.find_entity_by_name("Lin").unwrap();
+        let city = fixture.db.find_entity_by_name("Mirror City").unwrap();
+        fixture
+            .db
+            .upsert_entity_link(
+                &city.id,
+                &hero.id,
+                "located_in",
+                0.8,
+                Some(&fixture.local_doc),
+            )
+            .unwrap();
+        fixture
+            .db
+            .upsert_entity_link(&hero.id, &city.id, "visits", 0.6, Some(&fixture.local_doc))
+            .unwrap();
+        fixture
+            .db
+            .upsert_entity_link(&hero.id, &city.id, "knows", 0.9, None)
+            .unwrap();
+        for (source_ids, expected_count) in [(vec![], 4), (vec![fixture.source_id.clone()], 3)] {
+            let graph = fixture
+                .db
+                .get_knowledge_graph(KnowledgeGraphQuery {
+                    limit: 20,
+                    source_ids: source_ids.clone(),
+                    ..KnowledgeGraphQuery::default()
+                })
+                .unwrap();
+            assert_eq!(graph.edges.len(), expected_count);
+            assert!(graph
+                .nodes
+                .iter()
+                .all(|node| node.link_count == expected_count as i64));
+            assert_eq!(
+                fixture
+                    .db
+                    .get_compile_stats_scoped(&source_ids)
+                    .unwrap()
+                    .total_links,
+                expected_count as i64
+            );
+            if source_ids.is_empty() {
+                let manual = graph
+                    .edges
+                    .iter()
+                    .find(|edge| edge.relation_type == "knows")
+                    .unwrap();
+                assert!(manual.evidence_doc_id.is_none());
+                assert_eq!(manual.evidence_count, 0);
+            }
+        }
+
+        fixture
+            .db
+            .upsert_entity_link(
+                &hero.id,
+                &city.id,
+                "located_in",
+                0.95,
+                Some(&fixture.local_doc),
+            )
+            .unwrap();
+        let graph = fixture
+            .db
+            .get_knowledge_graph(KnowledgeGraphQuery {
+                limit: 20,
+                relation_types: vec!["located_in".to_string()],
+                ..KnowledgeGraphQuery::default()
+            })
+            .unwrap();
+        let forward = graph
+            .edges
+            .iter()
+            .find(|edge| edge.source == hero.id)
+            .unwrap();
+        assert_eq!(
+            forward.evidence_doc_id.as_ref(),
+            Some(std::cmp::min(&fixture.local_doc, &fixture.other_doc))
+        );
     }
 
     #[test]
@@ -1086,11 +1464,12 @@ fn query_graph_edges(
     let mut where_parts = vec![
         format!("el.source_entity_id IN ({source_placeholders})"),
         format!("el.target_entity_id IN ({target_placeholders})"),
-        "el.strength >= ?".to_string(),
+        "((els.document_id IS NOT NULL AND els.revision = ed.index_revision)
+          OR (els.document_id IS NULL AND el.evidence_doc_id IS NULL))"
+            .to_string(),
     ];
     let mut params: Vec<Value> = node_ids.iter().map(|id| Value::Text(id.clone())).collect();
     params.extend(node_ids.iter().map(|id| Value::Text(id.clone())));
-    params.push(Value::Real(min_strength));
 
     if !source_ids.is_empty() {
         where_parts.push(format!(
@@ -1111,14 +1490,37 @@ fn query_graph_edges(
                 .map(|value| Value::Text(value.clone())),
         );
     }
+    params.push(Value::Real(min_strength));
 
     let sql = format!(
-        "SELECT el.id, el.source_entity_id, el.target_entity_id, el.relation_type, el.strength,
-                el.evidence_doc_id, ed.title, ed.path, NULLIF(el.evidence_snippet, ''), el.confidence
-         FROM entity_links el
-         LEFT JOIN documents ed ON ed.id = el.evidence_doc_id
-         WHERE {}
-         ORDER BY el.strength DESC, el.relation_type COLLATE NOCASE",
+        "WITH evidence_candidates AS (
+            SELECT source_entity_id,target_entity_id,relation_type,document_id,revision,strength,snippet,confidence
+            FROM entity_link_support
+            UNION ALL
+            SELECT source_entity_id,target_entity_id,relation_type,NULL,NULL,strength,evidence_snippet,confidence
+            FROM entity_links WHERE evidence_doc_id IS NULL
+         ), scoped_edges AS (
+            SELECT el.id, el.source_entity_id, el.target_entity_id, el.relation_type,
+                   COALESCE(els.strength, el.strength) AS strength,
+                   els.document_id AS evidence_doc_id, ed.title, ed.path,
+                   NULLIF(COALESCE(els.snippet, el.evidence_snippet), '') AS evidence_snippet,
+                   CASE WHEN els.document_id IS NULL THEN el.confidence ELSE els.confidence END AS confidence,
+                   ROW_NUMBER() OVER (PARTITION BY el.id ORDER BY COALESCE(els.strength, el.strength) DESC, els.document_id) AS evidence_rank,
+                   COUNT(els.document_id) OVER (PARTITION BY el.id) AS evidence_count,
+                   GROUP_CONCAT(COALESCE(ed.title, ed.path), char(31)) OVER (PARTITION BY el.id) AS evidence_titles
+            FROM entity_links el
+            LEFT JOIN evidence_candidates els
+              ON els.source_entity_id = el.source_entity_id
+             AND els.target_entity_id = el.target_entity_id
+             AND els.relation_type = el.relation_type
+            LEFT JOIN documents ed ON ed.id = els.document_id
+            WHERE {}
+         )
+         SELECT id, source_entity_id, target_entity_id, relation_type, strength,
+                evidence_doc_id, title, path, evidence_snippet, confidence, evidence_count, evidence_titles
+         FROM scoped_edges
+         WHERE evidence_rank = 1 AND strength >= ?
+         ORDER BY strength DESC, relation_type COLLATE NOCASE, id",
         where_parts.join(" AND "),
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -1135,12 +1537,8 @@ fn query_graph_edges(
                 evidence_title: row.get(6)?,
                 evidence_path: row.get(7)?,
                 evidence_snippet: row.get(8)?,
-                evidence_count: if row.get::<_, Option<String>>(5)?.is_some() {
-                    1
-                } else {
-                    0
-                },
-                evidence_titles: row.get::<_, Option<String>>(6)?.into_iter().collect(),
+                evidence_count: row.get(10)?,
+                evidence_titles: parse_evidence_titles(row.get(11)?),
                 evidence_source: "explicit".to_string(),
             })
         })?

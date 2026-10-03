@@ -73,6 +73,7 @@ function toSuperscript(n: number): string {
  * `ConversationMessage[]` tool results.
  */
 export interface CitationCardData {
+  evidenceRef?: import('../types/evidence').EvidenceRef;
   chunkId: string;
   documentPath: string;
   documentTitle: string;
@@ -90,6 +91,8 @@ function extractCard(item: unknown): CitationCardData | null {
   const chunkId = (obj.chunkId ?? obj.chunk_id) as string | undefined;
   if (!chunkId) return null;
   return {
+    evidenceRef: typeof obj.evidenceRef === 'object' && obj.evidenceRef !== null && 'locator' in obj.evidenceRef && 'documentHash' in obj.evidenceRef
+      ? obj.evidenceRef as import('../types/evidence').EvidenceRef : undefined,
     chunkId: String(chunkId),
     documentPath: String(obj.documentPath ?? obj.document_path ?? obj.path ?? ''),
     documentTitle: String(obj.documentTitle ?? obj.document_title ?? obj.title ?? ''),
