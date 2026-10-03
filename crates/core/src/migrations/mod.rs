@@ -2880,6 +2880,7 @@ Every answer that uses knowledge base search results.
     ("v134_project_workspace", "ALTER TABLE projects ADD COLUMN workspace_roots_json TEXT;"),
     ("v135_conversation_timeline_indexes", include_str!("v135_conversation_timeline_indexes.sql")),
     ("v136_project_hooks", include_str!("v136_project_hooks.sql")),
+    ("v137_mcp_oauth", include_str!("v137_mcp_oauth.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

@@ -2536,6 +2536,15 @@ export const reloadUserSkillFiles = () =>
 export const listMcpServers = () =>
   invoke<McpServer[]>('list_mcp_servers_cmd');
 
+export const getMcpOAuthStatus = (id: string) =>
+  invoke<import('../types/extensions').McpOAuthStatus>('get_mcp_oauth_status_cmd', { id });
+export const configureMcpOAuth = (id: string, config: import('../types/extensions').McpOAuthConfig | null) =>
+  invoke<import('../types/extensions').McpOAuthStatus>('configure_mcp_oauth_cmd', { id, config });
+export const beginMcpOAuth = (id: string) =>
+  invoke<import('../types/extensions').McpOAuthStatus>('begin_mcp_oauth_cmd', { id });
+export const disconnectMcpOAuth = (id: string, revokeRemote: boolean) =>
+  invoke<{ localDisconnected: boolean; remoteRevocation: string }>('disconnect_mcp_oauth_cmd', { id, revokeRemote });
+
 export const prepareMcpConfigFile = () =>
   invoke<string>('prepare_mcp_config_file_cmd');
 

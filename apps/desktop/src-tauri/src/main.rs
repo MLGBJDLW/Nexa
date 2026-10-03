@@ -565,6 +565,13 @@ fn main() {
             if let Err(error) = db.recover_project_hook_runs() {
                 log::warn!("Could not recover interrupted project hooks: {error}");
             }
+            if let Err(error) = nexa_core::mcp::oauth::McpAuthService::recover_logins(&db) {
+                log::warn!("Could not recover interrupted MCP sign-ins: {error}");
+            }
+            let oauth = nexa_core::mcp::oauth::McpAuthService::shared(&db);
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = oauth.cleanup().await { log::warn!("MCP credential cleanup is pending: {error}"); }
+            });
             if let Err(error) = db.recover_pending_file_changes() {
                 log::warn!("Could not settle file changes interrupted by the previous process: {error}");
             }
@@ -1235,6 +1242,10 @@ fn main() {
             commands::list_mcp_tools_cmd,
             commands::get_mcp_content_catalog_cmd,
             commands::read_mcp_content_cmd,
+            commands::get_mcp_oauth_status_cmd,
+            commands::configure_mcp_oauth_cmd,
+            commands::begin_mcp_oauth_cmd,
+            commands::disconnect_mcp_oauth_cmd,
             // Trace analytics
             commands::get_trace_summary,
             commands::get_recent_traces,

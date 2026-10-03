@@ -124,6 +124,7 @@ pub struct McpClient {
     server_capabilities: Value,
     /// Timeout for individual JSON-RPC requests. Defaults to [`DEFAULT_TIMEOUT`].
     call_timeout: Duration,
+    auth: Option<super::oauth::RequestAuth>,
 }
 
 enum StreamablePostOutcome {
@@ -159,6 +160,7 @@ impl McpClient {
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].to_string(),
             server_capabilities: serde_json::json!({}),
             call_timeout: DEFAULT_TIMEOUT,
+            auth: None,
         };
         client.initialize_handshake().await?;
         Ok(client)
@@ -170,17 +172,7 @@ impl McpClient {
         headers: Option<&HashMap<String, String>>,
         server_name: &str,
     ) -> Result<Self, CoreError> {
-        let transport = Self::build_legacy_sse_transport(url, headers).await?;
-        let mut client = Self {
-            transport: Transport::LegacySse(transport),
-            request_id: AtomicI64::new(1),
-            server_name: server_name.to_string(),
-            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].to_string(),
-            server_capabilities: serde_json::json!({}),
-            call_timeout: DEFAULT_TIMEOUT,
-        };
-        client.initialize_handshake().await?;
-        Ok(client)
+        Self::connect_remote_authorized(url, headers, server_name, true, None).await
     }
 
     /// Connect to an MCP server via Streamable HTTP transport.
@@ -189,14 +181,31 @@ impl McpClient {
         headers: Option<&HashMap<String, String>>,
         server_name: &str,
     ) -> Result<Self, CoreError> {
-        let transport = Self::build_streamable_http_transport(url, headers)?;
+        Self::connect_remote_authorized(url, headers, server_name, false, None).await
+    }
+
+    pub(crate) async fn connect_remote_authorized(
+        url: &str,
+        headers: Option<&HashMap<String, String>>,
+        server_name: &str,
+        legacy: bool,
+        auth: Option<super::oauth::RequestAuth>,
+    ) -> Result<Self, CoreError> {
+        let transport = if legacy {
+            Transport::LegacySse(
+                Self::build_legacy_sse_transport(url, headers, auth.as_ref()).await?,
+            )
+        } else {
+            Transport::StreamableHttp(Self::build_streamable_http_transport(url, headers)?)
+        };
         let mut client = Self {
-            transport: Transport::StreamableHttp(transport),
+            transport,
             request_id: AtomicI64::new(1),
             server_name: server_name.to_string(),
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].to_string(),
             server_capabilities: serde_json::json!({}),
             call_timeout: DEFAULT_TIMEOUT,
+            auth,
         };
         client.initialize_handshake().await?;
         Ok(client)
@@ -520,6 +529,7 @@ impl McpClient {
         }
         let client = transport.client.clone();
         let endpoint = transport.endpoint_url.clone();
+        let auth = self.auth.clone();
         let events = Arc::clone(&transport.events);
         let (sender, receiver) = mpsc::channel(64);
         transport.notification_rx = Some(receiver);
@@ -528,7 +538,7 @@ impl McpClient {
             // a tools/call retry or disables a server with working POST RPCs.
             let Ok(Ok(response)) = tokio::time::timeout(
                 SSE_CONNECT_TIMEOUT,
-                client.get(endpoint).headers(headers).send(),
+                send_authorized(&client, &endpoint, headers, None, auth.as_ref()),
             )
             .await
             else {
@@ -1243,6 +1253,7 @@ impl McpClient {
     async fn build_legacy_sse_transport(
         url: &str,
         headers: Option<&HashMap<String, String>>,
+        auth: Option<&super::oauth::RequestAuth>,
     ) -> Result<LegacySseTransport, CoreError> {
         let client = build_http_client()?;
         let base_url = parse_url(url, "legacy SSE")?;
@@ -1258,7 +1269,7 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             SSE_CONNECT_TIMEOUT,
-            client.get(base_url.clone()).headers(request_headers).send(),
+            send_authorized(&client, &base_url, request_headers, None, auth),
         )
         .await
         .map_err(|_| {
@@ -1266,15 +1277,12 @@ impl McpClient {
                 "Timed out connecting to legacy SSE MCP server at {}",
                 base_url
             ))
-        })?
-        .map_err(|e| {
-            CoreError::McpTransport(format!(
-                "Failed to connect to legacy SSE MCP server at {}: {e}",
-                base_url
-            ))
-        })?;
+        })??;
 
         let status = response.status();
+        if let Some(error) = http_auth_error(&response) {
+            return Err(error);
+        }
         if !status.is_success() {
             let body = tokio::time::timeout(
                 SSE_CONNECT_TIMEOUT,
@@ -1408,7 +1416,7 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            client.get(endpoint_url.clone()).headers(headers).send(),
+            send_authorized(&client, &endpoint_url, headers, None, self.auth.as_ref()),
         )
         .await
         .map_err(|_| {
@@ -1416,15 +1424,14 @@ impl McpClient {
                 "Timed out opening the Streamable HTTP event stream at {endpoint_url}"
             )))
         })?
-        .map_err(|e| {
-            StreamablePostError::Core(CoreError::McpTransport(format!(
-                "Failed to open the Streamable HTTP event stream at {endpoint_url}: {e}"
-            )))
-        })?;
+        .map_err(StreamablePostError::Core)?;
 
         let status = response.status();
         if status == StatusCode::NOT_FOUND && session_id.is_some() {
             return Err(StreamablePostError::SessionExpired);
+        }
+        if let Some(error) = http_auth_error(&response) {
+            return Err(StreamablePostError::Core(error));
         }
         if !status.is_success() {
             let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
@@ -1487,24 +1494,24 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            client
-                .post(message_url.clone())
-                .headers(headers)
-                .json(payload)
-                .send(),
+            send_authorized(
+                &client,
+                &message_url,
+                headers,
+                Some(payload),
+                self.auth.as_ref(),
+            ),
         )
         .await
         .map_err(|_| {
             CoreError::McpTransport(format!(
                 "Timed out sending a request to legacy SSE MCP server at {message_url}"
             ))
-        })?
-        .map_err(|e| {
-            CoreError::McpTransport(format!(
-                "Failed to send a request to legacy SSE MCP server at {message_url}: {e}"
-            ))
-        })?;
+        })??;
 
+        if let Some(error) = http_auth_error(&response) {
+            return Err(error);
+        }
         if !response.status().is_success() {
             let status = response.status();
             let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
@@ -1569,11 +1576,13 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            client
-                .post(endpoint_url.clone())
-                .headers(headers)
-                .json(payload)
-                .send(),
+            send_authorized(
+                &client,
+                &endpoint_url,
+                headers,
+                Some(payload),
+                self.auth.as_ref(),
+            ),
         )
         .await
         .map_err(|_| {
@@ -1581,15 +1590,14 @@ impl McpClient {
                 "Timed out sending a Streamable HTTP request to {endpoint_url}"
             )))
         })?
-        .map_err(|e| {
-            StreamablePostError::Core(CoreError::McpTransport(format!(
-                "Failed to send a Streamable HTTP request to {endpoint_url}: {e}"
-            )))
-        })?;
+        .map_err(StreamablePostError::Core)?;
 
         let status = response.status();
         if status == StatusCode::NOT_FOUND && session_id.is_some() {
             return Err(StreamablePostError::SessionExpired);
+        }
+        if let Some(error) = http_auth_error(&response) {
+            return Err(StreamablePostError::Core(error));
         }
         if !status.is_success() {
             let body = read_bounded_response(response, MAX_DIAGNOSTIC_BYTES)
@@ -1708,9 +1716,82 @@ impl McpClient {
     }
 }
 
+async fn send_authorized(
+    client: &HttpClient,
+    url: &Url,
+    mut headers: HeaderMap,
+    payload: Option<&Value>,
+    auth: Option<&super::oauth::RequestAuth>,
+) -> Result<reqwest::Response, CoreError> {
+    let safe_retry = payload.is_none()
+        || matches!(
+            payload
+                .and_then(|p| p.get("method"))
+                .and_then(Value::as_str),
+            Some(
+                "initialize"
+                    | "tools/list"
+                    | "resources/list"
+                    | "resources/templates/list"
+                    | "prompts/list"
+                    | "resources/read"
+                    | "prompts/get"
+            )
+        );
+    for attempt in 0..=1 {
+        if let Some(auth) = auth {
+            auth.validate_target(url)?;
+            auth.apply(&mut headers, attempt == 1).await?;
+        }
+        let request = if let Some(payload) = payload {
+            client.post(url.clone()).json(payload)
+        } else {
+            client.get(url.clone())
+        };
+        let response = request.headers(headers.clone()).send().await.map_err(|_| {
+            CoreError::McpTransport(
+                "MCP HTTP request failed; its effect may be unknown. No operation was replayed."
+                    .into(),
+            )
+        })?;
+        if response.status() == StatusCode::UNAUTHORIZED
+            && auth.is_some()
+            && safe_retry
+            && attempt == 0
+        {
+            continue;
+        }
+        if matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) {
+            if let Some(auth) = auth {
+                auth.note_rejection(
+                    response.status().as_u16(),
+                    super::oauth::bearer_challenge(response.headers()).as_ref(),
+                );
+            }
+        }
+        return Ok(response);
+    }
+    unreachable!("bounded authorization retry")
+}
+
+fn http_auth_error(response: &reqwest::Response) -> Option<CoreError> {
+    matches!(
+        response.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+    )
+    .then(|| CoreError::McpHttpAuth {
+        status: response.status().as_u16(),
+        challenge: super::oauth::bearer_challenge(response.headers()),
+    })
+}
+
 fn build_http_client() -> Result<HttpClient, CoreError> {
     HttpClient::builder()
         .connect_timeout(SSE_CONNECT_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| CoreError::Mcp(format!("Failed to build HTTP client for MCP: {e}")))
 }
@@ -2232,6 +2313,7 @@ mod tests {
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
             server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(Duration::from_millis(500), client.list_tools()).await;
         server.abort();
@@ -2270,6 +2352,7 @@ mod tests {
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
             server_capabilities: serde_json::json!({}),
             call_timeout: DEFAULT_TIMEOUT,
+            auth: None,
         };
         let result = client.initialize_handshake().await;
         server.abort();
@@ -2388,6 +2471,7 @@ mod tests {
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
             server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(Duration::from_millis(500), client.list_tools()).await;
         server.abort();
@@ -2420,6 +2504,7 @@ mod tests {
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
             server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(Duration::from_millis(500), client.shutdown()).await;
         server.abort();
@@ -2563,6 +2648,7 @@ mod tests {
             protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
             server_capabilities: serde_json::json!({}),
             call_timeout: Duration::from_millis(50),
+            auth: None,
         };
         let result = tokio::time::timeout(
             Duration::from_millis(500),

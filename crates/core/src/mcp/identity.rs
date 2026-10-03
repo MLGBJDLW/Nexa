@@ -66,7 +66,7 @@ pub fn connector_trust_digest(server: &McpServer) -> String {
             .map(|value| serde_json::to_value(value).expect("string map is serializable"))
             .unwrap_or_else(|| serde_json::json!(raw))
     };
-    let material = serde_json::json!({
+    let mut material = serde_json::json!({
         "transport": server.transport,
         "command": server.command,
         "args": server.args,
@@ -75,6 +75,9 @@ pub fn connector_trust_digest(server: &McpServer) -> String {
         "headers": canonical_map(&server.headers_json),
         "builtinId": server.builtin_id,
     });
+    if server.oauth_epoch != 0 {
+        material["oauthEpoch"] = server.oauth_epoch.into();
+    }
     blake3::hash(material.to_string().as_bytes())
         .to_hex()
         .to_string()

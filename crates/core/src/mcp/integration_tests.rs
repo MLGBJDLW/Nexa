@@ -232,6 +232,7 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
             created_at: String::new(),
             updated_at: String::new(),
             builtin_id: None,
+            oauth_epoch: 0,
         },
         calls,
         tools,

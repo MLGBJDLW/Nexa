@@ -374,8 +374,12 @@ impl McpConnectorSlot {
                 Ok((connection, tools, content, observed, false))
             } else {
                 let epoch = self.next_connection_epoch.fetch_add(1, Ordering::AcqRel) + 1;
-                let (mut client, process) =
-                    connect_client(&desired.server, desired.timeout_secs).await?;
+                let (mut client, process) = connect_client(
+                    &desired.server,
+                    desired.timeout_secs,
+                    desired.database.as_ref(),
+                )
+                .await?;
                 let events = client.events();
                 self.bind_events(&events, &desired, epoch);
                 let observed = events.catalog_revision();
@@ -1047,6 +1051,7 @@ impl McpManager {
 async fn connect_client(
     server: &McpServer,
     timeout_secs: Option<u64>,
+    database: Option<&Database>,
 ) -> Result<(McpClient, Option<Child>), CoreError> {
     let mut managed_process = None;
     let mut managed_url = None;
@@ -1092,11 +1097,19 @@ async fn connect_client(
                 .as_deref()
                 .map(|raw| resolve_mcp_config_map("headersJson", raw))
                 .transpose()?;
-            if server.transport == "sse" {
-                McpClient::connect_sse(url, headers.as_ref(), &server.name).await?
-            } else {
-                McpClient::connect_streamable_http(url, headers.as_ref(), &server.name).await?
-            }
+            let auth = database
+                .map(super::oauth::McpAuthService::shared)
+                .map(|service| service.request_auth(server))
+                .transpose()?
+                .flatten();
+            McpClient::connect_remote_authorized(
+                url,
+                headers.as_ref(),
+                &server.name,
+                server.transport == "sse",
+                auth,
+            )
+            .await?
         }
         other => {
             return Err(CoreError::InvalidInput(format!(

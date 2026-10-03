@@ -18,6 +18,7 @@ jiff = "=0.2.34"
 blake3 = "1"
 sha2 = "0.10"
 hmac = "0.12"
+keyring-core = "=1.0.0"
 subtle = "2.6"
 filetime = "0.2"
 globset = "0.4"
@@ -69,11 +70,18 @@ similar = { version = "3.2.0", default-features = false, features = ["text", "st
 [target.'cfg(target_os = "windows")'.dependencies]
 reqwest = { version = "0.12", features = ["native-tls"], default-features = false }
 windows-registry = "0.6"
+windows-native-keyring-store = { version = "=1.1.0", default-features = false }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 windows-capture = { version = "2.0.0", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "=1.0.2", default-features = false, features = ["keychain"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "=1.0.1", default-features = false, features = ["crypto-rust"] }
 
 [features]
 default = ["host-tools", "ocr", "local-embeddings"]

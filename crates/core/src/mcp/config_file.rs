@@ -294,7 +294,7 @@ pub fn reload_user_mcp_config(
     let existing: HashMap<String, McpServer> = {
         let mut stmt = tx.prepare(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              WHERE id LIKE ?1",
         )?;
@@ -312,6 +312,7 @@ pub fn reload_user_mcp_config(
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
                 builtin_id: row.get(11)?,
+                oauth_epoch: row.get(12)?,
             })
         })?;
         let mut existing = HashMap::new();

@@ -5,6 +5,7 @@ pub mod config_file;
 mod events;
 pub mod identity;
 mod manager;
+pub mod oauth;
 pub mod result;
 pub(crate) use manager::McpConnectorSlot;
 pub use manager::{McpCatalogSnapshot, McpManager};
@@ -48,6 +49,8 @@ pub struct McpServer {
     /// Non-`None` for built-in servers managed by the app.
     /// Built-in connectors cannot be deleted and have their process lifecycle managed.
     pub builtin_id: Option<String>,
+    #[serde(default)]
+    pub oauth_epoch: u64,
 }
 
 /// Input for creating or updating an MCP connector configuration.
@@ -434,6 +437,7 @@ fn runtime_config_changed(current: &McpServer, desired: &McpServer) -> bool {
         || current.env_json != desired.env_json
         || current.headers_json != desired.headers_json
         || current.builtin_id != desired.builtin_id
+        || current.oauth_epoch != desired.oauth_epoch
 }
 
 fn expand_managed_arg(arg: &str, port: u16) -> String {
@@ -450,7 +454,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              ORDER BY created_at DESC",
         )?;
@@ -468,6 +472,7 @@ impl Database {
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
                 builtin_id: row.get(11)?,
+                oauth_epoch: row.get(12)?,
             })
         })?;
         let mut out = Vec::new();
@@ -597,7 +602,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              WHERE enabled = 1
              ORDER BY created_at ASC",
@@ -616,6 +621,7 @@ impl Database {
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
                 builtin_id: row.get(11)?,
+                oauth_epoch: row.get(12)?,
             })
         })?;
         let mut out = Vec::new();
@@ -629,7 +635,7 @@ impl Database {
         let conn = self.conn();
         conn.query_row(
             "SELECT id, name, transport, command, args, url, env_json, headers_json,
-                    enabled, created_at, updated_at, builtin_id
+                    enabled, created_at, updated_at, builtin_id, oauth_epoch
              FROM mcp_servers
              WHERE id = ?1",
             rusqlite::params![id],
@@ -647,6 +653,7 @@ impl Database {
                     created_at: row.get(9)?,
                     updated_at: row.get(10)?,
                     builtin_id: row.get(11)?,
+                    oauth_epoch: row.get(12)?,
                 })
             },
         )
@@ -1016,6 +1023,7 @@ mod tests {
                 created_at: String::new(),
                 updated_at: String::new(),
                 builtin_id: None,
+                oauth_epoch: 0,
             },
             fail_listing,
             initialize_calls,
@@ -1273,6 +1281,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             builtin_id: None,
+            oauth_epoch: 0,
         };
         let mut registry = ToolRegistry::new();
         {
