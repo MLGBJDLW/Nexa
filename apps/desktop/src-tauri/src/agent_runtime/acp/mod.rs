@@ -134,9 +134,11 @@ pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Res
     let answer = run_initialized(provider, request, &mut connection).await?;
     // A changed/rewound transcript, different profile or workspace never reuses
     // hidden upstream state. Only a completed, persisted turn is cached.
-    if let Ok(history) = history_fingerprint(&db, &conversation, None) {
-        connection.history = history;
-        pool::put(key, connection);
+    if db.chat_worktree(&conversation)?.is_none() {
+        if let Ok(history) = history_fingerprint(&db, &conversation, None) {
+            connection.history = history;
+            pool::put(key, connection);
+        }
     }
     Ok(answer)
 }

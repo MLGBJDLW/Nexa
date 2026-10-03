@@ -57,6 +57,7 @@ import { Play } from 'lucide-react';
 import { openCommandPalette, runAppCommand, useAppCommand, useAppCommands } from '../../lib/appCommands';
 import { UserMarkdown } from './UserMessageText';
 import { McpContentPanel } from './McpContentPanel';
+import { ChatWorktreePanel } from './ChatWorktreePanel';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -407,6 +408,7 @@ export function ChatInput({
   const [previewAttachment, setPreviewAttachment] = useState<ImageAttachment | null>(null);
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [mcpContentOpen, setMcpContentOpen] = useState(false);
+  const [worktreeOpen, setWorktreeOpen] = useState(false);
   useEffect(() => { setMcpContentOpen(false); }, [draftKey]);
   const [moaPickerOpen, setMoaPickerOpen] = useState(false);
   const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
@@ -956,6 +958,7 @@ export function ChatInput({
     }
   }, [agentRuntime, attachmentLocked, changeNexusMode, draftPreview, inputLocked, moaPreset, nativeAgent, persistRuntimePolicy, setPlanMode]);
   useAppCommand({ id: 'chat.mcp-context', label: 'chat.mcpContentTitle', keywords: '/mcp-context resources prompts 资源 提示模板', enabled: !inputLocked, run: () => setMcpContentOpen(true) });
+  useAppCommand({ id: 'chat.worktree', label: 'chat.worktreeTitle', keywords: '/worktree git workspace 工作树', enabled: Boolean(conversationId) && !inputLocked, run: () => setWorktreeOpen(true) });
   useAppCommand({ id: 'chat.preview', label: 'chat.previewDraft', keywords: '/preview markdown draft 预览', enabled: !inputLocked, run: () => runComposerAction('preview') });
   useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
@@ -2260,6 +2263,7 @@ export function ChatInput({
               disabled={inputLocked}
             />
             <button type="button" disabled={inputLocked} onClick={() => runAppCommand('chat.mcp-context')} className="flex h-8 items-center rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2">{t('chat.mcpContentTitle')}</button>
+            <button type="button" disabled={inputLocked || !conversationId} onClick={() => runAppCommand('chat.worktree')} className="flex h-8 items-center rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2">{t('chat.worktreeTitle')}</button>
             <button type="button" onClick={openCommandPalette} className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:bg-surface-2"><Command className="h-3.5 w-3.5" />{t('nav.commandPalette')}</button>
           </div>
         </div>
@@ -2455,6 +2459,9 @@ export function ChatInput({
           resetInputHistoryNavigation(); setValue(next); persistDraft(next); setMcpContentOpen(false);
           requestAnimationFrame(() => textareaRef.current?.focus());
         }} />}
+      </Modal>
+      <Modal open={worktreeOpen} onClose={() => setWorktreeOpen(false)} title={t('chat.worktreeTitle')}>
+        {worktreeOpen && conversationId && <ChatWorktreePanel conversationId={conversationId} />}
       </Modal>
     </div>
     </NexaPopover>

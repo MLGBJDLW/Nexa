@@ -817,5 +817,19 @@
   "mcpResourceUri": "Resource URI",
   "mcpChoosePrompt": "Choose a prompt template",
   "mcpReadContent": "Read content",
-  "mcpInsertText": "Add text to draft"
+  "mcpInsertText": "Add text to draft",
+  "worktreeTitle": "Chat worktree",
+  "worktreeHelp": "Create an independent checkout from a commit. Your source folder and its uncommitted changes stay there. Stop the chat and close its terminals before changing worktrees.",
+  "worktreeStart": "Starting reference",
+  "worktreeCreate": "Create worktree",
+  "worktreeState": "State",
+  "worktreePath": "Folder",
+  "worktreeBranch": "Branch",
+  "worktreeOwner": "Chat",
+  "worktreeSnapshot": "Snapshot",
+  "worktreeOpen": "Open folder",
+  "worktreeRestore": "Restore snapshot",
+  "worktreeRecover": "Check / recover",
+  "worktreeArchiveHelp": "Save working files and the staging area, then remove this checkout. Ignored files and nested repositories must be preserved separately. Restore opens the saved files at a detached commit.",
+  "worktreeArchive": "Archive with snapshot"
 }

@@ -60,7 +60,7 @@ candle-core = { version = "0.9", optional = true }
 candle-nn = { version = "0.9", optional = true }
 candle-transformers = { version = "0.9", optional = true }
 hound = { version = "3.5", optional = true }
-tempfile = { version = "3", optional = true }
+tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 xz2 = { version = "0.1", optional = true }
 tar = { version = "0.4", optional = true }
@@ -92,7 +92,7 @@ document-processing = ["dep:lopdf", "dep:calamine"]
 onnx-runtime = ["dep:ort", "dep:ndarray"]
 local-embeddings = ["onnx-runtime", "dep:tokenizers"]
 ocr = ["onnx-runtime", "document-processing", "dep:imageproc"]
-video = ["candle-core", "candle-nn", "candle-transformers", "hound", "tempfile", "xz2", "tar", "dep:tokenizers"]
+video = ["candle-core", "candle-nn", "candle-transformers", "hound", "xz2", "tar", "dep:tokenizers"]
 
 [dev-dependencies]
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }

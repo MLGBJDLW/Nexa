@@ -817,5 +817,19 @@
   "mcpResourceUri": "資源 URI",
   "mcpChoosePrompt": "選擇提示範本",
   "mcpReadContent": "讀取內容",
-  "mcpInsertText": "將文字加入草稿"
+  "mcpInsertText": "將文字加入草稿",
+  "worktreeTitle": "對話工作樹",
+  "worktreeHelp": "從指定提交建立獨立目錄。原目錄及其未提交修改仍保留原處。變更工作樹前請停止對話並關閉其終端機。",
+  "worktreeStart": "起始參照",
+  "worktreeCreate": "建立工作樹",
+  "worktreeState": "狀態",
+  "worktreePath": "目錄",
+  "worktreeBranch": "分支",
+  "worktreeOwner": "所屬對話",
+  "worktreeSnapshot": "快照",
+  "worktreeOpen": "開啟目錄",
+  "worktreeRestore": "還原快照",
+  "worktreeRecover": "檢查／還原",
+  "worktreeArchiveHelp": "儲存工作檔案和暫存區後移除此目錄。忽略檔案和巢狀儲存庫須另行儲存。還原時將從快照提交開啟檔案。",
+  "worktreeArchive": "儲存快照並封存"
 }

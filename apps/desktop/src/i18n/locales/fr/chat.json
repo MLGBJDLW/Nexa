@@ -817,5 +817,19 @@
   "mcpResourceUri": "URI de la ressource",
   "mcpChoosePrompt": "Choisir un modèle",
   "mcpReadContent": "Lire le contenu",
-  "mcpInsertText": "Ajouter le texte au brouillon"
+  "mcpInsertText": "Ajouter le texte au brouillon",
+  "worktreeTitle": "Arbre de travail du chat",
+  "worktreeHelp": "Crée une copie indépendante depuis un commit. Le dossier source et ses modifications non validées restent en place. Arrêtez le chat et fermez ses terminaux avant tout changement.",
+  "worktreeStart": "Référence de départ",
+  "worktreeCreate": "Créer un arbre de travail",
+  "worktreeState": "État",
+  "worktreePath": "Dossier",
+  "worktreeBranch": "Branche",
+  "worktreeOwner": "Chat",
+  "worktreeSnapshot": "Instantané",
+  "worktreeOpen": "Ouvrir le dossier",
+  "worktreeRestore": "Restaurer l’instantané",
+  "worktreeRecover": "Vérifier / récupérer",
+  "worktreeArchiveHelp": "Sauvegarde les fichiers et la zone de préparation, puis supprime cette copie. Préservez séparément les fichiers ignorés et dépôts imbriqués. La restauration ouvre le commit sauvegardé sans branche.",
+  "worktreeArchive": "Archiver avec instantané"
 }

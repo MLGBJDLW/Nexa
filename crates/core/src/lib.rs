@@ -24,6 +24,7 @@ pub mod behavioral_eval;
 pub mod browser_runtime;
 pub mod capability_package;
 pub mod capability_registry;
+pub mod chat_worktrees;
 pub mod citations;
 pub mod companion;
 pub mod compile;

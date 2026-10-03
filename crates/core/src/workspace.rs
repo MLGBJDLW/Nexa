@@ -72,6 +72,9 @@ impl Database {
         &self,
         conversation_id: &str,
     ) -> Result<Option<Workspace>, CoreError> {
+        if let Some(workspace) = self.chat_worktree_workspace(conversation_id)? {
+            return Ok(Some(workspace));
+        }
         let conversation = self.get_conversation(conversation_id)?;
         let Some(project_id) = conversation.project_id else {
             return Ok(None);

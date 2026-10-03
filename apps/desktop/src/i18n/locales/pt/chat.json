@@ -817,5 +817,19 @@
   "mcpResourceUri": "URI do recurso",
   "mcpChoosePrompt": "Escolher modelo",
   "mcpReadContent": "Ler conteúdo",
-  "mcpInsertText": "Adicionar texto ao rascunho"
+  "mcpInsertText": "Adicionar texto ao rascunho",
+  "worktreeTitle": "Árvore de trabalho do chat",
+  "worktreeHelp": "Cria uma cópia independente a partir de um commit. A pasta original e as alterações não confirmadas são mantidas. Pare o chat e feche os terminais antes de alterá-la.",
+  "worktreeStart": "Referência inicial",
+  "worktreeCreate": "Criar árvore de trabalho",
+  "worktreeState": "Estado",
+  "worktreePath": "Pasta",
+  "worktreeBranch": "Branch",
+  "worktreeOwner": "Chat",
+  "worktreeSnapshot": "Snapshot",
+  "worktreeOpen": "Abrir pasta",
+  "worktreeRestore": "Restaurar snapshot",
+  "worktreeRecover": "Verificar / recuperar",
+  "worktreeArchiveHelp": "Salva os arquivos e a área de preparação antes de remover esta cópia. Preserve separadamente arquivos ignorados e repositórios aninhados. A restauração abre o commit salvo sem branch.",
+  "worktreeArchive": "Arquivar com snapshot"
 }

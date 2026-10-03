@@ -364,6 +364,14 @@ pub(super) async fn run_registered_subagent_isolated(
         settled: false,
     });
     let outcome = async {
+        let workspace_lease = runtime.parent_conversation_id.as_deref().map(|id| nexa_core::chat_worktrees::activity(&db, id)).transpose()?;
+        if let Some(id) = runtime.parent_conversation_id.as_deref() {
+            let current = db.conversation_workspace(id)?;
+            let inherited = runtime.tool_registry.lock().map_err(|_| CoreError::Internal("Subagent tools unavailable".into()))?.as_ref().and_then(|tools| tools.workspace().cloned());
+            if db.chat_worktree(id)?.is_some() && current != inherited {
+                return Err(CoreError::InvalidInput("The chat workspace changed before this worker started; launch the worker again".into()));
+            }
+        }
         registration.events.start().await?;
         let execution_slots =
             acquire_worker_execution_slots(&runtime, &call_label, &args, batch_slots).await?;
@@ -376,6 +384,7 @@ pub(super) async fn run_registered_subagent_isolated(
         std::thread::Builder::new()
             .name("nexa-subagent-worker".to_string())
             .spawn(move || {
+                let _workspace_lease = workspace_lease;
                 let result = isolated_runtime.block_on(async move {
                     let result = run_admitted_worker(
                         runtime,

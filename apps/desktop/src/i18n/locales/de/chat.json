@@ -817,5 +817,19 @@
   "mcpResourceUri": "Ressourcen-URI",
   "mcpChoosePrompt": "Promptvorlage auswählen",
   "mcpReadContent": "Inhalt lesen",
-  "mcpInsertText": "Text zum Entwurf hinzufügen"
+  "mcpInsertText": "Text zum Entwurf hinzufügen",
+  "worktreeTitle": "Chat-Worktree",
+  "worktreeHelp": "Erstellt einen unabhängigen Checkout ab einem Commit. Der Quellordner und unbestätigte Änderungen bleiben erhalten. Vor Änderungen Chat stoppen und Terminals schließen.",
+  "worktreeStart": "Startreferenz",
+  "worktreeCreate": "Worktree erstellen",
+  "worktreeState": "Status",
+  "worktreePath": "Ordner",
+  "worktreeBranch": "Branch",
+  "worktreeOwner": "Chat",
+  "worktreeSnapshot": "Snapshot",
+  "worktreeOpen": "Ordner öffnen",
+  "worktreeRestore": "Snapshot wiederherstellen",
+  "worktreeRecover": "Prüfen / wiederherstellen",
+  "worktreeArchiveHelp": "Arbeitsdateien und Staging-Bereich sichern, dann diesen Checkout entfernen. Ignorierte Dateien und verschachtelte Repositorys separat sichern. Die Wiederherstellung öffnet den Snapshot ohne Branchbindung.",
+  "worktreeArchive": "Mit Snapshot archivieren"
 }

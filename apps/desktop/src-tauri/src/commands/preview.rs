@@ -955,6 +955,11 @@ pub async fn preview_file_cmd(
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
     let preview = tokio::task::spawn_blocking(move || {
+        let _workspace_lease = conversation_id
+            .as_deref()
+            .map(|id| nexa_core::chat_worktrees::activity(&db, id))
+            .transpose()
+            .map_err(|e| e.to_string())?;
         let mut preview = build_file_preview(&db, &path, Some(&data_dir))?;
         if let Some(conversation) = conversation_id.as_deref() {
             let workspace = db

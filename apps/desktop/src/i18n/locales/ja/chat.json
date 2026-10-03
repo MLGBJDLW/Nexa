@@ -817,5 +817,19 @@
   "mcpResourceUri": "リソース URI",
   "mcpChoosePrompt": "プロンプトを選択",
   "mcpReadContent": "内容を読み込む",
-  "mcpInsertText": "下書きにテキストを追加"
+  "mcpInsertText": "下書きにテキストを追加",
+  "worktreeTitle": "チャットの作業ツリー",
+  "worktreeHelp": "コミットから独立した作業ツリーを作成します。元のフォルダーと未コミットの変更は保持されます。変更前にチャットを停止し、ターミナルを閉じてください。",
+  "worktreeStart": "開始リファレンス",
+  "worktreeCreate": "作業ツリーを作成",
+  "worktreeState": "状態",
+  "worktreePath": "フォルダー",
+  "worktreeBranch": "ブランチ",
+  "worktreeOwner": "チャット",
+  "worktreeSnapshot": "スナップショット",
+  "worktreeOpen": "フォルダーを開く",
+  "worktreeRestore": "スナップショットを復元",
+  "worktreeRecover": "確認／復旧",
+  "worktreeArchiveHelp": "作業ファイルとステージング領域を保存してから、この作業ツリーを削除します。無視されたファイルと入れ子のリポジトリは別途保存してください。復元時はスナップショットのコミットを開きます。",
+  "worktreeArchive": "保存してアーカイブ"
 }

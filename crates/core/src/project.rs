@@ -253,6 +253,7 @@ impl Database {
         conversation_id: &str,
         project_id: &str,
     ) -> Result<(), CoreError> {
+        let _workspace_change = crate::chat_worktrees::exclusive(self, conversation_id)?;
         // Verify both exist.
         let _ = self.get_conversation(conversation_id)?;
         let _ = self.get_project(project_id)?;
@@ -266,6 +267,7 @@ impl Database {
 
     /// Remove a conversation from its project (set project_id to NULL).
     pub fn remove_conversation_from_project(&self, conversation_id: &str) -> Result<(), CoreError> {
+        let _workspace_change = crate::chat_worktrees::exclusive(self, conversation_id)?;
         let conn = self.conn();
         let affected = conn.execute(
             "UPDATE conversations SET project_id = NULL, updated_at = datetime('now') WHERE id = ?1",

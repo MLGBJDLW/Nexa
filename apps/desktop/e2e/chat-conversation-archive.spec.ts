@@ -1,5 +1,39 @@
 import { expect, test } from './timeline-test';
 
+test('chat worktree keeps the draft and requires a snapshot decision before archive', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __worktreeActions: string[] };
+    const original = state.__TAURI_INTERNALS__.invoke; state.__worktreeActions = [];
+    let record: Record<string, unknown> | null = null;
+    state.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'get_chat_worktree_cmd') return record;
+      if (command === 'change_chat_worktree_cmd') {
+        const action = String(args?.action); state.__worktreeActions.push(action);
+        record = { id: 'worktree-one', conversationId: 'conv-active', path: 'D:/Nexa/chat-worktrees/one', branch: 'nexa/chat-one', startSha: 'a'.repeat(40), status: action === 'archive' ? 'archived' : 'ready', snapshotSha: action === 'create' ? null : 'b'.repeat(40), detail: null };
+        return record;
+      }
+      return original(command, args);
+    };
+  });
+  const input = page.getByTestId('chat-input-textarea'); await input.fill('Keep my worktree draft');
+  await page.keyboard.press('Control+Shift+P'); const palette = page.getByRole('dialog', { name: /Command Palette/i });
+  await palette.getByRole('combobox').fill('Chat worktree'); await palette.getByRole('option', { name: 'Chat worktree', exact: true }).click();
+  const panel = page.getByTestId('chat-worktree-panel'); await expect(panel).toBeVisible();
+  await panel.getByRole('textbox', { name: 'Starting reference' }).fill('main');
+  await panel.getByRole('button', { name: 'Create worktree', exact: true }).click();
+  await expect(panel).toContainText('nexa/chat-one');
+  await expect(panel.getByRole('button', { name: 'Archive with snapshot' })).toBeDisabled();
+  await panel.getByRole('checkbox').check();
+  await page.screenshot({ path: testInfo.outputPath('chat-worktree.png') });
+  await panel.getByRole('button', { name: 'Archive with snapshot' }).click();
+  await expect(panel).toContainText('archived');
+  await panel.getByRole('button', { name: 'Restore snapshot' }).click(); await expect(panel).toContainText('ready');
+  await page.keyboard.press('Escape'); await expect(input).toHaveValue('Keep my worktree draft');
+  await input.fill('/worktree'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __worktreeActions: string[] }).__worktreeActions)).toEqual(['create', 'archive', 'restore']);
+});
+
 test('MCP resources and prompt templates are reviewed before adding text to the draft', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active'); await page.getByTestId('chat-input-textarea').waitFor();
   await page.evaluate(() => {

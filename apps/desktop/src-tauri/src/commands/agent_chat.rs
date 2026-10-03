@@ -422,6 +422,13 @@ pub(super) async fn launch_desktop_agent_chat_turn(
         retry_from_message_id,
         idempotency_key,
     } = request;
+    let workspace_lease = nexa_core::chat_worktrees::activity(&state.db, &conversation_id)
+        .map_err(|e| e.to_string())?;
+    // Archived or incomplete worktrees must never fall back to the source checkout.
+    state
+        .db
+        .conversation_workspace(&conversation_id)
+        .map_err(|e| e.to_string())?;
     let execution_mode = AgentExecutionMode::from_wire(execution_mode.as_deref())?;
     let power_mode = AgentPowerMode::from_wire(power_mode.as_deref())?;
     let collaboration_mode = AgentCollaborationMode::from_wire(collaboration_mode.as_deref())?;
@@ -965,6 +972,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
 
     let stream_event_seq_for_task = Arc::clone(&stream_event_seq);
     let task = tokio::spawn(async move {
+        let _workspace_lease = workspace_lease;
         let _foreground_work_lease = background_work.foreground_lease();
         let initialization = async {
             let mut started_event = AgentRunEvent::status_update(

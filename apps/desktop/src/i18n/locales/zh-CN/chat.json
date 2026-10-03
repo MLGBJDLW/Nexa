@@ -817,5 +817,19 @@
   "mcpResourceUri": "资源 URI",
   "mcpChoosePrompt": "选择提示模板",
   "mcpReadContent": "读取内容",
-  "mcpInsertText": "将文本加入草稿"
+  "mcpInsertText": "将文本加入草稿",
+  "worktreeTitle": "会话工作树",
+  "worktreeHelp": "从指定提交创建独立目录。原目录及其未提交修改仍保留原处。更改工作树前请停止会话并关闭其终端。",
+  "worktreeStart": "起始引用",
+  "worktreeCreate": "创建工作树",
+  "worktreeState": "状态",
+  "worktreePath": "目录",
+  "worktreeBranch": "分支",
+  "worktreeOwner": "所属会话",
+  "worktreeSnapshot": "快照",
+  "worktreeOpen": "打开目录",
+  "worktreeRestore": "恢复快照",
+  "worktreeRecover": "检查／恢复",
+  "worktreeArchiveHelp": "保存工作文件和暂存区后移除此目录。忽略文件和嵌套仓库须另行保存。恢复时将从快照提交打开文件。",
+  "worktreeArchive": "保存快照并归档"
 }
