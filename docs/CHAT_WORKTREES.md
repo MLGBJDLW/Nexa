@@ -1,5 +1,7 @@
 # Chat worktrees
 
+Managed background commands retain their chat's workspace ownership after the reply finishes. Stop them through the process controls or `run_shell` with `service_action=stop` before changing or archiving the worktree. Ending the foreground reply alone does not stop a persistent service.
+
 Open **More options → Chat worktree**, the command palette, or `/worktree`.
 A project with one Git workspace folder can create independent checkouts for
 multiple chats. Choose a starting branch, tag, or commit; the default is `HEAD`.

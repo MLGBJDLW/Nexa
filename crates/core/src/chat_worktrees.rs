@@ -50,7 +50,7 @@ pub(crate) fn exclusive(
 ) -> Result<OwnedRwLockWriteGuard<()>, CoreError> {
     activity_lock(db, conversation)
         .try_write_owned()
-        .map_err(|_| invalid("Stop the chat and close its terminals before changing its worktree"))
+        .map_err(|_| invalid("Stop the chat and its managed processes, and close its terminals before changing its worktree"))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
