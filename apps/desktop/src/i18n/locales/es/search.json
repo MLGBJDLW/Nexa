@@ -83,5 +83,7 @@
   "embeddingWarningAction": "Instalar ahora",
   "cloudVectors": "Vectores en la nube",
   "vectorFusion": "Fusión local/nube",
-  "localFallback": "Respaldo local"
+  "localFallback": "Respaldo local",
+  "candidateLimit": "La búsqueda alcanzó su límite de resultados. Acota las palabras clave o las fuentes para encontrar más.",
+  "paginationReset": "Los resultados cambiaron. Se ha vuelto a la primera página."
 }

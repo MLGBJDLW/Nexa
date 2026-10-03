@@ -83,5 +83,7 @@
   "embeddingWarningAction": "Install Now",
   "cloudVectors": "Cloud vectors",
   "vectorFusion": "Local/cloud fusion",
-  "localFallback": "Local fallback"
+  "localFallback": "Local fallback",
+  "candidateLimit": "Search reached its result limit. Narrow the keywords or source filters to find more.",
+  "paginationReset": "Search results changed. Returned to the first page."
 }

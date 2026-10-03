@@ -436,6 +436,79 @@ test('failed searches show a persistent retry state without stale evidence', asy
   await page.screenshot({ path: '.artifacts/kb-ui-audit-2026-10-03-failure.png', fullPage: true });
 });
 
+async function installPagedRanking(page: import('@playwright/test').Page) {
+  await installAuditSearch(page);
+  await page.evaluate(() => {
+    const host = window as any;
+    const invoke = host.__TAURI_INTERNALS__.invoke;
+    host.__rankingMethod = 'semantic_cross_encoder';
+    host.__pagingOffsets = [];
+    host.__TAURI_INTERNALS__.invoke = async (command: string, args: any = {}) => {
+      const result = await invoke(command, args);
+      if (command !== 'search' && command !== 'hybrid_search') return result;
+      const offset = Number(args.offset ?? 0);
+      host.__pagingOffsets.push(offset);
+      return {
+        ...result,
+        totalMatches: 45,
+        candidateLimitReached: true,
+        ranking: { method: host.__rankingMethod, candidates: 64, elapsedMs: 5, fallbackReason: host.__rankingMethod === 'lexical_rules' ? 'Fixture reranker unavailable' : null },
+        evidenceCards: result.evidenceCards.map((card: any) => ({ ...card, documentTitle: `${host.__rankingMethod} result ${offset}` })),
+      };
+    };
+  });
+}
+
+test('pagination restarts from the first page when ranking switches to fallback', async ({ page }) => {
+  await page.goto('/');
+  await installPagedRanking(page);
+  await page.getByPlaceholder('Search by keyword...').fill('pagination');
+  await expect(page.getByRole('button', { name: 'semantic_cross_encoder result 0', exact: true })).toBeVisible();
+  await page.evaluate(() => { (window as any).__rankingMethod = 'lexical_rules'; });
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'lexical_rules result 0', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__pagingOffsets)).toEqual([0, 20, 0]);
+  await expect(page.getByTestId('search-ranking-reset')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
+});
+
+test('bounded result sets tell the user to narrow the search', async ({ page }) => {
+  await page.goto('/');
+  await installPagedRanking(page);
+  await page.getByPlaceholder('Search by keyword...').fill('pagination');
+  await expect(page.getByTestId('search-candidate-limit')).toContainText('Narrow');
+});
+
+test('a late pagination restart cannot replace a newer query', async ({ page }) => {
+  await page.goto('/');
+  await installPagedRanking(page);
+  await page.evaluate(() => {
+    const host = window as any;
+    const invoke = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = async (command: string, args: any = {}) => {
+      const result = await invoke(command, args);
+      if (command !== 'search' && command !== 'hybrid_search') return result;
+      const named = { ...result, evidenceCards: result.evidenceCards.map((card: any) => ({ ...card, documentTitle: `${args.queryText} ${card.documentTitle}` })) };
+      if (host.__deferPageReset && args.queryText === 'older pages' && args.offset === 0) {
+        return new Promise(resolve => { host.__resolvePageReset = () => resolve(named); });
+      }
+      return named;
+    };
+  });
+  const input = page.getByPlaceholder('Search by keyword...');
+  await input.fill('older pages');
+  await expect(page.getByRole('button', { name: 'older pages semantic_cross_encoder result 0', exact: true })).toBeVisible();
+  await page.evaluate(() => { const host = window as any; host.__deferPageReset = true; host.__rankingMethod = 'lexical_rules'; });
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__resolvePageReset)).toBe('function');
+  await input.fill('newer pages');
+  await expect(page.getByRole('button', { name: 'newer pages lexical_rules result 0', exact: true })).toBeVisible();
+  await page.evaluate(() => (window as any).__resolvePageReset());
+  await expect(page.getByRole('button', { name: 'newer pages lexical_rules result 0', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'older pages lexical_rules result 0', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('search-ranking-reset')).toHaveCount(0);
+});
+
 test('clearing input invalidates an in-flight request and its loading state', async ({ page }) => {
   await page.goto('/');
   await installAuditSearch(page, true);

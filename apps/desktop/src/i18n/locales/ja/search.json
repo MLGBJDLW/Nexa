@@ -83,5 +83,7 @@
   "embeddingWarningAction": "今すぐインストール",
   "cloudVectors": "クラウドベクトル",
   "vectorFusion": "ローカルとクラウドを融合",
-  "localFallback": "ローカルに復帰"
+  "localFallback": "ローカルに復帰",
+  "candidateLimit": "検索結果の上限に達しました。キーワードや対象のソースを絞り込んで検索してください。",
+  "paginationReset": "検索結果が変わったため、最初のページに戻りました。"
 }

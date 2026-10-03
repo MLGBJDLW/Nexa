@@ -58,7 +58,7 @@ fn multi_query_rrf_merge(ranked_lists: &[Vec<(String, f32)>], k: f32) -> Vec<(St
         }
     }
     let mut merged: Vec<(String, f32)> = scores.into_iter().collect();
-    merged.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    merged.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     merged
 }
 
@@ -91,12 +91,14 @@ fn run_multi_query_search(
     let mut card_map: HashMap<String, EvidenceCard> = HashMap::new();
     let mut graph_reports = Vec::new();
     let mut total_time_ms: u64 = 0;
+    let mut candidate_limit_reached = false;
     let query_count = queries.len();
     let per_query_limit = std::cmp::min(limit * 2, 20);
 
     for q in queries {
         let result = run_search_query(db, filters.clone(), q.clone(), per_query_limit)?;
         total_time_ms += result.search_time_ms;
+        candidate_limit_reached |= result.candidate_limit_reached;
         if let Some(report) = result.graph_retrieval.clone() {
             graph_reports.push(report);
         }
@@ -134,6 +136,7 @@ fn run_multi_query_search(
     Ok(search::SearchResult {
         query: queries.join(" | "),
         total_matches: merged.len(),
+        candidate_limit_reached,
         evidence_cards: cards,
         search_time_ms: total_time_ms,
         search_mode: format!("multi-query ({} queries, hybrid)", query_count),
@@ -174,6 +177,7 @@ fn format_search_artifacts(
         "search": {
             "query": &result.query,
             "totalMatches": result.total_matches,
+            "candidateLimitReached": result.candidate_limit_reached,
             "searchTimeMs": result.search_time_ms,
             "searchMode": &result.search_mode,
             "queryCount": query_count
@@ -276,6 +280,9 @@ fn format_search_result(
         strategy.context_chunks,
     );
 
+    if result.candidate_limit_reached {
+        text.push_str("Search reached its result limit. Narrow the query or source filters to find additional matches.\n\n");
+    }
     if !context_pack.primary_chunk_ids.is_empty() {
         text.push_str(&format!(
             "Context pack: primary direct chunk(s): {}; context-window candidates: {}; supporting summaries: {}. Preserve source/document boundaries when packing context.\n\n",

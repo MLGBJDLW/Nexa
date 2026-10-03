@@ -83,5 +83,7 @@
   "embeddingWarningAction": "Jetzt installieren",
   "cloudVectors": "Cloud-Vektoren",
   "vectorFusion": "Lokale/Cloud-Fusion",
-  "localFallback": "Lokaler Rückfall"
+  "localFallback": "Lokaler Rückfall",
+  "candidateLimit": "Die Ergebnisgrenze wurde erreicht. Grenzen Sie Suchbegriffe oder Quellen ein, um mehr zu finden.",
+  "paginationReset": "Die Suchergebnisse haben sich geändert. Zur ersten Seite zurückgekehrt."
 }

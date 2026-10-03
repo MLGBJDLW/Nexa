@@ -83,5 +83,7 @@
   "embeddingWarningAction": "立即安裝",
   "cloudVectors": "雲端向量",
   "vectorFusion": "本機/雲端融合",
-  "localFallback": "已回退本機"
+  "localFallback": "已回退本機",
+  "candidateLimit": "搜尋已達到結果上限。請縮小關鍵詞或來源範圍，繼續查找。",
+  "paginationReset": "搜尋結果已變更，已返回第一頁。"
 }

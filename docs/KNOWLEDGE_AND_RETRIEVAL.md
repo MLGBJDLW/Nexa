@@ -50,6 +50,17 @@ to the current request. Source changes trigger retrieval; failed requests expose
 a retry action. A card's Chat action carries the active source scope and its
 versioned evidence reference. Returning from Chat restores the search workspace.
 
+Pagination uses one bounded candidate horizon independent of page size or offset:
+up to 200 keyword/vector-ranked blocks, plus evidence from up to 120 graph
+documents. Scope filters apply before those budgets. Ranking and document packing
+finish before pagination, so `totalMatches` counts the available packed results,
+not raw matching chunks. `candidateLimitReached` tells the UI and tools when to
+narrow the query or source filters. Research packs at most three direct blocks
+per document across that same result set. Equal scores have deterministic order.
+Page consistency assumes unchanged indexed data, feedback, configuration and
+service responses; this is a live query, not a saved search snapshot. If retrieval
+or ranking falls back during active UI pagination, the UI restarts at page one.
+
 ## Read the cited version
 
 Evidence references carry source ID, document ID, index revision, raw file hash,

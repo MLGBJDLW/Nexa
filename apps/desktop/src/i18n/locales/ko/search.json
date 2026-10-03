@@ -83,5 +83,7 @@
   "embeddingWarningAction": "지금 설치",
   "cloudVectors": "클라우드 벡터",
   "vectorFusion": "로컬/클라우드 통합",
-  "localFallback": "로컬 대체"
+  "localFallback": "로컬 대체",
+  "candidateLimit": "검색 결과 한도에 도달했습니다. 키워드나 소스 범위를 좁혀 더 검색하세요.",
+  "paginationReset": "검색 결과가 변경되어 첫 페이지로 돌아갔습니다."
 }

@@ -156,6 +156,7 @@ export function SearchPage() {
   const [recentQueries, setRecentQueries] = useState<QueryLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [paginationReset, setPaginationReset] = useState(false);
   const [searchMode, setSearchMode] = useState<'fts' | 'hybrid'>(initialWorkspace.current.mode);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({});
   const [currentPage, setCurrentPage] = useState(initialWorkspace.current.page);
@@ -189,6 +190,7 @@ export function SearchPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchGeneration = useRef(0);
   const lastRequestedKey = useRef<string | null>(null);
+  const lastCompletedRanking = useRef<{ key: string; basis: string } | null>(null);
   const searchKey = JSON.stringify([query.trim(), filters, searchMode]);
   const currentSearchKey = useRef(searchKey);
   currentSearchKey.current = searchKey;
@@ -355,6 +357,7 @@ export function SearchPage() {
     setLoading(true);
     setResult(null);
     setSearchError(null);
+    setPaginationReset(false);
     setFeedbackMap({});
     const offset = (targetPage - 1) * PAGE_SIZE;
     const apiFilters = {
@@ -363,11 +366,23 @@ export function SearchPage() {
       dateTo: filters.dateTo ? filters.dateTo + "T23:59:59Z" : null,
     };
     try {
-      const res =
+      const fetchPage = (pageOffset: number) =>
         searchMode === 'hybrid'
-          ? await api.hybridSearch(q, PAGE_SIZE, offset, apiFilters)
-          : await api.search(q, PAGE_SIZE, offset, apiFilters);
+          ? api.hybridSearch(q, PAGE_SIZE, pageOffset, apiFilters)
+          : api.search(q, PAGE_SIZE, pageOffset, apiFilters);
+      const rankingBasis = (value: SearchResult) => `${value.searchMode ?? searchMode}:${value.ranking?.method ?? 'lexical_rules'}`;
+      let res = await fetchPage(offset);
       if (!isCurrent()) return;
+      const previous = lastCompletedRanking.current;
+      if (targetPage > 1 && (
+        (previous?.key === key && previous.basis !== rankingBasis(res)) || res.evidenceCards.length === 0
+      )) {
+        res = await fetchPage(0);
+        if (!isCurrent()) return;
+        setCurrentPage(1);
+        setPaginationReset(true);
+      }
+      lastCompletedRanking.current = { key, basis: rankingBasis(res) };
       setResult({ ...res, searchMode: res.searchMode ?? searchMode });
       loadRecentQueries();
 
@@ -396,6 +411,7 @@ export function SearchPage() {
     lastRequestedKey.current = null;
     setResult(null);
     setSearchError(null);
+    setPaginationReset(false);
     setFeedbackMap({});
     setLoading(false);
     if (searchKey !== initialSearchKey.current) {
@@ -1246,6 +1262,8 @@ export function SearchPage() {
             </span>
           </div>
 
+          {paginationReset && <p role="status" data-testid="search-ranking-reset" className="mb-3 text-xs text-text-secondary">{t('search.paginationReset')}</p>}
+          {result.candidateLimitReached && <p role="status" data-testid="search-candidate-limit" className="mb-3 text-xs text-text-secondary">{t('search.candidateLimit')}</p>}
           {result.ranking && <details className="mb-3 text-xs text-text-tertiary">
             <summary className="cursor-pointer">{t('knowledge.rankingDetails')}</summary>
             <p className="mt-1">{t(result.ranking.method === 'semantic_cross_encoder' ? 'knowledge.semanticRanking' : 'knowledge.ruleRanking')} · {result.ranking.candidates} · {result.ranking.elapsedMs} ms</p>

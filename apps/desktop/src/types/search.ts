@@ -36,11 +36,13 @@ export interface GraphRetrievalReport {
   candidateDocuments: GraphDocumentHit[];
   expandedChunkIds: string[];
   boostedChunkIds: string[];
+  candidateLimitReached?: boolean;
 }
 
 export interface SearchResult {
   query: string;
   totalMatches: number;
+  candidateLimitReached?: boolean;
   evidenceCards: import("./evidence").EvidenceCard[];
   searchTimeMs: number;
   searchMode?: SearchMode;
