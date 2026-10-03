@@ -562,6 +562,9 @@ fn main() {
 
             let db_path = data_dir.join("nexa.db");
             let db = Database::new(&db_path).expect("failed to initialize database");
+            if let Err(error) = db.recover_knowledge_jobs() {
+                log::warn!("Could not recover interrupted indexing jobs: {error}");
+            }
             if let Err(error) = db.recover_project_hook_runs() {
                 log::warn!("Could not recover interrupted project hooks: {error}");
             }
@@ -804,10 +807,23 @@ fn main() {
             commands::delete_source,
             // Ingest
             commands::scan_source,
+            commands::list_knowledge_jobs,
+            commands::get_source_index_health,
+            commands::get_knowledge_services_config,
+            commands::save_knowledge_services_config,
+            commands::list_research_sets,
+            commands::get_research_set,
+            commands::create_research_set,
+            commands::refresh_research_set,
+            commands::review_research_cell,
+            commands::delete_research_set,
             commands::scan_all_sources,
             // Search
             commands::search,
             commands::get_evidence_card,
+            commands::resolve_evidence_ref,
+            commands::get_evidence_context,
+            commands::get_document_outline,
             commands::get_evidence_cards,
             // Index
             commands::get_index_stats,

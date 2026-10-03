@@ -114,6 +114,24 @@ pub fn ocr_pdf_with_llm_provider_type(
 }
 
 #[cfg(feature = "document-processing")]
+pub struct PdfPageOcr {
+    pub text: String,
+    pub images_seen: usize,
+    pub images_failed: usize,
+}
+
+#[cfg(feature = "document-processing")]
+pub fn ocr_pdf_page_with_llm_provider_type(
+    _document: &lopdf::Document,
+    _page_id: lopdf::ObjectId,
+    _config: &OcrConfig,
+    _llm_provider: Option<&dyn crate::llm::LlmProvider>,
+    _llm_provider_type: Option<crate::llm::ProviderType>,
+) -> Result<PdfPageOcr, CoreError> {
+    Err(disabled_error())
+}
+
+#[cfg(feature = "document-processing")]
 pub(crate) fn extract_images_from_pdf_page(
     _doc: &lopdf::Document,
     _page_id: lopdf::ObjectId,

@@ -161,6 +161,19 @@ pub fn build_plan(
         );
     }
 
+    if !filters.document_ids.is_empty() {
+        where_parts.push(format!(
+            "d.id IN ({})",
+            repeat_placeholders(filters.document_ids.len())
+        ));
+        params.extend(
+            filters
+                .document_ids
+                .iter()
+                .map(|value| Value::Text(value.to_string())),
+        );
+    }
+
     if !filters.file_types.is_empty() {
         let mimes: Vec<String> = filters
             .file_types

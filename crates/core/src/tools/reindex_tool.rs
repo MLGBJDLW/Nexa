@@ -134,22 +134,9 @@ impl Tool for ReindexTool {
                 }
             };
 
-            // Delete existing document to force re-index (even if hash unchanged).
-            // Try multiple path formats since the DB may store OS-native or normalized paths.
-            let canonical = std::fs::canonicalize(&file_path)
-                .unwrap_or_else(|_| file_path.clone());
-            let canonical_str = canonical.to_string_lossy();
-            let _ = db.delete_document_by_path(&canonical_str);
-
-            // Also try with forward-slash normalized path.
-            let normalized = canonical_str.replace('\\', "/");
-            if normalized != *canonical_str {
-                let _ = db.delete_document_by_path(&normalized);
-            }
-            // And try the raw input path.
-            let _ = db.delete_document_by_path(file_path_str);
-
-            let outcome = ingest::ingest_single_file(&db, &source.id, &file_path)?;
+            // Preserve document identity and archived evidence even when its
+            // file hash is unchanged. Mutations stay inside the selected source.
+            let outcome = ingest::reindex_single_file(&db, &source.id, &file_path)?;
             let status = match outcome {
                 ingest::IngestFileResult::Added => "added (re-indexed)",
                 ingest::IngestFileResult::Updated => "updated",

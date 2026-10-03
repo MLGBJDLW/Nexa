@@ -25,6 +25,51 @@ use crate::parse::{
 };
 use crate::privacy::{self, PrivacyConfig};
 
+pub const NATIVE_PARSER_PROFILE: &str = "native-v2";
+
+#[derive(Debug, Clone)]
+pub struct IndexedDocument {
+    pub id: String,
+    pub content_hash: String,
+    pub parser_profile: String,
+    pub parsed_hash: String,
+}
+
+fn parsed_hash(parsed: &ParsedDocument) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for chunk in &parsed.chunks {
+        hasher.update(chunk.content.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(
+            serde_json::to_string(&chunk.locator)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        hasher.update(chunk.extraction_method.as_bytes());
+    }
+    for artifact in &parsed.visual_artifacts {
+        hasher.update(artifact.to_chunk_content().as_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+fn parsed_metadata_json(parsed: &ParsedDocument) -> Result<String, CoreError> {
+    let mut metadata = parsed.metadata.clone();
+    metadata.insert("parsed_hash".into(), parsed_hash(parsed));
+    metadata
+        .entry("parser_profile".into())
+        .or_insert_with(|| NATIVE_PARSER_PROFILE.into());
+    Ok(serde_json::to_string(&metadata)?)
+}
+
+fn parser_profile(parsed: &ParsedDocument) -> &str {
+    parsed
+        .metadata
+        .get("parser_profile")
+        .map(String::as_str)
+        .unwrap_or(NATIVE_PARSER_PROFILE)
+}
+
 // ---------------------------------------------------------------------------
 // File size limits
 // ---------------------------------------------------------------------------
@@ -194,6 +239,7 @@ fn scan_source_inner(
     on_progress: Option<&dyn Fn(ScanProgress)>,
 ) -> Result<IngestResult, CoreError> {
     let source = db.get_source(source_id)?;
+    let services = db.knowledge_services_config()?;
 
     // Load file size limits from app config.
     let app_cfg = db.load_app_config().unwrap_or_default();
@@ -216,10 +262,7 @@ fn scan_source_inner(
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
     let video_config = db.load_video_config().ok();
-    #[cfg(all(feature = "video", feature = "ocr"))]
     let ocr_config = db.load_ocr_config().ok();
-    #[cfg(all(feature = "video", not(feature = "ocr")))]
-    let ocr_config = Some(crate::ocr::OcrConfig::default());
     #[cfg(feature = "video")]
     let speech_config = app_cfg.speech_to_text.clone();
 
@@ -385,7 +428,6 @@ fn scan_source_inner(
             file_path,
             &existing_docs,
             privacy_cfg,
-            #[cfg(feature = "video")]
             ocr_config.as_ref(),
             #[cfg(feature = "video")]
             video_config.as_ref(),
@@ -393,6 +435,7 @@ fn scan_source_inner(
             Some(&speech_config),
             Some(&media_progress),
             max_chunk_chars,
+            &services,
         ) {
             Ok(FileClassification::New(parsed)) => {
                 // File succeeded — clear any previous error record.
@@ -433,14 +476,22 @@ fn scan_source_inner(
     }
 
     // Purge stale documents: entries in the DB whose files no longer exist on disk.
-    for (doc_path, (_doc_id, _hash)) in &existing_docs {
+    for doc_path in existing_docs.keys() {
         let existing_path = Path::new(doc_path);
-        if is_code_source_file(existing_path) || is_unhandled_binary_file(existing_path) {
+        let relative = existing_path
+            .strip_prefix(root)
+            .unwrap_or(existing_path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let excluded =
+            (has_includes && !include_set.is_match(&relative)) || exclude_set.is_match(&relative);
+        if excluded || is_code_source_file(existing_path) || is_unhandled_binary_file(existing_path)
+        {
             info!(
                 "Purging unsupported document from knowledge source: {}",
                 doc_path
             );
-            match db.delete_document_by_path(doc_path) {
+            match db.forget_document_in_source(source_id, doc_path) {
                 Ok(true) => result.files_purged += 1,
                 Ok(false) => {
                     debug!("Unsupported document already removed: {}", doc_path);
@@ -456,7 +507,7 @@ fn scan_source_inner(
                 "Purging stale document (file removed from disk): {}",
                 doc_path
             );
-            match db.delete_document_by_path(doc_path) {
+            match db.delete_document_in_source(source_id, doc_path) {
                 Ok(true) => result.files_purged += 1,
                 Ok(false) => {
                     debug!("Stale document already removed: {}", doc_path);
@@ -505,6 +556,7 @@ fn scan_source_inner(
         result.files_purged
     );
 
+    db.record_source_scan(&result)?;
     Ok(result)
 }
 
@@ -556,8 +608,7 @@ pub fn batch_insert_documents(
     let mut count = 0usize;
     for parsed in parsed_docs {
         let doc_id = uuid::Uuid::new_v4().to_string();
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
                                     modified_at, content_hash, metadata)
@@ -597,8 +648,7 @@ pub fn batch_update_documents(
         tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
 
         // Update the document record.
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "UPDATE documents
              SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
@@ -654,23 +704,72 @@ impl Database {
     pub fn get_document_paths_for_source(
         &self,
         source_id: &str,
-    ) -> Result<HashMap<String, (String, String)>, CoreError> {
+    ) -> Result<HashMap<String, IndexedDocument>, CoreError> {
         let conn = self.conn();
         let mut stmt =
-            conn.prepare("SELECT id, path, content_hash FROM documents WHERE source_id = ?1")?;
+            conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id = ?1")?;
         let rows = stmt.query_map(params![source_id], |row| {
             Ok((
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
             ))
         })?;
         let mut map = HashMap::new();
         for row in rows {
-            let (path, id, hash) = row?;
-            map.insert(path, (id, hash));
+            let (path, id, content_hash, parser_profile, parsed_hash) = row?;
+            map.insert(
+                path,
+                IndexedDocument {
+                    id,
+                    content_hash,
+                    parser_profile,
+                    parsed_hash,
+                },
+            );
         }
         Ok(map)
+    }
+
+    pub fn get_document_in_source(
+        &self,
+        source_id: &str,
+        path: &str,
+    ) -> Result<Option<IndexedDocument>, CoreError> {
+        use rusqlite::OptionalExtension;
+        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], |row| Ok(IndexedDocument { id: row.get(0)?, content_hash: row.get(1)?, parser_profile: row.get(2)?, parsed_hash: row.get(3)? })).optional()?)
+    }
+
+    pub fn delete_document_in_source(
+        &self,
+        source_id: &str,
+        path: &str,
+    ) -> Result<bool, CoreError> {
+        Ok(self.conn().execute(
+            "DELETE FROM documents WHERE source_id=?1 AND path=?2",
+            params![source_id, path],
+        )? > 0)
+    }
+
+    pub fn forget_document_in_source(
+        &self,
+        source_id: &str,
+        path: &str,
+    ) -> Result<bool, CoreError> {
+        let mut conn = self.conn();
+        let transaction = conn.transaction()?;
+        let changed = transaction.execute(
+            "DELETE FROM documents WHERE source_id=?1 AND path=?2",
+            params![source_id, path],
+        )? > 0;
+        transaction.execute(
+            "DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_path=?2",
+            params![source_id, path],
+        )?;
+        transaction.commit()?;
+        Ok(changed)
     }
 
     /// Insert a new document and all its chunks within a single transaction.
@@ -686,8 +785,7 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
                                     modified_at, content_hash, metadata)
@@ -723,8 +821,7 @@ impl Database {
         tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
 
         // Update the document record.
-        let metadata_json =
-            serde_json::to_string(&parsed.metadata).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "UPDATE documents
              SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
@@ -789,13 +886,14 @@ enum FileClassification {
 #[allow(clippy::too_many_arguments)]
 fn classify_file(
     path: &Path,
-    existing_docs: &HashMap<String, (String, String)>,
+    existing_docs: &HashMap<String, IndexedDocument>,
     privacy: &PrivacyConfig,
-    #[cfg(feature = "video")] ocr_config: Option<&crate::ocr::OcrConfig>,
+    ocr_config: Option<&crate::ocr::OcrConfig>,
     #[cfg(feature = "video")] video_config: Option<&crate::video::VideoConfig>,
     #[cfg(feature = "video")] speech_config: Option<&crate::app_settings::SpeechToTextConfig>,
     progress_callback: Option<&dyn Fn(f32)>,
     max_chunk_chars: Option<usize>,
+    services: &crate::knowledge_services::KnowledgeServicesConfig,
 ) -> Result<FileClassification, CoreError> {
     #[cfg(feature = "video")]
     let file_path = path.to_string_lossy().to_string();
@@ -804,10 +902,9 @@ fn classify_file(
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
-            if existing_docs
-                .get(&file_path)
-                .is_some_and(|(_, existing_hash)| existing_hash == &hash)
-            {
+            if existing_docs.get(&file_path).is_some_and(|existing| {
+                existing.content_hash == hash && existing.parser_profile == NATIVE_PARSER_PROFILE
+            }) {
                 debug!("Skipping unchanged media before analysis: {}", file_path);
                 return Ok(FileClassification::Unchanged);
             }
@@ -817,24 +914,27 @@ fn classify_file(
         }
     };
 
-    let mut parsed = parse_file_with_media_config(
-        path,
-        #[cfg(feature = "video")]
-        ocr_config,
-        #[cfg(not(feature = "video"))]
-        None,
-        #[cfg(feature = "video")]
-        video_config,
-        #[cfg(feature = "video")]
-        speech_config,
-        None,
-        progress_callback,
-        max_chunk_chars,
-        #[cfg(feature = "video")]
-        known_content_hash.as_deref(),
-        #[cfg(not(feature = "video"))]
-        None,
-    )?;
+    let mut parsed = if let Some(parsed) =
+        crate::knowledge_services::parse_pdf(services, path, max_chunk_chars.unwrap_or(2000))?
+    {
+        parsed
+    } else {
+        parse_file_with_media_config(
+            path,
+            ocr_config,
+            #[cfg(feature = "video")]
+            video_config,
+            #[cfg(feature = "video")]
+            speech_config,
+            None,
+            progress_callback,
+            max_chunk_chars,
+            #[cfg(feature = "video")]
+            known_content_hash.as_deref(),
+            #[cfg(not(feature = "video"))]
+            None,
+        )?
+    };
 
     // Apply content redaction when privacy is enabled.
     if privacy.enabled {
@@ -847,13 +947,16 @@ fn classify_file(
     }
 
     match existing_docs.get(&parsed.file_path) {
-        Some((doc_id, existing_hash)) => {
-            if *existing_hash == parsed.content_hash {
+        Some(existing) => {
+            if existing.content_hash == parsed.content_hash
+                && existing.parser_profile == parser_profile(&parsed)
+                && existing.parsed_hash == parsed_hash(&parsed)
+            {
                 debug!("Skipping unchanged file: {}", parsed.file_path);
                 Ok(FileClassification::Unchanged)
             } else {
                 debug!("File changed: {}", parsed.file_path);
-                Ok(FileClassification::Changed(doc_id.clone(), parsed))
+                Ok(FileClassification::Changed(existing.id.clone(), parsed))
             }
         }
         None => {
@@ -872,9 +975,21 @@ fn insert_chunks(
     for chunk in chunks {
         let chunk_id = uuid::Uuid::new_v4().to_string();
         let chunk_hash = blake3::hash(chunk.content.as_bytes()).to_hex().to_string();
-        let line_end = chunk.content.lines().count().max(1) as i64;
+        let (line_start, line_end) = match &chunk.locator {
+            crate::evidence::EvidenceLocator::Text {
+                line_start,
+                line_end,
+                ..
+            } => (*line_start as i64, *line_end as i64),
+            _ => (0, 0),
+        };
         let metadata = {
             let mut meta = serde_json::Map::new();
+            meta.insert("locator".into(), serde_json::to_value(&chunk.locator)?);
+            meta.insert(
+                "extraction_method".into(),
+                serde_json::json!(chunk.extraction_method),
+            );
             if let Some(h) = &chunk.heading_context {
                 meta.insert(
                     "heading_context".to_string(),
@@ -894,7 +1009,7 @@ fn insert_chunks(
             "INSERT INTO chunks (id, document_id, chunk_index, kind, content,
                                  start_offset, end_offset, line_start, line_end,
                                  content_hash, metadata_json)
-             VALUES (?1, ?2, ?3, 'text', ?4, ?5, ?6, 1, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, 'text', ?4, ?5, ?6, ?10, ?7, ?8, ?9)",
             params![
                 &chunk_id,
                 doc_id,
@@ -905,6 +1020,7 @@ fn insert_chunks(
                 line_end,
                 &chunk_hash,
                 &metadata,
+                line_start,
             ],
         )?;
     }
@@ -970,6 +1086,23 @@ pub fn ingest_single_file(
     source_id: &str,
     path: &Path,
 ) -> Result<IngestFileResult, CoreError> {
+    ingest_file(db, source_id, path, false)
+}
+
+pub fn reindex_single_file(
+    db: &Database,
+    source_id: &str,
+    path: &Path,
+) -> Result<IngestFileResult, CoreError> {
+    ingest_file(db, source_id, path, true)
+}
+
+fn ingest_file(
+    db: &Database,
+    source_id: &str,
+    path: &Path,
+    force: bool,
+) -> Result<IngestFileResult, CoreError> {
     if !path.is_file() {
         return Err(CoreError::InvalidInput(format!(
             "Path is not a file: {}",
@@ -983,7 +1116,7 @@ pub fn ingest_single_file(
             path.display()
         );
         let path_str = path.to_string_lossy();
-        let _ = db.delete_document_by_path(path_str.as_ref())?;
+        let _ = db.delete_document_in_source(source_id, path_str.as_ref())?;
         return Ok(IngestFileResult::Unchanged);
     }
 
@@ -994,7 +1127,7 @@ pub fn ingest_single_file(
         );
         let path_str = path.to_string_lossy();
         let _ = db.clear_scan_error(source_id, &path_str);
-        let _ = db.delete_document_by_path(path_str.as_ref())?;
+        let _ = db.delete_document_in_source(source_id, path_str.as_ref())?;
         return Ok(IngestFileResult::Unchanged);
     }
 
@@ -1020,7 +1153,7 @@ pub fn ingest_single_file(
 
     // Skip files that have repeatedly failed (backoff).
     let path_str = path.to_string_lossy();
-    if !db.should_retry_scan(source_id, &path_str).unwrap_or(true) {
+    if !force && !db.should_retry_scan(source_id, &path_str).unwrap_or(true) {
         debug!("Skipping file with repeated failures: {}", path.display());
         return Ok(IngestFileResult::Unchanged);
     }
@@ -1031,10 +1164,7 @@ pub fn ingest_single_file(
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
     let video_config = db.load_video_config().ok();
-    #[cfg(all(feature = "video", feature = "ocr"))]
     let ocr_config = db.load_ocr_config().ok();
-    #[cfg(all(feature = "video", not(feature = "ocr")))]
-    let ocr_config = Some(crate::ocr::OcrConfig::default());
     #[cfg(feature = "video")]
     let speech_config = app_cfg.speech_to_text.clone();
 
@@ -1046,16 +1176,17 @@ pub fn ingest_single_file(
         .ok()
         .map(|cfg| cfg.local_embedding_model().max_chunk_chars().max(1500));
 
-    let existing_document = db.get_document_by_path(&path_str)?;
+    let existing_document = db.get_document_in_source(source_id, &path_str)?;
     #[cfg(feature = "video")]
     let known_content_hash = {
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
-            if existing_document
-                .as_ref()
-                .is_some_and(|(_, existing_hash)| existing_hash == &hash)
-            {
+            if existing_document.as_ref().is_some_and(|existing| {
+                !force
+                    && existing.content_hash == hash
+                    && existing.parser_profile == NATIVE_PARSER_PROFILE
+            }) {
                 debug!("Single-file ingest: unchanged media before analysis {path_str}");
                 return Ok(IngestFileResult::Unchanged);
             }
@@ -1065,24 +1196,29 @@ pub fn ingest_single_file(
         }
     };
 
-    let parsed_result = parse_file_with_media_config(
-        path,
-        #[cfg(feature = "video")]
-        ocr_config.as_ref(),
-        #[cfg(not(feature = "video"))]
-        None,
-        #[cfg(feature = "video")]
-        video_config.as_ref(),
-        #[cfg(feature = "video")]
-        Some(&speech_config),
-        None,
-        None,
-        max_chunk_chars,
-        #[cfg(feature = "video")]
-        known_content_hash.as_deref(),
-        #[cfg(not(feature = "video"))]
-        None,
-    );
+    let services = db.knowledge_services_config()?;
+    let parsed_result =
+        crate::knowledge_services::parse_pdf(&services, path, max_chunk_chars.unwrap_or(2000))
+            .and_then(|enhanced| {
+                if let Some(parsed) = enhanced {
+                    return Ok(parsed);
+                }
+                parse_file_with_media_config(
+                    path,
+                    ocr_config.as_ref(),
+                    #[cfg(feature = "video")]
+                    video_config.as_ref(),
+                    #[cfg(feature = "video")]
+                    Some(&speech_config),
+                    None,
+                    None,
+                    max_chunk_chars,
+                    #[cfg(feature = "video")]
+                    known_content_hash.as_deref(),
+                    #[cfg(not(feature = "video"))]
+                    None,
+                )
+            });
 
     let mut parsed = match parsed_result {
         Ok(p) => p,
@@ -1108,13 +1244,17 @@ pub fn ingest_single_file(
 
     // Check if the document already exists.
     match existing_document {
-        Some((doc_id, existing_hash)) => {
-            if existing_hash == parsed.content_hash {
+        Some(existing) => {
+            if !force
+                && existing.content_hash == parsed.content_hash
+                && existing.parser_profile == parser_profile(&parsed)
+                && existing.parsed_hash == parsed_hash(&parsed)
+            {
                 debug!("Single-file ingest: unchanged {}", parsed.file_path);
                 Ok(IngestFileResult::Unchanged)
             } else {
                 debug!("Single-file ingest: updating {}", parsed.file_path);
-                db.update_document(&doc_id, &parsed)?;
+                db.update_document(&existing.id, &parsed)?;
                 Ok(IngestFileResult::Updated)
             }
         }
@@ -1819,7 +1959,15 @@ mod tests {
         .unwrap();
         let path_string = path.to_string_lossy().to_string();
         let hash = hash_file_content(&path).unwrap();
-        let existing = HashMap::from([(path_string, ("doc-1".to_string(), hash))]);
+        let existing = HashMap::from([(
+            path_string,
+            IndexedDocument {
+                id: "doc-1".into(),
+                content_hash: hash,
+                parser_profile: NATIVE_PARSER_PROFILE.into(),
+                parsed_hash: String::new(),
+            },
+        )]);
         let video = crate::video::VideoConfig {
             enabled: true,
             ffmpeg_path: Some("/definitely/missing/ffmpeg".into()),
@@ -1835,6 +1983,7 @@ mod tests {
             Some(&crate::app_settings::SpeechToTextConfig::default()),
             None,
             None,
+            &crate::knowledge_services::KnowledgeServicesConfig::default(),
         )
         .unwrap();
 

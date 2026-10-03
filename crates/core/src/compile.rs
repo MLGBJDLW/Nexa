@@ -9,6 +9,9 @@ use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::{CompletionRequest, LlmProvider, Message, ProviderType, Role};
 
+#[path = "compile_sections.rs"]
+mod sections;
+
 // ── Types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +24,21 @@ pub struct DocumentSummary {
     pub tags: Vec<String>,
     pub model_used: String,
     pub compiled_at: String,
+    pub input_revision: String,
+    pub stale: bool,
+    pub coverage: CompileCoverage,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileCoverage {
+    pub total_sections: usize,
+    pub completed_sections: usize,
+    pub total_chars: usize,
+    pub covered_chars: usize,
+    pub complete: bool,
+    #[serde(default)]
+    pub summary_truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +72,7 @@ pub struct CompileResult {
     pub summary: DocumentSummary,
     pub entities_found: usize,
     pub links_created: usize,
+    pub sections_compiled: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +93,7 @@ pub struct EntityLinkEvidence<'a> {
 
 // ── LLM Response Parsing ──
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct LlmCompileOutput {
     summary: String,
     key_points: Vec<String>,
@@ -82,7 +101,7 @@ struct LlmCompileOutput {
     entities: Vec<LlmEntity>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct LlmEntity {
     name: String,
     #[serde(default)]
@@ -94,7 +113,7 @@ struct LlmEntity {
     relations: Vec<LlmRelation>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct LlmRelation {
     target: String,
     relation_type: String,
@@ -117,112 +136,8 @@ pub async fn compile_document(
     model: &str,
     provider_type: Option<ProviderType>,
 ) -> Result<CompileResult, CoreError> {
-    // 1. Get document content (join chunks)
-    let content = db.get_document_full_text(doc_id)?;
-    if content.trim().is_empty() {
-        return Err(CoreError::InvalidInput("Document has no content".into()));
-    }
-
-    let compile_input = build_compile_input_excerpt(&content, COMPILE_INPUT_CHAR_BUDGET);
-
-    // 2. Call LLM to compile
-    let request = CompletionRequest {
-        model: model.to_string(),
-        messages: vec![
-            Message::text(Role::System, COMPILE_SYSTEM_PROMPT.to_string()),
-            Message::text(
-                Role::User,
-                format!("Compile this document:\n\n{compile_input}"),
-            ),
-        ],
-        max_tokens: None,
-        temperature: Some(0.2),
-        tools: None,
-        stop: None,
-        thinking_budget: None,
-        reasoning_enabled: None,
-        reasoning_effort: None,
-        provider_type,
-        routing_session_id: None,
-        parallel_tool_calls: true,
-    };
-
-    let response = provider.complete(&request).await?;
-    let output: LlmCompileOutput = serde_json::from_str(response.content.trim())
-        .map_err(|e| CoreError::InvalidInput(format!("LLM returned invalid JSON: {e}")))?;
-
-    // 3. Store summary
-    let summary = db.upsert_document_summary(
-        doc_id,
-        &output.summary,
-        &output.key_points,
-        &output.tags,
-        model,
-    )?;
-
-    // 3b. Index compiled output for FTS search
-    db.upsert_summary_chunk(doc_id, &output.summary, &output.key_points, &output.tags)?;
-
-    // 4. Store entities and relationships
-    let mut entities_found = 0;
-    let mut links_created = 0;
-
-    let mut entity_ids_by_name: HashMap<String, String> = HashMap::new();
-    for llm_entity in &output.entities {
-        let entity_type = parse_entity_type(&llm_entity.entity_type);
-        let entity = db.upsert_entity_with_aliases(
-            &llm_entity.name,
-            &llm_entity.aliases,
-            &entity_type,
-            &llm_entity.description,
-            doc_id,
-        )?;
-        db.link_document_entity(doc_id, &entity.id, 1.0, &llm_entity.context)?;
-        entity_ids_by_name.insert(normalize_entity_lookup_name(&llm_entity.name), entity.id);
-        entities_found += 1;
-    }
-
-    for llm_entity in &output.entities {
-        let Some(source_id) = entity_ids_by_name
-            .get(&normalize_entity_lookup_name(&llm_entity.name))
-            .cloned()
-        else {
-            continue;
-        };
-        for rel in &llm_entity.relations {
-            let target_id = entity_ids_by_name
-                .get(&normalize_entity_lookup_name(&rel.target))
-                .cloned()
-                .or_else(|| {
-                    db.find_entity_by_name(&rel.target)
-                        .ok()
-                        .map(|entity| entity.id)
-                });
-
-            if let Some(target_id) = target_id {
-                let strength = rel.confidence.unwrap_or(1.0).clamp(0.1, 1.0);
-                db.upsert_entity_link_with_evidence(
-                    &source_id,
-                    &target_id,
-                    &normalize_relation_type(&rel.relation_type),
-                    EntityLinkEvidence {
-                        strength,
-                        evidence_doc: Some(doc_id),
-                        evidence_snippet: rel.evidence.as_deref(),
-                        confidence: rel.confidence,
-                    },
-                )?;
-                links_created += 1;
-            }
-        }
-    }
-
-    Ok(CompileResult {
-        document_id: doc_id.to_string(),
-        summary,
-        entities_found,
-        links_created,
-    })
+    let mut budget = 8;
+    sections::compile_document(db, doc_id, provider, model, provider_type, &mut budget).await
 }
 
 fn normalize_entity_lookup_name(name: &str) -> String {
@@ -259,39 +174,6 @@ fn normalize_relation_type(relation_type: &str) -> String {
     } else {
         collapsed
     }
-}
-
-fn build_compile_input_excerpt(content: &str, max_chars: usize) -> String {
-    if content.chars().count() <= max_chars {
-        return content.to_string();
-    }
-
-    let head_budget = (max_chars as f32 * 0.45).round() as usize;
-    let middle_budget = (max_chars as f32 * 0.20).round() as usize;
-    let tail_budget = max_chars.saturating_sub(head_budget + middle_budget);
-    let total_chars = content.chars().count();
-
-    let head = take_chars(content, head_budget);
-    let middle_start = total_chars.saturating_sub(middle_budget).saturating_div(2);
-    let middle = skip_take_chars(content, middle_start, middle_budget);
-    let tail_start = total_chars.saturating_sub(tail_budget);
-    let tail = skip_take_chars(content, tail_start, tail_budget);
-
-    format!(
-        "## Document Excerpt\n\
-         The source document is longer than the compile input budget. This excerpt preserves the beginning, middle, and end so conclusions are not based only on the opening section.\n\n\
-         ### Beginning\n{head}\n\n\
-         ### Middle\n{middle}\n\n\
-         ### End\n{tail}"
-    )
-}
-
-fn take_chars(content: &str, count: usize) -> String {
-    content.chars().take(count).collect()
-}
-
-fn skip_take_chars(content: &str, skip: usize, count: usize) -> String {
-    content.chars().skip(skip).take(count).collect()
 }
 
 /// Progress information emitted during compilation.
@@ -331,8 +213,13 @@ where
     let pending_ids = db.get_uncompiled_document_ids(limit)?;
     let total = pending_ids.len();
     let mut results = Vec::new();
+    let mut budget = 8;
+    let mut errors = Vec::new();
 
     for (i, doc_id) in pending_ids.iter().enumerate() {
+        if budget == 0 {
+            break;
+        }
         let title = db.get_document_title(doc_id).ok().flatten();
         on_progress(&CompileProgress {
             current: i + 1,
@@ -342,10 +229,13 @@ where
             phase: "compiling".to_string(),
         });
 
-        match compile_document(db, doc_id, provider, model, provider_type).await {
+        match sections::compile_document(db, doc_id, provider, model, provider_type, &mut budget)
+            .await
+        {
             Ok(result) => results.push(result),
             Err(e) => {
                 tracing::warn!("compile doc {doc_id}: {e}");
+                errors.push(format!("{}: {e}", title.as_deref().unwrap_or(doc_id)));
                 on_progress(&CompileProgress {
                     current: i + 1,
                     total,
@@ -357,7 +247,14 @@ where
         }
     }
 
-    Ok(results)
+    if errors.is_empty() {
+        Ok(results)
+    } else {
+        Err(CoreError::Llm(format!(
+            "Some documents could not be compiled. Completed sections were saved. {}",
+            errors.join("; ")
+        )))
+    }
 }
 
 pub fn parse_entity_type(s: &str) -> EntityType {
@@ -454,7 +351,166 @@ fn insert_entity_aliases(
     Ok(())
 }
 
+fn upsert_entity_on(
+    conn: &rusqlite::Connection,
+    name: &str,
+    aliases: &[String],
+    entity_type: &EntityType,
+    description: &str,
+    first_doc: &str,
+) -> Result<Entity, CoreError> {
+    let type_str = entity_type_key(entity_type);
+    let now = chrono::Utc::now().to_rfc3339();
+    let canonical_name = normalize_entity_display_name(name);
+    let alias_pairs = normalized_entity_aliases(&canonical_name, aliases);
+
+    if canonical_name.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "Entity name cannot be empty".into(),
+        ));
+    }
+
+    let existing = find_entity_by_aliases(conn, &alias_pairs, type_str)?;
+
+    match existing {
+        Some(mut entity) => {
+            conn.execute(
+                    "UPDATE entities
+                     SET mention_count = mention_count + 1,
+                         description = CASE WHEN length(?1) > length(description) THEN ?1 ELSE description END,
+                         updated_at = ?2
+                     WHERE id = ?3",
+                    rusqlite::params![description, now, entity.id],
+                )?;
+            insert_entity_aliases(conn, &entity.id, type_str, &alias_pairs)?;
+            entity.mention_count += 1;
+            if description.len() > entity.description.len() {
+                entity.description = description.to_string();
+            }
+            Ok(entity)
+        }
+        None => {
+            let id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                    "INSERT INTO entities (id, name, entity_type, description, first_seen_doc, mention_count, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6)",
+                    rusqlite::params![id, canonical_name, type_str, description, first_doc, now],
+                )?;
+            insert_entity_aliases(conn, &id, type_str, &alias_pairs)?;
+            Ok(Entity {
+                id,
+                name: canonical_name,
+                entity_type: entity_type.clone(),
+                description: description.to_string(),
+                first_seen_doc: Some(first_doc.to_string()),
+                mention_count: 1,
+                created_at: now,
+            })
+        }
+    }
+}
+
+fn find_entity_on(conn: &rusqlite::Connection, name: &str) -> Result<Entity, CoreError> {
+    let normalized = normalize_entity_lookup_name(name);
+    conn.query_row(
+            "SELECT DISTINCT e.id, e.name, e.entity_type, e.description, e.first_seen_doc, e.mention_count, e.created_at
+             FROM entities e
+             LEFT JOIN entity_aliases ea ON ea.entity_id = e.id
+             WHERE ea.normalized_alias = ?1 OR lower(trim(e.name)) = ?1
+             ORDER BY e.mention_count DESC, e.name COLLATE NOCASE
+             LIMIT 1",
+            rusqlite::params![normalized],
+            entity_from_row,
+        )
+        .map_err(|_| CoreError::NotFound("Entity not found".into()))
+}
+
+fn upsert_entity_link_on(
+    conn: &rusqlite::Connection,
+    source_id: &str,
+    target_id: &str,
+    relation_type: &str,
+    evidence: EntityLinkEvidence<'_>,
+) -> Result<(), CoreError> {
+    if let Some(document_id) = evidence.evidence_doc {
+        conn.execute("INSERT INTO entity_link_support(source_entity_id,target_entity_id,relation_type,document_id,revision,strength,snippet,confidence) SELECT ?1,?2,?3,id,index_revision,?5,?6,?7 FROM documents WHERE id=?4 ON CONFLICT(source_entity_id,target_entity_id,relation_type,document_id) DO UPDATE SET revision=excluded.revision,strength=excluded.strength,snippet=excluded.snippet,confidence=excluded.confidence", rusqlite::params![source_id,target_id,normalize_relation_type(relation_type),document_id,evidence.strength.clamp(0.0,1.0),evidence.evidence_snippet.unwrap_or(""),evidence.confidence.map(|value|value.clamp(0.0,1.0))])?;
+        return Ok(());
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let normalized_relation_type = normalize_relation_type(relation_type);
+    let clamped_strength = evidence.strength.clamp(0.0, 1.0);
+    let clamped_confidence = evidence.confidence.map(|value| value.clamp(0.0, 1.0));
+    let evidence_snippet = evidence.evidence_snippet.unwrap_or("").trim();
+    conn.execute(
+            "INSERT INTO entity_links (
+                id, source_entity_id, target_entity_id, relation_type, strength,
+                evidence_doc_id, evidence_snippet, confidence
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(source_entity_id, target_entity_id, relation_type) DO UPDATE SET
+                strength = MIN(1.0, MAX(entity_links.strength, excluded.strength) + 0.1),
+                evidence_doc_id = COALESCE(excluded.evidence_doc_id, entity_links.evidence_doc_id),
+                evidence_snippet = CASE
+                    WHEN length(excluded.evidence_snippet) > length(COALESCE(entity_links.evidence_snippet, ''))
+                    THEN excluded.evidence_snippet
+                    ELSE entity_links.evidence_snippet
+                END,
+                confidence = CASE
+                    WHEN entity_links.confidence IS NULL THEN excluded.confidence
+                    WHEN excluded.confidence IS NULL THEN entity_links.confidence
+                    ELSE MAX(entity_links.confidence, excluded.confidence)
+                END",
+            rusqlite::params![
+                id,
+                source_id,
+                target_id,
+                normalized_relation_type,
+                clamped_strength,
+                evidence.evidence_doc,
+                evidence_snippet,
+                clamped_confidence
+            ],
+        )?;
+    Ok(())
+}
+
 // ── Database Methods ──
+
+fn store_summary_on(
+    conn: &rusqlite::Connection,
+    mut summary: DocumentSummary,
+) -> Result<DocumentSummary, CoreError> {
+    summary.id = conn.query_row(
+        "INSERT INTO document_summaries(id,document_id,summary,key_points,tags,model_used,compiled_at,updated_at,input_revision,coverage_json)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9)
+         ON CONFLICT(document_id) DO UPDATE SET summary=excluded.summary,key_points=excluded.key_points,tags=excluded.tags,
+         model_used=excluded.model_used,compiled_at=excluded.compiled_at,updated_at=excluded.updated_at,input_revision=excluded.input_revision,coverage_json=excluded.coverage_json RETURNING id",
+        rusqlite::params![summary.id,summary.document_id,summary.summary,serde_json::to_string(&summary.key_points)?,serde_json::to_string(&summary.tags)?,summary.model_used,summary.compiled_at,summary.input_revision,serde_json::to_string(&summary.coverage)?], |row| row.get(0),
+    )?;
+    Ok(summary)
+}
+
+fn store_summary_chunk_on(
+    conn: &rusqlite::Connection,
+    doc_id: &str,
+    summary: &str,
+    key_points: &[String],
+    tags: &[String],
+) -> Result<(), CoreError> {
+    let content = [summary.to_string(), key_points.join("\n"), tags.join(", ")]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    conn.execute(
+        "DELETE FROM chunks WHERE document_id=?1 AND kind='summary'",
+        [doc_id],
+    )?;
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+    conn.execute("INSERT INTO chunks(id,document_id,chunk_index,kind,content,start_offset,end_offset,line_start,line_end,content_hash,metadata_json) VALUES(?1,?2,-1,'summary',?3,0,?4,0,0,?5,?6)", rusqlite::params![uuid::Uuid::new_v4().to_string(),doc_id,content,content.len() as i64,blake3::hash(content.as_bytes()).to_hex().to_string(),r#"{"extraction_method":"model_summary","locator":{"kind":"extracted","section":"compiled summary"}}"#])?;
+    Ok(())
+}
 
 impl Database {
     pub fn get_document_full_text(&self, doc_id: &str) -> Result<String, CoreError> {
@@ -476,32 +532,31 @@ impl Database {
         model: &str,
     ) -> Result<DocumentSummary, CoreError> {
         let conn = self.conn();
-        let id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-        let key_points_json = serde_json::to_string(key_points).unwrap_or_default();
-        let tags_json = serde_json::to_string(tags).unwrap_or_default();
-
-        conn.execute(
-            "INSERT INTO document_summaries (id, document_id, summary, key_points, tags, model_used, compiled_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
-             ON CONFLICT(document_id) DO UPDATE SET
-                summary = excluded.summary,
-                key_points = excluded.key_points,
-                tags = excluded.tags,
-                model_used = excluded.model_used,
-                updated_at = excluded.updated_at",
-            rusqlite::params![id, doc_id, summary, key_points_json, tags_json, model, now],
+        let revision: String = conn.query_row(
+            "SELECT index_revision FROM documents WHERE id=?1",
+            [doc_id],
+            |row| row.get(0),
         )?;
-
-        Ok(DocumentSummary {
-            id,
-            document_id: doc_id.to_string(),
-            summary: summary.to_string(),
-            key_points: key_points.to_vec(),
-            tags: tags.to_vec(),
-            model_used: model.to_string(),
-            compiled_at: now,
-        })
+        store_summary_on(
+            &conn,
+            DocumentSummary {
+                id: uuid::Uuid::new_v4().to_string(),
+                document_id: doc_id.into(),
+                summary: summary.into(),
+                key_points: key_points.to_vec(),
+                tags: tags.to_vec(),
+                model_used: model.into(),
+                compiled_at: chrono::Utc::now().to_rfc3339(),
+                input_revision: revision,
+                stale: false,
+                coverage: CompileCoverage {
+                    total_sections: 1,
+                    completed_sections: 1,
+                    complete: true,
+                    ..CompileCoverage::default()
+                },
+            },
+        )
     }
 
     pub fn upsert_entity(
@@ -522,71 +577,18 @@ impl Database {
         description: &str,
         first_doc: &str,
     ) -> Result<Entity, CoreError> {
-        let conn = self.conn();
-        let type_str = entity_type_key(entity_type);
-        let now = chrono::Utc::now().to_rfc3339();
-        let canonical_name = normalize_entity_display_name(name);
-        let alias_pairs = normalized_entity_aliases(&canonical_name, aliases);
-
-        if canonical_name.is_empty() {
-            return Err(CoreError::InvalidInput(
-                "Entity name cannot be empty".into(),
-            ));
-        }
-
-        let existing = find_entity_by_aliases(&conn, &alias_pairs, type_str)?;
-
-        match existing {
-            Some(mut entity) => {
-                conn.execute(
-                    "UPDATE entities
-                     SET mention_count = mention_count + 1,
-                         description = CASE WHEN length(?1) > length(description) THEN ?1 ELSE description END,
-                         updated_at = ?2
-                     WHERE id = ?3",
-                    rusqlite::params![description, now, entity.id],
-                )?;
-                insert_entity_aliases(&conn, &entity.id, type_str, &alias_pairs)?;
-                entity.mention_count += 1;
-                if description.len() > entity.description.len() {
-                    entity.description = description.to_string();
-                }
-                Ok(entity)
-            }
-            None => {
-                let id = uuid::Uuid::new_v4().to_string();
-                conn.execute(
-                    "INSERT INTO entities (id, name, entity_type, description, first_seen_doc, mention_count, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6)",
-                    rusqlite::params![id, canonical_name, type_str, description, first_doc, now],
-                )?;
-                insert_entity_aliases(&conn, &id, type_str, &alias_pairs)?;
-                Ok(Entity {
-                    id,
-                    name: canonical_name,
-                    entity_type: entity_type.clone(),
-                    description: description.to_string(),
-                    first_seen_doc: Some(first_doc.to_string()),
-                    mention_count: 1,
-                    created_at: now,
-                })
-            }
-        }
+        upsert_entity_on(
+            &self.conn(),
+            name,
+            aliases,
+            entity_type,
+            description,
+            first_doc,
+        )
     }
 
     pub fn find_entity_by_name(&self, name: &str) -> Result<Entity, CoreError> {
-        let conn = self.conn();
-        let normalized = normalize_entity_lookup_name(name);
-        conn.query_row(
-            "SELECT DISTINCT e.id, e.name, e.entity_type, e.description, e.first_seen_doc, e.mention_count, e.created_at
-             FROM entities e
-             LEFT JOIN entity_aliases ea ON ea.entity_id = e.id
-             WHERE ea.normalized_alias = ?1 OR lower(trim(e.name)) = ?1
-             ORDER BY e.mention_count DESC, e.name COLLATE NOCASE
-             LIMIT 1",
-            rusqlite::params![normalized],
-            entity_from_row,
-        )
-        .map_err(|_| CoreError::NotFound("Entity not found".into()))
+        find_entity_on(&self.conn(), name)
     }
 
     pub fn link_document_entity(
@@ -632,52 +634,25 @@ impl Database {
         relation_type: &str,
         evidence: EntityLinkEvidence<'_>,
     ) -> Result<(), CoreError> {
-        let conn = self.conn();
-        let id = uuid::Uuid::new_v4().to_string();
-        let normalized_relation_type = normalize_relation_type(relation_type);
-        let clamped_strength = evidence.strength.clamp(0.0, 1.0);
-        let clamped_confidence = evidence.confidence.map(|value| value.clamp(0.0, 1.0));
-        let evidence_snippet = evidence.evidence_snippet.unwrap_or("").trim();
-        conn.execute(
-            "INSERT INTO entity_links (
-                id, source_entity_id, target_entity_id, relation_type, strength,
-                evidence_doc_id, evidence_snippet, confidence
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(source_entity_id, target_entity_id, relation_type) DO UPDATE SET
-                strength = MIN(1.0, MAX(entity_links.strength, excluded.strength) + 0.1),
-                evidence_doc_id = COALESCE(excluded.evidence_doc_id, entity_links.evidence_doc_id),
-                evidence_snippet = CASE
-                    WHEN length(excluded.evidence_snippet) > length(COALESCE(entity_links.evidence_snippet, ''))
-                    THEN excluded.evidence_snippet
-                    ELSE entity_links.evidence_snippet
-                END,
-                confidence = CASE
-                    WHEN entity_links.confidence IS NULL THEN excluded.confidence
-                    WHEN excluded.confidence IS NULL THEN entity_links.confidence
-                    ELSE MAX(entity_links.confidence, excluded.confidence)
-                END",
-            rusqlite::params![
-                id,
-                source_id,
-                target_id,
-                normalized_relation_type,
-                clamped_strength,
-                evidence.evidence_doc,
-                evidence_snippet,
-                clamped_confidence
-            ],
-        )?;
-        Ok(())
+        upsert_entity_link_on(&self.conn(), source_id, target_id, relation_type, evidence)
     }
 
     pub fn get_uncompiled_document_ids(&self, limit: usize) -> Result<Vec<String>, CoreError> {
+        self.get_uncompiled_document_ids_scoped(limit, &[])
+    }
+
+    pub fn get_uncompiled_document_ids_scoped(
+        &self,
+        limit: usize,
+        source_ids: &[String],
+    ) -> Result<Vec<String>, CoreError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT d.id FROM documents d LEFT JOIN document_summaries ds ON d.id = ds.document_id WHERE ds.id IS NULL LIMIT ?1",
-        )?;
-        let ids: Vec<String> = stmt
-            .query_map(rusqlite::params![limit as i64], |row| row.get(0))?
+        let mut statement = conn.prepare("SELECT d.id FROM documents d LEFT JOIN document_summaries ds ON d.id=ds.document_id WHERE (ds.id IS NULL OR ds.input_revision!=d.index_revision OR COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=0) AND (?2='[]' OR d.source_id IN (SELECT value FROM json_each(?2))) ORDER BY d.indexed_at,d.id LIMIT ?1")?;
+        let ids = statement
+            .query_map(
+                rusqlite::params![limit.min(1000), serde_json::to_string(source_ids)?],
+                |row| row.get(0),
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
     }
@@ -699,7 +674,7 @@ impl Database {
     pub fn get_document_summary(&self, doc_id: &str) -> Result<Option<DocumentSummary>, CoreError> {
         let conn = self.conn();
         let result = conn.query_row(
-            "SELECT id, document_id, summary, key_points, tags, model_used, compiled_at FROM document_summaries WHERE document_id = ?1",
+            "SELECT ds.id, ds.document_id, ds.summary, ds.key_points, ds.tags, ds.model_used, ds.compiled_at, ds.input_revision, ds.input_revision != d.index_revision, ds.coverage_json FROM document_summaries ds JOIN documents d ON d.id=ds.document_id WHERE ds.document_id = ?1",
             rusqlite::params![doc_id],
             |row| {
                 let kp: String = row.get(3)?;
@@ -712,6 +687,9 @@ impl Database {
                     tags: serde_json::from_str(&tags).unwrap_or_default(),
                     model_used: row.get(5)?,
                     compiled_at: row.get(6)?,
+                    input_revision: row.get(7)?,
+                    stale: row.get(8)?,
+                    coverage: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
                 })
             },
         );
@@ -744,20 +722,20 @@ impl Database {
     }
 
     pub fn get_compile_stats(&self) -> Result<CompileStats, CoreError> {
+        self.get_compile_stats_scoped(&[])
+    }
+
+    pub fn get_compile_stats_scoped(
+        &self,
+        source_ids: &[String],
+    ) -> Result<CompileStats, CoreError> {
         let conn = self.conn();
-        let total_docs: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))?;
-        let compiled_docs: i64 =
-            conn.query_row("SELECT COUNT(*) FROM document_summaries", [], |r| r.get(0))?;
-        let total_entities: i64 =
-            conn.query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))?;
-        let total_links: i64 =
-            conn.query_row("SELECT COUNT(*) FROM entity_links", [], |r| r.get(0))?;
-        Ok(CompileStats {
-            total_docs,
-            compiled_docs,
-            total_entities,
-            total_links,
-        })
+        Ok(conn.query_row("WITH selected AS (SELECT id,index_revision FROM documents WHERE ?1='[]' OR source_id IN (SELECT value FROM json_each(?1)))
+          SELECT (SELECT COUNT(*) FROM selected),
+          (SELECT COUNT(*) FROM document_summaries ds JOIN selected d ON d.id=ds.document_id WHERE ds.input_revision=d.index_revision AND COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=1),
+          (SELECT COUNT(*) FROM entities e WHERE ?1='[]' OR EXISTS(SELECT 1 FROM document_entities de JOIN selected d ON d.id=de.document_id WHERE de.entity_id=e.id)),
+          (SELECT COUNT(*) FROM entity_links e WHERE ?1='[]' OR e.evidence_doc_id IN(SELECT id FROM selected))",
+          [serde_json::to_string(source_ids)?], |row| Ok(CompileStats { total_docs: row.get(0)?, compiled_docs: row.get(1)?, total_entities: row.get(2)?, total_links: row.get(3)? }))?)
     }
 
     /// Insert (or replace) a synthetic chunk containing the compiled summary,
@@ -771,35 +749,10 @@ impl Database {
         key_points: &[String],
         tags: &[String],
     ) -> Result<(), CoreError> {
-        let mut parts = Vec::with_capacity(3);
-        if !summary.is_empty() {
-            parts.push(summary.to_string());
-        }
-        if !key_points.is_empty() {
-            parts.push(key_points.join("\n"));
-        }
-        if !tags.is_empty() {
-            parts.push(tags.join(", "));
-        }
-        let content = parts.join("\n\n");
-        if content.trim().is_empty() {
-            return Ok(());
-        }
-
-        let conn = self.conn();
-        let id = uuid::Uuid::new_v4().to_string();
-        let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
-        let len = content.len() as i64;
-
-        conn.execute(
-            "INSERT INTO chunks (id, document_id, chunk_index, kind, content, start_offset, end_offset, line_start, line_end, content_hash)
-             VALUES (?1, ?2, -1, 'summary', ?3, 0, ?4, 0, 0, ?5)
-             ON CONFLICT(document_id, chunk_index) DO UPDATE SET
-                content = excluded.content,
-                end_offset = excluded.end_offset,
-                content_hash = excluded.content_hash",
-            rusqlite::params![id, doc_id, content, len, hash],
-        )?;
+        let mut conn = self.conn();
+        let transaction = conn.transaction()?;
+        store_summary_chunk_on(&transaction, doc_id, summary, key_points, tags)?;
+        transaction.commit()?;
         Ok(())
     }
 }
@@ -809,6 +762,113 @@ mod tests {
     use super::*;
     use crate::llm::{CompletionResponse, FinishReason, Usage};
     use crate::sources::CreateSourceInput;
+
+    struct RecordingCompiler {
+        seen: std::sync::Mutex<Vec<String>>,
+        change: Option<(Database, String)>,
+    }
+    #[async_trait::async_trait]
+    impl LlmProvider for RecordingCompiler {
+        fn name(&self) -> &str {
+            "recording"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["test".into()])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            unreachable!()
+        }
+        async fn complete(
+            &self,
+            request: &CompletionRequest,
+        ) -> Result<CompletionResponse, CoreError> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(serde_json::to_string(&request.messages).unwrap());
+            if let Some((db, doc_id)) = &self.change {
+                db.conn().execute(
+                    "UPDATE documents SET content_hash='updated-while-compiling' WHERE id=?1",
+                    [doc_id],
+                )?;
+            }
+            StaticLlmProvider { content: r#"{"summary":"A bounded section summary.","key_points":[],"tags":[],"entities":[]}"#.into() }.complete(request).await
+        }
+    }
+
+    #[tokio::test]
+    async fn long_compilation_resumes_complete_coverage_with_a_shared_call_budget() {
+        let db = Database::open_memory().unwrap();
+        let content = format!("{}APPENDIX_REQUIRED", "中英混合Budget。".repeat(13_000));
+        let doc_id = insert_compile_doc(&db, &content);
+        let provider = RecordingCompiler {
+            seen: Default::default(),
+            change: None,
+        };
+        let first = compile_document(&db, &doc_id, &provider, "test", None)
+            .await
+            .unwrap();
+        assert_eq!(first.sections_compiled, 8);
+        assert!(!first.summary.coverage.complete);
+        assert!(db
+            .get_uncompiled_document_ids(20)
+            .unwrap()
+            .contains(&doc_id));
+        let second = compile_document(&db, &doc_id, &provider, "test", None)
+            .await
+            .unwrap();
+        assert!(second.summary.coverage.complete);
+        assert_eq!(
+            second.summary.coverage.covered_chars,
+            content.chars().count()
+        );
+        assert_eq!(
+            provider.seen.lock().unwrap().len(),
+            second.summary.coverage.total_sections
+        );
+        assert!(provider
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|input| input.contains("APPENDIX_REQUIRED")));
+        assert!(!db
+            .get_uncompiled_document_ids(20)
+            .unwrap()
+            .contains(&doc_id));
+    }
+
+    #[tokio::test]
+    async fn document_change_during_model_call_cannot_commit_old_knowledge() {
+        let db = Database::open_memory().unwrap();
+        let doc_id = insert_compile_doc(&db, "A document about a pending decision.");
+        let provider = RecordingCompiler {
+            seen: Default::default(),
+            change: Some((db.clone(), doc_id.clone())),
+        };
+        assert!(matches!(
+            compile_document(&db, &doc_id, &provider, "test", None).await,
+            Err(CoreError::Conflict(_))
+        ));
+        assert!(db.get_document_summary(&doc_id).unwrap().is_none());
+        assert_eq!(
+            db.conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM document_section_compilations",
+                    [],
+                    |row| row.get::<_, usize>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
 
     struct StaticLlmProvider {
         content: String,
@@ -892,47 +952,6 @@ mod tests {
         doc_id
     }
 
-    #[test]
-    fn compile_excerpt_keeps_beginning_middle_and_end() {
-        let content = format!(
-            "{}\n{}\n{}",
-            "BEGIN ".repeat(3000),
-            "MIDDLE ".repeat(3000),
-            "ENDMARK ".repeat(3000)
-        );
-
-        let excerpt = build_compile_input_excerpt(&content, 1200);
-
-        assert!(excerpt.contains("### Beginning"));
-        assert!(excerpt.contains("BEGIN"));
-        assert!(excerpt.contains("### Middle"));
-        assert!(excerpt.contains("MIDDLE"));
-        assert!(excerpt.contains("### End"));
-        assert!(excerpt.contains("ENDMARK"));
-    }
-
-    #[test]
-    fn compile_excerpt_is_utf8_safe() {
-        let content = format!(
-            "{}{}{}",
-            "开始".repeat(3000),
-            "中段".repeat(3000),
-            "结尾".repeat(3000)
-        );
-
-        let excerpt = build_compile_input_excerpt(&content, 999);
-
-        assert!(excerpt.contains("开始"));
-        assert!(excerpt.contains("中段"));
-        assert!(excerpt.contains("结尾"));
-    }
-
-    #[test]
-    fn compile_excerpt_returns_short_content_unchanged() {
-        let content = "short document";
-        assert_eq!(build_compile_input_excerpt(content, 1200), content);
-    }
-
     #[tokio::test]
     async fn compile_document_links_relations_to_entities_later_in_same_output() {
         let db = Database::open_memory().expect("open memory");
@@ -949,7 +968,7 @@ mod tests {
                         "description": "A protagonist.",
                         "context": "Princess meets Dragon.",
                         "relations": [
-                            { "target": "Dragon", "relation_type": "enemy_of" }
+                            { "target": "Dragon", "relation_type": "meets", "evidence": "Princess meets Dragon." }
                         ]
                     },
                     {
@@ -1038,5 +1057,59 @@ mod tests {
             .expect("relation evidence");
         assert_eq!(snippet, "PKCE protects OAuth login");
         assert!((confidence - 0.92).abs() < f64::EPSILON);
+    }
+    #[tokio::test]
+    async fn a_relation_keeps_other_document_support_after_one_revision_changes() {
+        let db = Database::open_memory().unwrap();
+        let first = insert_compile_doc(&db, "PKCE protects OAuth login.");
+        let second = insert_compile_doc(&db, "PKCE protects OAuth login.");
+        let provider=StaticLlmProvider {content:serde_json::json!({"summary":"PKCE protects OAuth login.","key_points":[],"tags":[],"entities":[
+            {"name":"PKCE","entity_type":"concept","description":"","context":"PKCE protects OAuth login.","relations":[{"target":"OAuth","relation_type":"protects","evidence":"PKCE protects OAuth login."}]},
+            {"name":"OAuth","entity_type":"concept","description":"","context":"PKCE protects OAuth login.","relations":[]}
+        ]}).to_string()};
+        for document in [&first, &second, &first] {
+            compile_document(&db, document, &provider, "fixture", None)
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT COUNT(*) FROM entity_link_support", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT MIN(mention_count) FROM entities", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        db.conn()
+            .execute(
+                "UPDATE documents SET content_hash='changed' WHERE id=?1",
+                [&first],
+            )
+            .unwrap();
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT evidence_doc_id FROM entity_links", [], |row| row
+                    .get::<_, String>(
+                    0
+                ))
+                .unwrap(),
+            second
+        );
+        db.conn()
+            .execute("DELETE FROM documents WHERE id=?1", [&second])
+            .unwrap();
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT COUNT(*) FROM entity_links", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 }

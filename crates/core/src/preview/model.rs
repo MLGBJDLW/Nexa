@@ -122,6 +122,8 @@ impl Default for WorkbookPreviewLimits {
 pub struct PreviewSheet {
     pub name: String,
     pub index: usize,
+    pub start_row: u32,
+    pub start_column: u32,
     pub row_count: usize,
     pub column_count: usize,
     pub preview_row_count: usize,

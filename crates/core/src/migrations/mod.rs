@@ -2884,6 +2884,13 @@ Every answer that uses knowledge base search results.
     ("v138_chat_worktrees", include_str!("v138_chat_worktrees.sql")),
     ("v139_code_reviews", include_str!("v139_code_reviews.sql")),
     ("v140_hook_result_revision", include_str!("v140_hook_result_revision.sql")),
+    ("v141_knowledge_jobs", include_str!("v141_knowledge_jobs.sql")),
+    ("v142_bilingual_fts", include_str!("v142_bilingual_fts.sql")),
+    ("v143_evidence_revisions", include_str!("v143_evidence_revisions.sql")),
+    ("v144_compile_sections", include_str!("v144_compile_sections.sql")),
+    ("v145_source_index_state", include_str!("v145_source_index_state.sql")),
+    ("v146_knowledge_provenance", include_str!("v146_knowledge_provenance.sql")),
+    ("v147_knowledge_research", include_str!("v147_knowledge_research.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3096,6 +3103,7 @@ fn ensure_workflow_definition_revision_schema(
 ///   missing ones as applied), then applies any un-applied future
 ///   migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
+    crate::lexical::register(conn)?;
     ensure_migrations_table(conn)?;
 
     let migration_count: i64 =
@@ -3178,6 +3186,19 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
         }
 
         tracing::info!("Applying migration '{name}'…");
+        let migration_number = name
+            .strip_prefix('v')
+            .and_then(|rest| rest.split('_').next())
+            .and_then(|number| number.parse::<u32>().ok());
+        if migration_number.is_some_and(|number| number >= 141) {
+            // New schema changes and their markers commit together. An interrupted
+            // FTS rebuild must leave the previous index usable on the next start.
+            let transaction = conn.unchecked_transaction()?;
+            transaction.execute_batch(sql)?;
+            transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
+            transaction.commit()?;
+            continue;
+        }
         if let Err(err) = conn.execute_batch(sql) {
             if !is_idempotent_schema_error(&err) {
                 return Err(err.into());

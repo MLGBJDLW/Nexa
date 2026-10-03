@@ -38,6 +38,8 @@ pub enum FileType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceCard {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_ref: Option<crate::evidence::EvidenceRef>,
     pub chunk_id: Uuid,
     pub document_id: Uuid,
     pub source_id: Uuid,
@@ -68,7 +70,7 @@ pub struct EvidenceCard {
     pub freshness_days: Option<i64>,
 }
 
-/// A highlighted span within content.
+/// A highlighted span in UTF-16 code units, matching JavaScript string offsets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Highlight {
@@ -91,6 +93,8 @@ pub struct SearchQuery {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchFilters {
+    #[serde(default)]
+    pub document_ids: Vec<Uuid>,
     pub source_ids: Vec<Uuid>,
     pub file_types: Vec<FileType>,
     pub date_from: Option<DateTime<Utc>>,

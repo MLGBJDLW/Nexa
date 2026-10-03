@@ -165,6 +165,7 @@ pub fn run_agent_quality_eval_cmd() -> nexa_core::quality_eval::QualityEvalRepor
 #[tauri::command]
 pub async fn compile_document_cmd(
     state: tauri::State<'_, AppState>,
+    app_handle: AppHandle,
     doc_id: String,
 ) -> Result<serde_json::Value, String> {
     let db_config = state
@@ -176,6 +177,11 @@ pub async fn compile_document_cmd(
     let provider_type = provider_config.provider_type;
     let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
 
+    let mut job =
+        super::sources::TrackedKnowledgeJob::start(state.db.clone(), app_handle, "compile", None)?;
+    job.reporter()(
+        serde_json::json!({"documentId":doc_id,"current":1,"total":1,"phase":"compiling"}),
+    );
     let result = nexa_core::compile::compile_document(
         &state.db,
         &doc_id,
@@ -184,7 +190,9 @@ pub async fn compile_document_cmd(
         Some(provider_type),
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string());
+    job.finish(&result);
+    let result = result?;
 
     serde_json::to_value(&result).map_err(|e| e.to_string())
 }
@@ -204,18 +212,28 @@ pub async fn compile_pending_documents_cmd(
     let provider_type = provider_config.provider_type;
     let provider = create_provider(provider_config).map_err(|e| e.to_string())?;
 
+    let mut job = super::sources::TrackedKnowledgeJob::start(
+        state.db.clone(),
+        app_handle.clone(),
+        "compile",
+        None,
+    )?;
+    let report = job.reporter();
     let results = nexa_core::compile::compile_pending_with_progress(
         &state.db,
         provider.as_ref(),
         &db_config.model,
         Some(provider_type),
-        limit.unwrap_or(10),
+        limit.unwrap_or(10).min(100),
         |progress| {
             emit_app_event(&app_handle, "compile:progress", progress);
+            report(serde_json::json!(progress));
         },
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string());
+    job.finish(&results);
+    let results = results?;
 
     serde_json::to_value(&results).map_err(|e| e.to_string())
 }

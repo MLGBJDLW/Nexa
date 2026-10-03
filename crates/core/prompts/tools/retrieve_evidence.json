@@ -1,15 +1,21 @@
 {
   "name": "retrieve_evidence",
-  "description": "Retrieve specific evidence chunks by their chunk IDs. Returns the raw chunk content together with source path and document title, suitable for citation.",
+  "description": "Retrieve up to 20 evidence chunks by their IDs, including retained historical versions. Returns indexed version, source location, extraction method and text for citation. Source scope still applies; source removal revokes archived evidence.",
   "parameters": {
     "type": "object",
     "properties": {
       "chunk_ids": {
         "type": "array",
-        "items": { "type": "string" },
-        "description": "List of chunk IDs to retrieve"
+        "items": {
+          "type": "string"
+        },
+        "description": "List of chunk IDs to retrieve",
+        "minItems": 1,
+        "maxItems": 20
       }
     },
-    "required": ["chunk_ids"]
+    "required": [
+      "chunk_ids"
+    ]
   }
 }

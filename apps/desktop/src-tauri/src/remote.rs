@@ -436,10 +436,10 @@ impl RemoteHost for DesktopHost {
         use RemoteCommand::*;
         match command {
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
-            FilePreview { path } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None).await?),
+            FilePreview { path, verify_content_hash } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash).await?),
             FileData { path } => {
                 // Resolve through the same source/path rules as the desktop preview.
-                let preview = commands::preview_file_cmd(app.state(), app.clone(), path, None).await?;
+                let preview = commands::preview_file_cmd(app.state(), app.clone(), path, None, None).await?;
                 let file = tokio::fs::File::open(&preview.path).await.map_err(|e| e.to_string())?;
                 let mut bytes = Vec::new();
                 use tokio::io::AsyncReadExt;
@@ -447,7 +447,15 @@ impl RemoteHost for DesktopHost {
                 if bytes.len() > 8 * 1024 * 1024 { return Err("Remote preview download is limited to 8 MiB".into()); }
                 value(format!("data:{};base64,{}", preview.mime_type, B64.encode(bytes)))
             }
-            Evidence { chunk_id } => value(commands::get_evidence_card(app.state(), chunk_id)?),
+            Evidence { chunk_id, reference } => {
+                if let Some(reference) = reference {
+                    let reference: nexa_core::evidence::EvidenceRef = serde_json::from_value(reference).map_err(|error| error.to_string())?;
+                    if reference.block_id.to_string() != chunk_id { return Err("Evidence block identity mismatch".into()); }
+                    value(commands::resolve_evidence_ref(app.state(), reference).await?)
+                } else { value(commands::get_evidence_card(app.state(), chunk_id)?) }
+            }
+            EvidenceContext { reference } => value(commands::get_evidence_context(app.state(), serde_json::from_value(reference).map_err(|error| error.to_string())?).await?),
+            EvidenceOutline { reference, after_index } => value(commands::get_document_outline(app.state(), serde_json::from_value(reference).map_err(|error| error.to_string())?, after_index).await?),
             VoiceStart { request_id } => commands::remote_voice::start(app, owner, request_id).await,
             VoiceAudio { session_id, data } => commands::remote_voice::audio(app, owner, &session_id, data).await,
             VoiceSnapshot { session_id } => commands::remote_voice::snapshot(app, owner, &session_id),

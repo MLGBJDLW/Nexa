@@ -17,13 +17,26 @@ pub enum RemoteCommand {
     #[serde(rename = "appearance.background")]
     ThemeBackground { asset_id: String },
     #[serde(rename = "files.preview")]
-    FilePreview { path: String },
+    FilePreview {
+        path: String,
+        verify_content_hash: Option<bool>,
+    },
     #[serde(rename = "files.data")]
     FileData { path: String },
     #[serde(rename = "preview.html")]
     PreviewHtml { html: String },
     #[serde(rename = "evidence.get")]
-    Evidence { chunk_id: String },
+    Evidence {
+        chunk_id: String,
+        reference: Option<Value>,
+    },
+    #[serde(rename = "evidence.context")]
+    EvidenceContext { reference: Value },
+    #[serde(rename = "evidence.outline")]
+    EvidenceOutline {
+        reference: Value,
+        after_index: Option<i64>,
+    },
     #[serde(rename = "voice.start")]
     VoiceStart { request_id: String },
     #[serde(rename = "voice.audio")]

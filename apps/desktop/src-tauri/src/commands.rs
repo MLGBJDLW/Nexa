@@ -548,7 +548,10 @@ fn process_source_change_job(app_handle: &tauri::AppHandle, permit: BackgroundWo
             return;
         }
         let path_str = removed.to_string_lossy();
-        match app_state.db.delete_document_by_path(&path_str) {
+        match app_state
+            .db
+            .delete_document_in_source(&job.source_id, &path_str)
+        {
             Ok(true) => info!("Removed document for deleted file: {path_str}"),
             Ok(false) => {}
             Err(error) => warn!("Failed to remove document for {path_str}: {error}"),

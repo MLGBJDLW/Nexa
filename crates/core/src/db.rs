@@ -101,6 +101,7 @@ impl Database {
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
+        crate::lexical::register(&conn)?;
         for pragma in [
             "PRAGMA busy_timeout = 5000",
             "PRAGMA foreign_keys = ON",

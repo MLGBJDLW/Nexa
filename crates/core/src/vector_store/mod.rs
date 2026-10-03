@@ -77,7 +77,11 @@ pub(crate) fn cloud_candidates(
             "Large result pages use local vector retrieval".into(),
         ));
     }
-    if !filters.file_types.is_empty() || filters.date_from.is_some() || filters.date_to.is_some() {
+    if !filters.document_ids.is_empty()
+        || !filters.file_types.is_empty()
+        || filters.date_from.is_some()
+        || filters.date_to.is_some()
+    {
         return Err(CoreError::InvalidInput(
             "File/date filters use authoritative local vector retrieval".into(),
         ));

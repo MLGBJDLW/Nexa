@@ -98,6 +98,8 @@ pub struct SearchResult {
     pub search_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph_retrieval: Option<GraphRetrievalReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ranking: Option<crate::knowledge_services::RankingReport>,
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +132,7 @@ fn search_internal(
             search_time_ms: start.elapsed().as_millis() as u64,
             search_mode: "fts".to_string(),
             graph_retrieval: None,
+            ranking: None,
         });
     }
 
@@ -142,6 +145,7 @@ fn search_internal(
             search_time_ms: start.elapsed().as_millis() as u64,
             search_mode: "fts".to_string(),
             graph_retrieval: None,
+            ranking: None,
         });
     }
 
@@ -154,7 +158,7 @@ fn search_internal(
     } else {
         let extras = extra_terms
             .iter()
-            .map(|t| format!("\"{}\"", t))
+            .map(|t| build_fts_query(t))
             .collect::<Vec<_>>()
             .join(" OR ");
         format!("({}) OR ({})", base_fts, extras)
@@ -163,7 +167,7 @@ fn search_internal(
     let limit = if query.limit == 0 {
         DEFAULT_SEARCH_LIMIT
     } else {
-        query.limit
+        query.limit.min(200)
     };
     // Over-fetch so feedback reranking can surface high-value results
     // that BM25 alone might rank outside the requested limit.
@@ -199,6 +203,20 @@ fn search_internal(
         sql.push_str(&format!(" AND d.source_id IN ({})", placeholders.join(",")));
         for sid in &filters.source_ids {
             param_values.push(Box::new(sid.to_string()));
+            param_idx += 1;
+        }
+    }
+
+    if !filters.document_ids.is_empty() {
+        let placeholders = filters
+            .document_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", param_idx + i))
+            .collect::<Vec<_>>();
+        sql.push_str(&format!(" AND d.id IN ({})", placeholders.join(",")));
+        for id in &filters.document_ids {
+            param_values.push(Box::new(id.to_string()));
             param_idx += 1;
         }
     }
@@ -277,6 +295,7 @@ fn search_internal(
 
                 let snippet = make_snippet(&content);
                 Ok(EvidenceCard {
+                    evidence_ref: None,
                     chunk_id: Uuid::parse_str(&chunk_id).unwrap_or_default(),
                     document_id: Uuid::parse_str(&document_id).unwrap_or_default(),
                     source_id: Uuid::parse_str(&_source_id).unwrap_or_default(),
@@ -328,6 +347,19 @@ fn search_internal(
                 count_sql.push_str(&format!(" AND d.source_id IN ({})", placeholders.join(",")));
                 for sid in &filters.source_ids {
                     count_params.push(Box::new(sid.to_string()));
+                    cp_idx += 1;
+                }
+            }
+            if !filters.document_ids.is_empty() {
+                let placeholders = filters
+                    .document_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", cp_idx + i))
+                    .collect::<Vec<_>>();
+                count_sql.push_str(&format!(" AND d.id IN ({})", placeholders.join(",")));
+                for id in &filters.document_ids {
+                    count_params.push(Box::new(id.to_string()));
                     cp_idx += 1;
                 }
             }
@@ -385,6 +417,7 @@ fn search_internal(
             start,
             "fts",
             limit as usize,
+            1,
         );
     }
 
@@ -395,9 +428,11 @@ fn search_internal(
         search_time_ms: start.elapsed().as_millis() as u64,
         search_mode: "fts".to_string(),
         graph_retrieval: None,
+        ranking: None,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finalize_search_result(
     db: &Database,
     query: &SearchQuery,
@@ -406,6 +441,7 @@ fn finalize_search_result(
     start: Instant,
     base_mode: &str,
     limit: usize,
+    blocks_per_document: usize,
 ) -> Result<SearchResult, CoreError> {
     let graph_retrieval = apply_graph_retrieval(db, query, &mut cards, limit)?;
     let allowed = scoped_chunk_ids(
@@ -426,8 +462,33 @@ fn finalize_search_result(
     rag::rerank_evidence_cards(&mut cards, query.text.trim());
     apply_graph_final_boost(&mut cards, graph_retrieval.as_ref());
 
-    let cards = deduplicate_by_document(cards);
-    let cards: Vec<EvidenceCard> = cards.into_iter().take(limit).collect();
+    let ranking = Some(crate::knowledge_services::rerank(
+        db,
+        query.text.trim(),
+        &mut cards,
+    )?);
+    let cards = if blocks_per_document == 1 {
+        deduplicate_by_document(cards)
+    } else {
+        let mut counts = HashMap::new();
+        let mut seen = HashSet::new();
+        cards
+            .into_iter()
+            .filter(|card| {
+                let count = counts.entry(card.document_id).or_insert(0usize);
+                if *count >= blocks_per_document
+                    || !seen.insert(card.chunk_id)
+                    || rag::is_supporting_summary_card(card)
+                {
+                    return false;
+                }
+                *count += 1;
+                true
+            })
+            .collect()
+    };
+    let mut cards: Vec<EvidenceCard> = cards.into_iter().take(limit).collect();
+    crate::evidence::hydrate_references(db, &mut cards)?;
     let graph_active = graph_retrieval
         .as_ref()
         .map(|report| {
@@ -449,6 +510,7 @@ fn finalize_search_result(
         search_time_ms: start.elapsed().as_millis() as u64,
         search_mode,
         graph_retrieval,
+        ranking,
     })
 }
 
@@ -623,16 +685,37 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
 
 /// Retrieve a single evidence card by chunk ID (for playbook citation lookups).
 pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, CoreError> {
+    read_evidence_record(db, chunk_id, None)
+}
+
+pub fn resolve_evidence_ref(
+    db: &Database,
+    reference: &crate::evidence::EvidenceRef,
+) -> Result<EvidenceCard, CoreError> {
+    read_evidence_record(db, &reference.block_id.to_string(), Some(reference))
+}
+
+fn read_evidence_record(
+    db: &Database,
+    chunk_id: &str,
+    reference: Option<&crate::evidence::EvidenceRef>,
+) -> Result<EvidenceCard, CoreError> {
     let conn = db.conn();
     conn.query_row(
-        "SELECT c.id, c.document_id, c.content, c.chunk_index, c.kind, c.metadata_json,
-                d.path, d.title, d.source_id, s.root_path,
-                COALESCE(d.metadata, '{}')
-         FROM chunks c
-         JOIN documents d ON d.id = c.document_id
-         JOIN sources s ON s.id = d.source_id
-         WHERE c.id = ?1",
-        params![chunk_id],
+        "SELECT chunk_id, document_id, content, chunk_index, kind, metadata_json,
+                document_path, document_title, source_id, root_path, document_metadata,
+                revision, block_hash, status, document_hash
+         FROM evidence_records WHERE chunk_id = ?1
+           AND (?2 IS NULL OR source_id=?2) AND (?3 IS NULL OR document_id=?3)
+           AND (?4 IS NULL OR revision=?4) AND (?5 IS NULL OR block_hash=?5)
+         ORDER BY (status='current') DESC, archived_at DESC LIMIT 1",
+        params![
+            chunk_id,
+            reference.map(|r| r.source_id.to_string()),
+            reference.map(|r| r.document_id.to_string()),
+            reference.map(|r| &r.revision),
+            reference.map(|r| &r.content_hash)
+        ],
         |row| {
             let cid: String = row.get(0)?;
             let did: String = row.get(1)?;
@@ -647,7 +730,8 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
             let doc_metadata: String = row.get(10)?;
 
             let snippet = make_snippet(&content);
-            Ok(EvidenceCard {
+            let mut card = EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&cid).unwrap_or_default(),
                 document_id: Uuid::parse_str(&did).unwrap_or_default(),
                 source_id: Uuid::parse_str(&_source_id).unwrap_or_default(),
@@ -664,7 +748,17 @@ pub fn get_evidence_card(db: &Database, chunk_id: &str) -> Result<EvidenceCard, 
                 document_date: extract_document_date(&doc_metadata),
                 credibility: None,
                 freshness_days: None,
-            })
+            };
+            card.evidence_ref = Some(crate::evidence::from_record(
+                &card,
+                row.get(11)?,
+                row.get(14)?,
+                row.get(12)?,
+                &metadata_json,
+                &card.chunk_kind,
+                row.get(13)?,
+            ));
+            Ok(card)
         },
     )
     .map_err(|e| match e {
@@ -696,6 +790,17 @@ pub fn get_evidence_cards(
 ///
 /// Falls back to graph-aware FTS5 when no embeddings or embedder state exist.
 pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreError> {
+    hybrid_search_packed(db, query, 1)
+}
+/// Research retains complementary blocks within each selected document.
+pub fn research_search(db: &Database, query: &SearchQuery) -> Result<SearchResult, CoreError> {
+    hybrid_search_packed(db, query, 3)
+}
+fn hybrid_search_packed(
+    db: &Database,
+    query: &SearchQuery,
+    blocks_per_document: usize,
+) -> Result<SearchResult, CoreError> {
     let start = Instant::now();
     let trimmed = query.text.trim();
 
@@ -707,13 +812,14 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
             search_time_ms: start.elapsed().as_millis() as u64,
             search_mode: "hybrid".to_string(),
             graph_retrieval: None,
+            ranking: None,
         });
     }
 
     let user_limit = if query.limit == 0 {
         DEFAULT_SEARCH_LIMIT
     } else {
-        query.limit
+        query.limit.min(200)
     } as usize;
     // Over-fetch so reranking has more candidates to work with.
     let internal_limit: usize = std::cmp::min(user_limit * 3, user_limit + 30);
@@ -827,6 +933,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
             start,
             "fts",
             user_limit,
+            blocks_per_document,
         );
     }
 
@@ -874,7 +981,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         .collect();
 
     let mut cards = Vec::new();
-    for (chunk_id, rrf_score) in merged.iter().take(user_limit) {
+    for (chunk_id, rrf_score) in merged.iter().take(internal_limit) {
         let mut card = if let Some(fts_card) = fts_card_map.get(chunk_id) {
             fts_card.clone()
         } else {
@@ -897,6 +1004,7 @@ pub fn hybrid_search(db: &Database, query: &SearchQuery) -> Result<SearchResult,
         start,
         vector_mode,
         user_limit,
+        blocks_per_document,
     )
 }
 
@@ -982,6 +1090,14 @@ fn append_vector_filters(
         filters.source_ids.iter().map(ToString::to_string).collect(),
     );
     add_in(
+        "d.id",
+        filters
+            .document_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+    );
+    add_in(
         "d.mime_type",
         filters
             .file_types
@@ -1043,6 +1159,7 @@ pub(crate) fn vector_search_top_k_scoped(
     let mut offset = 0usize;
     loop {
         let batch = if filters.source_ids.is_empty()
+            && filters.document_ids.is_empty()
             && filters.file_types.is_empty()
             && filters.date_from.is_none()
             && filters.date_to.is_none()
@@ -1479,32 +1596,7 @@ fn apply_feedback_reranking(
 /// characters. A trailing `*` on the last token is preserved for prefix
 /// search (e.g. `"depl"*`).
 fn build_fts_query(input: &str) -> String {
-    let tokens: Vec<&str> = input.split_whitespace().collect();
-    if tokens.is_empty() {
-        return String::new();
-    }
-
-    let mut parts: Vec<String> = Vec::with_capacity(tokens.len());
-    for (i, token) in tokens.iter().enumerate() {
-        let is_last = i == tokens.len() - 1;
-        if is_last && token.ends_with('*') {
-            let base = &token[..token.len() - 1];
-            if base.is_empty() {
-                continue; // lone `*` — skip
-            }
-            // Prefix search: "term"*
-            parts.push(format!("\"{}\"*", escape_fts_quotes(base)));
-        } else {
-            parts.push(format!("\"{}\"", escape_fts_quotes(token)));
-        }
-    }
-
-    parts.join(" OR ")
-}
-
-/// Escape double-quotes inside a token so it can be safely wrapped in `"…"`.
-fn escape_fts_quotes(s: &str) -> String {
-    s.replace('"', "\"\"")
+    crate::lexical::query(input)
 }
 
 /// Extract search terms from the user query for highlight computation.
@@ -1523,7 +1615,17 @@ fn extract_terms(input: &str) -> Vec<String> {
 /// Returns highlights sorted by start position.
 fn compute_highlights(content: &str, terms: &[String]) -> Vec<Highlight> {
     let mut highlights = Vec::new();
-    let content_lower = content.to_lowercase();
+    let mut content_lower = String::new();
+    let mut positions = Vec::new();
+    let mut utf16_offset = 0;
+    for ch in content.chars() {
+        let end = utf16_offset + ch.len_utf16();
+        for lower in ch.to_lowercase() {
+            content_lower.push(lower);
+            positions.extend(std::iter::repeat_n((utf16_offset, end), lower.len_utf8()));
+        }
+        utf16_offset = end;
+    }
 
     for term in terms {
         if term.is_empty() {
@@ -1534,16 +1636,27 @@ fn compute_highlights(content: &str, terms: &[String]) -> Vec<Highlight> {
             let abs_start = start + pos;
             let abs_end = abs_start + term.len();
             highlights.push(Highlight {
-                start: abs_start,
-                end: abs_end,
+                start: positions[abs_start].0,
+                end: positions[abs_end - 1].1,
                 term: term.clone(),
             });
             start = abs_end;
         }
     }
 
-    highlights.sort_by_key(|h| h.start);
-    highlights
+    highlights.sort_by_key(|h| (h.start, h.end));
+    let mut merged: Vec<Highlight> = Vec::new();
+    for highlight in highlights {
+        if let Some(previous) = merged
+            .last_mut()
+            .filter(|previous| previous.end > highlight.start)
+        {
+            previous.end = previous.end.max(highlight.end);
+        } else {
+            merged.push(highlight);
+        }
+    }
+    merged
 }
 
 /// Extract `heading_context` from the chunk's `metadata_json`.
@@ -1707,6 +1820,95 @@ mod tests {
         db
     }
 
+    #[test]
+    fn knowledge_bilingual_lexical_update_delete_and_rebuild() {
+        let db = test_db();
+        let (source, chunk) = {
+            let conn = db.conn();
+            let source = insert_source(&conn);
+            let document = insert_document(&conn, &source, "text/plain");
+            let chunk = insert_chunk(&conn, &document, "公司差旅报销标准规定员工每日住宿上限为五百元。English retry_guard uses ERR-429 with backoff.");
+            (source, chunk)
+        };
+        let query = |text: &str| SearchQuery {
+            text: text.into(),
+            filters: SearchFilters::default(),
+            limit: 10,
+            offset: 0,
+        };
+        for text in [
+            "报销标准",
+            "住宿上限",
+            "差旅",
+            "元",
+            "retry_guard",
+            "ERR-429",
+            "backo*",
+        ] {
+            assert_eq!(
+                search_internal(&db, &query(text), false)
+                    .unwrap()
+                    .evidence_cards
+                    .len(),
+                1,
+                "missing {text}"
+            );
+        }
+        let mut scoped = query("报销标准");
+        scoped.filters.source_ids = vec![Uuid::new_v4()];
+        assert!(search_internal(&db, &scoped, false)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        db.conn()
+            .execute(
+                "UPDATE chunks SET content='新版差旅报销规范规定住宿限额为六百元。' WHERE id=?1",
+                [&chunk],
+            )
+            .unwrap();
+        assert!(search_internal(&db, &query("住宿上限"), false)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        assert_eq!(
+            search_internal(&db, &query("住宿限额"), false)
+                .unwrap()
+                .evidence_cards
+                .len(),
+            1
+        );
+        db.rebuild_fts_index().unwrap();
+        assert!(db.integrity_check().unwrap());
+        assert_eq!(
+            search_internal(&db, &query("住宿限额"), false)
+                .unwrap()
+                .evidence_cards
+                .len(),
+            1
+        );
+        db.conn()
+            .execute("DELETE FROM sources WHERE id=?1", [source])
+            .unwrap();
+        assert!(search_internal(&db, &query("住宿限额"), false)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        assert!(db.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn knowledge_highlights_use_utf16_offsets_and_merge_overlaps() {
+        let content = "😀中文报销标准和报销";
+        let spans = compute_highlights(content, &["报销".into(), "报销标准".into()]);
+        let utf16: Vec<u16> = content.encode_utf16().collect();
+        let highlighted = spans
+            .iter()
+            .map(|span| String::from_utf16(&utf16[span.start..span.end]).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(highlighted, ["报销标准", "报销"]);
+        assert_eq!(spans[0].start, 4);
+    }
+
     fn new_id() -> String {
         uuid::Uuid::new_v4().to_string()
     }
@@ -1812,6 +2014,7 @@ mod tests {
 
     fn test_card(path: &str, title: &str, content: &str, score: f64) -> EvidenceCard {
         EvidenceCard {
+            evidence_ref: None,
             chunk_id: Uuid::new_v4(),
             document_id: Uuid::new_v4(),
             source_id: Uuid::new_v4(),
@@ -2604,6 +2807,7 @@ mod tests {
         // Build cards with known scores.
         let mut cards = vec![
             EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&chunk_a).unwrap(),
                 document_id: Uuid::nil(),
                 source_id: Uuid::nil(),
@@ -2622,6 +2826,7 @@ mod tests {
                 freshness_days: None,
             },
             EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&chunk_b).unwrap(),
                 document_id: Uuid::nil(),
                 source_id: Uuid::nil(),
@@ -2640,6 +2845,7 @@ mod tests {
                 freshness_days: None,
             },
             EvidenceCard {
+                evidence_ref: None,
                 chunk_id: Uuid::parse_str(&chunk_c).unwrap(),
                 document_id: Uuid::nil(),
                 source_id: Uuid::nil(),

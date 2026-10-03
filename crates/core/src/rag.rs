@@ -759,6 +759,7 @@ mod tests {
         chunk_kind: &str,
     ) -> EvidenceCard {
         EvidenceCard {
+            evidence_ref: None,
             chunk_id: Uuid::new_v4(),
             document_id: Uuid::new_v4(),
             source_id: Uuid::new_v4(),

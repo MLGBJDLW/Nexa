@@ -116,7 +116,7 @@ fn run_multi_query_search(
 
     let merged = multi_query_rrf_merge(&all_ranked, 60.0);
     let mut cards: Vec<EvidenceCard> = Vec::new();
-    for (chunk_id, rrf_score) in merged.iter().take(limit as usize) {
+    for (chunk_id, rrf_score) in merged.iter().take((limit as usize * 3).min(64)) {
         if let Some(mut card) = card_map.remove(chunk_id) {
             card.score = *rrf_score as f64;
             cards.push(card);
@@ -124,6 +124,12 @@ fn run_multi_query_search(
     }
 
     rag::rerank_evidence_cards(&mut cards, &queries.join(" "));
+    let ranking = Some(crate::knowledge_services::rerank(
+        db,
+        &queries.join(" "),
+        &mut cards,
+    )?);
+    cards.truncate(limit as usize);
 
     Ok(search::SearchResult {
         query: queries.join(" | "),
@@ -132,6 +138,7 @@ fn run_multi_query_search(
         search_time_ms: total_time_ms,
         search_mode: format!("multi-query ({} queries, hybrid)", query_count),
         graph_retrieval: graph_retrieval::merge_reports(queries.join(" | "), graph_reports),
+        ranking,
     })
 }
 
