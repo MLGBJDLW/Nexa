@@ -41,6 +41,8 @@ pub async fn conversation_git_status_cmd(
     terminal: tauri::State<'_, TerminalState>,
     conversation_id: String,
 ) -> Result<GitWorkspaceSnapshot, String> {
+    let _workspace_activity = nexa_core::chat_worktrees::activity(&state.db, &conversation_id)
+        .map_err(|error| error.to_string())?;
     Ok(git_workspace::snapshot(sources(&state, &terminal, conversation_id).await?).await)
 }
 
@@ -53,6 +55,8 @@ pub async fn conversation_git_diff_cmd(
     path: String,
     staged: bool,
 ) -> Result<String, String> {
+    let _workspace_activity = nexa_core::chat_worktrees::activity(&state.db, &conversation_id)
+        .map_err(|error| error.to_string())?;
     let root = sources(&state, &terminal, conversation_id)
         .await?
         .into_iter()
