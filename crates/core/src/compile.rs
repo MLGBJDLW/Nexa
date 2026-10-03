@@ -737,7 +737,9 @@ impl Database {
           SELECT (SELECT COUNT(*) FROM selected),
           (SELECT COUNT(*) FROM document_summaries ds JOIN selected d ON d.id=ds.document_id WHERE ds.input_revision=d.index_revision AND COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=1),
           (SELECT COUNT(*) FROM entities e WHERE ?1='[]' OR EXISTS(SELECT 1 FROM document_entities de JOIN selected d ON d.id=de.document_id WHERE de.entity_id=e.id)),
-          (SELECT COUNT(*) FROM entity_links e WHERE ?1='[]' OR e.evidence_doc_id IN(SELECT id FROM selected))",
+          (SELECT COUNT(*) FROM entity_links e WHERE (?1='[]' AND e.evidence_doc_id IS NULL)
+            OR EXISTS(SELECT 1 FROM entity_link_support els JOIN selected d ON d.id=els.document_id AND d.index_revision=els.revision
+              WHERE els.source_entity_id=e.source_entity_id AND els.target_entity_id=e.target_entity_id AND els.relation_type=e.relation_type))",
           [serde_json::to_string(source_ids)?], |row| Ok(CompileStats { total_docs: row.get(0)?, compiled_docs: row.get(1)?, total_entities: row.get(2)?, total_links: row.get(3)? }))?)
     }
 
