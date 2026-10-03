@@ -188,5 +188,6 @@
   "researchState_needs_review": "Needs review",
   "researchState_supported": "Supported (reviewed)",
   "researchState_not_found": "Not found in this search",
-  "researchState_conflict": "Conflict (reviewed)"
+  "researchState_conflict": "Conflict (reviewed)",
+  "researchUnavailable": "Source unavailable or without searchable text. Select a current document in a new research set."
 }

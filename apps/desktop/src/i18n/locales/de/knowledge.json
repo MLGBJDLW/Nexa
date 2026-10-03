@@ -188,5 +188,6 @@
   "researchState_needs_review": "Prüfung nötig",
   "researchState_supported": "Belegt (geprüft)",
   "researchState_not_found": "In dieser Suche nicht gefunden",
-  "researchState_conflict": "Widerspruch (geprüft)"
+  "researchState_conflict": "Widerspruch (geprüft)",
+  "researchUnavailable": "Quelle nicht verfügbar oder ohne durchsuchbaren Text. Wählen Sie ein aktuelles Dokument für einen neuen Vergleich."
 }

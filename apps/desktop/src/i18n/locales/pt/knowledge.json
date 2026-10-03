@@ -188,5 +188,6 @@
   "researchState_needs_review": "Precisa de revisão",
   "researchState_supported": "Sustentado (revisado)",
   "researchState_not_found": "Não encontrado nesta busca",
-  "researchState_conflict": "Conflito (revisado)"
+  "researchState_conflict": "Conflito (revisado)",
+  "researchUnavailable": "Fonte indisponível ou sem texto pesquisável. Selecione um documento atual em uma nova pesquisa."
 }

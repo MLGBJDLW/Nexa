@@ -188,5 +188,6 @@
   "researchState_needs_review": "待核實",
   "researchState_supported": "已支持（已審核）",
   "researchState_not_found": "本次檢索未找到",
-  "researchState_conflict": "有衝突（已審核）"
+  "researchState_conflict": "有衝突（已審核）",
+  "researchUnavailable": "來源無法使用或沒有可檢索的正文，請使用目前文件建立新的研究對照。"
 }

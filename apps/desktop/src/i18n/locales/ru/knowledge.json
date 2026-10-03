@@ -188,5 +188,6 @@
   "researchState_needs_review": "Требует проверки",
   "researchState_supported": "Подтверждено (проверено)",
   "researchState_not_found": "В этом поиске не найдено",
-  "researchState_conflict": "Противоречие (проверено)"
+  "researchState_conflict": "Противоречие (проверено)",
+  "researchUnavailable": "Источник недоступен или не содержит текста для поиска. Выберите актуальный документ в новом исследовании."
 }

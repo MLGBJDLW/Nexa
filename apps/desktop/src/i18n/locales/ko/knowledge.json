@@ -188,5 +188,6 @@
   "researchState_needs_review": "검토 필요",
   "researchState_supported": "뒷받침됨 (검토 완료)",
   "researchState_not_found": "이번 검색에서 찾지 못함",
-  "researchState_conflict": "상충함 (검토 완료)"
+  "researchState_conflict": "상충함 (검토 완료)",
+  "researchUnavailable": "원본을 사용할 수 없거나 검색 가능한 본문이 없습니다. 새 비교에서 현재 문서를 선택하세요."
 }

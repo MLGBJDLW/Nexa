@@ -188,5 +188,6 @@
   "researchState_needs_review": "À vérifier",
   "researchState_supported": "Étayé (vérifié)",
   "researchState_not_found": "Non trouvé dans cette recherche",
-  "researchState_conflict": "Contradiction (vérifiée)"
+  "researchState_conflict": "Contradiction (vérifiée)",
+  "researchUnavailable": "Source indisponible ou sans texte interrogeable. Choisissez un document actuel dans une nouvelle étude."
 }

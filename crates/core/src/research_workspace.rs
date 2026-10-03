@@ -38,6 +38,7 @@ pub struct ResearchDocument {
     pub reference: EvidenceRef,
     pub title: String,
     pub path: String,
+    pub unavailable: bool,
     pub cells: Vec<ResearchCell>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,7 +184,7 @@ pub fn get(db: &Database, id: &str) -> Result<ResearchSet, CoreError> {
             let conn = db.conn();
             let current: Option<String> = conn
                 .query_row(
-                    "SELECT index_revision FROM documents WHERE id=?1 AND source_id=?2",
+                    "SELECT index_revision FROM documents d WHERE id=?1 AND source_id=?2 AND EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id AND c.kind!='summary')",
                     params![
                         reference.document_id.to_string(),
                         reference.source_id.to_string()
@@ -208,7 +209,8 @@ pub fn get(db: &Database, id: &str) -> Result<ResearchSet, CoreError> {
         let mut materialized = Vec::new();
         for (index, revision, state, note, refs) in cells {
             let refs: Vec<EvidenceRef> = serde_json::from_str(&refs)?;
-            let mut stale = current.as_deref() != Some(revision.as_str()) && state != "pending";
+            let mut stale = current.is_none()
+                || (current.as_deref() != Some(revision.as_str()) && state != "pending");
             let mut evidence = Vec::new();
             for reference in refs {
                 match crate::search::resolve_evidence_ref(db, &reference) {
@@ -231,6 +233,7 @@ pub fn get(db: &Database, id: &str) -> Result<ResearchSet, CoreError> {
             reference,
             title,
             path,
+            unavailable: current.is_none(),
             cells: materialized,
         });
     }
@@ -370,6 +373,65 @@ pub fn delete(db: &Database, id: &str) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use crate::{ingest, sources::CreateSourceInput};
+    #[test]
+    fn pending_cells_report_missing_or_empty_documents_on_every_refresh() {
+        for remove_document in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("policy.md");
+            std::fs::write(&path, "Travel allowance is 500 yuan.").unwrap();
+            let db = Database::open_memory().unwrap();
+            let source = db
+                .add_source(CreateSourceInput {
+                    root_path: dir.path().to_string_lossy().into(),
+                    include_globs: vec!["**/*.md".into()],
+                    exclude_globs: vec![],
+                    watch_enabled: false,
+                })
+                .unwrap();
+            ingest::scan_source(&db, &source.id).unwrap();
+            let reference = crate::search::search(
+                &db,
+                &SearchQuery {
+                    text: "allowance".into(),
+                    filters: Default::default(),
+                    limit: 1,
+                    offset: 0,
+                },
+            )
+            .unwrap()
+            .evidence_cards
+            .remove(0)
+            .evidence_ref
+            .unwrap();
+            let created = create(
+                &db,
+                CreateResearchSet {
+                    title: "Travel".into(),
+                    questions: vec!["allowance".into()],
+                    documents: vec![reference.clone()],
+                },
+            )
+            .unwrap();
+            assert!(!created.documents[0].cells[0].stale);
+            if remove_document {
+                std::fs::remove_file(&path).unwrap();
+                ingest::scan_source(&db, &source.id).unwrap();
+            } else {
+                db.conn()
+                    .execute(
+                        "DELETE FROM chunks WHERE document_id=?1",
+                        [reference.document_id.to_string()],
+                    )
+                    .unwrap();
+            }
+            for _ in 0..2 {
+                let refreshed = refresh(&db, &created.summary.id, |_, _| {}).unwrap();
+                assert!(refreshed.documents[0].unavailable);
+                assert!(refreshed.documents[0].cells[0].stale);
+                assert!(refreshed.documents[0].cells[0].evidence.is_empty());
+            }
+        }
+    }
     #[test]
     fn matrix_retains_multiple_blocks_versions_reviews_and_source_revocation() {
         let dir = tempfile::tempdir().unwrap();

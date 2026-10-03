@@ -188,5 +188,6 @@
   "researchState_needs_review": "待核实",
   "researchState_supported": "已支持（已审核）",
   "researchState_not_found": "本次检索未找到",
-  "researchState_conflict": "有冲突（已审核）"
+  "researchState_conflict": "有冲突（已审核）",
+  "researchUnavailable": "来源不可用或没有可检索的正文，请使用当前文档新建研究对照。"
 }
