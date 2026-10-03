@@ -55,7 +55,9 @@ impl Database {
                 SUM(CASE WHEN ds.id IS NOT NULL AND ds.input_revision!=d.index_revision THEN 1 ELSE 0 END) stale,
                 SUM(CASE WHEN ds.input_revision=d.index_revision AND COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=0 THEN 1 ELSE 0 END) partial,
                 SUM(CASE WHEN COALESCE(json_extract(d.metadata,'$.parse_warnings'),'')!='' THEN 1 ELSE 0 END) warnings,
-                SUM(CASE WHEN COALESCE(json_extract(d.metadata,'$.parser_profile'),'')='' THEN 1 ELSE 0 END) reparse
+                SUM(CASE WHEN COALESCE(json_extract(d.metadata,'$.parser_profile'),'')=''
+                  OR (json_extract(d.metadata,'$.parser_profile') LIKE 'native-%' AND json_extract(d.metadata,'$.parser_profile')!=?2)
+                  THEN 1 ELSE 0 END) reparse
               FROM documents d LEFT JOIN document_summaries ds ON ds.document_id=d.id GROUP BY d.source_id
             ), chunk_health AS (
               SELECT d.source_id,COUNT(*) chunks,
@@ -70,24 +72,27 @@ impl Database {
             LEFT JOIN source_index_state state ON state.source_id=s.id ORDER BY s.created_at,s.id"
         )?;
         let rows = statement
-            .query_map([&space], |row| {
-                let scan: Option<String> = row.get(11)?;
-                Ok(SourceIndexHealth {
-                    source_id: row.get(0)?,
-                    documents: row.get(1)?,
-                    chunks: row.get(2)?,
-                    keyword_chunks: row.get(3)?,
-                    embedded_chunks: row.get(4)?,
-                    compiled_documents: row.get(5)?,
-                    stale_documents: row.get(6)?,
-                    partial_documents: row.get(7)?,
-                    parse_warnings: row.get(8)?,
-                    failed_files: row.get(9)?,
-                    needs_reparse: row.get(10)?,
-                    embedding_space: space.clone(),
-                    last_scan: scan.and_then(|json| serde_json::from_str(&json).ok()),
-                })
-            })?
+            .query_map(
+                rusqlite::params![&space, crate::ingest::NATIVE_PARSER_PROFILE],
+                |row| {
+                    let scan: Option<String> = row.get(11)?;
+                    Ok(SourceIndexHealth {
+                        source_id: row.get(0)?,
+                        documents: row.get(1)?,
+                        chunks: row.get(2)?,
+                        keyword_chunks: row.get(3)?,
+                        embedded_chunks: row.get(4)?,
+                        compiled_documents: row.get(5)?,
+                        stale_documents: row.get(6)?,
+                        partial_documents: row.get(7)?,
+                        parse_warnings: row.get(8)?,
+                        failed_files: row.get(9)?,
+                        needs_reparse: row.get(10)?,
+                        embedding_space: space.clone(),
+                        last_scan: scan.and_then(|json| serde_json::from_str(&json).ok()),
+                    })
+                },
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }

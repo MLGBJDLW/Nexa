@@ -383,8 +383,10 @@ mod tests {
             "UPDATE documents SET metadata=json_set(metadata,'$.parser_profile','native-v2') WHERE id=?1",
             [reference.document_id.to_string()],
         ).unwrap();
+        assert_eq!(db.source_index_health().unwrap()[0].needs_reparse, 1);
         let scan = crate::ingest::scan_source(&db, &source.id).unwrap();
         assert_eq!(scan.files_updated, 1);
+        assert_eq!(db.source_index_health().unwrap()[0].needs_reparse, 0);
         let current = search(
             &db,
             &SearchQuery {
