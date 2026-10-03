@@ -1086,6 +1086,57 @@ fn get_first_sentence(text: &str) -> Option<&str> {
 }
 
 #[cfg(feature = "video")]
+fn video_transcript_chunks(segments: &[crate::video::TranscriptSegment]) -> Vec<ParsedChunk> {
+    segments
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            let mut text = String::new();
+            let mut overlap_start = 0;
+            let mut start_ms = segment.start_ms;
+            let mut end_ms = segment.end_ms;
+            if index > 0 {
+                let previous = &segments[index - 1];
+                if let Some(tail) = get_last_sentence(&previous.text) {
+                    text.push_str(tail);
+                    text.push(' ');
+                    overlap_start = text.len();
+                    start_ms = start_ms.min(previous.start_ms);
+                }
+            }
+            text.push_str(&segment.text);
+            if let Some(next) = segments.get(index + 1) {
+                if let Some(head) = get_first_sentence(&next.text) {
+                    text.push(' ');
+                    text.push_str(head);
+                    end_ms = end_ms.max(next.end_ms);
+                }
+            }
+            let start_secs = start_ms / 1000;
+            let end_secs = end_ms / 1000;
+            ParsedChunk {
+                locator: EvidenceLocator::Media { start_ms, end_ms },
+                extraction_method: "transcript".into(),
+                content: text,
+                chunk_index: index as i32,
+                start_offset: start_ms,
+                end_offset: end_ms,
+                heading_context: Some(format!(
+                    "{:02}:{:02}:{:02} - {:02}:{:02}:{:02}",
+                    start_secs / 3600,
+                    (start_secs % 3600) / 60,
+                    start_secs % 60,
+                    end_secs / 3600,
+                    (end_secs % 3600) / 60,
+                    end_secs % 60
+                )),
+                overlap_start,
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "video")]
 fn parse_video(
     path: &Path,
     mime_type: &str,
@@ -1115,56 +1166,7 @@ fn parse_video(
             }
         })?;
 
-    let segments = &result.transcript_segments;
-    let mut chunks: Vec<ParsedChunk> = segments
-        .iter()
-        .enumerate()
-        .map(|(i, seg)| {
-            let start_secs = seg.start_ms / 1000;
-            let end_secs = seg.end_ms / 1000;
-            let timestamp = format!(
-                "{:02}:{:02}:{:02} - {:02}:{:02}:{:02}",
-                start_secs / 3600,
-                (start_secs % 3600) / 60,
-                start_secs % 60,
-                end_secs / 3600,
-                (end_secs % 3600) / 60,
-                end_secs % 60,
-            );
-
-            // Build chunk text with overlap from adjacent segments
-            let mut chunk_text = String::new();
-            let mut overlap_len = 0usize;
-            if i > 0 {
-                if let Some(tail) = get_last_sentence(&segments[i - 1].text) {
-                    chunk_text.push_str(tail);
-                    chunk_text.push(' ');
-                    overlap_len = chunk_text.len();
-                }
-            }
-            chunk_text.push_str(&seg.text);
-            if i + 1 < segments.len() {
-                if let Some(head) = get_first_sentence(&segments[i + 1].text) {
-                    chunk_text.push(' ');
-                    chunk_text.push_str(head);
-                }
-            }
-
-            ParsedChunk {
-                locator: EvidenceLocator::Media {
-                    start_ms: seg.start_ms,
-                    end_ms: seg.end_ms,
-                },
-                extraction_method: "transcript".into(),
-                content: chunk_text,
-                chunk_index: i as i32,
-                start_offset: seg.start_ms,
-                end_offset: seg.end_ms,
-                heading_context: Some(timestamp),
-                overlap_start: overlap_len,
-            }
-        })
-        .collect();
+    let mut chunks = video_transcript_chunks(&result.transcript_segments);
 
     // Add frame OCR text as additional chunks with timestamp correlation.
     let base_index = chunks.len() as i32;
@@ -1922,7 +1924,7 @@ fn chunk_sections(
             start += cut;
         }
     }
-    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chars));
+    apply_chunk_overlap(&mut chunks, overlap_chars_for(max_chars), &line_starts);
     chunks
 }
 
@@ -1936,7 +1938,7 @@ fn chunk_sections(
 /// The first chunk is left unchanged (`overlap_start` remains 0).
 /// Subsequent chunks receive an overlap prefix and their `overlap_start`
 /// field is set to the byte length of that prefix.
-fn apply_chunk_overlap(chunks: &mut [ParsedChunk], overlap_chars: usize) {
+fn apply_chunk_overlap(chunks: &mut [ParsedChunk], overlap_chars: usize, line_starts: &[usize]) {
     if overlap_chars == 0 {
         return;
     }
@@ -1959,6 +1961,18 @@ fn apply_chunk_overlap(chunks: &mut [ParsedChunk], overlap_chars: usize) {
             continue;
         }
         let prefix = format!("{}\n\n", tails[index - 1]);
+        let prefix_start = chunks[index - 1].end_offset as usize - tails[index - 1].len();
+        if let EvidenceLocator::Text {
+            byte_start,
+            line_start,
+            ..
+        } = &mut chunks[index].locator
+        {
+            // The surfaced card includes this copied tail. Its citation must
+            // cover that source range too; core offsets still exclude overlap.
+            *byte_start = prefix_start as u64;
+            *line_start = line_starts.partition_point(|line| *line <= prefix_start) as u32;
+        }
         chunks[index].overlap_start = prefix.len();
         chunks[index].content.insert_str(0, &prefix);
     }
@@ -2113,6 +2127,41 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    #[cfg(feature = "video")]
+    #[test]
+    fn transcript_overlap_locators_cover_every_quoted_segment() {
+        use crate::video::TranscriptSegment;
+        let chunks = video_transcript_chunks(&[
+            TranscriptSegment {
+                start_ms: 1_000,
+                end_ms: 2_000,
+                text: "Earlier. BEFORE".into(),
+            },
+            TranscriptSegment {
+                start_ms: 3_000,
+                end_ms: 4_000,
+                text: "CURRENT".into(),
+            },
+            TranscriptSegment {
+                start_ms: 5_000,
+                end_ms: 6_000,
+                text: "AFTER. Later".into(),
+            },
+        ]);
+        assert!(chunks[1].content.contains("BEFORE CURRENT AFTER"));
+        assert_eq!(
+            chunks[1].locator,
+            EvidenceLocator::Media {
+                start_ms: 1_000,
+                end_ms: 6_000
+            }
+        );
+        assert_eq!(
+            (chunks[1].start_offset, chunks[1].end_offset),
+            (1_000, 6_000)
+        );
+    }
+
     #[test]
     fn unicode_chunks_keep_short_facts_and_exact_source_ranges() {
         let content = format!(
@@ -2127,16 +2176,27 @@ mod tests {
                 &chunk.content[chunk.overlap_start..]
             );
             assert!(chunk.content.chars().count() <= 88);
-            let EvidenceLocator::Text { line_start, .. } = chunk.locator else {
+            let EvidenceLocator::Text {
+                byte_start,
+                byte_end,
+                line_start,
+                ..
+            } = chunk.locator
+            else {
                 panic!("text locator missing")
             };
             assert_eq!(
                 line_start as usize,
-                1 + content[..chunk.start_offset as usize]
+                1 + content[..byte_start as usize]
                     .bytes()
                     .filter(|byte| *byte == b'\n')
                     .count()
             );
+            let highlighted = &content[byte_start as usize..byte_end as usize];
+            assert!(highlighted.contains(&chunk.content[chunk.overlap_start..]));
+            if chunk.overlap_start > 0 {
+                assert!(highlighted.contains(chunk.content[..chunk.overlap_start].trim_end()));
+            }
         }
         assert!(chunks
             .iter()

@@ -228,14 +228,14 @@ function DocumentBlockView({
             ? 'mt-6 text-xl font-semibold leading-tight'
             : 'mt-5 text-base font-semibold leading-snug';
       return (
-        <Tag className={`${headingClass} first:mt-0 ${textAlignClass(block.alignment)}`}>
+        <Tag data-docx-paragraph={block.sourceParagraph} className={`${headingClass} first:mt-0 ${textAlignClass(block.alignment)}`}>
           <DocumentRuns runs={block.runs} onOpenWebLink={onOpenWebLink} />
         </Tag>
       );
     }
     case 'paragraph':
       return (
-        <p className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
+        <p data-docx-paragraph={block.sourceParagraph} className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
           <DocumentRuns runs={block.runs} onOpenWebLink={onOpenWebLink} />
         </p>
       );
@@ -249,7 +249,7 @@ function DocumentBlockView({
           style={{ paddingLeft: `${1.5 + block.level * 1.25}rem` }}
         >
           {block.items.map((item, index) => (
-            <li key={index}>
+            <li key={index} data-docx-paragraph={item.sourceParagraph}>
               <DocumentRuns runs={item.runs} onOpenWebLink={onOpenWebLink} />
             </li>
           ))}
@@ -259,10 +259,10 @@ function DocumentBlockView({
     case 'table':
       return (
         <div className="my-4 overflow-x-auto rounded-md border border-border">
-          <table className="min-w-full border-collapse text-sm">
+          <table data-docx-table={block.sourceTable} className="min-w-full border-collapse text-sm">
             <tbody>
               {block.rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="border-b border-border last:border-b-0">
+                <tr key={rowIndex} data-docx-row={row.sourceRow} className="border-b border-border last:border-b-0">
                   {row.cells.map((cell, cellIndex) => (
                     <td
                       key={cellIndex}
@@ -332,7 +332,23 @@ function DocumentBlockView({
   }
 }
 
-function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, locator, focusText }: {
+function markEvidenceLocations(primary: HTMLElement[], context: HTMLElement[]) {
+  primary[0]?.scrollIntoView({ block: 'center', inline: 'center' });
+  const groups = [
+    { elements: primary, attribute: 'data-evidence-anchor', classes: ['ring-2', 'ring-accent/50'] },
+    { elements: context.filter(element => !primary.includes(element)), attribute: 'data-evidence-context-anchor', classes: ['ring-1', 'ring-accent/30'] },
+  ];
+  for (const group of groups) for (const element of group.elements) {
+    element.setAttribute(group.attribute, 'true');
+    element.classList.add(...group.classes);
+  }
+  return () => { for (const group of groups) for (const element of group.elements) {
+    element.removeAttribute(group.attribute);
+    element.classList.remove(...group.classes);
+  } };
+}
+
+function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, locator }: {
   preview: api.DocumentStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
@@ -351,30 +367,24 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
   useEffect(() => {
     if (!locator || !root.current) { setAnchorMissing(false); return; }
     let target: HTMLElement | undefined | null;
+    let context: HTMLElement | null = null;
     if (locator.kind === 'pdf' || locator.kind === 'slide') {
       const page = locator.kind === 'pdf' ? locator.page : locator.slide;
       target = root.current.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
     } else if (locator.kind === 'document' && locator.part === 'word/document.xml') {
-      if (locator.table) target = root.current.querySelectorAll('article table')[locator.table - 1]?.querySelectorAll<HTMLElement>(':scope > tbody > tr')[(locator.row ?? 1) - 1];
+      if (locator.table) {
+        const table = root.current.querySelector<HTMLElement>(`[data-docx-table="${locator.table}"]`);
+        target = locator.row ? table?.querySelector<HTMLElement>(`:scope > tbody > [data-docx-row="${locator.row}"]`) : table;
+        if (locator.contextRow) context = table?.querySelector<HTMLElement>(`:scope > tbody > [data-docx-row="${locator.contextRow}"]`) ?? null;
+      }
       else {
-        const paragraphs = [...root.current.querySelectorAll<HTMLElement>('article p, article h1, article h2, article h3, article h4, article h5, article h6, article li')];
-        const normalize = (text: string) => text.replace(/\s/g, '');
-        const matches = (element: HTMLElement) => !focusText || normalize(element.textContent ?? '').includes(normalize(focusText));
-        const candidate = paragraphs[locator.paragraph - 1];
-        if (candidate && matches(candidate)) target = candidate;
-        else {
-          const candidates = paragraphs.filter(matches);
-          if (candidates.length === 1) target = candidates[0];
-        }
+        target = root.current.querySelector<HTMLElement>(`[data-docx-paragraph="${locator.paragraph}"]`);
       }
     }
-    setAnchorMissing(!target);
+    setAnchorMissing(!target || (locator.kind === 'document' && Boolean(locator.contextRow) && !context));
     if (!target) return;
-    target.scrollIntoView({ block: 'center' });
-    target.setAttribute('data-evidence-anchor', 'true');
-    target.classList.add('ring-2', 'ring-accent/50');
-    return () => { target?.removeAttribute('data-evidence-anchor'); target?.classList.remove('ring-2', 'ring-accent/50'); };
-  }, [locator, focusText, preview]);
+    return markEvidenceLocations([target], context ? [context] : []);
+  }, [locator, preview]);
   return (
     <div ref={root} data-testid="file-preview-structured-document" className="h-full overflow-auto bg-surface-0 px-4 py-5" onMouseUp={onMouseUp}>
       {anchorMissing && <p role="status" className="mb-3 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
@@ -423,14 +433,25 @@ function WorkbookPreview({
   useEffect(() => {
     if (locator?.kind !== 'sheet' || !root.current) { setAnchorMissing(false); return; }
     if (sheet?.name !== locator.sheet) { setAnchorMissing(!preview.sheets.some((value) => value.name === locator.sheet)); return; }
-    const address = locator.range.split(':')[0].replace(/\$/g, '').toUpperCase();
-    const target = [...root.current.querySelectorAll<HTMLElement>('[data-cell-address]')].find((element) => element.dataset.cellAddress === address);
-    setAnchorMissing(!target);
-    if (!target) return;
-    target.scrollIntoView({ block: 'center', inline: 'center' });
-    target.setAttribute('data-evidence-anchor', 'true');
-    target.classList.add('ring-2', 'ring-accent/50');
-    return () => { target.removeAttribute('data-evidence-anchor'); target.classList.remove('ring-2', 'ring-accent/50'); };
+    const coordinate = (address: string) => {
+      const match = /^([A-Z]+)([1-9]\d*)$/.exec(address.replace(/\$/g, '').toUpperCase());
+      return match ? { column: [...match[1]].reduce((value, char) => value * 26 + char.charCodeAt(0) - 64, 0), row: Number(match[2]) } : null;
+    };
+    const cells = [...root.current.querySelectorAll<HTMLElement>('[data-cell-address]')];
+    const inRange = (range?: string) => {
+      if (!range) return [];
+      const [first, last = first] = range.split(':');
+      const start = coordinate(first), end = coordinate(last);
+      if (!start || !end) return [];
+      return cells.filter(element => {
+        const cell = coordinate(element.dataset.cellAddress ?? '');
+        return cell && cell.row >= start.row && cell.row <= end.row && cell.column >= start.column && cell.column <= end.column;
+      });
+    };
+    const targets = inRange(locator.range), context = inRange(locator.contextRange);
+    setAnchorMissing(!targets.length || Boolean(locator.contextRange && !context.length));
+    if (!targets.length) return;
+    return markEvidenceLocations(targets, context);
   }, [locator, sheet, preview]);
   const cellMap = useMemo(() => {
     const map = new Map<string, api.WorkbookPreviewCell>();

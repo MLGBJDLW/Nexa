@@ -159,6 +159,7 @@ fn limit_paragraph(text: &str) -> String {
 
 fn heading(text: String, level: u8) -> PreviewBlock {
     PreviewBlock::Heading {
+        source_paragraph: None,
         level,
         runs: vec![plain_run(text)],
         alignment: None,
@@ -167,6 +168,7 @@ fn heading(text: String, level: u8) -> PreviewBlock {
 
 fn paragraph_block(text: String) -> PreviewBlock {
     PreviewBlock::Paragraph {
+        source_paragraph: None,
         runs: vec![plain_run(text)],
         alignment: None,
     }

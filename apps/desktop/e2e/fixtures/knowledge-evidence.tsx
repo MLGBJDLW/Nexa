@@ -30,12 +30,21 @@ function ReaderFixture() {
 }
 function WorkbookFixture() {
   const {t}=useTranslation();
-  return <StructuredPreviewRenderer preview={{type:'workbook',truncated:false,limits:{maxSheets:20,maxRows:500,maxColumns:60},sheets:[{name:'预算',index:0,startRow:2,startColumn:1,rowCount:2,columnCount:2,previewRowCount:2,previewColumnCount:2,truncated:false,mergedRanges:[],cells:[{row:0,column:0,value:'金额(元)',dataType:'text',formula:null},{row:0,column:1,value:'500',dataType:'number',formula:null},{row:1,column:0,value:'Total',dataType:'text',formula:null},{row:1,column:1,value:'17',dataType:'number',formula:'SUM(C3)'}]}]}} locator={{kind:'sheet',sheet:'预算',range:'C4'}} labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} />;
+  return <StructuredPreviewRenderer preview={{type:'workbook',truncated:false,limits:{maxSheets:20,maxRows:500,maxColumns:60},sheets:[{name:'预算',index:0,startRow:2,startColumn:1,rowCount:2,columnCount:2,previewRowCount:2,previewColumnCount:2,truncated:false,mergedRanges:[],cells:[{row:0,column:0,value:'金额(元)',dataType:'text',formula:null},{row:0,column:1,value:'500',dataType:'number',formula:null},{row:1,column:0,value:'Total',dataType:'text',formula:null},{row:1,column:1,value:'17',dataType:'number',formula:'SUM(C3)'}]}]}} locator={{kind:'sheet',sheet:'预算',range:'C4',contextRange:'B3:C3'}} labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} />;
 }
 function ResearchFixture() {
   const [mounted,setMounted]=useState(true);
   const [opened,setOpened]=useState('');
   return <FilePreviewContext.Provider value={{openFilePreview:()=>undefined,openWebLink:()=>undefined,openEvidence:reference=>setOpened(reference.revision)}}><button onClick={()=>setMounted(value=>!value)}>Toggle workspace</button><output data-testid="research-opened">{opened}</output>{mounted && <ResearchWorkspace cards={[{...fixture,evidenceRef:{...historical,status:'current'}}]} sourceIds={[]} />}</FilePreviewContext.Provider>;
+}
+function DocxFixture() {
+  const {t}=useTranslation();
+  const run=(text:string)=>({text,bold:false,italic:false,underline:false});
+  const table=new URLSearchParams(location.search).has('table');
+  return <StructuredPreviewRenderer preview={{type:'document',assets:[],blocks:table
+    ? [{type:'table',sourceTable:2,rows:[{sourceRow:1,cells:[{blocks:[{type:'paragraph',sourceParagraph:2,runs:[run('Header')]}]}]},{sourceRow:2,cells:[{blocks:[{type:'paragraph',sourceParagraph:3,runs:[run('Value')]}]}]}]}]
+    : [{type:'paragraph',sourceParagraph:2,runs:[run('Approved')]},{type:'paragraph',sourceParagraph:3,runs:[run('Approved')]}]
+  }} locator={table ? {kind:'document',part:'word/document.xml',paragraph:3,table:2,row:2,contextRow:1} : {kind:'document',part:'word/document.xml',paragraph:2}} focusText={table?'Value':'Approved'} labels={createPreviewLabels(t)} onMouseUp={()=>undefined} onOpenWebLink={()=>undefined} />;
 }
 const mode = new URLSearchParams(location.search).get('mode');
 
@@ -49,7 +58,7 @@ const fixture = {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
-    {mode === 'reader' ? <ReaderFixture /> : mode === 'workbook' ? <WorkbookFixture /> : mode === 'research' ? <ResearchFixture /> : <FilePreviewContext.Provider value={{
+    {mode === 'docx' ? <DocxFixture /> : mode === 'reader' ? <ReaderFixture /> : mode === 'workbook' ? <WorkbookFixture /> : mode === 'research' ? <ResearchFixture /> : <FilePreviewContext.Provider value={{
       openFilePreview: () => undefined,
       openWebLink: () => undefined,
       loadEvidence: async () => {

@@ -28,14 +28,22 @@ pub enum StructuredPreview {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum PreviewBlock {
     Heading {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_paragraph: Option<u32>,
         level: u8,
         runs: Vec<PreviewRun>,
         alignment: Option<String>,
     },
     Paragraph {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_paragraph: Option<u32>,
         runs: Vec<PreviewRun>,
         alignment: Option<String>,
     },
@@ -45,6 +53,8 @@ pub enum PreviewBlock {
         items: Vec<PreviewListItem>,
     },
     Table {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_table: Option<u32>,
         rows: Vec<PreviewTableRow>,
     },
     Image {
@@ -73,12 +83,16 @@ pub struct PreviewRun {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewListItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_paragraph: Option<u32>,
     pub runs: Vec<PreviewRun>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewTableRow {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_row: Option<u32>,
     pub cells: Vec<PreviewTableCell>,
 }
 

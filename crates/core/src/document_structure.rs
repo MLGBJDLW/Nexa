@@ -137,6 +137,19 @@ pub(crate) fn docx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
                     _ => (),
                 },
                 Ok(Event::Empty(event)) => match event.name().as_ref() {
+                    b"w:p" => paragraph += 1,
+                    b"w:tbl" => table_count += 1,
+                    b"w:tr" => {
+                        if let Some(table) = tables.last_mut() {
+                            table.row += 1;
+                            table.rows.push((table.row, paragraph + 1, Vec::new()));
+                        }
+                    }
+                    b"w:tc" => {
+                        if let Some(table) = tables.last_mut() {
+                            table.cells.push(String::new());
+                        }
+                    }
                     b"w:pStyle" => paragraph_style = attribute(&event, b"val", &reader),
                     b"w:tab" => paragraph_text.push('\t'),
                     b"w:br" | b"w:cr" => paragraph_text.push('\n'),
@@ -167,6 +180,7 @@ pub(crate) fn docx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
                                     paragraph,
                                     table: None,
                                     row: None,
+                                    context_row: None,
                                     column: None,
                                 },
                                 max_chars,
@@ -209,6 +223,7 @@ pub(crate) fn docx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
                                         paragraph,
                                         table: Some(table.id),
                                         row: Some(row),
+                                        context_row: (row > 1 && !header.is_empty()).then_some(1),
                                         column: None,
                                     },
                                     max_chars,
@@ -425,6 +440,16 @@ pub(crate) fn workbook_chunks(
             .collect::<Vec<_>>()
             .join(" | ");
         let context = context.chars().take(max_chars / 3).collect::<String>();
+        let context_source = rows.first_key_value().map(|(row, cells)| {
+            (
+                *row,
+                format!(
+                    "{}:{}",
+                    cell_address(*row, cells.first().unwrap().0),
+                    cell_address(*row, cells.last().unwrap().0)
+                ),
+            )
+        });
         for (row, cells) in rows {
             let range = format!(
                 "{}:{}",
@@ -445,6 +470,10 @@ pub(crate) fn workbook_chunks(
                 chunk.locator = EvidenceLocator::Sheet {
                     sheet: name.clone(),
                     range: range.clone(),
+                    context_range: context_source
+                        .as_ref()
+                        .filter(|(context_row, _)| *context_row != row && !context.is_empty())
+                        .map(|(_, range)| range.clone()),
                 };
                 chunk.heading_context = Some(format!("{name}!{range}"));
                 chunk.content.insert_str(0, &prefix);
@@ -471,6 +500,37 @@ mod tests {
             archive.write_all(text.as_bytes()).unwrap();
         }
         archive.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn word_native_ordinals_count_self_closing_paragraphs_tables_and_rows() {
+        let bytes = package(&[(
+            "word/document.xml",
+            r#"<w:document xmlns:w="word"><w:body>
+          <w:p/><w:p><w:r><w:t>ANCHOR</w:t></w:r></w:p><w:tbl/>
+          <w:tbl><w:tr/><w:tr><w:tc/><w:tc><w:p><w:r><w:t>VALUE</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+          </w:body></w:document>"#,
+        )]);
+        let chunks = docx_chunks(&bytes, 2000).unwrap();
+        assert!(chunks.iter().any(|chunk| chunk.content == "ANCHOR"
+            && matches!(
+                chunk.locator,
+                EvidenceLocator::Document {
+                    paragraph: 2,
+                    table: None,
+                    ..
+                }
+            )));
+        assert!(chunks.iter().any(|chunk| chunk.content.contains("VALUE")
+            && matches!(
+                chunk.locator,
+                EvidenceLocator::Document {
+                    paragraph: 3,
+                    table: Some(2),
+                    row: Some(2),
+                    ..
+                }
+            )));
     }
 
     #[test]
@@ -503,6 +563,7 @@ mod tests {
                 EvidenceLocator::Document {
                     table: Some(1),
                     row: Some(2),
+                    context_row: Some(1),
                     ..
                 }
             )));
@@ -599,7 +660,8 @@ mod tests {
             formula.locator,
             EvidenceLocator::Sheet {
                 sheet: "预算".into(),
-                range: "B4:C4".into()
+                range: "B4:C4".into(),
+                context_range: Some("B3:C3".into())
             }
         );
     }

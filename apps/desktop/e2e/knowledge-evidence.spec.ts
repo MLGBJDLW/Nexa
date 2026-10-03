@@ -1,5 +1,21 @@
 import { expect, test } from '@playwright/test';
 
+test('DOCX citations retain native paragraph identity when empty paragraphs are omitted', async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-locale','en'));
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=docx');
+  const paragraphs=page.getByTestId('file-preview-structured-document').locator('article p');
+  await expect(paragraphs).toHaveCount(2);
+  await expect(paragraphs.nth(0)).toHaveAttribute('data-evidence-anchor','true');
+  await expect(paragraphs.nth(1)).not.toHaveAttribute('data-evidence-anchor','true');
+});
+
+test('DOCX citations highlight the native data row and its copied header context', async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-locale','en'));
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=docx&table=1');
+  await expect(page.locator('[data-docx-table="2"] [data-docx-row="2"]')).toHaveAttribute('data-evidence-anchor','true');
+  await expect(page.locator('[data-docx-table="2"] [data-docx-row="1"]')).toHaveAttribute('data-evidence-context-anchor','true');
+});
+
 test('citations expose read failures, recover on retry and fit a small viewport', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('nexa-locale', 'en'));
   await page.setViewportSize({ width: 280, height: 240 });
@@ -59,6 +75,8 @@ test('workbook evidence locates actual cell coordinates when the used range star
   await expect(selected).toHaveAttribute('data-evidence-anchor','true');
   await expect(selected).toContainText('17');
   await expect(page.locator('[data-cell-address="B3"]')).toContainText('金额(元)');
+  await expect(page.locator('[data-cell-address="B3"]')).toHaveAttribute('data-evidence-context-anchor','true');
+  await expect(page.locator('[data-cell-address="C3"]')).toHaveAttribute('data-evidence-context-anchor','true');
   await expect(page.locator('[data-cell-address="A1"]')).toHaveCount(0);
   await page.screenshot({path:'.artifacts/knowledge-sheet-anchor.png',fullPage:true});
 });

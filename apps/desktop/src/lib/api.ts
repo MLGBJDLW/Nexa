@@ -714,6 +714,7 @@ export type DocumentPreviewBlock =
   | DocumentUnsupportedBlock;
 
 export interface DocumentHeadingBlock {
+  sourceParagraph?: number;
   type: 'heading';
   level: number;
   runs: DocumentPreviewRun[];
@@ -721,6 +722,7 @@ export interface DocumentHeadingBlock {
 }
 
 export interface DocumentParagraphBlock {
+  sourceParagraph?: number;
   type: 'paragraph';
   runs: DocumentPreviewRun[];
   alignment?: string | null;
@@ -734,6 +736,7 @@ export interface DocumentListBlock {
 }
 
 export interface DocumentTableBlock {
+  sourceTable?: number;
   type: 'table';
   rows: DocumentPreviewTableRow[];
 }
@@ -765,10 +768,12 @@ export interface DocumentPreviewRun {
 }
 
 export interface DocumentPreviewListItem {
+  sourceParagraph?: number;
   runs: DocumentPreviewRun[];
 }
 
 export interface DocumentPreviewTableRow {
+  sourceRow?: number;
   cells: DocumentPreviewTableCell[];
 }
 

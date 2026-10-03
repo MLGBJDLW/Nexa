@@ -54,11 +54,15 @@ pub enum EvidenceLocator {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         row: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_row: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         column: Option<u32>,
     },
     Sheet {
         sheet: String,
         range: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_range: Option<String>,
     },
     Slide {
         slide: u32,
@@ -323,6 +327,89 @@ mod tests {
         search::{resolve_evidence_ref, search},
         sources::CreateSourceInput,
     };
+
+    #[test]
+    fn a_search_hit_in_overlap_opens_the_source_range_containing_that_text() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("policy.txt");
+        let content = "旧段 ANCHOROLD: 已核准。\r\n\r\n新段 CURRENTRANGE: 待复核。";
+        std::fs::write(&path, content).unwrap();
+        let db = Database::open_memory().unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: folder.path().to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        crate::ingest::scan_source(&db, &source.id).unwrap();
+        let card = search(
+            &db,
+            &SearchQuery {
+                text: "ANCHOROLD CURRENTRANGE".into(),
+                filters: Default::default(),
+                limit: 10,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .remove(0);
+        assert_eq!(
+            card.chunk_index, 1,
+            "the following chunk should match both terms"
+        );
+        assert!(card.content.contains("ANCHOROLD"));
+        let reference = card.evidence_ref.unwrap();
+        let EvidenceLocator::Text {
+            byte_start,
+            byte_end,
+            line_start,
+            line_end,
+        } = reference.locator
+        else {
+            panic!("missing text locator");
+        };
+        let highlighted = &content[byte_start as usize..byte_end as usize];
+        assert!(
+            highlighted.contains("ANCHOROLD"),
+            "citation missed the matching overlap"
+        );
+        assert!(highlighted.contains("CURRENTRANGE"));
+        assert_eq!((line_start, line_end), (1, 3));
+        // A parser upgrade must repair cached locations even when bytes match.
+        db.conn().execute(
+            "UPDATE documents SET metadata=json_set(metadata,'$.parser_profile','native-v2') WHERE id=?1",
+            [reference.document_id.to_string()],
+        ).unwrap();
+        let scan = crate::ingest::scan_source(&db, &source.id).unwrap();
+        assert_eq!(scan.files_updated, 1);
+        let current = search(
+            &db,
+            &SearchQuery {
+                text: "ANCHOROLD CURRENTRANGE".into(),
+                filters: Default::default(),
+                limit: 10,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .remove(0)
+        .evidence_ref
+        .unwrap();
+        assert_ne!(current.revision, reference.revision);
+        assert_eq!(current.document_id, reference.document_id);
+        assert_eq!(
+            resolve_evidence_ref(&db, &reference)
+                .unwrap()
+                .evidence_ref
+                .unwrap()
+                .status,
+            "historical"
+        );
+    }
 
     #[test]
     fn updates_keep_exact_historical_evidence_and_source_deletion_revokes_it() {

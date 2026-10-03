@@ -66,6 +66,12 @@ shows the selected block, adjacent text, and paginated document sections.
 | Media | Time range when provided by media analysis |
 | Extracted HTML/EPUB/legacy text | Extracted section, not a claim of an exact file-line location |
 
+Text and media locations cover any neighboring text included in the evidence.
+Copied table headers retain a separate source row/cell range, which the preview
+highlights alongside the main result. DOCX previews preserve native paragraph,
+table, and row identities when empty content is omitted. Text selection maps
+browser-normalized newlines back to the original source before an agent handoff.
+
 Native PDF OCR uses supported embedded page images. It is not a full rendered-page
 layout engine. Uncovered pages and heuristic legacy extraction are visible as
 parse warnings. The optional Docling service below handles PDF layout/OCR when
@@ -81,6 +87,8 @@ local storage until their owning source/document scope is removed.
 Opening a current original checks its file hash before applying an old location.
 If it changed, the preview explains the mismatch. Historical evidence opens the
 current file only through an explicit action without reusing the old location.
+Parser-profile changes reparse unchanged files on the next scan; Sources exposes
+the remaining reparse count until that scan completes.
 
 ## Saved research comparisons
 
