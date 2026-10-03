@@ -35,6 +35,16 @@
 * **search:** expose embedding fallback to pagination ([564d935](https://github.com/MLGBJDLW/Nexa/commit/564d935dc6ccbcc508ae2af392cb5c8a79abc59e))
 * **search:** paginate stable scoped rankings ([f0f8d39](https://github.com/MLGBJDLW/Nexa/commit/f0f8d3945a8fc70fee2e708e1092f7742b927d9b))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at ed4e545892fd3ffa14b0f9996153094c8b819e15 -->
+
+### What's Changed
+* fix(knowledge): preserve evidence versions across search and research by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/445
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.23...nexa-monorepo-v0.14.24
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.23](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.22...nexa-monorepo-v0.14.23) (2026-10-03)
 
 
