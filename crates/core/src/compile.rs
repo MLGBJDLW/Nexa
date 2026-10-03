@@ -450,14 +450,18 @@ fn upsert_entity_link_on(
              )
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(source_entity_id, target_entity_id, relation_type) DO UPDATE SET
-                strength = MIN(1.0, MAX(entity_links.strength, excluded.strength) + 0.1),
-                evidence_doc_id = COALESCE(excluded.evidence_doc_id, entity_links.evidence_doc_id),
+                strength = CASE WHEN entity_links.evidence_doc_id IS NULL
+                    THEN MIN(1.0, MAX(entity_links.strength, excluded.strength) + 0.1)
+                    ELSE excluded.strength END,
+                evidence_doc_id = NULL,
                 evidence_snippet = CASE
+                    WHEN entity_links.evidence_doc_id IS NOT NULL THEN excluded.evidence_snippet
                     WHEN length(excluded.evidence_snippet) > length(COALESCE(entity_links.evidence_snippet, ''))
                     THEN excluded.evidence_snippet
                     ELSE entity_links.evidence_snippet
                 END,
                 confidence = CASE
+                    WHEN entity_links.evidence_doc_id IS NOT NULL THEN excluded.confidence
                     WHEN entity_links.confidence IS NULL THEN excluded.confidence
                     WHEN excluded.confidence IS NULL THEN entity_links.confidence
                     ELSE MAX(entity_links.confidence, excluded.confidence)
@@ -1009,6 +1013,128 @@ mod tests {
             )
             .expect("insert chunk");
         doc_id
+    }
+
+    #[test]
+    fn manual_relations_survive_compiled_support_in_either_insertion_order() {
+        use crate::knowledge_graph::KnowledgeGraphQuery;
+        for compiled_first in [false, true] {
+            let db = Database::open_memory().unwrap();
+            let doc = insert_compile_doc(&db, "Alpha supports Beta.");
+            let source: String = db
+                .conn()
+                .query_row(
+                    "SELECT source_id FROM documents WHERE id=?1",
+                    [&doc],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let a = db
+                .upsert_entity("Alpha", &EntityType::Concept, "Alpha", &doc)
+                .unwrap();
+            let b = db
+                .upsert_entity("Beta", &EntityType::Concept, "Beta", &doc)
+                .unwrap();
+            let add_compiled = || {
+                db.upsert_entity_link_with_evidence(
+                    &a.id,
+                    &b.id,
+                    "supports",
+                    EntityLinkEvidence {
+                        strength: 0.4,
+                        evidence_doc: Some(&doc),
+                        evidence_snippet: Some("A longer generated source quote"),
+                        confidence: Some(0.98),
+                    },
+                )
+                .unwrap()
+            };
+            if compiled_first {
+                add_compiled();
+            }
+            db.upsert_entity_link_with_evidence(
+                &a.id,
+                &b.id,
+                "supports",
+                EntityLinkEvidence {
+                    strength: 0.9,
+                    evidence_doc: None,
+                    evidence_snippet: Some("Manual"),
+                    confidence: Some(0.85),
+                },
+            )
+            .unwrap();
+            if !compiled_first {
+                add_compiled();
+            }
+            let read_manual = || {
+                db.conn()
+                    .query_row(
+                        "SELECT id,evidence_doc_id,strength,evidence_snippet,confidence
+                         FROM entity_links
+                         WHERE source_entity_id=?1 AND target_entity_id=?2
+                           AND relation_type='supports'",
+                        rusqlite::params![a.id, b.id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, Option<String>>(1)?,
+                                row.get::<_, f64>(2)?,
+                                row.get::<_, String>(3)?,
+                                row.get::<_, Option<f64>>(4)?,
+                            ))
+                        },
+                    )
+                    .unwrap()
+            };
+            let manual = read_manual();
+            assert_eq!(manual.1, None);
+            assert_eq!(manual.2, 0.9);
+            assert_eq!(manual.3, "Manual");
+            assert_eq!(manual.4, Some(0.85));
+            let global = db
+                .get_knowledge_graph(KnowledgeGraphQuery {
+                    limit: 10,
+                    relation_types: vec!["supports".into()],
+                    min_strength: Some(0.8),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(global.edges.len(), 1);
+            assert_eq!(global.edges[0].strength, 0.9);
+            assert_eq!(global.edges[0].evidence_doc_id, None);
+            let scoped = db
+                .get_knowledge_graph(KnowledgeGraphQuery {
+                    limit: 10,
+                    source_ids: vec![source],
+                    relation_types: vec!["supports".into()],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(scoped.edges.len(), 1);
+            assert_eq!(scoped.edges[0].strength, 0.4);
+            assert_eq!(
+                scoped.edges[0].evidence_doc_id.as_deref(),
+                Some(doc.as_str())
+            );
+            // Support refresh, source revision invalidation and deletion must
+            // never convert or remove the independent manual assertion.
+            add_compiled();
+            assert_eq!(read_manual(), manual);
+            db.conn()
+                .execute(
+                    "UPDATE documents SET index_revision='next-revision' WHERE id=?1",
+                    [&doc],
+                )
+                .unwrap();
+            assert_eq!(read_manual(), manual);
+            add_compiled();
+            db.conn()
+                .execute("DELETE FROM documents WHERE id=?1", [&doc])
+                .unwrap();
+            assert_eq!(read_manual(), manual);
+            assert!(db.integrity_check().unwrap());
+        }
     }
 
     #[tokio::test]

@@ -68,6 +68,8 @@ cloud-to-local dense-vector fallback so either transition changes that basis.
 Evidence references carry source ID, document ID, index revision, raw file hash,
 block ID/hash, extraction method, and a format-specific location. The reader
 shows the selected block, adjacent text, and paginated document sections.
+Source context excludes generated summaries; a summary is returned only when it
+is the explicitly requested block, at the requested content version.
 
 | Input | Location and interpretation |
 | --- | --- |
@@ -235,7 +237,10 @@ This is grounding validation, not a guarantee that a model's prose is correct.
 
 Summary commits check the input revision again after model calls. Changed inputs
 invalidate summaries, document/entity membership, and that document's relation
-support. Relations supported by other current documents remain. Claims/events
+support. Relations supported by other current documents remain. Manual relations
+retain their identity and evidence independently of compilation or source removal.
+Unscoped graph queries compare manual and document support; scoped queries use
+only current document support within the selected sources and paths. Claims/events
 created from indexed block/document IDs bind their input revision and return to
 review when that revision changes. Legacy unversioned assertions require review.
 

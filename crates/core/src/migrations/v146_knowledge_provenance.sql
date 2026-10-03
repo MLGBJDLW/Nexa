@@ -17,7 +17,8 @@ CREATE TRIGGER project_entity_support_insert AFTER INSERT ON entity_link_support
     SELECT lower(hex(randomblob(16))),source_entity_id,target_entity_id,relation_type,strength,document_id,snippet,confidence
     FROM entity_link_support WHERE source_entity_id=NEW.source_entity_id AND target_entity_id=NEW.target_entity_id AND relation_type=NEW.relation_type
     ORDER BY strength DESC,document_id LIMIT 1
-    ON CONFLICT(source_entity_id,target_entity_id,relation_type) DO UPDATE SET strength=excluded.strength,evidence_doc_id=excluded.evidence_doc_id,evidence_snippet=excluded.evidence_snippet,confidence=excluded.confidence;
+    ON CONFLICT(source_entity_id,target_entity_id,relation_type) DO UPDATE SET strength=excluded.strength,evidence_doc_id=excluded.evidence_doc_id,evidence_snippet=excluded.evidence_snippet,confidence=excluded.confidence
+    WHERE entity_links.evidence_doc_id IS NOT NULL;
 END;
 CREATE TRIGGER project_entity_support_update AFTER UPDATE ON entity_link_support BEGIN
 
@@ -25,7 +26,8 @@ CREATE TRIGGER project_entity_support_update AFTER UPDATE ON entity_link_support
     SELECT lower(hex(randomblob(16))),source_entity_id,target_entity_id,relation_type,strength,document_id,snippet,confidence
     FROM entity_link_support WHERE source_entity_id=NEW.source_entity_id AND target_entity_id=NEW.target_entity_id AND relation_type=NEW.relation_type
     ORDER BY strength DESC,document_id LIMIT 1
-    ON CONFLICT(source_entity_id,target_entity_id,relation_type) DO UPDATE SET strength=excluded.strength,evidence_doc_id=excluded.evidence_doc_id,evidence_snippet=excluded.evidence_snippet,confidence=excluded.confidence;
+    ON CONFLICT(source_entity_id,target_entity_id,relation_type) DO UPDATE SET strength=excluded.strength,evidence_doc_id=excluded.evidence_doc_id,evidence_snippet=excluded.evidence_snippet,confidence=excluded.confidence
+    WHERE entity_links.evidence_doc_id IS NOT NULL;
 END;
 CREATE TRIGGER project_entity_support_delete AFTER DELETE ON entity_link_support BEGIN
     DELETE FROM entity_links WHERE source_entity_id=OLD.source_entity_id AND target_entity_id=OLD.target_entity_id AND relation_type=OLD.relation_type AND evidence_doc_id IS NOT NULL;
@@ -34,7 +36,8 @@ CREATE TRIGGER project_entity_support_delete AFTER DELETE ON entity_link_support
     SELECT lower(hex(randomblob(16))),source_entity_id,target_entity_id,relation_type,strength,document_id,snippet,confidence
     FROM entity_link_support WHERE source_entity_id=OLD.source_entity_id AND target_entity_id=OLD.target_entity_id AND relation_type=OLD.relation_type
     ORDER BY strength DESC,document_id LIMIT 1
-    ON CONFLICT(source_entity_id,target_entity_id,relation_type) DO UPDATE SET strength=excluded.strength,evidence_doc_id=excluded.evidence_doc_id,evidence_snippet=excluded.evidence_snippet,confidence=excluded.confidence;
+    ON CONFLICT(source_entity_id,target_entity_id,relation_type) DO UPDATE SET strength=excluded.strength,evidence_doc_id=excluded.evidence_doc_id,evidence_snippet=excluded.evidence_snippet,confidence=excluded.confidence
+    WHERE entity_links.evidence_doc_id IS NOT NULL;
 END;
 CREATE TRIGGER invalidate_entity_support AFTER UPDATE OF index_revision ON documents
 WHEN NEW.index_revision!=OLD.index_revision BEGIN

@@ -1486,7 +1486,13 @@ fn query_graph_edges(
     params.push(Value::Real(min_strength));
 
     let sql = format!(
-        "WITH scoped_edges AS (
+        "WITH evidence_candidates AS (
+            SELECT source_entity_id,target_entity_id,relation_type,document_id,revision,strength,snippet,confidence
+            FROM entity_link_support
+            UNION ALL
+            SELECT source_entity_id,target_entity_id,relation_type,NULL,NULL,strength,evidence_snippet,confidence
+            FROM entity_links WHERE evidence_doc_id IS NULL
+         ), scoped_edges AS (
             SELECT el.id, el.source_entity_id, el.target_entity_id, el.relation_type,
                    COALESCE(els.strength, el.strength) AS strength,
                    els.document_id AS evidence_doc_id, ed.title, ed.path,
@@ -1496,7 +1502,7 @@ fn query_graph_edges(
                    COUNT(els.document_id) OVER (PARTITION BY el.id) AS evidence_count,
                    GROUP_CONCAT(COALESCE(ed.title, ed.path), char(31)) OVER (PARTITION BY el.id) AS evidence_titles
             FROM entity_links el
-            LEFT JOIN entity_link_support els
+            LEFT JOIN evidence_candidates els
               ON els.source_entity_id = el.source_entity_id
              AND els.target_entity_id = el.target_entity_id
              AND els.relation_type = el.relation_type
