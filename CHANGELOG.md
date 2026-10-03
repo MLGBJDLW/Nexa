@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.14.24](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.23...nexa-monorepo-v0.14.24) (2026-10-03)
+
+
+### Features
+
+* **desktop:** add recoverable evidence and research comparisons ([a5c206f](https://github.com/MLGBJDLW/Nexa/commit/a5c206fb8cd52a734464ad524c44c10c7a268ee3))
+
+
+### Bug Fixes
+
+* **evidence:** avoid false locations for multi-page extraction ([5c29f3f](https://github.com/MLGBJDLW/Nexa/commit/5c29f3f432bd5c7c8a89862475d0bcf8a4ce6d30))
+* **evidence:** exclude summaries from source context ([897c090](https://github.com/MLGBJDLW/Nexa/commit/897c090adf8145cf2f639f1008b47ae44e8bc21d))
+* **evidence:** preserve native anchors through copied context ([d2fffde](https://github.com/MLGBJDLW/Nexa/commit/d2fffde31d76d48455b4b183fb0ccb37a6b22546))
+* **graph:** retain relation evidence within selected scopes ([3e42c7e](https://github.com/MLGBJDLW/Nexa/commit/3e42c7e114e6580b6825545091da10031971e61d))
+* **index:** report outdated native parser profiles ([1ff7e45](https://github.com/MLGBJDLW/Nexa/commit/1ff7e4555080f573f86ac890a16e5af362e330b9))
+* **index:** resolve source aliases throughout watcher removal ([ea68dc5](https://github.com/MLGBJDLW/Nexa/commit/ea68dc52fb8fea9c5f7e87523513e2d99ce5bdc8))
+* **ingest:** preserve document identity across path aliases ([555be52](https://github.com/MLGBJDLW/Nexa/commit/555be52a76fe703c2a0d7b086614012b0382873c))
+* **knowledge:** enforce archive and reindex source ownership ([e07f1fd](https://github.com/MLGBJDLW/Nexa/commit/e07f1fd473f8932f5fd82d574e7c45024bfe0f04))
+* **knowledge:** persist completion and route retries to their owner ([d1beabc](https://github.com/MLGBJDLW/Nexa/commit/d1beabc1551284848726c44ee281f5aa41e7c5c9))
+* **knowledge:** preserve evidence versions across search and research ([ed4e545](https://github.com/MLGBJDLW/Nexa/commit/ed4e545892fd3ffa14b0f9996153094c8b819e15))
+* **knowledge:** preserve independent manual relations ([3c16b3f](https://github.com/MLGBJDLW/Nexa/commit/3c16b3fd8936f3f25d2f50ce940a8f4c2d0f8c68))
+* **knowledge:** preserve structured evidence and source revisions ([437556d](https://github.com/MLGBJDLW/Nexa/commit/437556dbd5add47cc582268e8b57c57dcf93cc0f))
+* **knowledge:** preserve successful compilation failover ([157d1a4](https://github.com/MLGBJDLW/Nexa/commit/157d1a4ddf6f3516bf9061b47ce855e255366c28))
+* **knowledge:** reject invalid relation confidence ([57f7584](https://github.com/MLGBJDLW/Nexa/commit/57f7584510e27abe8d881db0bd12bea152b96929))
+* **knowledge:** retain manual graph nodes without documents ([225e470](https://github.com/MLGBJDLW/Nexa/commit/225e47092640be98684acdbdfd8289e163acc501))
+* **knowledge:** revoke excluded evidence across path aliases ([57351cc](https://github.com/MLGBJDLW/Nexa/commit/57351ccc0972ae71576b176f0a52d40bdb6a6b5a))
+* **knowledge:** version resumable compiler caches ([a81502b](https://github.com/MLGBJDLW/Nexa/commit/a81502b40dcbc261b813b048b0431a98a2cd34cc))
+* **preview:** map text selections to original source offsets ([8803032](https://github.com/MLGBJDLW/Nexa/commit/88030329f0c2434d13facbf9b3f55e82ab13ae9f))
+* **privacy:** redact retained source metadata and graph labels ([c9ebfe1](https://github.com/MLGBJDLW/Nexa/commit/c9ebfe155a214257d403d1f8cd2d05bcaf9fc4f6))
+* **privacy:** revoke indexed evidence when redaction changes ([6dc94e3](https://github.com/MLGBJDLW/Nexa/commit/6dc94e38f6fdf41737974dd34b69625dd07b6a42))
+* **research:** surface unavailable pending documents ([e6fe8e7](https://github.com/MLGBJDLW/Nexa/commit/e6fe8e704b15fb00162248acc39ff53c491e4f79))
+* **retrieval:** label keyword expansion without model claims ([cdb6366](https://github.com/MLGBJDLW/Nexa/commit/cdb636645ff64825d2eae2f696d54de3a0bbb34f))
+* **search:** expose embedding fallback to pagination ([564d935](https://github.com/MLGBJDLW/Nexa/commit/564d935dc6ccbcc508ae2af392cb5c8a79abc59e))
+* **search:** paginate stable scoped rankings ([f0f8d39](https://github.com/MLGBJDLW/Nexa/commit/f0f8d3945a8fc70fee2e708e1092f7742b927d9b))
+
 ## [0.14.23](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.22...nexa-monorepo-v0.14.23) (2026-10-03)
 
 
