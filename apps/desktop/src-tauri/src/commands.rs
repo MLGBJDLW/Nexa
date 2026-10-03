@@ -101,7 +101,9 @@ use nexa_core::tts_provider_catalog::{
     build_tts_voice_catalog, discover_tts_voices, supports_dynamic_tts_voice_catalog,
     TtsVoiceCatalogSnapshot,
 };
-use nexa_core::watcher::{FileWatcher, WatcherEventKind};
+#[cfg(test)]
+use nexa_core::watcher::WatcherEventKind;
+use nexa_core::watcher::{record_debounced_watcher_path, source_paths_for_event, FileWatcher};
 use nexa_core::workflow_catalog::{workflow_catalog, WorkflowCatalogTemplate};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -455,19 +457,21 @@ pub fn init_watcher(
         loop {
             match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(event) => {
-                    // Find which watched source owns this path.
+                    // Resolve each independent source before debounce so event
+                    // path aliases cannot split its changed/removed identity.
                     let ws = match handle.try_state::<WatcherState>() {
                         Some(s) => s,
                         None => continue,
                     };
                     let watched = ws.watched.lock().unwrap();
-                    let matched: Option<&String> = watched
-                        .iter()
-                        .find(|(_, root)| event.path.starts_with(root.as_str()))
-                        .map(|(sid, _)| sid);
-                    if let Some(sid) = matched {
-                        let sid = sid.clone();
-                        drop(watched);
+                    let matched = source_paths_for_event(
+                        watched
+                            .iter()
+                            .map(|(sid, root)| (sid.as_str(), root.as_str())),
+                        &event.path,
+                    );
+                    drop(watched);
+                    for (sid, path) in matched {
                         let entry = pending
                             .entry(sid)
                             .or_insert_with(|| (Instant::now(), HashSet::new(), HashSet::new()));
@@ -475,8 +479,8 @@ pub fn init_watcher(
                         record_debounced_watcher_path(
                             &mut entry.1,
                             &mut entry.2,
-                            event.path,
-                            event.kind,
+                            path,
+                            event.kind.clone(),
                         );
                     }
                 }
@@ -511,24 +515,6 @@ pub fn init_watcher(
             }
         }
     });
-}
-
-fn record_debounced_watcher_path(
-    changed_paths: &mut HashSet<PathBuf>,
-    removed_paths: &mut HashSet<PathBuf>,
-    path: PathBuf,
-    kind: WatcherEventKind,
-) {
-    if kind == WatcherEventKind::Removed {
-        changed_paths.remove(&path);
-        removed_paths.insert(path);
-    } else {
-        // Atomic saves commonly emit Removed followed by Created/Modified for
-        // the same path. Preserve only the latest observed state so the
-        // recreated file is ingested instead of being deleted from search.
-        removed_paths.remove(&path);
-        changed_paths.insert(path);
-    }
 }
 
 fn process_source_change_job(app_handle: &tauri::AppHandle, permit: BackgroundWorkPermit) {

@@ -98,6 +98,9 @@ files leave historical evidence while their source remains registered; deleting
 the source revokes that archive and its saved research cells. Exclusion/privacy
 removal also forgets the affected indexed document's archive. Archives consume
 local storage until their owning source/document scope is removed.
+File watcher events use the same document identity across configured and canonical
+path spellings, including removed files. Overlapping registered sources receive
+their own updates; deletion in one source does not delete another source's index.
 
 Opening a current original checks its file hash before applying an old location.
 If it changed, the preview explains the mismatch. Historical evidence opens the
@@ -226,8 +229,14 @@ Source deletion under a stricter scan policy revokes the resulting archive withi
 the deletion transaction, including when the file was still indexed at scan start.
 
 Compilation reads every non-summary source character in bounded 12,000-character
-sections, with eight new model calls per action. Completed sections are cached
+sections, with at most eight new section compilation calls per action, shared
+across documents. A provider's automatic fallback can make multiple underlying
+provider attempts within one such call. Completed sections are cached
 by input revision, provider route, prompt contents, and compiler contract version.
+When the core compiler receives an automatic-fallback provider, successful output
+is saved under the route that produced it. A route change rebuilds coverage from
+that route's cache without repeating the successful section or mixing models.
+Partial summaries retain original section numbers and report the accepted model.
 Partial coverage is explicit and can resume;
 it never becomes a complete summary search chunk. Model responses and aggregate
 summary lengths are bounded. Entity contexts and relationship evidence must quote

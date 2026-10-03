@@ -902,7 +902,11 @@ impl Database {
         if exact.is_some() {
             return Ok(exact);
         }
-        let aliases = serde_json::to_string(&document_path_aliases(path))?;
+        let aliases = serde_json::to_string(&source_document_path_aliases(
+            &self.conn(),
+            source_id,
+            path,
+        )?)?;
         Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
     }
 
@@ -930,14 +934,17 @@ impl Database {
                 "Privacy settings changed before removal; retry the source scan".into(),
             ));
         }
+        let aliases = source_document_path_aliases(&tx, source_id, path)?;
+        let document_ids =
+            serde_json::to_string(&document_ids_for_aliases(&tx, source_id, &aliases)?)?;
         let changed = tx.execute(
-            "DELETE FROM documents WHERE source_id=?1 AND path=?2",
-            params![source_id, path],
+            "DELETE FROM documents WHERE source_id=?1 AND id IN (SELECT value FROM json_each(?2))",
+            params![source_id, document_ids],
         )? > 0;
         if config.enabled {
             // Deletion archives old chunks; revoke mismatched copies within the
             // same transaction, before any reader can observe them.
-            tx.execute("DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_path=?2 AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?3", params![source_id,path,privacy::redaction_fingerprint(config)?])?;
+            tx.execute("DELETE FROM evidence_snapshots WHERE source_id=?1 AND document_id IN (SELECT value FROM json_each(?2)) AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?3", params![source_id,document_ids,privacy::redaction_fingerprint(config)?])?;
         }
         tx.commit()?;
         Ok(changed)
@@ -948,21 +955,16 @@ impl Database {
         source_id: &str,
         path: &str,
     ) -> Result<bool, CoreError> {
-        let aliases = serde_json::to_string(&document_path_aliases(path))?;
         let mut conn = self.conn();
         let transaction = conn.transaction()?;
         // Resolve identity before deleting: revisions may retain a different
         // path spelling, and deleted files may only have archive/research rows.
-        let document_ids = {
-            let mut statement = transaction.prepare(
-                "SELECT id FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))
-                 UNION SELECT document_id FROM evidence_snapshots WHERE source_id=?1 AND document_path IN (SELECT value FROM json_each(?2))
-                 UNION SELECT document_id FROM research_documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))",
-            )?;
-            let rows =
-                statement.query_map(params![source_id, aliases], |row| row.get::<_, String>(0))?;
-            serde_json::to_string(&rows.collect::<Result<Vec<_>, _>>()?)?
-        };
+        let aliases = source_document_path_aliases(&transaction, source_id, path)?;
+        let document_ids = serde_json::to_string(&document_ids_for_aliases(
+            &transaction,
+            source_id,
+            &aliases,
+        )?)?;
         let changed = transaction.execute(
             "DELETE FROM documents WHERE source_id=?1 AND id IN (SELECT value FROM json_each(?2))",
             params![source_id, document_ids],
@@ -1524,7 +1526,57 @@ fn document_path_aliases(path: &str) -> Vec<String> {
     aliases
 }
 
-fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
+fn source_document_path_aliases(
+    conn: &rusqlite::Connection,
+    source_id: &str,
+    path: &str,
+) -> Result<Vec<String>, CoreError> {
+    use rusqlite::OptionalExtension;
+    let root: Option<String> = conn
+        .query_row(
+            "SELECT root_path FROM sources WHERE id=?1",
+            [source_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let mut aliases = document_path_aliases(path);
+    if let Some(root) = root {
+        let root = Path::new(&root);
+        if let Some(relative) = relative_source_path(root, Path::new(path)) {
+            aliases.extend(document_path_aliases(
+                &root.join(&relative).to_string_lossy(),
+            ));
+            if let Ok(canonical_root) = fs::canonicalize(root) {
+                aliases.extend(document_path_aliases(
+                    &canonical_root.join(relative).to_string_lossy(),
+                ));
+            }
+        }
+    }
+    aliases.sort();
+    aliases.dedup();
+    Ok(aliases)
+}
+
+fn document_ids_for_aliases(
+    conn: &rusqlite::Connection,
+    source_id: &str,
+    aliases: &[String],
+) -> Result<Vec<String>, CoreError> {
+    let mut statement = conn.prepare(
+        "SELECT id FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))
+         UNION SELECT document_id FROM evidence_snapshots WHERE source_id=?1 AND document_path IN (SELECT value FROM json_each(?2))
+         UNION SELECT document_id FROM research_documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2))",
+    )?;
+    let rows = statement.query_map(params![source_id, serde_json::to_string(aliases)?], |row| {
+        row.get(0)
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Match configured and canonical source roots, including after the leaf is
+/// removed. This is shared by ingestion identity and watcher event routing.
+pub fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
     fn normalized(path: &Path) -> String {
         let value = path.to_string_lossy().replace('\\', "/");
         if let Some(rest) = value.strip_prefix("//?/UNC/") {
@@ -1647,6 +1699,210 @@ mod tests {
             .join("..")
             .join("testdata")
             .join("sample_vault")
+    }
+
+    fn source_reference(db: &Database, source: &str) -> crate::evidence::EvidenceRef {
+        crate::search::search(
+            db,
+            &crate::models::SearchQuery {
+                text: "needle".into(),
+                filters: Default::default(),
+                limit: 20,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .into_iter()
+        .find(|card| card.source_id.to_string() == source)
+        .unwrap()
+        .evidence_ref
+        .unwrap()
+    }
+
+    #[test]
+    fn watcher_removal_resolves_missing_aliases_without_cross_source_deletion() {
+        use crate::{research_workspace as research, search::resolve_evidence_ref};
+        let folder = TempDir::new().unwrap();
+        let actual_root = folder.path().join("actual");
+        fs::create_dir_all(actual_root.join("inner")).unwrap();
+        #[allow(unused_mut)]
+        let mut roots = vec![actual_root.join("inner").join("..")];
+        #[cfg(unix)]
+        {
+            let alias = folder.path().join("linked");
+            std::os::unix::fs::symlink(&actual_root, &alias).unwrap();
+            roots.push(alias);
+        }
+        for root in roots {
+            for stored_canonical in [false, true] {
+                let file = actual_root.join("removed.md");
+                let unrelated = actual_root.join("unrelated.md");
+                fs::write(&file, "needle Original evidence 500.").unwrap();
+                fs::write(&unrelated, "Unrelated source document remains indexed.").unwrap();
+                let canonical = fs::canonicalize(&file)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let configured = root.join("removed.md").to_string_lossy().to_string();
+                let db = test_db();
+                let source = create_test_source(&db, &root, vec![], vec![]);
+                let parent = create_test_source(&db, folder.path(), vec![], vec![]);
+                ingest_single_file(&db, &source, &file).unwrap();
+                ingest_single_file(&db, &source, &unrelated).unwrap();
+                let original = source_reference(&db, &source);
+                fs::write(&file, "needle Updated evidence 600.").unwrap();
+                ingest_single_file(&db, &source, &file).unwrap();
+                ingest_single_file(&db, &parent, &file).unwrap();
+                let parent_reference = source_reference(&db, &parent);
+                if stored_canonical {
+                    db.conn()
+                        .execute(
+                            "UPDATE documents SET path=?2 WHERE id=?1",
+                            params![original.document_id.to_string(), canonical],
+                        )
+                        .unwrap();
+                }
+                let current = source_reference(&db, &source);
+                let research = research::create(
+                    &db,
+                    research::CreateResearchSet {
+                        title: "Watcher evidence".into(),
+                        questions: vec!["needle".into()],
+                        documents: vec![current.clone()],
+                    },
+                )
+                .unwrap();
+                fs::remove_file(&file).unwrap();
+                let event_path = if stored_canonical {
+                    &configured
+                } else {
+                    &canonical
+                };
+                assert!(db.delete_document_in_source(&source, event_path).unwrap());
+                assert!(db
+                    .get_document_in_source(&source, event_path)
+                    .unwrap()
+                    .is_none());
+                assert!(crate::search::search(
+                    &db,
+                    &crate::models::SearchQuery {
+                        text: "needle".into(),
+                        filters: Default::default(),
+                        limit: 20,
+                        offset: 0,
+                    }
+                )
+                .unwrap()
+                .evidence_cards
+                .iter()
+                .all(|card| card.source_id.to_string() != source));
+                for reference in [&original, &current] {
+                    assert_eq!(
+                        resolve_evidence_ref(&db, reference)
+                            .unwrap()
+                            .evidence_ref
+                            .unwrap()
+                            .status,
+                        "missing"
+                    );
+                }
+                assert!(resolve_evidence_ref(&db, &original)
+                    .unwrap()
+                    .content
+                    .contains("500"));
+                assert!(research::get(&db, &research.summary.id).unwrap().documents[0].unavailable);
+                assert!(!db.delete_document_in_source(&source, event_path).unwrap());
+                assert!(db
+                    .get_document_in_source(&source, &unrelated.to_string_lossy())
+                    .unwrap()
+                    .is_some());
+                assert_eq!(
+                    resolve_evidence_ref(&db, &parent_reference)
+                        .unwrap()
+                        .evidence_ref
+                        .unwrap()
+                        .status,
+                    "current"
+                );
+                assert!(db.forget_document_in_source(&source, event_path).unwrap());
+                assert!(resolve_evidence_ref(&db, &original).is_err());
+                assert!(resolve_evidence_ref(&db, &current).is_err());
+                assert!(research::get(&db, &research.summary.id)
+                    .unwrap()
+                    .documents
+                    .is_empty());
+                assert!(resolve_evidence_ref(&db, &parent_reference).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn scan_privacy_removal_revokes_alias_history_by_identity() {
+        use crate::search::resolve_evidence_ref;
+        let folder = TempDir::new().unwrap();
+        fs::create_dir(folder.path().join("inner")).unwrap();
+        let root = folder.path().join("inner").join("..");
+        let file = folder.path().join("removed.md");
+        fs::write(&file, "needle contact alice@example.com").unwrap();
+        let canonical = fs::canonicalize(&file)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let db = test_db();
+        let disabled = PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        db.save_privacy_config(&disabled).unwrap();
+        let source = create_test_source(&db, &root, vec![], vec![]);
+        ingest_single_file(&db, &source, &file).unwrap();
+        let original = source_reference(&db, &source);
+        fs::write(&file, "needle contact bob@example.com").unwrap();
+        ingest_single_file(&db, &source, &file).unwrap();
+        let current = source_reference(&db, &source);
+        // A prior revision can have a spelling unrelated to the current event;
+        // deletion must purge it through document identity, not just path text.
+        db.conn().execute("UPDATE evidence_snapshots SET document_path='old-root/removed.md' WHERE document_id=?1", [original.document_id.to_string()]).unwrap();
+        fs::remove_file(&file).unwrap();
+        let strict = PrivacyConfig::default();
+        assert!(matches!(
+            db.delete_document_with_scan_privacy(&source, &canonical, &strict, "stale-policy"),
+            Err(CoreError::Conflict(_))
+        ));
+        assert!(resolve_evidence_ref(&db, &current).is_ok());
+        assert!(db
+            .delete_document_with_scan_privacy(
+                &source,
+                &canonical,
+                &strict,
+                &privacy::config_fingerprint(&disabled).unwrap()
+            )
+            .unwrap());
+        assert!(resolve_evidence_ref(&db, &original).is_err());
+        assert!(resolve_evidence_ref(&db, &current).is_err());
+
+        // A later stricter cleanup also reaches a file with archives only.
+        fs::write(&file, "needle archived contact alice@example.com").unwrap();
+        ingest_single_file(&db, &source, &file).unwrap();
+        let archived = source_reference(&db, &source);
+        fs::remove_file(&file).unwrap();
+        db.conn()
+            .execute(
+                "DELETE FROM documents WHERE id=?1",
+                [archived.document_id.to_string()],
+            )
+            .unwrap();
+        assert!(resolve_evidence_ref(&db, &archived).is_ok());
+        assert!(!db
+            .delete_document_with_scan_privacy(
+                &source,
+                &canonical,
+                &strict,
+                &privacy::config_fingerprint(&disabled).unwrap()
+            )
+            .unwrap());
+        assert!(resolve_evidence_ref(&db, &archived).is_err());
     }
 
     // ── Scan sample vault ───────────────────────────────────────────────
