@@ -83,6 +83,7 @@ export function EvidenceReader({ reference, onClose }: { reference: EvidenceRef;
         </div>
         {data.reference.status !== 'current' && <p role="status" className="rounded border border-warning/30 bg-warning/5 p-2 text-xs text-warning">{t(data.reference.status === 'missing' ? 'citation.fileRemoved' : 'citation.historical')}</p>}
         {data.reference.extractionMethod.includes('ocr') && <p className="text-xs text-text-tertiary">{t('citation.ocrText')}</p>}
+        {data.reference.locator.kind === 'extracted' && <p className="text-xs text-warning">{t('citation.extractedText')}</p>}
         {data.reference.extractionMethod === 'native_cached_values' && <p className="text-xs text-text-tertiary">{t('citation.cachedValues')}</p>}
         {data.reference.extractionMethod === 'model_summary' && <p className="text-xs text-warning">{t('citation.modelSummary')}</p>}
         {data.truncated && <p className="text-xs text-warning">{t('preview.truncatedPreview')}</p>}

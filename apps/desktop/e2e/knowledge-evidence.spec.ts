@@ -68,6 +68,18 @@ test('evidence context errors remain recoverable', async ({ page }) => {
   await expect(page.getByTestId('selected-evidence-block')).toContainText('500 yuan');
 });
 
+test('multi-page extracted evidence explains its location limit and opens without a false PDF page', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-locale', 'en'));
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=reader&extracted=1');
+  await page.getByRole('button', {name:'Open historical evidence'}).click();
+  const reader=page.getByTestId('evidence-reader');
+  await expect(reader.getByText('Extracted text; an exact source location is unavailable.', {exact:true})).toBeVisible();
+  await reader.getByRole('button', {name:'Open current source'}).click();
+  await expect(page.getByTestId('opened-position')).toContainText('"kind":"extracted"');
+  await expect(page.getByTestId('opened-position')).not.toContainText('"page":');
+});
+
+
 test('workbook evidence locates actual cell coordinates when the used range starts at B3', async ({page}) => {
   await page.addInitScript(() => localStorage.setItem('nexa-locale', 'en'));
   await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=workbook');

@@ -18,5 +18,6 @@
   "evidence": "証拠",
   "openFile": "ファイルを開く",
   "showInFolder": "フォルダで表示",
-  "copy": "コピー"
+  "copy": "コピー",
+  "extractedText": "抽出されたテキストです。原文内の正確な位置は不明です。"
 }

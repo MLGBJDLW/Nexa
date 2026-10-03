@@ -18,5 +18,6 @@
   "evidence": "证据",
   "openFile": "打开文件",
   "showInFolder": "在文件夹中显示",
-  "copy": "复制"
+  "copy": "复制",
+  "extractedText": "提取的文字，暂时无法精确定位原文位置。"
 }

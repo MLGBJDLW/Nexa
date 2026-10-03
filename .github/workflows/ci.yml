@@ -88,6 +88,9 @@ jobs:
       - name: Reject tracked local workspace artifacts
         run: npm run repository:check
 
+      - name: Verify optional document parser adapter
+        run: python3 -m unittest discover -s scripts/knowledge -p 'test_*.py' -v
+
   release_metadata:
     name: Release Metadata Contracts
     needs: classify
@@ -441,6 +444,7 @@ jobs:
           e2e/chat-image-preview.spec.ts
           e2e/chat-managed-process.spec.ts
           e2e/knowledge-evidence.spec.ts
+          e2e/research-unavailable.spec.ts
           e2e/search-ask-ai-scope.spec.ts
           e2e/knowledge-graph-filters.spec.ts
           e2e/knowledge-graph-dark-theme.spec.ts

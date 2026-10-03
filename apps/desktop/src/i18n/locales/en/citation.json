@@ -18,5 +18,6 @@
   "evidence": "Evidence",
   "openFile": "Open File",
   "showInFolder": "Show in Folder",
-  "copy": "Copy"
+  "copy": "Copy",
+  "extractedText": "Extracted text; an exact source location is unavailable."
 }

@@ -18,5 +18,6 @@
   "evidence": "증거",
   "openFile": "파일 열기",
   "showInFolder": "폴더에서 보기",
-  "copy": "복사"
+  "copy": "복사",
+  "extractedText": "추출된 텍스트이며 원문의 정확한 위치를 확인할 수 없습니다."
 }

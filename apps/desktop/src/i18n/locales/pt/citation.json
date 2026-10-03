@@ -18,5 +18,6 @@
   "evidence": "Evidência",
   "openFile": "Abrir arquivo",
   "showInFolder": "Mostrar na pasta",
-  "copy": "Copiar"
+  "copy": "Copiar",
+  "extractedText": "Texto extraído; a localização exata na fonte não está disponível."
 }

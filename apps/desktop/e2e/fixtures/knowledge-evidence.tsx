@@ -10,7 +10,8 @@ import { StructuredPreviewRenderer, createPreviewLabels } from '../../src/featur
 import { useTranslation } from '../../src/i18n';
 import type { EvidenceRef } from '../../src/types/evidence';
 
-const historical: EvidenceRef = {sourceId:'fixture-source',documentId:'fixture-doc',revision:'revision-2026-09',documentHash:'raw-hash-500',blockId:'old',contentHash:'old-500',locator:{kind:'pdf',page:2},extractionMethod:'native',status:'historical'};
+const extracted = new URLSearchParams(location.search).has('extracted');
+const historical: EvidenceRef = {sourceId:'fixture-source',documentId:'fixture-doc',revision:'revision-2026-09',documentHash:'raw-hash-500',blockId:'old',contentHash:'old-500',locator:extracted ? {kind:'extracted',section:'Pages 1, 2'} : {kind:'pdf',page:2},extractionMethod:extracted ? 'docling_layout_ocr' : 'native',status:extracted ? 'current' : 'historical'};
 const ref = (id: string): EvidenceRef => ({...historical,blockId:id,contentHash:`hash-${id}`});
 function ReaderFixture() {
   const [opened,setOpened] = useState(false);

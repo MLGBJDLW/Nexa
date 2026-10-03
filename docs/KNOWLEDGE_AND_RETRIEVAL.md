@@ -122,6 +122,9 @@ Completed cells are saved individually. Repeat to continue. Source changes mark
 affected cells stale and block acceptance until refreshed. Refresh retains user
 notes but resets the affected review state. Concurrent edits use a set revision
 check so one window cannot silently overwrite another window's review.
+Missing documents or documents without indexed body text are visibly unavailable,
+including cells never refreshed before removal. Saved evidence and notes remain;
+select a current document in a new set to replace a removed document identity.
 
 ## Optional local model services
 
@@ -144,7 +147,12 @@ does not start these services or download their models automatically.
   `python scripts/knowledge/docling_service.py --root D:/Documents` from the repo,
   then configure `http://127.0.0.1:8091/parse`. Its default request budget is 180
   seconds. The service retains complete Docling JSON in its cache and sends
-  ordered text/table blocks with page provenance to Nexa. Model/runtime
+  ordered text/table blocks with page provenance to Nexa. A block spanning
+  multiple pages is retained once as extracted content with its source page
+  range; it does not claim a specific PDF page or bounding box for each row.
+  Single-page fragments use one covering bounding box. Adapter versions are
+  part of the parser profile so rescanning replaces older location mappings.
+  Model/runtime
   installation and model downloads belong to that environment. OCR defaults to
   English and simplified Chinese; use `--ocr-languages en,ch_tra` for traditional
   Chinese. The service defaults to cached model artifacts; explicitly pass
@@ -206,8 +214,9 @@ by input revision, provider route, prompt contents, and compiler contract versio
 Partial coverage is explicit and can resume;
 it never becomes a complete summary search chunk. Model responses and aggregate
 summary lengths are bounded. Entity contexts and relationship evidence must quote
-the input; unsupported edges are discarded. This is grounding validation, not a
-guarantee that a model's prose is correct.
+the input; unsupported edges are discarded. Supplied relationship confidence
+must be finite and within 0–1; invalid values are discarded with the relation.
+This is grounding validation, not a guarantee that a model's prose is correct.
 
 Summary commits check the input revision again after model calls. Changed inputs
 invalidate summaries, document/entity membership, and that document's relation

@@ -18,5 +18,6 @@
   "evidence": "Preuve",
   "openFile": "Ouvrir le fichier",
   "showInFolder": "Afficher dans le dossier",
-  "copy": "Copier"
+  "copy": "Copier",
+  "extractedText": "Texte extrait ; son emplacement exact dans la source est indisponible."
 }

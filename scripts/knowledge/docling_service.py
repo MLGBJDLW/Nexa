@@ -1,4 +1,4 @@
-"""Optional loopback PDF layout/OCR service for Nexa (protocol 1).
+"""Optional loopback PDF layout/OCR service for Nexa (protocol 2).
 
 Install docling in a separate Python environment, then run this file.
 Nexa does not start this service or download its models automatically.
@@ -45,22 +45,34 @@ def convert_pdf(path: Path, cache: Path, converter, languages: list[str]) -> dic
             continue
         if not item.prov:
             raise ValueError("PDF block has no page provenance")
-        # A table may span pages. Repeat its full context with each true location.
-        for prov in item.prov:
-            page = doc.pages[prov.page_no]
-            box = prov.bbox.to_top_left_origin(page_height=page.size.height)
-            blocks.append({
-                "text": text,
-                "page": prov.page_no,
-                "bbox": [box.l / page.size.width, box.t / page.size.height,
-                         box.r / page.size.width, box.b / page.size.height],
-                "heading": heading,
+        pages = sorted({prov.page_no for prov in item.prov})
+        if any(page not in doc.pages or page < 1 for page in pages):
+            raise ValueError("PDF block refers to an unknown page")
+        block = {"text": text, "heading": heading}
+        if len(pages) == 1:
+            page = doc.pages[pages[0]]
+            boxes = [prov.bbox.to_top_left_origin(page_height=page.size.height)
+                     for prov in item.prov]
+            block.update({
+                "page": pages[0],
+                "bbox": [min(box.l for box in boxes) / page.size.width,
+                         min(box.t for box in boxes) / page.size.height,
+                         max(box.r for box in boxes) / page.size.width,
+                         max(box.b for box in boxes) / page.size.height],
             })
+        else:
+            # Table cells have no page ID and provenance char spans do not index
+            # exported Markdown. Retain the full block once without guessing a
+            # page/bbox for any row (also safe for merged multi-page text items).
+            block.update({"sourcePages": pages,
+                          "section": "Pages " + ", ".join(map(str, pages))})
+        blocks.append(block)
     cache.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(path.read_bytes() + ",".join(languages).encode()).hexdigest()
+    version = "nexa-adapter-2:" + importlib.metadata.version("docling") + ":" + ",".join(languages)
+    digest = hashlib.sha256(path.read_bytes() + version.encode()).hexdigest()
     # Keep the complete structure for inspection; the index owns normalized blocks.
     doc.save_as_json(cache / f"{digest}.docling.json")
-    return {"protocol": 1, "parserVersion": importlib.metadata.version("docling") + ":" + ",".join(languages),
+    return {"protocol": 2, "parserVersion": version,
             "pageCount": len(doc.pages), "blocks": blocks}
 
 

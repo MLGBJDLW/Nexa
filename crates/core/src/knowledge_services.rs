@@ -247,9 +247,13 @@ fn decode_document(
     max_chars: usize,
 ) -> Result<ParsedDocument, CoreError> {
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Block {
         text: String,
-        page: u32,
+        page: Option<u32>,
+        #[serde(default)]
+        source_pages: Vec<u32>,
+        section: Option<String>,
         #[serde(default)]
         bbox: Option<[f32; 4]>,
         #[serde(default)]
@@ -264,7 +268,7 @@ fn decode_document(
         blocks: Vec<Block>,
     }
     let response: Response = serde_json::from_value(value)?;
-    if response.protocol != 1
+    if !matches!(response.protocol, 1 | 2)
         || response.page_count == 0
         || response.blocks.len() > 100_000
         || response.parser_version.is_empty()
@@ -275,9 +279,25 @@ fn decode_document(
     }
     let mut chunks = Vec::new();
     let mut covered = std::collections::HashSet::new();
+    let mut unlocated = 0;
     for block in response.blocks {
-        if block.page == 0
-            || block.page > response.page_count
+        let valid_page = |page: u32| page > 0 && page <= response.page_count;
+        let location_valid = match block.page {
+            Some(page) => {
+                valid_page(page) && block.source_pages.is_empty() && block.section.is_none()
+            }
+            None => {
+                response.protocol == 2
+                    && block.bbox.is_none()
+                    && !block.source_pages.is_empty()
+                    && block.source_pages.iter().all(|&page| valid_page(page))
+                    && block
+                        .section
+                        .as_deref()
+                        .is_some_and(|section| !section.trim().is_empty())
+            }
+        };
+        if !location_valid
             || block
                 .bbox
                 .is_some_and(|bbox| bbox.iter().any(|value| !value.is_finite()))
@@ -286,16 +306,30 @@ fn decode_document(
                 "Enhanced parser returned an invalid page location".into(),
             ));
         }
-        for mut chunk in crate::parse::chunk_plaintext(&block.text, max_chars.max(100)) {
-            chunk.locator = crate::evidence::EvidenceLocator::Pdf {
-                page: block.page,
+        let located = match block.page {
+            Some(page) => crate::evidence::EvidenceLocator::Pdf {
+                page,
                 bbox: block.bbox,
-            };
+            },
+            None => {
+                unlocated += 1;
+                crate::evidence::EvidenceLocator::Extracted {
+                    section: block.section.unwrap_or_default(),
+                }
+            }
+        };
+        for mut chunk in crate::parse::chunk_plaintext(&block.text, max_chars.max(100)) {
+            chunk.locator = located.clone();
             chunk.extraction_method = "docling_layout_ocr".into();
             chunk.heading_context = block.heading.clone();
             chunk.chunk_index = chunks.len() as i32;
             chunks.push(chunk);
-            covered.insert(block.page);
+            covered.extend(
+                block
+                    .page
+                    .into_iter()
+                    .chain(block.source_pages.iter().copied()),
+            );
         }
     }
     if chunks.is_empty() {
@@ -306,19 +340,25 @@ fn decode_document(
     let mut metadata = std::collections::HashMap::from([
         (
             "parser_profile".into(),
-            format!("docling-v1:{}", response.parser_version),
+            format!("docling-v{}:{}", response.protocol, response.parser_version),
         ),
         ("page_count".into(), response.page_count.to_string()),
         ("searchable_pages".into(), covered.len().to_string()),
     ]);
+    let mut warnings = Vec::new();
     if covered.len() < response.page_count as usize {
-        metadata.insert(
-            "parse_warnings".into(),
-            format!(
-                "{} pages have no searchable text",
-                response.page_count as usize - covered.len()
-            ),
-        );
+        warnings.push(format!(
+            "{} pages have no searchable text",
+            response.page_count as usize - covered.len()
+        ));
+    }
+    if unlocated > 0 {
+        warnings.push(format!(
+            "{unlocated} extracted blocks have no exact page location"
+        ));
+    }
+    if !warnings.is_empty() {
+        metadata.insert("parse_warnings".into(), warnings.join("; "));
     }
     let file_name = path
         .file_name()
@@ -416,6 +456,36 @@ mod tests {
         }
     }
     #[test]
+    fn multi_page_extracted_blocks_retain_text_without_claiming_a_pdf_page() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let value = serde_json::json!({"protocol":2,"parserVersion":"nexa-adapter-2:test","pageCount":2,"blocks":[
+            {"text":"| first-page | 10 |\n| later-page-only | 20 |","sourcePages":[1,2],"section":"Pages 1, 2"}
+        ]});
+        let parsed = decode_document(value.clone(), file.path(), 1000).unwrap();
+        assert_eq!(parsed.chunks.len(), 1);
+        assert!(parsed.chunks[0].content.contains("later-page-only"));
+        assert!(matches!(
+            parsed.chunks[0].locator,
+            crate::evidence::EvidenceLocator::Extracted { .. }
+        ));
+        assert_eq!(parsed.metadata["searchable_pages"], "2");
+        assert!(parsed.metadata["parse_warnings"].contains("exact page location"));
+        for patch in [
+            serde_json::json!({"bbox":[0.1,0.1,0.5,0.5]}),
+            serde_json::json!({"sourcePages":[]}),
+            serde_json::json!({"sourcePages":[0,3]}),
+            serde_json::json!({"section":""}),
+            serde_json::json!({"page":1}),
+        ] {
+            let mut invalid = value.clone();
+            invalid["blocks"][0]
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(decode_document(invalid, file.path(), 1000).is_err());
+        }
+    }
+    #[test]
     fn enhanced_parser_runs_through_ingestion_with_page_provenance() {
         let folder = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -456,6 +526,39 @@ mod tests {
             crate::evidence::EvidenceLocator::Pdf { page: 1, .. }
         ));
         assert_eq!(reference.extraction_method, "docling_layout_ocr");
+        // Unchanged PDF bytes must still replace old mappings after an adapter upgrade.
+        let (url, request) = service(
+            serde_json::json!({"protocol":2,"parserVersion":"nexa-adapter-2:fixture-layout","pageCount":2,"blocks":[
+                {"text":"| original | 10 |\n| laterpagerow | 20 |","sourcePages":[1,2],"section":"Pages 1, 2"}
+            ]}),
+        );
+        db.save_knowledge_services_config(&KnowledgeServicesConfig {
+            parser_url: url,
+            ..Default::default()
+        })
+        .unwrap();
+        let upgraded = crate::ingest::scan_source(&db, &source).unwrap();
+        assert_eq!(upgraded.files_updated, 1);
+        assert_eq!(upgraded.files_failed, 0);
+        request.join().unwrap();
+        let matches = crate::search::search(
+            &db,
+            &crate::models::SearchQuery {
+                text: "laterpagerow".into(),
+                filters: Default::default(),
+                limit: 10,
+                offset: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(matches.evidence_cards.len(), 1);
+        let updated = matches.evidence_cards[0].evidence_ref.as_ref().unwrap();
+        assert_eq!(updated.document_id, reference.document_id);
+        assert_ne!(updated.revision, reference.revision);
+        assert!(matches!(
+            updated.locator,
+            crate::evidence::EvidenceLocator::Extracted { .. }
+        ));
         assert!(db.integrity_check().unwrap());
     }
     #[test]

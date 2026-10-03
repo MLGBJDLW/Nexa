@@ -18,5 +18,6 @@
   "evidence": "證據",
   "openFile": "開啟檔案",
   "showInFolder": "在資料夾中顯示",
-  "copy": "複製"
+  "copy": "複製",
+  "extractedText": "擷取的文字，暫時無法精確定位原文位置。"
 }
