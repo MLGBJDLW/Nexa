@@ -334,4 +334,76 @@ mod tests {
             .await
             .is_err());
     }
+    #[tokio::test]
+    async fn tool_first_ingestion_survives_scans_with_an_aliased_root_and_legacy_path() {
+        let folder = TempDir::new().unwrap();
+        let inner = folder.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        let alias = inner.join("..");
+        let file = create_test_file(folder.path(), "policy.md", "Policy allowance is 500 yuan.");
+        let (db, source) = setup_db_with_source(&alias);
+        let args = serde_json::json!({"path":file.to_string_lossy()}).to_string();
+        ReindexTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "tool-first",
+                &args,
+                &db,
+                std::slice::from_ref(&source),
+            ))
+            .await
+            .unwrap();
+        let stored = || {
+            db.conn()
+                .query_row(
+                    "SELECT id,path FROM documents WHERE source_id=?1",
+                    [&source],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .unwrap()
+        };
+        let first = stored();
+        ingest::scan_source(&db, &source).unwrap();
+        assert_eq!(stored().0, first.0);
+        assert_eq!(db.get_index_stats().unwrap().total_documents, 1);
+        // Simulate a path stored by the old Windows tool (or a canonical Unix alias).
+        db.conn()
+            .execute(
+                "UPDATE documents SET path=?2 WHERE id=?1",
+                rusqlite::params![
+                    first.0,
+                    std::fs::canonicalize(&file).unwrap().to_string_lossy()
+                ],
+            )
+            .unwrap();
+        let reference = crate::search::search(
+            &db,
+            &crate::models::SearchQuery {
+                text: "allowance".into(),
+                filters: Default::default(),
+                limit: 2,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .remove(0)
+        .evidence_ref
+        .unwrap();
+        let scan = ingest::scan_source(&db, &source).unwrap();
+        assert_eq!(scan.files_added, 0);
+        assert_eq!(scan.files_purged, 0);
+        assert_eq!(stored().0, first.0);
+        assert_eq!(db.get_index_stats().unwrap().total_documents, 1);
+        assert!(crate::search::resolve_evidence_ref(&db, &reference).is_ok());
+        std::fs::remove_file(&file).unwrap();
+        ingest::scan_source(&db, &source).unwrap();
+        assert_eq!(
+            crate::search::resolve_evidence_ref(&db, &reference)
+                .unwrap()
+                .evidence_ref
+                .unwrap()
+                .status,
+            "missing"
+        );
+    }
 }

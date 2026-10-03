@@ -703,6 +703,7 @@ impl Database {
         &self,
         source_id: &str,
     ) -> Result<HashMap<String, IndexedDocument>, CoreError> {
+        let source = self.get_source(source_id)?;
         let conn = self.conn();
         let mut stmt =
             conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id = ?1")?;
@@ -715,18 +716,25 @@ impl Database {
                 row.get::<_, String>(4)?,
             ))
         })?;
+        let records = rows.collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        drop(conn);
         let mut map = HashMap::new();
-        for row in rows {
-            let (path, id, content_hash, parser_profile, parsed_hash) = row?;
-            map.insert(
-                path,
-                IndexedDocument {
-                    id,
-                    content_hash,
-                    parser_profile,
-                    parsed_hash,
-                },
-            );
+        for (path, id, content_hash, parser_profile, parsed_hash) in records {
+            let key = relative_source_path(Path::new(&source.root_path), Path::new(&path))
+                .map(|relative| {
+                    Path::new(&source.root_path)
+                        .join(relative)
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .unwrap_or(path);
+            map.entry(key).or_insert(IndexedDocument {
+                id,
+                content_hash,
+                parser_profile,
+                parsed_hash,
+            });
         }
         Ok(map)
     }
@@ -746,7 +754,24 @@ impl Database {
         path: &str,
     ) -> Result<Option<IndexedDocument>, CoreError> {
         use rusqlite::OptionalExtension;
-        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], |row| Ok(IndexedDocument { id: row.get(0)?, content_hash: row.get(1)?, parser_profile: row.get(2)?, parsed_hash: row.get(3)? })).optional()?)
+        let read = |row: &rusqlite::Row<'_>| {
+            Ok(IndexedDocument {
+                id: row.get(0)?,
+                content_hash: row.get(1)?,
+                parser_profile: row.get(2)?,
+                parsed_hash: row.get(3)?,
+            })
+        };
+        let exact = self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], read).optional()?;
+        if exact.is_some() {
+            return Ok(exact);
+        }
+        let Ok(canonical) = std::fs::canonicalize(path) else {
+            return Ok(None);
+        };
+        let canonical = canonical.to_string_lossy();
+        let simple = canonical.strip_prefix(r"\\?\").unwrap_or(&canonical);
+        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path IN (?2,?3,?4,?5) ORDER BY indexed_at DESC LIMIT 1", params![source_id, canonical.as_ref(), simple, canonical.replace('\\',"/"), simple.replace('\\',"/")], read).optional()?)
     }
 
     pub fn delete_document_in_source(
@@ -1129,6 +1154,10 @@ fn ingest_file(
         .map_err(|_| CoreError::InvalidInput("File is outside the selected source".into()))?
         .to_string_lossy()
         .replace('\\', "/");
+    // Match directory scanning at every single-file entry point, including
+    // watcher and tool paths containing a Windows verbatim prefix or root alias.
+    let stable_path = Path::new(&source.root_path).join(&relative);
+    let path = stable_path.as_path();
     let privacy_cfg = db.load_privacy_config()?;
     let includes = build_glob_set(&source.include_globs)?;
     let mut excludes = source.exclude_globs.clone();
@@ -1308,26 +1337,46 @@ fn relative_source_path(root: &Path, path: &Path) -> Option<String> {
     if path.exists() {
         let canonical_root = std::fs::canonicalize(root).ok()?;
         let canonical_path = std::fs::canonicalize(path).ok()?;
-        if !canonical_path.starts_with(canonical_root) {
-            return None;
-        }
+        return canonical_path
+            .strip_prefix(canonical_root)
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"));
     }
-    let root = normalized(root);
-    let root = root.trim_end_matches('/');
+    let roots = [
+        normalized(root),
+        std::fs::canonicalize(root)
+            .ok()
+            .map(|value| normalized(&value))
+            .unwrap_or_default(),
+    ];
     let path = normalized(path);
-    let prefix = path.get(..root.len())?;
-    if !(if cfg!(windows) {
-        prefix.eq_ignore_ascii_case(root)
-    } else {
-        prefix == root
-    }) {
-        return None;
+    for root in roots {
+        if root.is_empty() {
+            continue;
+        }
+        let root = root.trim_end_matches('/');
+        let Some(prefix) = path.get(..root.len()) else {
+            continue;
+        };
+        if !(if cfg!(windows) {
+            prefix.eq_ignore_ascii_case(root)
+        } else {
+            prefix == root
+        }) {
+            continue;
+        }
+        let Some(relative) = path
+            .get(root.len()..)
+            .and_then(|value| value.strip_prefix('/'))
+        else {
+            continue;
+        };
+        if relative.split('/').any(|segment| segment == "..") {
+            continue;
+        }
+        return Some(relative.to_string());
     }
-    let relative = path.get(root.len()..)?.strip_prefix('/')?;
-    if relative.split('/').any(|segment| segment == "..") {
-        return None;
-    }
-    Some(relative.to_string())
+    None
 }
 
 fn walk_directory(root: &Path) -> Result<Vec<PathBuf>, CoreError> {
