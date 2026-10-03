@@ -1,5 +1,10 @@
 # Workspace file rules
 
+The chat's `/rules` inspector follows its managed worktree when one is attached.
+The project settings preview continues to inspect the project's source folders.
+Narrowed workers retain the read-only rule acknowledgement tool whenever they
+receive scoped file or process tools; this adds no file mutation permission.
+
 Choose folders in a project's workspace settings. Nexa reads `AGENTS.md` in
 those folders at the start of each native or host-tool agent turn. A nonempty
 `AGENTS.override.md` in the same directory replaces `AGENTS.md`. Rules apply only

@@ -186,7 +186,15 @@ mod tests {
         registry.register(Box::new(Writer(count.clone())));
         registry.register(Box::new(Reader));
         registry.register(Box::new(WorkspaceRulesTool));
-        let filtered = registry.filtered(&["create_file".into(), "workspace_rules".into()]);
+        let filtered = registry.filtered(&["create_file".into()]);
+        assert!(
+            filtered.contains("workspace_rules"),
+            "a narrowed worker must retain the acknowledgement prerequisite"
+        );
+        assert!(
+            !filtered.contains("read_file"),
+            "the dependency must not expand general file access"
+        );
         let db = Database::open_memory().unwrap();
         let context = |call, args| {
             ToolExecutionContext::new(call, args, &db, &[])
@@ -216,7 +224,7 @@ mod tests {
             serde_json::json!({"action":"acknowledge","path":"child/new.txt","revision":revision})
                 .to_string();
         assert!(
-            !registry
+            !filtered
                 .execute("workspace_rules", context("ack", &acknowledge))
                 .await
                 .unwrap()

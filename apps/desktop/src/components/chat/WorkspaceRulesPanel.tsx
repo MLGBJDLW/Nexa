@@ -10,7 +10,7 @@ interface WorkspaceRules {
   diagnostics: string[];
 }
 
-export function WorkspaceRulesPanel({ projectId }: { projectId: string }) {
+export function WorkspaceRulesPanel({ projectId, conversationId }: { projectId: string; conversationId?: string | null }) {
   const { t } = useTranslation();
   const [path, setPath] = useState('');
   const [rules, setRules] = useState<WorkspaceRules | null>(null);
@@ -22,14 +22,14 @@ export function WorkspaceRulesPanel({ projectId }: { projectId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<WorkspaceRules>('get_project_rules_cmd', { projectId, path: target?.trim() || null });
+      const result = await invoke<WorkspaceRules>('get_project_rules_cmd', { projectId, conversationId: conversationId ?? null, path: target?.trim() || null });
       if (request === sequence.current) setRules(result);
     } catch (cause) {
       if (request === sequence.current) setError(String(cause));
     } finally {
       if (request === sequence.current) setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, conversationId]);
   useEffect(() => {
     setRules(null);
     setPath('');

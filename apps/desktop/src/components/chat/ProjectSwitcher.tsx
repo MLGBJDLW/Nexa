@@ -44,6 +44,7 @@ function setStoredProjectId(id: string | null) {
 
 interface ProjectSwitcherProps {
   activeProjectId: string | null;
+  conversationId?: string | null;
   onProjectChange: (projectId: string | null) => void;
 }
 
@@ -58,7 +59,7 @@ export function useActiveProject() {
   return { activeProjectId, setProject };
 }
 
-export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChange }: ProjectSwitcherProps) {
   const { t } = useTranslation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [open, setOpen] = useState(false);
@@ -521,7 +522,7 @@ export function ProjectSwitcher({ activeProjectId, onProjectChange }: ProjectSwi
         onManageFolders={project => { setShowWorkspacePanel(false); startEditProject(project); }}
       />
       <Modal open={showRulesPanel && !!activeProjectId} onClose={() => setShowRulesPanel(false)} title={t('project.fileRules')}>
-        {showRulesPanel && activeProjectId && <WorkspaceRulesPanel projectId={activeProjectId} />}
+        {showRulesPanel && activeProjectId && <WorkspaceRulesPanel projectId={activeProjectId} conversationId={conversationId} />}
       </Modal>
       <Modal open={showHooksPanel && !!activeProjectId} onClose={() => setShowHooksPanel(false)} title={t('project.hooks')}>
         {showHooksPanel && activeProjectId && <ProjectHooksPanel projectId={activeProjectId} />}

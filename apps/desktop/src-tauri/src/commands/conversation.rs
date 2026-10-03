@@ -56,18 +56,38 @@ pub async fn delete_project_hook_cmd(
 pub async fn get_project_rules_cmd(
     state: tauri::State<'_, AppState>,
     project_id: String,
+    conversation_id: Option<String>,
     path: Option<String>,
 ) -> Result<nexa_core::workspace_rules::WorkspaceRules, String> {
-    let project = state
+    let activity = conversation_id
+        .as_deref()
+        .map(|id| nexa_core::chat_worktrees::activity(&state.db, id))
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let workspace = state
         .db_executor
-        .read(move |db| db.get_project(&project_id))
+        .read(move |db| {
+            if let Some(conversation_id) = conversation_id {
+                let conversation = db.get_conversation(&conversation_id)?;
+                if conversation.project_id.as_deref() != Some(&project_id) {
+                    return Err(CoreError::InvalidInput(
+                        "The conversation no longer belongs to this project".into(),
+                    ));
+                }
+                return db.conversation_workspace(&conversation_id)?.ok_or_else(|| {
+                    CoreError::InvalidInput("This chat has no configured workspace".into())
+                });
+            }
+            let project = db.get_project(&project_id)?;
+            Ok(nexa_core::workspace::Workspace {
+                roots: project.workspace_roots.unwrap_or_default(),
+            })
+        })
         .await
         .map_err(|error| error.to_string())?
         .value;
-    let workspace = nexa_core::workspace::Workspace {
-        roots: project.workspace_roots.unwrap_or_default(),
-    };
     tokio::task::spawn_blocking(move || {
+        let _activity = activity;
         nexa_core::workspace_rules::load(
             &workspace,
             &path

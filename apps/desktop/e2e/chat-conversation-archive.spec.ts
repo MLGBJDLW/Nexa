@@ -157,8 +157,8 @@ test('project file rules share a local command and inspector without changing th
   await page.keyboard.press('Enter');
   await expect(panel).toBeVisible();
   await expect(panel.locator('summary')).toHaveText('D:/Project/AGENTS.md');
-  const requests = await page.evaluate(() => (window as unknown as { __ruleRequests: Array<{ projectId: string; path: string | null }> }).__ruleRequests);
-  expect(requests.every(request => request.projectId === 'project-legacy')).toBe(true);
+  const requests = await page.evaluate(() => (window as unknown as { __ruleRequests: Array<{ projectId: string; conversationId: string | null; path: string | null }> }).__ruleRequests);
+  expect(requests.every(request => request.projectId === 'project-legacy' && request.conversationId === 'conv-active')).toBe(true);
   expect(requests.some(request => request.path === 'src/example.ts')).toBe(true);
   await panel.locator('summary').click();
   await page.screenshot({ path: testInfo.outputPath('workspace-file-rules.png') });
