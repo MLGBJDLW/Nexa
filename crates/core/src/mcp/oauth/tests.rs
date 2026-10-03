@@ -530,3 +530,33 @@ async fn os_vault_roundtrip_handles_long_tokens_and_deletes_temporary_credential
     deleted.unwrap();
     assert!(vault.read(&id).await.unwrap().is_none());
 }
+
+#[tokio::test]
+async fn expired_credentials_without_refresh_show_reauthorization_required() {
+    let peer = peer().await;
+    let (service, server) = test_service(&peer);
+    finish_login(&service, &server, &peer).await;
+    let active = service.db.get_mcp_server(&server.id).unwrap();
+    let (key, mut credential) = service.credential(&server.id).await.unwrap();
+    credential.expires_at = now() - 1;
+    credential.refresh_token = None;
+    service
+        .vault
+        .write(&key, serde_json::to_string(&credential).unwrap())
+        .await
+        .unwrap();
+    assert!(service
+        .token(&server.id, active.oauth_epoch, None)
+        .await
+        .is_err());
+    assert_eq!(
+        service.status(&server.id).unwrap().status,
+        "reauthorization_required"
+    );
+    assert!(service
+        .status(&server.id)
+        .unwrap()
+        .detail
+        .unwrap()
+        .contains("no refresh token"));
+}

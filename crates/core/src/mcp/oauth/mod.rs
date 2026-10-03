@@ -631,12 +631,17 @@ impl McpAuthService {
         {
             return Ok(credential.access_token);
         }
-        let refresh = credential.refresh_token.as_ref().ok_or_else(|| {
-            auth_error(
-                "login_required",
-                "This authorization has no refresh token; sign in again.",
-            )
-        })?;
+        let refresh = match credential.refresh_token.as_ref() {
+            Some(refresh) => refresh,
+            None => {
+                let error = auth_error(
+                    "login_required",
+                    "This authorization has no refresh token; sign in again.",
+                );
+                self.set_error(id, epoch, "reauthorization_required", &error)?;
+                return Err(error);
+            }
+        };
         let origin = Url::parse(server.url.as_deref().unwrap_or_default())
             .map_err(|_| auth_error("invalid_config", "Invalid endpoint."))?;
         let form = vec![
@@ -679,10 +684,12 @@ impl McpAuthService {
             .iter()
             .any(|scope| !previous_scopes.contains(scope))
         {
-            return Err(auth_error(
+            let error = auth_error(
                 "scope_changed",
                 "Authorization returned additional scopes; reconnect explicitly from settings.",
-            ));
+            );
+            self.set_error(id, epoch, "reauthorization_required", &error)?;
+            return Err(error);
         }
         let scopes_changed = credential.scopes != previous_scopes;
         let token = credential.access_token.clone();
