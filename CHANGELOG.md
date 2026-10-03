@@ -30,6 +30,16 @@
 * **workspace:** retain rule prerequisite before late workspace binding ([68a7873](https://github.com/MLGBJDLW/Nexa/commit/68a78733e69b2ebaf108f224606962bd126eca7e))
 * **workspace:** scope rule prerequisites to execution allowlists ([2753b28](https://github.com/MLGBJDLW/Nexa/commit/2753b28249fbeef319c1ed158712ae695614e6b2))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 0db823f5d8fb5fbb49ba85fe8e92854b06d432fd -->
+
+### What's Changed
+* feat: complete project rules, MCP auth, worktrees and review workflows by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/443
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.22...nexa-monorepo-v0.14.23
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.22](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.21...nexa-monorepo-v0.14.22) (2026-10-02)
 
 
