@@ -103,5 +103,13 @@
   "makePrimary": "設為主目錄",
   "addFolder": "新增資料夾",
   "appearance": "外觀",
-  "editProject": "編輯專案"
+  "editProject": "編輯專案",
+  "fileRules": "檔案規則",
+  "fileRulesHint": "AGENTS.md 和 AGENTS.override.md 適用於所在目錄及其子目錄。每輪載入根規則，存取檔案時載入子目錄規則；明確設定的專案指令優先。",
+  "ruleTarget": "檔案或目錄路徑（選填）",
+  "fileRulesEmpty": "此路徑沒有適用的規則檔案。",
+  "ruleScope": "適用範圍",
+  "ruleRevision": "版本",
+  "ruleTruncated": "規則超出上下文限制，請精簡後再繼續修改工作區。",
+  "ruleRefresh": "重新整理規則"
 }

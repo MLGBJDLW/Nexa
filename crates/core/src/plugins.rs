@@ -325,6 +325,7 @@ const FILE_WORKSPACE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDe
         "write_note",
         "archive_output",
         "project_tool",
+        "workspace_rules",
     ],
     settings_surfaces: &["data-privacy", "project-tools"],
     workflows: &["inspect-files", "edit-files", "run-project-tool"],

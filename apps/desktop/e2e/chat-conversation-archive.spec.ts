@@ -1,5 +1,54 @@
 import { expect, test } from './timeline-test';
 
+test('project file rules share a local command and inspector without changing the draft', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __ruleRequests: unknown[] };
+    state.__ruleRequests = [];
+    const original = state.__TAURI_INTERNALS__.invoke;
+    state.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command !== 'get_project_rules_cmd') return original(command, args);
+      state.__ruleRequests.push(args);
+      const child = args?.path === 'src/example.ts';
+      return { revision: child ? 'child-snapshot' : 'root-snapshot', diagnostics: [], files: [{
+        path: child ? 'D:/Project/src/AGENTS.md' : 'D:/Project/AGENTS.md',
+        scope: child ? 'D:/Project/src' : 'D:/Project',
+        revision: child ? 'updated-child-revision' : 'root-revision',
+        content: child ? 'Run the frontend verification.' : 'Preserve manually entered report cells.',
+        truncated: false,
+      }] };
+    };
+  });
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep my draft');
+  await page.keyboard.press('Control+Shift+P');
+  const palette = page.getByRole('dialog', { name: /command palette/i });
+  await palette.getByRole('combobox').fill('File rules');
+  await palette.getByRole('option', { name: 'File rules', exact: true }).click();
+  const panel = page.getByTestId('workspace-rules-panel');
+  await expect(panel).toBeVisible();
+  await panel.locator('summary').click();
+  await expect(panel).toContainText('Preserve manually entered report cells.');
+  await panel.getByRole('textbox', { name: 'File or folder path (optional)' }).fill('src/example.ts');
+  await panel.getByRole('button', { name: 'Refresh rules' }).click();
+  await expect(panel.locator('summary')).toHaveText('D:/Project/src/AGENTS.md');
+  await panel.locator('summary').click();
+  await expect(panel).toContainText('Run the frontend verification.');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(input).toHaveValue('Keep my draft');
+  await input.fill('/rules');
+  await page.keyboard.press('Enter');
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('summary')).toHaveText('D:/Project/AGENTS.md');
+  const requests = await page.evaluate(() => (window as unknown as { __ruleRequests: Array<{ projectId: string; path: string | null }> }).__ruleRequests);
+  expect(requests.every(request => request.projectId === 'project-legacy')).toBe(true);
+  expect(requests.some(request => request.path === 'src/example.ts')).toBe(true);
+  await panel.locator('summary').click();
+  await page.screenshot({ path: testInfo.outputPath('workspace-file-rules.png') });
+});
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('nexa-locale', 'en');

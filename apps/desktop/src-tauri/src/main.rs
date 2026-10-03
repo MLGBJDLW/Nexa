@@ -883,6 +883,7 @@ fn main() {
             commands::delete_project_cmd,
             commands::list_project_memories_cmd,
             commands::get_project_workspace_cmd,
+            commands::get_project_rules_cmd,
             commands::get_project_narrative_cmd,
             commands::get_companion_projection_cmd,
             commands::scan_companion_packs_cmd,

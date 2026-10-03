@@ -21,6 +21,7 @@ English is the canonical language for maintained technical documentation.
 | [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |
 | [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
 | [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
+| [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |
 | [Office add-in](../integrations/office-addin/README.md) | Pair or deploy the separate Word/Excel/PowerPoint live adapter |
 | [Tool reference](TOOLS.md) | Choose an agent tool and inspect its schema, scope, and result contract |
 

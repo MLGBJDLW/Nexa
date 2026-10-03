@@ -103,5 +103,13 @@
   "makePrimary": "メインに設定",
   "addFolder": "フォルダーを追加",
   "appearance": "外観",
-  "editProject": "プロジェクトを編集"
+  "editProject": "プロジェクトを編集",
+  "fileRules": "ファイルのルール",
+  "fileRulesHint": "AGENTS.md と AGENTS.override.md は配置先とその子フォルダーに適用されます。各ターンの開始時にルートのルールを、ファイルへのアクセス時に子フォルダーのルールを読み込みます。明示的なプロジェクト指示が優先されます。",
+  "ruleTarget": "ファイルまたはフォルダーのパス（任意）",
+  "fileRulesEmpty": "このパスに適用されるルールファイルはありません。",
+  "ruleScope": "適用範囲",
+  "ruleRevision": "バージョン",
+  "ruleTruncated": "ルールがコンテキストの上限を超えています。短くしてから変更を続けてください。",
+  "ruleRefresh": "ルールを更新"
 }

@@ -1,0 +1,15 @@
+{
+  "name": "workspace_rules",
+  "description": "Read the user-owned AGENTS.md/AGENTS.override.md rules applying to a workspace file or directory. Root-to-target rules are loaded automatically before filesystem operations; before modifying files, review the returned content and acknowledge its exact revision. Acknowledge is scoped to this conversation turn and does not execute scripts, approve tools, or change permissions. Changed rule files require a fresh acknowledgement. Use path for a target file/directory; omit it to inspect only root rules. External ACP agents using native tools own their own rule-loading behavior.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": { "type": "string", "enum": ["read", "acknowledge"] },
+      "path": { "type": "string", "description": "Workspace file or directory whose rule chain should be read." },
+      "paths": { "type": "array", "items": { "type": "string" }, "maxItems": 128, "description": "Target paths for a multi-path operation. Use either path or paths." },
+      "revision": { "type": "string", "description": "Exact snapshot revision returned by read or a blocked operation; required for acknowledge." }
+    },
+    "required": ["action"],
+    "additionalProperties": false
+  }
+}

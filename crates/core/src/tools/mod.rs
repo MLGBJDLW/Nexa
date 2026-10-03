@@ -166,6 +166,7 @@ pub mod update_plan_tool;
 pub mod user_memory_tool;
 pub mod web_research_context_tool;
 pub mod web_search_tool;
+pub mod workspace_rules_tool;
 pub mod write_note_tool;
 
 // ---------------------------------------------------------------------------
@@ -880,6 +881,7 @@ pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
     file_change_owner: Option<crate::turn_file_changes::FileChangeOwner>,
     workspace: Option<crate::workspace::Workspace>,
+    workspace_rules: Arc<crate::workspace_rules::WorkspaceRuleState>,
 }
 
 fn stable_tool_definitions(mut definitions: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
@@ -981,6 +983,7 @@ impl ToolRegistry {
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -997,6 +1000,7 @@ impl ToolRegistry {
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
@@ -1016,6 +1020,7 @@ impl ToolRegistry {
         let mut registry = ToolRegistry {
             file_change_owner: self.file_change_owner.clone(),
             workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
             ..ToolRegistry::new()
         };
         let empty_args = serde_json::json!({});
@@ -1217,6 +1222,40 @@ impl ToolRegistry {
             Err(result) => return Ok(result),
         };
         let call_id = ctx.call_id;
+        let workspace = ctx.workspace.or(self.workspace.as_ref());
+        let parsed_arguments = serde_json::from_str(&arguments).unwrap_or_default();
+        let rule_targets = crate::workspace_rules::invocation_targets(&parsed_arguments);
+        let rules = workspace
+            .filter(|_| {
+                name != "workspace_rules"
+                    && tool.categories().iter().any(|category| {
+                        matches!(
+                            category,
+                            ToolCategory::FileSystem
+                                | ToolCategory::Process
+                                | ToolCategory::Terminal
+                        )
+                    })
+            })
+            .map(|workspace| crate::workspace_rules::load(workspace, &rule_targets));
+        let rules_pending = rules.as_ref().is_some_and(|rules| {
+            self.workspace_rules.needs_acknowledgement(
+                ctx.conversation_id.unwrap_or_default(),
+                ctx.turn_id.unwrap_or_default(),
+                rules,
+            )
+        });
+        if let Some(rules) = &rules {
+            let access = tool.access_profile(&parsed_arguments);
+            if (access.can_write || access.can_execute) && rules_pending {
+                return Ok(ToolResult {
+                    call_id: call_id.into(),
+                    content: format!("No operation was performed. Review these workspace rules, then call workspace_rules with action=acknowledge, paths={}, revision={} before retrying.\n{}", serde_json::to_string(&rule_targets).unwrap_or_default(), rules.revision, rules.prompt()),
+                    is_error: true,
+                    artifacts: Some(serde_json::json!({"workspaceRules": rules, "operationPerformed": false})),
+                });
+            }
+        }
         let mut scope_context =
             ToolExecutionContext::new(call_id, &arguments, ctx.db, ctx.source_scope)
                 .with_conversation_id(ctx.conversation_id)
@@ -1239,14 +1278,39 @@ impl ToolRegistry {
                 source_scope: ctx.source_scope,
                 conversation_id: ctx.conversation_id,
                 turn_id: ctx.turn_id,
-                tool_registry: ctx.tool_registry,
+                tool_registry: ctx.tool_registry.or(Some(self)),
                 cancel_token: ctx.cancel_token,
                 activity_runtime: ctx.activity_runtime,
                 event_tx: ctx.event_tx,
             })
             .await;
-        let result =
+        let mut result =
             normalize_tool_execution_result(call_id, name, || tool.parameters_schema(), result);
+        if let Some(rules) = rules.filter(|_| rules_pending) {
+            let guidance = format!(
+                "\n\n{}\nWorkspace rules revision: {}",
+                rules.prompt(),
+                rules.revision
+            );
+            if let Some(artifacts) = result
+                .artifacts
+                .get_or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+            {
+                artifacts.insert("workspaceRules".into(), serde_json::to_value(&rules)?);
+                if let Some(output) = artifacts
+                    .get_mut(ToolResult::OUTPUT_ARTIFACT_KEY)
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    for field in ["llmContent", "displayContent"] {
+                        if let Some(serde_json::Value::String(content)) = output.get_mut(field) {
+                            content.push_str(&guidance);
+                        }
+                    }
+                }
+            }
+            result.content.push_str(&guidance);
+        }
         if result
             .artifacts
             .as_ref()
@@ -2064,6 +2128,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(search_files_tool::GrepFilesTool));
     registry.register(Box::new(code_intelligence_tool::CodeIntelligenceTool));
     registry.register(Box::new(project_tool::ProjectTool));
+    registry.register(Box::new(workspace_rules_tool::WorkspaceRulesTool));
     registry.register(Box::new(playbook_tool::PlaybookTool));
     registry.register(Box::new(
         prepare_document_tools_tool::PrepareDocumentToolsTool,

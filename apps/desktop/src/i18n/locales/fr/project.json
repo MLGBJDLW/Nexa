@@ -103,5 +103,13 @@
   "makePrimary": "Définir comme principal",
   "addFolder": "Ajouter un dossier",
   "appearance": "Apparence",
-  "editProject": "Modifier le projet"
+  "editProject": "Modifier le projet",
+  "fileRules": "Règles des fichiers",
+  "fileRulesHint": "AGENTS.md et AGENTS.override.md concernent leur dossier et ses sous-dossiers. Les règles racines sont chargées à chaque tour, celles des sous-dossiers lors de l’accès aux fichiers. Les instructions explicites du projet sont prioritaires.",
+  "ruleTarget": "Chemin du fichier ou dossier (facultatif)",
+  "fileRulesEmpty": "Aucun fichier de règles ne concerne ce chemin.",
+  "ruleScope": "Portée",
+  "ruleRevision": "Version",
+  "ruleTruncated": "Ces règles dépassent la limite du contexte. Raccourcissez-les avant de poursuivre les modifications.",
+  "ruleRefresh": "Actualiser les règles"
 }

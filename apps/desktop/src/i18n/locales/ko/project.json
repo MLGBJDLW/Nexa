@@ -103,5 +103,13 @@
   "makePrimary": "기본 폴더로 설정",
   "addFolder": "폴더 추가",
   "appearance": "모양",
-  "editProject": "프로젝트 편집"
+  "editProject": "프로젝트 편집",
+  "fileRules": "파일 규칙",
+  "fileRulesHint": "AGENTS.md와 AGENTS.override.md는 해당 폴더와 하위 폴더에 적용됩니다. 각 턴 시작 시 루트 규칙을, 파일 접근 시 하위 폴더 규칙을 불러옵니다. 명시적인 프로젝트 지침이 우선합니다.",
+  "ruleTarget": "파일 또는 폴더 경로(선택 사항)",
+  "fileRulesEmpty": "이 경로에 적용되는 규칙 파일이 없습니다.",
+  "ruleScope": "적용 범위",
+  "ruleRevision": "버전",
+  "ruleTruncated": "규칙이 컨텍스트 한도를 초과합니다. 규칙을 줄인 후 작업 공간 변경을 계속하세요.",
+  "ruleRefresh": "규칙 새로 고침"
 }

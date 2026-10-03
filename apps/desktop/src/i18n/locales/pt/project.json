@@ -103,5 +103,13 @@
   "makePrimary": "Definir como principal",
   "addFolder": "Adicionar pasta",
   "appearance": "Aparência",
-  "editProject": "Editar projeto"
+  "editProject": "Editar projeto",
+  "fileRules": "Regras de arquivos",
+  "fileRulesHint": "AGENTS.md e AGENTS.override.md aplicam-se à sua pasta e subpastas. As regras da raiz são carregadas a cada turno e as das subpastas ao acessar arquivos. Instruções explícitas do projeto têm prioridade.",
+  "ruleTarget": "Caminho do arquivo ou pasta (opcional)",
+  "fileRulesEmpty": "Nenhum arquivo de regras se aplica a este caminho.",
+  "ruleScope": "Escopo",
+  "ruleRevision": "Versão",
+  "ruleTruncated": "Estas regras excedem o limite de contexto. Reduza-as antes de continuar com as alterações.",
+  "ruleRefresh": "Atualizar regras"
 }

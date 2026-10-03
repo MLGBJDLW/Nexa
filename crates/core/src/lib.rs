@@ -145,6 +145,7 @@ pub mod workflow_execution;
 pub mod workflow_ir;
 pub mod workflow_scheduler;
 pub mod workspace;
+pub mod workspace_rules;
 
 #[cfg(test)]
 mod architecture_fitness;

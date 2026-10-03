@@ -112,6 +112,7 @@ pub fn scheduled_workspace_tool_class(name: &str) -> ScheduledWorkspaceToolClass
         | "query_knowledge_graph"
         | "read_file"
         | "read_files"
+        | "workspace_rules"
         | "retrieve_evidence"
         | "search_by_date"
         | "search_files"
@@ -680,7 +681,7 @@ pub fn infer_tool_access_profile(
             "Reads local Office/PDF/document content for inspection and comparison.",
         ),
         "read_file" | "read_files" | "list_dir" | "glob_files" | "search_files"
-        | "grep_files" | "code_intelligence" => (
+        | "grep_files" | "code_intelligence" | "workspace_rules" => (
             "filesystem",
             true,
             false,

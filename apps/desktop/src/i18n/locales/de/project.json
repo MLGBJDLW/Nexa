@@ -103,5 +103,13 @@
   "makePrimary": "Als Hauptordner festlegen",
   "addFolder": "Ordner hinzufügen",
   "appearance": "Darstellung",
-  "editProject": "Projekt bearbeiten"
+  "editProject": "Projekt bearbeiten",
+  "fileRules": "Dateiregeln",
+  "fileRulesHint": "AGENTS.md und AGENTS.override.md gelten für ihren Ordner und dessen Unterordner. Stammregeln werden zu Beginn jeder Runde geladen, Unterordnerregeln beim Dateizugriff. Explizite Projektanweisungen haben Vorrang.",
+  "ruleTarget": "Datei- oder Ordnerpfad (optional)",
+  "fileRulesEmpty": "Für diesen Pfad gelten keine Regeldateien.",
+  "ruleScope": "Geltungsbereich",
+  "ruleRevision": "Version",
+  "ruleTruncated": "Diese Regeln überschreiten das Kontextlimit. Kürzen Sie sie, bevor Sie den Arbeitsbereich weiter ändern.",
+  "ruleRefresh": "Regeln aktualisieren"
 }

@@ -8,6 +8,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
+import { WorkspaceRulesPanel } from './WorkspaceRulesPanel';
 
 interface ProjectWorkspacePanelProps {
   projectId: string | null;
@@ -231,6 +232,7 @@ export function ProjectWorkspacePanel({ projectId, open, onClose, onManageFolder
                 {t('common.save')}
               </Button>
             </div>
+            {projectId && <WorkspaceRulesPanel projectId={projectId} />}
           </div>
         )}
 

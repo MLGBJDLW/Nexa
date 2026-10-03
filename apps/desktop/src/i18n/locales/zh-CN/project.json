@@ -103,5 +103,13 @@
   "makePrimary": "设为主目录",
   "addFolder": "添加文件夹",
   "appearance": "外观",
-  "editProject": "编辑项目"
+  "editProject": "编辑项目",
+  "fileRules": "文件规则",
+  "fileRulesHint": "AGENTS.md 和 AGENTS.override.md 适用于所在目录及其子目录。每轮加载根规则，访问文件时加载子目录规则；明确设置的项目指令优先。",
+  "ruleTarget": "文件或目录路径（可选）",
+  "fileRulesEmpty": "此路径没有适用的规则文件。",
+  "ruleScope": "适用范围",
+  "ruleRevision": "版本",
+  "ruleTruncated": "规则超出上下文限制，请精简后再继续修改工作区。",
+  "ruleRefresh": "刷新规则"
 }

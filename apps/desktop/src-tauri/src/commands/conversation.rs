@@ -9,6 +9,34 @@ use nexa_core::package_host::{
 // ── Project Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
+pub async fn get_project_rules_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    path: Option<String>,
+) -> Result<nexa_core::workspace_rules::WorkspaceRules, String> {
+    let project = state
+        .db_executor
+        .read(move |db| db.get_project(&project_id))
+        .await
+        .map_err(|error| error.to_string())?
+        .value;
+    let workspace = nexa_core::workspace::Workspace {
+        roots: project.workspace_roots.unwrap_or_default(),
+    };
+    tokio::task::spawn_blocking(move || {
+        nexa_core::workspace_rules::load(
+            &workspace,
+            &path
+                .map(std::path::PathBuf::from)
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn create_project_cmd(
     state: tauri::State<'_, AppState>,
     input: CreateProjectInput,

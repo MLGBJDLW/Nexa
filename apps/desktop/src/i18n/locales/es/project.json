@@ -103,5 +103,13 @@
   "makePrimary": "Establecer como principal",
   "addFolder": "Añadir carpeta",
   "appearance": "Apariencia",
-  "editProject": "Editar proyecto"
+  "editProject": "Editar proyecto",
+  "fileRules": "Reglas de archivos",
+  "fileRulesHint": "AGENTS.md y AGENTS.override.md se aplican a su carpeta y subcarpetas. Las reglas raíz se cargan en cada turno y las de subcarpetas al acceder a archivos. Las instrucciones explícitas del proyecto tienen prioridad.",
+  "ruleTarget": "Ruta del archivo o carpeta (opcional)",
+  "fileRulesEmpty": "No hay archivos de reglas aplicables a esta ruta.",
+  "ruleScope": "Ámbito",
+  "ruleRevision": "Versión",
+  "ruleTruncated": "Estas reglas superan el límite de contexto. Redúzcalas antes de continuar con los cambios.",
+  "ruleRefresh": "Actualizar reglas"
 }

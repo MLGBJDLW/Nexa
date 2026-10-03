@@ -103,5 +103,13 @@
   "makePrimary": "Make primary",
   "addFolder": "Add folder",
   "appearance": "Appearance",
-  "editProject": "Edit project"
+  "editProject": "Edit project",
+  "fileRules": "File rules",
+  "fileRulesHint": "AGENTS.md and AGENTS.override.md apply to their folder and descendants. Root rules load at the start of each turn; child rules load when files are accessed. Explicit project instructions take precedence.",
+  "ruleTarget": "File or folder path (optional)",
+  "fileRulesEmpty": "No rule files apply to this path.",
+  "ruleScope": "Applies to",
+  "ruleRevision": "Version",
+  "ruleTruncated": "These rules exceed the context limit. Shorten them before workspace changes can continue.",
+  "ruleRefresh": "Refresh rules"
 }
