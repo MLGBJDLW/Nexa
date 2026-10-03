@@ -353,6 +353,41 @@ impl Drop for RunningHook<'_> {
 mod tests {
     use super::*;
 
+    struct FinalOnlyProvider;
+    #[async_trait::async_trait]
+    impl crate::llm::LlmProvider for FinalOnlyProvider {
+        fn name(&self) -> &str {
+            "hook-finalization-test"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["test".into()])
+        }
+        async fn complete(
+            &self,
+            _: &crate::llm::CompletionRequest,
+        ) -> Result<crate::llm::CompletionResponse, CoreError> {
+            Err(CoreError::Llm("Streaming fixture only".into()))
+        }
+        async fn stream_events(
+            &self,
+            _: &crate::llm::CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            crate::llm::provider_events_from_chunk_stream(Box::pin(futures::stream::iter(vec![
+                Ok(crate::llm::StreamChunk {
+                    delta: "The work is complete.".into(),
+                    tool_call_delta: None,
+                    finish_reason: Some(crate::llm::FinishReason::Stop),
+                    usage: None,
+                    thinking_delta: None,
+                }),
+            ])))
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
     struct Fixture {
         directory: tempfile::TempDir,
         db: Database,
@@ -545,5 +580,62 @@ mod tests {
             fixture.db.project_hook_runs("project").unwrap()[0].status,
             "cancelled"
         );
+    }
+
+    #[tokio::test]
+    async fn failed_hooks_never_publish_a_done_event_even_after_the_repair_limit() {
+        let fixture = Fixture::new("exit 7");
+        fixture.enable(HookEvent::BeforeComplete);
+        let tools = fixture
+            .tools
+            .clone()
+            .with_workspace(Some(fixture.workspace.clone()));
+        let executor = crate::agent::AgentExecutor::new(
+            Box::new(FinalOnlyProvider),
+            tools,
+            crate::agent::AgentConfig {
+                model: Some("test".into()),
+                max_iterations: 2,
+                context_window: Some(16_000),
+                ..Default::default()
+            },
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::channel(256);
+        let result = executor
+            .run(
+                Vec::new(),
+                vec![crate::llm::ContentPart::Text {
+                    text: "Finish the task.".into(),
+                }],
+                &fixture.db,
+                Some("chat"),
+                Some("turn"),
+                tx,
+                1,
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "A failing completion check cannot become a successful partial answer"
+        );
+        let runs = fixture.db.project_hook_runs("project").unwrap();
+        assert_eq!(
+            runs.len(),
+            1,
+            "The real agent must reach the check and deduplicate repair attempts"
+        );
+        assert_eq!(runs[0].status, "failed");
+        while let Ok(event) = rx.try_recv() {
+            assert!(
+                !matches!(event, crate::agent::AgentEvent::Done { .. }),
+                "A Done event would publish a completed run"
+            );
+        }
+        assert!(fixture
+            .db
+            .get_messages("chat")
+            .unwrap()
+            .iter()
+            .all(|message| message.role != crate::llm::Role::Assistant));
     }
 }
