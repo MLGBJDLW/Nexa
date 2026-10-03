@@ -36,6 +36,12 @@ There are no model-facing configuration or enable tools.
 - Before completion, all enabled checks must pass for the current tracked change
   revision. The native agent receives failures for bounded repair attempts;
   external runtimes cannot persist a successful final answer while checks fail.
+  Completion receipts also remember the file revision after their command ends.
+  If a later hook changes files, an earlier completion check becomes a visible
+  stale failure. Nexa does not replay successful mutating hooks to repair this;
+  inspect the changes, fix the check configuration or make a new tracked repair.
+  Put transformations before final validations in a single declared command when
+  their order is required for a meaningful result.
 - A check runs once per hook configuration, conversation, turn, and tracked agent
   change revision. Formatter writes are recorded in the file-change history and
   do not recursively trigger the same hook. New agent edits allow a fresh run.

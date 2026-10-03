@@ -48,6 +48,7 @@ pub struct HookRun {
     pub status: String,
     pub detail: String,
     pub created_at: String,
+    pub completed_file_revision: Option<u64>,
 }
 
 impl Database {
@@ -133,7 +134,7 @@ impl Database {
 
     pub fn project_hook_runs(&self, project_id: &str) -> Result<Vec<HookRun>, CoreError> {
         let conn = self.conn();
-        let mut statement = conn.prepare("SELECT id,hook_id,conversation_id,turn_id,event,status,detail,created_at FROM project_hook_runs WHERE project_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 100")?;
+        let mut statement = conn.prepare("SELECT id,hook_id,conversation_id,turn_id,event,status,detail,created_at,completed_file_revision FROM project_hook_runs WHERE project_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 100")?;
         let rows = statement
             .query_map([project_id], |row| {
                 Ok(HookRun {
@@ -145,6 +146,7 @@ impl Database {
                     status: row.get(5)?,
                     detail: row.get(6)?,
                     created_at: row.get(7)?,
+                    completed_file_revision: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -163,6 +165,10 @@ pub struct HookContext<'a> {
     pub plan_mode: bool,
     pub isolated: bool,
     pub approval_mode: ToolApprovalMode,
+}
+
+fn tracked_revision(db: &Database, conversation: &str, turn: &str) -> Result<u64, CoreError> {
+    Ok(db.conn().query_row("SELECT COALESCE(MAX(id),0) FROM turn_file_change_events WHERE conversation_id=?1 AND turn_id=?2", params![conversation,turn], |row| row.get(0))?)
 }
 
 /// Returns observations, not instructions. Failure blocks completion but never changes a committed tool's success.
@@ -215,7 +221,7 @@ pub async fn run_event(
         let run_id = uuid::Uuid::new_v4().to_string();
         let inserted = context.db.conn().execute("INSERT OR IGNORE INTO project_hook_runs(id,project_id,hook_id,conversation_id,turn_id,event,revision,status) VALUES(?1,?2,?3,?4,?5,?6,?7,'running')", params![run_id, project_id, hook.id, conversation_id, turn_id, event.name(), revision])?;
         if inserted == 0 {
-            let stored: (String, String, String, String) = context.db.conn().query_row("SELECT id,status,detail,created_at FROM project_hook_runs WHERE hook_id=?1 AND conversation_id=?2 AND turn_id=?3 AND event=?4 AND revision=?5", params![hook.id, conversation_id, turn_id, event.name(), revision], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)))?;
+            let stored: (String, String, String, String, Option<u64>) = context.db.conn().query_row("SELECT id,status,detail,created_at,completed_file_revision FROM project_hook_runs WHERE hook_id=?1 AND conversation_id=?2 AND turn_id=?3 AND event=?4 AND revision=?5", params![hook.id, conversation_id, turn_id, event.name(), revision], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)))?;
             runs.push(HookRun {
                 id: stored.0,
                 hook_id: hook.id,
@@ -225,6 +231,7 @@ pub async fn run_event(
                 status: stored.1,
                 detail: stored.2,
                 created_at: stored.3,
+                completed_file_revision: stored.4,
             });
             continue;
         }
@@ -270,7 +277,16 @@ pub async fn run_event(
                             mutation_namespace: Some("hook".into()),
                         });
                     tool_context.cancel_token = Some(context.cancel);
-                    let event_data = json!({"event":event.name(),"conversationId":conversation_id,"turnId":turn_id,"fileRevision":changes.revision,"files":changes.files});
+                    let current_changes = context
+                        .db
+                        .conversation_file_changes_for_turns(
+                            conversation_id,
+                            Some(&[turn_id.to_string()]),
+                        )?
+                        .into_iter()
+                        .next()
+                        .unwrap_or_default();
+                    let event_data = json!({"event":event.name(),"conversationId":conversation_id,"turnId":turn_id,"fileRevision":current_changes.revision,"files":current_changes.files});
                     tokio::select! {
                         biased;
                         _ = context.cancel.cancelled() => Err(CoreError::Agent("Project hook cancelled".into())),
@@ -302,9 +318,10 @@ pub async fn run_event(
             hook.name,
             detail.chars().take(32_000).collect::<String>()
         );
+        let completed_file_revision = tracked_revision(context.db, conversation_id, turn_id)?;
         context.db.conn().execute(
-            "UPDATE project_hook_runs SET status=?2,detail=?3 WHERE id=?1",
-            params![run_id, status, detail],
+            "UPDATE project_hook_runs SET status=?2,detail=?3,completed_file_revision=?4 WHERE id=?1",
+            params![run_id, status, detail, completed_file_revision],
         )?;
         guard.settled = true;
         runs.push(HookRun {
@@ -316,6 +333,7 @@ pub async fn run_event(
             status: status.into(),
             detail,
             created_at: String::new(),
+            completed_file_revision: Some(completed_file_revision),
         });
         if context.cancel.is_cancelled() {
             break;
@@ -328,6 +346,27 @@ pub async fn run_event(
 pub async fn completion_blocker(context: &HookContext<'_>) -> Result<Option<String>, CoreError> {
     let mut runs = run_event(context, HookEvent::AfterFileChange).await?;
     runs.extend(run_event(context, HookEvent::BeforeComplete).await?);
+    if let (Some(conversation), Some(turn)) = (context.conversation_id, context.turn_id) {
+        let changes = context
+            .db
+            .conversation_file_changes_for_turns(conversation, Some(&[turn.to_string()]))?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        if !runs.is_empty() && changes.pending {
+            return Ok(Some(
+                "Project lifecycle checks are waiting for pending file changes to settle.".into(),
+            ));
+        }
+        let final_revision = tracked_revision(context.db, conversation, turn)?;
+        for run in &mut runs {
+            if run.status == "passed" && run.completed_file_revision != Some(final_revision) {
+                run.status = "failed".into();
+                run.detail = format!("Completion check is stale because a later hook changed files. Inspect the final changes and repair or reconfigure the checks; successful commands were not replayed. Previous result: {}", run.detail);
+                context.db.conn().execute("UPDATE project_hook_runs SET status='failed',detail=?2 WHERE id=?1 AND status='passed'", params![run.id,run.detail])?;
+            }
+        }
+    }
     let failed = runs
         .iter()
         .filter(|run| run.status != "passed")
@@ -532,6 +571,109 @@ mod tests {
             .path()
             .join("should-not-exist.txt")
             .exists());
+    }
+
+    #[tokio::test]
+    async fn a_later_hook_cannot_invalidate_an_earlier_completion_check() {
+        let validator = if cfg!(windows) {
+            "findstr /x valid generated.txt >nul"
+        } else {
+            "grep -qx valid generated.txt"
+        };
+        let fixture = Fixture::new(validator);
+        // Windows FINDSTR /x requires CRLF for its whole-line comparison.
+        std::fs::write(
+            fixture.directory.path().join("generated.txt"),
+            if cfg!(windows) {
+                "valid\r\n"
+            } else {
+                "valid\n"
+            },
+        )
+        .unwrap();
+        let first = fixture.enable(HookEvent::BeforeComplete);
+        let mut manifest: Value = serde_json::from_slice(
+            &std::fs::read(fixture.directory.path().join(".nexa/tools/check.json")).unwrap(),
+        )
+        .unwrap();
+        manifest["name"] = json!("mutate");
+        *manifest["command"]["args"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap() = json!(if cfg!(windows) {
+            "echo invalid>generated.txt & echo mutation>>mutations.txt"
+        } else {
+            "printf 'invalid\n' > generated.txt; printf 'mutation\n' >> mutations.txt"
+        });
+        std::fs::write(
+            fixture.directory.path().join(".nexa/tools/mutate.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let catalog = crate::tools::project_tool::workspace_project_tool_catalog(
+            &fixture.db,
+            &fixture.workspace,
+        )
+        .unwrap();
+        let tool = catalog
+            .tools
+            .iter()
+            .find(|tool| tool.name == "mutate")
+            .unwrap();
+        let second = fixture
+            .db
+            .save_project_hook(
+                "project",
+                ProjectHook {
+                    id: String::new(),
+                    name: "mutate".into(),
+                    manifest_hash: tool.manifest_hash.clone(),
+                    event: HookEvent::BeforeComplete,
+                    arguments: json!({}),
+                    enabled: true,
+                },
+            )
+            .unwrap();
+        fixture
+            .db
+            .conn()
+            .execute(
+                "UPDATE project_hooks SET created_at='2000-01-01 00:00:00' WHERE id=?1",
+                [&first.id],
+            )
+            .unwrap();
+        fixture
+            .db
+            .conn()
+            .execute(
+                "UPDATE project_hooks SET created_at='2000-01-01 00:00:01' WHERE id=?1",
+                [&second.id],
+            )
+            .unwrap();
+        let blocker = completion_blocker(&fixture.context())
+            .await
+            .unwrap()
+            .expect("later hook writes must invalidate earlier checks");
+        assert!(blocker.contains("stale"), "{blocker}");
+        assert!(completion_blocker(&fixture.context())
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("mutations.txt"))
+                .unwrap()
+                .lines()
+                .count(),
+            1,
+            "a stale check must not replay the later mutating command"
+        );
+        assert!(fixture
+            .db
+            .project_hook_runs("project")
+            .unwrap()
+            .iter()
+            .any(|run| run.hook_id == first.id && run.status == "failed"));
     }
 
     #[tokio::test]

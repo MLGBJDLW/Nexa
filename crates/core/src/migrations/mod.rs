@@ -2883,6 +2883,7 @@ Every answer that uses knowledge base search results.
     ("v137_mcp_oauth", include_str!("v137_mcp_oauth.sql")),
     ("v138_chat_worktrees", include_str!("v138_chat_worktrees.sql")),
     ("v139_code_reviews", include_str!("v139_code_reviews.sql")),
+    ("v140_hook_result_revision", include_str!("v140_hook_result_revision.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
