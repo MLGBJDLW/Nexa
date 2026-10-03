@@ -521,6 +521,13 @@ impl McpAuthService {
         let value =
             network::json_request(&discovery.token_endpoint, &origin, Some(&form), None).await?;
         let credential = parse_token(value, discovery, client_id, None, &scopes, 0)?;
+        if credential
+            .scopes
+            .iter()
+            .any(|scope| !scopes.contains(scope))
+        {
+            return Err(auth_error("scope_changed", "Authorization returned unrequested scopes; configure the intended scopes explicitly before signing in again."));
+        }
         self.publish(id, epoch, None, Some(login_id), credential, false)
             .await
     }

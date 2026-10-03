@@ -560,3 +560,60 @@ async fn expired_credentials_without_refresh_show_reauthorization_required() {
         .unwrap()
         .contains("no refresh token"));
 }
+
+#[tokio::test]
+async fn initial_login_rejects_unrequested_scopes_before_publishing_credentials() {
+    let peer = peer().await;
+    let (service, server) = test_service(&peer);
+    service
+        .configure(
+            &server.id,
+            Some(OAuthConfig {
+                scopes: vec!["read".into()],
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+    peer.mode.store(5, std::sync::atomic::Ordering::SeqCst);
+    let login = service.begin(&server.id).await.unwrap();
+    let params = Url::parse(&login.authorization_url)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect::<BTreeMap<_, _>>();
+    let mut callback = Url::parse(&params["redirect_uri"]).unwrap();
+    callback.query_pairs_mut().extend_pairs([
+        ("state", params["state"].as_str()),
+        ("code", "fixture-code"),
+        ("iss", peer.origin.as_str()),
+    ]);
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(callback)
+        .send()
+        .await
+        .unwrap();
+    let status = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let status = service.status(&server.id).unwrap();
+            if status.status != "authorizing" {
+                break status;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(status.status, "login_failed");
+    assert!(status.detail.unwrap().contains("unrequested scopes"));
+    assert!(service
+        .row(&server.id)
+        .unwrap()
+        .unwrap()
+        .credential_id
+        .is_none());
+    assert!(service.credential(&server.id).await.is_err());
+}

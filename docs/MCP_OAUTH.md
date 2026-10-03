@@ -33,6 +33,9 @@ Dynamic registration is repeated for that exact callback on each sign-in.
 - `Authorization` and `Cookie` headers cannot be combined with OAuth. Extra scopes
   require an explicit settings edit and sign-in. The client does not interpret
   an unverified JWT as an account identity.
+  Initial sign-in and renewal both reject scopes outside the requested set. If
+  a service grants default scopes, enter those intended scopes explicitly before
+  signing in; an empty scope setting does not approve an unknown default grant.
 
 Native ACP agents own their MCP clients and credentials. Nexa-managed OAuth is
 available through Nexa's managed MCP transport, including host-tool runtimes;
