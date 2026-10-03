@@ -94,13 +94,17 @@ impl Database {
         &self,
         conversation: &str,
     ) -> Result<Option<Workspace>, CoreError> {
+        let _guard = activity(self, conversation)?;
         let Some(record) = self.chat_worktree(conversation)? else {
             return Ok(None);
         };
         if record.status != "ready" {
             return Err(invalid("The managed worktree is archived or needs recovery. Restore/recover it before running this chat."));
         }
+        // This resolver is also used on read-only database lanes. Inspection
+        // persists recovery state; every resolution independently fails closed.
         validate_owned_path(self, &record, true)?;
+        validate_git_registration(&record)?;
         let root = Path::new(&record.path).join(&record.workspace_subdir);
         let workspace = Workspace::validate(&[root.to_string_lossy().into_owned()])?;
         let canonical_root = std::fs::canonicalize(&record.path)?;
@@ -109,6 +113,51 @@ impl Database {
         }
         Ok(Some(workspace))
     }
+}
+
+fn read_git_pointer(path: &Path, prefix: &str) -> Result<PathBuf, CoreError> {
+    use std::io::Read;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 16 * 1024 {
+        return Err(invalid("Invalid managed Git pointer file"));
+    }
+    let mut value = String::new();
+    std::fs::File::open(path)?
+        .take(16 * 1024 + 1)
+        .read_to_string(&mut value)?;
+    let value = value.trim_end_matches(['\r', '\n']);
+    let target = value
+        .strip_prefix(prefix)
+        .ok_or_else(|| invalid("Invalid managed Git pointer"))?;
+    if target.is_empty() || target.len() > 16 * 1024 || target.contains(['\n', '\r', '\0']) {
+        return Err(invalid("Invalid managed Git pointer target"));
+    }
+    let target = PathBuf::from(target);
+    Ok(std::fs::canonicalize(if target.is_absolute() {
+        target
+    } else {
+        path.parent()
+            .ok_or_else(|| invalid("Missing Git pointer parent"))?
+            .join(target)
+    })?)
+}
+
+/// Cheap filesystem ownership check at every synchronous workspace resolution.
+/// The administrative directory must belong to the recorded repository and its
+/// reverse pointer must register this checkout, not a sibling worktree.
+fn validate_git_registration(record: &ChatWorktree) -> Result<(), CoreError> {
+    let git_file = Path::new(&record.path).join(".git");
+    let admin = read_git_pointer(&git_file, "gitdir: ")?;
+    let common = std::fs::canonicalize(&record.common_dir)?;
+    if admin.parent() != Some(common.join("worktrees").as_path())
+        || read_git_pointer(&admin.join("commondir"), "")? != common
+        || read_git_pointer(&admin.join("gitdir"), "")? != std::fs::canonicalize(&git_file)?
+    {
+        return Err(invalid(
+            "Managed worktree Git registration or repository ownership changed",
+        ));
+    }
+    Ok(())
 }
 
 fn display(path: &Path) -> String {
@@ -256,6 +305,7 @@ pub(crate) async fn git_text(cwd: &Path, args: &[&str]) -> Result<String, CoreEr
 }
 async fn identity(db: &Database, record: &ChatWorktree) -> Result<(), CoreError> {
     validate_owned_path(db, record, true)?;
+    validate_git_registration(record)?;
     let root = Path::new(&record.path);
     if std::fs::symlink_metadata(root.join(".git"))?
         .file_type()
@@ -297,6 +347,7 @@ pub async fn inspect(db: &Database, conversation: &str) -> Result<Option<ChatWor
         if let Err(error) = identity(db, &record).await {
             record.status = "needs_recovery".into();
             record.detail = Some(error.to_string());
+            db.save_chat_worktree(&record)?;
         } else {
             record.branch = git_text(
                 Path::new(&record.path),

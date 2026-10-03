@@ -158,3 +158,38 @@ async fn interrupted_operations_reconcile_without_implicit_deletion() {
         "original\n"
     );
 }
+
+#[tokio::test]
+async fn failed_identity_is_durable_and_workspace_resolution_checks_git_pointers() {
+    let (_directory, db, first, second, _) = fixture().await;
+    let a = create(&db, &first, "HEAD").await.unwrap();
+    let b = create(&db, &second, "HEAD").await.unwrap();
+    let git_file = Path::new(&a.path).join(".git");
+    let original = std::fs::read(&git_file).unwrap();
+    let foreign = std::fs::read(Path::new(&b.path).join(".git")).unwrap();
+    std::fs::write(&git_file, &foreign).unwrap();
+    assert_eq!(
+        inspect(&db, &first).await.unwrap().unwrap().status,
+        "needs_recovery"
+    );
+    let reopened = Database::new(db.db_path().unwrap()).unwrap();
+    assert_eq!(
+        reopened.chat_worktree(&first).unwrap().unwrap().status,
+        "needs_recovery"
+    );
+    assert!(reopened.conversation_workspace(&first).is_err());
+    std::fs::write(&git_file, &original).unwrap();
+    assert!(
+        reopened.conversation_workspace(&first).is_err(),
+        "repairing a pointer still requires explicit recovery"
+    );
+    recover(&reopened, &first).await.unwrap();
+    assert!(reopened.conversation_workspace(&first).is_ok());
+    std::fs::write(&git_file, foreign).unwrap();
+    assert!(
+        reopened.conversation_workspace(&first).is_err(),
+        "launch must validate ownership without opening the panel first"
+    );
+    assert!(Path::new(&a.path).join("same.txt").exists());
+    assert!(Path::new(&b.path).join("same.txt").exists());
+}
