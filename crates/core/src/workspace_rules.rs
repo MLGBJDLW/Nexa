@@ -242,9 +242,12 @@ pub fn invocation_targets(arguments: &serde_json::Value) -> Vec<PathBuf> {
     targets
 }
 
+type ConversationTurn = (String, String);
+type RuleFileRevision = (String, String);
+
 #[derive(Default)]
 pub struct WorkspaceRuleState {
-    acknowledged: Mutex<BTreeMap<(String, String), BTreeSet<(String, String)>>>,
+    acknowledged: Mutex<BTreeMap<ConversationTurn, BTreeSet<RuleFileRevision>>>,
 }
 
 impl WorkspaceRuleState {
