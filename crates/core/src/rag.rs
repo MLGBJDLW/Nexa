@@ -29,8 +29,10 @@ pub struct RetrievalConfidence {
 pub struct RagStrategyPlan {
     pub original_query: String,
     pub query_variants: Vec<String>,
-    pub use_hyde: bool,
-    pub hyde_query: Option<String>,
+    #[serde(alias = "useHyde")]
+    pub use_keyword_expansion: bool,
+    #[serde(alias = "hydeQuery")]
+    pub expanded_query: Option<String>,
     pub requires_context_window: bool,
     pub context_chunks: usize,
     pub target_candidates: usize,
@@ -205,7 +207,7 @@ pub fn assess_retrieval_confidence(cards: &[EvidenceCard], query: &str) -> Retri
             level: RetrievalConfidenceLevel::Low,
             score: 0.0,
             reasons: vec!["no_results".to_string()],
-            suggested_action: "Run a second pass with query variants or HyDE, then use get_chunk_context on the best candidate.".to_string(),
+            suggested_action: "Run a second pass with query variants or keyword expansion, then use get_chunk_context on the best candidate.".to_string(),
         };
     }
 
@@ -270,7 +272,7 @@ pub fn assess_retrieval_confidence(cards: &[EvidenceCard], query: &str) -> Retri
             "Use get_chunk_context on the best chunk before making detailed claims.".to_string()
         }
         RetrievalConfidenceLevel::Low => {
-            "Run a second pass with query variants or HyDE, then use get_chunk_context on the best candidate.".to_string()
+            "Run a second pass with query variants or keyword expansion, then use get_chunk_context on the best candidate.".to_string()
         }
     };
 
@@ -305,15 +307,15 @@ pub fn plan_rag_strategy(query: &str, confidence: Option<&RetrievalConfidence>) 
         push_unique(&mut query_variants, variant);
     }
 
-    let use_hyde = vague || low_confidence;
-    let hyde_query = if use_hyde && !original_query.is_empty() {
-        Some(build_hypothetical_document_query(&original_query))
+    let use_keyword_expansion = vague || low_confidence;
+    let expanded_query = if use_keyword_expansion && !original_query.is_empty() {
+        Some(build_keyword_expansion(&original_query))
     } else {
         None
     };
 
     if query_variants.len() < MAX_QUERY_VARIANTS {
-        if let Some(hyde) = hyde_query.clone() {
+        if let Some(hyde) = expanded_query.clone() {
             push_unique(&mut query_variants, hyde);
         }
     }
@@ -338,8 +340,8 @@ pub fn plan_rag_strategy(query: &str, confidence: Option<&RetrievalConfidence>) 
     RagStrategyPlan {
         original_query,
         query_variants,
-        use_hyde,
-        hyde_query,
+        use_keyword_expansion,
+        expanded_query,
         requires_context_window: needs_context || low_confidence || vague || compound,
         context_chunks,
         target_candidates: if low_confidence {
@@ -353,12 +355,16 @@ pub fn plan_rag_strategy(query: &str, confidence: Option<&RetrievalConfidence>) 
     }
 }
 
-pub fn build_hypothetical_document_query(query: &str) -> String {
+pub fn build_keyword_expansion(query: &str) -> String {
     let query = query.trim();
     if query.is_empty() {
         return String::new();
     }
-    format!("{query} key details rationale decision evidence implementation source reference")
+    if query.chars().any(|ch| matches!(ch as u32, 0x3400..=0x9fff)) {
+        format!("{query} 关键细节 原因 决策 证据 实施 来源")
+    } else {
+        format!("{query} key details rationale decision evidence implementation source reference")
+    }
 }
 
 pub fn build_context_pack(cards: &[EvidenceCard], context_chunks: usize) -> RagContextPack {
@@ -874,9 +880,9 @@ mod tests {
 
         let plan = plan_rag_strategy("that previous decision", Some(&low));
 
-        assert!(plan.use_hyde);
+        assert!(plan.use_keyword_expansion);
         assert!(plan
-            .hyde_query
+            .expanded_query
             .as_deref()
             .unwrap_or("")
             .contains("previous decision"));

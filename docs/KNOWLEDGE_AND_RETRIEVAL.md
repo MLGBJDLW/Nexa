@@ -5,7 +5,7 @@ find material; the original documents and retrieved chunks support the answer.
 
 ## Start with a source
 
-1. Add a folder in Sources. Review include/exclude patterns and privacy settings
+1. Add a folder in Sources. Directory scans do not follow symbolic links. Review include/exclude patterns and privacy settings
    before indexing it.
 2. Wait for parsing and indexing to finish. OCR, local embeddings, and media
    ingestion need their configured runtime assets.
@@ -40,7 +40,8 @@ The agent can use `search_knowledge_base`, `retrieve_evidence`, and
 Chinese lexical indexing preserves ordered CJK bigrams and single-character
 terms alongside Latin words and identifiers. The migration, ingestion triggers,
 read connections, and FTS rebuild use the same projection. This improves literal
-Chinese retrieval; cross-language paraphrases still require a suitable embedding
+Chinese retrieval. Deterministic second-pass word expansion is labeled as keyword
+expansion, not model-generated HyDE. Cross-language paraphrases still require a suitable embedding
 or reranking model and separate evaluation. Search dates refer to **index time**,
 not publication time or the effective date of a claim.
 
