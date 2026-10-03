@@ -208,6 +208,15 @@ file's latest contents. Verification should return to the underlying document
 when freshness affects the decision. Local-first storage does not prevent
 configured API embedding or generation services from receiving scoped input.
 
+Enabling redaction or changing active redaction rules atomically revokes old
+indexed text, generated summaries/relations, and saved citation history, including
+files already removed from disk. Sources then require rescanning and recompilation.
+Research notes remain, but revoked evidence cannot be reopened through old block
+IDs or versioned references. A scan started under earlier settings cannot commit
+its old output after this change. Saving unchanged rules preserves rebuilt content
+and safe history. Invalid redaction/exclusion expressions are rejected before the
+saved policy or index is changed.
+
 Compilation reads every non-summary source character in bounded 12,000-character
 sections, with eight new model calls per action. Completed sections are cached
 by input revision, provider route, prompt contents, and compiler contract version.

@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "Exemplo: **/.env* ou **/*.log",
   "addPattern": "Adicionar",
   "redactRules": "Regras de anonimização",
-  "redactRulesDesc": "O conteúdo correspondente será substituído pelo texto especificado",
+  "redactRulesDesc": "O conteúdo correspondente é substituído. Ativar a ocultação ou alterar regras ativas apaga o texto indexado e as citações salvas. Analise novamente as fontes para reconstruir o índice.",
   "ruleName": "Nome",
   "rulePattern": "Padrão",
   "ruleReplacement": "Substituição",

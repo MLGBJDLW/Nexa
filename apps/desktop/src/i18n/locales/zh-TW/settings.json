@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "例如：**/.env* 或 **/*.log",
   "addPattern": "新增",
   "redactRules": "脫敏規則",
-  "redactRulesDesc": "匹配的內容將被替換為指定文字",
+  "redactRulesDesc": "符合規則的內容會被取代。啟用去識別化或更改已啟用的規則後，將清除舊索引正文和歷史引用，請重新掃描來源以重建索引。",
   "ruleName": "名稱",
   "rulePattern": "模式",
   "ruleReplacement": "替換",

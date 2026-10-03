@@ -4,7 +4,7 @@
 //! ingestion and how to redact sensitive content from chunks before storage.
 
 use regex::Regex;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -134,18 +134,90 @@ fn apply_redact_rule(text: &str, rule: &RedactRule) -> String {
 
 const PRIVACY_CONFIG_KEY: &str = "privacy_config";
 
+pub(crate) fn config_fingerprint(config: &PrivacyConfig) -> Result<String, CoreError> {
+    Ok(blake3::hash(&serde_json::to_vec(config)?)
+        .to_hex()
+        .to_string())
+}
+
+pub(crate) fn redaction_fingerprint(config: &PrivacyConfig) -> Result<String, CoreError> {
+    Ok(blake3::hash(&serde_json::to_vec(&(
+        1,
+        config.enabled,
+        builtin_redact_rules(),
+        &config.redact_patterns,
+    ))?)
+    .to_hex()
+    .to_string())
+}
+
+pub(crate) fn load_config_on(conn: &rusqlite::Connection) -> Result<PrivacyConfig, CoreError> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT value FROM privacy_config WHERE key=?1",
+            [PRIVACY_CONFIG_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(stored
+        .map(|value| serde_json::from_str(&value))
+        .transpose()?
+        .unwrap_or_default())
+}
+
+pub(crate) fn validate_config(config: &PrivacyConfig) -> Result<(), CoreError> {
+    for rule in &config.redact_patterns {
+        Regex::new(&rule.pattern).map_err(|error| {
+            CoreError::InvalidInput(format!("Invalid redaction rule '{}': {error}", rule.name))
+        })?;
+    }
+    for pattern in &config.exclude_patterns {
+        globset::Glob::new(pattern).map_err(|error| {
+            CoreError::InvalidInput(format!("Invalid privacy exclusion: {error}"))
+        })?;
+    }
+    Ok(())
+}
+
 impl Database {
     /// Persist a [`PrivacyConfig`] to the database.
     pub fn save_privacy_config(&self, config: &PrivacyConfig) -> Result<(), CoreError> {
+        validate_config(config)?;
         let json = serde_json::to_string(config)?;
-        let conn = self.conn();
-        conn.execute(
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let old = load_config_on(&tx)?;
+        let revoke =
+            config.enabled && redaction_fingerprint(&old)? != redaction_fingerprint(config)?;
+        tx.execute(
             "INSERT INTO privacy_config (key, value, updated_at)
              VALUES (?1, ?2, datetime('now'))
              ON CONFLICT(key) DO UPDATE SET value = excluded.value,
                                             updated_at = excluded.updated_at",
             params![PRIVACY_CONFIG_KEY, &json],
         )?;
+        if revoke {
+            // A privacy change revokes immutable references, including snapshots
+            // for files already removed. Delete snapshots AFTER deletion triggers
+            // run so old text cannot be archived back into the accessible corpus.
+            tx.execute(
+                "DELETE FROM entities WHERE id IN (SELECT entity_id FROM document_entities) AND NOT EXISTS(SELECT 1 FROM entity_links l WHERE l.evidence_doc_id IS NULL AND (l.source_entity_id=entities.id OR l.target_entity_id=entities.id))",
+                [],
+            )?;
+            tx.execute("UPDATE documents SET index_revision=lower(hex(randomblob(16))),title='',metadata='{}'", [])?;
+            tx.execute("DELETE FROM document_summaries", [])?;
+            tx.execute("DELETE FROM chunks", [])?;
+            tx.execute("DELETE FROM evidence_snapshots", [])?;
+            tx.execute(
+                "UPDATE knowledge_evidence SET locator_json='{}' WHERE document_id IS NOT NULL",
+                [],
+            )?;
+        }
+        tx.commit()?;
+        drop(conn);
+        if revoke {
+            crate::vector_store::notify_sync();
+        }
         Ok(())
     }
 
@@ -188,6 +260,255 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stricter_redaction_revokes_current_and_archived_evidence_before_rescan() {
+        use crate::{
+            ingest,
+            models::{SearchFilters, SearchQuery},
+            search,
+            sources::CreateSourceInput,
+        };
+        let folder = tempfile::tempdir().unwrap();
+        let current_path = folder.path().join("current.md");
+        let removed_path = folder.path().join("removed.md");
+        std::fs::write(
+            &current_path,
+            "# alice@example.com\nallowance privateCODE 500",
+        )
+        .unwrap();
+        std::fs::write(&removed_path, "allowance privateCODE removed").unwrap();
+        let db = Database::open_memory().unwrap();
+        let mut config = PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        db.save_privacy_config(&config).unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: folder.path().to_string_lossy().into(),
+                include_globs: vec!["**/*.md".into()],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        ingest::scan_source(&db, &source.id).unwrap();
+        let query = SearchQuery {
+            text: "allowance".into(),
+            filters: SearchFilters::default(),
+            limit: 20,
+            offset: 0,
+        };
+        let old_cards = search::search(&db, &query).unwrap().evidence_cards;
+        assert_eq!(old_cards.len(), 2);
+        let current_document = old_cards
+            .iter()
+            .find(|card| card.document_path.ends_with("current.md"))
+            .unwrap()
+            .document_id
+            .to_string();
+        let manual_a = uuid::Uuid::new_v4().to_string();
+        let manual_b = uuid::Uuid::new_v4().to_string();
+        let generated = uuid::Uuid::new_v4().to_string();
+        for entity in [&manual_a, &manual_b, &generated] {
+            db.conn()
+                .execute(
+                    "INSERT INTO entities(id,name,entity_type) VALUES(?1,?1,'concept')",
+                    [entity],
+                )
+                .unwrap();
+        }
+        db.conn().execute("INSERT INTO entity_links(id,source_entity_id,target_entity_id,relation_type,evidence_doc_id) VALUES(?1,?2,?3,'manual',NULL)", params![uuid::Uuid::new_v4().to_string(), manual_a, manual_b]).unwrap();
+        let research = crate::research_workspace::create(
+            &db,
+            crate::research_workspace::CreateResearchSet {
+                title: "Private comparison".into(),
+                questions: vec!["allowance".into()],
+                documents: vec![old_cards[0].evidence_ref.clone().unwrap()],
+            },
+        )
+        .unwrap();
+        let research =
+            crate::research_workspace::refresh(&db, &research.summary.id, |_, _| {}).unwrap();
+        crate::research_workspace::review(
+            &db,
+            crate::research_workspace::ReviewResearchCell {
+                set_id: research.summary.id.clone(),
+                document_id: research.documents[0].reference.document_id.to_string(),
+                question_index: 0,
+                expected_revision: research.summary.revision,
+                review_state: "needs_review".into(),
+                note: "Manually entered note".into(),
+            },
+        )
+        .unwrap();
+        std::fs::remove_file(&removed_path).unwrap();
+        std::fs::write(
+            &current_path,
+            "# alice@example.com\nallowance privateCODE 600",
+        )
+        .unwrap();
+        ingest::scan_source(&db, &source.id).unwrap();
+        assert!(old_cards.iter().all(|card| search::get_evidence_card(
+            &db,
+            &card.chunk_id.to_string()
+        )
+        .is_ok()));
+        // Model-generated membership belongs to the latest indexed revision;
+        // the earlier file update correctly invalidated previous membership.
+        for entity in [&manual_a, &generated] {
+            db.conn()
+                .execute(
+                    "INSERT INTO document_entities(document_id,entity_id) VALUES(?1,?2)",
+                    params![current_document, entity],
+                )
+                .unwrap();
+        }
+        config.enabled = true;
+        config.redact_patterns.push(RedactRule {
+            name: "code".into(),
+            pattern: "privateCODE".into(),
+            replacement: "[PRIVATE]".into(),
+        });
+        db.save_privacy_config(&config).unwrap();
+        assert!(db.get_entity_by_id(&manual_a).is_ok());
+        assert_eq!(db.get_entity_links(&manual_a).unwrap().len(), 1);
+        assert!(db.get_entity_by_id(&generated).is_err());
+        assert!(search::search(&db, &query)
+            .unwrap()
+            .evidence_cards
+            .is_empty());
+        let research = crate::research_workspace::get(&db, &research.summary.id).unwrap();
+        assert!(research.documents[0].cells[0].stale);
+        assert!(research.documents[0].cells[0].evidence.is_empty());
+        assert_eq!(research.documents[0].cells[0].note, "Manually entered note");
+        for card in old_cards {
+            assert!(search::get_evidence_card(&db, &card.chunk_id.to_string()).is_err());
+            assert!(
+                search::resolve_evidence_ref(&db, card.evidence_ref.as_ref().unwrap()).is_err()
+            );
+        }
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT COUNT(*) FROM evidence_snapshots", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        let result = ingest::scan_source(&db, &source.id).unwrap();
+        assert_eq!(result.files_updated, 1);
+        let cards = search::search(&db, &query).unwrap().evidence_cards;
+        assert_eq!(cards.len(), 1);
+        let encoded = serde_json::to_string(&cards[0]).unwrap();
+        assert!(!encoded.contains("privateCODE"));
+        assert!(!encoded.contains("alice@example.com"));
+        assert!(encoded.contains("[PRIVATE]"));
+        // Saving the same rules does not discard the rebuilt index or safe history.
+        std::fs::write(&current_path, "allowance privateCODE 700").unwrap();
+        ingest::scan_source(&db, &source.id).unwrap();
+        db.save_privacy_config(&config).unwrap();
+        assert!(search::resolve_evidence_ref(&db, cards[0].evidence_ref.as_ref().unwrap()).is_ok());
+        let mut invalid = config.clone();
+        invalid.redact_patterns[0].pattern = "[".into();
+        assert!(db.save_privacy_config(&invalid).is_err());
+        assert_eq!(
+            config_fingerprint(&db.load_privacy_config().unwrap()).unwrap(),
+            config_fingerprint(&config).unwrap()
+        );
+        assert!(search::resolve_evidence_ref(&db, cards[0].evidence_ref.as_ref().unwrap()).is_ok());
+        // A later additional rule revokes previously valid history too.
+        config.redact_patterns.push(RedactRule {
+            name: "amount".into(),
+            pattern: "600|700".into(),
+            replacement: "[AMOUNT]".into(),
+        });
+        db.save_privacy_config(&config).unwrap();
+        assert!(
+            search::resolve_evidence_ref(&db, cards[0].evidence_ref.as_ref().unwrap()).is_err()
+        );
+        assert!(db.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn a_scan_started_before_a_privacy_change_cannot_commit_its_old_policy() {
+        use crate::{ingest, sources::CreateSourceInput};
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(
+            folder.path().join("current.md"),
+            "contact alice@example.com",
+        )
+        .unwrap();
+        let db = Database::open_memory().unwrap();
+        db.save_privacy_config(&PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        })
+        .unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: folder.path().to_string_lossy().into(),
+                include_globs: vec!["**/*.md".into()],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        let switched = std::cell::Cell::new(false);
+        let result = ingest::scan_source_with_progress(&db, &source.id, |_| {
+            if !switched.replace(true) {
+                db.save_privacy_config(&PrivacyConfig::default()).unwrap();
+            }
+        });
+        assert!(switched.get());
+        assert!(matches!(result, Err(CoreError::Conflict(_))));
+        assert_eq!(
+            db.conn()
+                .query_row("SELECT COUNT(*) FROM chunks", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn explicit_scan_privacy_also_revokes_archives_from_removed_files() {
+        use crate::{ingest, models::SearchQuery, search, sources::CreateSourceInput};
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("removed.md");
+        std::fs::write(&path, "contact alice@example.com").unwrap();
+        let db = Database::open_memory().unwrap();
+        let disabled = PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        db.save_privacy_config(&disabled).unwrap();
+        let source = db
+            .add_source(CreateSourceInput {
+                root_path: folder.path().to_string_lossy().into(),
+                include_globs: vec!["**/*.md".into()],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        ingest::scan_source(&db, &source.id).unwrap();
+        let card = search::search(
+            &db,
+            &SearchQuery {
+                text: "contact".into(),
+                filters: Default::default(),
+                limit: 1,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .evidence_cards
+        .remove(0);
+        std::fs::remove_file(&path).unwrap();
+        ingest::scan_source(&db, &source.id).unwrap();
+        assert!(search::resolve_evidence_ref(&db, card.evidence_ref.as_ref().unwrap()).is_ok());
+        ingest::scan_source_with_privacy(&db, &source.id, Some(&PrivacyConfig::default())).unwrap();
+        assert!(search::resolve_evidence_ref(&db, card.evidence_ref.as_ref().unwrap()).is_err());
+        assert!(!db.load_privacy_config().unwrap().enabled);
+    }
 
     // -- Exclude patterns ---------------------------------------------------
 

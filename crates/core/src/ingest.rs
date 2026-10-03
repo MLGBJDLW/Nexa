@@ -33,10 +33,20 @@ pub struct IndexedDocument {
     pub content_hash: String,
     pub parser_profile: String,
     pub parsed_hash: String,
+    pub redaction_profile: String,
 }
 
 fn parsed_hash(parsed: &ParsedDocument) -> String {
     let mut hasher = blake3::Hasher::new();
+    hasher.update(parsed.title.as_bytes());
+    hasher.update(
+        parsed
+            .metadata
+            .get("redaction_profile")
+            .map(String::as_str)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     for chunk in &parsed.chunks {
         hasher.update(chunk.content.as_bytes());
         hasher.update(&[0]);
@@ -46,6 +56,13 @@ fn parsed_hash(parsed: &ParsedDocument) -> String {
                 .as_bytes(),
         );
         hasher.update(chunk.extraction_method.as_bytes());
+        hasher.update(
+            chunk
+                .heading_context
+                .as_deref()
+                .unwrap_or_default()
+                .as_bytes(),
+        );
     }
     for artifact in &parsed.visual_artifacts {
         hasher.update(artifact.to_chunk_content().as_bytes());
@@ -68,6 +85,76 @@ fn parser_profile(parsed: &ParsedDocument) -> &str {
         .get("parser_profile")
         .map(String::as_str)
         .unwrap_or(NATIVE_PARSER_PROFILE)
+}
+
+fn apply_privacy(
+    parsed: &mut ParsedDocument,
+    config: &PrivacyConfig,
+    stored_fingerprint: &str,
+) -> Result<(), CoreError> {
+    privacy::validate_config(config)?;
+    parsed.metadata.insert(
+        "privacy_config_fingerprint".into(),
+        stored_fingerprint.into(),
+    );
+    parsed.metadata.insert(
+        "redaction_profile".into(),
+        privacy::redaction_fingerprint(config)?,
+    );
+    parsed
+        .metadata
+        .insert("redaction_enabled".into(), config.enabled.to_string());
+    if config.enabled {
+        parsed.title = privacy::redact_content(&parsed.title, &config.redact_patterns);
+        for chunk in &mut parsed.chunks {
+            let content = privacy::redact_content(&chunk.content, &config.redact_patterns);
+            if content != chunk.content {
+                // Original byte counts cannot trim an altered redacted prefix.
+                chunk.overlap_start = 0;
+                chunk.content = content;
+            }
+            if let Some(heading) = &mut chunk.heading_context {
+                *heading = privacy::redact_content(heading, &config.redact_patterns);
+            }
+        }
+        crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
+            privacy::redact_content(value, &config.redact_patterns)
+        });
+    }
+    Ok(())
+}
+
+fn validate_privacy_at_commit(
+    conn: &rusqlite::Connection,
+    parsed: &ParsedDocument,
+) -> Result<(), CoreError> {
+    if let Some(expected) = parsed.metadata.get("privacy_config_fingerprint") {
+        if *expected != privacy::config_fingerprint(&privacy::load_config_on(conn)?)? {
+            return Err(CoreError::Conflict(
+                "Privacy settings changed while scanning; retry with the current rules".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn revoke_changed_redaction_history(
+    conn: &rusqlite::Connection,
+    doc_id: &str,
+    parsed: &ParsedDocument,
+) -> Result<(), CoreError> {
+    if parsed
+        .metadata
+        .get("redaction_enabled")
+        .is_some_and(|value| value == "true")
+    {
+        if let Some(profile) = parsed.metadata.get("redaction_profile") {
+            // Also cover explicit scan_source_with_privacy overrides, which need
+            // not change the globally saved configuration.
+            conn.execute("DELETE FROM evidence_snapshots WHERE document_id=?1 AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?2", params![doc_id, profile])?;
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -250,14 +337,19 @@ fn scan_source_inner(
     };
 
     // Resolve privacy config: explicit > stored > default.
-    let default_config;
-    let privacy_cfg = match privacy {
-        Some(cfg) => cfg,
-        None => {
-            default_config = db.load_privacy_config()?;
-            &default_config
+    let stored_config = db.load_privacy_config()?;
+    let stored_fingerprint = privacy::config_fingerprint(&stored_config)?;
+    let privacy_cfg = privacy.unwrap_or(&stored_config);
+    privacy::validate_config(privacy_cfg)?;
+    if privacy_cfg.enabled {
+        let conn = db.conn();
+        if stored_fingerprint != privacy::config_fingerprint(&privacy::load_config_on(&conn)?)? {
+            return Err(CoreError::Conflict(
+                "Privacy settings changed before scanning; retry with the current rules".into(),
+            ));
         }
-    };
+        conn.execute("DELETE FROM evidence_snapshots WHERE source_id=?1 AND COALESCE(json_extract(document_metadata,'$.redaction_profile'),'')!=?2", params![source_id, privacy::redaction_fingerprint(privacy_cfg)?])?;
+    }
 
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
@@ -428,6 +520,7 @@ fn scan_source_inner(
             file_path,
             &existing_docs,
             privacy_cfg,
+            &stored_fingerprint,
             ocr_config.as_ref(),
             #[cfg(feature = "video")]
             video_config.as_ref(),
@@ -605,6 +698,7 @@ pub fn batch_insert_documents(
     let tx = conn.transaction()?;
     let mut count = 0usize;
     for parsed in parsed_docs {
+        validate_privacy_at_commit(&tx, parsed)?;
         let doc_id = uuid::Uuid::new_v4().to_string();
         let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
@@ -642,8 +736,10 @@ pub fn batch_update_documents(
     let tx = conn.transaction()?;
     let mut count = 0usize;
     for (doc_id, parsed) in updates {
+        validate_privacy_at_commit(&tx, parsed)?;
         // Delete old chunks — FTS triggers fire automatically.
         tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
+        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
 
         // Update the document record.
         let metadata_json = parsed_metadata_json(parsed)?;
@@ -706,7 +802,7 @@ impl Database {
         let source = self.get_source(source_id)?;
         let conn = self.conn();
         let mut stmt =
-            conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id = ?1")?;
+            conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),''), COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id = ?1")?;
         let rows = stmt.query_map(params![source_id], |row| {
             Ok((
                 row.get::<_, String>(1)?,
@@ -714,13 +810,14 @@ impl Database {
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
             ))
         })?;
         let records = rows.collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
         drop(conn);
         let mut map = HashMap::new();
-        for (path, id, content_hash, parser_profile, parsed_hash) in records {
+        for (path, id, content_hash, parser_profile, parsed_hash, redaction_profile) in records {
             let key = relative_source_path(Path::new(&source.root_path), Path::new(&path))
                 .map(|relative| {
                     Path::new(&source.root_path)
@@ -734,6 +831,7 @@ impl Database {
                 content_hash,
                 parser_profile,
                 parsed_hash,
+                redaction_profile,
             });
         }
         Ok(map)
@@ -760,14 +858,15 @@ impl Database {
                 content_hash: row.get(1)?,
                 parser_profile: row.get(2)?,
                 parsed_hash: row.get(3)?,
+                redaction_profile: row.get(4)?,
             })
         };
-        let exact = self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], read).optional()?;
+        let exact = self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], read).optional()?;
         if exact.is_some() {
             return Ok(exact);
         }
         let aliases = serde_json::to_string(&document_path_aliases(path))?;
-        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
+        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
     }
 
     pub fn delete_document_in_source(
@@ -830,6 +929,8 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
+        validate_privacy_at_commit(&tx, parsed)?;
+
         let metadata_json = parsed_metadata_json(parsed)?;
         tx.execute(
             "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
@@ -862,8 +963,11 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
+        validate_privacy_at_commit(&tx, parsed)?;
+
         // Delete old chunks — FTS triggers fire automatically.
         tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
+        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
 
         // Update the document record.
         let metadata_json = parsed_metadata_json(parsed)?;
@@ -933,6 +1037,7 @@ fn classify_file(
     path: &Path,
     existing_docs: &HashMap<String, IndexedDocument>,
     privacy: &PrivacyConfig,
+    stored_fingerprint: &str,
     ocr_config: Option<&crate::ocr::OcrConfig>,
     #[cfg(feature = "video")] video_config: Option<&crate::video::VideoConfig>,
     #[cfg(feature = "video")] speech_config: Option<&crate::app_settings::SpeechToTextConfig>,
@@ -944,11 +1049,14 @@ fn classify_file(
     let file_path = path.to_string_lossy().to_string();
     #[cfg(feature = "video")]
     let known_content_hash = {
+        let redaction_profile = privacy::redaction_fingerprint(privacy)?;
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
             if existing_docs.get(&file_path).is_some_and(|existing| {
-                existing.content_hash == hash && existing.parser_profile == NATIVE_PARSER_PROFILE
+                existing.content_hash == hash
+                    && existing.parser_profile == NATIVE_PARSER_PROFILE
+                    && existing.redaction_profile == redaction_profile
             }) {
                 debug!("Skipping unchanged media before analysis: {}", file_path);
                 return Ok(FileClassification::Unchanged);
@@ -981,15 +1089,7 @@ fn classify_file(
         )?
     };
 
-    // Apply content redaction when privacy is enabled.
-    if privacy.enabled {
-        for chunk in &mut parsed.chunks {
-            chunk.content = privacy::redact_content(&chunk.content, &privacy.redact_patterns);
-        }
-        crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
-            privacy::redact_content(value, &privacy.redact_patterns)
-        });
-    }
+    apply_privacy(&mut parsed, privacy, stored_fingerprint)?;
 
     match existing_docs.get(&parsed.file_path) {
         Some(existing) => {
@@ -1168,6 +1268,8 @@ fn ingest_file(
     let stable_path = Path::new(&source.root_path).join(&relative);
     let path = stable_path.as_path();
     let privacy_cfg = db.load_privacy_config()?;
+    privacy::validate_config(&privacy_cfg)?;
+    let stored_fingerprint = privacy::config_fingerprint(&privacy_cfg)?;
     let includes = build_glob_set(&source.include_globs)?;
     let mut excludes = source.exclude_globs.clone();
     excludes.extend(privacy_cfg.exclude_patterns.iter().cloned());
@@ -1246,6 +1348,7 @@ fn ingest_file(
     let existing_document = db.get_document_in_source(source_id, &path_str)?;
     #[cfg(feature = "video")]
     let known_content_hash = {
+        let redaction_profile = privacy::redaction_fingerprint(&privacy_cfg)?;
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
@@ -1253,6 +1356,7 @@ fn ingest_file(
                 !force
                     && existing.content_hash == hash
                     && existing.parser_profile == NATIVE_PARSER_PROFILE
+                    && existing.redaction_profile == redaction_profile
             }) {
                 debug!("Single-file ingest: unchanged media before analysis {path_str}");
                 return Ok(IngestFileResult::Unchanged);
@@ -1296,15 +1400,7 @@ fn ingest_file(
         }
     };
 
-    // Apply content redaction when privacy is enabled.
-    if privacy_cfg.enabled {
-        for chunk in &mut parsed.chunks {
-            chunk.content = privacy::redact_content(&chunk.content, &privacy_cfg.redact_patterns);
-        }
-        crate::visual_document::redact_visual_artifacts(&mut parsed.visual_artifacts, |value| {
-            privacy::redact_content(value, &privacy_cfg.redact_patterns)
-        });
-    }
+    apply_privacy(&mut parsed, &privacy_cfg, &stored_fingerprint)?;
 
     // Clear any previous scan error on success.
     let _ = db.clear_scan_error(source_id, &path_str);
@@ -2122,6 +2218,8 @@ mod tests {
                 content_hash: hash,
                 parser_profile: NATIVE_PARSER_PROFILE.into(),
                 parsed_hash: String::new(),
+                redaction_profile: privacy::redaction_fingerprint(&PrivacyConfig::default())
+                    .unwrap(),
             },
         )]);
         let video = crate::video::VideoConfig {
@@ -2134,6 +2232,7 @@ mod tests {
             &path,
             &existing,
             &PrivacyConfig::default(),
+            &privacy::config_fingerprint(&PrivacyConfig::default()).unwrap(),
             Some(&crate::ocr::OcrConfig::default()),
             Some(&video),
             Some(&crate::app_settings::SpeechToTextConfig::default()),
