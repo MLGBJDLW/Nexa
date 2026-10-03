@@ -169,6 +169,17 @@ function normalizeRenderedSelection(text: string): string {
   return text.replace(/\r\n?/g, '\n');
 }
 
+function selectionFromTextarea(content: string, start: number, end: number, origin: TextSelectionState['origin']): TextSelectionState {
+  const sourceOffset = (offset: number) => {
+    let source = 0;
+    for (let displayed = 0; displayed < offset && source < content.length; displayed += 1) {
+      source += content[source] === '\r' && content[source + 1] === '\n' ? 2 : 1;
+    }
+    return source;
+  };
+  return { start: sourceOffset(start), end: sourceOffset(end), origin };
+}
+
 function isOfficeDocumentPreview(preview: api.FilePreview): boolean {
   return ['.docx', '.pptx', '.xlsx'].includes(preview.extension.toLowerCase());
 }
@@ -502,14 +513,14 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (agentPreviewRequest.current !== request.requestId) throw new Error('The preview request was cancelled.');
     if (request.line && next.content != null) {
       const deadline = performance.now() + 5_000;
-      while (!textPreview.current || textPreview.current.value !== next.content) {
+      while (!textPreview.current || textPreview.current.value !== normalizeRenderedSelection(next.content)) {
         if (agentPreviewRequest.current !== request.requestId || performance.now() > deadline) throw new Error('The text preview did not become ready.');
         await new Promise(resolve => setTimeout(resolve, 25));
       }
-      const lines = next.content.split('\n');
+      const lines = textPreview.current.value.split('\n');
       const line = Math.min(request.line, lines.length);
       const start = lines.slice(0, line - 1).reduce((sum, text) => sum + text.length + 1, 0);
-      setTextSelection({ start, end: start + (lines[line - 1]?.length ?? 0), origin: 'preview' });
+      setTextSelection(selectionFromTextarea(next.content, start, start + (lines[line - 1]?.length ?? 0), 'preview'));
       if (textPreview.current) {
         textPreview.current.focus(); textPreview.current.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
         textPreview.current.scrollTop = Math.max(0, line - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
@@ -540,14 +551,15 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const locator = previewLocation?.locator;
     if (mode !== 'text' || locator?.kind !== 'text' || !preview?.content || !textPreview.current) return;
-    const lines = preview.content.split('\n');
+    const displayed = textPreview.current.value;
+    const lines = displayed.split('\n');
     if (locator.lineStart > lines.length) { setError(t('citation.previewLocationMissing')); return; }
     const start = lines.slice(0, locator.lineStart - 1).reduce((sum, line) => sum + line.length + 1, 0);
-    const end = Math.min(preview.content.length, start + lines.slice(locator.lineStart - 1, locator.lineEnd).join('\n').length);
+    const end = Math.min(displayed.length, start + lines.slice(locator.lineStart - 1, locator.lineEnd).join('\n').length);
     textPreview.current.focus();
     textPreview.current.setSelectionRange(start, end);
     textPreview.current.scrollTop = Math.max(0, locator.lineStart - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
-    setTextSelection({ start, end, origin: 'preview' });
+    setTextSelection(selectionFromTextarea(preview.content, start, end, 'preview'));
   }, [previewLocation, preview, mode, t]);
 
   const openWebLink = useCallback((url: string, title?: string) => {
@@ -644,8 +656,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [dirty, draft, labels.reindexFailed, labels.saveFailed, labels.saved, preview]);
 
   const selectedText = useMemo(
-    () => getSelectionSummary(draft, textSelection),
-    [draft, textSelection],
+    () => getSelectionSummary(textSelection?.origin === 'preview' && mode === 'text' ? preview?.content ?? '' : draft, textSelection),
+    [draft, textSelection, mode, preview?.content],
   );
 
   const quickActions = useMemo(
@@ -686,9 +698,10 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setCopiedAgentRequest(false);
       return;
     }
-    setTextSelection({ start, end, origin: 'editor' });
+    const original = target.readOnly ? preview?.content ?? '' : draft;
+    setTextSelection(selectionFromTextarea(original, start, end, target.readOnly ? 'preview' : 'editor'));
     setCopiedAgentRequest(false);
-  }, []);
+  }, [draft, preview?.content]);
 
   const captureRenderedSelection = useCallback(() => {
     if (!preview || !draft) return;
@@ -696,15 +709,16 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     const selected = normalizeRenderedSelection(raw);
     if (!selected.trim()) return;
 
-    const start = draft.indexOf(selected);
-    if (start < 0) {
+    const normalized = normalizeRenderedSelection(draft);
+    const start = normalized.indexOf(selected);
+    if (start < 0 || normalized.lastIndexOf(selected) !== start) {
       setTextSelection(null);
       setCopiedAgentRequest(false);
       toast.info(labels.selectionMapFailed);
       return;
     }
 
-    setTextSelection({ start, end: start + selected.length, origin: 'preview' });
+    setTextSelection(selectionFromTextarea(draft, start, start + selected.length, 'preview'));
     setCopiedAgentRequest(false);
   }, [draft, labels.selectionMapFailed, preview]);
 

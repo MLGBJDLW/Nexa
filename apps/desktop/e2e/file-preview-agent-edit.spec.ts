@@ -620,6 +620,26 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test('CRLF preview selects the requested line and preserves exact text in agent handoff',async({page})=>{
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(()=>{
+    const runtime=(window as any).__TAURI_INTERNALS__;
+    const original=runtime.invoke;
+    runtime.invoke=async(command:string,args:unknown)=>{
+      const result=await original(command,args);
+      return command==='preview_file_cmd' ? {...result,content:'---\r\ntitle: Fixture\r\n---\r\nfirst\r\nANCHOR\r\nlast',lineCount:6} : result;
+    };
+    (window as any).__emitAgentPreview('crlf-line','D:\\Vault\\notes\\agent-edit.md',5);
+  });
+  const text=page.getByTestId('file-preview-text-view');
+  await expect.poll(()=>text.evaluate(node=>{const input=node as HTMLTextAreaElement;return input.value.slice(input.selectionStart,input.selectionEnd);})).toBe('ANCHOR');
+  await expect.poll(()=>page.evaluate(()=>(window as any).__previewAcks[0]?.receipt?.displayMode)).toBe('text');
+  await page.getByTestId('file-preview-agent-instruction').fill('Clarify the selected word.');
+  await page.getByTestId('file-preview-agent-send').click();
+  await expect.poll(()=>page.evaluate(()=>window.__lastAgentPrompt??'')).toContain('Line range: 5');
+  expect(await page.evaluate(()=>window.__lastAgentPrompt??'')).toMatch(/\nANCHOR\n/);
+});
+
 test('opens an agent-requested preview once and acknowledges the actual line selection',async({page})=>{
   await page.goto('/chat/conv-agent-edit');
   await page.evaluate(()=>{
