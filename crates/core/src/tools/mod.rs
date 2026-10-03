@@ -991,6 +991,24 @@ impl ToolRegistry {
     /// Build a filtered registry preserving the original tool order.
     pub fn filtered(&self, allowed_names: &[String]) -> ToolRegistry {
         let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
+        let mut registry = ToolRegistry {
+            file_change_owner: self.file_change_owner.clone(),
+            workspace: self.workspace.clone(),
+            workspace_rules: Arc::clone(&self.workspace_rules),
+            ..ToolRegistry::new()
+        };
+        for tool in &self.tools {
+            if allowed.contains(tool.name()) {
+                registry.register_shared(Arc::clone(tool));
+            }
+        }
+        registry
+    }
+
+    /// Narrow an execution allowlist while retaining its rule-control dependency.
+    /// Plain filtering stays exact for package authority and prompt projections.
+    pub fn filtered_for_execution(&self, allowed_names: &[String]) -> ToolRegistry {
+        let allowed: HashSet<&str> = allowed_names.iter().map(String::as_str).collect();
         // Rule acknowledgement is a prerequisite of scoped filesystem/process
         // tools. Keep that read-only control available to narrowed workers;
         // otherwise their first guarded mutation can never be retried.
@@ -1004,18 +1022,11 @@ impl ToolRegistry {
                     )
                 })
         });
-        let mut registry = ToolRegistry {
-            file_change_owner: self.file_change_owner.clone(),
-            workspace: self.workspace.clone(),
-            workspace_rules: Arc::clone(&self.workspace_rules),
-            ..ToolRegistry::new()
-        };
-        for tool in &self.tools {
-            if allowed.contains(tool.name()) || (needs_rules && tool.name() == "workspace_rules") {
-                registry.register_shared(Arc::clone(tool));
-            }
+        let mut names = allowed_names.to_vec();
+        if needs_rules && self.contains("workspace_rules") && !allowed.contains("workspace_rules") {
+            names.push("workspace_rules".into());
         }
-        registry
+        self.filtered(&names)
     }
 
     /// Build a filtered registry excluding the provided tool names.

@@ -207,7 +207,7 @@ pub(super) fn build_subagent_executor_tools(
 ) -> Result<ToolRegistry, CoreError> {
     Ok(runtime
         .get_tool_registry()?
-        .filtered(allowed_tool_names)
+        .filtered_for_execution(allowed_tool_names)
         .without_names(SUBAGENT_INTERACTIVE_SURFACE_TOOLS)
         .without_names(&[
             "spawn_subagent",

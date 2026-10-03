@@ -186,10 +186,16 @@ mod tests {
         registry.register(Box::new(Writer(count.clone())));
         registry.register(Box::new(Reader));
         registry.register(Box::new(WorkspaceRulesTool));
+        assert!(
+            !registry
+                .filtered(&["create_file".into()])
+                .contains("workspace_rules"),
+            "package and prompt projections must remain exact"
+        );
         let filtered = registry
             .clone()
             .with_workspace(None)
-            .filtered(&["create_file".into()])
+            .filtered_for_execution(&["create_file".into()])
             .with_workspace(Some(workspace));
         assert!(
             filtered.contains("workspace_rules"),
