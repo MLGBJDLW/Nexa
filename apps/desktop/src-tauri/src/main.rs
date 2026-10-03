@@ -562,6 +562,9 @@ fn main() {
 
             let db_path = data_dir.join("nexa.db");
             let db = Database::new(&db_path).expect("failed to initialize database");
+            if let Err(error) = db.recover_project_hook_runs() {
+                tracing::warn!(%error, "Could not recover interrupted project hooks");
+            }
             if let Err(error) = db.recover_pending_file_changes() {
                 log::warn!("Could not settle file changes interrupted by the previous process: {error}");
             }
@@ -884,6 +887,9 @@ fn main() {
             commands::list_project_memories_cmd,
             commands::get_project_workspace_cmd,
             commands::get_project_rules_cmd,
+            commands::get_project_hooks_cmd,
+            commands::save_project_hook_cmd,
+            commands::delete_project_hook_cmd,
             commands::get_project_narrative_cmd,
             commands::get_companion_projection_cmd,
             commands::scan_companion_packs_cmd,

@@ -93,6 +93,7 @@ pub mod policy_engine;
 pub mod preview;
 pub mod privacy;
 pub mod project;
+pub mod project_hooks;
 pub mod project_memory;
 pub mod project_runtime;
 pub mod protocol_exports;

@@ -1055,6 +1055,29 @@ impl ExternalToolSession {
         text: &str,
         intermediate: bool,
     ) -> Result<PersistedAssistantMessage, CoreError> {
+        if !intermediate {
+            let source_scope = self
+                .input
+                .db
+                .get_effective_conversation_source_scope(&self.input.conversation_id)?;
+            if let Some(blocker) =
+                crate::project_hooks::completion_blocker(&crate::project_hooks::HookContext {
+                    db: &self.input.db,
+                    tools: &self.input.tools,
+                    workspace: self.input.tools.workspace(),
+                    source_scope: &source_scope,
+                    conversation_id: Some(&self.input.conversation_id),
+                    turn_id: Some(&self.input.turn_id),
+                    cancel: &self.input.cancellation,
+                    plan_mode: self.input.config.execution_mode.is_plan(),
+                    isolated: false,
+                    approval_mode: self.input.config.tool_approval_mode,
+                })
+                .await?
+            {
+                return Err(CoreError::Agent(blocker));
+            }
+        }
         let mut state = self.state.lock().await;
         if !intermediate
             && state

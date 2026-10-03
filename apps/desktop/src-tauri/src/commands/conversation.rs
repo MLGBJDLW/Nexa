@@ -9,6 +9,50 @@ use nexa_core::package_host::{
 // ── Project Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
+pub async fn get_project_hooks_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+) -> Result<serde_json::Value, String> {
+    state.db_executor.read(move |db| {
+        let project = db.get_project(&project_id)?;
+        let workspace = nexa_core::workspace::Workspace { roots: project.workspace_roots.unwrap_or_default() };
+        Ok(serde_json::json!({
+            "hooks": db.project_hooks(&project_id)?,
+            "runs": db.project_hook_runs(&project_id)?,
+            "catalog": nexa_core::tools::project_tool::workspace_project_tool_catalog(db, &workspace)?,
+        }))
+    }).await.map(|result| result.value).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_project_hook_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    hook: nexa_core::project_hooks::ProjectHook,
+) -> Result<nexa_core::project_hooks::ProjectHook, String> {
+    state
+        .db_executor
+        .write(move |db| db.save_project_hook(&project_id, hook))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_project_hook_cmd(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    id: String,
+) -> Result<(), String> {
+    state
+        .db_executor
+        .write(move |db| db.delete_project_hook(&project_id, &id))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_project_rules_cmd(
     state: tauri::State<'_, AppState>,
     project_id: String,

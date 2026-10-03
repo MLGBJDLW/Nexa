@@ -1,5 +1,50 @@
 import { expect, test } from './timeline-test';
 
+test('project checks require explicit enablement and expose receipts through hooks command', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  await page.getByTestId('chat-input-textarea').waitFor();
+  await page.evaluate(() => {
+    const state = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __hookSaves: unknown[] };
+    state.__hookSaves = [];
+    const original = state.__TAURI_INTERNALS__.invoke;
+    let hooks: Array<Record<string, unknown>> = [];
+    state.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === 'get_project_hooks_cmd') return {
+        hooks, runs: hooks.length ? [{ id:'run-1',event:'before_complete',status:'failed',detail:'check: test assertions failed',createdAt:'2026-10-03 08:00:00' }] : [],
+        catalog: { errors:[],tools:[{ name:'check',manifestHash:'a'.repeat(64),commandPreview:'npm test',runnable:true,warnings:[] }] },
+      };
+      if (command === 'save_project_hook_cmd') {
+        state.__hookSaves.push(args);
+        const hook = { ...(args?.hook as Record<string, unknown>),id:'hook-1' }; hooks = [hook]; return hook;
+      }
+      if (command === 'delete_project_hook_cmd') { hooks = []; return null; }
+      return original(command, args);
+    };
+  });
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep this draft');
+  await page.keyboard.press('Control+Shift+P');
+  const palette = page.getByRole('dialog', { name:/command palette/i });
+  await palette.getByRole('combobox').fill('Project checks');
+  await palette.getByRole('option', { name:'Project checks',exact:true }).click();
+  const panel = page.getByTestId('project-hooks-panel');
+  await panel.getByRole('combobox', { name:'Project tool',exact:true }).selectOption(`check:${'a'.repeat(64)}`);
+  await expect(panel).toContainText('npm test');
+  expect(await page.evaluate(() => (window as unknown as { __hookSaves: unknown[] }).__hookSaves)).toEqual([]);
+  await panel.getByRole('button', { name:'Enable check',exact:true }).click();
+  await expect(panel.getByRole('button', { name:'Disable',exact:true })).toBeVisible();
+  await panel.locator('summary').click();
+  await expect(panel).toContainText('check: test assertions failed');
+  await page.screenshot({ path:testInfo.outputPath('project-checks.png') });
+  await panel.getByRole('button', { name:'Disable',exact:true }).click();
+  await expect(panel).toContainText('Disabled');
+  await page.keyboard.press('Escape'); await expect(input).toHaveValue('Keep this draft');
+  await input.fill('/hooks'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
+  const saves = await page.evaluate(() => (window as unknown as { __hookSaves:Array<{ projectId:string;hook:{enabled:boolean;manifestHash:string;event:string} }> }).__hookSaves);
+  expect(saves.map(save => save.hook.enabled)).toEqual([true,false]);
+  expect(saves.every(save => save.projectId === 'project-legacy' && save.hook.manifestHash === 'a'.repeat(64) && save.hook.event === 'before_complete')).toBe(true);
+});
+
 test('project file rules share a local command and inspector without changing the draft', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-active');
   await page.getByTestId('chat-input-textarea').waitFor();

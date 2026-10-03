@@ -218,7 +218,7 @@ impl Tool for ProjectTool {
                 describe_project_tool(call_id, source_scope, &args, &file_policy)
             }
             ProjectToolAction::Run => {
-                run_project_tool(call_id, source_scope, args, &file_policy).await
+                run_project_tool(call_id, source_scope, args, &file_policy, None).await
             }
         }
     }
@@ -262,6 +262,88 @@ pub fn list_project_tool_catalog(
 ) -> Result<ProjectToolCatalog, CoreError> {
     let file_policy = file_access_policy(db, source_scope)?;
     catalog_from_policy(&file_policy)
+}
+
+pub fn workspace_project_tool_catalog(
+    db: &Database,
+    workspace: &crate::workspace::Workspace,
+) -> Result<ProjectToolCatalog, CoreError> {
+    let mut context = super::ToolExecutionContext::new("hook-catalog", "{}", db, &[]);
+    context.workspace = Some(workspace);
+    catalog_from_policy(&super::file_access_policy_for_context(&context)?)
+}
+
+pub(crate) fn validate_project_hook(
+    db: &Database,
+    workspace: &crate::workspace::Workspace,
+    name: &str,
+    manifest_hash: &str,
+    arguments: &Value,
+) -> Result<(), CoreError> {
+    let mut context = super::ToolExecutionContext::new("hook-validation", "{}", db, &[]);
+    context.workspace = Some(workspace);
+    let policy = super::file_access_policy_for_context(&context)?;
+    let record = find_unique_project_tool(&policy, name)?;
+    if !manifest_hash_matches(&record.manifest_hash, manifest_hash) {
+        return Err(CoreError::InvalidInput(
+            "The hook command changed. Review and enable its current version again.".into(),
+        ));
+    }
+    if !record.manifest.access.execute {
+        return Err(CoreError::InvalidInput(
+            "The project tool does not allow execution.".into(),
+        ));
+    }
+    let command = record
+        .manifest
+        .command
+        .as_ref()
+        .ok_or_else(|| CoreError::InvalidInput("The project tool has no command.".into()))?;
+    expand_command_args(&command.args, arguments)?;
+    resolve_command_cwd(&record.source_root, command.cwd.as_deref())?;
+    Ok(())
+}
+
+pub(crate) async fn execute_project_hook(
+    context: &super::ToolExecutionContext<'_>,
+    name: &str,
+    manifest_hash: &str,
+    arguments: Value,
+    event: Value,
+) -> Result<ToolResult, CoreError> {
+    let policy = super::file_access_policy_for_context(context)?;
+    let paths = policy
+        .sources
+        .iter()
+        .map(|source| PathBuf::from(&source.root_path))
+        .collect::<Vec<_>>();
+    let cwd = paths
+        .first()
+        .cloned()
+        .ok_or_else(|| CoreError::InvalidInput("Project hook has no workspace.".into()))?;
+    let call_id = context.call_id.to_string();
+    let source_scope = context.source_scope.to_vec();
+    let args = ProjectToolArgs {
+        action: ProjectToolAction::Run,
+        name: Some(name.into()),
+        manifest_hash: Some(manifest_hash.into()),
+        arguments,
+    };
+    let cancel = context
+        .cancel_token
+        .cloned()
+        .unwrap_or_default()
+        .child_token();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    let work_cancel = cancel.clone();
+    let work_call_id = call_id.clone();
+    super::run_shell_tool::execute_tracked_command(paths, cwd, crate::turn_file_changes::FileChangeScope::from_context(context), call_id, cancel, async move {
+        tokio::select! {
+            biased;
+            _ = work_cancel.cancelled() => Err(CoreError::Agent("Project hook cancelled".into())),
+            result = run_project_tool(&work_call_id, &source_scope, args, &policy, Some(event)) => result,
+        }
+    }).await
 }
 
 fn catalog_from_policy(
@@ -360,6 +442,7 @@ async fn run_project_tool(
     source_scope: &[String],
     args: ProjectToolArgs,
     file_policy: &super::FileAccessPolicy,
+    hook_event: Option<Value>,
 ) -> Result<ToolResult, CoreError> {
     let name = required_tool_name(&args)?;
     let record = find_unique_project_tool(file_policy, name)?;
@@ -374,6 +457,11 @@ async fn run_project_tool(
     let command = record.manifest.command.as_ref().ok_or_else(|| {
         CoreError::InvalidInput(format!("Project tool '{name}' does not define a command."))
     })?;
+    if !record.manifest.access.execute {
+        return Err(CoreError::InvalidInput(format!(
+            "Project tool '{name}' does not allow execution."
+        )));
+    }
     let command_args = expand_command_args(&command.args, &args.arguments)?;
     let cwd = resolve_command_cwd(&record.source_root, command.cwd.as_deref())?;
     let timeout_secs = command
@@ -396,6 +484,12 @@ async fn run_project_tool(
         Vec::new()
     };
     execution_request.sandbox.capture_file_changes = record.manifest.access.write;
+    if let Some(event) = hook_event {
+        execution_request.environment.push((
+            "NEXA_HOOK_EVENT_JSON".into(),
+            serde_json::to_string(&event)?,
+        ));
+    }
     let execution_artifact = environment.execute(execution_request).await?;
     if execution_artifact.timed_out {
         let output = ToolOutput::text(format!(
@@ -806,7 +900,14 @@ fn truncate_output(text: String) -> (String, bool) {
 }
 
 fn display_path(path: &Path) -> String {
-    path.display().to_string().replace('\\', "/")
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    let value = if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
+    };
+    value.replace('\\', "/")
 }
 
 #[cfg(test)]

@@ -20,6 +20,19 @@ pub use tool_impl::{
     managed_loopback_permits, ManagedLoopbackPermit, ManagedLoopbackPermitIssuer, RunShellTool,
 };
 
+pub(crate) async fn execute_tracked_command<R: Send + 'static>(
+    paths: Vec<std::path::PathBuf>,
+    cwd: std::path::PathBuf,
+    scope: Option<crate::turn_file_changes::FileChangeScope>,
+    call_id: String,
+    cancel: tokio_util::sync::CancellationToken,
+    work: impl std::future::Future<Output = Result<R, crate::error::CoreError>> + Send + 'static,
+) -> Result<R, crate::error::CoreError> {
+    file_tracking::execute_tracked_native(paths, cwd, scope, call_id, cancel, work)
+        .await
+        .map(|(value, _)| value)
+}
+
 pub(crate) fn uses_managed_background(parsed_args: &serde_json::Value) -> bool {
     let Ok(parsed) = serde_json::from_value::<parser::RunShellArgs>(parsed_args.clone()) else {
         return false;
