@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "Intervalo de indexación",
   "placeholder": "Buscar por palabra clave...",
   "fts": "Texto completo",
   "hybrid": "Híbrida",

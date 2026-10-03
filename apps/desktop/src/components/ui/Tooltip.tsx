@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react';
+import { useState, useRef, useId, useCallback, useEffect, useLayoutEffect, cloneElement, isValidElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOverlayRoot } from './overlay/OverlayProvider';
@@ -12,6 +12,7 @@ interface TooltipProps {
 
 export function Tooltip({ content, children, side = 'top', delay = 300 }: TooltipProps) {
   const overlayRoot = useOverlayRoot();
+  const tooltipId = useId();
   const [show, setShow] = useState(false);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -32,6 +33,7 @@ export function Tooltip({ content, children, side = 'top', delay = 300 }: Toolti
   }, [side]);
 
   const handleEnter = useCallback(() => {
+    clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       updatePosition();
       setShow(true);
@@ -42,6 +44,8 @@ export function Tooltip({ content, children, side = 'top', delay = 300 }: Toolti
     clearTimeout(timerRef.current);
     setShow(false);
   }, []);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   useLayoutEffect(() => {
     if (show) updatePosition();
@@ -62,6 +66,8 @@ export function Tooltip({ content, children, side = 'top', delay = 300 }: Toolti
     <AnimatePresence>
       {show && position && (
         <motion.div
+          id={tooltipId}
+          role="tooltip"
           initial={{
             opacity: 0,
             x: side === 'right' ? -4 : side === 'left' ? 4 : 0,
@@ -103,9 +109,18 @@ export function Tooltip({ content, children, side = 'top', delay = 300 }: Toolti
       ref={triggerRef}
       className="inline-flex"
       onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onMouseLeave={() => {
+        if (!triggerRef.current?.contains(document.activeElement)) handleLeave();
+      }}
+      onFocus={handleEnter}
+      onBlur={handleLeave}
+      onKeyDown={(event) => { if (event.key === 'Escape') handleLeave(); }}
     >
-      {children}
+      {isValidElement<{ 'aria-describedby'?: string }>(children)
+        ? cloneElement(children, {
+            'aria-describedby': [children.props['aria-describedby'], show ? tooltipId : undefined].filter(Boolean).join(' ') || undefined,
+          })
+        : children}
       {typeof document !== 'undefined' ? createPortal(tooltip, overlayRoot ?? document.body) : null}
     </div>
   );

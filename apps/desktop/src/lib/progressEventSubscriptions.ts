@@ -1,7 +1,8 @@
 import { listen } from '@tauri-apps/api/event';
 import { progressStore } from './progressStore';
 import type { CompileProgress } from './progressStore';
-import type { DownloadProgress, ScanProgress, BatchProgress, FtsProgress } from '../types/ingest';
+import type { DownloadProgress, ScanProgress, BatchProgress, FtsProgress, KnowledgeJob } from '../types/ingest';
+import { listKnowledgeJobs } from './api';
 import type { OcrDownloadProgress } from '../types/ocr';
 import type { VideoDownloadProgress, FfmpegDownloadProgress } from '../types/video';
 import type { ProcessingPhase } from '../components/media/VideoProcessingProgress';
@@ -38,6 +39,17 @@ export function progressEventSubscriptions(): EventSubscription[] {
   });
 
   // Scan / batch
+  subscriptions.push(async (isActive) => {
+    const unlisten = await listen<KnowledgeJob>('knowledge:job', (event) => {
+      if (isActive()) progressStore.mergeKnowledgeJobs([event.payload]);
+    });
+    // Listen before snapshot; revisions reject older snapshots racing live events.
+    const beforeSnapshot = progressStore.getState().knowledgeJobs;
+    void listKnowledgeJobs().then((jobs) => {
+      if (isActive() && Array.isArray(jobs)) progressStore.mergeKnowledgeJobs(jobs, beforeSnapshot);
+    }).catch(() => undefined);
+    return unlisten;
+  });
   reg<ScanProgress>('source:scan-progress', (p) => {
     progressStore.update('scanProgress', p);
   });

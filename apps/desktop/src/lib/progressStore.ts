@@ -4,7 +4,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import type { DownloadProgress, ScanProgress, BatchProgress, FtsProgress } from '../types/ingest';
+import type { DownloadProgress, ScanProgress, BatchProgress, FtsProgress, KnowledgeJob } from '../types/ingest';
 import type { OcrDownloadProgress } from '../types/ocr';
 import type { VideoDownloadProgress, FfmpegDownloadProgress } from '../types/video';
 import type { ProcessingPhase } from '../components/media/VideoProcessingProgress';
@@ -26,6 +26,7 @@ export interface VideoProcessingState {
 }
 
 export interface ProgressState {
+  knowledgeJobs: KnowledgeJob[];
   // Model downloads
   modelDownload: DownloadProgress | null;
   ocrDownload: OcrDownloadProgress | null;
@@ -51,6 +52,7 @@ type Listener = () => void;
 
 function createDefaultState(): ProgressState {
   return {
+    knowledgeJobs: [],
     modelDownload: null,
     ocrDownload: null,
     videoDownload: null,
@@ -74,6 +76,22 @@ function notify(): void {
 }
 
 export const progressStore = {
+  mergeKnowledgeJobs(jobs: KnowledgeJob[], beforeSnapshot?: KnowledgeJob[]): void {
+    const merged = new Map(state.knowledgeJobs.map((job) => [job.id, job]));
+    if (beforeSnapshot) {
+      const present = new Set(jobs.map((job) => job.id));
+      for (const previous of beforeSnapshot) {
+        if (!present.has(previous.id) && merged.get(previous.id)?.revision === previous.revision) merged.delete(previous.id);
+      }
+    }
+    for (const job of jobs) {
+      if (job.revision > (merged.get(job.id)?.revision ?? 0)) merged.set(job.id, job);
+    }
+    state = { ...state, knowledgeJobs: [...merged.values()]
+      .sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.startedAt.localeCompare(a.startedAt))
+      .slice(0, 100) };
+    notify();
+  },
   getState(): ProgressState {
     return state;
   },

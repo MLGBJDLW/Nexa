@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "Période d’indexation",
   "placeholder": "Rechercher par mot-clé...",
   "fts": "Texte intégral",
   "hybrid": "Hybride",

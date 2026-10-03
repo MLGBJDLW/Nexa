@@ -223,6 +223,18 @@ export const scanSource = (sourceId: string) =>
 export const scanAllSources = () =>
   invoke<IngestResult[]>("scan_all_sources");
 
+export const listKnowledgeJobs = () => invoke<import('../types/ingest').KnowledgeJob[]>('list_knowledge_jobs');
+export const getSourceIndexHealth = () => invoke<import('../types/ingest').SourceIndexHealth[]>('get_source_index_health');
+export interface KnowledgeServicesConfig { rerankerUrl: string; parserUrl: string; rerankerTimeoutMs: number; parserTimeoutSeconds: number; maxCandidates: number }
+export const getKnowledgeServicesConfig = () => invoke<KnowledgeServicesConfig>('get_knowledge_services_config');
+export const saveKnowledgeServicesConfig = (config: KnowledgeServicesConfig) => invoke<void>('save_knowledge_services_config', { config });
+export const listResearchSets = () => invoke<import('../types/research').ResearchSetSummary[]>('list_research_sets');
+export const getResearchSet = (id: string) => invoke<import('../types/research').ResearchSet>('get_research_set', { id });
+export const createResearchSet = (input: { title: string; questions: string[]; documents: import('../types/evidence').EvidenceRef[] }) => invoke<import('../types/research').ResearchSet>('create_research_set', { input });
+export const refreshResearchSet = (id: string) => invoke<import('../types/research').ResearchSet>('refresh_research_set', { id });
+export const reviewResearchCell = (input: { setId: string; documentId: string; questionIndex: number; expectedRevision: number; reviewState: string; note: string }) => invoke<import('../types/research').ResearchSet>('review_research_cell', { input });
+export const deleteResearchSet = (id: string) => invoke<void>('delete_research_set', { id });
+
 export const getScanErrors = (sourceId: string) =>
   invoke<ScanError[]>('get_scan_errors_cmd', { sourceId });
 
@@ -237,8 +249,11 @@ export const clearScanError = (sourceId: string, path: string) =>
 export const search = (queryText: string, limit?: number, offset?: number, filters?: SearchFilters) =>
   invoke<SearchResult>("search", { queryText, limit, offset, filters });
 
-export const getEvidenceCard = (chunkId: string) =>
-  invoke<EvidenceCard>("get_evidence_card", { chunkId });
+export const getEvidenceCard = (chunkId: string, reference?: import('../types/evidence').EvidenceRef) =>
+  reference ? invoke<EvidenceCard>('resolve_evidence_ref', { reference }) : invoke<EvidenceCard>("get_evidence_card", { chunkId });
+
+export const getEvidenceContext = (reference: import('../types/evidence').EvidenceRef) => invoke<import('../types/evidence').EvidenceContext>('get_evidence_context', { reference });
+export const getDocumentOutline = (reference: import('../types/evidence').EvidenceRef, afterIndex?: number | null) => invoke<import('../types/evidence').DocumentOutline>('get_document_outline', { reference, afterIndex });
 
 export const getEvidenceCards = (chunkIds: string[]) =>
   invoke<EvidenceCard[]>('get_evidence_cards', { chunkIds });
@@ -779,6 +794,8 @@ export interface WorkbookPreviewLimits {
 export interface WorkbookPreviewSheet {
   name: string;
   index: number;
+  startRow?: number;
+  startColumn?: number;
   rowCount: number;
   columnCount: number;
   previewRowCount: number;
@@ -843,10 +860,11 @@ export interface WorkflowCatalogTemplate {
   tasks: WorkflowCatalogTask[];
 }
 
-export const previewFile = (path: string, conversationId?: string) =>
+export const previewFile = (path: string, conversationId?: string, verifyContentHash = false) =>
   invoke<FilePreview>('preview_file_cmd', {
     path,
     conversationId: conversationId ?? null,
+    ...(verifyContentHash ? { verifyContentHash: true } : {}),
   });
 
 export const saveTextFile = (

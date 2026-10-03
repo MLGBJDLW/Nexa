@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
@@ -24,6 +24,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../lib/api';
 import type { Source, ScanError, IngestResult, EmbedResult } from '../types';
 import type { MediaRuntimeStatus } from '../types/video';
+import type { SourceIndexHealth } from '../types/ingest';
 import { useProgress, progressStore } from '../lib/progressStore';
 import { useTranslation } from '../i18n';
 import type { TranslationKeys } from '../i18n/types';
@@ -137,10 +138,13 @@ export function SourcesPage() {
   );
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
-  const [scanningId, setScanningId] = useState<string | null>(null);
-  const [scanningAll, setScanningAll] = useState(false);
-  const [embeddingId, setEmbeddingId] = useState<string | null>(null);
-  const [rebuildingEmbeddings, setRebuildingEmbeddings] = useState(false);
+  const [indexHealth, setIndexHealth] = useState<SourceIndexHealth[]>([]);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
+  const [pendingScanId, setScanningId] = useState<string | null>(null);
+  const [pendingScanAll, setScanningAll] = useState(false);
+  const [pendingEmbedId, setEmbeddingId] = useState<string | null>(null);
+  const [pendingRebuild, setRebuildingEmbeddings] = useState(false);
   const [indexingIds, setIndexingIds] = useState<Set<string>>(new Set());
   // Progressive disclosure: remember which cards the user has manually expanded.
   // Actively-scanning cards auto-expand in the render path regardless of this set.
@@ -171,10 +175,31 @@ export function SourcesPage() {
 
   // Scan/embed progress (from global store)
   const progress = useProgress();
-  const scanProgress = progress.scanProgress;
+  const activeJobs = progress.knowledgeJobs.filter((job) => job.status === 'running' && job.kind !== 'compile');
+  const scanningId = activeJobs.find((job) => job.kind === 'scan')?.sourceId ?? pendingScanId;
+  const embeddingId = activeJobs.find((job) => job.kind === 'embed')?.sourceId ?? pendingEmbedId;
+  const scanningAll = pendingScanAll || activeJobs.some((job) => job.kind === 'scan-all');
+  const rebuildingEmbeddings = pendingRebuild || activeJobs.some((job) => job.kind === 'rebuild-embeddings');
+  const jobsLifecycle = progress.knowledgeJobs.map((job) => `${job.id}:${job.status}`).join(',');
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const refreshJobs = useCallback(async () => {
+    const beforeSnapshot = progressStore.getState().knowledgeJobs;
+    try {
+      const jobs = await api.listKnowledgeJobs();
+      if (Array.isArray(jobs)) progressStore.mergeKnowledgeJobs(jobs, beforeSnapshot);
+      setJobsError(null);
+    } catch (error) {
+      setJobsError(formatUserError(t('sources.jobsLoadError'), error));
+    }
+  }, [t]);
   const videoProcessing = progress.videoProcessing;
   // Merge batch:scan-progress and batch:rebuild-progress into one batchProgress
   const batchProgress = useMemo(() => {
+    const job = progress.knowledgeJobs.find((item) => item.status === 'running' && !item.sourceId && item.kind !== 'compile');
+    if (job) return {
+      operation: job.kind, sourceIndex: 0, sourceCount: 0, sourceId: '',
+      phase: 'queued', current: 0, total: 0, currentFile: null, ...job.progress,
+    };
     if (progress.batchProgress) return progress.batchProgress;
     if (progress.embedRebuildProgress) {
       const p = progress.embedRebuildProgress;
@@ -190,7 +215,7 @@ export function SourcesPage() {
       };
     }
     return null;
-  }, [progress.batchProgress, progress.embedRebuildProgress]);
+  }, [progress.batchProgress, progress.embedRebuildProgress, progress.knowledgeJobs]);
   const [pendingBatchAction, setPendingBatchAction] = useState<BatchAction | null>(null);
 
   const [mediaRuntimeStatus, setMediaRuntimeStatus] = useState<MediaRuntimeStatus | null>(null);
@@ -217,8 +242,16 @@ export function SourcesPage() {
   }, []);
 
   const loadSources = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
-      const list = await api.listSources();
+      const [sourceResult, healthResult] = await Promise.allSettled([api.listSources(), api.getSourceIndexHealth()]);
+      if (generation !== loadGeneration.current) return;
+      if (sourceResult.status === 'rejected') throw sourceResult.reason;
+      const list = sourceResult.value;
+      if (healthResult.status === 'fulfilled') {
+        if (Array.isArray(healthResult.value)) setIndexHealth(healthResult.value);
+        setHealthError(null);
+      } else setHealthError(formatUserError(t('sources.indexStatusUnavailable'), healthResult.reason));
       setSources(list);
       const scanErrorEntries = await Promise.all(
         list.map(async (source) => {
@@ -229,17 +262,19 @@ export function SourcesPage() {
           }
         }),
       );
-      setScanErrorsBySource(Object.fromEntries(scanErrorEntries));
+      if (generation === loadGeneration.current) setScanErrorsBySource(Object.fromEntries(scanErrorEntries));
     } catch (e) {
-      toast.error(formatUserError(t('sources.loadError'), e));
+      if (generation === loadGeneration.current) toast.error(formatUserError(t('sources.loadError'), e));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [t]);
 
   useEffect(() => {
     loadSources();
-  }, [loadSources]);
+  }, [loadSources, jobsLifecycle]);
+
+  useEffect(() => { void refreshJobs(); }, [refreshJobs]);
 
   useEffect(() => {
     if (!hasMediaScope) {
@@ -280,15 +315,6 @@ export function SourcesPage() {
       unlisten?.();
     };
   }, [sources, loadSources, t]);
-
-  /* ── Progress clear on idle (from global store) ──────────────────── */
-
-  useEffect(() => {
-    if (!scanningAll && !rebuildingEmbeddings) {
-      progressStore.update('batchProgress', null);
-      progressStore.update('embedRebuildProgress', null);
-    }
-  }, [scanningAll, rebuildingEmbeddings]);
 
   useEffect(() => {
     const incomingBatchAction = (location.state as { pendingBatchAction?: BatchAction } | null)?.pendingBatchAction;
@@ -396,6 +422,7 @@ export function SourcesPage() {
       onConfirm: async () => {
         try {
           await api.deleteSource(source.id);
+          await refreshJobs();
         } catch (e) {
           toast.error(formatUserError(t('sources.deleteError'), e));
           await loadSources();
@@ -583,7 +610,7 @@ export function SourcesPage() {
             icon={<ScanSearch size={14} />}
             onClick={() => setPendingBatchAction('scanAll')}
             loading={scanningAll}
-            disabled={sources.length === 0}
+            disabled={sources.length === 0 || activeJobs.length > 0}
           >
             {t('sources.scanAll')}
           </Button>
@@ -593,7 +620,7 @@ export function SourcesPage() {
             icon={<RefreshCw size={14} />}
             onClick={() => setPendingBatchAction('rebuildEmbeddings')}
             loading={rebuildingEmbeddings}
-            disabled={sources.length === 0}
+            disabled={sources.length === 0 || activeJobs.length > 0}
           >
             {t('sources.rebuildEmbeddings')}
           </Button>
@@ -609,6 +636,22 @@ export function SourcesPage() {
       </div>
 
       {/* Source list or empty state */}
+      {healthError && <div role="alert" className="mb-3 rounded-lg border border-warning/30 p-3 text-xs text-warning">{healthError} <button onClick={() => void loadSources()}>{t('common.retry')}</button></div>}
+      {jobsError && <div role="alert" className="mb-3 rounded-lg border border-warning/30 p-3 text-xs text-warning">{jobsError} <button onClick={() => void refreshJobs()}>{t('common.retry')}</button></div>}
+      {progress.knowledgeJobs.filter((job) => job.kind !== 'compile' && (job.status === 'failed' || job.status === 'interrupted') && !progress.knowledgeJobs.some((newer) => newer.kind === job.kind && newer.sourceId === job.sourceId && newer.startedAt > job.startedAt)).slice(0, 5).map((job) => (
+        <div key={job.id} role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-warning/30 p-3 text-xs text-warning">
+          <span>
+            <strong>{t(job.kind === 'scan' ? 'sources.scan' : job.kind === 'embed' ? 'sources.embed' : job.kind === 'scan-all' ? 'sources.scanAll' : 'sources.rebuildEmbeddings')}</strong>
+            {job.sourceId && ` · ${sources.find((source) => source.id === job.sourceId)?.rootPath ?? job.sourceId}`}
+            {' — '}{job.error === 'runtime_interrupted' ? t('sources.jobInterrupted') : job.error}
+          </span>
+          <Button variant="ghost" size="sm" disabled={activeJobs.length > 0} onClick={() => {
+            if (job.kind === 'scan' && job.sourceId) void handleScan(job.sourceId);
+            else if (job.kind === 'embed' && job.sourceId) void handleEmbed(job.sourceId);
+            else setPendingBatchAction(job.kind === 'scan-all' ? 'scanAll' : 'rebuildEmbeddings');
+          }}>{t('common.retry')}</Button>
+        </div>
+      ))}
       {/* Batch progress bar */}
       {(scanningAll || rebuildingEmbeddings) && batchProgress && (
         <div className="mb-4 p-3 bg-surface-2 rounded-lg border border-border">
@@ -677,7 +720,12 @@ export function SourcesPage() {
         >
           <AnimatePresence initial={false}>
             {sources.map((source) => {
-              const isActivelyScanning =
+              const health = indexHealth.find((value) => value.sourceId === source.id);
+              const sourceJob = activeJobs.find((job) => job.sourceId === source.id || job.progress.sourceId === source.id);
+              const scanProgress = sourceJob ? {
+                sourceId: source.id, phase: 'queued', current: 0, total: 0, currentFile: null, ...sourceJob.progress,
+              } : progress.scanProgress;
+              const isActivelyScanning = !!sourceJob || scanningAll || rebuildingEmbeddings ||
                 scanningId === source.id ||
                 embeddingId === source.id ||
                 indexingIds.has(source.id);
@@ -726,7 +774,7 @@ export function SourcesPage() {
                           {source.rootPath}
                         </p>
                         <Badge variant="default">{kindLabel(source.kind, t)}</Badge>
-                        {indexingIds.has(source.id) && (
+                        {isActivelyScanning && (
                           <Badge variant="info">
                             <RefreshCw size={10} className="animate-spin mr-1" />
                             {t('sources.indexingInProgress')}
@@ -764,6 +812,7 @@ export function SourcesPage() {
                       size="sm"
                       icon={<ScanSearch size={14} />}
                       onClick={() => handleScan(source.id)}
+                      disabled={isActivelyScanning}
                       loading={scanningId === source.id}
                     >
                       {t('sources.scan')}
@@ -773,6 +822,7 @@ export function SourcesPage() {
                       size="sm"
                       icon={<Cpu size={14} />}
                       onClick={() => handleEmbed(source.id)}
+                      disabled={isActivelyScanning}
                       loading={embeddingId === source.id}
                     >
                       {t('sources.embed')}
@@ -782,6 +832,7 @@ export function SourcesPage() {
                       size="sm"
                       icon={<Pencil size={14} />}
                       onClick={() => openEditModal(source)}
+                      disabled={isActivelyScanning}
                     >
                       {t('common.edit')}
                     </Button>
@@ -790,10 +841,12 @@ export function SourcesPage() {
                       size="sm"
                       icon={<Trash2 size={14} />}
                       onClick={() => handleDelete(source)}
+                      disabled={isActivelyScanning}
                     >
                       {t('common.delete')}
                     </Button>
                     <button
+                      aria-label={t('chat.askAboutThis')}
                       onClick={() => handleAskAI(`Tell me about the source at "${source.rootPath}". Include globs: ${source.includeGlobs.join(', ')}. Exclude globs: ${source.excludeGlobs.join(', ')}.`, [source.id])}
                       className="rounded-md p-1.5 text-accent hover:bg-accent/10 transition-colors cursor-pointer"
                       title={t('chat.askAboutThis')}
@@ -802,6 +855,24 @@ export function SourcesPage() {
                     </button>
                   </div>
                 </div>
+
+                {health && (
+                  <div className="mt-3 space-y-2" data-testid={`source-health-${source.id}`}>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-tertiary">
+                      <span>{t('sources.indexedDocuments', { count: health.documents })}</span>
+                      {health.lastScan && <span>{t('sources.lastScanFiles', { count: health.lastScan.filesScanned })}</span>}
+                      {health.failedFiles > 0 && <span className="text-danger">{t('sources.failedIndexedFiles', { count: health.failedFiles })}</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                      {([
+                        [t('sources.keywordReady'), health.keywordChunks, health.chunks],
+                        [t('sources.semanticReady'), health.embeddedChunks, health.chunks],
+                        [t('sources.knowledgeReady'), health.compiledDocuments, health.documents],
+                      ] as const).map(([label, ready, total]) => <div key={label} className="rounded border border-border bg-surface-1 px-2 py-1.5"><span className="block truncate text-text-tertiary">{label}</span><span className={ready === total && total > 0 ? 'text-success' : 'text-text-secondary'}>{ready}/{total}</span></div>)}
+                    </div>
+                    {(health.staleDocuments + health.partialDocuments + health.needsReparse + health.parseWarnings) > 0 && <p className="text-[11px] text-warning">{t('sources.indexNeedsAttention', { stale: health.staleDocuments, partial: health.partialDocuments, parse: health.needsReparse, warnings: health.parseWarnings })}</p>}
+                  </div>
+                )}
 
                 <AnimatePresence initial={false}>
                   {expanded && (

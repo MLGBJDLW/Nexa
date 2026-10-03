@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "Indexierungszeitraum",
   "placeholder": "Nach Stichwort suchen...",
   "fts": "Volltextsuche",
   "hybrid": "Hybrid",

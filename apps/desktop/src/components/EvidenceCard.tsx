@@ -144,7 +144,7 @@ export function EvidenceCardComponent({
   const [expanded, setExpanded] = useState(false);
   const [videoPreviewPath, setVideoPreviewPath] = useState<string | null>(null);
   const { t } = useTranslation();
-  const { openFilePreview, openWebLink } = useFilePreview();
+  const { openFilePreview, openWebLink, openEvidence } = useFilePreview();
 
   const previewText = card.snippet || card.content;
   const needsTruncation = previewText.length > TRUNCATE_LENGTH;
@@ -172,6 +172,7 @@ export function EvidenceCardComponent({
   const iconColor = isWebSource ? 'text-accent' : isVideo ? 'text-violet-500' : isAudio ? 'text-amber-500' : 'text-text-tertiary';
 
   const handleOpenSource = () => {
+    if (card.evidenceRef && openEvidence) { openEvidence(card.evidenceRef); return; }
     if (isWebSource) {
       openWebLink(card.documentPath, displayTitle);
       return;
@@ -317,6 +318,7 @@ export function EvidenceCardComponent({
         <div className="flex shrink-0 items-center gap-0.5">
           <Tooltip content={t('card.openFile')}>
             <button
+              aria-label={t('card.openFile')}
               onClick={handleOpenSource}
               className="cursor-pointer rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-secondary"
             >
@@ -327,6 +329,7 @@ export function EvidenceCardComponent({
           {!isWebSource && (
             <Tooltip content={t('card.showInFolder')}>
               <button
+                aria-label={t('card.showInFolder')}
                 onClick={() => {
                   showInFileExplorer(card.documentPath).catch(() =>
                     toast.error(t('card.fileNotFound')),
@@ -342,6 +345,7 @@ export function EvidenceCardComponent({
           {onAskAbout && (
             <Tooltip content={t('chat.askAboutThis')}>
               <button
+                aria-label={t('chat.askAboutThis')}
                 onClick={() => {
                   const title = card.documentTitle || sourceBasename(card.documentPath);
                   const heading = card.headingPath?.length ? card.headingPath.join(' > ') : '';
@@ -372,6 +376,8 @@ export function EvidenceCardComponent({
           <div className="flex shrink-0 items-center gap-0.5">
             <Tooltip content={t('card.upvote')}>
               <button
+                aria-label={t('card.upvote')}
+                aria-pressed={!!feedbackState.upvoted}
                 onClick={() => onFeedback(card.chunkId, 'upvote')}
                 className={`cursor-pointer rounded-md p-1.5 transition-colors ${
                   feedbackState.upvoted
@@ -388,6 +394,8 @@ export function EvidenceCardComponent({
 
             <Tooltip content={t('card.downvote')}>
               <button
+                aria-label={t('card.downvote')}
+                aria-pressed={!!feedbackState.downvoted}
                 onClick={() => onFeedback(card.chunkId, 'downvote')}
                 className={`cursor-pointer rounded-md p-1.5 transition-colors ${
                   feedbackState.downvoted
@@ -404,6 +412,8 @@ export function EvidenceCardComponent({
 
             <Tooltip content={t('card.pin')}>
               <button
+                aria-label={t('card.pin')}
+                aria-pressed={!!feedbackState.pinned}
                 onClick={() => onFeedback(card.chunkId, 'pin')}
                 className={`cursor-pointer rounded-md p-1.5 transition-colors ${
                   feedbackState.pinned

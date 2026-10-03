@@ -1,6 +1,7 @@
 import type { FileType } from "./document";
 
 export interface SearchFilters {
+  documentIds?: string[];
   sourceIds: string[];
   fileTypes: FileType[];
   dateFrom: string | null;
@@ -44,6 +45,7 @@ export interface SearchResult {
   searchTimeMs: number;
   searchMode?: SearchMode;
   graphRetrieval?: GraphRetrievalReport | null;
+  ranking?: { method: 'lexical_rules' | 'semantic_cross_encoder'; candidates: number; elapsedMs: number; fallbackReason: string | null } | null;
 }
 
 export type ContextItemRole =

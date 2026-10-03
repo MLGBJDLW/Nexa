@@ -86,9 +86,15 @@ export function KnowledgePage() {
   // Compile state
   const [stats, setStats] = useState<CompileStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [compiling, setCompiling] = useState(false);
+  const [compilePending, setCompiling] = useState(false);
   const progress = useProgress();
-  const compileProgress = progress.compileProgress;
+  const compileJob = progress.knowledgeJobs.find((job) => job.kind === 'compile');
+  const compiling = compilePending || compileJob?.status === 'running';
+  const compileProgress = compileJob?.status === 'running' ? {
+    current: compileJob.progress.current ?? 0, total: compileJob.progress.total ?? 0,
+    documentId: compileJob.progress.documentId ?? '', documentTitle: compileJob.progress.documentTitle ?? null,
+    phase: compileJob.progress.phase ?? 'compiling',
+  } : progress.compileProgress;
   const [compileResults, setCompileResults] = useState<CompileResult[]>([]);
 
   // Health state
@@ -124,13 +130,15 @@ export function KnowledgePage() {
     try {
       const results = await api.compilePendingDocuments(20);
       setCompileResults(results);
-      toast.success(`${t('knowledge.compiledDocs')}: ${results.length}`);
+      const partial = results.some((result) => result.summary.coverage && !result.summary.coverage.complete);
+      toast.success(partial ? t('knowledge.compilePartial') : `${t('knowledge.compiledDocs')}: ${results.length}`);
       await loadStats();
     } catch (e) {
       toast.error(formatUserError(t('knowledge.compilePending'), e));
     } finally {
       setCompiling(false);
       progressStore.update('compileProgress', null);
+      void loadStats();
     }
   }, [loadStats, t]);
 
@@ -477,6 +485,8 @@ export function KnowledgePage() {
                     </div>
                   )}
 
+                  <p className="text-xs text-text-tertiary">{t('knowledge.compileBudget')}</p>
+                  {compileJob && (compileJob.status === 'failed' || compileJob.status === 'interrupted') && <div role="alert" className="rounded-lg border border-warning/30 p-3 text-xs text-warning">{compileJob.error === 'runtime_interrupted' ? t('sources.jobInterrupted') : compileJob.error} <button disabled={compiling} onClick={() => void handleCompile()}>{t('common.retry')}</button></div>}
                   {/* Recent compile results */}
                   {compileResults.length > 0 && (
                     <motion.div
@@ -492,12 +502,13 @@ export function KnowledgePage() {
                           className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface-1"
                         >
                           <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle2 size={14} className="block shrink-0 text-success" />
+                            {r.summary.coverage && !r.summary.coverage.complete ? <AlertTriangle size={14} className="block shrink-0 text-warning" /> : <CheckCircle2 size={14} className="block shrink-0 text-success" />}
                             <span className="text-sm text-text-primary truncate">
                               {t('knowledge.documents')} {r.documentId.slice(0, 8)}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
+                            {r.summary.coverage && <Badge variant={r.summary.coverage.complete ? 'success' : 'warning'}>{t('knowledge.sectionCoverage', { current: r.summary.coverage.completedSections, total: r.summary.coverage.totalSections })}</Badge>}
                             <Badge variant="info">{r.entitiesFound} {t('knowledge.totalEntities')}</Badge>
                             <Badge variant="default">{r.linksCreated} {t('knowledge.totalLinks')}</Badge>
                           </div>

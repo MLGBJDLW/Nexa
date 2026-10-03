@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "入庫日期範圍",
   "placeholder": "輸入關鍵字搜尋...",
   "fts": "全文搜尋",
   "hybrid": "混合搜尋",

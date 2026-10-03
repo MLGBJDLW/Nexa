@@ -1,8 +1,9 @@
-import { lazy, Suspense, useState, useMemo, useEffect, type CSSProperties } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect, useRef, type CSSProperties } from 'react';
 import { FileSpreadsheet } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type * as api from '../../lib/api';
 import { PreviewImage } from './PreviewImage';
+import type { EvidenceLocator } from '../../types/evidence';
 type TranslateFn = ReturnType<typeof useTranslation>['t'];
 export function createPreviewLabels(t: TranslateFn) {
   return {
@@ -331,38 +332,56 @@ function DocumentBlockView({
   }
 }
 
-function StructuredDocumentPreview({
-  preview,
-  labels,
-  onMouseUp,
-  onOpenWebLink,
-}: {
+function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, locator, focusText }: {
   preview: api.DocumentStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
+  locator?: EvidenceLocator;
+  focusText?: string;
 }) {
-  const assetMap = useMemo(
-    () => new Map(preview.assets.map((asset) => [asset.id, asset])),
-    [preview.assets],
-  );
-
+  const { t } = useTranslation();
+  const root = useRef<HTMLDivElement>(null);
+  const [anchorMissing, setAnchorMissing] = useState(false);
+  const assetMap = useMemo(() => new Map(preview.assets.map((asset) => [asset.id, asset])), [preview.assets]);
+  const blockPages = useMemo(() => {
+    let page = 1;
+    return preview.blocks.map((block) => { if (block.type === 'pageBreak') page += 1; return page; });
+  }, [preview.blocks]);
+  useEffect(() => {
+    if (!locator || !root.current) { setAnchorMissing(false); return; }
+    let target: HTMLElement | undefined | null;
+    if (locator.kind === 'pdf' || locator.kind === 'slide') {
+      const page = locator.kind === 'pdf' ? locator.page : locator.slide;
+      target = root.current.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
+    } else if (locator.kind === 'document' && locator.part === 'word/document.xml') {
+      if (locator.table) target = root.current.querySelectorAll('article table')[locator.table - 1]?.querySelectorAll<HTMLElement>(':scope > tbody > tr')[(locator.row ?? 1) - 1];
+      else {
+        const paragraphs = [...root.current.querySelectorAll<HTMLElement>('article p, article h1, article h2, article h3, article h4, article h5, article h6, article li')];
+        const normalize = (text: string) => text.replace(/\s/g, '');
+        const matches = (element: HTMLElement) => !focusText || normalize(element.textContent ?? '').includes(normalize(focusText));
+        const candidate = paragraphs[locator.paragraph - 1];
+        if (candidate && matches(candidate)) target = candidate;
+        else {
+          const candidates = paragraphs.filter(matches);
+          if (candidates.length === 1) target = candidates[0];
+        }
+      }
+    }
+    setAnchorMissing(!target);
+    if (!target) return;
+    target.scrollIntoView({ block: 'center' });
+    target.setAttribute('data-evidence-anchor', 'true');
+    target.classList.add('ring-2', 'ring-accent/50');
+    return () => { target?.removeAttribute('data-evidence-anchor'); target?.classList.remove('ring-2', 'ring-accent/50'); };
+  }, [locator, focusText, preview]);
   return (
-    <div
-      data-testid="file-preview-structured-document"
-      className="h-full overflow-auto bg-surface-0 px-4 py-5"
-      onMouseUp={onMouseUp}
-    >
+    <div ref={root} data-testid="file-preview-structured-document" className="h-full overflow-auto bg-surface-0 px-4 py-5" onMouseUp={onMouseUp}>
+      {anchorMissing && <p role="status" className="mb-3 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <article className="mx-auto min-h-full max-w-[900px] rounded-md border border-border/70 bg-surface-1 px-6 py-6 text-text-primary shadow-[0_18px_45px_rgba(0,0,0,0.18)] sm:px-8 sm:py-7">
-        {preview.blocks.map((block, index) => (
-          <DocumentBlockView
-            key={index}
-            block={block}
-            assetMap={assetMap}
-            labels={labels}
-            onOpenWebLink={onOpenWebLink}
-          />
-        ))}
+        {preview.blocks.map((block, index) => <div key={index} data-preview-page={blockPages[index]}>
+          <DocumentBlockView block={block} assetMap={assetMap} labels={labels} onOpenWebLink={onOpenWebLink} />
+        </div>)}
       </article>
     </div>
   );
@@ -383,18 +402,36 @@ function WorkbookPreview({
   preview,
   labels,
   onMouseUp,
+  locator,
 }: {
   preview: api.WorkbookStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
+  locator?: EvidenceLocator;
 }) {
+  const { t } = useTranslation();
+  const root = useRef<HTMLDivElement>(null);
+  const [anchorMissing, setAnchorMissing] = useState(false);
   const [selectedSheetIndex, setSelectedSheetIndex] = useState(0);
 
   useEffect(() => {
-    setSelectedSheetIndex(0);
-  }, [preview]);
+    const index = locator?.kind === 'sheet' ? preview.sheets.findIndex((sheet) => sheet.name === locator.sheet) : 0;
+    setSelectedSheetIndex(Math.max(0, index));
+  }, [preview, locator]);
 
   const sheet = preview.sheets[Math.min(selectedSheetIndex, Math.max(preview.sheets.length - 1, 0))];
+  useEffect(() => {
+    if (locator?.kind !== 'sheet' || !root.current) { setAnchorMissing(false); return; }
+    if (sheet?.name !== locator.sheet) { setAnchorMissing(!preview.sheets.some((value) => value.name === locator.sheet)); return; }
+    const address = locator.range.split(':')[0].replace(/\$/g, '').toUpperCase();
+    const target = [...root.current.querySelectorAll<HTMLElement>('[data-cell-address]')].find((element) => element.dataset.cellAddress === address);
+    setAnchorMissing(!target);
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', inline: 'center' });
+    target.setAttribute('data-evidence-anchor', 'true');
+    target.classList.add('ring-2', 'ring-accent/50');
+    return () => { target.removeAttribute('data-evidence-anchor'); target.classList.remove('ring-2', 'ring-accent/50'); };
+  }, [locator, sheet, preview]);
   const cellMap = useMemo(() => {
     const map = new Map<string, api.WorkbookPreviewCell>();
     for (const cell of sheet?.cells ?? []) {
@@ -438,7 +475,8 @@ function WorkbookPreview({
   };
 
   return (
-    <div data-testid="file-preview-workbook" className="flex h-full min-h-0 flex-col bg-surface-0">
+    <div ref={root} data-testid="file-preview-workbook" className="flex h-full min-h-0 flex-col bg-surface-0">
+      {anchorMissing && <p role="status" className="p-2 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <div className="shrink-0 border-b border-border bg-surface-1/95 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <FileSpreadsheet size={14} className="shrink-0 text-accent" />
@@ -483,7 +521,7 @@ function WorkbookPreview({
               className="sticky top-0 z-20 flex h-8 items-center justify-center border-b border-r border-border bg-surface-2 font-medium text-text-tertiary"
               style={{ gridColumn: column + 2, gridRow: 1 }}
             >
-              {columnName(column)}
+              {columnName(column + (sheet.startColumn ?? 0))}
             </div>
           ))}
           {rows.map((row) => (
@@ -492,7 +530,7 @@ function WorkbookPreview({
               className="sticky left-0 z-10 flex h-8 items-center justify-end border-b border-r border-border bg-surface-2 px-2 font-medium text-text-tertiary"
               style={{ gridColumn: 1, gridRow: row + 2 }}
             >
-              {row + 1}
+              {row + 1 + (sheet.startRow ?? 0)}
             </div>
           ))}
           {rows.flatMap((row) =>
@@ -507,6 +545,7 @@ function WorkbookPreview({
               return (
                 <div
                   key={`${row}-${column}`}
+                  data-cell-address={`${columnName(column + (sheet.startColumn ?? 0))}${row + 1 + (sheet.startRow ?? 0)}`}
                   className={`min-h-8 overflow-hidden border-b border-r border-border px-2 py-1.5 leading-5 ${
                     cell?.formula ? 'bg-accent/5' : 'bg-surface-1'
                   }`}
@@ -542,18 +581,24 @@ export function StructuredPreviewRenderer({
   labels,
   onMouseUp,
   onOpenWebLink,
+  locator,
+  focusText,
 }: {
   preview: api.StructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
+  locator?: EvidenceLocator;
+  focusText?: string;
 }) {
   if (preview.type === 'workbook') {
-    return <WorkbookPreview preview={preview} labels={labels} onMouseUp={onMouseUp} />;
+    return <WorkbookPreview preview={preview} locator={locator} labels={labels} onMouseUp={onMouseUp} />;
   }
   return (
     <StructuredDocumentPreview
       preview={preview}
+      locator={locator}
+      focusText={focusText}
       labels={labels}
       onMouseUp={onMouseUp}
       onOpenWebLink={onOpenWebLink}

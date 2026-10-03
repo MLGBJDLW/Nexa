@@ -1,4 +1,5 @@
 {
+  "indexedDateRange": "索引登録日の範囲",
   "placeholder": "キーワードで検索...",
   "fts": "全文検索",
   "hybrid": "ハイブリッド",

@@ -10,6 +10,9 @@ export interface DocumentSummary {
   tags: string[];
   modelUsed: string;
   compiledAt: string;
+  inputRevision?: string;
+  stale?: boolean;
+  coverage?: { totalSections: number; completedSections: number; totalChars: number; coveredChars: number; complete: boolean; summaryTruncated: boolean };
 }
 
 export interface Entity {
@@ -27,6 +30,7 @@ export interface CompileResult {
   summary: DocumentSummary;
   entitiesFound: number;
   linksCreated: number;
+  sectionsCompiled?: number;
 }
 
 export interface CompileStats {
