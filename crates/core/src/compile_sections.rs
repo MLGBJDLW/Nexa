@@ -105,7 +105,9 @@ fn validate_output(output: &mut LlmCompileOutput, input: &str) -> Result<(), Cor
     });
     for entity in &mut output.entities {
         entity.relations.retain(|relation| {
-            relation.evidence.as_deref().is_some_and(|quote| {
+            relation.confidence.is_none_or(|confidence| {
+                confidence.is_finite() && (0.0..=1.0).contains(&confidence)
+            }) && relation.evidence.as_deref().is_some_and(|quote| {
                 !quote.trim().is_empty() && source.contains(&normalize_quote(quote))
             })
         });
@@ -313,6 +315,41 @@ pub(super) async fn compile_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn grounded_relations_reject_invalid_confidence_without_inventing_certainty() {
+        let mut output: LlmCompileOutput = serde_json::from_value(serde_json::json!({
+            "summary":"A protects B", "key_points":[], "tags":[], "entities":[{
+                "name":"A","entity_type":"concept","description":"A","context":"A protects B",
+                "relations":[{"target":"B","relation_type":"protects","evidence":"A protects B","confidence":0.5}]
+            }]
+        })).unwrap();
+        let template = output.entities[0].relations[0].clone();
+        output.entities[0].relations = [
+            None,
+            Some(0.0),
+            Some(1.0),
+            Some(-1.0),
+            Some(85.0),
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+        ]
+        .into_iter()
+        .map(|confidence| LlmRelation {
+            confidence,
+            ..template.clone()
+        })
+        .collect();
+        validate_output(&mut output, "A protects B").unwrap();
+        assert_eq!(output.entities[0].relations.len(), 3);
+        assert_eq!(
+            output.entities[0]
+                .relations
+                .iter()
+                .map(|relation| relation.confidence)
+                .collect::<Vec<_>>(),
+            vec![None, Some(0.0), Some(1.0)]
+        );
+    }
     #[test]
     fn sections_cover_every_character_without_sampling_gaps() {
         let content = format!(

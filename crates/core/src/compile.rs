@@ -125,7 +125,7 @@ struct LlmRelation {
 
 // Bump when request semantics, output validation, or aggregation rules change.
 // Prompt edits are additionally included verbatim in the persisted cache key.
-const COMPILE_CONTRACT_VERSION: u32 = 1;
+const COMPILE_CONTRACT_VERSION: u32 = 2;
 const COMPILE_SYSTEM_PROMPT: &str = include_str!("../prompts/compile.md");
 const COMPILE_INPUT_CHAR_BUDGET: usize = 12_000;
 
