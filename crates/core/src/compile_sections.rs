@@ -116,6 +116,16 @@ fn validate_output(output: &mut LlmCompileOutput, input: &str) -> Result<(), Cor
     Ok(())
 }
 
+fn route_key(route: &crate::llm::provider_turn::RouteSnapshot) -> Result<String, CoreError> {
+    Ok(blake3::hash(&serde_json::to_vec(&(
+        COMPILE_CONTRACT_VERSION,
+        COMPILE_SYSTEM_PROMPT,
+        route,
+    ))?)
+    .to_hex()
+    .to_string())
+}
+
 pub(super) async fn compile_document(
     db: &Database,
     doc_id: &str,
@@ -130,38 +140,30 @@ pub(super) async fn compile_document(
     }
     let sections = sections(&content);
     let route_request = request(model, provider_type, "", 0, sections.len());
-    let route = provider.route_snapshot(&route_request);
-    let route_key = blake3::hash(&serde_json::to_vec(&(
-        COMPILE_CONTRACT_VERSION,
-        COMPILE_SYSTEM_PROMPT,
-        &route,
-    ))?)
-    .to_hex()
-    .to_string();
+    let mut route = provider.route_snapshot(&route_request);
+    let mut current_route_key = route_key(&route)?;
     let mut outputs = Vec::new();
     let mut compiled = 0;
     let mut covered_chars = 0;
-    for (index, section) in sections.iter().enumerate() {
-        let saved: Option<String> = db.conn().query_row("SELECT output_json FROM document_section_compilations WHERE document_id=?1 AND revision=?2 AND route_key=?3 AND section_index=?4 AND input_hash=?5", params![doc_id,revision,route_key,index,section.hash], |row| row.get(0)).optional()?;
+    let mut index = 0;
+    while index < sections.len() {
+        let section = &sections[index];
+        let saved: Option<String> = db.conn().query_row("SELECT output_json FROM document_section_compilations WHERE document_id=?1 AND revision=?2 AND route_key=?3 AND section_index=?4 AND input_hash=?5", params![doc_id,revision,current_route_key,index,section.hash], |row| row.get(0)).optional()?;
         let mut output = if let Some(saved) = saved {
             serde_json::from_str::<LlmCompileOutput>(&saved)?
         } else {
             if *budget == 0 {
-                break;
+                index += 1;
+                continue;
             }
             *budget -= 1;
             let request = request(model, provider_type, &section.text, index, sections.len());
-            let response = tokio::time::timeout(
+            let (response, accepted_route) = tokio::time::timeout(
                 std::time::Duration::from_secs(180),
-                provider.complete(&request),
+                provider.complete_with_route(&request),
             )
             .await
             .map_err(|_| CoreError::Llm("Document section compilation timed out".into()))??;
-            if provider.route_snapshot(&request) != route {
-                return Err(CoreError::Conflict(
-                    "Compilation provider route changed; retry using the selected route.".into(),
-                ));
-            }
             if response.content.len() > 256 * 1024 {
                 return Err(CoreError::InvalidInput(
                     "Compilation section response exceeds 256 KiB".into(),
@@ -174,17 +176,30 @@ pub(super) async fn compile_document(
                     ))
                 })?;
             validate_output(&mut output, &section.text)?;
+            let accepted_route_key = route_key(&accepted_route)?;
             let mut conn = db.conn();
             let transaction = conn.transaction()?;
             same_revision(&transaction, doc_id, &revision)?;
-            transaction.execute("INSERT OR REPLACE INTO document_section_compilations(document_id,revision,route_key,section_index,input_hash,char_count,output_json) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![doc_id,revision,route_key,index,section.hash,section.chars,serde_json::to_string(&output)?])?;
+            transaction.execute("INSERT OR REPLACE INTO document_section_compilations(document_id,revision,route_key,section_index,input_hash,char_count,output_json) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![doc_id,revision,accepted_route_key,index,section.hash,section.chars,serde_json::to_string(&output)?])?;
             transaction.commit()?;
             compiled += 1;
+            if accepted_route != route {
+                // The successful fallback section is already cached. Rebuild
+                // coverage from that route without mixing earlier providers or
+                // spending another call on this section. The budget is shared.
+                route = accepted_route;
+                current_route_key = accepted_route_key;
+                outputs.clear();
+                covered_chars = 0;
+                index = 0;
+                continue;
+            }
             output
         };
         validate_output(&mut output, &section.text)?;
         covered_chars += section.chars;
-        outputs.push(output);
+        outputs.push((index, output));
+        index += 1;
     }
     let mut coverage = CompileCoverage {
         total_sections: sections.len(),
@@ -196,7 +211,6 @@ pub(super) async fn compile_document(
     };
     let summary_text = outputs
         .iter()
-        .enumerate()
         .map(|(index, output)| format!("Section {}: {}", index + 1, output.summary))
         .collect::<Vec<_>>()
         .join("\n\n");
@@ -212,13 +226,13 @@ pub(super) async fn compile_document(
     let key_points = unique(
         outputs
             .iter()
-            .flat_map(|output| output.key_points.clone())
+            .flat_map(|(_, output)| output.key_points.clone())
             .collect(),
     );
     let tags = unique(
         outputs
             .iter()
-            .flat_map(|output| output.tags.clone())
+            .flat_map(|(_, output)| output.tags.clone())
             .collect(),
     );
     let mut conn = db.conn();
@@ -232,7 +246,7 @@ pub(super) async fn compile_document(
             summary: summary_text,
             key_points,
             tags,
-            model_used: model.into(),
+            model_used: route.model_id,
             compiled_at: chrono::Utc::now().to_rfc3339(),
             input_revision: revision,
             stale: false,
@@ -262,7 +276,7 @@ pub(super) async fn compile_document(
         )?;
     }
     let mut entities = HashMap::new();
-    for entity in outputs.iter().flat_map(|output| &output.entities) {
+    for entity in outputs.iter().flat_map(|(_, output)| &output.entities) {
         let value = upsert_entity_on(
             &transaction,
             &entity.name,
@@ -275,7 +289,7 @@ pub(super) async fn compile_document(
         entities.insert(normalize_entity_lookup_name(&entity.name), value.id);
     }
     let mut links = HashSet::new();
-    for entity in outputs.iter().flat_map(|output| &output.entities) {
+    for entity in outputs.iter().flat_map(|(_, output)| &output.entities) {
         let Some(source) = entities.get(&normalize_entity_lookup_name(&entity.name)) else {
             continue;
         };

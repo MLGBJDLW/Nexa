@@ -125,7 +125,7 @@ struct LlmRelation {
 
 // Bump when request semantics, output validation, or aggregation rules change.
 // Prompt edits are additionally included verbatim in the persisted cache key.
-const COMPILE_CONTRACT_VERSION: u32 = 2;
+const COMPILE_CONTRACT_VERSION: u32 = 3;
 const COMPILE_SYSTEM_PROMPT: &str = include_str!("../prompts/compile.md");
 const COMPILE_INPUT_CHAR_BUDGET: usize = 12_000;
 
@@ -935,6 +935,175 @@ mod tests {
 
     struct StaticLlmProvider {
         content: String,
+    }
+
+    struct FailoverCompiler {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        successes: usize,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for FailoverCompiler {
+        fn name(&self) -> &str {
+            "primary-compiler"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            unreachable!()
+        }
+        async fn complete(
+            &self,
+            request: &CompletionRequest,
+        ) -> Result<CompletionResponse, CoreError> {
+            if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= self.successes {
+                return Err(CoreError::TransientLlm("primary unavailable".into()));
+            }
+            StaticLlmProvider {
+                content: r#"{"summary":"PRIMARY ONLY","key_points":[],"tags":[],"entities":[]}"#
+                    .into(),
+            }
+            .complete(request)
+            .await
+        }
+    }
+
+    fn automatic_compiler(
+        successes: usize,
+        change: Option<(Database, String)>,
+    ) -> (
+        crate::llm::fallback::AutomaticFallbackProvider,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        use crate::llm::fallback::{AutomaticFallbackCandidate, AutomaticFallbackProvider};
+        use std::sync::{atomic::AtomicUsize, Arc};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider = AutomaticFallbackProvider::new(
+            0,
+            Box::new(FailoverCompiler {
+                calls: calls.clone(),
+                successes,
+            }),
+            "primary-model".into(),
+            ProviderType::Custom,
+            vec![AutomaticFallbackCandidate {
+                fallback_index: 1,
+                provider: Box::new(RecordingCompiler {
+                    seen: Default::default(),
+                    change,
+                }),
+                model: "backup-model".into(),
+                provider_type: ProviderType::Custom,
+            }],
+            Arc::new(|_, _, _| Ok(())),
+        )
+        .unwrap();
+        (provider, calls)
+    }
+
+    #[tokio::test]
+    async fn compilation_accepts_automatic_fallback_and_resumes_only_the_accepted_route() {
+        for successes in [0, 1, 7] {
+            let db = Database::open_memory().unwrap();
+            let doc = insert_compile_doc(&db, &"x".repeat(COMPILE_INPUT_CHAR_BUDGET * 10));
+            let (provider, calls) = automatic_compiler(successes, None);
+            let mut completed = None;
+            let mut new_sections = 0;
+            for action in 0..3 {
+                let result = compile_document(&db, &doc, &provider, "primary-model", None)
+                    .await
+                    .unwrap();
+                assert!(result.sections_compiled <= 8);
+                new_sections += result.sections_compiled;
+                assert_eq!(result.summary.model_used, "backup-model");
+                assert!(!result.summary.summary.contains("PRIMARY ONLY"));
+                if successes == 7 && action == 0 {
+                    assert_eq!(result.summary.coverage.completed_sections, 1);
+                    assert_eq!(
+                        result.summary.coverage.covered_chars,
+                        COMPILE_INPUT_CHAR_BUDGET
+                    );
+                    assert!(result.summary.summary.starts_with("Section 8:"));
+                }
+                if result.summary.coverage.complete {
+                    completed = Some(result);
+                    break;
+                }
+            }
+            let result = completed.expect("bounded actions finish after automatic fallback");
+            assert_eq!(result.summary.coverage.completed_sections, 10);
+            assert_eq!(new_sections, 10 + successes);
+            assert_eq!(
+                calls.load(std::sync::atomic::Ordering::SeqCst),
+                successes + 1
+            );
+            let resumed = compile_document(&db, &doc, &provider, "primary-model", None)
+                .await
+                .unwrap();
+            assert_eq!(resumed.sections_compiled, 0);
+            assert_eq!(resumed.summary.summary, result.summary.summary);
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_compilation_keeps_one_budget_across_documents() {
+        let db = Database::open_memory().unwrap();
+        for _ in 0..3 {
+            insert_compile_doc(&db, &"x".repeat(COMPILE_INPUT_CHAR_BUDGET * 5));
+        }
+        let (provider, _) = automatic_compiler(1, None);
+        let results = compile_pending(&db, &provider, "primary-model", None, 3)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.sections_compiled)
+                .sum::<usize>(),
+            8
+        );
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.summary.coverage.completed_sections)
+                .sum::<usize>(),
+            7
+        );
+        assert!(results
+            .iter()
+            .all(|result| result.summary.model_used == "backup-model"));
+        assert_eq!(db.get_uncompiled_document_ids(10).unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_revision_change_during_fallback_cannot_save_the_old_input() {
+        let db = Database::open_memory().unwrap();
+        let doc = insert_compile_doc(&db, "A pending decision before automatic fallback.");
+        let (provider, _) = automatic_compiler(0, Some((db.clone(), doc.clone())));
+        assert!(matches!(
+            compile_document(&db, &doc, &provider, "primary-model", None).await,
+            Err(CoreError::Conflict(_))
+        ));
+        assert!(db.get_document_summary(&doc).unwrap().is_none());
+        assert_eq!(
+            db.conn()
+                .query_row(
+                    "SELECT COUNT(*) FROM document_section_compilations",
+                    [],
+                    |row| row.get::<_, usize>(0)
+                )
+                .unwrap(),
+            0
+        );
     }
 
     #[async_trait::async_trait]
