@@ -374,6 +374,23 @@ function frontendEvent(runEvent: AgentRunEvent): AgentFrontendEvent {
   };
 }
 
+test('privacy revocation clears cached output and rejects late frames while allowing a fresh run', () => {
+  const id = 'privacy-conversation';
+  const frame = (runId: string, eventSeq: number, delta: string) => ({
+    conversationId: id,
+    runEvent: { ...runEvent({ eventSeq, kind: 'outputDelta', payload: { blockId: 'answer', channel: 'answer', offset: 0, delta } }), runId },
+  });
+  streamStore.dispatch(id, frame('privacy-old-run', 1, 'privateCODE'));
+  assertEqual(streamStore.getStream(id)?.streamText, 'privateCODE', 'fixture shows the old source');
+  streamStore.revokePrivacy();
+  assertEqual(streamStore.getStream(id), undefined, 'old projection is removed immediately');
+  streamStore.dispatch(id, frame('privacy-old-run', 2, 'privateCODE late'));
+  assertEqual(streamStore.getStream(id), undefined, 'a late old frame cannot recreate the cache');
+  streamStore.dispatch(id, frame('privacy-new-run', 1, 'safe current result'));
+  assertEqual(streamStore.getStream(id)?.streamText, 'safe current result', 'new turn still streams normally');
+  streamStore.clearStream(id);
+});
+
 test('runtime wire schema accepts only the canonical Run Event envelope', () => {
   const canonical = frontendEvent(runEvent({ eventSeq: 1, kind: 'status' }));
   assert(parseAgentFrontendEvent(canonical), 'canonical envelope should parse');

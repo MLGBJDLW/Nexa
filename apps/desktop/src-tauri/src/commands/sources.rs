@@ -925,14 +925,31 @@ pub async fn get_privacy_config(
 #[tauri::command]
 pub async fn save_privacy_config(
     state: tauri::State<'_, AppState>,
+    app_handle: AppHandle,
     config: PrivacyConfig,
 ) -> Result<(), String> {
-    state
+    let (changed, revision) = state
         .db_executor
-        .write(move |db| db.save_privacy_config(&config))
+        .write(move |db| {
+            let before = db.privacy_revision()?;
+            db.save_privacy_config(&config)?;
+            let revision = db.privacy_revision()?;
+            Ok((before != revision, revision))
+        })
         .await
         .map(|execution| execution.value)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    // Idle ACP sessions retain provider-owned hidden history. A completed old
+    // connection must not survive a policy update or an A -> B -> A transition.
+    if changed {
+        crate::agent_runtime::acp::shutdown();
+        emit_app_event(
+            &app_handle,
+            "privacy:revoked",
+            &serde_json::json!({"revision":revision}),
+        );
+    }
+    Ok(())
 }
 
 // ── Index Commands (extra) ──────────────────────────────────────────────
