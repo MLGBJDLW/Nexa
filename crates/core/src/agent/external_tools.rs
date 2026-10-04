@@ -800,7 +800,7 @@ impl ExternalToolSession {
         tokio::select! {
             biased;
             _ = self.privacy_lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed before the tool result could be released".into())),
-            result = self.execute_current(call) => result,
+            result = self.privacy_lease.scope(self.execute_current(call)) => result,
         }
     }
 

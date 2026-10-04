@@ -569,8 +569,8 @@ impl AgentExecutor {
             biased;
             _ = privacy_lease.cancelled() => Err(CoreError::Cancelled(
                 "Privacy settings changed; start a new turn to use the current policy".into())),
-            result = privacy_lease.scope(self.run_with_privacy_lease(history, user_parts, db, conversation_id,
-                turn_id, source_scope_override, tx, next_sort_order, &privacy_lease)) => result,
+            result = privacy_lease.scope(Box::pin(self.run_with_privacy_lease(history, user_parts, db, conversation_id,
+                turn_id, source_scope_override, tx, next_sort_order, &privacy_lease))) => result,
         }
     }
 

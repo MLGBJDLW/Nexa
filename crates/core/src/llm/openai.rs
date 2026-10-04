@@ -2765,6 +2765,7 @@ impl OpenAiProvider {
             crate::model_catalog::NativeWebSearchCapability,
         )>,
     ) -> Result<CompletionResponse, CoreError> {
+        crate::privacy::runtime::ensure_invocation_current()?;
         let transport = self.transport.for_request()?;
         let url = format!("{}/responses", self.base_url().trim_end_matches('/'));
         let capability = hosted_search
@@ -2838,6 +2839,7 @@ impl OpenAiProvider {
             crate::model_catalog::NativeWebSearchCapability,
         )>,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        crate::privacy::runtime::ensure_invocation_current()?;
         let transport = self.transport.for_request()?;
         let url = format!("{}/responses", self.base_url().trim_end_matches('/'));
         let capability = hosted_search
@@ -3023,6 +3025,7 @@ impl LlmProvider for OpenAiProvider {
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        crate::privacy::runtime::ensure_invocation_current()?;
         let transport = self.transport.for_request()?;
         let fallback_request;
         let request = if let Some((dialect, mode, capability)) = hosted_search_context(request) {
@@ -3235,6 +3238,7 @@ impl LlmProvider for OpenAiProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        crate::privacy::runtime::ensure_invocation_current()?;
         let transport = self.transport.for_request()?;
         if let Some((dialect, mode, capability)) = hosted_search_context(request) {
             if capability.supports_stream_events
@@ -5260,6 +5264,98 @@ data: [DONE]
         for body in bodies.iter() {
             assert!(body.get("thinking").is_none());
             assert!(body.get("reasoning_effort").is_none());
+        }
+    }
+
+    #[test]
+    fn privacy_hosted_search_errors_preserve_cancellation() {
+        let error = contextualize_hosted_search_error(
+            super::super::native_search::NativeSearchDialect::DeepSeekResponses,
+            CoreError::Cancelled("privacy revoked".into()),
+        );
+        assert!(matches!(error, CoreError::Cancelled(_)));
+    }
+
+    #[tokio::test]
+    async fn privacy_revocation_blocks_responses_internal_repair_requests() {
+        use super::super::native_search::{
+            NativeSearchDialect, NativeSearchPlan, ProviderNativeSearchEngine, SearchExecutionMode,
+        };
+        for streaming in [false, true] {
+            let db = crate::db::Database::open_memory().unwrap();
+            let lease = db
+                .privacy_lease(&tokio_util::sync::CancellationToken::new())
+                .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                read_json_request(&mut socket).await.unwrap();
+                let mut policy = db.load_privacy_config().unwrap();
+                policy.redact_patterns.push(crate::privacy::RedactRule {
+                    name: "source".into(),
+                    pattern: "privateCODE".into(),
+                    replacement: "[PRIVATE]".into(),
+                });
+                db.save_privacy_config(&policy).unwrap();
+                let error=br#"{"error":{"message":"The `reasoning_text` in the thinking mode must be passed back to the API.","type":"invalid_request_error"}}"#;
+                socket.write_all(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",error.len()).as_bytes()).await.unwrap();
+                socket.write_all(error).await.unwrap();
+                socket.shutdown().await.unwrap();
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_millis(250), listener.accept())
+                        .await
+                        .is_err(),
+                    "an internal repair request crossed the revoked policy"
+                );
+            });
+            let provider = OpenAiProvider::new(ProviderConfig {
+                provider_type: ProviderType::DeepSeek,
+                base_url: Some(format!("http://{addr}/v1")),
+                api_key: Some("test-key".into()),
+                org_id: None,
+                timeout_secs: Some(2),
+                streaming: Default::default(),
+            })
+            .unwrap();
+            let capability = crate::model_catalog::NativeWebSearchCapability {
+                dialect: NativeSearchDialect::DeepSeekResponses,
+                supports_domains: false,
+                supports_recency: false,
+                supports_locale: false,
+                supports_location: false,
+                supports_citations: false,
+                supports_stream_events: true,
+                can_mix_client_tools: true,
+            };
+            let plan = NativeSearchPlan {
+                mode: SearchExecutionMode::Auto,
+                dialect: Some(NativeSearchDialect::DeepSeekResponses),
+                capability: Some(capability),
+                trusted_endpoint: true,
+                provider_engine: ProviderNativeSearchEngine::Auto,
+            };
+            let mut request = endpoint_reasoning_request("deepseek-v4-pro");
+            request.reasoning_enabled = Some(true);
+            request.tools = Some(vec![
+                ToolDefinition {
+                    name: super::super::native_search::LOCAL_WEB_SEARCH_TOOL.into(),
+                    description: "search".into(),
+                    parameters: serde_json::json!({"type":"object"}),
+                },
+                plan.marker().unwrap(),
+            ]);
+            let result = lease
+                .scope(async {
+                    if streaming {
+                        provider.stream_events(&request).await.map(|_| ())
+                    } else {
+                        provider.complete(&request).await.map(|_| ())
+                    }
+                })
+                .await;
+            assert!(matches!(result, Err(CoreError::Cancelled(_))));
+            server.await.unwrap();
         }
     }
 

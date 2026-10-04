@@ -1618,11 +1618,7 @@ impl ToolDispatchRuntime<'_> {
                 // Reload at the release boundary. A tool can finish after a
                 // policy transaction; raw artifacts must never reach the UI,
                 // receipts, traces or the next provider request first.
-                if self.cancel_token.is_cancelled() {
-                    return Err(CoreError::Cancelled(
-                        "Tool result cancelled before release".into(),
-                    ));
-                }
+                privacy::runtime::ensure_invocation_current()?;
                 let current_privacy = db.load_privacy_config()?;
                 if privacy_cfg.enabled || current_privacy.enabled {
                     privacy::chat::redact_tool_output(

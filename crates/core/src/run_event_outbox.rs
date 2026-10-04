@@ -276,11 +276,15 @@ impl AgentRunEventOutboxes {
                 .database
                 .read_control(move |db| {
                     let lease = db.privacy_lease(&lease_cancellation)?;
-                    let revision: String = db.conn().query_row(
-                        "SELECT privacy_revision FROM agent_task_runs WHERE id=?1",
-                        [&privacy_run_id],
-                        |row| row.get(0),
-                    )?;
+                    let revision: String = db
+                        .conn()
+                        .query_row(
+                            "SELECT privacy_revision FROM agent_task_runs WHERE id=?1",
+                            [&privacy_run_id],
+                            |row| row.get(0),
+                        )
+                        .optional()?
+                        .unwrap_or_else(|| lease.policy.revision().to_owned());
                     Ok((lease, revision))
                 })
                 .await?

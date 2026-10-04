@@ -710,6 +710,7 @@ pub(crate) async fn send_stream_start_request(
     timeout: Option<std::time::Duration>,
     context: &str,
 ) -> Result<reqwest::Response, CoreError> {
+    crate::privacy::runtime::ensure_invocation_current()?;
     let send = builder.send();
     let result = match timeout {
         Some(timeout) => match tokio::time::timeout(timeout, send).await {
