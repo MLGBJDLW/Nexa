@@ -3198,7 +3198,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
             let transaction = conn.unchecked_transaction()?;
             transaction.execute_batch(sql)?;
             if *name == "v148_chat_privacy" {
-                crate::privacy::chat_store::install(&transaction)?;
+                crate::privacy::chat_store::install(&transaction, migration_count != 0)?;
             }
             transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
             transaction.commit()?;

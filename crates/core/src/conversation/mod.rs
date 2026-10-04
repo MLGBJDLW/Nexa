@@ -3988,8 +3988,6 @@ impl Database {
     ) -> Result<(), CoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut envelope = envelope.clone();
-        crate::privacy::ChatPrivacyPolicy::load(&tx)?.redact_provider_envelope(&mut envelope);
         let provider_items_json = serde_json::to_string(&envelope.provider_items)?;
         let replay_payload_json = serde_json::to_string(&envelope.replay_payload)?;
         let tool_calls_json = serde_json::to_string(&envelope.tool_calls)?;

@@ -105,7 +105,9 @@ impl Redactor {
         envelope.visible_content = visible;
         let arguments_changed = self.calls(&mut envelope.tool_calls, stale || changed);
         if stale || changed || arguments_changed {
-            self.calls(&mut envelope.tool_calls, true);
+            for call in &mut envelope.tool_calls {
+                call.thought_signature = None;
+            }
             envelope.provider_items.clear();
             envelope.replay_payload = ProviderReplayPayload::None;
             envelope.capture_status = ReasoningCaptureStatus::Redacted;
@@ -121,7 +123,9 @@ impl Redactor {
             .to_hex()
             .to_string();
         }
-        envelope.privacy_fingerprint = Some(self.fingerprint.clone());
+        if stale || changed || arguments_changed || envelope.privacy_fingerprint.is_some() {
+            envelope.privacy_fingerprint = Some(self.fingerprint.clone());
+        }
     }
 
     fn structured(&self, value: &mut Value) {
@@ -166,6 +170,8 @@ impl Redactor {
                 map.remove("reasoningEnvelope");
                 map.remove("thoughtSignature");
                 map.remove("thought_signature");
+                let tool_discovery =
+                    map.get("kind").and_then(Value::as_str) == Some("toolSearchResults");
                 for (key, value) in map.iter_mut() {
                     match key.as_str() {
                         // Only protocol metadata is exempt. Names in arbitrary
@@ -176,6 +182,17 @@ impl Redactor {
                         | "interactionId" | "documentId" | "sourceId" | "chunkId" | "revision"
                         | "route" | "providerEndpointId" | "modelId" => {}
                         "data" | "metadata" => self.data(value),
+                        "matches" if tool_discovery => {
+                            if let Some(matches) = value.as_array_mut() {
+                                for item in matches {
+                                    let name = item.get("name").cloned();
+                                    self.structured(item);
+                                    if let (Some(name), Some(item)) = (name, item.as_object_mut()) {
+                                        item.insert("name".into(), name);
+                                    }
+                                }
+                            }
+                        }
                         "arguments" if value.is_string() => {
                             *value =
                                 Value::String(self.arguments(value.as_str().unwrap_or_default()));
@@ -259,11 +276,6 @@ impl ChatPrivacyPolicy {
     pub fn redact_context_messages(&self, messages: &mut [Message]) {
         redact_context_messages(self, messages);
     }
-    pub(crate) fn redact_provider_envelope(&self, envelope: &mut ProviderTurnEnvelope) {
-        if self.config.enabled {
-            self.redactor.envelope(envelope);
-        }
-    }
 }
 
 pub(crate) fn redact_tool_output(
@@ -287,6 +299,21 @@ pub(crate) fn redact_tool_output(
 /// SQL passes the policy value from its own transaction. No connection access
 /// or mutable global policy is allowed inside a SQLite callback.
 pub(crate) fn register(conn: &Connection) -> rusqlite::Result<()> {
+    conn.create_scalar_function(
+        "nexa_chat_privacy_policy_v1",
+        2,
+        FunctionFlags::SQLITE_UTF8
+            | FunctionFlags::SQLITE_DETERMINISTIC
+            | FunctionFlags::SQLITE_INNOCUOUS,
+        |context| {
+            let raw = context.get::<String>(0)?;
+            let revision = context.get::<String>(1)?;
+            let mut policy: Value = serde_json::from_str(&raw)
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            policy["_chatRevision"] = Value::String(revision);
+            Ok(policy.to_string())
+        },
+    )?;
     type Cache = Option<(String, Arc<Redactor>)>;
     let cache = Mutex::<Cache>::new(None);
     conn.create_scalar_function(
@@ -357,8 +384,12 @@ pub(crate) fn register(conn: &Connection) -> rusqlite::Result<()> {
                     serde_json::to_string(&calls).expect("tool calls are serializable")
                 }
                 "json" | "event_payload" => {
-                    let mut value: Value = serde_json::from_str(&raw)
-                        .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                    // Old diagnostic traces can be malformed. Redact their raw
+                    // text without interpreting it as a valid protocol object;
+                    // keep the existing explicit detail-read error observable.
+                    let Ok(mut value) = serde_json::from_str::<Value>(&raw) else {
+                        return Ok(Some(redactor.text(&raw)));
+                    };
                     redactor.structured(&mut value);
                     if kind == "event_payload" {
                         let scope = envelope_artifacts
