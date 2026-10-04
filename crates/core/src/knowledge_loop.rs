@@ -267,10 +267,11 @@ mod tests {
             .expect("archive output");
 
         assert!(std::path::Path::new(&result.source).exists());
-        let (doc_id, _) = db
-            .get_document_by_path(&result.source)
+        let document = db
+            .get_document_in_source(&source.id, &result.source)
             .expect("lookup document")
             .expect("document row");
+        let doc_id = document.id;
         assert_eq!(doc_id, result.document_id);
         assert!(
             document_chunk_count(&db, &doc_id).expect("chunk count") > 0,
