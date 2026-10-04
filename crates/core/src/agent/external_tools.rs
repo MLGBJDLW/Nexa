@@ -143,6 +143,33 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn privacy_revocation_invalidates_external_tool_receipts_before_replay() {
+        let (session, effects, _events) = session(5);
+        session.execute(call("cached-call", 1)).await.unwrap();
+        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        let mut policy = session.input.db.load_privacy_config().unwrap();
+        policy.redact_patterns.push(crate::privacy::RedactRule {
+            name: "recorded source".into(),
+            pattern: "effect recorded".into(),
+            replacement: "[PRIVATE]".into(),
+        });
+        session.input.db.save_privacy_config(&policy).unwrap();
+        assert!(matches!(
+            session.execute(call("cached-call", 1)).await,
+            Err(CoreError::Cancelled(_))
+        ));
+        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        for message in session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap()
+        {
+            assert!(!message.content.contains("effect recorded"));
+        }
+    }
+
     struct DesktopEvidenceFixture(bool);
     #[async_trait::async_trait]
     impl Tool for DesktopEvidenceFixture {
@@ -666,6 +693,7 @@ pub struct ExternalToolSession {
     input: ExternalToolSessionInput,
     source_scope: Vec<String>,
     privacy: privacy::PrivacyConfig,
+    privacy_lease: privacy::PrivacyLease,
     activity: crate::activity::ActivityRuntime,
     state: TokioMutex<ExternalToolState>,
     routing_prompt: String,
@@ -686,6 +714,7 @@ struct ExternalToolState {
 
 impl ExternalToolSession {
     pub fn new(input: ExternalToolSessionInput) -> Result<Self, CoreError> {
+        let privacy_lease = input.db.privacy_lease(&input.cancellation)?;
         let source_scope = input
             .db
             .get_effective_conversation_source_scope(&input.conversation_id)?;
@@ -700,7 +729,7 @@ impl ExternalToolSession {
             !source_scope.is_empty(),
             source_scope.len(),
         ));
-        let privacy = input.db.load_privacy_config()?;
+        let privacy = privacy_lease.policy.config().clone();
         let activity = crate::activity::ActivityRuntime::with_database((*input.db).clone())?;
         let desktop_profile = resolve_orchestration_profile(OrchestrationProfileInput {
             profile: input.config.orchestration_profile,
@@ -747,6 +776,7 @@ impl ExternalToolSession {
             input,
             source_scope,
             privacy,
+            privacy_lease,
             activity,
             state: TokioMutex::new(state),
             routing_prompt: route.prompt_section,
@@ -766,6 +796,18 @@ impl ExternalToolSession {
     }
 
     pub async fn execute(&self, call: ToolCallRequest) -> Result<ExternalToolOutput, CoreError> {
+        self.privacy_lease.ensure_current()?;
+        tokio::select! {
+            biased;
+            _ = self.privacy_lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed before the tool result could be released".into())),
+            result = self.execute_current(call) => result,
+        }
+    }
+
+    async fn execute_current(
+        &self,
+        call: ToolCallRequest,
+    ) -> Result<ExternalToolOutput, CoreError> {
         let mut state = self.state.lock().await;
         if self.input.cancellation.is_cancelled() {
             return Err(CoreError::Cancelled("Stopped by user".into()));
@@ -1055,6 +1097,7 @@ impl ExternalToolSession {
         text: &str,
         intermediate: bool,
     ) -> Result<PersistedAssistantMessage, CoreError> {
+        self.privacy_lease.ensure_current()?;
         if !intermediate {
             let source_scope = self
                 .input
@@ -1079,6 +1122,7 @@ impl ExternalToolSession {
             }
         }
         let mut state = self.state.lock().await;
+        self.privacy_lease.ensure_current()?;
         if !intermediate
             && state
                 .desktop_resume_workflow

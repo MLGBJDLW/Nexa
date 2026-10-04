@@ -95,7 +95,11 @@ fn subscription_input_and_history_obey_the_saved_privacy_policy() {
     request.user_parts = vec![ContentPart::Text {
         text: "Inspect private-marker-123".into(),
     }];
-    request.history = vec![Message::text(Role::User, "Earlier private-marker-123")];
+    request.history = vec![
+        Message::text(Role::User, "Earlier private-marker-123"),
+        Message::text(Role::Assistant, "Source private-marker-123"),
+        Message::text_with_name(Role::Tool, "private-marker-123", "stable-call-id"),
+    ];
     let prepared = request.prepare(false).unwrap();
     assert_eq!(prepared.prompt, "Inspect [PRIVATE]");
     assert!(!prepared.system_prompt.contains("private-marker-123"));

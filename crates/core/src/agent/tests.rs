@@ -13,6 +13,8 @@ use crate::conversation::{conversation_message_llm_context_content, CreateConver
 use crate::llm::{CompletionResponse, FinishReason, PromptLifetime, PromptStability, StreamChunk};
 use crate::tools::{Tool, ToolResult};
 
+mod privacy_revocation;
+
 #[test]
 fn test_tool_timeout_zero_disables_outer_timeout() {
     let timeout = tool_timeout_for_call(Some(0), "read_file", &serde_json::json!({}));

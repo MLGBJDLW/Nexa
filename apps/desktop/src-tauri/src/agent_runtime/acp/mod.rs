@@ -73,6 +73,7 @@ pub(crate) struct Catalog {
 }
 
 pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Result<Message> {
+    let privacy_lease = request.db.privacy_lease(&request.cancellation)?;
     if request.cancellation.is_cancelled() {
         return Err(CoreError::Cancelled("Stopped by user".into()));
     }
@@ -94,6 +95,7 @@ pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Res
             request.conversation_id,
             request.dependencies.tools.workspace(),
             request.db.load_privacy_config()?,
+            privacy_lease.policy.revision(),
             servers
         ])
         .to_string()
@@ -132,6 +134,7 @@ pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Res
         }
     };
     let answer = run_initialized(provider, request, &mut connection).await?;
+    privacy_lease.ensure_current()?;
     // A changed/rewound transcript, different profile or workspace never reuses
     // hidden upstream state. Only a completed, persisted turn is cached.
     if db.chat_worktree(&conversation)?.is_none() {

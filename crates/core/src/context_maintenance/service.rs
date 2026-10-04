@@ -192,6 +192,27 @@ impl ContextCompactionService {
         cancellation: CancellationToken,
         job: ContextCompactionJob,
     ) -> Result<ContextCompactionResult, OperationError> {
+        let lease_cancel = cancellation.clone();
+        let lease = self
+            .inner
+            .database
+            .read(move |db| db.privacy_lease(&lease_cancel))
+            .await?
+            .value;
+        tokio::select! {
+            biased;
+            _ = lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed during compaction".into()).into()),
+            result = lease.scope(self.run_current(operation_id, cancellation, job, &lease.policy)) => result,
+        }
+    }
+
+    async fn run_current(
+        &self,
+        operation_id: &str,
+        cancellation: CancellationToken,
+        job: ContextCompactionJob,
+        privacy: &crate::privacy::ChatPrivacyPolicy,
+    ) -> Result<ContextCompactionResult, OperationError> {
         let started = Instant::now();
         let deadline = started + Duration::from_millis(job.request.policy.total_deadline_ms);
         self.progress(
@@ -303,12 +324,15 @@ impl ContextCompactionService {
             let summarizer = job.summarizer.as_ref().ok_or_else(|| {
                 CoreError::InvalidInput("Summary mode requires a summarization provider".into())
             })?;
+            let mut summary_messages = plan.summary_messages.clone();
+            privacy.redact_context_messages(&mut summary_messages);
+            let extractive_fallback = privacy.redact_text(&plan.extractive_fallback);
             let summary = summarize_evicted_messages_with_controls(
                 summarizer.as_ref(),
                 &job.model,
                 job.provider_type,
-                &plan.summary_messages,
-                &plan.extractive_fallback,
+                &summary_messages,
+                &extractive_fallback,
                 &cancellation,
                 deadline,
                 SummarizationControlPolicy {
@@ -558,6 +582,38 @@ mod tests {
 
     struct IdleProvider;
 
+    struct PrivacyBarrierProvider {
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for PrivacyBarrierProvider {
+        fn name(&self) -> &str {
+            "privacy-barrier"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            panic!("compaction does not stream")
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            self.started.notify_one();
+            self.release.notified().await;
+            Err(CoreError::Cancelled(
+                "privacy revoked during summary".into(),
+            ))
+        }
+    }
+
     #[async_trait]
     impl LlmProvider for IdleProvider {
         fn name(&self) -> &str {
@@ -604,6 +660,103 @@ mod tests {
             provider_label: "test".to_string(),
             summarizer: Some(Arc::new(IdleProvider)),
         }
+    }
+
+    #[tokio::test]
+    async fn privacy_revocation_cancels_manual_compaction_before_checkpoint_commit() {
+        let database = crate::db::Database::open_memory().unwrap();
+        database
+            .save_privacy_config(&crate::privacy::PrivacyConfig {
+                enabled: false,
+                ..Default::default()
+            })
+            .unwrap();
+        let conversation = database
+            .create_conversation(&CreateConversationInput {
+                provider: "custom".into(),
+                model: "test".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        for (index, role, content) in [
+            (0, Role::User, "Read the source".into()),
+            (1, Role::Assistant, "source privateCODE ".repeat(3000)),
+            (2, Role::User, "Continue".into()),
+        ] {
+            database
+                .add_message(&ConversationMessage {
+                    id: format!("privacy-{index}"),
+                    conversation_id: conversation.id.clone(),
+                    role,
+                    content,
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    artifacts: None,
+                    token_count: 1,
+                    created_at: String::new(),
+                    sort_order: index,
+                    thinking: None,
+                    image_attachments: None,
+                })
+                .unwrap();
+        }
+        let service = ContextCompactionService::new(
+            DatabaseExecutor::new(database.clone(), 4).unwrap(),
+            ActivityRuntime::new(),
+        );
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut request = job(&conversation.id, "privacy-cancel");
+        request.summarizer = Some(Arc::new(PrivacyBarrierProvider {
+            started: started.clone(),
+            release: release.clone(),
+        }));
+        let handle = service.start(request).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), started.notified())
+            .await
+            .unwrap();
+        let mut policy = database.load_privacy_config().unwrap();
+        policy.enabled = true;
+        policy.redact_patterns.push(crate::privacy::RedactRule {
+            name: "source".into(),
+            pattern: "privateCODE".into(),
+            replacement: "[PRIVATE]".into(),
+        });
+        database.save_privacy_config(&policy).unwrap();
+        release.notify_one();
+        let observation = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut cursor = 0;
+            loop {
+                let observation = service
+                    .observe(&handle.operation_id, cursor, Duration::from_millis(100))
+                    .await
+                    .unwrap();
+                if observation.record.state.is_terminal() {
+                    break observation;
+                }
+                cursor = observation.cursor;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observation.record.state, ActivityState::Cancelled);
+        assert!(
+            !super::super::load_context_projection(&database, &conversation.id)
+                .unwrap()
+                .projected
+        );
+        assert_eq!(
+            database
+                .conn()
+                .query_row("SELECT count(*) FROM context_compactions", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(database.get_messages(&conversation.id).unwrap().len(), 3);
     }
 
     #[tokio::test]

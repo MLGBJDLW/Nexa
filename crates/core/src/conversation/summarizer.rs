@@ -297,6 +297,8 @@ pub async fn summarize_evicted_messages_with_controls(
     let mut attempts = 0u32;
     let max_retries = policy.max_retries.min(1);
     loop {
+        crate::privacy::runtime::ensure_invocation_current()
+            .map_err(|error| SummarizationFailure { error, attempts })?;
         if cancellation.is_cancelled() {
             return Err(SummarizationFailure {
                 error: CoreError::Cancelled("Context summarization was cancelled".to_string()),
@@ -314,6 +316,7 @@ pub async fn summarize_evicted_messages_with_controls(
         let attempt_timeout = policy.attempt_timeout.min(remaining);
         attempts = attempts.saturating_add(1);
         let attempt = tokio::select! {
+            biased;
             _ = cancellation.cancelled() => {
                 return Err(SummarizationFailure {
                     error: CoreError::Cancelled(
@@ -406,6 +409,9 @@ pub async fn summarize_evicted_messages_with_controls(
                         attempts,
                     ));
                 }
+            }
+            Err(error @ CoreError::Cancelled(_)) => {
+                return Err(SummarizationFailure { error, attempts });
             }
             Err(e) => {
                 // Non-retryable error (auth, bad request, etc.)

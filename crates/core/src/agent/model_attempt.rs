@@ -597,10 +597,10 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         self.candidate_sample_id = Some(Uuid::new_v4().to_string());
         info!(attempt = self.connect_retries + 1, "Initiating LLM stream");
         let provider = self.provider;
-        self.phase =
-            AttemptPhase::OpeningStream(Box::pin(
-                async move { provider.stream_events(&request).await },
-            ));
+        self.phase = AttemptPhase::OpeningStream(Box::pin(async move {
+            crate::privacy::runtime::ensure_invocation_current()?;
+            provider.stream_events(&request).await
+        }));
     }
 
     fn begin_completion(&mut self, switched_to_non_streaming: bool) {
@@ -615,7 +615,10 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         );
         let provider = self.provider;
         self.phase = AttemptPhase::OpeningCompletion {
-            future: Box::pin(async move { provider.complete(&request).await }),
+            future: Box::pin(async move {
+                crate::privacy::runtime::ensure_invocation_current()?;
+                provider.complete(&request).await
+            }),
             switched_to_non_streaming,
         };
     }
