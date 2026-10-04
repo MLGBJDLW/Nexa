@@ -8028,23 +8028,22 @@ async fn test_persists_only_final_iteration_thinking_on_final_assistant() {
         crate::llm::provider_turn::ProviderReplayPayload::DeepSeekReasoningContent(ref value)
             if value == "first round reasoning"
     ));
-    let first_reasoning_envelope = messages[0]
+    assert_eq!(
+        provider_turn.capture_status,
+        crate::llm::reasoning_profile::ReasoningCaptureStatus::Captured
+    );
+    assert_eq!(
+        crate::conversation::conversation_message_reasoning_replay(&messages[0]).as_deref(),
+        Some("first round reasoning")
+    );
+    // Enabled privacy retains the authoritative provider envelope and drops
+    // the duplicate legacy replay artifact, including on a fresh database.
+    assert!(messages[0]
         .artifacts
         .as_ref()
-        .and_then(|value| value.get(crate::conversation::REASONING_ENVELOPE_ARTIFACT_KEY))
-        .expect("tool-call assistant should persist a reasoning envelope");
-    assert_eq!(
-        first_reasoning_envelope["displayText"].as_str(),
-        Some("first round reasoning")
-    );
-    assert_eq!(
-        first_reasoning_envelope["replayPayload"].as_str(),
-        Some("first round reasoning")
-    );
-    assert_eq!(
-        first_reasoning_envelope["status"].as_str(),
-        Some("captured")
-    );
+        .unwrap()
+        .get(crate::conversation::REASONING_ENVELOPE_ARTIFACT_KEY)
+        .is_none());
     assert_eq!(messages[1].role, Role::Tool);
     assert_eq!(messages[2].content, "final answer");
     assert_eq!(
@@ -8056,10 +8055,19 @@ async fn test_persists_only_final_iteration_thinking_on_final_assistant() {
         .as_ref()
         .and_then(|value| value.as_object())
         .expect("final assistant message should persist trace artifacts");
+    let final_provider_turn = crate::conversation::conversation_message_provider_turn(&messages[2])
+        .expect("final assistant should retain the authoritative provider envelope");
     assert_eq!(
-        artifacts[crate::conversation::REASONING_ENVELOPE_ARTIFACT_KEY]["replayPayload"].as_str(),
+        final_provider_turn.capture_status,
+        crate::llm::reasoning_profile::ReasoningCaptureStatus::Captured
+    );
+    assert_eq!(
+        crate::conversation::conversation_message_reasoning_replay(&messages[2]).as_deref(),
         Some("second round reasoning")
     );
+    assert!(artifacts
+        .get(crate::conversation::REASONING_ENVELOPE_ARTIFACT_KEY)
+        .is_none());
     assert_eq!(
         artifacts.get("kind").and_then(|v| v.as_str()),
         Some("traceTimeline")
