@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
+import { listen } from '@tauri-apps/api/event';
+import { connectEventSubscriptions } from './eventSubscriptions';
 import * as api from './api';
 import { isOptimisticSteeringMessage, isSteeringMessage } from './chatMessageGuards';
 import { hasPersistedResultAfterLatestUserMessage } from './streaming/chatVisibility';
@@ -497,6 +499,22 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const timelineSnapshot = useSyncExternalStore(timeline.subscribe, readTimeline, readTimeline);
   const { messages, turns, taskRuns } = timelineSnapshot;
   const hasPersistedStreamResult = hasPersistedResultAfterLatestUserMessage(messages);
+
+  useEffect(() => {
+    const connection = connectEventSubscriptions([
+      isActive => listen('privacy:revoked', () => {
+        if (!isActive()) return;
+        // Abandon both cached details and in-flight reads before loading the
+        // redacted rows. Keep composer drafts and authored user messages intact.
+        conversationHydrationGenerationRef.current += 1;
+        completionHydrationGenerationRef.current += 1;
+        timeline.clearAll();
+        const conversationId = activeIdRef.current;
+        if (conversationId) void timeline.openTail(conversationId).catch(() => {});
+      }),
+    ], () => {});
+    return connection.stop;
+  }, [timeline]);
 
   const setMessagesForConversation = useCallback((
     conversationId: string,

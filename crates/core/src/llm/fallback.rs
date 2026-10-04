@@ -204,6 +204,7 @@ impl AutomaticFallbackProvider {
     ) -> Result<(usize, BoxStream<'a, ProviderStreamEvent>), CoreError> {
         let mut last_retryable = None;
         for position in start_position..end_position {
+            crate::privacy::runtime::ensure_invocation_current()?;
             let route_request = self.request_for_route(request, position);
             match self.routes[position]
                 .provider
@@ -307,6 +308,7 @@ impl LlmProvider for AutomaticFallbackProvider {
         }
         let mut last_retryable = None;
         for position in selected_position..end_position {
+            crate::privacy::runtime::ensure_invocation_current()?;
             let route_request = self.request_for_route(request, position);
             match self.routes[position]
                 .provider
@@ -1313,6 +1315,86 @@ mod tests {
         assert_eq!(response.content, "fallback-model");
         assert_eq!(*primary_models.lock().unwrap(), vec!["primary-model"]);
         assert_eq!(*fallback_models.lock().unwrap(), vec!["fallback-model"]);
+    }
+
+    struct RevokingPrimary(crate::db::Database);
+    #[async_trait]
+    impl LlmProvider for RevokingPrimary {
+        fn name(&self) -> &str {
+            "revoking-primary"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            self.revoke()?;
+            Err(CoreError::TransientLlm(
+                "primary failed after policy save".into(),
+            ))
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            self.revoke()?;
+            Err(CoreError::TransientLlm(
+                "primary failed after policy save".into(),
+            ))
+        }
+    }
+    impl RevokingPrimary {
+        fn revoke(&self) -> Result<(), CoreError> {
+            let mut policy = self.0.load_privacy_config()?;
+            policy.redact_patterns.push(crate::privacy::RedactRule {
+                name: "source".into(),
+                pattern: "privateCODE".into(),
+                replacement: "[PRIVATE]".into(),
+            });
+            self.0.save_privacy_config(&policy)
+        }
+    }
+
+    #[tokio::test]
+    async fn privacy_revocation_inside_a_ready_primary_never_dispatches_a_fallback() {
+        for streaming in [false, true] {
+            let db = crate::db::Database::open_memory().unwrap();
+            let lease = db
+                .privacy_lease(&tokio_util::sync::CancellationToken::new())
+                .unwrap();
+            let fallback_models = Arc::new(Mutex::new(Vec::new()));
+            let wrapper = AutomaticFallbackProvider::new(
+                0,
+                Box::new(RevokingPrimary(db)),
+                "primary-model".into(),
+                ProviderType::OpenAi,
+                vec![AutomaticFallbackCandidate {
+                    fallback_index: 1,
+                    provider: provider(
+                        "fallback",
+                        Behavior::CompleteSuccess,
+                        fallback_models.clone(),
+                    ),
+                    model: "fallback-model".into(),
+                    provider_type: ProviderType::OpenAi,
+                }],
+                Arc::new(|_, _, _| Ok(())),
+            )
+            .unwrap();
+            let result = lease
+                .scope(async {
+                    if streaming {
+                        wrapper.stream_events(&request()).await.map(|_| ())
+                    } else {
+                        wrapper.complete(&request()).await.map(|_| ())
+                    }
+                })
+                .await;
+            assert!(matches!(result, Err(CoreError::Cancelled(_))));
+            assert!(fallback_models.lock().unwrap().is_empty());
+        }
     }
 
     #[tokio::test]

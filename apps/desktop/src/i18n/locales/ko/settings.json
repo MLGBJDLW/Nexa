@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "예: **/.env* 또는 **/*.log",
   "addPattern": "추가",
   "redactRules": "마스킹 규칙",
-  "redactRulesDesc": "일치하는 내용을 대체합니다. 비식별화를 켜거나 활성 규칙을 변경하면 색인 본문과 저장된 인용 기록이 삭제됩니다. 원본을 다시 스캔하여 색인을 재구축하세요.",
+  "redactRulesDesc": "일치하는 내용을 대체합니다. 비식별화를 켜거나 활성 규칙을 변경하면 실행 중인 작업이 중지되고 자동 생성된 대화 기록이 비식별화되며 색인 본문과 저장된 인용이 삭제됩니다. 원본을 다시 스캔하여 색인을 재구축하세요.",
   "ruleName": "이름",
   "rulePattern": "패턴",
   "ruleReplacement": "대체 텍스트",

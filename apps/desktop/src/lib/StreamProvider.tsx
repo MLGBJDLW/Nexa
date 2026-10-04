@@ -5,6 +5,7 @@ import { parseAgentFrontendEvent } from './streaming/runEventWire';
 import type { AgentHeartbeatEvent, AgentTaskSnapshotEvent } from '../types/conversation';
 import { connectEventSubscriptions, type EventConnectionState } from './eventSubscriptions';
 import { progressEventSubscriptions } from './progressEventSubscriptions';
+import { durableRunReconciler } from './streaming/runReconciliationRuntime';
 
 const StreamConnection = createContext<{ state: EventConnectionState; retry: () => void }>({ state: { status: 'connecting' }, retry: () => {} });
 export const useStreamConnection = () => useContext(StreamConnection);
@@ -19,6 +20,13 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const retry = useCallback(() => connection.current?.retry(), []);
   useEffect(() => {
     const current = connectEventSubscriptions([
+      (isActive) => listen('privacy:revoked', () => {
+        if (!isActive()) return;
+        // Settings and Chat are separate routes. This owner remains mounted
+        // while the user saves a policy and while late backend frames arrive.
+        durableRunReconciler.clearCache();
+        streamStore.revokePrivacy();
+      }),
       (isActive) => listen<unknown>('agent://run-event', (event) => {
         if (!isActive()) return;
         const data = parseAgentFrontendEvent(event.payload);

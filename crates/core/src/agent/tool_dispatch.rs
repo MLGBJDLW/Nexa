@@ -1449,7 +1449,7 @@ impl ToolDispatchRuntime<'_> {
                 let tc = finished_tool.call;
                 let tool_elapsed = finished_tool.elapsed;
                 let (
-                    tool_msg,
+                    mut tool_msg,
                     mut tool_context_msg,
                     mut tool_artifacts,
                     tool_attachments,
@@ -1615,6 +1615,19 @@ impl ToolDispatchRuntime<'_> {
                         )
                     }
                 };
+                // Reload at the release boundary. A tool can finish after a
+                // policy transaction; raw artifacts must never reach the UI,
+                // receipts, traces or the next provider request first.
+                privacy::runtime::ensure_invocation_current()?;
+                let current_privacy = db.load_privacy_config()?;
+                if privacy_cfg.enabled || current_privacy.enabled {
+                    privacy::chat::redact_tool_output(
+                        &current_privacy,
+                        &mut tool_msg,
+                        &mut tool_context_msg,
+                        &mut tool_artifacts,
+                    )?;
+                }
                 let tool_attachments = normalize_ephemeral_tool_attachments(tool_attachments);
 
                 if crate::workflow_ir::tool_result_requires_desktop_observation(
@@ -1735,17 +1748,8 @@ impl ToolDispatchRuntime<'_> {
                     }
                 }
 
-                // Redact tool output before adding to context.
-                let content = if privacy_cfg.enabled {
-                    privacy::redact_content(&tool_msg, &privacy_cfg.redact_patterns)
-                } else {
-                    tool_msg
-                };
-                let context_content = if privacy_cfg.enabled {
-                    privacy::redact_content(&tool_context_msg, &privacy_cfg.redact_patterns)
-                } else {
-                    tool_context_msg
-                };
+                let content = tool_msg;
+                let context_content = tool_context_msg;
 
                 append_persisted_trace_tool(
                     persisted_trace_items,

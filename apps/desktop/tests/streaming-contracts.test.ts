@@ -374,6 +374,54 @@ function frontendEvent(runEvent: AgentRunEvent): AgentFrontendEvent {
   };
 }
 
+test('privacy revocation clears cached output and rejects late frames while allowing a fresh run', () => {
+  const id = 'privacy-conversation';
+  const frame = (runId: string, eventSeq: number, delta: string) => ({
+    conversationId: id,
+    runEvent: { ...runEvent({ eventSeq, kind: 'outputDelta', payload: { blockId: 'answer', channel: 'answer', offset: 0, delta } }), runId },
+  });
+  streamStore.dispatch(id, frame('privacy-old-run', 1, 'privateCODE'));
+  assertEqual(streamStore.getStream(id)?.streamText, 'privateCODE', 'fixture shows the old source');
+  streamStore.revokePrivacy();
+  assertEqual(streamStore.getStream(id), undefined, 'old projection is removed immediately');
+  streamStore.dispatch(id, frame('privacy-old-run', 2, 'privateCODE late'));
+  assertEqual(streamStore.getStream(id), undefined, 'a late old frame cannot recreate the cache');
+  streamStore.dispatch(id, frame('privacy-new-run', 1, 'safe current result'));
+  assertEqual(streamStore.getStream(id)?.streamText, 'safe current result', 'new turn still streams normally');
+  streamStore.clearStream(id);
+});
+
+test('late done and error frames cannot restore revoked answer or trace text', () => {
+  for (const kind of ['done', 'error'] as const) {
+    const id = `privacy-terminal-${kind}`;
+    const runId = `privacy-terminal-run-${kind}`;
+    streamStore.startStream(id);
+    streamStore.bindTurnHandle(id, { sessionId:id, runId, turnId:'privacy-turn', state:'running' });
+    streamStore.revokePrivacy();
+    const event = { ...runEvent({eventSeq:1,kind,status:kind === 'done' ? 'completed' : 'failed',label:'privateCODE',payload:{message:'privateCODE',content:'privateCODE'}}),runId };
+    streamStore.dispatch(id,{conversationId:id,runEvent:event});
+    const restored=streamStore.getStream(id);
+    assert(restored && !restored.isStreaming,'terminal identity should close the old run');
+    assert(!JSON.stringify(restored).includes('privateCODE'),'late terminal body and label must be discarded');
+    streamStore.applyTaskSnapshot({
+      type: 'taskRunUpdated',
+      conversationId: id,
+      taskRun: {
+        ...taskRun(kind === 'done' ? 'completed' : 'failed'),
+        id: runId,
+        conversationId: id,
+        summary: 'privateCODE summary',
+        errorMessage: 'privateCODE error',
+        plan: { steps: ['privateCODE plan'] },
+        artifacts: { content: 'privateCODE artifact' },
+      },
+    });
+    assert(!JSON.stringify(streamStore.getStream(id)).includes('privateCODE'),
+      'a late task snapshot must not repopulate the safely settled run');
+    streamStore.clearStream(id);
+  }
+});
+
 test('runtime wire schema accepts only the canonical Run Event envelope', () => {
   const canonical = frontendEvent(runEvent({ eventSeq: 1, kind: 'status' }));
   assert(parseAgentFrontendEvent(canonical), 'canonical envelope should parse');

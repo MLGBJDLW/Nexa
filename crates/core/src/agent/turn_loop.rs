@@ -564,6 +564,45 @@ impl AgentExecutor {
         tx: mpsc::Sender<AgentEvent>,
         next_sort_order: i64,
     ) -> Result<Message, CoreError> {
+        let privacy_lease = db.privacy_lease(&self.cancel_token)?;
+        tokio::select! {
+            biased;
+            _ = privacy_lease.cancelled() => Err(CoreError::Cancelled(
+                "Privacy settings changed; start a new turn to use the current policy".into())),
+            result = privacy_lease.scope(Box::pin(self.run_with_privacy_lease(history, user_parts, db, conversation_id,
+                turn_id, source_scope_override, tx, next_sort_order, &privacy_lease))) => result,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_with_privacy_lease(
+        &self,
+        mut history: Vec<Message>,
+        mut user_parts: Vec<ContentPart>,
+        db: &Database,
+        conversation_id: Option<&str>,
+        turn_id: Option<&str>,
+        source_scope_override: Option<Vec<String>>,
+        tx: mpsc::Sender<AgentEvent>,
+        next_sort_order: i64,
+        privacy_lease: &privacy::PrivacyLease,
+    ) -> Result<Message, CoreError> {
+        privacy_lease.ensure_current()?;
+        // History may have been loaded before this invocation was registered.
+        // Project every role before pre-summarization can make a provider call.
+        privacy_lease.policy.redact_context_messages(&mut history);
+        let mut user = Message::from(crate::llm::MessageData {
+            role: Role::User,
+            parts: user_parts,
+            name: None,
+            tool_calls: None,
+            reasoning_content: None,
+            prompt_cache_hint: None,
+        });
+        privacy_lease
+            .policy
+            .redact_context_messages(std::slice::from_mut(&mut user));
+        user_parts = user.parts.clone();
         let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
         let output_budget_plan = self.config.resolved_output_budget(model);
         let max_response_tokens = output_budget_plan.effective_tokens;
@@ -958,18 +997,7 @@ impl AgentExecutor {
         }
 
         // --- 2. Privacy redaction on outgoing user content --------------------
-        let privacy_cfg = db.load_privacy_config().unwrap_or_default();
-        if privacy_cfg.enabled {
-            for msg in &mut messages {
-                if msg.role == Role::User {
-                    for part in &mut msg.parts {
-                        if let ContentPart::Text { text } = part {
-                            *text = privacy::redact_content(text, &privacy_cfg.redact_patterns);
-                        }
-                    }
-                }
-            }
-        }
+        let privacy_cfg = privacy_lease.policy.config().clone();
 
         // Compaction is a real model action. Seed the run ledger with its
         // provider usage (or a conservative estimate for unreported attempts)
@@ -2321,7 +2349,7 @@ impl AgentExecutor {
                 reasoning_content: assistant_reasoning_content.clone(),
                 prompt_cache_hint: None,
             });
-            let provider_turn_envelope =
+            let mut provider_turn_envelope =
                 crate::llm::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
                     Uuid::new_v4().to_string(),
                     sample_id,
@@ -2336,6 +2364,8 @@ impl AgentExecutor {
                     reasoning_was_requested,
                     provider_replay,
                 );
+            provider_turn_envelope.privacy_fingerprint =
+                Some(privacy_lease.policy.fingerprint().to_owned());
             assistant_msg.set_provider_turn(provider_turn_envelope);
             messages.push(assistant_msg.clone());
             let loop_guard_intervention =

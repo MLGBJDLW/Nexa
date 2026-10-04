@@ -595,6 +595,75 @@ mod tests {
     }
 
     #[test]
+    fn privacy_revocation_allows_a_completed_context_checkpoint_to_be_rebuilt() {
+        let database = Database::open_memory().unwrap();
+        let conversation = database
+            .create_conversation(&CreateConversationInput {
+                provider: "open_ai".into(),
+                model: "test".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        for (index, role) in [
+            (0, Role::User),
+            (1, Role::Assistant),
+            (2, Role::User),
+            (3, Role::Assistant),
+        ] {
+            add_message(&database, &conversation.id, index, role);
+        }
+        let before = database.get_messages(&conversation.id).unwrap();
+        let mut input = checkpoint_input(
+            &conversation.id,
+            "before-privacy",
+            &before[..2],
+            vec!["message-2".into(), "message-3".into()],
+            2,
+        );
+        input.snapshot_high_watermark = 3;
+        commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap();
+        assert!(
+            load_context_projection(&database, &conversation.id)
+                .unwrap()
+                .projected
+        );
+        let mut policy = database.load_privacy_config().unwrap();
+        policy.redact_patterns.push(crate::privacy::RedactRule {
+            name: "source".into(),
+            pattern: "content".into(),
+            replacement: "[PRIVATE]".into(),
+        });
+        database.save_privacy_config(&policy).unwrap();
+        assert!(
+            !load_context_projection(&database, &conversation.id)
+                .unwrap()
+                .projected
+        );
+        let after = database.get_messages(&conversation.id).unwrap();
+        let mut input = checkpoint_input(
+            &conversation.id,
+            "after-privacy",
+            &after[..2],
+            vec!["message-2".into(), "message-3".into()],
+            2,
+        );
+        input.snapshot_high_watermark = 3;
+        assert!(matches!(
+            commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap(),
+            CommitOutcome::Committed { .. }
+        ));
+        assert!(
+            load_context_projection(&database, &conversation.id)
+                .unwrap()
+                .projected
+        );
+        assert_eq!(database.get_messages(&conversation.id).unwrap().len(), 4);
+    }
+
+    #[test]
     fn checkpoint_commit_preserves_canonical_transcript_and_projects_tail() {
         let database = Database::open_memory().expect("open database");
         let conversation = database

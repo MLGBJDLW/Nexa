@@ -30,6 +30,59 @@ pub trait AgentRunEventDelivery: Send + Sync + 'static {
     fn deliver_task_run_snapshot(&self, conversation_id: &str, snapshot: AgentTaskRun);
 }
 
+/// An outbox can retain events after its producer is cancelled. Never release
+/// old fragments or previews after revocation; terminal identity still closes
+/// the UI and a subsequent reload obtains the redacted durable conversation.
+struct PrivacyEventDelivery {
+    lease: crate::privacy::PrivacyLease,
+    inner: Arc<dyn AgentRunEventDelivery>,
+    stale_run: bool,
+}
+
+impl AgentRunEventDelivery for PrivacyEventDelivery {
+    fn deliver_run_event(&self, conversation_id: &str, event: &AgentRunEvent) {
+        self.lease.release(|revoked| {
+            if !(revoked || self.stale_run) {
+                self.inner.deliver_run_event(conversation_id, event);
+            } else if event.closes_run() {
+                let status = event.status.as_deref().unwrap_or("cancelled");
+                let safe = if event.kind == AgentRunEventKind::Error {
+                    AgentRunEvent::terminal_error(
+                        &event.run_id,
+                        Some(&event.turn_id),
+                        event.event_seq,
+                        "Privacy settings changed; earlier generated output was revoked",
+                        status,
+                        None,
+                    )
+                } else {
+                    AgentRunEvent::terminal_status(
+                        &event.run_id,
+                        Some(&event.turn_id),
+                        event.event_seq,
+                        "Privacy settings changed; reload the redacted conversation",
+                        status,
+                        None,
+                    )
+                };
+                self.inner.deliver_run_event(conversation_id, &safe);
+            }
+        });
+    }
+    fn deliver_task_run_snapshot(&self, conversation_id: &str, mut snapshot: AgentTaskRun) {
+        self.lease.release(|revoked| {
+            if revoked || self.stale_run {
+                snapshot.summary = None;
+                snapshot.error_message = None;
+                snapshot.plan = None;
+                snapshot.artifacts = None;
+            }
+            self.inner
+                .deliver_task_run_snapshot(conversation_id, snapshot);
+        });
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentRunEventOutboxCompletion {
     pub event_seq: u64,
@@ -216,10 +269,36 @@ impl AgentRunEventOutboxes {
             drop(durability_sender);
             drop(failure_requests);
         } else {
+            let lease_cancellation = cancellation.clone();
+            let privacy_run_id = run_id.to_string();
+            let (lease, run_revision) = self
+                .inner
+                .database
+                .read_control(move |db| {
+                    let lease = db.privacy_lease(&lease_cancellation)?;
+                    let revision: String = db
+                        .conn()
+                        .query_row(
+                            "SELECT privacy_revision FROM agent_task_runs WHERE id=?1",
+                            [&privacy_run_id],
+                            |row| row.get(0),
+                        )
+                        .optional()?
+                        .unwrap_or_else(|| lease.policy.revision().to_owned());
+                    Ok((lease, revision))
+                })
+                .await?
+                .value;
+            let stale_run = run_revision != lease.policy.revision();
+            let delivery = Arc::new(PrivacyEventDelivery {
+                lease,
+                stale_run,
+                inner: Arc::clone(&self.inner.delivery),
+            });
             spawn_outbox_actor(
                 AgentRunEventOutboxActorContext {
                     database: self.inner.database.clone(),
-                    delivery: Arc::clone(&self.inner.delivery),
+                    delivery,
                     conversation_id: conversation_id.to_string(),
                     run_id: run_id.to_string(),
                     _outbox_lifetime: Arc::clone(&outbox),
@@ -1626,6 +1705,72 @@ mod tests {
             .mark_agent_task_run_started(&run.id, "responding")
             .expect("started task run");
         (conversation.id, turn.id, run.id)
+    }
+
+    #[tokio::test]
+    async fn privacy_revocation_fences_buffered_delivery_and_split_output_fragments() {
+        let database = Database::open_memory().unwrap();
+        database
+            .save_privacy_config(&crate::privacy::PrivacyConfig {
+                enabled: false,
+                ..Default::default()
+            })
+            .unwrap();
+        let (conversation, turn, run) = create_started_run(&database);
+        let delivery = Arc::new(CaptureDelivery::default());
+        let outboxes = AgentRunEventOutboxes::new(
+            DatabaseExecutor::new(database.clone(), 8).unwrap(),
+            delivery.clone(),
+        );
+        let outbox = outboxes.open(&conversation, &run).await.unwrap();
+        let fragment = |offset, delta: &str| {
+            AgentRunEvent::from_agent_event(&AgentEvent::StreamBlockDelta {
+                block_id: "answer-block".into(),
+                channel: crate::agent::StreamBlockChannel::Answer,
+                offset,
+                delta: delta.into(),
+            })
+            .with_context(Some(&run), Some(&turn), None)
+        };
+        outbox.submit(fragment(0, "pri")).unwrap();
+        outbox.flush().await.unwrap();
+        let mut policy = database.load_privacy_config().unwrap();
+        policy.enabled = true;
+        policy.redact_patterns.push(crate::privacy::RedactRule {
+            name: "source".into(),
+            pattern: "privateCODE".into(),
+            replacement: "[PRIVATE]".into(),
+        });
+        database.save_privacy_config(&policy).unwrap();
+        let delivered_before = delivery.events.lock().unwrap().len();
+        outbox.submit(fragment(3, "vateCODE")).unwrap();
+        outbox
+            .submit(AgentRunEvent::terminal_status(
+                &run,
+                Some(&turn),
+                0,
+                "privateCODE answer",
+                "completed",
+                Some(&serde_json::json!({"content":"privateCODE"})),
+            ))
+            .unwrap();
+        outbox.flush().await.unwrap();
+        let events = delivery.events.lock().unwrap();
+        assert_eq!(
+            events[delivered_before..].len(),
+            1,
+            "only the content-free terminal may escape the old outbox"
+        );
+        assert!(events[delivered_before].closes_run());
+        assert!(!serde_json::to_string(&events[delivered_before..])
+            .unwrap()
+            .contains("privateCODE"));
+        let fragments=database.conn().prepare("SELECT payload_json FROM agent_run_events WHERE run_id=?1 AND kind='outputDelta' ORDER BY event_seq").unwrap()
+            .query_map([&run],|r|r.get::<_,String>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+        assert_eq!(fragments.len(), 2);
+        assert!(fragments
+            .iter()
+            .all(|raw| serde_json::from_str::<serde_json::Value>(raw).unwrap()["delta"] == ""));
     }
 
     #[tokio::test]

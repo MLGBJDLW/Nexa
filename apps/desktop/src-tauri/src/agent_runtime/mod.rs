@@ -76,6 +76,7 @@ struct PreparedTurn {
     cancellation: CancellationToken,
     steering: mpsc::UnboundedReceiver<AgentSteeringMessage>,
     privacy: nexa_core::privacy::PrivacyConfig,
+    privacy_lease: nexa_core::privacy::PrivacyLease,
     approval: ApprovalCallback,
     permission_scope: String,
     files: acp::client::FileContext,
@@ -83,6 +84,7 @@ struct PreparedTurn {
 
 impl AgentRuntimeTurnRequest {
     fn prepare(self, native_vision: bool) -> Result<PreparedTurn, CoreError> {
+        let privacy_lease = self.db.privacy_lease(&self.cancellation)?;
         let workspace = self.dependencies.tools.workspace().cloned();
         let permission_scope = self
             .external
@@ -123,17 +125,9 @@ impl AgentRuntimeTurnRequest {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let privacy = self.db.load_privacy_config()?;
+        let privacy = privacy_lease.policy.config().clone();
         let mut history = self.history;
-        for message in &mut history {
-            if message.role == nexa_core::llm::Role::User {
-                for part in &mut message.parts {
-                    if let ContentPart::Text { text } = part {
-                        *text = redact_user_text(text, &privacy);
-                    }
-                }
-            }
-        }
+        privacy_lease.policy.redact_context_messages(&mut history);
         let history_context = history_context(&history, &user_text)?;
         let prompt = redact_user_text(&user_text, &privacy);
         let mut sections = self.config.volatile_system_sections.clone();
@@ -228,6 +222,7 @@ impl AgentRuntimeTurnRequest {
             cancellation,
             steering: self.steering,
             privacy,
+            privacy_lease,
             approval: self.approval,
             permission_scope,
             files,
@@ -244,10 +239,17 @@ fn redact_user_text(text: &str, privacy: &nexa_core::privacy::PrivacyConfig) -> 
 }
 
 pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
-    match request.kind {
-        AgentRuntimeKind::Copilot => copilot::run(request).await,
-        AgentRuntimeKind::Codex => codex::run(request).await,
-        AgentRuntimeKind::Acp(provider) => acp::run(provider, request).await,
+    let lease = request.db.privacy_lease(&request.cancellation)?;
+    tokio::select! {
+        biased;
+        _ = lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed; start a new turn".into())),
+        result = async {
+            match request.kind {
+                AgentRuntimeKind::Copilot => copilot::run(request).await,
+                AgentRuntimeKind::Codex => codex::run(request).await,
+                AgentRuntimeKind::Acp(provider) => acp::run(provider, request).await,
+            }
+        } => result,
     }
 }
 

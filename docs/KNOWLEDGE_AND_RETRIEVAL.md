@@ -98,6 +98,14 @@ files leave historical evidence while their source remains registered; deleting
 the source revokes that archive and its saved research cells. Exclusion/privacy
 removal also forgets the affected indexed document's archive. Archives consume
 local storage until their owning source/document scope is removed.
+Changing an enabled redaction policy also masks generated conversation history,
+tool artifacts, saved traces and machine-generated memory. It revokes opaque
+provider replay and old context projections, stops active turns and compaction,
+and clears the open chat's cached view. Late tool results and queued output cannot
+restore the old text. Previously enabled policies receive this cleanup once on
+upgrade. Saving an unchanged policy does not interrupt work. User-authored messages,
+research notes, manual memories and file-undo bytes remain intact; original files
+must be rescanned to populate the index under the new rules.
 File watcher events use the same document identity across configured and canonical
 path spellings, including removed files. Overlapping registered sources receive
 their own updates; deletion in one source does not delete another source's index.
@@ -221,6 +229,12 @@ IDs or versioned references. A scan started under earlier settings cannot commit
 its old output after this change. Saving unchanged rules preserves rebuilt content
 and safe history. Invalid redaction/exclusion expressions are rejected before the
 saved policy or index is changed.
+Use replacement text that does not itself match the active redaction expressions.
+Currently, a rule such as `privateCODE` → `privateCODE privateCODE` can be applied
+again when generated tool text is copied into saved messages or archives. In
+History context mode, this can fail the archive content check; the working
+history is retained and the handoff does not complete. This known limitation
+does not bypass redaction of raw or late writes.
 Copied research titles, section labels, frontmatter, and visual metadata follow
 the same redaction rules. A masked worksheet name becomes extracted evidence
 without an exact worksheet locator. Retained manual graph relationships keep

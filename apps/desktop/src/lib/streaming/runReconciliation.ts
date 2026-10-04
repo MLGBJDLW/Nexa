@@ -160,6 +160,11 @@ export class DurableRunReconciler {
   private readonly inFlight = new Map<string, Promise<unknown>>();
   private readonly settledQueries = new Map<string, Promise<unknown>>();
 
+  clearCache(): void {
+    this.inFlight.clear();
+    this.settledQueries.clear();
+  }
+
   constructor(
     private readonly port: DurableRunReconciliationPort,
     options: DurableRunReconcilerOptions = {},
@@ -403,6 +408,7 @@ export class DurableRunReconciler {
         if (this.settledQueries.get(key) === query) this.settledQueries.delete(key);
       };
       void query.then(() => {
+        if (this.inFlight.get(key) !== query) return;
         this.settledQueries.set(key, query!);
         // Abandoned conversations must not retain unlimited completed pages.
         // Only settled reads are evicted; unresolved IPC is still single-flight.

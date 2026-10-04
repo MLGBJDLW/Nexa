@@ -2891,6 +2891,7 @@ Every answer that uses knowledge base search results.
     ("v145_source_index_state", include_str!("v145_source_index_state.sql")),
     ("v146_knowledge_provenance", include_str!("v146_knowledge_provenance.sql")),
     ("v147_knowledge_research", include_str!("v147_knowledge_research.sql")),
+    ("v148_chat_privacy", include_str!("v148_chat_privacy.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3104,6 +3105,7 @@ fn ensure_workflow_definition_revision_schema(
 ///   migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
     crate::lexical::register(conn)?;
+    crate::privacy::chat::register(conn)?;
     ensure_migrations_table(conn)?;
 
     let migration_count: i64 =
@@ -3195,6 +3197,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
             // FTS rebuild must leave the previous index usable on the next start.
             let transaction = conn.unchecked_transaction()?;
             transaction.execute_batch(sql)?;
+            if *name == "v148_chat_privacy" {
+                crate::privacy::chat_store::install(&transaction, migration_count != 0)?;
+            }
             transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
             transaction.commit()?;
             continue;

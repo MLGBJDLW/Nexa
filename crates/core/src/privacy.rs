@@ -11,6 +11,15 @@ use tracing::debug;
 use crate::db::Database;
 use crate::error::CoreError;
 
+pub(crate) mod chat;
+pub(crate) mod chat_store;
+pub(crate) mod runtime;
+pub use chat::ChatPrivacyPolicy;
+pub use runtime::PrivacyLease;
+
+#[cfg(test)]
+mod chat_tests;
+
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -298,6 +307,7 @@ impl Database {
     pub fn save_privacy_config(&self, config: &PrivacyConfig) -> Result<(), CoreError> {
         validate_config(config)?;
         let json = serde_json::to_string(config)?;
+        let _policy_guard = self.privacy_policy_guard();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let old = load_config_on(&tx)?;
@@ -311,6 +321,7 @@ impl Database {
             params![PRIVACY_CONFIG_KEY, &json],
         )?;
         if revoke {
+            chat_store::revoke(&tx)?;
             // A privacy change revokes immutable references, including snapshots
             // for files already removed. Delete snapshots AFTER deletion triggers
             // run so old text cannot be archived back into the accessible corpus.
@@ -329,6 +340,9 @@ impl Database {
             )?;
         }
         tx.commit()?;
+        if revoke {
+            self.revoke_privacy_runs();
+        }
         drop(conn);
         if revoke {
             crate::vector_store::notify_sync();

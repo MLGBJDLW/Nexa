@@ -85,6 +85,7 @@ function nextAnimationFrame(callback: () => void): void {
 }
 
 class StreamStoreImpl {
+  private readonly _privacyRevokedRuns = new Set<string>();
   private readonly _pendingRestores = new Map<string, symbol>();
   private _streams: Record<string, InternalStreamState> = {};
   private _recency = new Map<string, number>();
@@ -328,6 +329,7 @@ class StreamStoreImpl {
   }
 
   applyTaskSnapshot(event: AgentTaskSnapshotEvent): void {
+    if (this._privacyRevokedRuns.has(event.taskRun.id)) return;
     const state = this._streams[event.conversationId];
     if (!state) return;
     const expectedRun = state.turnHandle?.runId ?? state._orderedRunId;
@@ -375,6 +377,20 @@ class StreamStoreImpl {
     this.finishTurnTiming(state);
     this.touch(conversationId);
     this.notifyImmediately(conversationId);
+  }
+
+  /** Remove stream state entirely. */
+  revokePrivacy(): void {
+    this._pendingRestores.clear();
+    for (const [id, state] of Object.entries(this._streams)) {
+      const runId = state.turnHandle?.runId ?? state._orderedRunId ?? state.taskRun?.id;
+      if (runId) this._privacyRevokedRuns.add(runId);
+      this.clearStream(id);
+    }
+    while (this._privacyRevokedRuns.size > 512) {
+      const oldest = this._privacyRevokedRuns.values().next().value;
+      if (oldest) this._privacyRevokedRuns.delete(oldest);
+    }
   }
 
   /** Remove stream state entirely. */
@@ -878,7 +894,20 @@ class StreamStoreImpl {
 
   /** Process one versioned Run Event envelope. */
   dispatch(conversationId: string, event: AgentFrontendEvent): void {
-    const runEvent = event.runEvent;
+    let runEvent = event.runEvent;
+    if (this._privacyRevokedRuns.has(runEvent.runId)) {
+      if (runEvent.kind !== 'done' && runEvent.kind !== 'error') return;
+      // A terminal may already have crossed IPC before the revocation event.
+      // Retain its completion identity, never its old answer/error/trace body.
+      runEvent = {
+        ...runEvent,
+        status: 'cancelled',
+        label: '',
+        payload: runEvent.kind === 'error'
+          ? { type: 'error', message: '', status: 'cancelled' }
+          : { type: 'done', message: '', usageTotal: {} },
+      };
+    }
     let state = this._streams[conversationId];
     if (!state) {
       state = createDefaultState();

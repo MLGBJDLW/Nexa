@@ -23,9 +23,23 @@ pub(super) struct Projection {
     pub(super) native_final_fallback: Option<nexa_core::agent::PersistedAssistantMessage>,
     pub(super) completed_command: bool,
     runtime_identity: Option<(String, String)>,
+    cancellation: Option<nexa_core::agent::CancellationToken>,
 }
 
 impl Projection {
+    fn ensure_active(&self) -> Result<(), CoreError> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled())
+        {
+            Err(CoreError::Cancelled(
+                "External agent output was cancelled before release".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
     pub(super) fn for_turn(turn: &PreparedTurn) -> Self {
         let provider = match turn.runtime {
             super::AgentRuntimeKind::Copilot => "github_copilot",
@@ -37,6 +51,7 @@ impl Projection {
                 provider.into(),
                 turn.config.model.clone().unwrap_or_default(),
             )),
+            cancellation: Some(turn.cancellation.clone()),
             ..Self::default()
         }
     }
@@ -89,6 +104,7 @@ impl Projection {
         channel: StreamBlockChannel,
         delta: &str,
     ) -> Result<(), CoreError> {
+        self.ensure_active()?;
         if delta.is_empty() || self.completed.contains(id) || self.retired.contains(id) {
             return Ok(());
         }
@@ -172,6 +188,7 @@ impl Projection {
         id: &str,
         text: &str,
     ) -> Result<(), CoreError> {
+        self.ensure_active()?;
         if self.retired.contains(id) {
             return Ok(());
         }
@@ -311,6 +328,7 @@ impl Projection {
         &mut self,
         turn: &PreparedTurn,
     ) -> Result<Option<nexa_core::agent::PersistedAssistantMessage>, CoreError> {
+        turn.privacy_lease.ensure_current()?;
         self.flush_async_messages(turn).await?;
         if self.answer.trim().is_empty() {
             return Ok(None);
@@ -343,6 +361,7 @@ impl Projection {
     }
 
     pub(super) async fn persist_partial(&mut self, turn: &PreparedTurn) -> Result<(), CoreError> {
+        turn.privacy_lease.ensure_current()?;
         self.flush_async_messages(turn).await?;
         let text = self
             .draft_order
@@ -362,6 +381,7 @@ impl Projection {
         mut self,
         turn: &PreparedTurn,
     ) -> Result<nexa_core::llm::Message, CoreError> {
+        turn.privacy_lease.ensure_current()?;
         let saved = self.persist_completed_answer(turn).await?;
         let (message, assistant_message_id) = match saved.or_else(|| {
             if self.completed_command {

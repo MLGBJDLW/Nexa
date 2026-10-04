@@ -245,6 +245,47 @@ mod tests {
         assert_eq!(tool_defs[0].name, "mcp__fake_server__search_docs");
     }
 
+    #[tokio::test]
+    async fn privacy_projection_keeps_real_tool_search_matches_activatable() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(DeferredFakeTool));
+        let arguments = serde_json::json!({"query":"fake documents"}).to_string();
+        let mut context =
+            crate::tools::ToolExecutionContext::new("search-call", &arguments, &db, &[]);
+        context.tool_registry = Some(&registry);
+        let mut result = crate::tools::tool_search_tool::ToolSearchTool
+            .execute(context)
+            .await
+            .unwrap();
+        let policy = crate::privacy::PrivacyConfig {
+            enabled: true,
+            redact_patterns: vec![crate::privacy::RedactRule {
+                name: "source label".into(),
+                pattern: "fake".into(),
+                replacement: "[PRIVATE]".into(),
+            }],
+            ..Default::default()
+        };
+        let mut model_content = result.content.clone();
+        crate::privacy::chat::redact_tool_output(
+            &policy,
+            &mut result.content,
+            &mut model_content,
+            &mut result.artifacts,
+        )
+        .unwrap();
+        let mut definitions = vec![];
+        let activation =
+            activate_tool_search_matches(&registry, &mut definitions, result.artifacts.as_ref());
+        assert_eq!(activation.activated, vec!["mcp__fake_server__search_docs"]);
+        assert!(activation.unknown.is_empty());
+        assert!(result.artifacts.unwrap()["matches"][0]["description"]
+            .as_str()
+            .unwrap()
+            .contains("[PRIVATE]"));
+    }
+
     #[test]
     fn tool_search_results_do_not_duplicate_already_visible_tools() {
         let mut registry = ToolRegistry::new();
