@@ -15,6 +15,16 @@
 * **privacy:** revoke derived conversation history on policy changes ([fd4c35d](https://github.com/MLGBJDLW/Nexa/commit/fd4c35dcefc24bd5cc607cde3701418712e58204))
 * **privacy:** revoke persisted chat evidence and active replay ([e9d2c50](https://github.com/MLGBJDLW/Nexa/commit/e9d2c50ccdb7d8d8946ab8340c6e1ace53d61d18))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at e9d2c50ccdb7d8d8946ab8340c6e1ace53d61d18 -->
+
+### What's Changed
+* fix(privacy): revoke persisted chat evidence and active replay by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/447
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.24...nexa-monorepo-v0.14.25
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.24](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.23...nexa-monorepo-v0.14.24) (2026-10-03)
 
 
