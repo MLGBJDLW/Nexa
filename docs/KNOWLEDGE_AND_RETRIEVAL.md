@@ -229,6 +229,12 @@ IDs or versioned references. A scan started under earlier settings cannot commit
 its old output after this change. Saving unchanged rules preserves rebuilt content
 and safe history. Invalid redaction/exclusion expressions are rejected before the
 saved policy or index is changed.
+Use replacement text that does not itself match the active redaction expressions.
+Currently, a rule such as `privateCODE` → `privateCODE privateCODE` can be applied
+again when generated tool text is copied into saved messages or archives. In
+History context mode, this can fail the archive content check; the working
+history is retained and the handoff does not complete. This known limitation
+does not bypass redaction of raw or late writes.
 Copied research titles, section labels, frontmatter, and visual metadata follow
 the same redaction rules. A masked worksheet name becomes extracted evidence
 without an exact worksheet locator. Retained manual graph relationships keep
