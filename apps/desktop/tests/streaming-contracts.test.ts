@@ -403,6 +403,21 @@ test('late done and error frames cannot restore revoked answer or trace text', (
     const restored=streamStore.getStream(id);
     assert(restored && !restored.isStreaming,'terminal identity should close the old run');
     assert(!JSON.stringify(restored).includes('privateCODE'),'late terminal body and label must be discarded');
+    streamStore.applyTaskSnapshot({
+      type: 'taskRunUpdated',
+      conversationId: id,
+      taskRun: {
+        ...taskRun(kind === 'done' ? 'completed' : 'failed'),
+        id: runId,
+        conversationId: id,
+        summary: 'privateCODE summary',
+        errorMessage: 'privateCODE error',
+        plan: { steps: ['privateCODE plan'] },
+        artifacts: { content: 'privateCODE artifact' },
+      },
+    });
+    assert(!JSON.stringify(streamStore.getStream(id)).includes('privateCODE'),
+      'a late task snapshot must not repopulate the safely settled run');
     streamStore.clearStream(id);
   }
 });

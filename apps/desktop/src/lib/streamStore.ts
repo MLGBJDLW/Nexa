@@ -329,6 +329,7 @@ class StreamStoreImpl {
   }
 
   applyTaskSnapshot(event: AgentTaskSnapshotEvent): void {
+    if (this._privacyRevokedRuns.has(event.taskRun.id)) return;
     const state = this._streams[event.conversationId];
     if (!state) return;
     const expectedRun = state.turnHandle?.runId ?? state._orderedRunId;
@@ -900,9 +901,10 @@ class StreamStoreImpl {
       // Retain its completion identity, never its old answer/error/trace body.
       runEvent = {
         ...runEvent,
-        label: 'Privacy settings changed',
+        status: 'cancelled',
+        label: '',
         payload: runEvent.kind === 'error'
-          ? { type: 'error', message: 'Privacy settings changed', status: runEvent.status }
+          ? { type: 'error', message: '', status: 'cancelled' }
           : { type: 'done', message: '', usageTotal: {} },
       };
     }
