@@ -764,6 +764,10 @@ pub struct ProviderTurnEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_id: Option<String>,
     pub raw_response_digest: String,
+    /// Redaction policy of the invocation that produced this replay unit.
+    /// Legacy or differently scoped opaque payloads cannot cross a policy change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy_fingerprint: Option<String>,
 }
 
 impl ProviderTurnEnvelope {
@@ -848,6 +852,7 @@ impl ProviderTurnEnvelope {
             request_id: None,
             response_id: None,
             raw_response_digest,
+            privacy_fingerprint: None,
         }
     }
 

@@ -3986,6 +3986,10 @@ impl Database {
         envelope: &ProviderTurnEnvelope,
         scope: ProviderTurnPersistenceScope<'_>,
     ) -> Result<(), CoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut envelope = envelope.clone();
+        crate::privacy::ChatPrivacyPolicy::load(&tx)?.redact_provider_envelope(&mut envelope);
         let provider_items_json = serde_json::to_string(&envelope.provider_items)?;
         let replay_payload_json = serde_json::to_string(&envelope.replay_payload)?;
         let tool_calls_json = serde_json::to_string(&envelope.tool_calls)?;
@@ -4006,8 +4010,6 @@ impl Database {
             }
         }
 
-        let mut conn = self.conn();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(message) = message {
             insert_message(&tx, message)?;
             tx.execute(
@@ -4022,10 +4024,10 @@ impl Database {
                  provider_endpoint_id, provider_family, api_style, model_id,
                  reasoning_profile_id, reasoning_profile_version, replay_policy, visible_content,
                  provider_items_json, replay_payload_json, tool_calls_json,
-                 capture_status, request_id, response_id, raw_response_digest
+                 capture_status, request_id, response_id, raw_response_digest, privacy_fingerprint
              ) VALUES (
                  ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
+                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24
              )",
             rusqlite::params![
                 &envelope.turn_item_id,
@@ -4051,6 +4053,7 @@ impl Database {
                 &envelope.request_id,
                 &envelope.response_id,
                 &envelope.raw_response_digest,
+                &envelope.privacy_fingerprint,
             ],
         )?;
         tx.commit()?;

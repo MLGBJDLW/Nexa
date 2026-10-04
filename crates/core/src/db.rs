@@ -14,6 +14,7 @@ use crate::error::CoreError;
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
     path: Option<PathBuf>,
+    pub(crate) privacy_runs: Arc<crate::privacy::runtime::PrivacyRuns>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +61,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: Some(path.as_ref().to_path_buf()),
+            privacy_runs: Arc::default(),
         })
     }
 
@@ -86,6 +88,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: None,
+            privacy_runs: Arc::default(),
         })
     }
 
@@ -102,6 +105,7 @@ impl Database {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         crate::lexical::register(&conn)?;
+        crate::privacy::chat::register(&conn)?;
         for pragma in [
             "PRAGMA busy_timeout = 5000",
             "PRAGMA foreign_keys = ON",
@@ -114,6 +118,7 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: Some(path.clone()),
+            privacy_runs: self.privacy_runs.clone(),
         })
     }
 
