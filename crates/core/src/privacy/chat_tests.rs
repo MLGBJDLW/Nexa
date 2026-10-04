@@ -46,6 +46,92 @@ fn seed_message(db: &Database, conversation: &str, role: Role, id: &str) {
 }
 
 #[test]
+fn privacy_mcp_source_data_redacts_protocol_named_values_and_keys_without_losing_entries() {
+    use crate::mcp::{result::McpCallOutcome, CanonicalToolId, McpToolIdentity};
+    let identity = McpToolIdentity {
+        id: CanonicalToolId::new("privateCODE-connector", "privateCODE-tool"),
+        trust_config_digest: "privateCODE-digest".into(),
+    };
+    let data = serde_json::json!({
+        "id":"alice@example.com privateCODE", "status":"privateCODE",
+        "route":{"id":"bob@example.com privateCODE"},
+        "alice@example.com":1, "bob@example.com":2, "[EMAIL]":3
+    });
+    let raw = McpCallOutcome::from_response(serde_json::json!({
+        "content":[{"type":"text","text":data.to_string()}],
+        "structuredContent":data, "_meta":data
+    }))
+    .unwrap()
+    .into_tool_result("privateCODE-call", &identity);
+    let assert_safe = |content: &str, artifacts: &serde_json::Value| {
+        assert!(!content.contains("@example.com") && !content.contains("privateCODE"));
+        assert_eq!(
+            artifacts["toolIdentity"],
+            serde_json::to_value(&identity).unwrap()
+        );
+        for field in ["contentBlocks", "structuredContent", "meta", "toolOutput"] {
+            let serialized = artifacts[field].to_string();
+            assert!(
+                !serialized.contains("@example.com") && !serialized.contains("privateCODE"),
+                "MCP data escaped redaction in {field}: {serialized}"
+            );
+        }
+        let map = artifacts["structuredContent"].as_object().unwrap();
+        assert_eq!(
+            map.len(),
+            6,
+            "colliding redacted keys retain every source entry"
+        );
+        for value in [1, 2, 3] {
+            assert!(map.values().any(|entry| entry == &serde_json::json!(value)));
+        }
+    };
+    let mut live = raw.clone();
+    let mut context = live.content.clone();
+    chat::redact_tool_output(
+        &enabled_policy(),
+        &mut live.content,
+        &mut context,
+        &mut live.artifacts,
+    )
+    .unwrap();
+    assert_safe(&live.content, live.artifacts.as_ref().unwrap());
+    assert!(!context.contains("@example.com") && !context.contains("privateCODE"));
+    assert_eq!(live.call_id, "privateCODE-call");
+
+    let db = Database::open_memory().unwrap();
+    db.save_privacy_config(&PrivacyConfig {
+        enabled: false,
+        ..Default::default()
+    })
+    .unwrap();
+    let cid = conversation(&db);
+    let mut message = ConversationMessage {
+        id: "mcp-old".into(),
+        conversation_id: cid.clone(),
+        role: Role::Tool,
+        content: raw.content,
+        tool_call_id: Some(raw.call_id),
+        tool_calls: vec![],
+        artifacts: raw.artifacts,
+        token_count: 0,
+        created_at: String::new(),
+        sort_order: 0,
+        thinking: None,
+        image_attachments: None,
+    };
+    db.add_message(&message).unwrap();
+    db.save_privacy_config(&enabled_policy()).unwrap();
+    message.id = "mcp-late".into();
+    message.sort_order = 1;
+    db.add_message(&message).unwrap();
+    for saved in db.get_messages(&cid).unwrap() {
+        assert_safe(&saved.content, saved.artifacts.as_ref().unwrap());
+        assert_eq!(saved.tool_call_id.as_deref(), Some("privateCODE-call"));
+    }
+}
+
+#[test]
 fn privacy_projects_claim_and_event_excerpts_when_document_provenance_is_bound() {
     let db = Database::open_memory().unwrap();
     let mut policy = enabled_policy();

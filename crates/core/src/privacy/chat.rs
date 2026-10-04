@@ -73,7 +73,20 @@ impl Redactor {
         match value {
             Value::String(text) => *text = self.text(text),
             Value::Array(items) => items.iter_mut().for_each(|item| self.data(item)),
-            Value::Object(map) => map.values_mut().for_each(|value| self.data(value)),
+            Value::Object(map) => {
+                let original = std::mem::take(map);
+                for (key, mut value) in original {
+                    self.data(&mut value);
+                    let base = self.text(&key);
+                    let mut key = base.clone();
+                    let mut suffix = 2;
+                    while map.contains_key(&key) {
+                        key = format!("{base} [redacted {suffix}]");
+                        suffix += 1;
+                    }
+                    map.insert(key, value);
+                }
+            }
             _ => {}
         }
     }
@@ -172,6 +185,7 @@ impl Redactor {
                 map.remove("thought_signature");
                 let tool_discovery =
                     map.get("kind").and_then(Value::as_str) == Some("toolSearchResults");
+                let mcp_result = map.get("kind").and_then(Value::as_str) == Some("mcpToolResult");
                 for (key, value) in map.iter_mut() {
                     match key.as_str() {
                         // Only protocol metadata is exempt. Names in arbitrary
@@ -181,7 +195,10 @@ impl Redactor {
                         | "conversationId" | "turnId" | "runId" | "subtaskRunId" | "messageId"
                         | "interactionId" | "documentId" | "sourceId" | "chunkId" | "revision"
                         | "route" | "providerEndpointId" | "modelId" => {}
-                        "data" | "metadata" => self.data(value),
+                        "data" | "metadata" | "structuredContent" | "meta" | "_meta" => {
+                            self.data(value)
+                        }
+                        "toolIdentity" if mcp_result => {}
                         "matches" if tool_discovery => {
                             if let Some(matches) = value.as_array_mut() {
                                 for item in matches {
