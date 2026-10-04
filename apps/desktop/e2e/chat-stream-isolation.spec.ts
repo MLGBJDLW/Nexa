@@ -173,7 +173,17 @@ test.beforeEach(async ({ page }) => {
         case 'get_index_stats':
           return { totalDocuments: 0, totalChunks: 0, ftsRows: 0 };
         case 'get_privacy_config':
-          return { enabled: false, excludePatterns: [], redactPatterns: [] };
+          return { enabled: Boolean((window as unknown as { __privacyHoldStream?: boolean }).__privacyHoldStream), excludePatterns: [], redactPatterns: [] };
+        case 'get_recent_traces':
+        case 'list_user_memories_cmd':
+        case 'list_agent_procedural_memories_cmd':
+          return [];
+        case 'save_privacy_config': {
+          (window as unknown as { __privacySaved?: boolean }).__privacySaved = true;
+          emitEvent('privacy:revoked', { revision: 'privacy-e2e-revision' });
+          emitEvent('agent://run-event', { conversationId: 'conv-stream-a', type: 'error', message: 'privateCODE late old terminal' });
+          return null;
+        }
         case 'get_embedder_config_cmd':
           return {
             provider: 'tfidf',
@@ -257,6 +267,7 @@ test.beforeEach(async ({ page }) => {
           }, 180);
 
           setTimeout(() => {
+            if ((window as unknown as { __privacyHoldStream?: boolean }).__privacyHoldStream) return;
             const assistantToolMessage: Message = {
               id: nextId('m-assistant-tools'),
               conversationId,
@@ -376,4 +387,31 @@ test('keeps stream content isolated to the conversation that started it', async 
   await expect(page.getByText('Investigating retries only for chat A.')).toBeVisible();
   await expect(page.getByText('This is the other chat.')).toHaveCount(0);
   await expect(chatLog.getByTestId('tool-call-card')).toBeVisible();
+});
+
+test('saving privacy on the settings route clears a chat stream and ignores its late terminal', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __privacyHoldStream?: boolean }).__privacyHoldStream = true;
+  });
+  await page.goto('/chat/conv-stream-a');
+  await page.getByTestId('chat-input-textarea').fill('Read the source, keeping my authored prompt.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('tool-call-card')).toBeVisible();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Data & Privacy', exact: true }).click();
+  await page.getByRole('button', { name: /Privacy Settings/ }).click();
+  await page.getByRole('button', { name: 'Email example', exact: true }).click();
+  await page.getByRole('heading', { name: 'Redaction Rules', exact: true }).locator('..')
+    .getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: 'Save Config', exact: true }).click();
+  await page.waitForFunction(() => (
+    window as unknown as { __privacySaved?: boolean }
+  ).__privacySaved === true);
+  await page.getByRole('link', { name: 'Chat', exact: true }).click();
+  await page.getByRole('button', { name: /Stream A/ }).click();
+  await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
+  await expect(page.getByTestId('tool-call-card')).toHaveCount(0);
+  await expect(page.getByText('Investigating retries only for chat A.')).toHaveCount(0);
+  await expect(page.getByText('privateCODE late old terminal')).toHaveCount(0);
+  await expect(page.getByText('Read the source, keeping my authored prompt.')).toBeVisible();
 });

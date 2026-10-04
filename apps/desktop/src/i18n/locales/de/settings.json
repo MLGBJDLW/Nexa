@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "Beispiel: **/.env* oder **/*.log",
   "addPattern": "Hinzufügen",
   "redactRules": "Schwärzungsregeln",
-  "redactRulesDesc": "Passende Inhalte werden ersetzt. Das Aktivieren oder Ändern aktiver Schwärzungsregeln löscht indizierten Text und gespeicherte Zitate. Scannen Sie die Quellen erneut, um den Index neu aufzubauen.",
+  "redactRulesDesc": "Passende Inhalte werden ersetzt. Das Aktivieren oder Ändern aktiver Schwärzungsregeln stoppt laufende Aufgaben, schwärzt erzeugte Gesprächsinhalte und löscht indizierten Text sowie gespeicherte Zitate. Scannen Sie die Quellen erneut, um den Index neu aufzubauen.",
   "ruleName": "Name",
   "rulePattern": "Muster",
   "ruleReplacement": "Ersetzung",

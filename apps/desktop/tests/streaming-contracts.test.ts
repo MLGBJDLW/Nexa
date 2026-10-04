@@ -391,6 +391,22 @@ test('privacy revocation clears cached output and rejects late frames while allo
   streamStore.clearStream(id);
 });
 
+test('late done and error frames cannot restore revoked answer or trace text', () => {
+  for (const kind of ['done', 'error'] as const) {
+    const id = `privacy-terminal-${kind}`;
+    const runId = `privacy-terminal-run-${kind}`;
+    streamStore.startStream(id);
+    streamStore.bindTurnHandle(id, { sessionId:id, runId, turnId:'privacy-turn', state:'running' });
+    streamStore.revokePrivacy();
+    const event = { ...runEvent({eventSeq:1,kind,status:kind === 'done' ? 'completed' : 'failed',label:'privateCODE',payload:{message:'privateCODE',content:'privateCODE'}}),runId };
+    streamStore.dispatch(id,{conversationId:id,runEvent:event});
+    const restored=streamStore.getStream(id);
+    assert(restored && !restored.isStreaming,'terminal identity should close the old run');
+    assert(!JSON.stringify(restored).includes('privateCODE'),'late terminal body and label must be discarded');
+    streamStore.clearStream(id);
+  }
+});
+
 test('runtime wire schema accepts only the canonical Run Event envelope', () => {
   const canonical = frontendEvent(runEvent({ eventSeq: 1, kind: 'status' }));
   assert(parseAgentFrontendEvent(canonical), 'canonical envelope should parse');

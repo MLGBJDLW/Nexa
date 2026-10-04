@@ -18,7 +18,7 @@
   "excludePatternPlaceholder": "Exemple : **/.env* ou **/*.log",
   "addPattern": "Ajouter",
   "redactRules": "Règles d'anonymisation",
-  "redactRulesDesc": "Le contenu correspondant est remplacé. Activer la suppression ou modifier ses règles actives efface le texte indexé et les citations enregistrées. Réanalysez les sources pour reconstruire l’index.",
+  "redactRulesDesc": "Le contenu correspondant est remplacé. Activer la suppression ou modifier ses règles actives arrête les tâches en cours, masque les données concernées dans les conversations générées et efface le texte indexé et les citations enregistrées. Réanalysez les sources pour reconstruire l’index.",
   "ruleName": "Nom",
   "rulePattern": "Motif",
   "ruleReplacement": "Remplacement",

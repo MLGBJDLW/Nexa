@@ -508,9 +508,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         // redacted rows. Keep composer drafts and authored user messages intact.
         conversationHydrationGenerationRef.current += 1;
         completionHydrationGenerationRef.current += 1;
-        durableRunReconciler.clearCache();
         timeline.clearAll();
-        streamStore.revokePrivacy();
         const conversationId = activeIdRef.current;
         if (conversationId) void timeline.openTail(conversationId).catch(() => {});
       }),

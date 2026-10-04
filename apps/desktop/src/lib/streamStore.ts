@@ -893,9 +893,19 @@ class StreamStoreImpl {
 
   /** Process one versioned Run Event envelope. */
   dispatch(conversationId: string, event: AgentFrontendEvent): void {
-    const runEvent = event.runEvent;
-    if (this._privacyRevokedRuns.has(runEvent.runId)
-      && runEvent.kind !== 'done' && runEvent.kind !== 'error') return;
+    let runEvent = event.runEvent;
+    if (this._privacyRevokedRuns.has(runEvent.runId)) {
+      if (runEvent.kind !== 'done' && runEvent.kind !== 'error') return;
+      // A terminal may already have crossed IPC before the revocation event.
+      // Retain its completion identity, never its old answer/error/trace body.
+      runEvent = {
+        ...runEvent,
+        label: 'Privacy settings changed',
+        payload: runEvent.kind === 'error'
+          ? { type: 'error', message: 'Privacy settings changed', status: runEvent.status }
+          : { type: 'done', message: '', usageTotal: {} },
+      };
+    }
     let state = this._streams[conversationId];
     if (!state) {
       state = createDefaultState();
