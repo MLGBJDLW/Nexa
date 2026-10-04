@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.14.25](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.24...nexa-monorepo-v0.14.25) (2026-10-04)
+
+
+### Bug Fixes
+
+* **agent:** cancel revoked privacy contexts before replay and delivery ([94e07b1](https://github.com/MLGBJDLW/Nexa/commit/94e07b107e548315ace78140f7f0a9da8ad162bd))
+* **agent:** preserve cancellation contracts across privacy revocation ([047ebf4](https://github.com/MLGBJDLW/Nexa/commit/047ebf426059818c3c1807a26f68a5841314b307))
+* **chat:** clear revoked streams across settings navigation ([3fea764](https://github.com/MLGBJDLW/Nexa/commit/3fea764b232b545784f4f881f63324c7adabb13a))
+* **chat:** invalidate cached views after privacy revocation ([581a8d6](https://github.com/MLGBJDLW/Nexa/commit/581a8d6b3542fb5b3a0cc5d27d307f71db5165d0))
+* **chat:** reject task snapshots from revoked runs ([03eae57](https://github.com/MLGBJDLW/Nexa/commit/03eae572bd4e3e290d5a65eaca1af239a8c34b5c))
+* **privacy:** project default policies and newly bound evidence ([e1329ed](https://github.com/MLGBJDLW/Nexa/commit/e1329edc3e7bbd09cfbb1df0ad41560256b16514))
+* **privacy:** redact arbitrary MCP data keys and values ([f337763](https://github.com/MLGBJDLW/Nexa/commit/f337763d12691da98afa7cb1920297baa7ee029f))
+* **privacy:** revoke derived conversation history on policy changes ([fd4c35d](https://github.com/MLGBJDLW/Nexa/commit/fd4c35dcefc24bd5cc607cde3701418712e58204))
+* **privacy:** revoke persisted chat evidence and active replay ([e9d2c50](https://github.com/MLGBJDLW/Nexa/commit/e9d2c50ccdb7d8d8946ab8340c6e1ace53d61d18))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at e9d2c50ccdb7d8d8946ab8340c6e1ace53d61d18 -->
+
+### What's Changed
+* fix(privacy): revoke persisted chat evidence and active replay by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/447
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.24...nexa-monorepo-v0.14.25
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.24](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.23...nexa-monorepo-v0.14.24) (2026-10-03)
 
 
