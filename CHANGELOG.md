@@ -18,6 +18,16 @@
 * restore knowledge graph readability and unlimited agent turns ([e1420f4](https://github.com/MLGBJDLW/Nexa/commit/e1420f4d251b03afd6ba445b91e9bdaf810558d3))
 * **tools:** replace implicit execution caps with MCP progress liveness ([1c14cea](https://github.com/MLGBJDLW/Nexa/commit/1c14cead076dd09c728e320b396e89f8682d7737))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at e1420f4d251b03afd6ba445b91e9bdaf810558d3 -->
+
+### What's Changed
+* fix: restore knowledge graph readability and unlimited agent turns by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/449
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.25...nexa-monorepo-v0.14.26
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.25](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.24...nexa-monorepo-v0.14.25) (2026-10-04)
 
 
