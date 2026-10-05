@@ -3,6 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { autoPruneDevelopmentCaches } from '../../../scripts/dev-cache.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(__dirname, '..');
@@ -40,6 +41,7 @@ async function cleanup() {
   }
 }
 
+await autoPruneDevelopmentCaches();
 const port = await findFreePort();
 const overrideConfig = {
   build: {

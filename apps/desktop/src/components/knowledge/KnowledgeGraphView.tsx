@@ -1051,7 +1051,7 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
           />
-          <label className="relative">
+          <label className="relative h-10">
             <Filter size={15} className="pointer-events-none absolute left-3 top-1/2 block shrink-0 -translate-y-1/2 text-text-tertiary" />
             <NexaSelect
               value={relationFilter}
@@ -1182,41 +1182,6 @@ export function KnowledgeGraphView({ onOpenInsights }: { onOpenInsights?: () => 
                 onPointerCancel={finishGraphDrag}
               >
                 <defs>
-                  <style>
-                    {`
-                      .kg-edge-line {
-                        stroke-linecap: round;
-                        stroke-linejoin: round;
-                        transition: opacity 160ms ease, stroke-width 160ms ease;
-                      }
-                      .kg-edge-transfer {
-                        pointer-events: none;
-                      }
-                      .kg-edge-comet {
-                        fill: currentColor;
-                        filter: url(#knowledge-transfer-glow);
-                      }
-                      .kg-edge-comet-core {
-                        fill: var(--graph-transfer-core);
-                        filter: url(#knowledge-transfer-glow);
-                      }
-                      .kg-node-hit {
-                        pointer-events: all;
-                      }
-                      .kg-node-core {
-                        filter: url(#knowledge-node-frost);
-                        transition: filter 160ms ease;
-                      }
-                      .kg-node-shell {
-                        filter: url(#knowledge-node-glow);
-                      }
-                      .kg-label-chip {
-                        fill: var(--graph-label-background);
-                        stroke: var(--graph-label-border);
-                        filter: url(#knowledge-label-shadow);
-                      }
-                    `}
-                  </style>
                   <radialGradient id="knowledge-canvas-glow" cx="50%" cy="48%" r="62%">
                     <stop offset="0%" stopColor="var(--graph-canvas-glow-center)" />
                     <stop offset="54%" stopColor="var(--graph-canvas-glow-mid)" />

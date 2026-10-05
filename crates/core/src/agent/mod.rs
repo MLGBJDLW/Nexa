@@ -466,9 +466,8 @@ impl Default for AgentConfig {
             volatile_system_sections: Vec::new(),
             model: None,
             temperature: Some(0.3),
-            // `None` selects a model-aware agent response reserve. Model steps
-            // always send that resolved cap on the wire so provider-native
-            // 100k-1M limits cannot swallow an interactive tool round.
+            // `None` keeps automatic response reserves local. Only a verified
+            // provider capacity or an explicit user setting bounds wire output.
             max_tokens: None,
             max_actual_tokens_per_run: None,
             context_window: None,

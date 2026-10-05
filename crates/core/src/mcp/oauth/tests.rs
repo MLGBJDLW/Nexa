@@ -147,6 +147,14 @@ async fn peer() -> Peer {
                 let mut status = "200 OK";
                 let mut extra = String::new();
                 let value = match (request.starts_with("GET "), path) {
+                    (true, "/mcp")
+                        if header
+                            .to_ascii_lowercase()
+                            .contains("authorization: bearer access-") =>
+                    {
+                        status = "405 Method Not Allowed";
+                        serde_json::json!({})
+                    }
                     (true, "/mcp") => {
                         status = "401 Unauthorized";
                         extra = format!(

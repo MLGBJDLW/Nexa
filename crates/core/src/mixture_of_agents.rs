@@ -12,7 +12,7 @@ use futures::future::join_all;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 
 use crate::error::CoreError;
 use crate::llm::provider_stream_event_from_error;
@@ -120,7 +120,8 @@ pub enum MoaFailurePolicy {
 #[serde(rename_all = "camelCase")]
 pub struct MoaBudgetPolicy {
     pub max_parallel: usize,
-    pub max_advisor_calls_per_turn: usize,
+    #[serde(default)]
+    pub max_advisor_calls_per_turn: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -142,7 +143,8 @@ pub struct MoaPreset {
     pub aggregator_model: String,
     pub references: Vec<MoaReferenceSlot>,
     pub fanout: MoaFanoutCadence,
-    pub reference_max_tokens: u32,
+    #[serde(default)]
+    pub reference_max_tokens: Option<u32>,
     pub privacy_filter: MoaPrivacyFilter,
     pub failure_policy: MoaFailurePolicy,
     pub enabled: bool,
@@ -151,14 +153,12 @@ pub struct MoaPreset {
 
 impl MoaPreset {
     pub fn builtin(id: MoaPresetId, aggregator_provider: &str, aggregator_model: &str) -> Self {
-        let (name, roles, fanout, reference_max_tokens, privacy_filter, max_calls) = match id {
+        let (name, roles, fanout, privacy_filter) = match id {
             MoaPresetId::FastReview => (
                 "Fast Review",
                 vec!["skeptical reviewer", "alternative solver"],
                 MoaFanoutCadence::UserTurn,
-                1_024,
                 MoaPrivacyFilter::Display,
-                2,
             ),
             MoaPresetId::DeepResearch => (
                 "Deep Research",
@@ -169,9 +169,7 @@ impl MoaPreset {
                     "synthesis critic",
                 ],
                 MoaFanoutCadence::PerIteration,
-                2_048,
                 MoaPrivacyFilter::Full,
-                12,
             ),
             MoaPresetId::CrossModelCodeReview => (
                 "Cross-model Code Review",
@@ -181,9 +179,7 @@ impl MoaPreset {
                     "regression reviewer",
                 ],
                 MoaFanoutCadence::EveryN { iterations: 2 },
-                1_536,
                 MoaPrivacyFilter::Display,
-                6,
             ),
             MoaPresetId::Custom => (
                 "Custom Preset",
@@ -193,9 +189,7 @@ impl MoaPreset {
                     "domain specialist",
                 ],
                 MoaFanoutCadence::UserTurn,
-                1_536,
                 MoaPrivacyFilter::Display,
-                3,
             ),
         };
         let references = roles
@@ -216,13 +210,13 @@ impl MoaPreset {
             aggregator_model: aggregator_model.to_string(),
             references,
             fanout,
-            reference_max_tokens,
+            reference_max_tokens: None,
             privacy_filter,
             failure_policy: MoaFailurePolicy::ContinueWithAvailable,
             enabled: true,
             budget_policy: MoaBudgetPolicy {
                 max_parallel: 4,
-                max_advisor_calls_per_turn: max_calls,
+                max_advisor_calls_per_turn: None,
             },
         }
     }
@@ -340,7 +334,10 @@ impl MoaProvider {
 
     fn reserve_advisor_calls(&self) -> bool {
         let requested = self.advisors.len() as u64;
-        let limit = self.preset.budget_policy.max_advisor_calls_per_turn as u64;
+        let Some(limit) = self.preset.budget_policy.max_advisor_calls_per_turn else {
+            return requested > 0;
+        };
+        let limit = limit as u64;
         let mut current = self.advisor_calls_reserved.load(Ordering::Relaxed);
         loop {
             if requested == 0 || current.saturating_add(requested) > limit {
@@ -380,7 +377,10 @@ impl MoaProvider {
             }));
             advisor_request.tools = None;
             advisor_request.parallel_tool_calls = false;
-            advisor_request.max_tokens = Some(self.preset.reference_max_tokens);
+            // Advisor slots can use a different endpoint/model. An omitted
+            // override must remain provider-managed, not inherit a preset or
+            // the aggregator's unrelated output ceiling.
+            advisor_request.max_tokens = self.preset.reference_max_tokens;
             advisor_request.reasoning_effort = advisor.slot.reasoning_effort.clone();
             async move {
                 (
@@ -482,49 +482,60 @@ impl LlmProvider for MoaProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-        let before = self.usage_snapshot().await.advisor_usage;
-        let aggregator_request = self.aggregator_request(request).await?;
-        let after = self.usage_snapshot().await.advisor_usage;
-        let advisor_usage = usage_delta(&before, &after);
-        let aggregator = Arc::clone(&self.aggregator);
-        let (tx, rx) = mpsc::channel(32);
-        tokio::spawn(async move {
-            match aggregator.stream_events(&aggregator_request).await {
-                Ok(mut provider_stream) => {
-                    let mut attached_usage = false;
-                    while let Some(mut event) = provider_stream.next().await {
-                        if let ProviderStreamEvent::Chunk { chunk } = &mut event {
-                            if let Some(usage) = chunk.usage.as_mut() {
-                                add_usage(usage, &advisor_usage);
-                                attached_usage = true;
+        // Advisor execution is work within the virtual stream, not connection
+        // establishment. Keeping every future owned by the returned stream also
+        // cancels advisor/aggregator requests when the parent drops the stream.
+        let request = request.clone();
+        Ok(Box::pin(
+            stream::once(async move {
+                let prepared = async {
+                    let before = self.usage_snapshot().await.advisor_usage;
+                    let aggregator_request = self.aggregator_request(&request).await?;
+                    let after = self.usage_snapshot().await.advisor_usage;
+                    let provider_stream = self
+                        .aggregator
+                        .stream_events(&aggregator_request)
+                        .await?
+                        .fuse();
+                    Ok::<_, CoreError>((provider_stream, usage_delta(&before, &after)))
+                }
+                .await;
+                let events: BoxStream<'_, ProviderStreamEvent> = match prepared {
+                    Ok((provider_stream, advisor_usage)) => Box::pin(stream::unfold(
+                        (provider_stream, advisor_usage, false),
+                        |(mut provider_stream, advisor_usage, mut attached_usage)| async move {
+                            if let Some(mut event) = provider_stream.next().await {
+                                if let ProviderStreamEvent::Chunk { chunk } = &mut event {
+                                    if let Some(usage) = chunk.usage.as_mut() {
+                                        add_usage(usage, &advisor_usage);
+                                        attached_usage = true;
+                                    }
+                                }
+                                Some((event, (provider_stream, advisor_usage, attached_usage)))
+                            } else if !attached_usage && advisor_usage.total_tokens > 0 {
+                                Some((
+                                    ProviderStreamEvent::Chunk {
+                                        chunk: Box::new(StreamChunk {
+                                            delta: String::new(),
+                                            tool_call_delta: None,
+                                            finish_reason: None,
+                                            usage: Some(advisor_usage.clone()),
+                                            thinking_delta: None,
+                                        }),
+                                    },
+                                    (provider_stream, advisor_usage, true),
+                                ))
+                            } else {
+                                None
                             }
-                        }
-                        if tx.send(event).await.is_err() {
-                            return;
-                        }
-                    }
-                    if !attached_usage && advisor_usage.total_tokens > 0 {
-                        let _ = tx
-                            .send(ProviderStreamEvent::Chunk {
-                                chunk: Box::new(StreamChunk {
-                                    delta: String::new(),
-                                    tool_call_delta: None,
-                                    finish_reason: None,
-                                    usage: Some(advisor_usage),
-                                    thinking_delta: None,
-                                }),
-                            })
-                            .await;
-                    }
-                }
-                Err(error) => {
-                    let _ = tx.send(provider_stream_event_from_error(error)).await;
-                }
-            }
-        });
-        Ok(Box::pin(stream::unfold(rx, |mut rx| async {
-            rx.recv().await.map(|item| (item, rx))
-        })))
+                        },
+                    )),
+                    Err(error) => Box::pin(stream::iter([provider_stream_event_from_error(error)])),
+                };
+                events
+            })
+            .flatten(),
+        ))
     }
 
     async fn health_check(&self) -> Result<(), CoreError> {
@@ -668,6 +679,77 @@ mod tests {
 
     struct HostedToolAggregator;
 
+    struct SlowAdvisor(Arc<AtomicUsize>);
+    struct ActiveAdvisor(Arc<AtomicUsize>);
+    impl Drop for ActiveAdvisor {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for SlowAdvisor {
+        fn name(&self) -> &str {
+            "slow-advisor"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn complete(
+            &self,
+            request: &CompletionRequest,
+        ) -> Result<CompletionResponse, CoreError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            let _active = ActiveAdvisor(self.0.clone());
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            provider("advisor", false).complete(request).await
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            unreachable!("advisors use tool-free completion")
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_advisors_run_inside_the_stream_and_stop_when_it_is_dropped() {
+        for cancel in [false, true] {
+            let active = Arc::new(AtomicUsize::new(0));
+            let preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "model");
+            let advisor = MoaAdvisor {
+                slot: preset.references[0].clone(),
+                provider: Arc::new(SlowAdvisor(active.clone())),
+            };
+            let moa =
+                MoaProvider::new(provider("aggregator", false), preset, vec![advisor]).unwrap();
+            let request = request();
+            let mut events = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                moa.stream_events(&request),
+            )
+            .await
+            .expect("advisor work must not consume the connection deadline")
+            .unwrap();
+            if cancel {
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_secs(1), events.next())
+                        .await
+                        .is_err()
+                );
+                assert_eq!(active.load(Ordering::SeqCst), 1);
+                drop(events);
+            } else {
+                let events = events.collect::<Vec<_>>().await;
+                assert!(events.iter().any(|event| matches!(event, ProviderStreamEvent::Chunk { chunk } if chunk.delta == "aggregator")));
+            }
+            assert_eq!(active.load(Ordering::SeqCst), 0);
+        }
+    }
+
     #[async_trait]
     impl LlmProvider for HostedToolAggregator {
         fn name(&self) -> &str {
@@ -689,7 +771,7 @@ mod tests {
             &self,
             _request: &CompletionRequest,
         ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-            Ok(Box::pin(stream::iter([ProviderStreamEvent::HostedTool {
+            let event = ProviderStreamEvent::HostedTool {
                 tool: Box::new(ProviderHostedToolEvent {
                     call_id: "hosted-call-1".to_string(),
                     tool_name: "web_search".to_string(),
@@ -700,7 +782,11 @@ mod tests {
                     content: Some("result".to_string()),
                     artifacts: None,
                 }),
-            }])))
+            };
+            // Deliberately non-fused, like provider adapters using unfold.
+            Ok(Box::pin(stream::unfold(Some(event), |event| async move {
+                event.map(|event| (event, None))
+            })))
         }
 
         async fn health_check(&self) -> Result<(), CoreError> {
@@ -899,7 +985,7 @@ mod tests {
         )
         .unwrap();
         let mut preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "aggregator-model");
-        preset.budget_policy.max_advisor_calls_per_turn = 0;
+        preset.budget_policy.max_advisor_calls_per_turn = Some(0);
         let advisor = MoaAdvisor {
             slot: preset.references[0].clone(),
             provider: provider("unused-advisor", false),
@@ -971,9 +1057,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fallback_advisor_usage_does_not_repoll_a_terminated_aggregator() {
+        let preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "aggregator-model");
+        let advisor = MoaAdvisor {
+            slot: preset.references[0].clone(),
+            provider: provider("advisor", false),
+        };
+        let moa = MoaProvider::new(Arc::new(HostedToolAggregator), preset, vec![advisor]).unwrap();
+        let events = moa
+            .stream_events(&request())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(
+            matches!(events.as_slice(), [ProviderStreamEvent::HostedTool { .. }, ProviderStreamEvent::Chunk { chunk }] if chunk.usage.as_ref().is_some_and(|usage| usage.total_tokens == 10))
+        );
+    }
+
+    #[tokio::test]
     async fn moa_preserves_hosted_tool_events_from_the_aggregator() {
         let mut preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "aggregator-model");
-        preset.budget_policy.max_advisor_calls_per_turn = 0;
+        preset.budget_policy.max_advisor_calls_per_turn = Some(0);
         let advisor = MoaAdvisor {
             slot: preset.references[0].clone(),
             provider: provider("unused-advisor", false),
@@ -1005,6 +1110,59 @@ mod tests {
             MoaPresetId::from_wire(None).unwrap(),
             MoaPresetId::FastReview
         );
+    }
+
+    #[test]
+    fn builtin_presets_leave_advisor_budgets_unconfigured() {
+        for id in [
+            MoaPresetId::FastReview,
+            MoaPresetId::DeepResearch,
+            MoaPresetId::CrossModelCodeReview,
+            MoaPresetId::Custom,
+        ] {
+            let preset = MoaPreset::builtin(id, "open_ai", "model");
+            assert_eq!(preset.budget_policy.max_advisor_calls_per_turn, None);
+            assert_eq!(preset.reference_max_tokens, None);
+        }
+        let explicit: MoaBudgetPolicy = serde_json::from_value(serde_json::json!({
+            "maxParallel": 4, "maxAdvisorCallsPerTurn": 12,
+        }))
+        .unwrap();
+        assert_eq!(explicit.max_advisor_calls_per_turn, Some(12));
+    }
+
+    #[tokio::test]
+    async fn per_iteration_advisors_keep_refreshing_unless_explicitly_limited() {
+        for explicit_limit in [None, Some(4)] {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let advisor = Arc::new(RecordingAggregator {
+                requests: Arc::clone(&received),
+            });
+            let mut preset = MoaPreset::builtin(MoaPresetId::DeepResearch, "open_ai", "model");
+            preset.budget_policy.max_advisor_calls_per_turn = explicit_limit;
+            preset.reference_max_tokens = explicit_limit.map(|_| 768);
+            let advisors = preset
+                .references
+                .iter()
+                .map(|slot| MoaAdvisor {
+                    slot: slot.clone(),
+                    provider: advisor.clone(),
+                })
+                .collect();
+            let moa = MoaProvider::new(provider("aggregator", false), preset, advisors).unwrap();
+            let mut input = request();
+            input.max_tokens = Some(512);
+            for _ in 0..8 {
+                moa.complete(&input).await.unwrap();
+            }
+            let expected = if explicit_limit.is_some() { 4 } else { 32 };
+            assert_eq!(moa.usage_snapshot().await.advisor_calls, expected);
+            let received = received.lock().unwrap();
+            assert_eq!(received.len(), expected as usize);
+            assert!(received
+                .iter()
+                .all(|request| request.max_tokens == explicit_limit.map(|_| 768)));
+        }
     }
 
     #[test]

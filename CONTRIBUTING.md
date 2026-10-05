@@ -72,9 +72,16 @@ groups untouched for 14 days. Override these limits with
 `-- --max-gib=10 --max-age-days=7`. The command handles workspace Cargo debug
 profiles, Vite/Ruff caches, Playwright reports and test results; it refuses
 symlinks/junctions and never removes release bundles, downloaded model data,
-package dependencies, or caches outside this checkout. Custom Cargo target
-directories remain managed by their owner. Cleanup is explicit so tests and
-native builds cannot silently lose artifacts while running.
+package dependencies, or caches outside this checkout. Cargo targets identified
+by `.rustc_info.json` within the first two levels of `target`, `.artifacts`, and
+`.codex_tmp` share the same quota; only their debug profiles are pruned.
+
+Local Tauri dev/build wrappers run this maintenance before launching the native
+toolchain. Cleanup is skipped in CI and while a compiler, Nexa, Vite, or
+Playwright is active; an inspection or cleanup error also skips deletion without
+blocking startup. Direct Cargo commands still require the explicit prune command.
+Keep release verification reports and hashes, then remove downloaded verification
+copies after acceptance instead of retaining a new installer set for every tag.
 
 Run checks that exercise the changed boundary. A documentation-only change can
 be verified without starting models, a desktop session, or native Office.
