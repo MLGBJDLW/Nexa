@@ -836,7 +836,7 @@ fn orchestration_runtime_suite() -> QualityEvalSuiteReport {
             ),
             eval_case(
                 "moa-virtual-provider",
-                "MoA has bounded private advisors and one acting aggregator",
+                "MoA has bounded advisor concurrency and one acting aggregator",
                 "critical",
                 vec![
                     eval_check(
@@ -850,12 +850,10 @@ fn orchestration_runtime_suite() -> QualityEvalSuiteReport {
                         "preset filters the advisor view before private-tail injection",
                     ),
                     eval_check(
-                        "boundedCalls",
-                        preset.budget_policy.max_advisor_calls_per_turn == 6,
-                        format!(
-                            "maxAdvisorCalls={}",
-                            preset.budget_policy.max_advisor_calls_per_turn
-                        ),
+                        "unconfiguredBudgets",
+                        preset.budget_policy.max_advisor_calls_per_turn.is_none()
+                            && preset.reference_max_tokens.is_none(),
+                        "built-in presets do not synthesize advisor call or output limits",
                     ),
                 ],
             ),
