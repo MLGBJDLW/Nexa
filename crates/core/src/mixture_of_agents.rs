@@ -12,7 +12,7 @@ use futures::future::join_all;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 
 use crate::error::CoreError;
 use crate::llm::provider_stream_event_from_error;
@@ -482,49 +482,57 @@ impl LlmProvider for MoaProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-        let before = self.usage_snapshot().await.advisor_usage;
-        let aggregator_request = self.aggregator_request(request).await?;
-        let after = self.usage_snapshot().await.advisor_usage;
-        let advisor_usage = usage_delta(&before, &after);
-        let aggregator = Arc::clone(&self.aggregator);
-        let (tx, rx) = mpsc::channel(32);
-        tokio::spawn(async move {
-            match aggregator.stream_events(&aggregator_request).await {
-                Ok(mut provider_stream) => {
-                    let mut attached_usage = false;
-                    while let Some(mut event) = provider_stream.next().await {
-                        if let ProviderStreamEvent::Chunk { chunk } = &mut event {
-                            if let Some(usage) = chunk.usage.as_mut() {
-                                add_usage(usage, &advisor_usage);
-                                attached_usage = true;
+        // Advisor execution is work within the virtual stream, not connection
+        // establishment. Keeping every future owned by the returned stream also
+        // cancels advisor/aggregator requests when the parent drops the stream.
+        let request = request.clone();
+        Ok(Box::pin(
+            stream::once(async move {
+                let prepared = async {
+                    let before = self.usage_snapshot().await.advisor_usage;
+                    let aggregator_request = self.aggregator_request(&request).await?;
+                    let after = self.usage_snapshot().await.advisor_usage;
+                    let provider_stream =
+                        self.aggregator.stream_events(&aggregator_request).await?;
+                    Ok::<_, CoreError>((provider_stream, usage_delta(&before, &after)))
+                }
+                .await;
+                let events: BoxStream<'_, ProviderStreamEvent> = match prepared {
+                    Ok((provider_stream, advisor_usage)) => Box::pin(stream::unfold(
+                        (provider_stream, advisor_usage, false),
+                        |(mut provider_stream, advisor_usage, mut attached_usage)| async move {
+                            if let Some(mut event) = provider_stream.next().await {
+                                if let ProviderStreamEvent::Chunk { chunk } = &mut event {
+                                    if let Some(usage) = chunk.usage.as_mut() {
+                                        add_usage(usage, &advisor_usage);
+                                        attached_usage = true;
+                                    }
+                                }
+                                Some((event, (provider_stream, advisor_usage, attached_usage)))
+                            } else if !attached_usage && advisor_usage.total_tokens > 0 {
+                                Some((
+                                    ProviderStreamEvent::Chunk {
+                                        chunk: Box::new(StreamChunk {
+                                            delta: String::new(),
+                                            tool_call_delta: None,
+                                            finish_reason: None,
+                                            usage: Some(advisor_usage.clone()),
+                                            thinking_delta: None,
+                                        }),
+                                    },
+                                    (provider_stream, advisor_usage, true),
+                                ))
+                            } else {
+                                None
                             }
-                        }
-                        if tx.send(event).await.is_err() {
-                            return;
-                        }
-                    }
-                    if !attached_usage && advisor_usage.total_tokens > 0 {
-                        let _ = tx
-                            .send(ProviderStreamEvent::Chunk {
-                                chunk: Box::new(StreamChunk {
-                                    delta: String::new(),
-                                    tool_call_delta: None,
-                                    finish_reason: None,
-                                    usage: Some(advisor_usage),
-                                    thinking_delta: None,
-                                }),
-                            })
-                            .await;
-                    }
-                }
-                Err(error) => {
-                    let _ = tx.send(provider_stream_event_from_error(error)).await;
-                }
-            }
-        });
-        Ok(Box::pin(stream::unfold(rx, |mut rx| async {
-            rx.recv().await.map(|item| (item, rx))
-        })))
+                        },
+                    )),
+                    Err(error) => Box::pin(stream::iter([provider_stream_event_from_error(error)])),
+                };
+                events
+            })
+            .flatten(),
+        ))
     }
 
     async fn health_check(&self) -> Result<(), CoreError> {
@@ -667,6 +675,77 @@ mod tests {
     }
 
     struct HostedToolAggregator;
+
+    struct SlowAdvisor(Arc<AtomicUsize>);
+    struct ActiveAdvisor(Arc<AtomicUsize>);
+    impl Drop for ActiveAdvisor {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for SlowAdvisor {
+        fn name(&self) -> &str {
+            "slow-advisor"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn complete(
+            &self,
+            request: &CompletionRequest,
+        ) -> Result<CompletionResponse, CoreError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            let _active = ActiveAdvisor(self.0.clone());
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            provider("advisor", false).complete(request).await
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            unreachable!("advisors use tool-free completion")
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_advisors_run_inside_the_stream_and_stop_when_it_is_dropped() {
+        for cancel in [false, true] {
+            let active = Arc::new(AtomicUsize::new(0));
+            let preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "model");
+            let advisor = MoaAdvisor {
+                slot: preset.references[0].clone(),
+                provider: Arc::new(SlowAdvisor(active.clone())),
+            };
+            let moa =
+                MoaProvider::new(provider("aggregator", false), preset, vec![advisor]).unwrap();
+            let request = request();
+            let mut events = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                moa.stream_events(&request),
+            )
+            .await
+            .expect("advisor work must not consume the connection deadline")
+            .unwrap();
+            if cancel {
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_secs(1), events.next())
+                        .await
+                        .is_err()
+                );
+                assert_eq!(active.load(Ordering::SeqCst), 1);
+                drop(events);
+            } else {
+                let events = events.collect::<Vec<_>>().await;
+                assert!(events.iter().any(|event| matches!(event, ProviderStreamEvent::Chunk { chunk } if chunk.delta == "aggregator")));
+            }
+            assert_eq!(active.load(Ordering::SeqCst), 0);
+        }
+    }
 
     #[async_trait]
     impl LlmProvider for HostedToolAggregator {
