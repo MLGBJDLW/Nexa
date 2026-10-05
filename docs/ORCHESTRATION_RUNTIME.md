@@ -271,8 +271,9 @@ loop. The runtime keeps these authorities independent:
   of complete, validated tool batches that enter execution, including
   controller-owned direct dispatch, retrieval prefetch, and reconnaissance as
   well as model-directed client tools;
-- cumulative token, cost, wall-time, and cancellation policy bound the whole
-  run independently.
+- explicitly configured cumulative token, cost, and wall-time budgets bound the
+  whole run independently; omitted budgets are unlimited and cancellation stays
+  available.
 
 A finite tool-round budget reserves one final answer-only provider sample after
 the last dispatched batch. Output continuation remains available for that
@@ -283,6 +284,20 @@ user-facing tool budget. Repeated
 protocol faults are controlled by the existing consecutive no-progress guard:
 committed answer or tool progress resets it, so there is no turn-wide hidden
 `MAX_OUTPUT_LIMIT_CONTINUATIONS` counter.
+
+There is no implicit cumulative provider-request ceiling, including on a finite
+tool budget's answer-only continuation. Provider-hosted actions use an idle
+deadline that renews with activity, not an absolute lifetime limit. Their replay
+barrier still prevents automatic retries after a remote action may have begun.
+
+An omitted outer tool timeout also stays unlimited. MCP `tools/call` requests
+issue a progress token and renew their transport idle deadline only for matching,
+strictly increasing [progress notifications](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress).
+Discovery, connection, write, and inactive-request deadlines remain separate;
+unrelated logs, SSE heartbeats, duplicate progress, and old tokens cannot keep a
+stalled operation alive. MoA presets choose advisor roles, concurrency, and
+fanout cadence without manufacturing cumulative call or per-answer token caps.
+Explicit caller-supplied advisor budgets remain authoritative.
 
 The same budget owner is created before any controller shortcut. A zero value
 therefore blocks direct tool dispatch, knowledge prefetch, Nexus/Ultra

@@ -135,7 +135,9 @@ pub(crate) fn tool_timeout_for_call(
         // cancellation. A generic tool timeout must not kill a healthy worker.
         return None;
     }
-    let base_timeout = configured_timeout_secs.unwrap_or(30) as u64;
+    // An omitted execution budget is unlimited. Individual tools still own
+    // their transport, readiness and idle deadlines, plus parent cancellation.
+    let base_timeout = u64::from(configured_timeout_secs?);
     if base_timeout == 0 {
         return None;
     }
@@ -523,6 +525,25 @@ mod tests {
                     > 0
             );
         }
+    }
+
+    #[test]
+    fn omitted_tool_deadlines_do_not_create_a_hidden_execution_cap() {
+        for tool in [
+            "read_file",
+            "run_shell",
+            "generate_image",
+            "mcp__server__long_task",
+        ] {
+            assert_eq!(
+                tool_timeout_for_call(None, tool, &serde_json::json!({})),
+                None
+            );
+        }
+        assert_eq!(
+            tool_timeout_for_call(Some(7), "read_file", &serde_json::json!({})),
+            Some(Duration::from_secs(7))
+        );
     }
 
     #[test]
