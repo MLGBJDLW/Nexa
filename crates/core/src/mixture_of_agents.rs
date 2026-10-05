@@ -492,8 +492,11 @@ impl LlmProvider for MoaProvider {
                     let before = self.usage_snapshot().await.advisor_usage;
                     let aggregator_request = self.aggregator_request(&request).await?;
                     let after = self.usage_snapshot().await.advisor_usage;
-                    let provider_stream =
-                        self.aggregator.stream_events(&aggregator_request).await?;
+                    let provider_stream = self
+                        .aggregator
+                        .stream_events(&aggregator_request)
+                        .await?
+                        .fuse();
                     Ok::<_, CoreError>((provider_stream, usage_delta(&before, &after)))
                 }
                 .await;
@@ -768,7 +771,7 @@ mod tests {
             &self,
             _request: &CompletionRequest,
         ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-            Ok(Box::pin(stream::iter([ProviderStreamEvent::HostedTool {
+            let event = ProviderStreamEvent::HostedTool {
                 tool: Box::new(ProviderHostedToolEvent {
                     call_id: "hosted-call-1".to_string(),
                     tool_name: "web_search".to_string(),
@@ -779,7 +782,11 @@ mod tests {
                     content: Some("result".to_string()),
                     artifacts: None,
                 }),
-            }])))
+            };
+            // Deliberately non-fused, like provider adapters using unfold.
+            Ok(Box::pin(stream::unfold(Some(event), |event| async move {
+                event.map(|event| (event, None))
+            })))
         }
 
         async fn health_check(&self) -> Result<(), CoreError> {
@@ -1047,6 +1054,25 @@ mod tests {
                 .provider_turn()
                 .is_some_and(|envelope| envelope.replay_payload.is_present())
         }));
+    }
+
+    #[tokio::test]
+    async fn fallback_advisor_usage_does_not_repoll_a_terminated_aggregator() {
+        let preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "aggregator-model");
+        let advisor = MoaAdvisor {
+            slot: preset.references[0].clone(),
+            provider: provider("advisor", false),
+        };
+        let moa = MoaProvider::new(Arc::new(HostedToolAggregator), preset, vec![advisor]).unwrap();
+        let events = moa
+            .stream_events(&request())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(
+            matches!(events.as_slice(), [ProviderStreamEvent::HostedTool { .. }, ProviderStreamEvent::Chunk { chunk }] if chunk.usage.as_ref().is_some_and(|usage| usage.total_tokens == 10))
+        );
     }
 
     #[tokio::test]
