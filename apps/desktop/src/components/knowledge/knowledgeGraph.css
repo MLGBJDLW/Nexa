@@ -1,0 +1,40 @@
+/* Keep graph rules in the bundled stylesheet: packaged Tauri CSP rejects
+   runtime-injected <style> elements once startup styles have nonces/hashes. */
+.kg-edge-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 160ms ease, stroke-width 160ms ease;
+}
+
+.kg-edge-transfer {
+  pointer-events: none;
+}
+
+.kg-edge-comet {
+  fill: currentColor;
+  filter: url(#knowledge-transfer-glow);
+}
+
+.kg-edge-comet-core {
+  fill: var(--graph-transfer-core);
+  filter: url(#knowledge-transfer-glow);
+}
+
+.kg-node-hit {
+  pointer-events: all;
+}
+
+.kg-node-core {
+  filter: url(#knowledge-node-frost);
+  transition: filter 160ms ease;
+}
+
+.kg-node-shell {
+  filter: url(#knowledge-node-glow);
+}
+
+.kg-label-chip {
+  fill: var(--graph-label-background);
+  stroke: var(--graph-label-border);
+  filter: url(#knowledge-label-shadow);
+}

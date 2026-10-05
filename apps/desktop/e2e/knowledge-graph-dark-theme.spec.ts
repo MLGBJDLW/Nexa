@@ -2,6 +2,48 @@ import { expect, test } from '@playwright/test';
 
 const THEMES = ['dark', 'light', 'midnight', 'aurora', 'bloom', 'dream'] as const;
 
+test('translucent custom surfaces keep graph labels readable', async ({ page }) => {
+  await page.goto('/knowledge');
+  // Packaged Tauri adds style hashes/nonces to CSP. Once present, the browser
+  // ignores unsafe-inline for style elements injected later by React.
+  await page.evaluate(() => {
+    const policy = document.createElement('meta');
+    policy.httpEquiv = 'Content-Security-Policy';
+    policy.content = "style-src-elem 'self' 'nonce-packaged-style'";
+    document.head.appendChild(policy);
+  });
+  await page.getByRole('button', { name: 'Topics & Connections' }).click();
+  const graph = page.getByRole('img', { name: 'Relationship Graph', exact: true });
+  await expect(graph.locator('.kg-node-core')).toHaveCount(2);
+  await page.evaluate(async () => {
+    const { applyCustomTheme } = await import('/src/lib/themeProfile.ts');
+    applyCustomTheme({
+      version: 2, id: 'translucent-paper', name: 'Translucent Paper', baseTheme: 'light', mode: 'light',
+      colors: { surface0: 'rgba(250, 244, 246, 0.52)', surface1: 'rgba(253, 248, 250, 0.56)',
+        surface2: 'rgba(255, 252, 253, 0.60)', textPrimary: '#3c2a31', textSecondary: '#7d5f68',
+        accent: '#d35a70', border: 'rgba(163, 108, 122, 0.22)' },
+      effects: { surfaceOpacity: 0.4, glassBlur: 4, shadowIntensity: 0.7, radiusScale: 1.05 },
+      typography: {}, motion: {}, brand: {}, content: {}, components: {}, background: { kind: 'none' },
+    });
+  });
+  const palette = await graph.evaluate(element => {
+    const chip = element.querySelector('.kg-label-chip')!;
+    const label = chip.parentElement!.querySelector('text')!;
+    const rgba = (color: string) => {
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+      return [...ctx.getImageData(0, 0, 1, 1).data];
+    };
+    return { background: rgba(getComputedStyle(chip).fill), text: rgba(getComputedStyle(label).fill) };
+  });
+  await test.info().attach('translucent-paper', {
+    body: await graph.screenshot({ path: test.info().outputPath('translucent-paper.png') }), contentType: 'image/png',
+  });
+  expect(palette.background).toEqual([253, 248, 250, 255]);
+  expect(palette.text).toEqual([60, 42, 49, 255]);
+  await expect(graph.locator('style')).toHaveCount(0);
+});
+
 test('custom palettes update graph labels, nodes and edges without inheriting the base palette', async ({ page }) => {
   await page.goto('/knowledge');
   await page.getByRole('button', { name: 'Topics & Connections' }).click();

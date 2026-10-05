@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import './components/knowledge/knowledgeGraph.css';
 @import "@fontsource-variable/inter";
 @import "katex/dist/katex.min.css";
 @import "./components/ui/overlay/overlayTokens.css";

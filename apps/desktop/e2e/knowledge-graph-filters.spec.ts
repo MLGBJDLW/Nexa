@@ -221,6 +221,13 @@ test('keeps topic and relationship icons vertically centered', async ({ page }) 
   const searchInput = page.getByPlaceholder('Search nodes...');
   await expectVerticallyCentered(searchInput, searchInput.locator('xpath=..').locator('svg'));
 
+  const relationSelect = page.getByRole('combobox').filter({ hasText: 'All Relations' });
+  for (const width of [1024, 1360, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectVerticallyCentered(relationSelect, relationSelect.locator('..').locator(':scope > svg'));
+  }
+  await page.setViewportSize({ width: 1360, height: 900 });
+
   const graphTitle = page.getByText('Relationship Graph', { exact: true });
   await expectVerticallyCentered(graphTitle, graphTitle.locator('svg'));
 
