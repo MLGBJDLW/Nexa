@@ -225,6 +225,10 @@ impl ModelProgressWatchdog {
         self.observe_stream_activity();
     }
 
+    pub(super) fn observe_thinking_progress(&mut self) {
+        self.observe_stream_activity();
+    }
+
     pub(super) fn observe_tool_call_progress(&mut self) {
         self.observe_stream_activity();
     }

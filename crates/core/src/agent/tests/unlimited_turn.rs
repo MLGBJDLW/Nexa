@@ -202,7 +202,7 @@ impl LlmProvider for LongHostedWork {
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
         assert_eq!(self.calls.fetch_add(1, Ordering::SeqCst), 0);
         Ok(Box::pin(stream::unfold(0, |index| async move {
-            if index > 9 {
+            if index > 12 {
                 return None;
             }
             tokio::time::sleep(Duration::from_secs(120)).await;
@@ -221,6 +221,16 @@ impl LlmProvider for LongHostedWork {
                         arguments: None,
                         content: Some(format!("Completed research phase {index}")),
                         artifacts: None,
+                    }),
+                }
+            } else if index < 12 {
+                ProviderStreamEvent::Chunk {
+                    chunk: Box::new(StreamChunk {
+                        delta: String::new(),
+                        tool_call_delta: None,
+                        finish_reason: None,
+                        usage: None,
+                        thinking_delta: Some(format!("Reasoning after hosted completion {index}.")),
                     }),
                 }
             } else {

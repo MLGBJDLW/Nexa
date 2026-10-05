@@ -706,6 +706,7 @@ impl AgentExecutor {
                     // Forward thinking deltas.
                     if let Some(ref thinking) = chunk.thinking_delta {
                         if !thinking.is_empty() {
+                            progress_watchdog.observe_thinking_progress();
                             thinking_delta_seen = true;
                             iteration_thinking.push_str(thinking);
                             let _ = tx
