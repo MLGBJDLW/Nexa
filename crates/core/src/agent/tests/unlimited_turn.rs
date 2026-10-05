@@ -138,7 +138,7 @@ async fn productive_turn_completes_more_than_256_provider_requests() {
     assert_eq!(events.await.unwrap(), 300);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn answer_only_recovery_has_no_implicit_provider_request_ceiling() {
     let calls = Arc::new(AtomicUsize::new(0));
     let executor = AgentExecutor::new(
@@ -176,4 +176,109 @@ async fn answer_only_recovery_has_no_implicit_provider_request_ceiling() {
     }
     assert!(!answer.text_content().contains("nexa-continuation-ack"));
     events.await.unwrap();
+}
+
+struct LongHostedWork {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl LlmProvider for LongHostedWork {
+    fn name(&self) -> &str {
+        "long-hosted-work"
+    }
+
+    async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+        Ok(vec![])
+    }
+
+    async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        unreachable!("hosted effects must not be replayed")
+    }
+
+    async fn stream_events(
+        &self,
+        _: &CompletionRequest,
+    ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        assert_eq!(self.calls.fetch_add(1, Ordering::SeqCst), 0);
+        Ok(Box::pin(stream::unfold(0, |index| async move {
+            if index > 9 {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            let event = if index < 9 {
+                ProviderStreamEvent::HostedTool {
+                    tool: Box::new(crate::llm::ProviderHostedToolEvent {
+                        call_id: "long-hosted-call".into(),
+                        tool_name: "web_search".into(),
+                        kind: crate::llm::ProviderHostedToolKind::WebSearch,
+                        provider_id: "long-hosted-work".into(),
+                        status: if index == 8 {
+                            ProviderHostedToolStatus::Completed
+                        } else {
+                            ProviderHostedToolStatus::Running
+                        },
+                        arguments: None,
+                        content: Some(format!("Completed research phase {index}")),
+                        artifacts: None,
+                    }),
+                }
+            } else {
+                ProviderStreamEvent::Chunk {
+                    chunk: Box::new(StreamChunk {
+                        delta: "Long hosted work finished.".into(),
+                        tool_call_delta: None,
+                        finish_reason: Some(FinishReason::Stop),
+                        usage: None,
+                        thinking_delta: None,
+                    }),
+                }
+            };
+            Some((event, index + 1))
+        })))
+    }
+
+    async fn health_check(&self) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn hosted_progress_can_continue_past_ten_minutes_without_replay() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let executor = AgentExecutor::new(
+        Box::new(LongHostedWork {
+            calls: Arc::clone(&calls),
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            model: Some("private-model".into()),
+            ..AgentConfig::default()
+        },
+    );
+    let db = Database::open_memory().unwrap();
+    let (tx, mut rx) = mpsc::channel(128);
+    let answer = executor
+        .run(
+            vec![],
+            vec![ContentPart::Text {
+                text: "Finish the hosted research.".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .expect("continuing hosted progress must not hit an implicit absolute deadline");
+    assert_eq!(answer.text_content(), "Long hosted work finished.");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let mut completed = 0;
+    while let Ok(event) = rx.try_recv() {
+        if matches!(event, AgentEvent::ToolRunCompleted { .. }) {
+            completed += 1;
+        }
+    }
+    assert_eq!(completed, 1);
 }

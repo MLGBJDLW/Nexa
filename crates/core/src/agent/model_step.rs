@@ -633,7 +633,7 @@ impl AgentExecutor {
                         return Err(CoreError::Agent(trace_message));
                     }
                     model_progress_watchdog::ModelProgressDeadlineAction::StopHostedTool => {
-                        let trace_message = "model_progress_watchdog: provider-hosted action exceeded its absolute side-effect deadline; no automatic retry was attempted".to_string();
+                        let trace_message = "model_progress_watchdog: provider-hosted action stopped reporting activity; no automatic retry was attempted".to_string();
                         let draft_preserved = if let Some(accepted) = accepted_attempt.as_ref() {
                             self.persist_interrupted_provider_draft(
                                 assistant_turn::AssistantTurnPersistenceContext {
@@ -674,9 +674,9 @@ impl AgentExecutor {
                                 persisted_trace_items,
                                 TurnErrorMessages {
                                     frontend_message: if draft_preserved {
-                                        "The provider-hosted action exceeded its 10-minute safety limit. The partial draft was preserved; no automatic retry was attempted because the remote action may have side effects.".to_string()
+                                        "The provider-hosted action stopped reporting activity. The partial draft was preserved; no automatic retry was attempted because the remote action may have side effects.".to_string()
                                     } else {
-                                        "The provider-hosted action exceeded its 10-minute safety limit. No safe assistant draft was preserved, and no automatic retry was attempted because the remote action may have side effects.".to_string()
+                                        "The provider-hosted action stopped reporting activity. No safe assistant draft was preserved, and no automatic retry was attempted because the remote action may have side effects.".to_string()
                                     },
                                     trace_message: trace_message.clone(),
                                 },

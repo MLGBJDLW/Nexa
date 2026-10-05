@@ -2,7 +2,7 @@
 //!
 //! Transport activity is authoritative for stream liveness. This module only
 //! owns the deadlines that cannot be expressed by the transport adapter: the
-//! initial connection deadline and the absolute cap for provider-hosted tools
+//! initial connection deadline and the idle deadline for provider-hosted tools
 //! that may already have side effects. Reasoning, answer, and tool-argument
 //! deltas are deliberately not assigned semantic milestone deadlines.
 
@@ -18,7 +18,6 @@ const LONG_REASONER_CONNECT_DEADLINE: Duration = Duration::from_secs(90);
 const DEFAULT_CONNECT_DEADLINE: Duration = Duration::from_secs(180);
 const LOCAL_MODEL_CONNECT_DEADLINE: Duration = Duration::from_secs(300);
 const HOSTED_TOOL_IDLE_DEADLINE: Duration = Duration::from_secs(180);
-const HOSTED_TOOL_HARD_DEADLINE: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ModelProgressPolicy {
@@ -176,7 +175,6 @@ pub(super) struct ModelProgressWatchdog {
     policy: ModelProgressPolicy,
     deadline: Option<Instant>,
     phase: ModelProgressPhase,
-    hosted_tool_hard_deadline: Option<Instant>,
 }
 
 impl ModelProgressWatchdog {
@@ -200,7 +198,6 @@ impl ModelProgressWatchdog {
             policy,
             deadline: Some(started_at + policy.connect_deadline),
             phase: ModelProgressPhase::Connecting,
-            hosted_tool_hard_deadline: None,
         }
     }
 
@@ -218,7 +215,6 @@ impl ModelProgressWatchdog {
     pub(super) fn reset_for_new_attempt(&mut self) {
         self.phase = ModelProgressPhase::Connecting;
         self.deadline = Some(Instant::now() + self.policy.connect_deadline);
-        self.hosted_tool_hard_deadline = None;
     }
 
     pub(super) fn reset_for_context_retry(&mut self) {
@@ -237,23 +233,20 @@ impl ModelProgressWatchdog {
         if self.phase != ModelProgressPhase::Complete {
             self.phase = ModelProgressPhase::Active;
             self.deadline = None;
-            self.hosted_tool_hard_deadline = None;
         }
     }
 
     pub(super) fn observe_hosted_tool_progress(&mut self) {
         let now = Instant::now();
-        let hard_deadline = *self
-            .hosted_tool_hard_deadline
-            .get_or_insert(now + HOSTED_TOOL_HARD_DEADLINE);
         self.phase = ModelProgressPhase::HostedTool;
-        self.deadline = Some((now + self.policy.hosted_tool_idle_deadline).min(hard_deadline));
+        // Active hosted work can run as long as it needs. The replay barrier
+        // owns side-effect safety; elapsed lifetime is not evidence of a stall.
+        self.deadline = Some(now + self.policy.hosted_tool_idle_deadline);
     }
 
     pub(super) fn complete(&mut self) {
         self.phase = ModelProgressPhase::Complete;
         self.deadline = None;
-        self.hosted_tool_hard_deadline = None;
     }
 
     pub(super) fn on_deadline(&self) -> ModelProgressDeadlineAction {
@@ -321,17 +314,22 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn hosted_tool_heartbeats_cannot_extend_the_absolute_side_effect_deadline() {
+    async fn hosted_tool_progress_keeps_long_running_work_alive() {
         let mut watchdog = ModelProgressWatchdog::with_policy(policy());
         watchdog.arm();
         watchdog.observe_hosted_tool_progress();
-        tokio::time::advance(Duration::from_secs(599)).await;
-        watchdog.observe_hosted_tool_progress();
-        assert_eq!(
-            watchdog.deadline().unwrap() - Instant::now(),
-            Duration::from_secs(1)
-        );
-        tokio::time::advance(Duration::from_secs(1)).await;
+        for _ in 0..400 {
+            tokio::time::advance(Duration::from_secs(3)).await;
+            assert!(watchdog.deadline().unwrap() > Instant::now());
+            watchdog.observe_hosted_tool_progress();
+            assert_eq!(
+                watchdog.deadline().unwrap() - Instant::now(),
+                Duration::from_secs(4)
+            );
+        }
+        // With no further activity, the same idle timeout still detects a stall.
+        tokio::time::advance(Duration::from_secs(4)).await;
+        assert_eq!(watchdog.deadline(), Some(Instant::now()));
         assert_eq!(
             watchdog.on_deadline(),
             ModelProgressDeadlineAction::StopHostedTool
