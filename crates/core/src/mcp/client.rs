@@ -652,15 +652,10 @@ impl McpClient {
                     }
                     self.send_notification("notifications/initialized", None)
                         .await?;
-                    if ["tools", "resources", "prompts"].iter().any(|capability| {
-                        self.server_capabilities
-                            .get(capability)
-                            .and_then(|value| value.get("listChanged"))
-                            .and_then(Value::as_bool)
-                            == Some(true)
-                    }) {
-                        self.start_streamable_notification_reader();
-                    }
+                    // Progress can arrive on GET while a POST response is still
+                    // pending, independently of catalog listChanged support.
+                    // Peers without GET support may reject this optional stream.
+                    self.start_streamable_notification_reader();
                     return Ok(());
                 }
                 Err(error @ CoreError::McpTransport(_)) => return Err(error),
@@ -2520,13 +2515,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_progress_keeps_a_delayed_post_json_response_alive() {
+    async fn initialized_client_receives_get_progress_without_list_changed_capability() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/mcp", listener.local_addr().unwrap());
         let (token_tx, token_rx) = tokio::sync::watch::channel(None::<Value>);
         let server = tokio::spawn(async move {
             let mut handlers = Vec::new();
-            for _ in 0..2 {
+            for _ in 0..4 {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let token_tx = token_tx.clone();
                 let mut token_rx = token_rx.clone();
@@ -2543,10 +2538,28 @@ mod tests {
                         }
                     } else {
                         let payload: Value = serde_json::from_slice(&request.body).unwrap();
-                        token_tx.send(Some(payload["params"]["_meta"]["progressToken"].clone())).unwrap();
-                        tokio::time::sleep(Duration::from_millis(1100)).await;
-                        let response = json!({"jsonrpc":"2.0","id":payload["id"],"result":{"content":[{"type":"text","text":"finished"}]}});
-                        let _ = write_json_response(&mut stream, "200 OK", None, &response).await;
+                        match payload["method"].as_str().unwrap() {
+                            "initialize" => {
+                                let response = json!({"jsonrpc":"2.0","id":payload["id"],"result":{
+                                    "protocolVersion":SUPPORTED_PROTOCOL_VERSIONS[0],
+                                    "capabilities":{"tools":{}},
+                                    "serverInfo":{"name":"get-progress-post-json","version":"1"}
+                                }});
+                                write_json_response(&mut stream, "200 OK", None, &response).await.unwrap();
+                            }
+                            "notifications/initialized" => {
+                                write_empty_response(&mut stream, "202 Accepted", None).await.unwrap();
+                            }
+                            "tools/call" => {
+                                let token = payload["params"]["_meta"]["progressToken"].clone();
+                                assert_eq!(token, payload["id"]);
+                                token_tx.send(Some(token)).unwrap();
+                                tokio::time::sleep(Duration::from_millis(1100)).await;
+                                let response = json!({"jsonrpc":"2.0","id":payload["id"],"result":{"content":[{"type":"text","text":"finished"}]}});
+                                let _ = write_json_response(&mut stream, "200 OK", None, &response).await;
+                            }
+                            method => panic!("unexpected method {method}"),
+                        }
                     }
                 }));
             }
@@ -2554,21 +2567,21 @@ mod tests {
                 handler.await.unwrap();
             }
         });
-        let transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
-        let mut client = McpClient {
-            transport: Transport::StreamableHttp(transport),
-            request_id: AtomicI64::new(1),
-            server_name: "get-progress-post-json".into(),
-            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
-            server_capabilities: json!({}),
-            call_timeout: Duration::from_millis(500),
-            auth: None,
-        };
-        client.start_streamable_notification_reader();
-        let result = client.call_tool("long_task", json!({})).await;
+        let mut client = McpClient::connect_streamable_http(&url, None, "get-progress-post-json")
+            .await
+            .unwrap();
+        client.set_call_timeout(Duration::from_millis(500));
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.call_tool("long_task", json!({})),
+        )
+        .await;
         client.shutdown().await.unwrap();
+        if !matches!(result, Ok(Ok(_))) {
+            server.abort();
+        }
+        assert!(matches!(result, Ok(Ok(_))), "{result:?}");
         server.await.unwrap();
-        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -2882,6 +2895,12 @@ mod tests {
                     let request = read_http_request(&mut stream).await.unwrap();
                     if request.method == "DELETE" {
                         write_empty_response(&mut stream, "204 No Content", None)
+                            .await
+                            .unwrap();
+                        return;
+                    }
+                    if request.method == "GET" {
+                        write_empty_response(&mut stream, "405 Method Not Allowed", None)
                             .await
                             .unwrap();
                         return;
