@@ -14,6 +14,7 @@ use crate::llm::{CompletionResponse, FinishReason, PromptLifetime, PromptStabili
 use crate::tools::{Tool, ToolResult};
 
 mod privacy_revocation;
+mod unlimited_turn;
 
 #[test]
 fn test_tool_timeout_zero_disables_outer_timeout() {

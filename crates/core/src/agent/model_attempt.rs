@@ -184,7 +184,6 @@ struct ConnectionNotice {
 /// The provider may be an adapter (including automatic fallback); this module
 /// depends only on [`LlmProvider`] and never inspects adapter internals.
 pub(super) struct ModelAttempt<'provider, 'events> {
-    request_budget: Option<super::turn_budget::ModelRequestBudget>,
     provider: &'provider dyn LlmProvider,
     events: &'events mpsc::Sender<AgentEvent>,
     original_request: CompletionRequest,
@@ -224,7 +223,6 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
             AttemptPhase::ReadyToStream
         };
         Self {
-            request_budget: None,
             provider,
             events,
             original_request,
@@ -563,36 +561,7 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         matches!(self.phase, AttemptPhase::Streaming(_))
     }
 
-    pub(super) fn with_request_budget(
-        mut self,
-        budget: super::turn_budget::ModelRequestBudget,
-    ) -> Self {
-        self.request_budget = Some(budget);
-        self
-    }
-
-    fn acquire_request(&mut self) -> bool {
-        let Some(budget) = self.request_budget.as_ref() else {
-            return true;
-        };
-        if budget.acquire() {
-            return true;
-        }
-        let message = format!("model_request_budget_exhausted: this turn reached its {} provider request limit across tools and recovery. Completed work was retained; no additional request was sent.", budget.limit());
-        self.phase = AttemptPhase::Done;
-        self.pending_progress = Some(ModelAttemptProgress::Failed(self.failure(
-            ModelAttemptFailureStage::Connect,
-            CoreError::Agent(message),
-            None,
-            None,
-        )));
-        false
-    }
-
     fn begin_stream_open(&mut self) {
-        if !self.acquire_request() {
-            return;
-        }
         let request = self.request_for_invocation();
         self.candidate_sample_id = Some(Uuid::new_v4().to_string());
         info!(attempt = self.connect_retries + 1, "Initiating LLM stream");
@@ -604,9 +573,6 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
     }
 
     fn begin_completion(&mut self, switched_to_non_streaming: bool) {
-        if !self.acquire_request() {
-            return;
-        }
         let request = self.request_for_invocation();
         self.candidate_sample_id = Some(Uuid::new_v4().to_string());
         info!(
@@ -2810,41 +2776,28 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn recreated_attempts_share_the_turn_provider_invocation_ceiling() {
-        let budget = crate::agent::turn_budget::TurnBudget::new(0).request_budget();
+    async fn successive_completion_attempts_do_not_accumulate_a_request_limit() {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let provider = ScriptedProvider::boxed(
             "primary",
             "primary-endpoint",
             "primary-model",
             ReasoningReplayPolicy::NotRequired,
-            (0..16)
-                .map(|_| Invocation::Stream(Ok(Vec::new())))
+            (0..300)
+                .map(|_| Invocation::Complete(Ok(response("continued work"))))
                 .collect(),
             Arc::clone(&requests),
             Arc::new(Mutex::new(0)),
         );
         let (tx, _rx) = event_channel();
-        for _ in 0..16 {
-            let mut attempt = ModelAttempt::new(provider.as_ref(), request(), &tx, false)
-                .with_request_budget(budget.clone());
-            expect_stream_opened(&mut attempt).await;
+        for _ in 0..300 {
+            let mut attempt = ModelAttempt::new(provider.as_ref(), request(), &tx, true);
             assert!(matches!(
                 attempt.next().await,
-                ModelAttemptProgress::StreamComplete { .. }
+                ModelAttemptProgress::Completion(_)
             ));
         }
-        let mut exhausted =
-            ModelAttempt::new(provider.as_ref(), request(), &tx, false).with_request_budget(budget);
-        assert!(matches!(
-            exhausted.next().await,
-            ModelAttemptProgress::Failed(_)
-        ));
-        assert_eq!(
-            requests.lock().unwrap().len(),
-            16,
-            "no provider call is started after exhaustion"
-        );
+        assert_eq!(requests.lock().unwrap().len(), 300);
     }
 
     #[tokio::test(start_paused = true)]

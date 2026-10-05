@@ -6,45 +6,6 @@
 //! restarting a discarded sample. A finite tool budget also owns one
 //! answer-only synthesis step after the last verified tool round.
 
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc,
-};
-
-/// One shared ceiling across model restarts and all recovery controllers.
-/// It is consumed only before starting a provider invocation, never while
-/// receiving an active stream. Tool-round accounting remains independent.
-#[derive(Debug, Clone)]
-pub(super) struct ModelRequestBudget {
-    used: Arc<AtomicU32>,
-    limit: u32,
-}
-
-impl ModelRequestBudget {
-    pub(super) fn new(limit: u32) -> Self {
-        Self {
-            used: Arc::new(AtomicU32::new(0)),
-            limit,
-        }
-    }
-
-    #[allow(
-        deprecated,
-        reason = "Keep Rust 1.94 support; Atomic::try_update stabilized in Rust 1.95"
-    )]
-    pub(super) fn acquire(&self) -> bool {
-        self.used
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                (used < self.limit).then(|| used + 1)
-            })
-            .is_ok()
-    }
-
-    pub(super) fn limit(&self) -> u32 {
-        self.limit
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TurnStepPurpose {
     Normal,
@@ -72,11 +33,12 @@ impl TurnStepPermit {
 }
 
 /// Owns the distinction between logical tool rounds and physical model
-/// samples. `u32::MAX` remains the legacy boundary encoding for no configured
+/// samples. Provider invocations have no implicit per-turn ceiling. Only an
+/// explicitly configured tool-round policy can exhaust this budget.
+/// `u32::MAX` remains the legacy boundary encoding for no configured
 /// tool-round cap; it is normalized to `None` at this seam.
 #[derive(Debug)]
 pub(super) struct TurnBudget {
-    requests: ModelRequestBudget,
     tool_round_limit: Option<u32>,
     tool_rounds_used: u32,
     next_sample_index: u32,
@@ -86,11 +48,6 @@ pub(super) struct TurnBudget {
 impl TurnBudget {
     pub(super) fn new(legacy_max_iterations: u32) -> Self {
         Self {
-            requests: ModelRequestBudget::new(if legacy_max_iterations == u32::MAX {
-                256
-            } else {
-                legacy_max_iterations.saturating_add(16)
-            }),
             tool_round_limit: (legacy_max_iterations != u32::MAX).then_some(legacy_max_iterations),
             tool_rounds_used: 0,
             next_sample_index: 0,
@@ -125,10 +82,6 @@ impl TurnBudget {
         };
         self.next_sample_index = self.next_sample_index.saturating_add(1);
         Some(permit)
-    }
-
-    pub(super) fn request_budget(&self) -> ModelRequestBudget {
-        self.requests.clone()
     }
 
     pub(super) fn record_verified_tool_round(&mut self) {
@@ -174,26 +127,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_recovery_controllers_share_a_non_resetting_request_ceiling() {
-        let turn = TurnBudget::new(0);
-        for _ in 0..16 {
-            assert!(turn.request_budget().acquire());
-        }
-        assert!(!turn.request_budget().acquire());
-        assert!(!turn.request_budget().acquire());
-        assert_eq!(turn.tool_rounds_used(), 0);
-    }
-
-    #[test]
-    fn unconfigured_tool_rounds_still_have_a_finite_model_request_ceiling() {
-        let turn = TurnBudget::new(u32::MAX);
-        for _ in 0..256 {
-            assert!(turn.request_budget().acquire());
-        }
-        assert!(!turn.request_budget().acquire());
-    }
-
-    #[test]
     fn recovery_samples_do_not_consume_a_tool_round() {
         let mut budget = TurnBudget::new(1);
 
@@ -237,7 +170,7 @@ mod tests {
     #[test]
     fn legacy_unlimited_budget_never_enters_answer_only_mode() {
         let mut budget = TurnBudget::new(u32::MAX);
-        for _ in 0..4 {
+        for _ in 0..1_024 {
             assert_eq!(
                 budget.permit(TurnStepPurpose::Normal).unwrap().mode,
                 TurnStepMode::ToolsAllowed
