@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.14.26](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.25...nexa-monorepo-v0.14.26) (2026-10-05)
+
+
+### Bug Fixes
+
+* **agent:** keep progressing hosted actions alive without a lifetime cap ([6b45374](https://github.com/MLGBJDLW/Nexa/commit/6b45374ecfbd0f7baba7450be54fe055e7f6f478))
+* **agent:** remove implicit provider request ceilings ([a435073](https://github.com/MLGBJDLW/Nexa/commit/a43507334845b713d31a3c6d89573d90be91361d))
+* **agent:** treat thinking after hosted actions as active progress ([61a9505](https://github.com/MLGBJDLW/Nexa/commit/61a95050091920016bada9179fffea333fa5bfc6))
+* **dev:** prune idle build caches before native development ([80171fd](https://github.com/MLGBJDLW/Nexa/commit/80171fd6375830c415c6e851e4186ef83185a021))
+* **knowledge:** preserve graph contrast under packaged CSP ([c4b10c7](https://github.com/MLGBJDLW/Nexa/commit/c4b10c7133f4af3459b8003128f92809756eaeee))
+* **mcp:** preserve progress across response waits and bound every write ([1aff31a](https://github.com/MLGBJDLW/Nexa/commit/1aff31a36cbcc9dc4280bd16932345266e599b7c))
+* **mcp:** start progress reception for ordinary HTTP peers ([011eb20](https://github.com/MLGBJDLW/Nexa/commit/011eb2061c240f5fa966c51be699aadbf287ac81))
+* **moa:** fuse completed streams before final usage accounting ([09a4d27](https://github.com/MLGBJDLW/Nexa/commit/09a4d27c9975af01fff9bd4c562cbb8d545574f0))
+* **moa:** keep advisor work inside the cancellable provider stream ([ed330ee](https://github.com/MLGBJDLW/Nexa/commit/ed330ee4c49cde20048b6cd868cd284af4752d50))
+* **moa:** leave advisor call and output budgets unlimited by default ([6c2ee0c](https://github.com/MLGBJDLW/Nexa/commit/6c2ee0c706b5fd7749387f6987a9b9b645b81250))
+* restore knowledge graph readability and unlimited agent turns ([e1420f4](https://github.com/MLGBJDLW/Nexa/commit/e1420f4d251b03afd6ba445b91e9bdaf810558d3))
+* **tools:** replace implicit execution caps with MCP progress liveness ([1c14cea](https://github.com/MLGBJDLW/Nexa/commit/1c14cead076dd09c728e320b396e89f8682d7737))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at e1420f4d251b03afd6ba445b91e9bdaf810558d3 -->
+
+### What's Changed
+* fix: restore knowledge graph readability and unlimited agent turns by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/449
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.25...nexa-monorepo-v0.14.26
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.25](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.24...nexa-monorepo-v0.14.25) (2026-10-04)
 
 
