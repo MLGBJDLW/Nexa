@@ -34,3 +34,41 @@ test('inventory only includes known development caches and rejects junction esca
     await fs.rm(outside, { recursive: true, force: true });
   }
 });
+
+test('scratch Cargo targets share the quota without including source or release files', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-scratch-cache-'));
+  try {
+    for (const dir of ['target', 'target/audit', '.artifacts/probe-target', '.codex_tmp/probe/target']) {
+      await fs.mkdir(path.join(root, dir, 'debug/deps'), { recursive: true });
+      await fs.mkdir(path.join(root, dir, 'release'), { recursive: true });
+      await fs.writeFile(path.join(root, dir, '.rustc_info.json'), '{}');
+      await fs.writeFile(path.join(root, dir, 'debug/deps/binary'), 'rebuildable');
+    }
+    await fs.mkdir(path.join(root, '.artifacts/source/debug'), { recursive: true });
+    await fs.writeFile(path.join(root, '.artifacts/source/debug/source.rs'), 'source');
+    const entries = await inventory(root);
+    assert.deepEqual(entries.map(entry => path.relative(root, entry.path)).sort(), [
+      '.artifacts/probe-target/debug', '.codex_tmp/probe/target/debug', 'target/audit/debug', 'target/debug',
+    ].map(value => path.normalize(value)).sort());
+    assert.equal(new Set(entries.map(entry => entry.path)).size, entries.length);
+  } finally {
+    assert(within(os.tmpdir(), await fs.realpath(root)));
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('scratch discovery never traverses a linked directory', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-scratch-link-'));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-outside-target-'));
+  try {
+    await fs.mkdir(path.join(outside, 'debug'));
+    await fs.writeFile(path.join(outside, '.rustc_info.json'), '{}');
+    await fs.symlink(outside, path.join(root, '.artifacts'), process.platform === 'win32' ? 'junction' : 'dir');
+    assert.deepEqual(await inventory(root), []);
+  } finally {
+    assert(within(os.tmpdir(), await fs.realpath(root)));
+    assert(within(os.tmpdir(), await fs.realpath(outside)));
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});

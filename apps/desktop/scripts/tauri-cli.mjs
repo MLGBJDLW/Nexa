@@ -1,12 +1,14 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { autoPruneDevelopmentCaches } from '../../../scripts/dev-cache.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 
 const command = args[0];
+if (command === 'build') await autoPruneDevelopmentCaches();
 const isDevCommand = command === 'dev';
 const script = isDevCommand
   ? path.join(appDir, 'scripts', 'tauri-dev-autoport.mjs')
