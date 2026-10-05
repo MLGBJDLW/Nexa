@@ -720,11 +720,7 @@ impl McpClient {
                         .await
                 }
                 _ => {
-                    match tokio::time::timeout(timeout, self.send_transport_message(&request)).await
-                    {
-                        Ok(result) => result?,
-                        Err(_) => return Err(self.transport_timeout_error(method).await),
-                    }
+                    self.send_transport_message(&request).await?;
                     self.wait_for_response(id, method).await
                 }
             }
@@ -773,17 +769,23 @@ impl McpClient {
             let mut msg = serde_json::to_string(payload)
                 .map_err(|e| CoreError::Mcp(format!("Failed to serialize request: {e}")))?;
             msg.push('\n');
-            transport
-                .stdin
-                .write_all(msg.as_bytes())
-                .await
-                .map_err(|e| {
-                    CoreError::McpTransport(format!("Failed to write to MCP server stdin: {e}"))
-                })?;
-            transport.stdin.flush().await.map_err(|e| {
-                CoreError::McpTransport(format!("Failed to flush MCP server stdin: {e}"))
-            })?;
-            return Ok(());
+            let writing = tokio::time::timeout(self.call_timeout, async {
+                transport
+                    .stdin
+                    .write_all(msg.as_bytes())
+                    .await
+                    .map_err(|e| {
+                        CoreError::McpTransport(format!("Failed to write to MCP server stdin: {e}"))
+                    })?;
+                transport.stdin.flush().await.map_err(|e| {
+                    CoreError::McpTransport(format!("Failed to flush MCP server stdin: {e}"))
+                })
+            })
+            .await;
+            return match writing {
+                Ok(result) => result,
+                Err(_) => Err(self.transport_timeout_error("stdio write").await),
+            };
         }
 
         if matches!(&self.transport, Transport::LegacySse(_)) {
@@ -1098,7 +1100,15 @@ impl McpClient {
                 "message": "Method not found"
             }
         });
-        Box::pin(self.send_transport_message(&response)).await
+        match tokio::time::timeout(
+            self.call_timeout,
+            Box::pin(self.send_transport_message(&response)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(self.transport_timeout_error("server request reply").await),
+        }
     }
 
     async fn transport_closed_error(&self) -> CoreError {
@@ -1514,17 +1524,20 @@ impl McpClient {
             })?,
         );
 
-        let response = tokio::time::timeout(
-            self.call_timeout,
-            send_authorized(
-                &client,
-                &message_url,
-                headers,
-                Some(payload),
-                self.auth.as_ref(),
-            ),
-        )
-        .await
+        let sending = send_authorized(
+            &client,
+            &message_url,
+            headers,
+            Some(payload),
+            self.auth.as_ref(),
+        );
+        let response = if payload["method"] == "tools/call" {
+            // A legacy server may report progress before acknowledging its POST.
+            // The correlated-progress idle owner covers the response wait.
+            Ok(sending.await)
+        } else {
+            tokio::time::timeout(self.call_timeout, sending).await
+        }
         .map_err(|_| {
             CoreError::McpTransport(format!(
                 "Timed out sending a request to legacy SSE MCP server at {message_url}"
@@ -1596,17 +1609,20 @@ impl McpClient {
             );
         }
 
-        let response = tokio::time::timeout(
-            self.call_timeout,
-            send_authorized(
-                &client,
-                &endpoint_url,
-                headers,
-                Some(payload),
-                self.auth.as_ref(),
-            ),
-        )
-        .await
+        let sending = send_authorized(
+            &client,
+            &endpoint_url,
+            headers,
+            Some(payload),
+            self.auth.as_ref(),
+        );
+        let response = if payload["method"] == "tools/call" {
+            // Progress can arrive on GET while a server computes its JSON POST response.
+            // The correlated-progress idle owner covers the response wait.
+            Ok(sending.await)
+        } else {
+            tokio::time::timeout(self.call_timeout, sending).await
+        }
         .map_err(|_| {
             StreamablePostError::Core(CoreError::McpTransport(format!(
                 "Timed out sending a Streamable HTTP request to {endpoint_url}"
@@ -2504,6 +2520,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_progress_keeps_a_delayed_post_json_response_alive() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let (token_tx, token_rx) = tokio::sync::watch::channel(None::<Value>);
+        let server = tokio::spawn(async move {
+            let mut handlers = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let token_tx = token_tx.clone();
+                let mut token_rx = token_rx.clone();
+                handlers.push(tokio::spawn(async move {
+                    let request = read_http_request(&mut stream).await.unwrap();
+                    if request.method == "GET" {
+                        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n").await.unwrap();
+                        while token_rx.borrow().is_none() { token_rx.changed().await.unwrap(); }
+                        let token = token_rx.borrow().clone().unwrap();
+                        for value in 0..10 {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            let event = json!({"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":token,"progress":value}});
+                            if stream.write_all(format!("data: {event}\n\n").as_bytes()).await.is_err() { return; }
+                        }
+                    } else {
+                        let payload: Value = serde_json::from_slice(&request.body).unwrap();
+                        token_tx.send(Some(payload["params"]["_meta"]["progressToken"].clone())).unwrap();
+                        tokio::time::sleep(Duration::from_millis(1100)).await;
+                        let response = json!({"jsonrpc":"2.0","id":payload["id"],"result":{"content":[{"type":"text","text":"finished"}]}});
+                        let _ = write_json_response(&mut stream, "200 OK", None, &response).await;
+                    }
+                }));
+            }
+            for handler in handlers {
+                handler.await.unwrap();
+            }
+        });
+        let transport = McpClient::build_streamable_http_transport(&url, None).unwrap();
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(transport),
+            request_id: AtomicI64::new(1),
+            server_name: "get-progress-post-json".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: json!({}),
+            call_timeout: Duration::from_millis(500),
+            auth: None,
+        };
+        client.start_streamable_notification_reader();
+        let result = client.call_tool("long_task", json!({})).await;
+        client.shutdown().await.unwrap();
+        server.await.unwrap();
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
     async fn tool_progress_renews_http_idle_deadlines_but_duplicate_progress_does_not() {
         for advances in [true, false] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2776,11 +2844,19 @@ mod tests {
             call_timeout: Duration::from_millis(50),
             auth: None,
         };
+        let events = client.events();
+        let progress = tokio::spawn(async move {
+            for value in 0..100 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                events.observe(&json!({"method":"notifications/progress","params":{"progressToken":1,"progress":value}}));
+            }
+        });
         let result = tokio::time::timeout(
             Duration::from_millis(500),
             client.call_tool("write", json!({ "body": "x".repeat(1024 * 1024) })),
         )
         .await;
+        progress.abort();
         client.shutdown().await.unwrap();
         assert!(
             matches!(result, Ok(Err(CoreError::McpTransport(_)))),
