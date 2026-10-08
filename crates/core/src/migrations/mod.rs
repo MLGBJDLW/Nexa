@@ -2894,6 +2894,7 @@ Every answer that uses knowledge base search results.
     ("v148_chat_privacy", include_str!("v148_chat_privacy.sql")),
     ("v149_file_change_progress", include_str!("v149_file_change_progress.sql")),
     ("v150_privacy_trace_identity", include_str!("v150_privacy_trace_identity.sql")),
+    ("v151_workflow_authoring", include_str!("v151_workflow_authoring.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3232,6 +3233,65 @@ fn total_migration_count() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_authoring_upgrade_preserves_legacy_history_and_origin_lineage() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        ensure_migrations_table(&conn).unwrap();
+        conn.execute_batch(V_INITIAL_CONSOLIDATED).unwrap();
+        for name in MIGRATION_NAMES {
+            conn.execute("INSERT INTO _migrations(name) VALUES (?1)", [name])
+                .unwrap();
+        }
+        // Construct the actual pre-upgrade schema without any v151 objects.
+        conn.execute(
+            "INSERT INTO _migrations(name) VALUES ('v151_workflow_authoring')",
+            [],
+        )
+        .unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute_batch(r#"
+            DELETE FROM _migrations WHERE name='v151_workflow_authoring';
+            INSERT INTO workflow_automations (id,name,workflow_template_id,prompt,trigger_json,trigger_kind,last_run_at)
+            VALUES ('legacy-manual','Current manual','report_brief','Current input','{"kind":"manual"}','manual',NULL),
+                   ('legacy-folder','Current folder','report_brief','Folder input','{"kind":"folder","path":"reports","pattern":"*.csv"}','folder','2026-10-07T12:00:00.100Z');
+            INSERT INTO workflow_automation_runs (id,automation_id,status,definition_revision)
+            VALUES ('historical-manual','legacy-manual','completed',7);
+        "#).unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap();
+        let revision: i64 = conn.query_row("SELECT revision FROM workflow_automation_schedule_configs WHERE automation_id='legacy-manual'", [], |row| row.get(0)).unwrap();
+        assert_eq!(revision, 8);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM workflow_automation_definition_revisions WHERE automation_id='legacy-manual' AND revision=7", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT definition_revision FROM workflow_automation_runs WHERE id='historical-manual'", [], |row| row.get::<_, i64>(0)).unwrap(), 7);
+        assert_eq!(conn.query_row("SELECT observed_through FROM workflow_automation_folder_cursors WHERE automation_id='legacy-folder'", [], |row| row.get::<_, String>(0)).unwrap(), "2026-10-07T12:00:00.100Z");
+        conn.execute_batch(r#"
+            INSERT INTO workflow_automation_occurrences (id,automation_id,definition_revision,scheduled_for) VALUES ('folder-occurrence','legacy-folder',1,'2026-10-08T12:00:00.123Z');
+            INSERT INTO workflow_automation_occurrence_origins (occurrence_id,origin,folder_cutoff_at) VALUES ('folder-occurrence','folder_event','2026-10-08T12:00:00.123Z');
+        "#).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+        conn.execute(
+            "DELETE FROM workflow_automations WHERE id='legacy-folder'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM workflow_automation_occurrence_origins",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
 
     #[test]
     fn retiring_answer_cache_preserves_conversation_history() {

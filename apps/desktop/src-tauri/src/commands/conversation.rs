@@ -676,6 +676,19 @@ pub async fn list_agent_task_run_summaries_cmd(
 }
 
 #[tauri::command]
+pub async fn get_agent_task_run_summary_cmd(
+    state: tauri::State<'_, AppState>,
+    run_id: String,
+) -> Result<AgentTaskRunListItem, String> {
+    state
+        .db_executor
+        .read(move |db| db.get_agent_task_run_summary(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_agent_task_history_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,

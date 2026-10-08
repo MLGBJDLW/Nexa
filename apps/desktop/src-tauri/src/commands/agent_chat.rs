@@ -569,7 +569,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
         }
         let automation = state
             .db
-            .get_workflow_automation(&workflow_run.automation_id)
+            .get_workflow_definition_for_run(run_id)
             .map_err(|err| err.to_string())?;
         super::workflows::ensure_workflow_template_runtime_visible(
             state.db.as_ref(),
@@ -857,6 +857,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 task_orchestrator_run_id.as_deref(),
                 &launch_record.turn_id,
                 &error.to_string(),
+                "run_event_launch_open",
             );
             if let Some(previous) = resumed_turn.take() {
                 if terminalized {
@@ -913,10 +914,21 @@ pub(super) async fn launch_desktop_agent_chat_turn(
     }
     if !resumes_existing_run {
         if let Some(run_id) = task_orchestrator_run_id.as_deref() {
-            state
-                .db
-                .start_workflow_automation_run(run_id, &launch_record.run_id, None)
-                .map_err(|err| err.to_string())?;
+            if let Err(error) =
+                state
+                    .db
+                    .start_workflow_automation_run(run_id, &launch_record.run_id, None)
+            {
+                reconcile_pre_executor_launch_failure(
+                    state.db.as_ref(),
+                    &launch_record.run_id,
+                    None,
+                    &launch_record.turn_id,
+                    &error.to_string(),
+                    "workflow_launch_fence",
+                );
+                return Err(error.to_string());
+            }
         }
     }
     emit_agent_task_run_update(
@@ -1692,8 +1704,9 @@ fn reconcile_pre_executor_launch_failure(
     task_orchestrator_run_id: Option<&str>,
     turn_id: &str,
     error: &str,
+    stage: &str,
 ) -> bool {
-    let failure_reason = format!("run_event_launch_open_failed: {error}");
+    let failure_reason = format!("{stage}_failed: {error}");
     let claimed = match nexa_core::task_run::AgentTaskRuntime::new(db)
         .fail_pre_executor_launch_if_open(task_run_id, &failure_reason)
     {
@@ -1708,7 +1721,7 @@ fn reconcile_pre_executor_launch_failure(
     let trace = serde_json::json!({
         "initializationError": error,
         "status": "failed",
-        "stage": "run_event_outbox_open",
+        "stage": stage,
     });
     reconcile_initialization_terminal_barrier(
         db,
@@ -2071,6 +2084,7 @@ mod initialization_error_tests {
             None,
             &committed.turn_id,
             "outbox open failed",
+            "run_event_launch_open",
         ));
         assert_eq!(
             db.get_agent_task_run(&committed.run_id)

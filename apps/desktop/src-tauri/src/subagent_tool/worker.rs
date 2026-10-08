@@ -350,7 +350,7 @@ pub(super) async fn run_registered_subagent_isolated(
     inherited_source_scope: Vec<String>,
     call_label: String,
     worker_id: Option<String>,
-    args: SpawnSubagentArgs,
+    mut args: SpawnSubagentArgs,
     batch_slots: Option<Arc<tokio::sync::Semaphore>>,
     registration: crate::subagent_lifecycle::SubagentWorkerRegistration,
 ) -> Result<SubagentRunArtifact, CoreError> {
@@ -373,6 +373,16 @@ pub(super) async fn run_registered_subagent_isolated(
             }
         }
         registration.events.start().await?;
+        if let Some(gate) = &args.stage_handoff.gate {
+            emit_subagent_lifecycle_event(Some(&registration.events), SubagentLifecycleEventKind::Progress,
+                serde_json::json!({"phase":"waiting_dependencies","dependsOn":args.stage_handoff.depends_on})).await;
+            args.stage_handoff.results = runtime.wait_for_dependencies(gate, &cancellation).await?;
+            if let Some(narrowed) = &args.source_ids {
+                if args.stage_handoff.results.iter().any(|result| result.source_scope.is_empty() || result.source_scope.iter().any(|source| !narrowed.contains(source))) {
+                    return Err(CoreError::InvalidInput("Dependency output is outside the receiving stage's explicit source scope; use compatible source scopes or an authorized evidence handoff".into()));
+                }
+            }
+        }
         let execution_slots =
             acquire_worker_execution_slots(&runtime, &call_label, &args, batch_slots).await?;
         ensure_worker_not_cancelled(&cancellation, &call_label)?;
@@ -454,6 +464,8 @@ pub(super) fn failed_subagent_run_artifact(
         resumed_from_task_id: None,
         previous_session: None,
         status: "error".to_string(),
+        depends_on: fallback.stage_handoff.depends_on.clone(),
+        predecessor_results: fallback.stage_handoff.evidence(),
         task: fallback.task,
         role_id: fallback.role_id.clone(),
         role_name: resolve_role_profile(fallback.role_id.as_deref(), fallback.role.as_deref())

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug)]
 pub struct WorkflowTaskDefinition {
     pub id: &'static str,
+    pub depends_on: &'static [&'static str],
     pub role_id: &'static str,
     pub task: &'static str,
     pub expected_output: &'static str,
@@ -29,6 +30,8 @@ pub struct WorkflowTemplateDefinition {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCatalogTask {
     pub id: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
     pub role_id: String,
     pub role_label: String,
     pub task: String,
@@ -41,6 +44,8 @@ pub struct WorkflowCatalogTask {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCatalogTemplate {
     pub id: String,
+    #[serde(default = "workflow_template_version")]
+    pub version: u32,
     pub label: String,
     pub description: String,
     pub max_parallel: u32,
@@ -48,9 +53,14 @@ pub struct WorkflowCatalogTemplate {
     pub tasks: Vec<WorkflowCatalogTask>,
 }
 
+fn workflow_template_version() -> u32 {
+    1
+}
+
 const RESEARCH_VERIFY_TASKS: &[WorkflowTaskDefinition] = &[
     WorkflowTaskDefinition {
         id: "research",
+        depends_on: &[],
         role_id: "researcher",
         task: "Gather the strongest evidence and summarize what is directly supported.",
         expected_output: "Evidence-backed findings with gaps called out.",
@@ -62,6 +72,7 @@ const RESEARCH_VERIFY_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "verify",
+        depends_on: &[],
         role_id: "verifier",
         task: "Verify the likely answer or plan against available evidence and identify unsupported claims.",
         expected_output: "Verification verdict with checks and risks.",
@@ -73,6 +84,7 @@ const RESEARCH_VERIFY_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "critique",
+        depends_on: &[],
         role_id: "critic",
         task: "Stress-test the findings for blind spots, contradictions, or operational risks.",
         expected_output: "Concise critique with remediation suggestions.",
@@ -87,6 +99,7 @@ const RESEARCH_VERIFY_TASKS: &[WorkflowTaskDefinition] = &[
 const DRAFT_REVIEW_TASKS: &[WorkflowTaskDefinition] = &[
     WorkflowTaskDefinition {
         id: "draft",
+        depends_on: &[],
         role_id: "writer",
         task: "Create a concise first draft that satisfies the goal and notes assumptions.",
         expected_output: "Draft ready for supervisor editing.",
@@ -98,6 +111,7 @@ const DRAFT_REVIEW_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "review",
+        depends_on: &["draft"],
         role_id: "critic",
         task: "Review the draft for clarity, omissions, and trust or UX risks.",
         expected_output: "Review notes and concrete improvements.",
@@ -109,6 +123,7 @@ const DRAFT_REVIEW_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "verify",
+        depends_on: &["draft"],
         role_id: "verifier",
         task: "Check that the draft's factual claims are supported.",
         expected_output: "Claim verification summary.",
@@ -123,6 +138,7 @@ const DRAFT_REVIEW_TASKS: &[WorkflowTaskDefinition] = &[
 const CONNECTOR_BACKGROUND_TASKS: &[WorkflowTaskDefinition] = &[
     WorkflowTaskDefinition {
         id: "connector-map",
+        depends_on: &[],
         role_id: "connector",
         task: "Map connector or MCP options relevant to the goal, including setup and safety constraints.",
         expected_output: "Connector recommendation with risks.",
@@ -134,6 +150,7 @@ const CONNECTOR_BACKGROUND_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "background-plan",
+        depends_on: &[],
         role_id: "planner",
         task: "Design a background-task workflow for the goal, including triggers, cancellation, and user-visible status.",
         expected_output: "Background task plan with gates.",
@@ -145,6 +162,7 @@ const CONNECTOR_BACKGROUND_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "safety-check",
+        depends_on: &["connector-map", "background-plan"],
         role_id: "verifier",
         task: "Check the proposed connector/background workflow for security, privacy, and prompt-injection risks.",
         expected_output: "Safety verification summary.",
@@ -159,6 +177,7 @@ const CONNECTOR_BACKGROUND_TASKS: &[WorkflowTaskDefinition] = &[
 const MEETING_SUMMARY_TASKS: &[WorkflowTaskDefinition] = &[
     WorkflowTaskDefinition {
         id: "extract",
+        depends_on: &[],
         role_id: "researcher",
         task: "Extract explicit decisions, action items, owners, deadlines, open questions, and source-backed context from the provided meeting material.",
         expected_output: "Meeting facts separated into decisions, actions, open questions, and supporting context.",
@@ -170,6 +189,7 @@ const MEETING_SUMMARY_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "draft-summary",
+        depends_on: &["extract"],
         role_id: "writer",
         task: "Turn the extracted material into a clean meeting summary that a busy reader can scan quickly.",
         expected_output: "Polished meeting summary with decisions, actions, risks, and follow-ups.",
@@ -181,6 +201,7 @@ const MEETING_SUMMARY_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "verify-actions",
+        depends_on: &["extract", "draft-summary"],
         role_id: "verifier",
         task: "Verify that the meeting summary does not invent decisions, owners, deadlines, or commitments.",
         expected_output: "Verification notes for claims that are supported, uncertain, or unsupported.",
@@ -195,6 +216,7 @@ const MEETING_SUMMARY_TASKS: &[WorkflowTaskDefinition] = &[
 const DOCUMENT_COMPARE_TASKS: &[WorkflowTaskDefinition] = &[
     WorkflowTaskDefinition {
         id: "map-documents",
+        depends_on: &[],
         role_id: "researcher",
         task: "Identify the purpose, scope, key entities, dates, claims, and assumptions in each document before comparing them.",
         expected_output: "Document map with comparable dimensions and notable source details.",
@@ -206,6 +228,7 @@ const DOCUMENT_COMPARE_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "compare",
+        depends_on: &["map-documents"],
         role_id: "critic",
         task: "Compare the documents for overlap, contradictions, missing coverage, risk, and decision-relevant differences.",
         expected_output: "Comparison matrix with differences that matter for the user's goal.",
@@ -217,6 +240,7 @@ const DOCUMENT_COMPARE_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "verify",
+        depends_on: &["map-documents", "compare"],
         role_id: "verifier",
         task: "Check the comparison against the cited or retrieved document evidence.",
         expected_output: "Verification verdict with unsupported or uncertain comparisons called out.",
@@ -231,6 +255,7 @@ const DOCUMENT_COMPARE_TASKS: &[WorkflowTaskDefinition] = &[
 const REPORT_BRIEF_TASKS: &[WorkflowTaskDefinition] = &[
     WorkflowTaskDefinition {
         id: "research",
+        depends_on: &[],
         role_id: "researcher",
         task: "Gather the strongest local evidence and organize it into findings, examples, and unresolved gaps for the requested report.",
         expected_output: "Evidence pack for a report draft.",
@@ -242,6 +267,7 @@ const REPORT_BRIEF_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "outline",
+        depends_on: &["research"],
         role_id: "planner",
         task: "Design a report structure with sections, evidence placement, and verification gates.",
         expected_output: "Report outline with dependencies and checks.",
@@ -253,6 +279,7 @@ const REPORT_BRIEF_TASKS: &[WorkflowTaskDefinition] = &[
     },
     WorkflowTaskDefinition {
         id: "draft",
+        depends_on: &["research", "outline"],
         role_id: "writer",
         task: "Create a clear report draft grounded in the evidence pack and outline.",
         expected_output: "Report draft with assumptions and source needs noted.",
@@ -351,6 +378,7 @@ pub fn workflow_catalog() -> Vec<WorkflowCatalogTemplate> {
         .iter()
         .map(|template| WorkflowCatalogTemplate {
             id: template.id.to_string(),
+            version: workflow_template_version(),
             label: template.label.to_string(),
             description: template.description.to_string(),
             max_parallel: template.max_parallel,
@@ -360,6 +388,7 @@ pub fn workflow_catalog() -> Vec<WorkflowCatalogTemplate> {
                 .iter()
                 .map(|task| WorkflowCatalogTask {
                     id: task.id.to_string(),
+                    depends_on: task.depends_on.iter().map(|id| (*id).to_string()).collect(),
                     role_id: task.role_id.to_string(),
                     role_label: workflow_role_label(task.role_id).to_string(),
                     task: task.task.to_string(),

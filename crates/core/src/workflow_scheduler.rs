@@ -172,6 +172,11 @@ impl WorkflowAutomationScheduleConfig {
     }
 
     pub fn validate_for_save(&self, cron: &str) -> Result<(), CoreError> {
+        self.validate_common_for_save()?;
+        validate_workflow_cron_schedule(cron, &self.timezone)
+    }
+
+    pub fn validate_common_for_save(&self) -> Result<(), CoreError> {
         if self.version != WORKFLOW_CRON_SCHEDULE_VERSION {
             return Err(CoreError::InvalidInput(format!(
                 "Workflow schedule version {} must be reviewed and saved as version {WORKFLOW_CRON_SCHEDULE_VERSION}",
@@ -229,7 +234,7 @@ impl WorkflowAutomationScheduleConfig {
                 "Scheduled workflow context window must be greater than zero or Auto".into(),
             ));
         }
-        validate_workflow_cron_schedule(cron, &self.timezone)
+        Ok(())
     }
 }
 

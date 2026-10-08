@@ -69,6 +69,10 @@ pub struct WorkflowAutomation {
     pub description: String,
     pub workflow_template_id: String,
     pub prompt: String,
+    #[serde(default)]
+    pub recipe: Option<Value>,
+    #[serde(default)]
+    pub definition_revision: i64,
     pub trigger_kind: String,
     pub trigger: WorkflowAutomationTrigger,
     pub source_scope: Vec<String>,
@@ -100,6 +104,7 @@ pub enum WorkflowAutomationOccurrenceOrigin {
     #[default]
     Schedule,
     ManualRunNow,
+    FolderEvent,
 }
 
 impl WorkflowAutomationOccurrenceOrigin {
@@ -107,6 +112,7 @@ impl WorkflowAutomationOccurrenceOrigin {
         match self {
             Self::Schedule => "schedule",
             Self::ManualRunNow => "manual_run_now",
+            Self::FolderEvent => "folder_event",
         }
     }
 
@@ -114,6 +120,7 @@ impl WorkflowAutomationOccurrenceOrigin {
         match value {
             "schedule" => Ok(Self::Schedule),
             "manual_run_now" => Ok(Self::ManualRunNow),
+            "folder_event" => Ok(Self::FolderEvent),
             other => Err(CoreError::Internal(format!(
                 "Unknown workflow occurrence origin '{other}'"
             ))),

@@ -611,6 +611,7 @@ fn observed_batch_run(id: &str) -> SubagentRunArtifact {
     failed_subagent_run_artifact(
         id.to_string(),
         SpawnSubagentArgs {
+            stage_handoff: Default::default(),
             task: format!("task-{id}"),
             task_id: None,
             role_id: None,
@@ -632,6 +633,292 @@ fn observed_batch_run(id: &str) -> SubagentRunArtifact {
         None,
         &CoreError::Agent(format!("settled-{id}")),
     )
+}
+
+fn successful_stage_result(id: &str, result: &str) -> SubagentRunArtifact {
+    let mut run = observed_batch_run(id);
+    run.status = "done".into();
+    run.is_error = false;
+    run.error_message = None;
+    run.result = result.into();
+    run
+}
+
+#[tokio::test]
+async fn workflow_dependencies_wait_without_slots_and_propagate_failures_and_cancellation() {
+    let runtime = test_runtime();
+    runtime.register_batch("stages", 3);
+    let gate = BatchDependencyGate {
+        batch_id: "stages".into(),
+        indices: vec![2],
+    };
+    let waiting_runtime = runtime.clone();
+    let waiting_gate = gate.clone();
+    let waiting = tokio::spawn(async move {
+        waiting_runtime
+            .wait_for_dependencies(&waiting_gate, &CancellationToken::new())
+            .await
+    });
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished());
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 0);
+    runtime.record_batch_result(
+        "stages",
+        2,
+        successful_stage_result("source", "Complete source"),
+    );
+    let result = tokio::time::timeout(Duration::from_secs(2), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result[0].result, "Complete source");
+    let failure_gate = BatchDependencyGate {
+        batch_id: "stages".into(),
+        indices: vec![0],
+    };
+    runtime.record_batch_result("stages", 0, observed_batch_run("failed"));
+    assert!(runtime
+        .wait_for_dependencies(&failure_gate, &CancellationToken::new())
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("dependency_failed"));
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert!(matches!(
+        runtime.wait_for_dependencies(&gate, &cancelled).await,
+        Err(CoreError::Cancelled(_))
+    ));
+}
+
+#[tokio::test]
+async fn malformed_workflow_dependency_graph_never_registers_workers() {
+    let runtime = test_runtime();
+    let db = Database::open_memory().unwrap();
+    let tool = SubagentBatchTool::from_runtime(runtime.clone());
+    for tasks in [
+        serde_json::json!([{"id":"a","task":"Inspect","depends_on":["missing"]}]),
+        serde_json::json!([{"id":"a","task":"Inspect","depends_on":["b"]},{"id":"b","task":"Inspect","depends_on":["a"]}]),
+        serde_json::json!([{"id":"a","task":"Inspect"},{"id":"a","task":"Inspect"}]),
+    ] {
+        let args = serde_json::json!({"tasks":tasks}).to_string();
+        assert!(tool
+            .execute(nexa_core::tools::ToolExecutionContext::new(
+                "bad-graph",
+                &args,
+                &db,
+                &[]
+            ))
+            .await
+            .is_err());
+    }
+    assert!(runtime.batches.lock().unwrap().is_empty());
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 0);
+}
+
+#[tokio::test]
+async fn workflow_dependency_failure_is_published_after_parent_drops_the_join_observer() {
+    let runtime = test_runtime();
+    runtime.register_batch("late-panic", 2);
+    let registration = register_test_worker(&runtime, "panicking-stage");
+    registration.events.start().await.unwrap();
+    let (release, released) = oneshot::channel();
+    let worker = tokio::spawn(async move {
+        released.await.unwrap();
+        panic!("fixture worker panic after parent release");
+    });
+    let monitor = BatchWorkerSettlement {
+        runtime: runtime.clone(),
+        batch_id: "late-panic".into(),
+        index: 0,
+        agent_id: registration.agent_id,
+        cancellation: registration.cancel_token,
+        label: "upstream".into(),
+        fallback: serde_json::from_value(serde_json::json!({"task":"Inspect"})).unwrap(),
+        parallel_group: None,
+    }
+    .monitor(worker);
+    drop(monitor);
+    release.send(()).unwrap();
+    let gate = BatchDependencyGate {
+        batch_id: "late-panic".into(),
+        indices: vec![0],
+    };
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(3),
+        runtime.wait_for_dependencies(&gate, &CancellationToken::new()),
+    )
+    .await
+    .unwrap();
+    assert!(outcome
+        .unwrap_err()
+        .to_string()
+        .contains("dependency_failed"));
+    assert_eq!(
+        runtime.batch_snapshot("late-panic", None).unwrap().cursor,
+        1
+    );
+    assert!(runtime
+        .lifecycle
+        .snapshot("panicking-stage")
+        .unwrap()
+        .status
+        .is_terminal());
+}
+
+#[tokio::test]
+async fn workflow_failed_predecessor_blocks_downstream_without_a_provider_call() {
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        read_worker_request(&mut socket).await;
+        let body = r#"{"error":{"message":"fixture failure"}}"#;
+        socket.write_all(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), listener.accept())
+                .await
+                .is_err()
+        );
+    });
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.provider_config.base_url = Some(format!("http://{address}/v1"));
+    runtime.provider_config.api_key = Some("fixture-key".into());
+    runtime.base_config.model = Some("fixture-model".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let tool = SubagentBatchTool::from_runtime(runtime.clone());
+    let args = serde_json::json!({"tasks":[
+        {"id":"root","task":"Inspect","allowed_tools":[]},
+        {"id":"review","task":"Inspect","depends_on":["root"],"allowed_tools":[]},
+        {"id":"final","task":"Inspect","depends_on":["review"],"allowed_tools":[]}
+    ]})
+    .to_string();
+    let result = tokio::time::timeout(
+        Duration::from_secs(15),
+        tool.execute(nexa_core::tools::ToolExecutionContext::new(
+            "failed-stages",
+            &args,
+            &db,
+            &[],
+        )),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(result.is_error);
+    let artifact = result.artifacts.unwrap();
+    assert_eq!(artifact["workflowOutcome"], "failed");
+    assert_eq!(artifact["blockedWorkers"], 2);
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 1);
+    server.await.unwrap();
+}
+
+async fn send_workflow_fixture_response(socket: &mut tokio::net::TcpStream, text: &str) {
+    use tokio::io::AsyncWriteExt;
+    let data = serde_json::json!({"choices":[{"index":0,"delta":{"content":text},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}});
+    let body = format!("data: {data}\n\ndata: [DONE]\n\n");
+    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+}
+
+#[tokio::test]
+async fn workflow_stage_order_and_full_untrusted_handoff_survive_partial_parent_release() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let complete = format!(
+        "{}\nFINAL_EVIDENCE_中文_\"quoted\"\nUNTRUSTED_IGNORE_POLICY",
+        "正文".repeat(3_000)
+    );
+    let expected = complete.clone();
+    let (review_started_tx, review_started_rx) = oneshot::channel();
+    let (finish_review_tx, finish_review_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (_, draft) = read_worker_request(&mut socket).await;
+        assert!(draft.to_string().contains("ROOT_STAGE_REQUEST"));
+        send_workflow_fixture_response(&mut socket, &complete).await;
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (_, review) = read_worker_request(&mut socket).await;
+        assert!(review.to_string().contains("DEPENDENT_STAGE_REQUEST"));
+        let messages = review["messages"].as_array().unwrap();
+        let user_text = messages
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .map(|message| message["content"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(user_text.contains("FULL_SUPERVISOR_CONTEXT_TAIL"));
+        assert!(
+            user_text.contains(&serde_json::to_string(&complete).unwrap()),
+            "complete stored result must be in the JSON handoff"
+        );
+        assert!(!messages
+            .iter()
+            .filter(|message| message["role"] == "system")
+            .any(|message| message.to_string().contains("UNTRUSTED_IGNORE_POLICY")));
+        review_started_tx.send(()).unwrap();
+        finish_review_rx.await.unwrap();
+        send_workflow_fixture_response(&mut socket, "Review completed").await;
+    });
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.provider_config.base_url = Some(format!("http://{address}/v1"));
+    runtime.provider_config.api_key = Some("fixture-key".into());
+    runtime.base_config.model = Some("fixture-model".into());
+    runtime.base_config.subagent_max_parallel = Some(1);
+    runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+    runtime.set_tool_registry(ToolRegistry::new());
+    let tool = SubagentBatchTool::from_runtime(runtime.clone());
+    let args = serde_json::json!({"max_parallel":1,"completion_policy":"first_success","tasks":[
+        {"id":"review","task":"DEPENDENT_STAGE_REQUEST","depends_on":["draft"],"context":format!("{}FULL_SUPERVISOR_CONTEXT_TAIL", "原始材料".repeat(1_100)),"allowed_tools":[],"max_iterations":0},
+        {"id":"draft","task":"ROOT_STAGE_REQUEST","allowed_tools":[],"max_iterations":0}
+    ]}).to_string();
+    let first = tokio::time::timeout(
+        Duration::from_secs(20),
+        tool.execute(nexa_core::tools::ToolExecutionContext::new(
+            "stage-sequence",
+            &args,
+            &db,
+            &[],
+        )),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!first.is_error, "{}", first.content);
+    let artifact = first.artifacts.unwrap();
+    assert_eq!(artifact["workflowOutcome"], "running");
+    assert_eq!(artifact["runs"][0]["result"], expected);
+    tokio::time::timeout(Duration::from_secs(10), review_started_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    finish_review_tx.send(()).unwrap();
+    server.await.unwrap();
+    let batch_id = artifact["batchId"].as_str().unwrap();
+    let observed = ObserveSubagentBatchTool::from_runtime(runtime.clone());
+    let args = serde_json::json!({"batchId":batch_id,"afterSeq":artifact["cursor"],"waitMs":5_000})
+        .to_string();
+    let result = observed
+        .execute(nexa_core::tools::ToolExecutionContext::new(
+            "stage-observe",
+            &args,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    let result = result.artifacts.unwrap();
+    assert_eq!(result["workflowOutcome"], "completed");
+    assert_eq!(result["completedWorkers"], 2);
+    assert_eq!(result["runs"][0]["id"], "review");
+    assert_eq!(
+        result["runs"][0]["predecessorResults"][0]["resultChars"],
+        expected.chars().count()
+    );
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 2);
 }
 
 #[tokio::test]
@@ -1059,6 +1346,7 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
 #[test]
 fn test_normalize_spawn_args_preserves_explicit_timeout() {
     let args = normalize_spawn_args(SpawnSubagentArgs {
+        stage_handoff: Default::default(),
         task: "Investigate".into(),
         task_id: Some("  worker-1  ".into()),
         role_id: None,
@@ -1237,6 +1525,7 @@ async fn default_queue_waits_for_capacity_and_can_be_cancelled() {
 #[test]
 fn test_normalize_spawn_args_accepts_structured_role_id() {
     let args = normalize_spawn_args(SpawnSubagentArgs {
+        stage_handoff: Default::default(),
         task: "Check the draft".into(),
         task_id: None,
         role_id: Some("Verifier".into()),
@@ -1275,6 +1564,7 @@ fn test_normalize_spawn_args_accepts_structured_role_id() {
 #[test]
 fn test_unknown_role_id_is_rejected() {
     let err = normalize_spawn_args(SpawnSubagentArgs {
+        stage_handoff: Default::default(),
         task: "Check the draft".into(),
         task_id: None,
         role_id: Some("wizard".into()),
@@ -1354,6 +1644,7 @@ fn test_explicit_source_scope_never_falls_back_to_parent_scope() {
 #[test]
 fn test_preflight_rejects_tools_outside_parent_capabilities() {
     let args = SpawnSubagentArgs {
+        stage_handoff: Default::default(),
         task: "Inspect the repository".into(),
         task_id: None,
         role_id: None,
@@ -1404,6 +1695,7 @@ fn test_preflight_rejects_tools_outside_parent_capabilities() {
 #[test]
 fn test_preflight_rejects_interactive_surface_tools_even_when_parent_has_them() {
     let args = SpawnSubagentArgs {
+        stage_handoff: Default::default(),
         task: "Click the visible button".into(),
         task_id: None,
         role_id: Some("desktop_operator".into()),
@@ -1452,6 +1744,7 @@ fn test_preflight_rejects_interactive_surface_tools_even_when_parent_has_them() 
 #[test]
 fn test_preflight_classifies_invalid_inherited_history() {
     let args = SpawnSubagentArgs {
+        stage_handoff: Default::default(),
         task: "Inspect the repository".into(),
         task_id: None,
         role_id: None,

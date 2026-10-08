@@ -221,6 +221,7 @@ impl Database {
                 )?;
             }
             WorkflowApprovalDecision::Deny => {
+                consume_folder_occurrence_cutoff(&tx, &pending.occurrence_id)?;
                 let next_run_at =
                     if pending.origin == WorkflowAutomationOccurrenceOrigin::ManualRunNow {
                         pending.resume_next_run_at.clone()
@@ -283,6 +284,9 @@ impl Database {
         let occurrence = matches!(decision, WorkflowApprovalDecision::Approve)
             .then(|| fetch_workflow_occurrence(&tx, &pending.occurrence_id))
             .transpose()?;
+        let compiled_prompt = fetch_run_snapshot(&tx, run_id)?
+            .map(|snapshot| snapshot.compiled_prompt)
+            .unwrap_or_else(|| automation_prompt(&pending.automation));
         tx.commit()?;
         drop(conn);
         match decision {
@@ -296,7 +300,7 @@ impl Database {
                 Ok(WorkflowApprovalResolution::Approved(Box::new(
                     WorkflowAutomationDueRunClaim {
                         due_run: WorkflowAutomationDueRun {
-                            prompt: automation_prompt(&pending.automation),
+                            prompt: compiled_prompt,
                             due_reason,
                             scheduled_for: run.scheduled_for.clone(),
                             origin: pending.origin,

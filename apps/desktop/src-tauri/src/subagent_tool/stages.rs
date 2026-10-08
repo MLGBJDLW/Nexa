@@ -791,6 +791,8 @@ pub(super) fn settle_subagent_artifact(
             .filter(|_| input.previous_session.is_some()),
         previous_session: input.previous_session,
         status: "done".to_string(),
+        depends_on: args.stage_handoff.depends_on.clone(),
+        predecessor_results: args.stage_handoff.evidence(),
         task: args.task,
         role_id: input.role_profile.map(|profile| profile.id.to_string()),
         role_name: input.role_profile.map(|profile| profile.label.to_string()),
