@@ -370,7 +370,9 @@
     "requiresApiKey": true,
     "apiVersion": "v1",
     "description": "MiniMax Hailuo 2.3, Fast, and 02 through the official legacy async video API.",
-    "dataRegions": ["provider_managed"],
+    "dataRegions": [
+      "provider_managed"
+    ],
     "retentionPolicy": "Generated file download URLs are temporary and must be downloaded promptly.",
     "models": [
       {
@@ -384,10 +386,27 @@
           {
             "operation": "text_to_video",
             "durationOptions": [
-              { "resolution": "768P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "1080P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6] }
+              {
+                "resolution": "768P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6
+                ]
+              }
             ],
-            "aspectRatios": ["adaptive"],
+            "aspectRatios": [
+              "adaptive"
+            ],
             "inputRoles": [],
             "supportsAudio": false,
             "supportsSeed": false
@@ -395,11 +414,30 @@
           {
             "operation": "image_to_video",
             "durationOptions": [
-              { "resolution": "768P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "1080P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6] }
+              {
+                "resolution": "768P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6
+                ]
+              }
             ],
-            "aspectRatios": ["adaptive"],
-            "inputRoles": ["first_frame"],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
             "supportsAudio": false,
             "supportsSeed": false
           }
@@ -409,7 +447,9 @@
         "supportsCancellation": false,
         "cancellationScope": "unsupported",
         "cancellationMayDeleteTerminalRecord": false,
-        "regions": ["provider_managed"],
+        "regions": [
+          "provider_managed"
+        ],
         "moderationPolicy": "MiniMax content safety policy.",
         "pricing": {
           "currency": "USD",
@@ -420,9 +460,24 @@
           "freeReferenceImages": null,
           "additionalReferenceImageMicros": null,
           "tiers": [
-            { "resolution": "768P", "durationSeconds": 6, "amountMicros": 280000, "microsPerSecond": null },
-            { "resolution": "768P", "durationSeconds": 10, "amountMicros": 560000, "microsPerSecond": null },
-            { "resolution": "1080P", "durationSeconds": 6, "amountMicros": 490000, "microsPerSecond": null }
+            {
+              "resolution": "768P",
+              "durationSeconds": 6,
+              "amountMicros": 280000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": 10,
+              "amountMicros": 560000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "1080P",
+              "durationSeconds": 6,
+              "amountMicros": 490000,
+              "microsPerSecond": null
+            }
           ],
           "inputVideoTiers": [],
           "note": "Official pay-as-you-go fixed price by duration and resolution."
@@ -443,11 +498,30 @@
           {
             "operation": "image_to_video",
             "durationOptions": [
-              { "resolution": "768P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "1080P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6] }
+              {
+                "resolution": "768P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6
+                ]
+              }
             ],
-            "aspectRatios": ["adaptive"],
-            "inputRoles": ["first_frame"],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
             "supportsAudio": false,
             "supportsSeed": false
           }
@@ -457,7 +531,9 @@
         "supportsCancellation": false,
         "cancellationScope": "unsupported",
         "cancellationMayDeleteTerminalRecord": false,
-        "regions": ["provider_managed"],
+        "regions": [
+          "provider_managed"
+        ],
         "moderationPolicy": "MiniMax content safety policy.",
         "pricing": {
           "currency": "USD",
@@ -468,9 +544,24 @@
           "freeReferenceImages": null,
           "additionalReferenceImageMicros": null,
           "tiers": [
-            { "resolution": "768P", "durationSeconds": 6, "amountMicros": 190000, "microsPerSecond": null },
-            { "resolution": "768P", "durationSeconds": 10, "amountMicros": 320000, "microsPerSecond": null },
-            { "resolution": "1080P", "durationSeconds": 6, "amountMicros": 330000, "microsPerSecond": null }
+            {
+              "resolution": "768P",
+              "durationSeconds": 6,
+              "amountMicros": 190000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": 10,
+              "amountMicros": 320000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "1080P",
+              "durationSeconds": 6,
+              "amountMicros": 330000,
+              "microsPerSecond": null
+            }
           ],
           "inputVideoTiers": [],
           "note": "Official pay-as-you-go fixed price by duration and resolution."
@@ -491,10 +582,27 @@
           {
             "operation": "text_to_video",
             "durationOptions": [
-              { "resolution": "768P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "1080P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6] }
+              {
+                "resolution": "768P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6
+                ]
+              }
             ],
-            "aspectRatios": ["adaptive"],
+            "aspectRatios": [
+              "adaptive"
+            ],
             "inputRoles": [],
             "supportsAudio": false,
             "supportsSeed": false
@@ -502,23 +610,70 @@
           {
             "operation": "image_to_video",
             "durationOptions": [
-              { "resolution": "512P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "768P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "1080P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6] }
+              {
+                "resolution": "512P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6
+                ]
+              }
             ],
-            "aspectRatios": ["adaptive"],
-            "inputRoles": ["first_frame"],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
             "supportsAudio": false,
             "supportsSeed": false
           },
           {
             "operation": "first_last_frame",
             "durationOptions": [
-              { "resolution": "768P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6, 10] },
-              { "resolution": "1080P", "minDurationSeconds": null, "maxDurationSeconds": null, "durationsSeconds": [6] }
+              {
+                "resolution": "768P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6,
+                  10
+                ]
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": null,
+                "maxDurationSeconds": null,
+                "durationsSeconds": [
+                  6
+                ]
+              }
             ],
-            "aspectRatios": ["adaptive"],
-            "inputRoles": ["first_frame", "last_frame"],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
             "supportsAudio": false,
             "supportsSeed": false
           }
@@ -528,7 +683,9 @@
         "supportsCancellation": false,
         "cancellationScope": "unsupported",
         "cancellationMayDeleteTerminalRecord": false,
-        "regions": ["provider_managed"],
+        "regions": [
+          "provider_managed"
+        ],
         "moderationPolicy": "MiniMax content safety policy.",
         "pricing": {
           "currency": "USD",
@@ -539,11 +696,36 @@
           "freeReferenceImages": null,
           "additionalReferenceImageMicros": null,
           "tiers": [
-            { "resolution": "512P", "durationSeconds": 6, "amountMicros": 100000, "microsPerSecond": null },
-            { "resolution": "512P", "durationSeconds": 10, "amountMicros": 150000, "microsPerSecond": null },
-            { "resolution": "768P", "durationSeconds": 6, "amountMicros": 280000, "microsPerSecond": null },
-            { "resolution": "768P", "durationSeconds": 10, "amountMicros": 560000, "microsPerSecond": null },
-            { "resolution": "1080P", "durationSeconds": 6, "amountMicros": 490000, "microsPerSecond": null }
+            {
+              "resolution": "512P",
+              "durationSeconds": 6,
+              "amountMicros": 100000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "512P",
+              "durationSeconds": 10,
+              "amountMicros": 150000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": 6,
+              "amountMicros": 280000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": 10,
+              "amountMicros": 560000,
+              "microsPerSecond": null
+            },
+            {
+              "resolution": "1080P",
+              "durationSeconds": 6,
+              "amountMicros": 490000,
+              "microsPerSecond": null
+            }
           ],
           "inputVideoTiers": [],
           "note": "Official pay-as-you-go fixed price by duration and resolution."
@@ -564,7 +746,9 @@
     "requiresApiKey": true,
     "apiVersion": "2024-11-06",
     "description": "Runway's official asynchronous task API, including native and aggregated video models.",
-    "dataRegions": ["provider_managed"],
+    "dataRegions": [
+      "provider_managed"
+    ],
     "retentionPolicy": "Generated output URLs are ephemeral and normally expire within 24-48 hours.",
     "models": [
       {
@@ -578,9 +762,17 @@
           {
             "operation": "text_to_video",
             "durationOptions": [
-              { "resolution": "720P", "minDurationSeconds": 2, "maxDurationSeconds": 10, "durationsSeconds": [] }
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
             ],
-            "aspectRatios": ["16:9", "9:16"],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
             "inputRoles": [],
             "supportsAudio": false,
             "supportsSeed": true
@@ -588,10 +780,24 @@
           {
             "operation": "image_to_video",
             "durationOptions": [
-              { "resolution": "720P", "minDurationSeconds": 2, "maxDurationSeconds": 10, "durationsSeconds": [] }
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
             ],
-            "aspectRatios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-            "inputRoles": ["first_frame"],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
             "supportsAudio": false,
             "supportsSeed": true
           }
@@ -601,7 +807,9 @@
         "supportsCancellation": true,
         "cancellationScope": "non_terminal_task",
         "cancellationMayDeleteTerminalRecord": true,
-        "regions": ["provider_managed"],
+        "regions": [
+          "provider_managed"
+        ],
         "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
         "pricing": {
           "currency": "USD",
@@ -631,10 +839,24 @@
           {
             "operation": "image_to_video",
             "durationOptions": [
-              { "resolution": "720P", "minDurationSeconds": 2, "maxDurationSeconds": 10, "durationsSeconds": [] }
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
             ],
-            "aspectRatios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-            "inputRoles": ["first_frame"],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
             "supportsAudio": false,
             "supportsSeed": true
           }
@@ -644,7 +866,9 @@
         "supportsCancellation": true,
         "cancellationScope": "non_terminal_task",
         "cancellationMayDeleteTerminalRecord": true,
-        "regions": ["provider_managed"],
+        "regions": [
+          "provider_managed"
+        ],
         "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
         "pricing": {
           "currency": "USD",
@@ -674,35 +898,116 @@
           {
             "operation": "text_to_video",
             "durationOptions": [
-              { "resolution": "480P", "minDurationSeconds": 4, "maxDurationSeconds": 30, "durationsSeconds": [] },
-              { "resolution": "720P", "minDurationSeconds": 4, "maxDurationSeconds": 30, "durationsSeconds": [] }
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
             ],
-            "aspectRatios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-            "inputRoles": ["reference_image", "reference_video", "reference_audio"],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
             "supportsAudio": true,
-            "supportsSeed": false
+            "supportsSeed": true
           },
           {
             "operation": "image_to_video",
             "durationOptions": [
-              { "resolution": "480P", "minDurationSeconds": 4, "maxDurationSeconds": 30, "durationsSeconds": [] },
-              { "resolution": "720P", "minDurationSeconds": 4, "maxDurationSeconds": 30, "durationsSeconds": [] }
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
             ],
-            "aspectRatios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-            "inputRoles": ["first_frame", "reference_audio"],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio"
+            ],
             "supportsAudio": true,
-            "supportsSeed": false
+            "supportsSeed": true
           },
           {
             "operation": "video_to_video",
             "durationOptions": [
-              { "resolution": "480P", "minDurationSeconds": 4, "maxDurationSeconds": 30, "durationsSeconds": [] },
-              { "resolution": "720P", "minDurationSeconds": 4, "maxDurationSeconds": 30, "durationsSeconds": [] }
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
             ],
-            "aspectRatios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-            "inputRoles": ["input_video", "reference_image", "reference_video", "reference_audio"],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
             "supportsAudio": true,
-            "supportsSeed": false
+            "supportsSeed": true
           }
         ],
         "supportsNegativePrompt": false,
@@ -710,7 +1015,9 @@
         "supportsCancellation": true,
         "cancellationScope": "non_terminal_task",
         "cancellationMayDeleteTerminalRecord": true,
-        "regions": ["provider_managed"],
+        "regions": [
+          "provider_managed"
+        ],
         "moderationPolicy": "Runway content moderation applies to the aggregated model.",
         "pricing": {
           "currency": "USD",
@@ -721,19 +1028,51 @@
           "freeReferenceImages": null,
           "additionalReferenceImageMicros": null,
           "tiers": [
-            { "resolution": "480P", "durationSeconds": null, "amountMicros": null, "microsPerSecond": 200000 },
-            { "resolution": "720P", "durationSeconds": null, "amountMicros": null, "microsPerSecond": 300000 }
+            {
+              "resolution": "480P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 200000
+            },
+            {
+              "resolution": "720P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 300000
+            },
+            {
+              "resolution": "1080P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 680000
+            }
           ],
           "inputVideoTiers": [
-            { "resolution": "480P", "durationSeconds": null, "amountMicros": null, "microsPerSecond": 100000 },
-            { "resolution": "720P", "durationSeconds": null, "amountMicros": null, "microsPerSecond": 150000 }
+            {
+              "resolution": "480P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 100000
+            },
+            {
+              "resolution": "720P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 150000
+            },
+            {
+              "resolution": "1080P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 340000
+            }
           ],
           "note": "Output seconds plus input/reference-video seconds are billed by resolution, with an 80-credit minimum."
         },
         "outputUrlTtl": "24_to_48_hours",
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
-        "lastVerifiedAt": "2026-08-07"
+        "lastVerifiedAt": "2026-10-08"
       }
     ]
   },
@@ -742,19 +1081,19 @@
     "name": "ByteDance Seedance Direct (Watchlist)",
     "providerId": "bytedance",
     "apiStyle": "unverified",
-    "baseUrl": "",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
     "requiresApiKey": false,
     "apiVersion": null,
-    "description": "Direct-provider watchlist only. Runway availability does not prove a ByteDance direct API contract.",
+    "description": "The official direct Seedance API is published. Direct generation is not yet connected to Nexa.",
     "dataRegions": [],
-    "retentionPolicy": "unverified",
+    "retentionPolicy": "Remote task records are queryable for seven days; output URLs expire after 24 hours.",
     "models": [
       {
         "providerId": "bytedance",
-        "modelId": "seedance-2.5",
-        "displayName": "Seedance 2.5 Direct (Unverified)",
-        "apiVersion": null,
-        "releaseStatus": "unverified",
+        "modelId": "doubao-seedance-2-5-260628",
+        "displayName": "Seedance 2.5 Direct",
+        "apiVersion": "v3",
+        "releaseStatus": "ga",
         "selectable": false,
         "operationCapabilities": [],
         "supportsNegativePrompt": false,
@@ -762,7 +1101,9 @@
         "supportsCancellation": false,
         "cancellationScope": "unverified",
         "cancellationMayDeleteTerminalRecord": false,
-        "regions": [],
+        "regions": [
+          "cn-beijing"
+        ],
         "moderationPolicy": "unverified",
         "pricing": {
           "currency": null,
@@ -774,12 +1115,13 @@
           "additionalReferenceImageMicros": null,
           "tiers": [],
           "inputVideoTiers": [],
-          "note": "Not selectable until ByteDance publishes a direct stable API contract."
+          "note": "Official API documented; direct video execution is not yet available in Nexa."
         },
-        "outputUrlTtl": "unverified",
+        "outputUrlTtl": "24_hours",
         "watermarkPolicy": "unverified",
         "provenancePolicy": "unverified",
-        "lastVerifiedAt": "2026-08-07"
+        "lastVerifiedAt": "2026-10-08",
+        "documentationRef": "https://docs.volcengine.com/docs/ark/seedance-2-5"
       }
     ]
   }

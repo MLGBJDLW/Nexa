@@ -900,7 +900,7 @@ mod tests {
             1_000_000
         );
         assert_eq!(model_context_window("qwen/qwen3.7-plus~nitro"), 1_000_000);
-        assert_eq!(model_context_window("z-ai/glm-5.2"), 1_000_000);
+        assert_eq!(model_context_window("z-ai/glm-5.2"), 1_048_576);
         assert_eq!(model_context_window("x-ai/grok-4.6"), 500_000);
     }
 

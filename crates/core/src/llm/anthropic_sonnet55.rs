@@ -47,7 +47,7 @@ fn prefix_seed(body: &AnthropicRequest) -> blake3::Hasher {
 }
 
 pub(super) fn request_prefix(body: &AnthropicRequest) -> Option<String> {
-    if !is_model(&body.model) {
+    if !is_model(&body.model) && !body.model.eq_ignore_ascii_case("claude-haiku-5-5") {
         return None;
     }
     let mut prefix = prefix_seed(body);
@@ -61,11 +61,10 @@ pub(super) fn request_prefix(body: &AnthropicRequest) -> Option<String> {
 /// On edits, remove only bound thinking from the affected turn onward. Keep
 /// visible text, tool calls and results. Unchanged signed blocks stay verbatim.
 pub(super) fn reconcile_between_tools(body: &mut AnthropicRequest) {
-    if !is_model(&body.model)
-        || !body
-            .thinking
-            .as_ref()
-            .is_some_and(|thinking| thinking.r#type == "between_tools")
+    if (!is_model(&body.model) && !body.model.eq_ignore_ascii_case("claude-haiku-5-5"))
+        || !body.thinking.as_ref().is_some_and(|thinking| {
+            matches!(thinking.r#type.as_str(), "between_tools" | "disabled")
+        })
     {
         return;
     }

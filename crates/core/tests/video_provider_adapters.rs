@@ -97,10 +97,8 @@ fn manifest_scopes_release_status_to_the_exact_provider_contract() {
         .find(|provider| provider.provider_id == "bytedance")
         .and_then(|provider| provider.models.first())
         .expect("direct Seedance watchlist entry");
-    assert_eq!(
-        direct_seedance.release_status,
-        VideoModelReleaseStatus::Unverified
-    );
+    assert_eq!(direct_seedance.release_status, VideoModelReleaseStatus::Ga);
+    assert_eq!(direct_seedance.model_id, "doubao-seedance-2-5-260628");
     assert!(!direct_seedance.selectable);
 }
 
@@ -281,11 +279,7 @@ fn runway_validation_is_model_operation_and_capability_specific() {
     assert!(adapter.validate(&seedance).valid);
 
     seedance.seed = Some(42);
-    assert!(adapter
-        .validate(&seedance)
-        .issues
-        .iter()
-        .any(|issue| issue.code == "unsupported_seed"));
+    assert!(adapter.validate(&seedance).valid);
 
     seedance.seed = None;
     seedance.operation = MediaOperation::ImageToVideo;

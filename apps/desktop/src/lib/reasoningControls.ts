@@ -13,10 +13,13 @@ export function reasoningOnLabelKey(capability: Pick<ReasoningCapability, 'disab
 
 export function defaultReasoningEffort(
   capability: ReasoningCapability | null,
+  enabled = false,
 ): ReasoningEffortLevel | null {
   const levels = capability?.effortLevels ?? [];
   if (levels.length === 0) return null;
+  if (!enabled && capability?.defaultEnabled === false && levels.includes('none')) return 'none';
   return capability?.defaultEffort && levels.includes(capability.defaultEffort)
+    && (!enabled || capability.defaultEffort !== 'none')
     ? capability.defaultEffort
     : levels.find((level) => level !== 'none') ?? levels[0];
 }
@@ -29,7 +32,7 @@ export function normalizeReasoningEffort(
   if (levels.length === 0) return null;
   return levels.includes(value as ReasoningEffortLevel)
     ? value as ReasoningEffortLevel
-    : defaultReasoningEffort(capability);
+    : defaultReasoningEffort(capability, true);
 }
 
 export function defaultThinkingBudget(

@@ -2,6 +2,7 @@
 
 pub(crate) mod image_generation;
 pub(crate) mod office_documents;
+pub(crate) mod system_one;
 pub(crate) mod text_to_speech;
 
 use crate::app_settings::AppConfig;
@@ -182,6 +183,8 @@ impl BuiltinCapabilityDeclaration {
             )
         } else if self.id == OFFICE_PACKAGE.id {
             office_documents::enrich_manifest(view, context.office_runtime)
+        } else if self.id == SYSTEM_ONE_PACKAGE.id {
+            system_one::enrich_manifest(view, context.app_config.map(|config| &config.system_one))
         } else {
             view
         }
@@ -283,6 +286,17 @@ const TTS_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
     tools: &["synthesize_speech"],
     settings_surfaces: &["text-to-speech"],
     workflows: &["synthesize-speech"],
+};
+
+const SYSTEM_ONE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+    id: "structured-decisions",
+    name: "Structured Decisions",
+    capability: "Typed decision inference",
+    description: "Evaluates explicit state with an opt-in System One provider and returns advisory probabilities and confidence.",
+    surface: EcosystemSurfaceKind::Adapter,
+    tools: &["evaluate_decisions"],
+    settings_surfaces: &["structured-decisions"],
+    workflows: &[],
 };
 
 const WEB_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
@@ -438,6 +452,7 @@ const BUILTIN_PACKAGES: &[BuiltinCapabilityDeclaration] = &[
     OFFICE_PACKAGE,
     IMAGE_PACKAGE,
     TTS_PACKAGE,
+    SYSTEM_ONE_PACKAGE,
     WEB_PACKAGE,
     FILE_WORKSPACE_PACKAGE,
     DESKTOP_AUTOMATION_PACKAGE,

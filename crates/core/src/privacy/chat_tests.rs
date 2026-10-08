@@ -353,112 +353,116 @@ async fn privacy_revocation_reaches_file_database_read_lanes_and_never_revives_o
 fn privacy_revokes_opaque_replay_in_messages_and_independent_provider_ledger() {
     use crate::llm::provider_turn::{ProviderReplayPayload, ProviderTurnEnvelope, RouteSnapshot};
     use crate::llm::reasoning_profile::{ReasoningCaptureStatus, ReasoningReplayPolicy};
-    let db = Database::open_memory().unwrap();
-    db.save_privacy_config(&PrivacyConfig {
-        enabled: false,
-        ..Default::default()
-    })
-    .unwrap();
-    let cid = conversation(&db);
-    let lease = db
-        .privacy_lease(&tokio_util::sync::CancellationToken::new())
+    for replay in [
+        ProviderReplayPayload::DeepSeekReasoningContent("opaque privateCODE reasoning".into()),
+        ProviderReplayPayload::ArkEncryptedContent("opaque privateCODE ciphertext".into()),
+    ] {
+        let db = Database::open_memory().unwrap();
+        db.save_privacy_config(&PrivacyConfig {
+            enabled: false,
+            ..Default::default()
+        })
         .unwrap();
-    let call = ToolCallRequest {
-        id: "privateCODE-call".into(),
-        name: "search".into(),
-        arguments: r#"{"query":"privateCODE"}"#.into(),
-        thought_signature: Some("opaque-signature".into()),
-    };
-    let mut envelope = ProviderTurnEnvelope::capture_with_replay_payload(
-        "turn-item",
-        "sample",
-        RouteSnapshot::unknown("test", "model", ReasoningReplayPolicy::RequiredAlways),
-        "privateCODE answer",
-        None,
-        None,
-        vec![call.clone()],
-        true,
-        Some(ProviderReplayPayload::DeepSeekReasoningContent(
-            "opaque privateCODE reasoning".into(),
-        )),
-    );
-    envelope.privacy_fingerprint = Some(lease.policy.fingerprint().into());
-    let mut message = ConversationMessage {
-        id: "sample-message".into(),
-        conversation_id: cid.clone(),
-        role: Role::Assistant,
-        content: envelope.visible_content.clone(),
-        tool_call_id: None,
-        tool_calls: vec![call],
-        artifacts: crate::conversation::merge_provider_turn_envelope_artifact(None, &envelope),
-        token_count: 5,
-        created_at: String::new(),
-        sort_order: 0,
-        thinking: None,
-        image_attachments: None,
-    };
-    let scope = crate::conversation::ProviderTurnPersistenceScope {
-        scope_id: "scope",
-        conversation_id: Some(&cid),
-        conversation_turn_id: None,
-        run_id: None,
-        subtask_run_id: None,
-    };
-    db.persist_provider_turn(Some(&message), &envelope, scope)
-        .unwrap();
-    db.save_privacy_config(&enabled_policy()).unwrap();
-    let saved = db.get_messages(&cid).unwrap().remove(0);
-    let safe = crate::conversation::conversation_message_provider_turn(&saved).unwrap();
-    assert_eq!(safe.capture_status, ReasoningCaptureStatus::Redacted);
-    assert_eq!(safe.replay_payload, ProviderReplayPayload::None);
-    assert!(safe.provider_items.is_empty());
-    assert_eq!(safe.tool_calls[0].id, "privateCODE-call");
-    assert_eq!(safe.tool_calls[0].name, "search");
-    assert_eq!(safe.tool_calls[0].thought_signature, None);
-    let ledger: (String, String, String, String) = db.conn().query_row(
+        let cid = conversation(&db);
+        let lease = db
+            .privacy_lease(&tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        let call = ToolCallRequest {
+            id: "privateCODE-call".into(),
+            name: "search".into(),
+            arguments: r#"{"query":"privateCODE"}"#.into(),
+            thought_signature: Some("opaque-signature".into()),
+        };
+        let mut envelope = ProviderTurnEnvelope::capture_with_replay_payload(
+            "turn-item",
+            "sample",
+            RouteSnapshot::unknown("test", "model", ReasoningReplayPolicy::RequiredAlways),
+            "privateCODE answer",
+            None,
+            None,
+            vec![call.clone()],
+            true,
+            Some(replay),
+        );
+        envelope.privacy_fingerprint = Some(lease.policy.fingerprint().into());
+        let mut message = ConversationMessage {
+            id: "sample-message".into(),
+            conversation_id: cid.clone(),
+            role: Role::Assistant,
+            content: envelope.visible_content.clone(),
+            tool_call_id: None,
+            tool_calls: vec![call],
+            artifacts: crate::conversation::merge_provider_turn_envelope_artifact(None, &envelope),
+            token_count: 5,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        let scope = crate::conversation::ProviderTurnPersistenceScope {
+            scope_id: "scope",
+            conversation_id: Some(&cid),
+            conversation_turn_id: None,
+            run_id: None,
+            subtask_run_id: None,
+        };
+        db.persist_provider_turn(Some(&message), &envelope, scope)
+            .unwrap();
+        db.save_privacy_config(&enabled_policy()).unwrap();
+        let saved = db.get_messages(&cid).unwrap().remove(0);
+        let safe = crate::conversation::conversation_message_provider_turn(&saved).unwrap();
+        assert_eq!(safe.capture_status, ReasoningCaptureStatus::Redacted);
+        assert_eq!(safe.replay_payload, ProviderReplayPayload::None);
+        assert!(safe.provider_items.is_empty());
+        assert_eq!(safe.tool_calls[0].id, "privateCODE-call");
+        assert_eq!(safe.tool_calls[0].name, "search");
+        assert_eq!(safe.tool_calls[0].thought_signature, None);
+        let ledger: (String, String, String, String) = db.conn().query_row(
         "SELECT visible_content,replay_payload_json,tool_calls_json,raw_response_digest FROM provider_turn_envelopes WHERE turn_item_id='turn-item'", [],
         |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
-    assert_eq!(ledger.0, safe.visible_content);
-    assert_eq!(
-        serde_json::from_str::<ProviderReplayPayload>(&ledger.1).unwrap(),
-        ProviderReplayPayload::None
-    );
-    assert_eq!(
-        serde_json::from_str::<Vec<ToolCallRequest>>(&ledger.2).unwrap(),
-        safe.tool_calls
-    );
-    assert_eq!(ledger.3, safe.raw_response_digest);
-    // A stale worker's complete envelope must not receive the new policy stamp.
-    envelope.turn_item_id = "late-turn-item".into();
-    envelope.sample_id = "late-sample".into();
-    message.id = "late-message".into();
-    message.artifacts = crate::conversation::merge_provider_turn_envelope_artifact(None, &envelope);
-    db.persist_provider_turn(Some(&message), &envelope, scope)
-        .unwrap();
-    let late = db
-        .get_messages(&cid)
-        .unwrap()
-        .into_iter()
-        .find(|m| m.id == "late-message")
-        .unwrap();
-    let late = crate::conversation::conversation_message_provider_turn(&late).unwrap();
-    assert_eq!(late.capture_status, ReasoningCaptureStatus::Redacted);
-    assert_eq!(late.replay_payload, ProviderReplayPayload::None);
-    // Even a caller holding an old in-memory history gets a fresh safe projection.
-    let mut stale = crate::llm::Message::text(Role::Assistant, "privateCODE answer");
-    stale.set_provider_turn(envelope);
-    let policy = db
-        .privacy_lease(&tokio_util::sync::CancellationToken::new())
-        .unwrap();
-    policy
-        .policy
-        .redact_context_messages(std::slice::from_mut(&mut stale));
-    assert!(!stale.text_content().contains("privateCODE"));
-    assert!(stale.parts.iter().all(|part| match part {
-        crate::llm::ContentPart::ProviderTurn { envelope } =>
-            envelope.replay_payload == ProviderReplayPayload::None,
-        _ => true,
-    }));
+        assert_eq!(ledger.0, safe.visible_content);
+        assert_eq!(
+            serde_json::from_str::<ProviderReplayPayload>(&ledger.1).unwrap(),
+            ProviderReplayPayload::None
+        );
+        assert_eq!(
+            serde_json::from_str::<Vec<ToolCallRequest>>(&ledger.2).unwrap(),
+            safe.tool_calls
+        );
+        assert_eq!(ledger.3, safe.raw_response_digest);
+        // A stale worker's complete envelope must not receive the new policy stamp.
+        envelope.turn_item_id = "late-turn-item".into();
+        envelope.sample_id = "late-sample".into();
+        message.id = "late-message".into();
+        message.artifacts =
+            crate::conversation::merge_provider_turn_envelope_artifact(None, &envelope);
+        db.persist_provider_turn(Some(&message), &envelope, scope)
+            .unwrap();
+        let late = db
+            .get_messages(&cid)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.id == "late-message")
+            .unwrap();
+        let late = crate::conversation::conversation_message_provider_turn(&late).unwrap();
+        assert_eq!(late.capture_status, ReasoningCaptureStatus::Redacted);
+        assert_eq!(late.replay_payload, ProviderReplayPayload::None);
+        // Even a caller holding an old in-memory history gets a fresh safe projection.
+        let mut stale = crate::llm::Message::text(Role::Assistant, "privateCODE answer");
+        stale.set_provider_turn(envelope);
+        let policy = db
+            .privacy_lease(&tokio_util::sync::CancellationToken::new())
+            .unwrap();
+        policy
+            .policy
+            .redact_context_messages(std::slice::from_mut(&mut stale));
+        assert!(!stale.text_content().contains("privateCODE"));
+        assert!(stale.parts.iter().all(|part| match part {
+            crate::llm::ContentPart::ProviderTurn { envelope } =>
+                envelope.replay_payload == ProviderReplayPayload::None,
+            _ => true,
+        }));
+    }
 }
 
 #[test]

@@ -649,9 +649,18 @@ export interface AppConfig {
   imageGeneration?: ImageGenerationConfig;
   textToSpeech?: TextToSpeechConfig;
   speechToText?: SpeechToTextConfig;
+  systemOne?: SystemOneConfig;
   webSearch?: WebSearchConfig;
   dreaming?: DreamingConfig;
   companion?: CompanionSettings;
+}
+
+export interface SystemOneConfig {
+  enabled: boolean;
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl?: string | null;
 }
 
 export type CompanionDisplayMode = 'always' | 'during_tasks' | 'manual';

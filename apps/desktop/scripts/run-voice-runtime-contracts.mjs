@@ -373,6 +373,9 @@ test('QwenCloud and Token Plan keep distinct Qwen model catalogs', () => {
     'qwen3.8-max',
     'qwen3.8-flash',
     'qwen3.8-max-preview',
+    'auto', 'qwen3.7-max', 'qwen3.7-plus', 'qwen3.6-flash',
+    'deepseek-v4.1-flash', 'deepseek-v4-pro', 'deepseek-v4-pro-0813', 'deepseek-v4-flash-0731',
+    'glm-5.3', 'glm-5.2',
   ]);
 });
 

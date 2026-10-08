@@ -437,7 +437,7 @@ export function AgentModelPicker({
         model: row.model.id,
         reasoningEnabled: isCurrent
           ? selectedConfig.reasoningEnabled
-          : defaultEffort === 'none' ? false : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
+          : row.reasoning?.defaultEnabled === false || defaultEffort === 'none' ? false : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
             ? true
             : null,
         thinkingBudget: isCurrent

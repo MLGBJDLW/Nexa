@@ -398,7 +398,7 @@ fn build_google_image_body(args: &GenerateImageArgs, configured_size: Option<&st
         "responseModalities": ["TEXT", "IMAGE"]
     });
     if let Some(image_config) = google_image_config(args.size.as_deref().or(configured_size)) {
-        generation_config["responseFormat"] = json!({ "image": image_config });
+        generation_config["imageConfig"] = image_config;
     }
     json!({
         "contents": [{
@@ -563,9 +563,32 @@ fn validate_image_options(
     output_format: &str,
 ) -> Result<(), CoreError> {
     let invalid = |message: &str| CoreError::InvalidInput(message.to_string());
-    if provider == ImageProvider::Qwen && matches!(model, "qwen-image-3.0" | "qwen-image-3.0-pro") {
+    if provider == ImageProvider::Qwen
+        && matches!(
+            model,
+            "qwen-image-2.1-pro" | "qwen-image-3.0" | "qwen-image-3.0-pro"
+        )
+    {
+        if model == "qwen-image-2.1-pro"
+            && args
+                .negative_prompt
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        {
+            return Err(invalid(
+                "Qwen Image 2.1 Pro does not support negative_prompt.",
+            ));
+        }
+        if args
+            .background
+            .as_deref()
+            .is_some_and(|value| value != "auto")
+            || args.output_compression.is_some()
+        {
+            return Err(invalid("Qwen Image does not accept background or output_compression; describe transparency in the prompt."));
+        }
         if output_format != "png" {
-            return Err(invalid("Qwen Image 3.0 returns PNG images."));
+            return Err(invalid("This Qwen Image model returns PNG images."));
         }
         if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
             .filter(|size| *size != "auto")
@@ -582,7 +605,7 @@ fn validate_image_options(
                         && h <= w.saturating_mul(8)
                 });
             if !valid {
-                return Err(invalid("Qwen Image 3.0 requires 262144-4194304 pixels and an aspect ratio between 1:8 and 8:1."));
+                return Err(invalid("This Qwen Image model requires 262144-4194304 pixels and an aspect ratio between 1:8 and 8:1."));
             }
         }
         return Ok(());
@@ -1618,11 +1641,23 @@ mod tests {
     }
 
     #[test]
+    fn google_generate_content_uses_string_image_config_not_enum_response_format() {
+        let mut args = test_args();
+        args.size = Some("16:9|2K".into());
+        let body = build_google_image_body(&args, None);
+        assert_eq!(
+            body["generationConfig"]["imageConfig"],
+            json!({"aspectRatio":"16:9","imageSize":"2K"})
+        );
+        assert!(body["generationConfig"].get("responseFormat").is_none());
+    }
+
+    #[test]
     fn qwen_image3_keeps_the_sync_single_image_contract_and_validates_sizes() {
         let config = test_config("qwen", None);
         let mut args = test_args();
         args.size = Some("2048x2048".into());
-        for model in ["qwen-image-3.0", "qwen-image-3.0-pro"] {
+        for model in ["qwen-image-2.1-pro", "qwen-image-3.0", "qwen-image-3.0-pro"] {
             validate_image_options(&config, &args, model, ImageProvider::Qwen, "png").unwrap();
             let body = build_qwen_image_body(&config, &args, model);
             assert_eq!(body["model"], model);
@@ -1638,6 +1673,23 @@ mod tests {
             );
             args.size = Some("2048x2048".into());
         }
+        args.negative_prompt = Some("blur".into());
+        assert!(validate_image_options(
+            &config,
+            &args,
+            "qwen-image-2.1-pro",
+            ImageProvider::Qwen,
+            "png"
+        )
+        .is_err());
+        validate_image_options(
+            &config,
+            &args,
+            "qwen-image-3.0-pro",
+            ImageProvider::Qwen,
+            "png",
+        )
+        .unwrap();
     }
 
     #[test]

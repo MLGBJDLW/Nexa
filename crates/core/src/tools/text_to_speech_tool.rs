@@ -28,6 +28,9 @@ const MAX_MINIMAX_RESPONSE_BYTES: usize = MAX_GENERATED_AUDIO_BYTES * 2 + 1024 *
 
 pub struct SynthesizeSpeechTool;
 
+#[path = "text_to_speech_elevenlabs.rs"]
+mod elevenlabs;
+
 #[derive(Debug, Deserialize)]
 struct SynthesizeSpeechArgs {
     text: String,
@@ -69,11 +72,6 @@ pub async fn synthesize_speech_preview(
     if text.is_empty() {
         return Err(CoreError::InvalidInput(
             "Speech text cannot be empty.".into(),
-        ));
-    }
-    if text.chars().count() > 20_000 {
-        return Err(CoreError::InvalidInput(
-            "Speech text is too long; keep a single request under 20000 characters.".into(),
         ));
     }
     if !config.is_configured() {
@@ -183,12 +181,6 @@ impl Tool for SynthesizeSpeechTool {
         if text.is_empty() {
             return Ok(error_result(call_id, "Speech text cannot be empty."));
         }
-        if text.chars().count() > 20_000 {
-            return Ok(error_result(
-                call_id,
-                "Speech text is too long; keep a single request under 20000 characters.",
-            ));
-        }
 
         let config = db.load_app_config()?.text_to_speech;
         if !config.is_configured() {
@@ -274,6 +266,9 @@ async fn synthesize_elevenlabs(
     voice: &str,
     speed: f32,
 ) -> Result<GeneratedSpeech, CoreError> {
+    if matches!(model, "eleven_v4_turbo" | "eleven_v3_conversational") {
+        return elevenlabs::synthesize_dialogue(config, text, model, voice, speed).await;
+    }
     let dialogue = model == "eleven_v4";
     let mut endpoint = Url::parse(&format!("{}/", base_url(config).trim_end_matches('/')))
         .map_err(|error| {

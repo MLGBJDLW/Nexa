@@ -187,10 +187,8 @@ mod tests {
             .find(|preset| preset.provider_id == "bytedance")
             .and_then(|preset| preset.models.first())
             .expect("direct-provider watchlist should be present");
-        assert_eq!(
-            direct_seedance.release_status,
-            VideoModelReleaseStatus::Unverified
-        );
+        assert_eq!(direct_seedance.release_status, VideoModelReleaseStatus::Ga);
+        assert_eq!(direct_seedance.model_id, "doubao-seedance-2-5-260628");
         assert!(!direct_seedance.selectable);
     }
 

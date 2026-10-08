@@ -2,7 +2,20 @@ use super::*;
 
 #[tokio::test]
 async fn dashscope_tts_waits_for_ack_collects_binary_and_requires_finish() {
-    for outcome in ["task-finished", "task-failed", "close"] {
+    for (model, voice, outcome) in [
+        (
+            "qwen-audio-3.0-tts-flash",
+            "longanhuan_v3.6",
+            "task-finished",
+        ),
+        (
+            "qwen-audio-3.1-tts-flash",
+            "longanhuan_v3.1",
+            "task-finished",
+        ),
+        ("qwen-audio-3.1-tts-flash", "Emily_v3.1", "task-failed"),
+        ("qwen-audio-3.1-tts-flash", "Andy_v3.1", "close"),
+    ] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -12,8 +25,9 @@ async fn dashscope_tts_waits_for_ack_collects_binary_and_requires_finish() {
                 serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
                     .unwrap();
             assert_eq!(run["header"]["action"], "run-task");
-            assert_eq!(run["payload"]["model"], "qwen-audio-3.0-tts-flash");
-            assert_eq!(run["payload"]["parameters"]["voice"], "longanhuan_v3.6");
+            assert_eq!(run["payload"]["model"], model);
+            assert_eq!(run["payload"]["parameters"]["voice"], voice);
+            assert_eq!(run["payload"]["parameters"]["sample_rate"], 24000);
             assert_eq!(run["payload"]["parameters"]["format"], "mp3");
             assert_eq!(run["payload"]["parameters"]["rate"], 1.25);
             let id = run["header"]["task_id"].as_str().unwrap();
@@ -60,8 +74,8 @@ async fn dashscope_tts_waits_for_ack_collects_binary_and_requires_finish() {
             synthesize_dashscope_stream(
                 &config,
                 &"你好、こんにちは 🌍".repeat(100),
-                "qwen-audio-3.0-tts-flash",
-                "longanhuan_v3.6",
+                model,
+                voice,
                 1.25,
             ),
         )

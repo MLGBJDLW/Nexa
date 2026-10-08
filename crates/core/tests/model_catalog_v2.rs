@@ -469,7 +469,7 @@ fn shared_schema_tracks_rust_wire_names_and_qwen_replacements() {
 }
 
 #[test]
-fn builtin_catalog_tracks_exact_glm53_provider_routes_without_plan_or_siliconflow_leaks() {
+fn builtin_catalog_tracks_exact_glm53_provider_routes_and_verified_hosted_routes() {
     let catalog = load_builtin_catalog().expect("built-in catalog should project");
     let international_endpoint = catalog
         .endpoints
@@ -528,10 +528,10 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_without_plan_or_siliconflo
     );
     assert!(international_flash.capabilities.vision);
 
-    for id in ["z-ai/glm-5.3", "z-ai/glm-5.3-flash"] {
+    for (id, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
         let model = find(id, "text:openrouter");
         assert_eq!(model.limits.context_tokens, Some(1_048_576));
-        assert_eq!(model.limits.max_output_tokens, Some(131_072));
+        assert_eq!(model.limits.max_output_tokens, Some(max_output));
         let reasoning = model
             .capabilities
             .reasoning
@@ -558,20 +558,24 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_without_plan_or_siliconflo
         "conflicting Alibaba docs must remain conservative"
     );
 
-    for endpoint in [
-        "text:qwen-token-plan-cn",
-        "text:qwen-token-plan-global",
-        "text:siliconflow",
+    for (endpoint, expected_id) in [
+        ("text:qwen-token-plan-cn", "glm-5.3"),
+        ("text:qwen-token-plan-global", "glm-5.3"),
+        ("text:siliconflow", "zai-org/GLM-5.3"),
     ] {
-        assert!(
-            catalog.models.iter().all(|model| {
-                !model
+        let hosted = catalog
+            .models
+            .iter()
+            .filter(|model| {
+                model
                     .endpoint_ids
                     .iter()
                     .any(|candidate| candidate == endpoint)
-                    || !model.id.to_ascii_lowercase().contains("glm-5.3")
-            }),
-            "{endpoint} must not inherit an unverified GLM-5.3 route"
-        );
+                    && model.id.to_ascii_lowercase().contains("glm-5.3")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(hosted.len(), 1, "{endpoint} keeps its verified route only");
+        assert_eq!(hosted[0].id, expected_id);
+        assert_eq!(hosted[0].endpoint_ids, [endpoint]);
     }
 }

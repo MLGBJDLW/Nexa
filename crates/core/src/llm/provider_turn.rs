@@ -511,6 +511,9 @@ pub enum ProviderReplayPayload {
         content: String,
     },
     OpenRouterReasoningDetails(Vec<serde_json::Value>),
+    /// Ark Chat returns the complete opaque reasoning state separately from
+    /// the visible summary. It is never a textual reasoning fragment.
+    ArkEncryptedContent(String),
     #[default]
     None,
 }
@@ -526,6 +529,7 @@ impl ProviderReplayPayload {
             }
             Self::AnthropicAssistantBlocks(payload) => payload.is_present(),
             Self::OpenRouterReasoningDetails(details) => !details.is_empty(),
+            Self::ArkEncryptedContent(content) => !content.trim().is_empty(),
             Self::DeepSeekResponseItems(payload) => {
                 payload.is_structurally_complete(false) || payload.is_output_continuation(false)
             }
@@ -689,6 +693,7 @@ pub enum ProviderReplayItem {
         content: String,
     },
     OpenRouterReasoningDetail(serde_json::Value),
+    ArkEncryptedContent(String),
 }
 
 impl ProviderReplayItem {
@@ -743,6 +748,9 @@ impl ProviderReplayItem {
                 .cloned()
                 .map(Self::OpenRouterReasoningDetail)
                 .collect(),
+            ProviderReplayPayload::ArkEncryptedContent(content) => {
+                vec![Self::ArkEncryptedContent(content.clone())]
+            }
             ProviderReplayPayload::None => Vec::new(),
         }
     }

@@ -9,9 +9,9 @@
     "description": "The latest steerable GPT-4o mini speech model, plus low-latency and HD options.",
     "models": [
       {"id": "gpt-4o-mini-tts", "name": "GPT-4o Mini TTS (Latest)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 4096},
-      {"id": "gpt-4o-mini-tts-2025-12-15", "name": "GPT-4o Mini TTS (2025-12-15)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096},
-      {"id": "tts-1", "name": "TTS-1 (Lowest Latency)", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096},
-      {"id": "tts-1-hd", "name": "TTS-1 HD", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096}
+      {"id": "gpt-4o-mini-tts-2025-12-15", "name": "GPT-4o Mini TTS (2025-12-15)", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
+      {"id": "tts-1", "name": "TTS-1 (Lowest Latency)", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
+      {"id": "tts-1-hd", "name": "TTS-1 HD", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"}
     ],
     "voices": [
       {"id": "coral", "name": "Coral", "recommended": true, "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
@@ -41,8 +41,8 @@
     "baseUrl": "https://api.groq.com/openai/v1",
     "description": "Very fast US-hosted Orpheus speech with expressive English and Saudi Arabic voices.",
     "models": [
-      {"id": "canopylabs/orpheus-v1-english", "name": "Orpheus English", "source": "official", "productReadiness": "known", "recommended": true, "maxInputCharacters": 200, "lastVerifiedAt": "2026-09-29"},
-      {"id": "canopylabs/orpheus-arabic-saudi", "name": "Orpheus Arabic (Saudi)", "maxInputCharacters": 200, "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "canopylabs/orpheus-v1-english", "name": "Orpheus English", "source": "official", "productReadiness": "known", "recommended": true, "maxInputCharacters": 200, "lastVerifiedAt": "2026-10-08", "status": "preview", "access": "public"},
+      {"id": "canopylabs/orpheus-arabic-saudi", "name": "Orpheus Arabic (Saudi)", "maxInputCharacters": 200, "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "status": "preview", "access": "public"}
     ],
     "voices": [
       {"id": "hannah", "name": "Hannah", "recommended": true, "modelIds": ["canopylabs/orpheus-v1-english"]},
@@ -71,10 +71,12 @@
     "baseUrl": "https://api.elevenlabs.io/v1",
     "description": "Expressive speech with Eleven v4 through Text to Dialogue, and Flash v2.5 for low latency. Nexa returns completed MP3 audio.",
     "models": [
-      {"id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5 (Fast)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "eleven_v4", "name": "Eleven v4", "maxInputCharacters": 2000, "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "eleven_v3", "name": "Eleven v3", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "eleven_multilingual_v2", "name": "Eleven Multilingual v2", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5 (Fast)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-10-08", "maxInputCharacters": 40000},
+      {"id": "eleven_v4", "name": "Eleven v4", "maxInputCharacters": 10000, "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known"},
+      {"id": "eleven_v3", "name": "Eleven v3", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 5000},
+      {"id": "eleven_multilingual_v2", "name": "Eleven Multilingual v2", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 10000},
+      {"id": "eleven_v4_turbo", "name": "Eleven v4 Turbo", "recommended": false, "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-10-08", "documentationRef": "https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd", "speedRange": [1, 1]},
+      {"id": "eleven_v3_conversational", "name": "Eleven v3 Conversational", "recommended": false, "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-10-08", "documentationRef": "https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd", "speedRange": [1, 1]}
     ],
     "voices": [
       {"id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "recommended": true}
@@ -136,7 +138,8 @@
     "models": [
       {"id": "qwen-audio-3.1-tts-next", "name": "Qwen Audio 3.1 TTS Next", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 3000}
     ],
-    "voices": [],
+    "voices": [
+    ],
     "outputFormats": ["wav", "mp3"],
     "lastVerifiedAt": "2026-09-29",
     "documentationUrls": ["https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-next"]
@@ -150,12 +153,13 @@
     "baseUrl": "https://dashscope.aliyuncs.com/api-ws/v1/inference",
     "description": "Qwen Audio and CosyVoice use model-specific voices. CosyVoice v3.5 requires a cloned or designed voice in Beijing. Custom model and voice IDs remain editable.",
     "models": [
-      {"id": "qwen-audio-3.0-tts-flash", "name": "Qwen Audio 3.0 TTS Flash", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "qwen-audio-3.0-tts-plus", "name": "Qwen Audio 3.0 TTS Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
+      {"id": "qwen-audio-3.0-tts-flash", "name": "Qwen Audio 3.0 TTS Flash", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 200000},
+      {"id": "qwen-audio-3.0-tts-plus", "name": "Qwen Audio 3.0 TTS Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known", "maxInputCharacters": 200000},
       {"id": "cosyvoice-v3.5-flash", "name": "CosyVoice v3.5 Flash", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
       {"id": "cosyvoice-v3.5-plus", "name": "CosyVoice v3.5 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
       {"id": "cosyvoice-v3-flash", "name": "CosyVoice v3 Flash", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "cosyvoice-v3-plus", "name": "CosyVoice v3 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "cosyvoice-v3-plus", "name": "CosyVoice v3 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
+      {"id": "qwen-audio-3.1-tts-flash", "name": "Qwen Audio 3.1 TTS Flash (Beijing)", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-10-08", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-flash", "maxInputCharacters": 200000}
     ],
     "voices": [
       {"id": "longanhuan_v3.6", "name": "龙安欢 V3.6 (普通话/English)", "recommended": true, "modelIds": ["qwen-audio-3.0-tts-flash"]},
@@ -168,7 +172,13 @@
       {"id": "longanyuanfei", "name": "龙安圆菲 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
       {"id": "longanlingxi", "name": "龙安灵汐 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
       {"id": "longanxiaoxin", "name": "龙安小新 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longanyang", "name": "龙安阳 (CosyVoice v3)", "recommended": true, "modelIds": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]}
+      {"id": "longanyang", "name": "龙安阳 (CosyVoice v3)", "recommended": true, "modelIds": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
+      {"id": "longanhuan_v3.1", "name": "longanhuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
+      {"id": "longanlingxin_v3.1", "name": "longanlingxin_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
+      {"id": "longanfengyue_v3.1", "name": "longanfengyue_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
+      {"id": "xunanchuan_v3.1", "name": "xunanchuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
+      {"id": "Emily_v3.1", "name": "Emily_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
+      {"id": "Andy_v3.1", "name": "Andy_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]}
     ],
     "outputFormats": ["wav", "mp3", "opus"],
     "lastVerifiedAt": "2026-09-29",

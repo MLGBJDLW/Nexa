@@ -42,6 +42,158 @@ fn native_blocks(id: &str) -> Vec<Value> {
     ]
 }
 
+#[test]
+fn haiku55_implicit_adaptive_route_matches_an_explicitly_enabled_turn() {
+    let provider = AnthropicProvider::new(ProviderConfig {
+        provider_type: ProviderType::Anthropic,
+        api_key: Some("fixture".into()),
+        base_url: None,
+        org_id: None,
+        timeout_secs: Some(10),
+        streaming: Default::default(),
+    })
+    .unwrap();
+    let mut input = request();
+    input.model = "claude-haiku-5-5".into();
+    let default = provider.route_snapshot(&input);
+    assert_eq!(
+        default.replay_policy,
+        crate::llm::reasoning_profile::ReasoningReplayPolicy::OpaqueSignature
+    );
+    input.reasoning_enabled = Some(true);
+    assert_eq!(provider.route_snapshot(&input), default);
+    input.reasoning_enabled = Some(false);
+    assert_eq!(provider.route_snapshot(&input), default);
+    for effort in [ReasoningEffort::XHigh, ReasoningEffort::Max] {
+        input.reasoning_effort = Some(effort);
+        assert!(provider.resolve_output_capacity(&input).is_err());
+    }
+}
+
+#[test]
+fn haiku55_thinking_toggle_retains_completed_native_tool_units() {
+    let provider = AnthropicProvider::new(ProviderConfig {
+        provider_type: ProviderType::Anthropic,
+        api_key: Some("fixture".into()),
+        base_url: None,
+        org_id: None,
+        timeout_secs: Some(10),
+        streaming: Default::default(),
+    })
+    .unwrap();
+    let mut input = request();
+    input.model = "claude-haiku-5-5".into();
+    input.reasoning_enabled = Some(false);
+    input.reasoning_effort = Some(ReasoningEffort::Low);
+    let blocks = vec![
+        json!({"type":"text","text":"Checking the file"}),
+        json!({"type":"tool_use","id":"toggle-read","name":"read_file","input":{"path":"a.rs"}}),
+    ];
+    let calls = vec![ToolCallRequest {
+        id: "toggle-read".into(),
+        name: "read_file".into(),
+        arguments: r#"{"path":"a.rs"}"#.into(),
+        thought_signature: None,
+    }];
+    let envelope = ProviderTurnEnvelope::capture_with_replay_payload(
+        "toggle-turn",
+        "toggle-sample",
+        provider.route_snapshot(&input),
+        "Checking the file",
+        None,
+        None,
+        calls.clone(),
+        true,
+        replay_payload(
+            Some(&FinishReason::ToolCalls),
+            blocks,
+            request_prefix(&body(&input)).as_deref(),
+        ),
+    );
+    assert!(envelope.authorizes_tool_dispatch());
+    let mut assistant = Message::text(Role::Assistant, "Checking the file");
+    assistant.tool_calls = Some(calls);
+    assistant.set_provider_turn(envelope.clone());
+    input.messages.push(assistant);
+    input.messages.push(Message::text_with_name(
+        Role::Tool,
+        "Exact file contents",
+        "toggle-read",
+    ));
+    for enabled in [Some(true), None, Some(false)] {
+        input.reasoning_enabled = enabled;
+        let projection = crate::llm::reasoning_replay::prepare_provider_replay_history(
+            &input.messages,
+            &provider.route_snapshot(&input),
+        );
+        assert_eq!(projection.omitted_units, 0);
+        assert_eq!(projection.messages.len(), input.messages.len());
+        let mut projected = input.clone();
+        projected.messages = projection.messages;
+        let wire = serde_json::to_value(body(&projected)).unwrap();
+        assert_eq!(wire["messages"][1]["content"][1]["id"], "toggle-read");
+        assert_eq!(
+            wire["messages"][2]["content"][0]["content"],
+            "Exact file contents"
+        );
+    }
+    input.model = "claude-sonnet-5-5".into();
+    assert!(!envelope.is_compatible_with(&provider.route_snapshot(&input)));
+    input.model = "claude-haiku-5-5".into();
+    let custom = AnthropicProvider::new(ProviderConfig {
+        base_url: Some("https://example.com/messages".into()),
+        ..provider.config.clone()
+    })
+    .unwrap();
+    assert!(!envelope.is_compatible_with(&custom.route_snapshot(&input)));
+}
+
+#[test]
+fn haiku55_adaptive_default_disabled_and_bound_replay_are_distinct() {
+    let mut input = request();
+    input.model = "claude-haiku-5-5".into();
+    input.thinking_budget = Some(4096);
+    let adaptive = serde_json::to_value(body(&input)).unwrap();
+    assert_eq!(adaptive["thinking"]["type"], "adaptive");
+    assert_eq!(adaptive["output_config"]["effort"], "medium");
+    assert_eq!(
+        adaptive["thinking"]["block_binding"]["prefix_mismatch_behavior"],
+        "drop_block"
+    );
+    assert!(adaptive["thinking"].get("budget_tokens").is_none());
+    assert!(adaptive.get("temperature").is_none());
+    assert!(anthropic_beta_headers(&input.model).contains("thinking-binding-controls-2026-08-01"));
+    for effort in [
+        ReasoningEffort::Low,
+        ReasoningEffort::Medium,
+        ReasoningEffort::High,
+    ] {
+        input.reasoning_enabled = Some(false);
+        input.reasoning_effort = Some(effort);
+        let disabled = serde_json::to_value(body(&input)).unwrap();
+        assert_eq!(disabled["thinking"], json!({"type":"disabled"}));
+    }
+    input.reasoning_effort = None;
+    let captured = captured_message(&input, "first");
+    input.messages.push(captured);
+    input.messages.push(Message::text_with_name(
+        Role::Tool,
+        "File contents",
+        "first",
+    ));
+    assert_eq!(
+        serde_json::to_value(body(&input)).unwrap()["messages"][1]["content"],
+        json!(native_blocks("first"))
+    );
+    input.messages[0] = Message::text(Role::System, "Updated system policy");
+    let changed = serde_json::to_value(body(&input)).unwrap();
+    assert_eq!(
+        changed["messages"][1]["content"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(changed["messages"][1]["content"][1]["id"], "first");
+}
+
 fn captured_message(input: &CompletionRequest, id: &str) -> Message {
     let blocks = native_blocks(id);
     let replay = replay_payload(

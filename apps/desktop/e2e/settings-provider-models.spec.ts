@@ -81,6 +81,29 @@ async function selectNexaOption(trigger: Locator, value: string) {
   await trigger.page().evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
+test('structured decisions save opt-in settings and clear credentials across providers', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  const panel = page.getByTestId('system-one-settings');
+  await panel.locator('button[aria-expanded="false"]').click();
+  await expect(panel.getByRole('checkbox')).not.toBeChecked();
+  await panel.getByRole('checkbox').check();
+  const save = panel.getByRole('button', { name: 'Save', exact: true });
+  await expect(save).toBeDisabled();
+  await panel.locator('input[type="password"]').fill('typesafe-fixture-key');
+  await save.click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'typesafe', model: 'jev-latest', apiKey: 'typesafe-fixture-key' });
+  await selectNexaOption(panel.locator('[data-nexa-select-trigger]'), 'openrouter');
+  await expect(panel.locator('input[type="password"]')).toHaveValue('');
+  await expect(save).toBeDisabled();
+  await panel.locator('input[type="password"]').fill('router-fixture-key');
+  await save.click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: 'jev-latest', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
+  await page.setViewportSize({ width: 680, height: 820 });
+  await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await panel.screenshot({ path: testInfo.outputPath('system-one-settings.png') });
+});
+
 async function expectNexaValue(trigger: Locator, value: string) {
   await expect(trigger).toHaveAttribute("data-value", value);
 }
@@ -1428,7 +1451,45 @@ test("settings exposes Meta Model API with Muse Spark 1.3 as its verified defaul
     .locator("xpath=..")
     .locator("[data-nexa-select-trigger]");
   await expectNexaOptions(effortSelect, ["Minimal", "Low", "Medium", "High"]);
-  await expectNexaOptionCount(effortSelect, 4);
+  await expectNexaOptionCount(effortSelect, 6);
+  await expectNexaOption(effortSelect, "xhigh", "visible");
+  await expectNexaOption(effortSelect, "max", "visible");
+});
+
+test('October models expose working reasoning toggles and dialogue speech controls', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByTitle('Edit').first().click();
+  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
+  await selectNexaOption(model, 'claude-haiku-5-5');
+  const toggle = page.getByRole('checkbox', { name: 'Enable Reasoning / Thinking', exact: true });
+  await expect(toggle).toBeEnabled();
+  await toggle.uncheck();
+  await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ model: 'claude-haiku-5-5', reasoningEnabled: false, reasoningEffort: null, thinkingBudget: null });
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('button', { name: /^OpenRouter/ }).click();
+  await selectNexaOption(model, 'upstage/solar-mini4');
+  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
+  await toggle.uncheck();
+  await toggle.check();
+  const effort = page.locator('label').filter({ hasText: 'Reasoning Effort' }).locator('xpath=..').locator('[data-nexa-select-trigger]');
+  await expectNexaValue(effort, 'medium');
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  const speech = page.getByTestId('text-to-speech-settings-panel');
+  await speech.locator('button').first().click();
+  const selects = speech.locator('[data-nexa-select-trigger]');
+  await selectNexaOption(selects.nth(0), 'elevenlabs');
+  await selectNexaOption(selects.nth(1), 'eleven_v4_turbo');
+  const speed = speech.locator('input[type=number]');
+  await expect(speed).toBeDisabled();
+  await expect(speed).toHaveValue('1');
+  await selectNexaOption(selects.nth(0), 'dashscope-cosyvoice');
+  await selectNexaOption(selects.nth(1), 'qwen-audio-3.1-tts-flash');
+  await expect(speech.getByTestId('tts-voice-input')).toHaveValue('longanhuan_v3.1');
+  await speech.screenshot({ path: testInfo.outputPath('october-speech-settings.png') });
 });
 
 test("settings exposes current Qwen3.8 Token Plan models without the retired preview", async ({ page }) => {
@@ -1458,7 +1519,10 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
   const modelSelect = modelField.locator("[data-nexa-select-trigger]");
   await expectNexaValue(modelSelect, "");
   await expectNexaOptions(modelSelect, ["Qwen3.8 Max", "Qwen3.8 Flash"]);
-  await expectNexaOptionCount(modelSelect, 2);
+  await expectNexaOptionCount(modelSelect, 12);
+  await expectNexaOption(modelSelect, "auto", "visible");
+  await expectNexaOption(modelSelect, "glm-5.3", "visible");
+  await expectNexaOption(modelSelect, "deepseek-v4.1-flash", "visible");
   await expectNexaOption(modelSelect, "qwen3.7-flash", "absent");
   await modelSelect.click();
   const retiredPreview = page.locator('[role="option"][data-value="qwen3.8-max-preview"]');

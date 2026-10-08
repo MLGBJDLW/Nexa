@@ -1,0 +1,36 @@
+{
+  "name": "evaluate_decisions",
+  "description": "Evaluate supplied text or serialized JSON with the configured System One provider (TypeSafe Jev or a compatible endpoint). Requires opt-in settings under Providers > Structured decisions. Batch independent narrow questions: noul returns a yes probability; choice returns a zero-based choiceIndex into ordered options, probabilities and confidence; score returns a fractional zero-based rubric level and confidence. Only supplied evidence is sent after privacy filtering. These are advisory model judgments, never authorization or verified task completion. This tool does not execute the selected action.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "state": {"type":"string","description":"Only the source text or serialized JSON needed for these questions. Convert authorized images/audio into text evidence first."},
+      "questions": {
+        "type":"array","minItems":1,
+        "description":"Independent questions evaluated against the same state. Results preserve questionIndex. Use options only for choice, levels only for score, and yes/no only for noul.",
+        "items": {
+          "type":"object",
+          "properties": {
+            "id":{"type":"string","minLength":1,"description":"A distinct short name for this question."},
+            "type":{"type":"string","enum":["noul","choice","score"]},
+            "instructions":{"type":"string","minLength":1},
+            "options":{
+              "type":"array","minItems":1,"maxItems":255,
+              "description":"Choice options in order. Returned choiceIndex and optionIndex are zero-based positions in this array.",
+              "items":{
+                "type":"object",
+                "properties":{"label":{"type":"string","minLength":1},"description":{"type":"string"}},
+                "required":["label"],"additionalProperties":false
+              }
+            },
+            "levels":{"type":"array","minItems":2,"maxItems":10,"items":{"type":"string"},"description":"Score levels ordered from lowest to highest."},
+            "yes":{"type":"string","description":"Optional description of a positive noul answer."},
+            "no":{"type":"string","description":"Optional description of a negative noul answer."}
+          },
+          "required":["id","type","instructions"],"additionalProperties":false
+        }
+      }
+    },
+    "required":["state","questions"],"additionalProperties":false
+  }
+}

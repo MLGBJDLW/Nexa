@@ -196,6 +196,16 @@ pub fn validate_tts_selection(
     let Some(selected_model) = preset.models.iter().find(|item| item.id == model.trim()) else {
         return Ok(());
     };
+    if model == "qwen-audio-3.1-tts-flash" {
+        let url = reqwest::Url::parse(&tts_api_base_url(config))
+            .map_err(|_| CoreError::InvalidInput("Invalid speech endpoint.".into()))?;
+        let host = url.host_str().unwrap_or_default();
+        if host == "dashscope-intl.aliyuncs.com"
+            || host.ends_with(".ap-southeast-1.maas.aliyuncs.com")
+        {
+            return Err(CoreError::InvalidInput("Qwen Audio 3.1 TTS Flash requires the Beijing speech endpoint and a matching API key.".into()));
+        }
+    }
     if let Some(limit) = selected_model.max_input_characters {
         if text.chars().count() > limit {
             return Err(CoreError::InvalidInput(format!(
@@ -803,6 +813,31 @@ mod tests {
             .any(|voice| voice.id == "male-qn-qingse"));
         assert!(supports_dynamic_tts_voice_catalog("minimax_speech"));
         assert!(!supports_dynamic_tts_voice_catalog("openai_speech"));
+    }
+
+    #[test]
+    fn qwen_audio31_enforces_region_and_voice_identity() {
+        let mut config = TextToSpeechConfig {
+            provider: "qwen".into(),
+            api_style: "dashscope_speech".into(),
+            model: "qwen-audio-3.1-tts-flash".into(),
+            output_format: "mp3".into(),
+            base_url: Some(
+                "https://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference".into(),
+            ),
+            ..Default::default()
+        };
+        validate_tts_selection(&config, &config.model, "Emily_v3.1", "hello").unwrap();
+        assert!(
+            validate_tts_selection(&config, &config.model, "longanhuan_v3.6", "hello").is_err()
+        );
+        for base in [
+            "https://dashscope-intl.aliyuncs.com/api-ws/v1/inference",
+            "https://workspace.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference",
+        ] {
+            config.base_url = Some(base.into());
+            assert!(validate_tts_selection(&config, &config.model, "Emily_v3.1", "hello").is_err());
+        }
     }
 
     #[test]

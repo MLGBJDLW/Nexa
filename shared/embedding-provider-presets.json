@@ -202,7 +202,7 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-10-08",
         "allowedDimensions": [
           64,
           128,
@@ -210,8 +210,11 @@
           512,
           768,
           1024,
-          2048
-        ]
+          1536,
+          2048,
+          2560
+        ],
+        "documentationRef": "https://docs.siliconflow.cn/docs/api/embeddings-post"
       },
       {
         "id": "Qwen/Qwen3-Embedding-8B",
@@ -221,7 +224,7 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-10-08",
         "allowedDimensions": [
           64,
           128,
@@ -229,9 +232,12 @@
           512,
           768,
           1024,
+          1536,
           2048,
+          2560,
           4096
-        ]
+        ],
+        "documentationRef": "https://docs.siliconflow.cn/docs/api/embeddings-post"
       },
       {
         "id": "BAAI/bge-large-zh-v1.5",

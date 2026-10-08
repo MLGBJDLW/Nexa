@@ -321,14 +321,14 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
     endpointId: `text:${openrouter.id}`,
     apiStyle: 'openai_chat',
   });
-  for (const [id, expectedVision] of [
-    ['z-ai/glm-5.3', false],
-    ['z-ai/glm-5.3-flash', true],
+  for (const [id, expectedVision, expectedOutput] of [
+    ['z-ai/glm-5.3', false, 943_718],
+    ['z-ai/glm-5.3-flash', true, 943_717],
   ] as const) {
     const candidate = openrouterModels.find(model => model.id === id);
     assert(candidate, `${id} should be listed by OpenRouter`);
     assertEqual(candidate.descriptor.limits.contextTokens, 1_048_576, `${id} safe route context`);
-    assertEqual(candidate.descriptor.limits.maxOutputTokens, 131_072, `${id} output`);
+    assertEqual(candidate.descriptor.limits.maxOutputTokens, expectedOutput, `${id} October OpenRouter output`);
     assertEqual(candidate.descriptor.capabilities.vision, expectedVision, `${id} vision`);
     const candidateReasoning = candidate.capabilities?.reasoning as {
       mode?: string;
@@ -387,8 +387,8 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   assertEqual(museReasoning?.mode, 'always', 'Muse 1.3 reasoning is always on');
   assertEqual(
     museReasoning?.effortLevels?.join(','),
-    'minimal,low,medium,high',
-    'Muse 1.3 must not expose the not-yet-released max mode',
+    'minimal,low,medium,high,xhigh,max',
+    'Muse 1.3 standard tier exposes the currently documented effort modes',
   );
 
   for (const [id, expectedOutput] of [
@@ -469,8 +469,8 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
     { provider: 'siliconflow', baseUrl: 'https://api.siliconflow.cn/v1' },
   ]) {
     assert(
-      !findPreset(route.provider, route.baseUrl)?.models.some(model => model.id.toLowerCase().includes('glm-5.3')),
-      `${route.provider} must not advertise GLM-5.3 before its own live catalog does`,
+      findPreset(route.provider, route.baseUrl)?.models.some(model => model.id.toLowerCase().includes('glm-5.3')),
+      `${route.provider} now has endpoint-specific October GLM-5.3 evidence`,
     );
   }
 }

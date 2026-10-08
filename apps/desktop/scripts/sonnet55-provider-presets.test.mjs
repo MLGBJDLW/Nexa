@@ -18,6 +18,19 @@ const { PROVIDER_PRESETS, getReasoningCapability, reasoningOffLabelKey,
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`
 );
 
+test('October optional reasoning keeps provider defaults separate from explicit enable', () => {
+  const router = getReasoningCapability({ provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'upstage/solar-mini4' });
+  assert.equal(router.defaultEnabled, false);
+  assert.equal(defaultReasoningEffort(router), 'none');
+  assert.equal(defaultReasoningEffort(router, true), 'medium');
+  const haiku = getReasoningCapability({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-haiku-5-5' });
+  assert.equal(haiku.mode, 'optional');
+  assert.equal(haiku.defaultEnabled, true);
+  assert.equal(defaultReasoningEffort(haiku), 'medium');
+  assert.equal(haiku.disabledMode, undefined);
+  assert.equal(haiku.thinkingBudget.enabled, false);
+});
+
 for (const [provider, id, offMode] of [
   ['anthropic', 'claude-sonnet-5-5', 'between_tools'],
   ['openrouter', 'anthropic/claude-sonnet-5.5', undefined],

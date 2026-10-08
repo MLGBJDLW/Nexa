@@ -29,6 +29,7 @@ import { AgentConfigForm } from './AgentConfigForm';
 import { ImageGenerationSettingsPanel } from './ImageGenerationSettingsPanel';
 import { TextToSpeechSettingsPanel } from './TextToSpeechSettingsPanel';
 import { SpeechToTextSettingsPanel } from './SpeechToTextSettingsPanel';
+import { SystemOneSettingsPanel } from './SystemOneSettingsPanel';
 import { SubscriptionAgentConfigForm } from './SubscriptionAgentConfigForm';
 import { ExternalAgentConfigForm } from './ExternalAgentConfigForm';
 import type { ExternalAgentLaunch } from '../../lib/externalAgents';
@@ -430,6 +431,7 @@ export function ProvidersSettingsTab({
 
           {appConfig && connectionKind === 'api' && (
             <>
+              <SystemOneSettingsPanel appConfig={appConfig} loading={appConfigLoading} onChange={onAppConfigChange} onMarkDirty={onMarkAppConfigDirty} onSave={onAppConfigSave} />
               <div className="space-y-2" data-provider-category="image-generation">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
                   <ImageIcon size={14} />
