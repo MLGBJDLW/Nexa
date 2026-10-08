@@ -40,6 +40,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`desktop_automation`](../crates/core/prompts/tools/desktop_automation.json) | Discover and launch installed Windows applications, or open/reveal source-scoped files |
 | [`download_asset`](../crates/core/prompts/tools/download_asset.json) | Download a supported public image asset (JPEG, PNG, WebP, or GIF) into the workspace with SSRF, redirect-hop, content-type, size, and output-path validation |
 | [`edit_file`](../crates/core/prompts/tools/edit_file.json) | MUTATION ONLY: replace text in an existing plain-text file, or create one with explicit content |
+| [`evaluate_decisions`](../crates/core/prompts/tools/evaluate_decisions.json) | Evaluate supplied text or serialized JSON with the configured System One provider (TypeSafe Jev or a compatible endpoint) |
 | [`extract_image_text`](../crates/core/prompts/tools/extract_image_text.json) | Extract visible text from a local image using the app's PaddleOCR runtime |
 | [`fetch_url`](../crates/core/prompts/tools/fetch_url.json) | Fetch and read the text content of a public web page with SSRF and redirect-hop validation |
 | [`generate_image`](../crates/core/prompts/tools/generate_image.json) | Generate an image using the provider configured in Settings and return an in-chat preview artifact |
