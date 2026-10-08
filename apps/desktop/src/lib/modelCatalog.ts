@@ -21,6 +21,7 @@ export interface ReasoningCapability {
   disabledMode?: 'between_tools';
   effortLevels?: string[];
   defaultEffort?: string;
+  defaultEnabled?: boolean;
   thinkingBudget?: ThinkingBudgetCapability;
 }
 

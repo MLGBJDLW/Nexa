@@ -48,6 +48,8 @@ pub struct ReasoningCapability {
     pub effort_levels: Vec<String>,
     #[serde(default)]
     pub default_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_enabled: Option<bool>,
     #[serde(default)]
     pub effort_budget_exclusive: bool,
     #[serde(default)]
@@ -124,6 +126,8 @@ pub struct ProviderModelPreset {
     pub supports_tools: Option<bool>,
     #[serde(default)]
     pub supports_structured_output: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported_parameters: Option<Vec<String>>,
     #[serde(default)]
     pub native_web_search: Option<NativeWebSearchCapability>,
     #[serde(default)]
@@ -1618,11 +1622,15 @@ mod tests {
             model_supports_vision_from_catalog(ProviderType::OpenRouter, "z-ai/glm-5.3-flash"),
             Some(true)
         );
-        for model in ["z-ai/glm-5.3", "z-ai/glm-5.3-flash"] {
+        // OpenRouter's gateway limits are distinct from the direct Z.ai endpoint.
+        for (model, max_output) in [
+            ("z-ai/glm-5.3", 943_718),
+            ("z-ai/glm-5.3-flash", 943_717),
+        ] {
             let limits = model_limits_from_catalog(ProviderType::OpenRouter, model)
                 .expect("OpenRouter GLM-5.3 route should expose limits");
             assert_eq!(limits.context_tokens, Some(1_048_576));
-            assert_eq!(limits.max_output_tokens, Some(131_072));
+            assert_eq!(limits.max_output_tokens, Some(max_output));
             let reasoning = model_capabilities_from_catalog(ProviderType::OpenRouter, model)
                 .and_then(|capabilities| capabilities.reasoning)
                 .expect("OpenRouter GLM-5.3 route should expose reasoning");
@@ -1686,7 +1694,7 @@ mod tests {
         assert_eq!(muse_reasoning.mode.as_deref(), Some("always"));
         assert_eq!(
             muse_reasoning.effort_levels,
-            ["minimal", "low", "medium", "high"]
+            ["minimal", "low", "medium", "high", "xhigh", "max"]
         );
 
         let zhipu = find_provider_preset("zhipu", Some("https://open.bigmodel.cn/api/paas/v4"))
@@ -1815,22 +1823,22 @@ mod tests {
             );
         }
 
-        for (provider, base_url) in [
+        for (provider, base_url, expected_glm) in [
             (
                 "qwen",
                 "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                Some("glm-5.3"),
             ),
             (
                 "qwen",
                 "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+                Some("glm-5.3"),
             ),
-            ("siliconflow", "https://api.siliconflow.cn/v1"),
+            ("siliconflow", "https://api.siliconflow.cn/v1", Some("zai-org/GLM-5.3")),
         ] {
             let preset = find_provider_preset(provider, Some(base_url)).expect("known preset");
-            assert!(preset
-                .models
-                .iter()
-                .all(|model| !model.id.contains("glm-5.3")));
+            let glm = preset.models.iter().find(|model| model.id.to_ascii_lowercase().contains("glm-5.3"));
+            assert_eq!(glm.map(|model| model.id.as_str()), expected_glm);
         }
     }
 

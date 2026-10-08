@@ -626,6 +626,10 @@ export function AgentConfigForm({
     }
 
     // Sonnet 5.5 defaults to adaptive thinking even when no override was saved.
+    if (reasoningEnabled === null && reasoningCapability?.defaultEnabled != null) {
+      setReasoningEnabled(reasoningCapability.defaultEnabled);
+      return;
+    }
     if (reasoningCapability?.disabledMode === 'between_tools' && reasoningEnabled === null) {
       setReasoningEnabled(true);
       return;
@@ -1225,7 +1229,7 @@ export function AgentConfigForm({
               setReasoningEnabled(enabled);
               if (enabled) {
                 setThinkingBudget(defaultThinkingBudget(reasoningCapability));
-                setReasoningEffort(defaultReasoningEffort(reasoningCapability));
+                setReasoningEffort(defaultReasoningEffort(reasoningCapability, true));
               } else {
                 setThinkingBudget(null);
                 setReasoningEffort(null);

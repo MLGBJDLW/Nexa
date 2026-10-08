@@ -29,13 +29,16 @@ test('gateway reasoning controls and regional hosted models do not leak into dir
   const qwen = find({ ...router, model: 'qwen/qwen3.8-max-prime' });
   assert.equal(qwen.capabilities.reasoning.mode, 'always');
   assert.equal(qwen.capabilities.reasoning.defaultEffort, 'xhigh');
-  assert.equal(find({ ...router, model: 'upstage/solar-mini4' }).capabilities.reasoning.defaultEffort, 'none');
+  assert.equal(find({ ...router, model: 'upstage/solar-mini4' }).capabilities.reasoning.defaultEnabled, false);
+  assert.equal(find({ ...router, model: 'upstage/solar-mini4' }).capabilities.reasoning.defaultEffort, 'medium');
   const cn = { provider: 'alibaba_model_studio', baseUrl: 'https://work.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' };
   const sg = { ...cn, baseUrl: 'https://work.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1' };
   assert.equal(find({ ...cn, model: 'ZHIPU/GLM-5.3-FlashX' }).descriptor.limits.maxOutputTokens, 131_072);
   assert.equal(find({ ...sg, model: 'ZHIPU/GLM-5.3-FlashX' }), null);
   assert.equal(find({ ...sg, model: 'deepseek-v4.1-flash' }).descriptor.limits.maxOutputTokens, 393_216);
-  assert.equal(find({ provider: 'qwen', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'deepseek-v4.1-flash' }), null);
+  const plan = find({ provider: 'qwen', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'deepseek-v4.1-flash' });
+  assert.ok(plan, 'Token Plan added this exact model in the October catalog');
+  assert.equal(plan.descriptor.limits.maxOutputTokens, null, 'do not copy a PAYG output limit into Token Plan');
 });
 
 test('confirmed retirements disappear while still-supported legacy and future shutdowns remain', () => {

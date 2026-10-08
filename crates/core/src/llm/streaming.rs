@@ -11,6 +11,61 @@ use crate::error::CoreError;
 
 const TERMINAL_SSE_TAIL_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+enum SseChannel {
+    Chunks(mpsc::Sender<Result<StreamChunk, CoreError>>),
+    Events(mpsc::Sender<super::ProviderStreamEvent>),
+}
+
+struct SseOutput {
+    channel: SseChannel,
+    capture_ark: bool,
+    ark_content: Option<String>,
+}
+
+impl SseOutput {
+    async fn send(&self, result: Result<StreamChunk, CoreError>) -> Result<(), ()> {
+        match &self.channel {
+            SseChannel::Chunks(tx) => tx.send(result).await.map_err(|_| ()),
+            SseChannel::Events(tx) => tx
+                .send(super::provider_stream_event_from_chunk_result(result))
+                .await
+                .map_err(|_| ()),
+        }
+    }
+
+    fn capture(&mut self, choice: Option<&SseChoice>) {
+        if !self.capture_ark {
+            return;
+        }
+        if let Some(content) = choice
+            .and_then(|choice| {
+                choice.delta.encrypted_content.as_ref().or_else(|| {
+                    choice
+                        .message
+                        .as_ref()
+                        .and_then(|message| message.encrypted_content.as_ref())
+                })
+            })
+            .filter(|content| !content.trim().is_empty())
+        {
+            // Ark sends a complete state, including in frames with no text.
+            self.ark_content = Some(content.clone());
+        }
+    }
+
+    async fn finish(&mut self) {
+        if let (SseChannel::Events(tx), Some(content)) = (&self.channel, self.ark_content.take()) {
+            let _ = tx
+                .send(super::ProviderStreamEvent::ReplayState {
+                    replay: Box::new(
+                        super::provider_turn::ProviderReplayPayload::ArkEncryptedContent(content),
+                    ),
+                })
+                .await;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SSE JSON wire types (OpenAI streaming format)
 // ---------------------------------------------------------------------------
@@ -32,6 +87,8 @@ struct SseChoice {
 
 #[derive(serde::Deserialize, Default)]
 struct SseDelta {
+    #[serde(default)]
+    encrypted_content: Option<String>,
     content: Option<serde_json::Value>,
     tool_calls: Option<Vec<SseToolCallDelta>>,
     #[serde(default, alias = "reasoningContent")]
@@ -606,9 +663,9 @@ fn drain_complete_sse_lines(buffer: &mut Vec<u8>) -> Vec<String> {
     lines
 }
 
-async fn process_sse_line(
+async fn process_sse_line_with_output(
     line: String,
-    tx: &mpsc::Sender<Result<StreamChunk, CoreError>>,
+    tx: &mut SseOutput,
     in_think_block: &mut bool,
     think_tag_buffer: &mut String,
     terminal_finish_seen: &mut bool,
@@ -666,6 +723,7 @@ async fn process_sse_line(
     match serde_json::from_str::<SseChunk>(data) {
         Ok(sse) => {
             let choice = sse.choices.as_ref().and_then(|c| c.first());
+            tx.capture(choice);
             let raw_delta = choice
                 .map(extract_text_delta_from_choice)
                 .unwrap_or_default();
@@ -777,7 +835,7 @@ async fn process_sse_line(
 
 async fn process_sse_event_data_lines(
     event_data_lines: &mut Vec<String>,
-    tx: &mpsc::Sender<Result<StreamChunk, CoreError>>,
+    tx: &mut SseOutput,
     in_think_block: &mut bool,
     think_tag_buffer: &mut String,
     terminal_finish_seen: &mut bool,
@@ -788,7 +846,7 @@ async fn process_sse_event_data_lines(
 
     let data = event_data_lines.join("\n");
     event_data_lines.clear();
-    process_sse_line(
+    process_sse_line_with_output(
         format!("data: {data}"),
         tx,
         in_think_block,
@@ -801,7 +859,7 @@ async fn process_sse_event_data_lines(
 async fn collect_or_dispatch_sse_line(
     line: String,
     event_data_lines: &mut Vec<String>,
-    tx: &mpsc::Sender<Result<StreamChunk, CoreError>>,
+    tx: &mut SseOutput,
     in_think_block: &mut bool,
     think_tag_buffer: &mut String,
     terminal_finish_seen: &mut bool,
@@ -861,6 +919,58 @@ pub async fn parse_sse_stream(
 pub async fn parse_sse_stream_with_idle_timeout(
     response: reqwest::Response,
     tx: mpsc::Sender<Result<StreamChunk, CoreError>>,
+    stream_idle_timeout: std::time::Duration,
+) -> Result<(), CoreError> {
+    let mut output = SseOutput {
+        channel: SseChannel::Chunks(tx),
+        capture_ark: false,
+        ark_content: None,
+    };
+    parse_sse_with_output(response, &mut output, stream_idle_timeout).await
+}
+
+pub(crate) async fn parse_sse_events_with_idle_timeout(
+    response: reqwest::Response,
+    tx: mpsc::Sender<super::ProviderStreamEvent>,
+    stream_idle_timeout: std::time::Duration,
+    capture_ark: bool,
+) -> Result<(), CoreError> {
+    let mut output = SseOutput {
+        channel: SseChannel::Events(tx),
+        capture_ark,
+        ark_content: None,
+    };
+    parse_sse_with_output(response, &mut output, stream_idle_timeout).await?;
+    output.finish().await;
+    Ok(())
+}
+
+#[cfg(test)]
+async fn process_sse_line(
+    line: String,
+    tx: &mpsc::Sender<Result<StreamChunk, CoreError>>,
+    in_think_block: &mut bool,
+    think_tag_buffer: &mut String,
+    terminal_finish_seen: &mut bool,
+) -> Result<bool, CoreError> {
+    let mut output = SseOutput {
+        channel: SseChannel::Chunks(tx.clone()),
+        capture_ark: false,
+        ark_content: None,
+    };
+    process_sse_line_with_output(
+        line,
+        &mut output,
+        in_think_block,
+        think_tag_buffer,
+        terminal_finish_seen,
+    )
+    .await
+}
+
+async fn parse_sse_with_output(
+    response: reqwest::Response,
+    tx: &mut SseOutput,
     stream_idle_timeout: std::time::Duration,
 ) -> Result<(), CoreError> {
     let mut byte_stream = response.bytes_stream();
@@ -934,7 +1044,7 @@ pub async fn parse_sse_stream_with_idle_timeout(
             if collect_or_dispatch_sse_line(
                 line,
                 &mut event_data_lines,
-                &tx,
+                tx,
                 &mut in_think_block,
                 &mut think_tag_buffer,
                 &mut terminal_finish_seen,
@@ -951,7 +1061,7 @@ pub async fn parse_sse_stream_with_idle_timeout(
         if collect_or_dispatch_sse_line(
             line,
             &mut event_data_lines,
-            &tx,
+            tx,
             &mut in_think_block,
             &mut think_tag_buffer,
             &mut terminal_finish_seen,
@@ -964,7 +1074,7 @@ pub async fn parse_sse_stream_with_idle_timeout(
 
     if process_sse_event_data_lines(
         &mut event_data_lines,
-        &tx,
+        tx,
         &mut in_think_block,
         &mut think_tag_buffer,
         &mut terminal_finish_seen,
@@ -1014,6 +1124,59 @@ pub async fn parse_sse_stream_with_idle_timeout(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn ark_encrypted_only_frame_is_opaque_replay_after_a_complete_sse_sample() {
+        for enabled in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 2048];
+                socket.read(&mut request).await.unwrap();
+                let body = concat!(
+                    "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Visible summary\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{\"encrypted_content\":\"opaque/+=private-state\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"},\"finish_reason\":\"stop\"}]}\n\n",
+                    "data: [DONE]\n\n");
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            });
+            let response = reqwest::get(format!("http://{address}/chat/completions"))
+                .await
+                .unwrap();
+            let (tx, mut rx) = mpsc::channel(16);
+            parse_sse_events_with_idle_timeout(
+                response,
+                tx,
+                std::time::Duration::from_secs(2),
+                enabled,
+            )
+            .await
+            .unwrap();
+            let mut count = 0;
+            while let Some(event) = rx.recv().await {
+                match event {
+                    super::super::ProviderStreamEvent::ReplayState { replay } => {
+                        assert_eq!(
+                            *replay,
+                            super::super::provider_turn::ProviderReplayPayload::ArkEncryptedContent(
+                                "opaque/+=private-state".into()
+                            )
+                        );
+                        count += 1;
+                    }
+                    super::super::ProviderStreamEvent::Chunk { chunk } => {
+                        assert!(!serde_json::to_string(&chunk)
+                            .unwrap()
+                            .contains("private-state"));
+                    }
+                    _ => panic!("unexpected event"),
+                }
+            }
+            assert_eq!(count, usize::from(enabled));
+            server.await.unwrap();
+        }
+    }
 
     async fn serve_terminal_chat_sse_without_done(
         listener: tokio::net::TcpListener,
@@ -1506,7 +1669,11 @@ mod tests {
             let done = collect_or_dispatch_sse_line(
                 line.to_string(),
                 &mut event_data_lines,
-                &tx,
+                &mut SseOutput {
+                    channel: SseChannel::Chunks(tx.clone()),
+                    capture_ark: false,
+                    ark_content: None,
+                },
                 &mut in_think_block,
                 &mut think_tag_buffer,
                 &mut terminal_finish_seen,

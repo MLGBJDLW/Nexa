@@ -87,6 +87,8 @@ pub struct ReasoningCapability {
     pub effort_levels: Vec<String>,
     #[serde(default)]
     pub default_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_enabled: Option<bool>,
     #[serde(default)]
     pub effort_budget_exclusive: bool,
     #[serde(default)]

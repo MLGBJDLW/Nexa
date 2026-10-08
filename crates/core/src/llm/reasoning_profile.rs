@@ -82,6 +82,7 @@ pub enum ReasoningHistoryEncoding {
     ReasoningContent,
     ThinkTags,
     MistralContentChunks,
+    ArkEncryptedContent,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -163,6 +164,8 @@ pub struct ReasoningProfile {
     pub effort_mapping: ReasoningEffortMapping,
     pub accepted_efforts: Vec<ReasoningEffort>,
     pub default_effort: Option<ReasoningEffort>,
+    #[serde(default)]
+    pub default_enabled: Option<bool>,
     pub budget_field: ReasoningBudgetField,
     pub min_budget_tokens: Option<u32>,
     pub max_budget_tokens: Option<u32>,
@@ -171,6 +174,8 @@ pub struct ReasoningProfile {
     pub reasoning_history_encoding: ReasoningHistoryEncoding,
     pub replay_policy: ReasoningReplayPolicy,
     pub send_preserve_thinking: bool,
+    #[serde(default)]
+    pub send_clear_thinking: bool,
     pub omit_temperature_when_reasoning: bool,
     #[serde(default)]
     pub omit_stop_when_reasoning: bool,
@@ -189,6 +194,7 @@ impl ReasoningProfile {
             effort_mapping: ReasoningEffortMapping::Exact,
             accepted_efforts: Vec::new(),
             default_effort: None,
+            default_enabled: None,
             budget_field: ReasoningBudgetField::None,
             min_budget_tokens: None,
             max_budget_tokens: None,
@@ -197,6 +203,7 @@ impl ReasoningProfile {
             reasoning_history_encoding: ReasoningHistoryEncoding::ReasoningContent,
             replay_policy: ReasoningReplayPolicy::Unknown,
             send_preserve_thinking: false,
+            send_clear_thinking: false,
             omit_temperature_when_reasoning: false,
             omit_stop_when_reasoning: false,
             use_max_completion_tokens: false,
@@ -287,6 +294,7 @@ fn profile(
         effort_mapping,
         accepted_efforts: accepted_efforts.to_vec(),
         default_effort,
+        default_enabled: None,
         budget_field,
         min_budget_tokens: None,
         max_budget_tokens: None,
@@ -295,6 +303,7 @@ fn profile(
         reasoning_history_encoding: ReasoningHistoryEncoding::ReasoningContent,
         replay_policy: ReasoningReplayPolicy::NotRequired,
         send_preserve_thinking: false,
+        send_clear_thinking: false,
         omit_temperature_when_reasoning: false,
         omit_stop_when_reasoning: false,
         use_max_completion_tokens: false,
@@ -606,7 +615,10 @@ pub fn resolve_reasoning_profile(
     if is_doubao_public_endpoint(provider, base_url)
         && matches!(
             model.as_str(),
-            "doubao-seed-2-1-pro-260915" | "doubao-seed-2-1-lite-260915" | "doubao-seed-evolving"
+            "doubao-seed-2-1-pro-260915"
+                | "doubao-seed-2-1-lite-260915"
+                | "doubao-seed-2-1-turbo-260628"
+                | "doubao-seed-evolving"
         )
     {
         let mut value = profile(
@@ -627,6 +639,7 @@ pub fn resolve_reasoning_profile(
             ReasoningBudgetField::None,
         );
         value.preserve_reasoning_history = true;
+        value.reasoning_history_encoding = ReasoningHistoryEncoding::ArkEncryptedContent;
         return value;
     }
 
@@ -696,13 +709,25 @@ pub fn resolve_reasoning_profile(
             ReasoningBudgetField::None,
         );
         // Meta documents `stop` as unsupported while Muse Spark reasons. The
-        // current public endpoint accepts minimal through high; max remains a
-        // separately announced future mode and must not be synthesized here.
+        // Effort choices come from the standard-tier endpoint catalog; never
+        // inherit them for a separately configured Contributor model.
         value.omit_stop_when_reasoning = true;
         return value;
     }
 
     if provider == ProviderType::OpenRouter && is_openrouter_public_endpoint(provider, base_url) {
+        let catalog_model = find_provider_preset("openrouter", base_url).and_then(|preset| {
+            preset
+                .models
+                .iter()
+                .find(|entry| entry.id.eq_ignore_ascii_case(&model))
+        });
+        let wire_parameters = catalog_model.and_then(|entry| entry.supported_parameters.as_ref());
+        if wire_parameters
+            .is_some_and(|parameters| !parameters.iter().any(|value| value == "reasoning"))
+        {
+            return ReasoningProfile::unsupported(key);
+        }
         let gateway_efforts = vec![
             ReasoningEffort::None,
             ReasoningEffort::Minimal,
@@ -715,7 +740,7 @@ pub fn resolve_reasoning_profile(
         let (catalog_efforts, catalog_default, mandatory) =
             catalog_reasoning_effort_policy(provider, &model)
                 .unwrap_or_else(|| (Vec::new(), None, false));
-        let accepted_efforts = if catalog_efforts.is_empty() {
+        let accepted_efforts = if catalog_efforts.is_empty() && wire_parameters.is_none() {
             gateway_efforts.as_slice()
         } else {
             catalog_efforts.as_slice()
@@ -735,6 +760,24 @@ pub fn resolve_reasoning_profile(
         );
         value.effort_budget_exclusive = true;
         value.confidence = CapabilityConfidence::CuratedCompatibility;
+        value.default_enabled = catalog_model
+            .and_then(|entry| entry.capabilities.as_ref())
+            .and_then(|caps| caps.reasoning.as_ref())
+            .and_then(|reasoning| reasoning.default_enabled);
+        if let Some(parameters) = wire_parameters {
+            if !parameters.iter().any(|value| value == "reasoning_effort") {
+                value.effort_field = ReasoningEffortField::None;
+            }
+            let supports_budget = catalog_model
+                .and_then(|entry| entry.capabilities.as_ref())
+                .and_then(|caps| caps.reasoning.as_ref())
+                .and_then(|reasoning| reasoning.thinking_budget.as_ref())
+                .is_some_and(|budget| budget.enabled);
+            if !supports_budget {
+                value.budget_field = ReasoningBudgetField::None;
+            }
+            value.preserve_reasoning_history = true;
+        }
         if matches!(
             model.as_str(),
             "openai/gpt-6.1-sol"
@@ -846,7 +889,10 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_zhipu_model_api_endpoint(provider, base_url) {
-        if !matches!(model.as_str(), "glm-5.3" | "glm-5.3-flash") {
+        if !matches!(
+            model.as_str(),
+            "glm-5.3" | "glm-5.3-flash" | "glm-5.3-flashx"
+        ) {
             return ReasoningProfile::unsupported(key);
         }
         let mut value = profile(
@@ -889,6 +935,59 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_alibaba_chat_endpoint(provider, base_url) {
+        let token_plan = provider == ProviderType::Qwen
+            && find_provider_preset("qwen", base_url).is_some_and(|preset| {
+                matches!(
+                    preset.id.as_str(),
+                    "qwen-token-plan-cn" | "qwen-token-plan-global"
+                )
+            });
+        if token_plan
+            && matches!(
+                model.as_str(),
+                "glm-5.3"
+                    | "glm-5.2"
+                    | "deepseek-v4.1-flash"
+                    | "deepseek-v4-pro"
+                    | "deepseek-v4-pro-0813"
+                    | "deepseek-v4-flash-0731"
+            )
+        {
+            let mandatory = model == "glm-5.3";
+            let efforts = if matches!(model.as_str(), "deepseek-v4-pro" | "glm-5.2") {
+                vec![ReasoningEffort::High, ReasoningEffort::Max]
+            } else {
+                vec![
+                    ReasoningEffort::Low,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Max,
+                ]
+            };
+            let mut value = profile(
+                key,
+                "alibaba-token-plan-thinking-v1",
+                if mandatory {
+                    ThinkingModeControl::AlwaysOnEnableThinking
+                } else {
+                    ThinkingModeControl::EnableThinking
+                },
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &efforts,
+                    Some(if mandatory {
+                        ReasoningEffort::Max
+                    } else {
+                        ReasoningEffort::High
+                    }),
+                ),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.send_clear_thinking = model.starts_with("glm-");
+            value.omit_temperature_when_reasoning = true;
+            return value;
+        }
         let qwen_payg = provider == ProviderType::AlibabaModelStudio
             && find_provider_preset("alibaba_model_studio", base_url).is_some_and(|preset| {
                 matches!(
@@ -1062,6 +1161,10 @@ pub fn resolve_reasoning_profile(
                 ReasoningBudgetField::ThinkingBudget,
             );
             value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = matches!(
+                model.as_str(),
+                "qwen3.7-max" | "qwen3.7-plus" | "qwen3.6-flash"
+            );
             return value;
         }
 
@@ -1225,6 +1328,34 @@ pub fn resolve_reasoning_profile(
     }
 
     if provider == ProviderType::SiliconFlow && is_siliconflow_public_endpoint(provider, base_url) {
+        if matches!(
+            model.as_str(),
+            "tencent/hy4-preview"
+                | "zai-org/glm-5.3"
+                | "zai-org/glm-5.2"
+                | "moonshotai/kimi-k2.7-code"
+                | "qwen/qwen3.8-27b"
+                | "qwen/qwen3.6-35b-a3b"
+                | "qwen/qwen3.6-27b"
+                | "xingchenagi/xing4.0-29b"
+                | "meituan-longcat/longcat-2.0"
+        ) {
+            let mut value = profile(
+                key,
+                "siliconflow-model-defaults-v1",
+                if model == "moonshotai/kimi-k2.7-code" {
+                    ThinkingModeControl::AlwaysOn
+                } else {
+                    ThinkingModeControl::ProviderDefault
+                },
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            return value;
+        }
         let mut value = profile(
             key,
             "siliconflow-compatible-budget-v1",
@@ -1235,6 +1366,8 @@ pub fn resolve_reasoning_profile(
             ReasoningBudgetField::ThinkingBudget,
         );
         value.confidence = CapabilityConfidence::CuratedCompatibility;
+        value.min_budget_tokens = Some(128);
+        value.max_budget_tokens = Some(32768);
         return value;
     }
 
@@ -1446,7 +1579,14 @@ mod tests {
             meta.wire_effort(Some(&ReasoningEffort::High)).as_deref(),
             Some("high")
         );
-        assert_eq!(meta.wire_effort(Some(&ReasoningEffort::XHigh)), None);
+        assert_eq!(
+            meta.wire_effort(Some(&ReasoningEffort::XHigh)).as_deref(),
+            Some("xhigh")
+        );
+        assert_eq!(
+            meta.wire_effort(Some(&ReasoningEffort::Max)).as_deref(),
+            Some("max")
+        );
         assert!(meta.omit_stop_when_reasoning);
 
         for endpoint in [

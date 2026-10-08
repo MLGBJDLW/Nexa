@@ -13,7 +13,6 @@ use tracing::{debug, error, info, warn};
 
 use super::model_contract::{resolve_model_contract, ToolSchemaDialect};
 use super::prompt_cache::PromptCacheProfile;
-#[cfg(test)]
 use super::reasoning_profile::resolve_reasoning_profile;
 use super::reasoning_profile::{
     ReasoningApiStyle, ReasoningBudgetField, ReasoningEffortField, ReasoningHistoryEncoding,
@@ -22,7 +21,7 @@ use super::reasoning_profile::{
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
     configured_request_timeout, next_stream_item_with_idle_timeout, send_stream_start_request,
-    serialized_json_body, streaming::parse_sse_stream_with_idle_timeout, with_request_timeout,
+    serialized_json_body, streaming::parse_sse_events_with_idle_timeout, with_request_timeout,
     CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
     ProviderConfig, ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus,
     ProviderStreamEvent, ProviderType, ReasoningEffort, ReplayHistoryProjection, Role, StreamChunk,
@@ -71,6 +70,8 @@ struct OaiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     preserve_thinking: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    clear_thinking: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OaiTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_stream: Option<bool>,
@@ -102,9 +103,50 @@ struct OaiThinking {
 #[derive(Serialize)]
 struct OaiReasoning {
     #[serde(skip_serializing_if = "Option::is_none")]
+    enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+}
+
+fn openrouter_reasoning(
+    request: &CompletionRequest,
+    profile: &super::reasoning_profile::ReasoningProfile,
+) -> Option<OaiReasoning> {
+    if profile.id != "openrouter-normalized-reasoning-v1" {
+        return None;
+    }
+    let enabled = profile
+        .requested_mode(
+            request.reasoning_enabled,
+            request.reasoning_effort.as_ref(),
+            request.thinking_budget,
+        )
+        .or(profile.default_enabled)
+        .or_else(|| {
+            profile
+                .default_effort
+                .as_ref()
+                .map(|effort| *effort != ReasoningEffort::None)
+        });
+    let requested_effort = request.reasoning_effort.as_ref().or_else(|| {
+        (enabled == Some(true) && request.thinking_budget.is_none())
+            .then_some(profile.default_effort.as_ref())
+            .flatten()
+    });
+    let effort = (enabled != Some(false)
+        && profile.effort_field == ReasoningEffortField::NestedReasoning)
+        .then(|| profile.wire_effort(requested_effort))
+        .flatten();
+    let budget = (enabled != Some(false))
+        .then(|| profile.wire_budget(request.thinking_budget, effort.is_some()))
+        .flatten();
+    (enabled.is_some() || effort.is_some() || budget.is_some()).then_some(OaiReasoning {
+        enabled,
+        effort,
+        max_tokens: budget,
+    })
 }
 
 #[derive(Serialize)]
@@ -120,6 +162,8 @@ struct OaiMessage {
     reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_details: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encrypted_content: Option<String>,
 }
 
 /// OpenAI content: either a plain string or an array of content parts.
@@ -227,6 +271,8 @@ struct OaiResponseMessage {
     reasoning: Option<serde_json::Value>,
     #[serde(default, alias = "reasoningDetails")]
     reasoning_details: Option<serde_json::Value>,
+    #[serde(default)]
+    encrypted_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -814,6 +860,7 @@ fn convert_message(
         tool_call_id: None,
         reasoning_content: None,
         reasoning_details: None,
+        encrypted_content: None,
     };
 
     // Assistant messages may carry tool-call requests.
@@ -845,14 +892,6 @@ fn convert_message(
     }
 
     if include_reasoning_content && msg.role == Role::Assistant {
-        if let Some(envelope) = msg.provider_turn() {
-            if let super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails(
-                details,
-            ) = &envelope.replay_payload
-            {
-                oai.reasoning_details = Some(serde_json::Value::Array(details.clone()));
-            }
-        }
         let reasoning = msg
             .reasoning_content
             .as_deref()
@@ -860,7 +899,8 @@ fn convert_message(
             .map(str::to_string);
         if let Some(reasoning) = reasoning {
             match reasoning_history_encoding {
-                ReasoningHistoryEncoding::ReasoningContent => {
+                ReasoningHistoryEncoding::ReasoningContent
+                | ReasoningHistoryEncoding::ArkEncryptedContent => {
                     oai.reasoning_content = Some(reasoning);
                 }
                 ReasoningHistoryEncoding::ThinkTags => {
@@ -947,10 +987,15 @@ fn build_request_body_with_config(
             // explicit even for headless/legacy configs whose three controls
             // are all absent; an explicit false above still wins.
             (reasoning_profile.id == "alibaba-qwen3.8-chat-v1"
-                || reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"
-                || (reasoning_profile.id == "openrouter-normalized-reasoning-v1"
-                    && reasoning_profile.default_effort.is_some()))
-            .then_some(true)
+                || reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1")
+                .then_some(true)
+                .or(reasoning_profile.default_enabled)
+                .or_else(|| {
+                    (reasoning_profile.id == "openrouter-normalized-reasoning-v1")
+                        .then_some(reasoning_profile.default_effort.as_ref())
+                        .flatten()
+                        .map(|effort| *effort != ReasoningEffort::None)
+                })
         });
     let effort_can_encode_disabled =
         reasoning_profile.mode_control == ThinkingModeControl::ProviderDefault;
@@ -970,6 +1015,8 @@ fn build_request_body_with_config(
         })
     };
     let wire_effort = (reasoning_supported
+        && !(reasoning_profile.id == "openrouter-normalized-reasoning-v1"
+            && requested_reasoning_mode == Some(false))
         && (requested_reasoning_mode != Some(false) || effort_can_encode_disabled))
         .then(|| reasoning_profile.wire_effort(requested_effort))
         .flatten();
@@ -1014,13 +1061,40 @@ fn build_request_body_with_config(
             let message = &request.messages[*index];
             let wire_role = chat_completion_wire_role(message, *index, leading_system_count);
             let compiled = controller_context_for_chat(message, wire_role);
-            convert_message(
+            let mut wire = convert_message(
                 &compiled,
                 wire_role,
                 include_reasoning_content,
                 reasoning_history_encoding,
                 raw_tool_args,
-            )
+            );
+            if include_reasoning_content {
+                let route = super::provider_turn::RouteSnapshot::from_profile_for_request(
+                    reasoning_profile,
+                    request,
+                );
+                if let Some(envelope) = compiled
+                    .provider_turn()
+                    .filter(|envelope| envelope.is_compatible_with(&route))
+                {
+                    match &envelope.replay_payload {
+                        super::provider_turn::ProviderReplayPayload::ArkEncryptedContent(
+                            content,
+                        ) if reasoning_history_encoding
+                            == ReasoningHistoryEncoding::ArkEncryptedContent =>
+                        {
+                            wire.encrypted_content = Some(content.clone())
+                        }
+                        super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails(
+                            details,
+                        ) if reasoning_profile.id == "openrouter-normalized-reasoning-v1" => {
+                            wire.reasoning_details = Some(serde_json::Value::Array(details.clone()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            wire
         })
         .collect();
     add_profile_cache_control_for_request(
@@ -1060,16 +1134,7 @@ fn build_request_body_with_config(
         reasoning_effort: (reasoning_profile.effort_field == ReasoningEffortField::TopLevel)
             .then_some(wire_effort.clone())
             .flatten(),
-        reasoning: if reasoning_profile.effort_field == ReasoningEffortField::NestedReasoning
-            || reasoning_profile.budget_field == ReasoningBudgetField::NestedReasoning
-        {
-            (wire_effort.is_some() || wire_budget.is_some()).then(|| OaiReasoning {
-                effort: wire_effort.clone(),
-                max_tokens: wire_budget,
-            })
-        } else {
-            None
-        },
+        reasoning: openrouter_reasoning(request, reasoning_profile),
         thinking: match reasoning_profile.mode_control {
             ThinkingModeControl::ThinkingType | ThinkingModeControl::AlwaysOnThinkingType => {
                 requested_reasoning_mode.map(|enabled| OaiThinking {
@@ -1107,6 +1172,9 @@ fn build_request_body_with_config(
         preserve_thinking: (reasoning_profile.send_preserve_thinking
             && requested_reasoning_mode != Some(false))
         .then_some(true),
+        clear_thinking: (reasoning_profile.send_clear_thinking
+            && requested_reasoning_mode != Some(false))
+        .then_some(false),
         tools: request
             .tools
             .as_ref()
@@ -1350,30 +1418,14 @@ fn build_responses_request_with_tools(
         // OpenRouter normalizes reasoning on its Responses endpoint. A token
         // budget and an effort are mutually exclusive; keep an explicit budget
         // when present, then fall back to the selected effort/mode.
-        if super::reasoning_profile::is_openrouter_sonnet55_model(&request.model) {
-            let contract = resolve_model_contract(
-                ProviderType::OpenRouter,
-                None,
-                ReasoningApiStyle::OpenAiChatCompletions,
-                &request.model,
-            );
-            let profile = &contract.reasoning;
-            let effort = profile
-                .wire_effort(request.reasoning_effort.as_ref())
-                .or_else(|| profile.wire_effort(profile.default_effort.as_ref()));
-            if let Some(effort) = effort {
-                body["reasoning"] = serde_json::json!({"effort":effort});
-            }
-        } else if let Some(max_tokens) = request.thinking_budget {
-            body["reasoning"] = serde_json::json!({ "max_tokens": max_tokens });
-        } else if let Some(effort) = request.reasoning_effort.as_ref() {
-            body["reasoning"] = serde_json::json!({ "effort": effort.to_string() });
-        } else if let Some(enabled) = request.reasoning_enabled {
-            body["reasoning"] = if enabled {
-                serde_json::json!({ "enabled": true })
-            } else {
-                serde_json::json!({ "effort": "none" })
-            };
+        let profile = resolve_reasoning_profile(
+            ProviderType::OpenRouter,
+            None,
+            ReasoningApiStyle::OpenAiChatCompletions,
+            &request.model,
+        );
+        if let Some(reasoning) = openrouter_reasoning(request, &profile) {
+            body["reasoning"] = serde_json::to_value(reasoning)?;
         }
     } else if dialect == super::native_search::NativeSearchDialect::DeepSeekResponses {
         let effort = if request.reasoning_enabled == Some(false)
@@ -3202,6 +3254,18 @@ impl LlmProvider for OpenAiProvider {
             })
             .flatten()
             .filter(|details| !details.is_empty());
+        let ark_replay = (resolve_reasoning_profile(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            &request.model,
+        )
+        .reasoning_history_encoding
+            == ReasoningHistoryEncoding::ArkEncryptedContent)
+            .then(|| choice.message.encrypted_content.clone())
+            .flatten()
+            .filter(|value| !value.trim().is_empty())
+            .map(super::provider_turn::ProviderReplayPayload::ArkEncryptedContent);
 
         let (content, content_thinking) = choice
             .message
@@ -3230,7 +3294,8 @@ impl LlmProvider for OpenAiProvider {
             usage,
             thinking,
             provider_replay: openrouter_reasoning_details
-                .map(super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails),
+                .map(super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails)
+                .or(ark_replay),
         })
     }
 
@@ -3362,17 +3427,25 @@ impl LlmProvider for OpenAiProvider {
         info!("SSE stream started");
 
         let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
+        let capture_ark = resolve_reasoning_profile(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            &request.model,
+        )
+        .reasoning_history_encoding
+            == ReasoningHistoryEncoding::ArkEncryptedContent;
         tokio::spawn(async move {
             let parser_tx = tx.clone();
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_sse_stream_with_idle_timeout(response, parser_tx, stream_idle_timeout) => result,
+                result = parse_sse_events_with_idle_timeout(response, parser_tx, stream_idle_timeout, capture_ark) => result,
             };
             if let Err(e) = result {
                 transport.record_transport_failure(&e);
                 error!("SSE stream error: {e}");
-                let _ = tx.send(Err(e)).await;
+                let _ = tx.send(super::provider_stream_event_from_error(e)).await;
             } else {
                 transport.record_transport_success();
             }
@@ -3383,7 +3456,7 @@ impl LlmProvider for OpenAiProvider {
             rx.recv().await.map(|item| (item, rx))
         });
 
-        Ok(super::stream_chunks_to_provider_events(Box::pin(stream)))
+        Ok(Box::pin(stream))
     }
 
     async fn health_check(&self) -> Result<(), CoreError> {
@@ -3400,6 +3473,270 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn october_openrouter_reasoning_switches_match_chat_and_native_search() {
+        use crate::llm::native_search::{
+            NativeSearchPlan, ProviderNativeSearchEngine, SearchExecutionMode,
+        };
+        let config = endpoint_config(ProviderType::OpenRouter, "https://openrouter.ai/api/v1");
+        for (model, mandatory) in [
+            ("anthropic/claude-haiku-5.5", false),
+            ("inclusionai/ling-3.1-flash", false),
+            ("upstage/solar-mini4", false),
+            ("z-ai/glm-5.3", true),
+        ] {
+            for enabled in [true, false] {
+                for stale_controls in [false, true] {
+                    let mut request = endpoint_reasoning_request(model);
+                    request.provider_type = Some(ProviderType::OpenRouter);
+                    request.reasoning_enabled = Some(enabled);
+                    if stale_controls {
+                        request.reasoning_effort = Some(ReasoningEffort::High);
+                        request.thinking_budget = Some(4096);
+                    }
+                    let chat = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        true,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(
+                        chat["reasoning"]["enabled"],
+                        enabled || mandatory,
+                        "{model}"
+                    );
+                    if !enabled && !mandatory {
+                        assert_eq!(chat["reasoning"], serde_json::json!({"enabled":false}));
+                    }
+                    let plan = NativeSearchPlan::resolve_with_engine(
+                        SearchExecutionMode::ProviderNative,
+                        ProviderType::OpenRouter,
+                        config.base_url.as_deref(),
+                        model,
+                        ProviderNativeSearchEngine::Exa,
+                    );
+                    request.tools = Some(vec![plan.marker().expect("OpenRouter native search")]);
+                    let (dialect, mode, capability) = hosted_search_context(&request).unwrap();
+                    let responses =
+                        build_responses_request(&request, dialect, mode, capability).unwrap();
+                    assert_eq!(
+                        responses["reasoning"], chat["reasoning"],
+                        "{model}, enabled={enabled}, stale={stale_controls}"
+                    );
+                }
+            }
+        }
+        let mut request = endpoint_reasoning_request("upstage/solar-mini4");
+        request.provider_type = Some(ProviderType::OpenRouter);
+        let default = serde_json::to_value(build_request_body_with_config(
+            &request,
+            false,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(default["reasoning"], serde_json::json!({"enabled":false}));
+        request.reasoning_enabled = Some(true);
+        let enabled = serde_json::to_value(build_request_body_with_config(
+            &request,
+            false,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(
+            enabled["reasoning"],
+            serde_json::json!({"enabled":true,"effort":"medium"})
+        );
+    }
+
+    #[test]
+    fn october_token_plan_models_use_their_own_thinking_and_replay_flags() {
+        for base in [
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        ] {
+            let config = endpoint_config(ProviderType::Qwen, base);
+            for model in [
+                "glm-5.3",
+                "glm-5.2",
+                "deepseek-v4.1-flash",
+                "deepseek-v4-pro",
+                "deepseek-v4-pro-0813",
+                "deepseek-v4-flash-0731",
+            ] {
+                let mut request = endpoint_reasoning_request(model);
+                request.provider_type = Some(ProviderType::Qwen);
+                request.reasoning_enabled = Some(true);
+                request.reasoning_effort = Some(ReasoningEffort::Max);
+                request.thinking_budget = Some(4096);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(body["enable_thinking"], true);
+                assert_eq!(body["reasoning_effort"], "max");
+                assert!(body.get("thinking").is_none());
+                assert!(body.get("thinking_budget").is_none());
+                assert_eq!(
+                    body.get("clear_thinking"),
+                    model
+                        .starts_with("glm-")
+                        .then_some(&serde_json::Value::Bool(false))
+                );
+                request.reasoning_enabled = Some(false);
+                request.reasoning_effort = Some(ReasoningEffort::None);
+                let disabled = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(disabled["enable_thinking"], model == "glm-5.3");
+                if model != "glm-5.3" {
+                    assert!(disabled.get("clear_thinking").is_none());
+                    assert!(disabled.get("reasoning_effort").is_none());
+                }
+                let custom = endpoint_config(
+                    ProviderType::Qwen,
+                    "https://custom.example/compatible-mode/v1",
+                );
+                let unrelated = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&custom),
+                ))
+                .unwrap();
+                assert!(unrelated.get("clear_thinking").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn october_router_and_hosted_models_do_not_inherit_unsupported_controls() {
+        for (provider, base, model) in [
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "typesafe/jev-router",
+            ),
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "inclusionai/ling-3.1-flash",
+            ),
+            (
+                ProviderType::SiliconFlow,
+                "https://api.siliconflow.cn/v1",
+                "zai-org/GLM-5.3",
+            ),
+            (
+                ProviderType::SiliconFlow,
+                "https://api.siliconflow.cn/v1",
+                "moonshotai/Kimi-K2.7-Code",
+            ),
+        ] {
+            let mut request = endpoint_reasoning_request(model);
+            request.provider_type = Some(provider);
+            request.reasoning_effort = Some(ReasoningEffort::High);
+            request.thinking_budget = Some(4096);
+            let config = endpoint_config(provider, base);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            for field in [
+                "reasoning_effort",
+                "thinking",
+                "thinking_budget",
+                "preserve_thinking",
+                "clear_thinking",
+            ] {
+                assert!(body.get(field).is_none(), "{model}: {field}");
+            }
+            assert!(body.pointer("/reasoning/effort").is_none());
+            assert!(body.pointer("/reasoning/max_tokens").is_none());
+        }
+    }
+
+    #[test]
+    fn ark_encrypted_history_replays_only_on_its_bound_route() {
+        use crate::llm::provider_turn::{
+            ProviderReplayPayload, ProviderTurnEnvelope, RouteSnapshot,
+        };
+        let model = "doubao-seed-2-1-turbo-260628";
+        let base = "https://ark.cn-beijing.volces.com/api/v3";
+        let profile = resolve_reasoning_profile(
+            ProviderType::Doubao,
+            Some(base),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            model,
+        );
+        let route = RouteSnapshot::from_profile(&profile);
+        let mut assistant = Message::text(Role::Assistant, "Done");
+        assistant.set_provider_turn(ProviderTurnEnvelope::capture_with_replay_payload(
+            "ark-turn",
+            "sample",
+            route.clone(),
+            "Done",
+            Some("Visible summary"),
+            None,
+            Vec::new(),
+            true,
+            Some(ProviderReplayPayload::ArkEncryptedContent(
+                "opaque/+=private-state".into(),
+            )),
+        ));
+        let mut request = endpoint_reasoning_request(model);
+        request.provider_type = Some(ProviderType::Doubao);
+        request.reasoning_enabled = Some(true);
+        request.messages = crate::llm::reasoning_replay::prepare_provider_replay_history(
+            &[assistant.clone()],
+            &route,
+        )
+        .messages;
+        let config = endpoint_config(ProviderType::Doubao, base);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(
+            body["messages"][0]["encrypted_content"],
+            "opaque/+=private-state"
+        );
+        assert!(!body["messages"][0]["content"]
+            .to_string()
+            .contains("private-state"));
+        let mut changed = route.clone();
+        changed.model_id = "doubao-seed-evolving".into();
+        request.messages =
+            crate::llm::reasoning_replay::prepare_provider_replay_history(&[assistant], &changed)
+                .messages;
+        request.model = changed.model_id;
+        let changed_body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert!(changed_body["messages"][0]
+            .get("encrypted_content")
+            .is_none());
+        let parsed: OaiResponseMessage = serde_json::from_value(
+            serde_json::json!({"encrypted_content":"opaque/+=private-state"}),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.encrypted_content.as_deref(),
+            Some("opaque/+=private-state")
+        );
+        assert!(parsed.reasoning_content.is_none());
+    }
 
     #[test]
     fn gpt_6_astra_sends_supported_reasoning_without_sampling_parameters() {
@@ -6607,7 +6944,7 @@ data: [DONE]
     #[test]
     fn openrouter_reasoning_can_use_token_budget() {
         let request = CompletionRequest {
-            model: "anthropic/claude-sonnet-4.6".to_string(),
+            model: "qwen/qwen3.7-flash".to_string(),
             messages: vec![Message::text(Role::User, "hello")],
             temperature: Some(0.4),
             max_tokens: Some(100),

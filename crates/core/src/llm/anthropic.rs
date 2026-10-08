@@ -744,6 +744,7 @@ fn uses_adaptive_thinking(model: &str) -> bool {
             | "claude-opus-5-5"
             | "claude-sonnet-5"
             | "claude-sonnet-5-5"
+            | "claude-haiku-5-5"
             | "claude-opus-4-8"
             | "claude-opus-4-7"
     )
@@ -752,7 +753,11 @@ fn uses_adaptive_thinking(model: &str) -> bool {
 fn requires_thinking_binding_controls(model: &str) -> bool {
     matches!(
         model.trim().to_ascii_lowercase().as_str(),
-        "claude-fable-5-1" | "claude-mythos-5-1" | "claude-opus-5-5" | "claude-sonnet-5-5"
+        "claude-fable-5-1"
+            | "claude-mythos-5-1"
+            | "claude-opus-5-5"
+            | "claude-sonnet-5-5"
+            | "claude-haiku-5-5"
     )
 }
 
@@ -787,9 +792,11 @@ fn build_request_body(
 ) -> AnthropicRequest {
     let supports_adaptive_thinking = uses_adaptive_thinking(&request.model);
     let binding_controls = requires_thinking_binding_controls(&request.model);
-    let always_thinking =
-        binding_controls || matches!(request.model.as_str(), "claude-fable-5" | "claude-mythos-5");
+    let haiku55 = request.model.eq_ignore_ascii_case("claude-haiku-5-5");
+    let always_thinking = (binding_controls && !haiku55)
+        || matches!(request.model.as_str(), "claude-fable-5" | "claude-mythos-5");
     let uses_adaptive = always_thinking
+        || haiku55
         || (supports_adaptive_thinking
             && (request.reasoning_effort.is_some() || request.thinking_budget.is_some()));
     let temperature = if supports_adaptive_thinking {
@@ -799,73 +806,95 @@ fn build_request_body(
     };
     // NOTE: Anthropic's API returns a clear error for models that don't support
     // thinking, so budget-based thinking is not model-gated (unlike Gemini).
-    let (thinking, output_config, temperature, effective_max_tokens) =
-        if sonnet55::between_tools(request) {
+    let (thinking, output_config, temperature, effective_max_tokens) = if haiku55
+        && (request.reasoning_enabled == Some(false)
+            || request.reasoning_effort == Some(ReasoningEffort::None))
+    {
+        (
+            Some(AnthropicThinking {
+                r#type: "disabled".into(),
+                budget_tokens: None,
+                block_binding: None,
+                display: None,
+            }),
+            Some(AnthropicOutputConfig {
+                effort: if matches!(request.reasoning_effort, None | Some(ReasoningEffort::None)) {
+                    "medium".into()
+                } else {
+                    anthropic_reasoning_effort(request.reasoning_effort.as_ref())
+                        .unwrap_or_else(|| "medium".into())
+                },
+            }),
+            None,
+            request.max_tokens,
+        )
+    } else if sonnet55::between_tools(request) {
+        (
+            Some(AnthropicThinking {
+                r#type: "between_tools".into(),
+                budget_tokens: None,
+                block_binding: None,
+                display: None,
+            }),
+            Some(AnthropicOutputConfig {
+                effort: anthropic_reasoning_effort(request.reasoning_effort.as_ref())
+                    .filter(|effort| matches!(effort.as_str(), "low" | "medium" | "high"))
+                    .unwrap_or_else(|| "high".into()),
+            }),
+            None,
+            request.max_tokens,
+        )
+    } else if uses_adaptive {
+        let effort = if (request.model == "claude-opus-5-5" || haiku55)
+            && request.reasoning_effort.is_none()
+        {
+            Some("medium".to_string())
+        } else {
+            anthropic_reasoning_effort(request.reasoning_effort.as_ref())
+        }
+        .or_else(|| always_thinking.then(|| "low".to_string()));
+        if let Some(effort) = effort {
             (
                 Some(AnthropicThinking {
-                    r#type: "between_tools".into(),
+                    r#type: "adaptive".to_string(),
                     budget_tokens: None,
-                    block_binding: None,
-                    display: None,
+                    // Nexa may compact history or update the tool surface. Let
+                    // Anthropic discard only invalidated thinking blocks while
+                    // retaining the messages and completed tool results.
+                    block_binding: binding_controls
+                        .then(|| serde_json::json!({"prefix_mismatch_behavior":"drop_block"})),
+                    display: if sonnet55::is_model(&request.model) {
+                        Some("updates")
+                    } else {
+                        (request.model == "claude-opus-5-5" || haiku55).then_some("summarized")
+                    },
                 }),
-                Some(AnthropicOutputConfig {
-                    effort: anthropic_reasoning_effort(request.reasoning_effort.as_ref())
-                        .filter(|effort| matches!(effort.as_str(), "low" | "medium" | "high"))
-                        .unwrap_or_else(|| "high".into()),
-                }),
+                Some(AnthropicOutputConfig { effort }),
                 None,
                 request.max_tokens,
             )
-        } else if uses_adaptive {
-            let effort =
-                if request.model == "claude-opus-5-5" && request.reasoning_effort.is_none() {
-                    Some("medium".to_string())
-                } else {
-                    anthropic_reasoning_effort(request.reasoning_effort.as_ref())
-                }
-                .or_else(|| always_thinking.then(|| "low".to_string()));
-            if let Some(effort) = effort {
-                (
-                    Some(AnthropicThinking {
-                        r#type: "adaptive".to_string(),
-                        budget_tokens: None,
-                        // Nexa may compact history or update the tool surface. Let
-                        // Anthropic discard only invalidated thinking blocks while
-                        // retaining the messages and completed tool results.
-                        block_binding: binding_controls
-                            .then(|| serde_json::json!({"prefix_mismatch_behavior":"drop_block"})),
-                        display: if sonnet55::is_model(&request.model) {
-                            Some("updates")
-                        } else {
-                            (request.model == "claude-opus-5-5").then_some("summarized")
-                        },
-                    }),
-                    Some(AnthropicOutputConfig { effort }),
-                    None,
-                    request.max_tokens,
-                )
-            } else {
-                (None, None, temperature, request.max_tokens)
-            }
-        } else if let Some(budget) = request.thinking_budget {
-            // Anthropic requires budget_tokens >= 1024. Honor the selected sample
-            // capacity instead of silently adding another fixed output allowance.
-            let budget = budget.max(1024);
-            let effective_max = request.max_tokens;
-            (
-                Some(AnthropicThinking {
-                    r#type: "enabled".to_string(),
-                    budget_tokens: Some(budget),
-                    block_binding: None,
-                    display: None,
-                }),
-                None,
-                None, // Anthropic requires temperature unset when thinking is enabled
-                effective_max,
-            )
         } else {
             (None, None, temperature, request.max_tokens)
-        };
+        }
+    } else if let Some(budget) = request.thinking_budget {
+        // Anthropic requires budget_tokens >= 1024. Honor the selected sample
+        // capacity instead of silently adding another fixed output allowance.
+        let budget = budget.max(1024);
+        let effective_max = request.max_tokens;
+        (
+            Some(AnthropicThinking {
+                r#type: "enabled".to_string(),
+                budget_tokens: Some(budget),
+                block_binding: None,
+                display: None,
+            }),
+            None,
+            None, // Anthropic requires temperature unset when thinking is enabled
+            effective_max,
+        )
+    } else {
+        (None, None, temperature, request.max_tokens)
+    };
 
     let anthropic_tools = request.tools.as_ref().map(|t| convert_tools(t, true));
     let tool_cache_breakpoints = anthropic_tools
@@ -1494,6 +1523,15 @@ impl AnthropicProvider {
         request: &CompletionRequest,
     ) -> Result<CompletionRequest, CoreError> {
         let mut resolved = request.clone();
+        if request.model.eq_ignore_ascii_case("claude-haiku-5-5")
+            && request.reasoning_enabled == Some(false)
+            && matches!(
+                request.reasoning_effort,
+                Some(ReasoningEffort::XHigh | ReasoningEffort::Max)
+            )
+        {
+            return Err(CoreError::InvalidInput("Haiku 5.5 requires thinking for xhigh or max effort; enable thinking or select high, medium, or low.".into()));
+        }
         if resolved.max_tokens.is_none() {
             // The native API requires max_tokens; use the current catalog for
             // its exact route. Custom gateways retain their own default contract.
@@ -2426,6 +2464,7 @@ impl LlmProvider for AnthropicProvider {
             request,
         );
         if !sonnet55::is_model(&request.model)
+            && !request.model.eq_ignore_ascii_case("claude-haiku-5-5")
             && request.reasoning_enabled != Some(true)
             && request.reasoning_effort.is_none()
             && request.thinking_budget.is_none()
