@@ -744,11 +744,27 @@ async fn batch_wait_receipt_measures_waiting_without_extending_worker_lifetime()
         .artifacts
         .unwrap();
     assert_eq!(poll["waitedMs"], 0);
+    assert_eq!(poll["timedOut"], false);
+    runtime.record_batch_result("quiet-batch", 0, observed_batch_run("settled"));
+    let stale = tool
+        .execute(nexa_core::tools::ToolExecutionContext::new(
+            "stale-cursor",
+            r#"{"batchId":"quiet-batch","afterSeq":0,"waitMs":30000}"#,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap()
+        .artifacts
+        .unwrap();
+    assert_eq!(stale["waitedMs"], 0);
+    assert_eq!(stale["timedOut"], false);
+    assert_eq!(stale["cursor"], 1);
     runtime.cancel_token.cancel();
     let cancelled = tool
         .execute(nexa_core::tools::ToolExecutionContext::new(
             "cancelled-wait",
-            r#"{"batchId":"quiet-batch","afterSeq":0,"waitMs":30000}"#,
+            r#"{"batchId":"quiet-batch","afterSeq":1,"waitMs":30000}"#,
             &db,
             &[],
         ))
@@ -758,6 +774,30 @@ async fn batch_wait_receipt_measures_waiting_without_extending_worker_lifetime()
         .unwrap();
     assert_eq!(cancelled["waitedMs"], 0);
     assert_eq!(cancelled["waitInterrupted"], true);
+}
+
+#[tokio::test(start_paused = true)]
+async fn batch_wait_receipt_tracks_delayed_new_evidence_without_claiming_a_timeout() {
+    let runtime = test_runtime();
+    runtime.register_batch("delayed-batch", 2);
+    let tool = ObserveSubagentBatchTool::from_runtime(runtime.clone());
+    let db = Database::open_memory().unwrap();
+    let observe = tool.execute(nexa_core::tools::ToolExecutionContext::new(
+        "delayed-wait",
+        r#"{"batchId":"delayed-batch","afterSeq":0,"waitMs":30000}"#,
+        &db,
+        &[],
+    ));
+    let completion = async {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        runtime.record_batch_result("delayed-batch", 0, observed_batch_run("new"));
+    };
+    let (result, ()) = tokio::join!(observe, completion);
+    let receipt = result.unwrap().artifacts.unwrap();
+    assert_eq!(receipt["waitedMs"], 2000);
+    assert_eq!(receipt["timedOut"], false);
+    assert_eq!(receipt["pendingWorkers"], 1);
+    assert_eq!(receipt["cursor"], 1);
 }
 
 #[tokio::test]

@@ -494,6 +494,8 @@ impl Tool for ObserveSubagentBatchTool {
         let deadline = started + Duration::from_millis(wait_ms);
         let after = args.after_seq.unwrap_or(baseline_cursor);
         let mut wait_interrupted = false;
+        let mut waited = Duration::ZERO;
+        let mut timed_out = false;
         loop {
             let notified = changed.notified();
             tokio::pin!(notified);
@@ -503,24 +505,32 @@ impl Tool for ObserveSubagentBatchTool {
             let Some((expected, cursor)) = self.runtime.batch_progress(batch_id) else {
                 return Err(CoreError::NotFound(format!("Delegated batch {batch_id}")));
             };
-            if cursor as usize >= expected
-                || cursor != after
-                || wait_ms == 0
-                || tokio::time::Instant::now() >= deadline
-            {
+            if cursor as usize >= expected || cursor != after || wait_ms == 0 {
                 break;
             }
-            tokio::select! {
+            if tokio::time::Instant::now() >= deadline {
+                timed_out = !waited.is_zero();
+                break;
+            }
+            let wait_started = tokio::time::Instant::now();
+            let should_stop = tokio::select! {
                 biased;
                 _ = self.runtime.cancel_token.cancelled() => {
                     wait_interrupted = true;
-                    break;
+                    true
                 }
                 result = tokio::time::timeout_at(deadline, &mut notified) => {
-                    if result.is_err() { break; }
+                    timed_out = result.is_err();
+                    timed_out
                 }
+            };
+            waited = waited.saturating_add(wait_started.elapsed());
+            if should_stop {
+                break;
             }
         }
+        // Snapshot creation and formatting do not count as productive waiting.
+        let waited_ms = waited.as_millis().min(u128::from(wait_ms)) as u64;
         let snapshot = self
             .runtime
             .batch_snapshot(batch_id, args.after_seq)
@@ -555,9 +565,9 @@ impl Tool for ObserveSubagentBatchTool {
                 "cursor": cursor,
                 "reset": reset,
                 "incremental": args.after_seq.is_some(),
-                "timedOut": !wait_interrupted && pending_workers > 0 && cursor == after && !reset,
+                "timedOut": timed_out && !wait_interrupted && pending_workers > 0 && cursor == after && !reset,
                 "waitInterrupted": wait_interrupted,
-                "waitedMs": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                "waitedMs": waited_ms,
                 "expectedWorkers": expected_workers,
                 "completedWorkers": completed_workers,
                 "pendingWorkers": pending_workers,

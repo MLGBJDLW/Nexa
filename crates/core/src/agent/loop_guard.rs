@@ -381,6 +381,14 @@ fn is_live_wait_receipt(call: &ToolCallRequest, artifacts: Option<&Value>) -> bo
                 )
         }
         ("observe_subagent_batch", Some("subagent_batch_observation")) => {
+            let after = args.get("afterSeq").and_then(Value::as_u64);
+            let requested_wait = args
+                .get("waitMs")
+                .and_then(Value::as_u64)
+                .unwrap_or(if after.is_some() { 30_000 } else { 0 })
+                .min(60_000);
+            let cursor = receipt.get("cursor").and_then(Value::as_u64);
+            let timed_out = receipt.get("timedOut").and_then(Value::as_bool);
             let expected = receipt.get("expectedWorkers").and_then(Value::as_u64);
             let completed = receipt.get("completedWorkers").and_then(Value::as_u64);
             let pending = receipt.get("pendingWorkers").and_then(Value::as_u64);
@@ -392,9 +400,19 @@ fn is_live_wait_receipt(call: &ToolCallRequest, artifacts: Option<&Value>) -> bo
                 && receipt.get("cancelRequested").and_then(Value::as_bool) == Some(false)
                 && receipt.get("waitInterrupted").and_then(Value::as_bool) == Some(false)
                 && receipt.get("reset").and_then(Value::as_bool) == Some(false)
+                && requested_wait >= 1_000
+                && receipt
+                    .get("waitedMs")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|waited| waited <= requested_wait)
+                && after.is_none_or(|after| match timed_out {
+                    Some(true) => cursor == Some(after),
+                    Some(false) => cursor.is_some_and(|cursor| cursor > after),
+                    None => false,
+                })
                 && matches!((expected, completed, pending), (Some(total), Some(done), Some(left))
                     if done < total && left == total - done)
-                && receipt.get("cursor").and_then(Value::as_u64) == completed
+                && cursor == completed
         }
         ("activity_observe", Some("activityObservation")) => {
             args.get("activityId").is_some()
@@ -734,6 +752,7 @@ mod tests {
         for (key, value) in [
             ("batchId", serde_json::json!("another-batch")),
             ("waitedMs", serde_json::json!(0)),
+            ("waitedMs", serde_json::json!(30_001)),
             ("pendingWorkers", serde_json::json!(0)),
             ("completedWorkers", serde_json::json!(2)),
             ("cursor", serde_json::json!(1)),
@@ -745,6 +764,32 @@ mod tests {
             invalid[key] = value;
             assert!(!is_live_wait_receipt(&wait, Some(&invalid)), "{key}");
         }
+        for args in [
+            serde_json::json!({"batchId":"batch"}),
+            serde_json::json!({"batchId":"batch","afterSeq":0,"waitMs":0}),
+            serde_json::json!({"batchId":"batch","afterSeq":0,"waitMs":999}),
+            serde_json::json!({"batchId":"batch","afterSeq":1,"waitMs":30000}),
+        ] {
+            let mut poll = wait.clone();
+            poll.arguments = args.to_string();
+            assert!(!is_live_wait_receipt(&poll, Some(&receipt)));
+        }
+        let mut default_wait = wait.clone();
+        default_wait.arguments = serde_json::json!({"batchId":"batch","afterSeq":0}).to_string();
+        assert!(is_live_wait_receipt(&default_wait, Some(&receipt)));
+        let mut changed = receipt.clone();
+        changed["cursor"] = serde_json::json!(1);
+        changed["completedWorkers"] = serde_json::json!(1);
+        changed["pendingWorkers"] = serde_json::json!(1);
+        assert!(
+            !is_live_wait_receipt(&wait, Some(&changed)),
+            "a timed-out cursor cannot advance"
+        );
+        changed["timedOut"] = serde_json::json!(false);
+        assert!(
+            is_live_wait_receipt(&wait, Some(&changed)),
+            "a delayed new result with residual workers is progress"
+        );
         let action = call(r#"{"path":"unchanged.txt"}"#);
         let mut mixed = AgentLoopGuard::new();
         for _ in 0..2 {
