@@ -860,8 +860,26 @@ fn query_has_local_path_handoff(query: &str) -> bool {
 }
 
 fn query_requests_web_artifact_authoring(query: &str) -> bool {
-    contains_any(query, WEB_ARTIFACT_MEDIA_TERMS)
-        && contains_any(query, ARTIFACT_AUTHORING_INTENT_TERMS)
+    WEB_ARTIFACT_MEDIA_TERMS.iter().any(|term| {
+        if !matches!(*term, "spa" | "spas") {
+            return query.contains(term);
+        }
+        // Short medium names such as SPA are words, not substrings of
+        // "whitespace", "namespace" or "spawning". A false match creates an
+        // unrelated rendered-browser completion obligation for ordinary code.
+        query.match_indices(term).any(|(start, _)| {
+            let is_identifier =
+                |character: char| character.is_ascii_alphanumeric() || character == '_';
+            !query[..start]
+                .chars()
+                .next_back()
+                .is_some_and(is_identifier)
+                && !query[start + term.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(is_identifier)
+        })
+    }) && contains_any(query, ARTIFACT_AUTHORING_INTENT_TERMS)
 }
 
 fn query_requests_browser_operation(query: &str) -> bool {
@@ -1834,6 +1852,7 @@ const WEB_ARTIFACT_MEDIA_TERMS: &[&str] = &[
     "vue app",
     "svelte app",
     "spa",
+    "spas",
     "single-page app",
     "single page app",
     "网页应用",
@@ -2721,6 +2740,40 @@ mod tests {
             .active_categories
             .contains(&ToolCategory::BrowserInteract));
         assert!(requirements.requires_visual_observation_after_mutation());
+    }
+
+    #[test]
+    fn ordinary_identifier_substrings_do_not_create_visual_completion_obligations() {
+        for query in [
+            "Use tool_search to discover the supplied file reading and editing capabilities, then inspect src/module.mjs. Fix enabled(value) so it returns true only for the strings true or 1, ignoring case and surrounding whitespace; all other values return false. Use the discovered tools to make the change.",
+            "Build a whitespace parser for the CLI.",
+            "Implement namespace lookup in this Rust library.",
+            "Write a test for spawning worker processes.",
+        ] {
+            let requirements = resolve_turn_capability_requirements(ToolVisibilityInput {
+                query, system_prompt:"", has_sources:false,
+            });
+            assert!(!requirements.requires_visual_observation_after_mutation(), "{query}");
+        }
+        for query in [
+            "Build a SPA",
+            "Create a React application",
+            "Build a single-page application",
+            "Create two React apps",
+            "Build two SPAs",
+            "用html5写一个动画",
+            "Make an interactive WebGL2 demo",
+        ] {
+            let requirements = resolve_turn_capability_requirements(ToolVisibilityInput {
+                query,
+                system_prompt: "",
+                has_sources: false,
+            });
+            assert!(
+                requirements.requires_visual_observation_after_mutation(),
+                "{query}"
+            );
+        }
     }
 
     #[test]
