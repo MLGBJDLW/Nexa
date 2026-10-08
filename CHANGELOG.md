@@ -34,6 +34,19 @@
 * **skills:** preserve concurrent user state during replacement ([fef89ff](https://github.com/MLGBJDLW/Nexa/commit/fef89ff3c2e8b2ebd1f1d3ed994712a707879e4a))
 * **subagents:** count only actual blocking batch waits ([7b71d55](https://github.com/MLGBJDLW/Nexa/commit/7b71d5539aa4d4fb3ea12b3a60fa77e711344119))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 3344bc983f2eea1143bde41f340eee442bf01abc -->
+
+### What's Changed
+* feat(agent): sustain task progress and recover full tool evidence by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/451
+* feat(providers): refresh models and add Jev structured decisions by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/453
+* feat(skills): install complete selected collections and public sources by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/454
+* feat(workflows): add durable authoring and dependent stage execution by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/455
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.26...nexa-monorepo-v0.14.27
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.26](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.25...nexa-monorepo-v0.14.26) (2026-10-05)
 
 
