@@ -855,6 +855,36 @@ impl WorkflowIr {
         }
     }
 
+    /// Stable runtime achievements for completion-repair liveness. Changing
+    /// explanations, checkpoint revisions and pending states are not progress.
+    pub(crate) fn completion_progress_milestones(&self) -> Vec<String> {
+        let mut milestones = self
+            .nodes
+            .iter()
+            .filter(|node| {
+                self.completion_contract.require_all_nodes_succeeded
+                    && node.status == WorkflowNodeStatus::Succeeded
+            })
+            .map(|node| format!("node:{}", node.id))
+            .collect::<Vec<_>>();
+        milestones.extend(
+            self.verification_gates
+                .iter()
+                .filter(|gate| self.completion_gate_is_enforced(gate) && gate.passed == Some(true))
+                .map(|gate| format!("gate:{}", gate.id)),
+        );
+        if self.completion_contract.require_evidence_ledger {
+            milestones.extend(
+                self.evidence_ledger
+                    .iter()
+                    .filter(|entry| entry.status == "verified")
+                    .flat_map(|entry| entry.source_ids.iter())
+                    .map(|source| format!("source:{source}")),
+            );
+        }
+        milestones
+    }
+
     pub fn completion_blockers(&self) -> Vec<String> {
         let mut blockers = if self.completion_contract.require_all_nodes_succeeded {
             self.nodes

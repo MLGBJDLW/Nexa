@@ -344,6 +344,17 @@ pub async fn run_event(
 
 /// Also catches native external-agent file writes before their final answer is persisted.
 pub async fn completion_blocker(context: &HookContext<'_>) -> Result<Option<String>, CoreError> {
+    Ok(completion_feedback(context).await?.blocker)
+}
+
+pub(crate) struct CompletionFeedback {
+    pub(crate) blocker: Option<String>,
+    pub(crate) completed_hooks: Vec<String>,
+}
+
+pub(crate) async fn completion_feedback(
+    context: &HookContext<'_>,
+) -> Result<CompletionFeedback, CoreError> {
     let mut runs = run_event(context, HookEvent::AfterFileChange).await?;
     runs.extend(run_event(context, HookEvent::BeforeComplete).await?);
     if let (Some(conversation), Some(turn)) = (context.conversation_id, context.turn_id) {
@@ -354,9 +365,13 @@ pub async fn completion_blocker(context: &HookContext<'_>) -> Result<Option<Stri
             .next()
             .unwrap_or_default();
         if !runs.is_empty() && changes.pending {
-            return Ok(Some(
-                "Project lifecycle checks are waiting for pending file changes to settle.".into(),
-            ));
+            return Ok(CompletionFeedback {
+                blocker: Some(
+                    "Project lifecycle checks are waiting for pending file changes to settle."
+                        .into(),
+                ),
+                completed_hooks: Vec::new(),
+            });
         }
         let final_revision = tracked_revision(context.db, conversation, turn)?;
         for run in &mut runs {
@@ -372,7 +387,10 @@ pub async fn completion_blocker(context: &HookContext<'_>) -> Result<Option<Stri
         .filter(|run| run.status != "passed")
         .map(|run| format!("{}: {}", run.status, run.detail))
         .collect::<Vec<_>>();
-    Ok((!failed.is_empty()).then(|| format!("Project lifecycle checks prevent completion. Repair the files and try again; checks rerun when the tracked file revision changes. Do not replay successful file writes.\n{}", failed.join("\n"))))
+    Ok(CompletionFeedback {
+        blocker: (!failed.is_empty()).then(|| format!("Project lifecycle checks prevent completion. Repair the files and try again; checks rerun when the tracked file revision changes. Do not replay successful file writes.\n{}", failed.join("\n"))),
+        completed_hooks: runs.iter().filter(|run| run.status == "passed").map(|run| run.hook_id.clone()).collect(),
+    })
 }
 
 struct RunningHook<'a> {
@@ -779,5 +797,132 @@ mod tests {
             .unwrap()
             .iter()
             .all(|message| message.role != crate::llm::Role::Assistant));
+    }
+
+    #[tokio::test]
+    async fn productive_file_repairs_continue_beyond_the_profile_retry_count() {
+        use crate::llm::{ContentPart, FinishReason, StreamChunk, ToolCallDelta};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        struct RepairProvider {
+            calls: Arc<AtomicUsize>,
+            directory: std::path::PathBuf,
+        }
+        #[async_trait::async_trait]
+        impl crate::llm::LlmProvider for RepairProvider {
+            fn name(&self) -> &str {
+                "progressive-hook-repair"
+            }
+            async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+                Ok(vec!["test".into()])
+            }
+            async fn health_check(&self) -> Result<(), CoreError> {
+                Ok(())
+            }
+            async fn complete(
+                &self,
+                _: &crate::llm::CompletionRequest,
+            ) -> Result<crate::llm::CompletionResponse, CoreError> {
+                unreachable!()
+            }
+            async fn stream_events(
+                &self,
+                _: &crate::llm::CompletionRequest,
+            ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+            {
+                let index = self.calls.fetch_add(1, Ordering::SeqCst);
+                assert!(
+                    index < 8,
+                    "the real check must pass after the fourth mutation"
+                );
+                let write = index % 2 == 0;
+                let path = self.directory.join(if index == 6 {
+                    "ready.txt".into()
+                } else {
+                    format!("candidate-{index}.txt")
+                });
+                let chunk = StreamChunk {
+                    delta: if write {
+                        String::new()
+                    } else {
+                        "The requested work is complete.".into()
+                    },
+                    tool_call_delta: write.then(|| ToolCallDelta {
+                        id: format!("repair-{index}"),
+                        name: Some("create_file".into()),
+                        arguments_delta:
+                            json!({"path":path,"content":format!("candidate {index}")})
+                                .to_string()
+                                .into(),
+                        index: Some(0),
+                        thought_signature: None,
+                    }),
+                    finish_reason: Some(if write {
+                        FinishReason::ToolCalls
+                    } else {
+                        FinishReason::Stop
+                    }),
+                    usage: None,
+                    thinking_delta: None,
+                };
+                crate::llm::provider_events_from_chunk_stream(Box::pin(futures::stream::iter([
+                    Ok(chunk),
+                ])))
+            }
+        }
+        #[cfg(windows)]
+        let script = "if exist ready.txt (exit /b 0) else (exit /b 7)";
+        #[cfg(not(windows))]
+        let script = "test -f ready.txt";
+        let fixture = Fixture::new(script);
+        fixture.enable(HookEvent::BeforeComplete);
+        let mut tools = fixture
+            .tools
+            .clone()
+            .with_workspace(Some(fixture.workspace.clone()));
+        tools.register(Box::new(crate::tools::create_file_tool::CreateFileTool));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let executor = crate::agent::AgentExecutor::new(
+            Box::new(RepairProvider {
+                calls: calls.clone(),
+                directory: fixture.directory.path().into(),
+            }),
+            tools,
+            crate::agent::AgentConfig {
+                model: Some("test".into()),
+                context_window: Some(32_000),
+                tool_approval_mode: ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::channel(256);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let result = executor
+            .run(
+                Vec::new(),
+                vec![ContentPart::Text {
+                    text: "Complete the file changes and pass project checks.".into(),
+                }],
+                &fixture.db,
+                Some("chat"),
+                Some("turn"),
+                tx,
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.text_content(), "The requested work is complete.");
+        assert_eq!(calls.load(Ordering::SeqCst), 8);
+        let runs = fixture.db.project_hook_runs("project").unwrap();
+        assert_eq!(runs.iter().filter(|run| run.status == "failed").count(), 3);
+        assert_eq!(runs.iter().filter(|run| run.status == "passed").count(), 1);
+        assert_eq!(
+            fixture.db.get_conversation_turn("turn").unwrap().status,
+            "success"
+        );
+        drain.await.unwrap();
     }
 }
