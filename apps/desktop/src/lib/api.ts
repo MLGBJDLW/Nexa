@@ -2514,6 +2514,16 @@ export const parseSkillMarkdown = (content: string) =>
 export const inspectSkillInstallSource = (source: string) =>
   invoke<DiscoveredSkillBundle[]>('inspect_skill_install_source_cmd', { source });
 
+export const inspectSkillInstallSources = (sources: string[]) =>
+  invoke<DiscoveredSkillBundle[]>('inspect_skill_install_sources_cmd', { sources });
+
+export const installSkillsFromSources = (
+  sources: string[],
+  selection: import('../types/extensions').SkillInstallSelection[],
+  replaceExisting: boolean,
+  acceptBlockedWarnings: boolean,
+) => invoke<Skill[]>('install_skills_from_sources_cmd', { sources, selection, replaceExisting, acceptBlockedWarnings });
+
 export const installSkillsFromSource = (
   source: string,
   replaceExisting: boolean,

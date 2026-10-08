@@ -158,6 +158,7 @@ pub mod search_files_tool;
 pub mod search_playbooks_tool;
 pub mod search_tool;
 pub mod session_search_tool;
+mod skill_install_sources;
 pub mod statistics_tool;
 pub mod submit_feedback_tool;
 pub mod summarize_tool;
@@ -1451,6 +1452,16 @@ impl ToolRegistry {
         let schema = tool.definition().parameters;
         match normalize_tool_arguments(name, arguments, &schema) {
             Ok(arguments) => {
+                if name == "manage_skill" {
+                    if let Err(error) = manage_skill_tool::validate_arguments(&arguments) {
+                        return Err(tool_contract_error_result(
+                            call_id,
+                            "invalid_skill_install_arguments",
+                            error.to_string(),
+                            schema,
+                        ));
+                    }
+                }
                 if name == "code_review" {
                     if let Err(error) = code_review_tool::validate_arguments(&arguments) {
                         return Err(tool_contract_error_result(

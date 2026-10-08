@@ -84,6 +84,47 @@ Resources are classified by path:
 The frontend receives resource metadata only. Full resource contents stay on the
 core side until a tool or skill explicitly needs them.
 
+Additional directories such as `templates/` and `examples/`, and root files
+such as `README.md` and `LICENSE`, are retained too. Nested example `SKILL.md`
+files inside an accepted skill are resources of that skill. Version-control
+metadata and dependency caches are excluded. Import limits reject oversized or
+overdeep packages explicitly; the importer never silently drops their tails.
+
+## Import and installation
+
+Skills settings accepts multiple Markdown files, packages, or directories in a
+single picker selection. ZIP/`.skill` collections can contain multiple skill
+directories. The preview lets the user select individual skills, inspect their
+resource counts and warnings, and acknowledge updates only for that selection.
+Changing the selection clears previous warning/update acknowledgements.
+
+Every selected body and resource bundle has a content digest. Installation
+rereads the source and rejects drift before any database or destination change.
+The common installer stages complete directories, saves the selected records in
+one database transaction, and rolls back published directories if publication or
+database commit fails. Existing IDs, disabled state and unmodeled user files are
+preserved on explicit replacement. This rollback covers reported operation
+failures; it is not a crash-recovery journal for process or power loss.
+
+The agent uses the same owner through `manage_skill`:
+
+1. `inspect_install_sources` accepts local scoped paths, public GitHub
+   repository/directory/`SKILL.md` URLs, or direct archive/Markdown URLs. It
+   returns metadata, warnings, and exact `skillFile`/`contentDigest` selections.
+2. `install_sources` accepts the same sources and the chosen selections. It
+   follows the host approval policy and returns the saved IDs and materialized
+   paths. `replace_existing` and `accept_blocked_warnings` default to false.
+3. `activate_skill` loads an installed skill; `view_resource` reads its bundled
+   files. Installing does not execute bundled scripts.
+
+GitHub file URLs retrieve the complete surrounding skill directory, including
+its resources. Use `github_ref` for an explicit revision or a branch containing
+`/`, and keep that value unchanged between inspection and installation. Private
+repositories use an authenticated local checkout; the downloader does not
+borrow account credentials. Public downloads retain the host's URL/redirect
+network checks, cancellation and bounded package reads. A direct standalone
+Markdown download is explicitly identified as having no neighboring resources.
+
 ## Safety Model
 
 Skill package scanning is advisory but strict enough to surface dangerous

@@ -9,8 +9,8 @@ use serde::Serialize;
 use walkdir::WalkDir;
 
 use super::model::{
-    DiscoveredSkillBundle, SaveSkillInput, Skill, SkillResourceEncoding, SkillResourceFile,
-    SkillWarning, SkillWarningSeverity,
+    DiscoveredSkillBundle, SaveSkillInput, Skill, SkillInstallSelection, SkillResourceEncoding,
+    SkillResourceFile, SkillWarning, SkillWarningSeverity,
 };
 use super::registry::{load_builtin_skills, parse_skill_file};
 use super::scanner::scan_skill_content;
@@ -24,7 +24,6 @@ const MAX_DISCOVERY_ENTRIES: usize = 10_000;
 const MAX_PACKAGE_FILES: usize = 512;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_PACKAGE_BYTES: u64 = 64 * 1024 * 1024;
-const RESOURCE_FOLDERS: [&str; 4] = ["scripts", "references", "assets", "agents"];
 
 struct InstallCandidate {
     preview: DiscoveredSkillBundle,
@@ -224,18 +223,7 @@ pub fn sync_registered_user_skills_from_directory(
 pub fn inspect_skill_install_source(
     source: &Path,
 ) -> Result<Vec<DiscoveredSkillBundle>, CoreError> {
-    let candidates = load_install_candidates(source)?;
-    if candidates.is_empty() {
-        return Err(CoreError::InvalidInput(format!(
-            "No SKILL.md files found in {}",
-            source.display()
-        )));
-    }
-    validate_candidate_directory_names(&candidates)?;
-    Ok(candidates
-        .into_iter()
-        .map(|candidate| candidate.preview)
-        .collect())
+    inspect_skill_install_sources(&[source.to_path_buf()])
 }
 
 /// Install all skills from a supported source. Existing user skills are only
@@ -246,15 +234,130 @@ pub fn import_skills_from_source(
     replace_existing: bool,
     accept_blocked_warnings: bool,
 ) -> Result<Vec<Skill>, CoreError> {
-    let mut candidates = load_install_candidates(source)?;
-    if candidates.is_empty() {
-        return Err(CoreError::InvalidInput(format!(
-            "No SKILL.md files found in {}",
-            source.display()
-        )));
-    }
-    validate_candidate_directory_names(&candidates)?;
+    import_skills_from_sources(
+        db,
+        &[source.to_path_buf()],
+        None,
+        replace_existing,
+        accept_blocked_warnings,
+    )
+}
 
+pub fn inspect_skill_install_sources(
+    sources: &[PathBuf],
+) -> Result<Vec<DiscoveredSkillBundle>, CoreError> {
+    Ok(load_candidates_from_sources(sources)?
+        .into_iter()
+        .map(|candidate| candidate.preview)
+        .collect())
+}
+
+fn load_candidates_from_sources(sources: &[PathBuf]) -> Result<Vec<InstallCandidate>, CoreError> {
+    if sources.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "Choose at least one skill source".into(),
+        ));
+    }
+    let mut candidates = Vec::new();
+    let mut seen_sources = HashSet::new();
+    let mut seen_files = HashSet::new();
+    for source in sources {
+        let canonical = fs::canonicalize(source).map_err(|error| {
+            CoreError::InvalidInput(format!(
+                "Cannot open skill source {}: {error}",
+                source.display()
+            ))
+        })?;
+        if !seen_sources.insert(canonical.clone()) {
+            continue;
+        }
+        let loaded = load_install_candidates(&canonical)?;
+        if loaded.is_empty() {
+            return Err(CoreError::InvalidInput(format!(
+                "No SKILL.md files found in {}",
+                source.display()
+            )));
+        }
+        // A downloaded Markdown file has no portable package directory yet.
+        // Installation creates it from validated frontmatter.
+        if !canonical.is_file()
+            || !canonical
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            validate_candidate_directory_names(&loaded)?;
+        }
+        for candidate in loaded {
+            if seen_files.insert(candidate.preview.skill_file.clone()) {
+                candidates.push(candidate);
+            }
+        }
+    }
+    Ok(candidates)
+}
+
+pub fn import_skills_from_sources(
+    db: &Database,
+    sources: &[PathBuf],
+    selection: Option<&[SkillInstallSelection]>,
+    replace_existing: bool,
+    accept_blocked_warnings: bool,
+) -> Result<Vec<Skill>, CoreError> {
+    let inputs = prepare_skill_install_inputs(
+        db,
+        sources,
+        selection,
+        replace_existing,
+        accept_blocked_warnings,
+    )?;
+    db.save_skills_atomically(&inputs)
+}
+
+pub(super) fn prepare_skill_install_inputs(
+    db: &Database,
+    sources: &[PathBuf],
+    selection: Option<&[SkillInstallSelection]>,
+    replace_existing: bool,
+    accept_blocked_warnings: bool,
+) -> Result<Vec<SaveSkillInput>, CoreError> {
+    let mut candidates = load_candidates_from_sources(sources)?;
+    if let Some(selection) = selection {
+        let selected = selection
+            .iter()
+            .map(|item| (item.skill_file.as_str(), item))
+            .collect::<HashMap<_, _>>();
+        if selected.len() != selection.len() {
+            return Err(CoreError::InvalidInput(
+                "Duplicate skill install selection".into(),
+            ));
+        }
+        let available = candidates
+            .iter()
+            .map(|item| item.preview.skill_file.as_str())
+            .collect::<HashSet<_>>();
+        if selected.keys().any(|file| !available.contains(file)) {
+            return Err(CoreError::InvalidInput(
+                "Selected skill is no longer present; inspect the sources again".into(),
+            ));
+        }
+        candidates.retain(|candidate| selected.contains_key(candidate.preview.skill_file.as_str()));
+        for candidate in &candidates {
+            if selected[candidate.preview.skill_file.as_str()].content_digest
+                != candidate.preview.content_digest
+            {
+                return Err(CoreError::Conflict(format!(
+                    "Skill {} changed after preview; inspect the sources again before installing",
+                    candidate.preview.name
+                )));
+            }
+        }
+    }
+    if candidates.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "Select at least one skill to install".into(),
+        ));
+    }
     let blocked_warnings = candidates
         .iter()
         .flat_map(|candidate| {
@@ -340,10 +443,10 @@ pub fn import_skills_from_source(
         }
     }
 
-    candidates
-        .iter()
-        .map(|candidate| db.save_skill(&candidate.input))
-        .collect()
+    Ok(candidates
+        .into_iter()
+        .map(|candidate| candidate.input)
+        .collect())
 }
 
 pub fn discover_skills_in_directory(root: &Path) -> Result<Vec<DiscoveredSkillBundle>, CoreError> {
@@ -388,6 +491,14 @@ fn load_install_candidates(source: &Path) -> Result<Vec<InstallCandidate>, CoreE
 
 fn validate_candidate_directory_names(candidates: &[InstallCandidate]) -> Result<(), CoreError> {
     for candidate in candidates {
+        if candidate
+            .preview
+            .skill_file
+            .rsplit_once("!/")
+            .is_some_and(|(_, relative)| relative == "SKILL.md")
+        {
+            continue;
+        }
         let directory_name = candidate
             .preview
             .skill_dir
@@ -408,11 +519,22 @@ fn validate_candidate_directory_names(candidates: &[InstallCandidate]) -> Result
 fn load_candidates_from_directory(root: &Path) -> Result<Vec<InstallCandidate>, CoreError> {
     let mut skill_files = Vec::new();
     let mut entry_count = 0usize;
-    for entry in WalkDir::new(root).max_depth(MAX_DISCOVERY_DEPTH + 1) {
+    let walker = WalkDir::new(root)
+        .max_depth(MAX_DISCOVERY_DEPTH + 1)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() == 0 || !excluded_package_component(&entry.file_name().to_string_lossy())
+        });
+    for entry in walker {
         let entry = entry.map_err(|error| CoreError::InvalidInput(error.to_string()))?;
         entry_count += 1;
         if entry_count > MAX_DISCOVERY_ENTRIES {
             return Err(package_limit_error("directory scan exceeds 10,000 entries"));
+        }
+        if entry.file_type().is_dir() && entry.depth() > MAX_DISCOVERY_DEPTH {
+            return Err(package_limit_error(
+                "directory scan exceeds 8 levels; select a closer skill collection directory",
+            ));
         }
         if !entry.file_type().is_file() {
             continue;
@@ -438,11 +560,8 @@ fn load_candidates_from_directory(root: &Path) -> Result<Vec<InstallCandidate>, 
     let mut accepted_dirs = Vec::<PathBuf>::new();
     skill_files.retain(|path| {
         let nested_resource = accepted_dirs.iter().any(|parent| {
-            path.strip_prefix(parent)
-                .ok()
-                .and_then(|relative| relative.components().next())
-                .and_then(|component| component.as_os_str().to_str())
-                .is_some_and(|folder| RESOURCE_FOLDERS.contains(&folder))
+            path.parent()
+                .is_some_and(|directory| directory != parent && directory.starts_with(parent))
         });
         if !nested_resource {
             accepted_dirs.push(path.parent().unwrap_or(root).to_path_buf());
@@ -468,40 +587,60 @@ fn load_candidate_from_markdown_with_legacy_name(
     let skill_dir = skill_file.parent().unwrap_or_else(|| Path::new("."));
     validate_file_size(fs::metadata(skill_file)?.len(), skill_file)?;
     let content = fs::read_to_string(skill_file)?;
-    let resources = load_resource_bundle_from_dir(skill_dir)?;
-    build_candidate_with_legacy_name(
+    let (frontmatter, _) = parse_skill_file(&content)?;
+    let has_package_directory = accepted_legacy_display_name.is_some()
+        || skill_dir.file_name().and_then(|name| name.to_str()) == Some(frontmatter.name.as_str());
+    let resources = if has_package_directory {
+        load_resource_bundle_from_dir(skill_dir)?
+    } else {
+        Vec::new()
+    };
+    let mut candidate = build_candidate_with_legacy_name(
         skill_file.to_string_lossy().to_string(),
         skill_dir.to_string_lossy().to_string(),
         content,
         resources,
         accepted_legacy_display_name,
-    )
+    )?;
+    if !has_package_directory {
+        candidate.preview.warnings.push(SkillWarning::new(SkillWarningSeverity::Info,
+            "package.standalone_markdown", "Standalone Markdown was imported without neighboring files. Use a skill directory, repository, or archive when the skill needs bundled resources."));
+    }
+    Ok(candidate)
 }
 
 fn load_candidates_from_archive(source: &Path) -> Result<Vec<InstallCandidate>, CoreError> {
     let file = fs::File::open(source)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|error| CoreError::InvalidInput(format!("Invalid skill package: {error}")))?;
-    if archive.len() > MAX_PACKAGE_FILES {
-        return Err(package_limit_error("too many files"));
+    if archive.len() > MAX_DISCOVERY_ENTRIES {
+        return Err(package_limit_error("archive scan exceeds 10,000 entries"));
     }
 
     let mut files = HashMap::<String, Vec<u8>>::new();
     let mut archive_names = HashSet::new();
     let mut total_bytes = 0u64;
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| {
+        let entry = archive.by_index(index).map_err(|error| {
             CoreError::InvalidInput(format!("Invalid skill package entry: {error}"))
         })?;
         let enclosed = entry.enclosed_name().ok_or_else(|| {
             CoreError::InvalidInput(format!("Unsafe path in skill package: {}", entry.name()))
         })?;
+        if entry
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+        {
+            return Err(CoreError::InvalidInput(format!(
+                "Skill package contains a symbolic link: {}",
+                entry.name()
+            )));
+        }
         if entry.is_dir() {
             continue;
         }
         validate_file_size(entry.size(), &enclosed)?;
-        total_bytes = total_bytes.saturating_add(entry.size());
-        if total_bytes > MAX_PACKAGE_BYTES {
+        if total_bytes.saturating_add(entry.size()) > MAX_PACKAGE_BYTES {
             return Err(package_limit_error("total size exceeds 64 MiB"));
         }
         let name = enclosed.to_string_lossy().replace('\\', "/");
@@ -511,7 +650,12 @@ fn load_candidates_from_archive(source: &Path) -> Result<Vec<InstallCandidate>, 
             )));
         }
         let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes)?;
+        entry.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+        validate_file_size(bytes.len() as u64, &enclosed)?;
+        total_bytes = total_bytes.saturating_add(bytes.len() as u64);
+        if total_bytes > MAX_PACKAGE_BYTES {
+            return Err(package_limit_error("total size exceeds 64 MiB"));
+        }
         files.insert(name, bytes);
     }
 
@@ -524,17 +668,9 @@ fn load_candidates_from_archive(source: &Path) -> Result<Vec<InstallCandidate>, 
     let mut accepted_dirs = Vec::<String>::new();
     skill_paths.retain(|path| {
         let skill_dir = path.strip_suffix("/SKILL.md").unwrap_or_default();
-        let nested_resource = accepted_dirs.iter().any(|parent| {
-            let relative = if parent.is_empty() {
-                path.as_str()
-            } else {
-                path.strip_prefix(&format!("{parent}/")).unwrap_or_default()
-            };
-            relative
-                .split('/')
-                .next()
-                .is_some_and(|folder| RESOURCE_FOLDERS.contains(&folder))
-        });
+        let nested_resource = accepted_dirs
+            .iter()
+            .any(|parent| parent.is_empty() || path.starts_with(&format!("{parent}/")));
         if !nested_resource {
             accepted_dirs.push(skill_dir.to_string());
         }
@@ -576,6 +712,11 @@ fn load_resource_bundle_from_archive(
         if !is_resource_path(relative) {
             continue;
         }
+        if resources.len() >= MAX_PACKAGE_FILES {
+            return Err(package_limit_error(
+                "a single skill exceeds 512 resource files",
+            ));
+        }
         resources.push(resource_from_bytes(relative.to_string(), bytes.clone()));
     }
     normalize_resource_bundle(&resources)
@@ -584,40 +725,55 @@ fn load_resource_bundle_from_archive(
 fn load_resource_bundle_from_dir(skill_dir: &Path) -> Result<Vec<SkillResourceFile>, CoreError> {
     let mut resources = Vec::new();
     let mut total_bytes = 0u64;
-    let mut file_count = 0usize;
     let mut entry_count = 0usize;
-    for folder in RESOURCE_FOLDERS {
-        let dir = skill_dir.join(folder);
-        if !dir.exists() {
+    let walker = WalkDir::new(skill_dir)
+        .min_depth(1)
+        .max_depth(MAX_DISCOVERY_DEPTH + 1)
+        .into_iter()
+        .filter_entry(|entry| !excluded_package_component(&entry.file_name().to_string_lossy()));
+    for entry in walker {
+        let entry = entry.map_err(|error| CoreError::InvalidInput(error.to_string()))?;
+        entry_count += 1;
+        if entry_count > MAX_DISCOVERY_ENTRIES {
+            return Err(package_limit_error("resource scan exceeds 10,000 entries"));
+        }
+        if entry.depth() > MAX_DISCOVERY_DEPTH {
+            return Err(package_limit_error(
+                "resource scan exceeds 8 levels; flatten the skill package before importing",
+            ));
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(skill_dir)
+            .map_err(|error| CoreError::InvalidInput(error.to_string()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !is_resource_path(&relative) || entry.file_type().is_dir() {
             continue;
         }
-        for entry in WalkDir::new(&dir).max_depth(MAX_DISCOVERY_DEPTH) {
-            let entry = entry.map_err(|error| CoreError::InvalidInput(error.to_string()))?;
-            entry_count += 1;
-            if entry_count > MAX_DISCOVERY_ENTRIES {
-                return Err(package_limit_error("resource scan exceeds 10,000 entries"));
-            }
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            file_count += 1;
-            if file_count > MAX_PACKAGE_FILES {
-                return Err(package_limit_error("too many resource files"));
-            }
-            let path = entry.into_path();
-            let bytes = fs::read(&path)?;
-            validate_file_size(bytes.len() as u64, &path)?;
-            total_bytes = total_bytes.saturating_add(bytes.len() as u64);
-            if total_bytes > MAX_PACKAGE_BYTES {
-                return Err(package_limit_error("resource size exceeds 64 MiB"));
-            }
-            let relative = path
-                .strip_prefix(skill_dir)
-                .unwrap_or(path.as_path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            resources.push(resource_from_bytes(relative, bytes));
+        if entry.file_type().is_symlink() {
+            return Err(CoreError::InvalidInput(format!(
+                "Skill resource is a link and cannot be imported as file content: {}",
+                entry.path().display()
+            )));
         }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if resources.len() >= MAX_PACKAGE_FILES {
+            return Err(package_limit_error(
+                "a single skill exceeds 512 resource files",
+            ));
+        }
+        let path = entry.into_path();
+        validate_file_size(fs::metadata(&path)?.len(), &path)?;
+        let bytes = fs::read(&path)?;
+        validate_file_size(bytes.len() as u64, &path)?;
+        total_bytes = total_bytes.saturating_add(bytes.len() as u64);
+        if total_bytes > MAX_PACKAGE_BYTES {
+            return Err(package_limit_error("resource size exceeds 64 MiB"));
+        }
+        resources.push(resource_from_bytes(relative, bytes));
     }
     normalize_resource_bundle(&resources)
 }
@@ -635,9 +791,10 @@ fn build_candidate_with_legacy_name(
     skill_file: String,
     skill_dir: String,
     content: String,
-    resources: Vec<SkillResourceFile>,
+    mut resources: Vec<SkillResourceFile>,
     accepted_legacy_display_name: Option<&str>,
 ) -> Result<InstallCandidate, CoreError> {
+    resources.sort_by(|left, right| left.path.cmp(&right.path));
     let (frontmatter, body) = parse_skill_file(&content)?;
     if let Err(error) = validate_canonical_skill_name(&frontmatter.name) {
         if accepted_legacy_display_name.is_none_or(|name| name != frontmatter.name) {
@@ -662,6 +819,14 @@ fn build_candidate_with_legacy_name(
         description: frontmatter.description.clone(),
         resources: resource_bundle_metadata(&resources),
         warnings,
+        content_digest: blake3::hash(&serde_json::to_vec(&(
+            &frontmatter.name,
+            &frontmatter.description,
+            &body,
+            &resources,
+        ))?)
+        .to_hex()
+        .to_string(),
     };
     let input = SaveSkillInput {
         id: None,
@@ -693,9 +858,23 @@ fn resource_from_bytes(path: String, bytes: Vec<u8>) -> SkillResourceFile {
     }
 }
 
+fn excluded_package_component(component: &str) -> bool {
+    matches!(
+        component.to_ascii_lowercase().as_str(),
+        ".git"
+            | ".hg"
+            | ".svn"
+            | "node_modules"
+            | ".venv"
+            | "venv"
+            | "__pycache__"
+            | "__macosx"
+            | ".ds_store"
+    ) || component.starts_with(".nexa-install-")
+}
+
 fn is_resource_path(path: &str) -> bool {
-    let first = path.split('/').next().unwrap_or_default();
-    RESOURCE_FOLDERS.contains(&first)
+    path != "SKILL.md" && !path.split('/').any(excluded_package_component)
 }
 
 fn validate_file_size(bytes: u64, path: &Path) -> Result<(), CoreError> {
@@ -741,6 +920,68 @@ mod tests {
             .unwrap();
         archive.write_all(script.as_bytes()).unwrap();
         archive.finish().unwrap();
+    }
+
+    #[test]
+    fn custom_resource_folders_survive_an_imported_skill_activation() {
+        let temporary = tempdir().unwrap();
+        let root = temporary.path().join("custom-resource-demo");
+        fs::create_dir_all(root.join("templates")).unwrap();
+        fs::write(root.join("SKILL.md"), "---\nname: custom-resource-demo\ndescription: Render reports with the included template\n---\nRead templates/report.md before writing the report.").unwrap();
+        fs::write(
+            root.join("templates/report.md"),
+            "Keep this complete template 中文",
+        )
+        .unwrap();
+        let db = Database::open_memory().unwrap();
+        let installed = import_skills_from_source(&db, &root, false, false)
+            .unwrap()
+            .remove(0);
+        let resource =
+            super::super::find_skill_resource(&installed, "templates/report.md").unwrap();
+        assert_eq!(
+            resource.map(|resource| resource.content.as_str()),
+            Some("Keep this complete template 中文")
+        );
+    }
+
+    #[test]
+    fn collection_zip_imports_multiple_complete_skills_above_one_skill_file_limit() {
+        let directory = tempdir().unwrap();
+        let package = directory.path().join("collection.zip");
+        let mut archive = zip::ZipWriter::new(fs::File::create(&package).unwrap());
+        let options = SimpleFileOptions::default();
+        for name in ["alpha-example", "beta-example", "gamma-example"] {
+            archive
+                .start_file(format!("collection-main/skills/{name}/SKILL.md"), options)
+                .unwrap();
+            archive.write_all(format!("---\nname: {name}\ndescription: A valid example skill\n---\n\nRead the bundled references.\n").as_bytes()).unwrap();
+            for index in 0..180 {
+                archive
+                    .start_file(
+                        format!("collection-main/skills/{name}/references/{index}.txt"),
+                        options,
+                    )
+                    .unwrap();
+                archive
+                    .write_all(format!("Reference {index} for {name}.").as_bytes())
+                    .unwrap();
+            }
+        }
+        archive.finish().unwrap();
+        let preview = inspect_skill_install_source(&package)
+            .expect("a collection is not a single 512-file skill");
+        assert_eq!(preview.len(), 3);
+        assert!(preview.iter().all(|skill| skill.resources.len() == 180));
+        let db = Database::open_memory().unwrap();
+        db.conn().execute("DELETE FROM skills", []).unwrap();
+        let installed = import_skills_from_source(&db, &package, false, false).unwrap();
+        assert_eq!(installed.len(), 3);
+        let loaded = db.list_skills().unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert!(loaded
+            .iter()
+            .all(|skill| skill.resource_bundle.len() == 180));
     }
 
     #[test]
@@ -1045,6 +1286,33 @@ mod tests {
         let error = inspect_skill_install_source(dir.path()).unwrap_err();
 
         assert!(error.to_string().contains("No SKILL.md files found"));
+    }
+
+    #[test]
+    fn nested_skill_examples_remain_resources_and_overdeep_resources_fail_explicitly() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("demo");
+        fs::create_dir_all(root.join("templates/example")).unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            "---\nname: demo\ndescription: Example skill\n---\nRead templates/example/SKILL.md",
+        )
+        .unwrap();
+        fs::write(
+            root.join("templates/example/SKILL.md"),
+            "This is an example, not another installable skill.",
+        )
+        .unwrap();
+        let preview = inspect_skill_install_source(&root).unwrap();
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0].resources[0].path, "templates/example/SKILL.md");
+        let deep = root.join("a/b/c/d/e/f/g/h/i");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("important.txt"), "Must never silently disappear").unwrap();
+        assert!(inspect_skill_install_source(&root)
+            .unwrap_err()
+            .to_string()
+            .contains("8 levels"));
     }
 
     #[test]

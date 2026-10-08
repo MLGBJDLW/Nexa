@@ -1,6 +1,6 @@
 {
   "name": "manage_skill",
-  "description": "List, load, activate, inspect available skills and their bundled resources, execute a declared script resource helper through the skill resource helper sandbox, and create, inspect, apply, or reject controlled skill change proposals. When a skill from the Available Skills metadata index clearly matches the user task, call activate_skill before answering or following that workflow. Use view_skill only to inspect a skill without committing to its workflow. Use list_skills when no relevant indexed skill is shown but the user asks for a reusable skill. Use view_resource when a loaded skill references a bundled file. Use run_resource_helper only when a loaded skill explicitly instructs you to run one of its script resources. Use proposals for self-evolution when a repeated workflow lesson should become a reusable skill. Proposals are safety-scanned; applying a proposal mutates active user skills and requires confirmation.",
+  "description": "List, inspect and activate skills, read bundled resources, and run declared script helpers through their sandbox. To download or import skills, first use inspect_install_sources with local paths, public GitHub repository/skill URLs, or direct .zip/.skill/Markdown URLs. It returns skillFile/contentDigest selections and package warnings without installing. Then use install_sources with the chosen selections and the same sources/github_ref; installation verifies the inspected content, persists complete resource bundles and returns active skill IDs. GitHub SKILL.md URLs include sibling resources. Private repositories require an authenticated local checkout. Installation does not execute scripts. When an available skill matches the user task, call activate_skill before following its workflow. Use view_skill for inspection, list_skills to discover installed skills, and view_resource for referenced files. Use run_resource_helper only when an activated skill explicitly instructs it. Use proposals for self-evolution; applying proposals, installing skills and executing helpers follow the host approval policy.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -8,6 +8,8 @@
         "type": "string",
         "enum": [
           "list_skills",
+          "inspect_install_sources",
+          "install_sources",
           "view_skill",
           "activate_skill",
           "view_resource",
@@ -24,6 +26,39 @@
       "proposal_id": {
         "type": "string",
         "description": "Proposal id for view_proposal, apply_proposal, or reject_proposal."
+      },
+      "sources": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string", "minLength": 1 },
+        "description": "Required for inspect_install_sources and install_sources. Local Markdown/archive/directory paths in the current file scope, or public HTTP(S) skill URLs. Multiple sources and collections are supported."
+      },
+      "selection": {
+        "type": "array",
+        "minItems": 1,
+        "description": "Required for install_sources. Copy the exact chosen skillFile and contentDigest values from inspection; unselected skills are not installed.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "skillFile": { "type": "string", "minLength": 1 },
+            "contentDigest": { "type": "string", "minLength": 64, "maxLength": 64 }
+          },
+          "required": ["skillFile", "contentDigest"],
+          "additionalProperties": false
+        }
+      },
+      "github_ref": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional exact branch/tag/commit for GitHub sources. Required to disambiguate a branch containing '/'. Use the same value in inspection and installation. Repository root URLs default to HEAD."
+      },
+      "replace_existing": {
+        "type": "boolean",
+        "description": "For install_sources only. Defaults to false. Set true only when updating the inspected same-name user skills is intended; built-in names remain protected."
+      },
+      "accept_blocked_warnings": {
+        "type": "boolean",
+        "description": "For install_sources only. Defaults to false. Explicitly acknowledge blocked warnings from the selected packages; follow host approval requirements."
       },
       "skill_id": {
         "type": "string",

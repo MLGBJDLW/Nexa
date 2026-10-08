@@ -156,6 +156,12 @@ export interface DiscoveredSkillBundle {
   description: string;
   resources: SkillResourceInfo[];
   warnings: SkillWarning[];
+  contentDigest: string;
+}
+
+export interface SkillInstallSelection {
+  skillFile: string;
+  contentDigest: string;
 }
 
 export type SkillWarningSeverity = 'info' | 'warn' | 'block';

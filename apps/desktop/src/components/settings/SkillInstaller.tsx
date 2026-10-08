@@ -16,8 +16,9 @@ interface SkillInstallerProps {
 export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
   const { t } = useTranslation();
   const [openInstaller, setOpenInstaller] = useState(false);
-  const [source, setSource] = useState<string | null>(null);
+  const [sources, setSources] = useState<string[]>([]);
   const [preview, setPreview] = useState<DiscoveredSkillBundle[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replaceExisting, setReplaceExisting] = useState(false);
@@ -31,25 +32,46 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
     () => new Set(skills.filter((skill) => skill.builtin).map((skill) => skill.canonicalName.toLocaleLowerCase())),
     [skills],
   );
+  const selected = useMemo(() => {
+    const files = new Set(selectedFiles);
+    return preview.filter(skill => files.has(skill.skillFile));
+  }, [preview, selectedFiles]);
+  const duplicateNames = useMemo(() => {
+    const seen = new Set<string>();
+    return selected.filter(skill => {
+      const name = skill.name.toLocaleLowerCase();
+      if (seen.has(name)) return true;
+      seen.add(name);
+      return false;
+    }).map(skill => skill.name);
+  }, [selected]);
   const conflicts = useMemo(
-    () => preview.filter((skill) => installedNames.has(skill.name.toLocaleLowerCase())),
-    [installedNames, preview],
+    () => selected.filter((skill) => installedNames.has(skill.name.toLocaleLowerCase())),
+    [installedNames, selected],
   );
   const builtinConflicts = useMemo(
-    () => preview.filter((skill) => builtinNames.has(skill.name.toLocaleLowerCase())),
-    [builtinNames, preview],
+    () => selected.filter((skill) => builtinNames.has(skill.name.toLocaleLowerCase())),
+    [builtinNames, selected],
   );
-  const warnings = preview.flatMap((skill) => skill.warnings.map((warning) => ({ skill: skill.name, ...warning })));
+  const warnings = selected.flatMap((skill) => skill.warnings.map((warning) => ({ skill: skill.name, ...warning })));
   const hasBlockedWarnings = warnings.some((warning) => warning.severity === 'block');
-  const canInstall = preview.length > 0
+  const canInstall = selected.length > 0
+    && duplicateNames.length === 0
     && builtinConflicts.length === 0
     && (!conflicts.length || replaceExisting)
     && (!hasBlockedWarnings || acceptBlocked)
     && !busy;
 
+  const changeSelection = (files: string[]) => {
+    setSelectedFiles(files);
+    setAcceptBlocked(false);
+    setReplaceExisting(false);
+  };
+
   const reset = () => {
-    setSource(null);
+    setSources([]);
     setPreview([]);
+    setSelectedFiles([]);
     setError(null);
     setReplaceExisting(false);
     setAcceptBlocked(false);
@@ -63,10 +85,11 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
 
   const chooseSource = async (directory: boolean) => {
     setError(null);
+    setBusy(true);
     try {
-      const selected = await open({
+      const chosen = await open({
         directory,
-        multiple: false,
+        multiple: true,
         ...(directory
           ? {}
           : {
@@ -76,11 +99,19 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
               }],
             }),
       });
-      if (!selected || Array.isArray(selected)) return;
-      setBusy(true);
-      const result = await api.inspectSkillInstallSource(selected);
-      setSource(selected);
+      if (!chosen) return;
+      const nextSources = Array.from(new Set([...sources, ...(Array.isArray(chosen) ? chosen : [chosen])]));
+      const result = await api.inspectSkillInstallSources(nextSources);
+      setSources(nextSources);
       setPreview(result);
+      const names = new Map<string, number>();
+      for (const skill of result) names.set(skill.name.toLocaleLowerCase(), (names.get(skill.name.toLocaleLowerCase()) ?? 0) + 1);
+      const previousFiles = new Set(preview.map(skill => skill.skillFile));
+      setSelectedFiles(result.filter(skill => {
+        if (previousFiles.has(skill.skillFile)) return selectedFiles.includes(skill.skillFile);
+        const name = skill.name.toLocaleLowerCase();
+        return !builtinNames.has(name) && !installedNames.has(name) && names.get(name) === 1;
+      }).map(skill => skill.skillFile));
       setReplaceExisting(false);
       setAcceptBlocked(false);
     } catch (reason) {
@@ -91,11 +122,11 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
   };
 
   const install = async () => {
-    if (!source || !canInstall) return;
+    if (sources.length === 0 || !canInstall) return;
     setBusy(true);
     setError(null);
     try {
-      await api.installSkillsFromSource(source, replaceExisting, acceptBlocked);
+      await api.installSkillsFromSources(sources, selected.map(skill => ({ skillFile: skill.skillFile, contentDigest: skill.contentDigest })), replaceExisting, acceptBlocked);
       onInstalled?.();
       setOpenInstaller(false);
       reset();
@@ -190,21 +221,35 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
                   </div>
                 )}
 
-                {source && preview.length > 0 && (
+                {sources.length > 0 && preview.length > 0 && (
                   <div className="space-y-3" data-testid="skill-install-preview">
                     <div className="flex items-center gap-2 text-xs text-text-tertiary">
                       <CheckCircle2 size={14} className="text-success" />
-                      <span className="truncate" title={source}>{source}</span>
+                      <span className="truncate" title={sources.join('\n')}>{t('settings.skillInstallSources', { count: String(sources.length) })}</span>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={reset}>{t('common.clear')}</Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                      <span>{t('settings.skillInstallSelection', { selected: String(selected.length), total: String(preview.length) })}</span>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => changeSelection(preview.filter(skill => !builtinNames.has(skill.name.toLocaleLowerCase())).map(skill => skill.skillFile))}>{t('settings.skillInstallSelectAll')}</Button>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => changeSelection([])}>{t('settings.skillInstallSelectNone')}</Button>
                     </div>
                     {preview.map((skill) => {
                       const conflict = installedNames.has(skill.name.toLocaleLowerCase());
+                      const builtin = builtinNames.has(skill.name.toLocaleLowerCase());
                       return (
                         <article key={skill.skillFile} className="rounded-xl border border-border bg-surface-2 p-3">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
+                            <label className="flex min-w-0 gap-3">
+                              <input type="checkbox" checked={selectedFiles.includes(skill.skillFile)} disabled={busy || builtin} aria-label={skill.name}
+                                onChange={event => changeSelection(event.target.checked ? [...selectedFiles, skill.skillFile] : selectedFiles.filter(file => file !== skill.skillFile))}
+                                className="mt-1 shrink-0 accent-accent" />
+                              <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-text-primary">{skill.name}</p>
                               <p className="mt-0.5 text-xs text-text-secondary">{skill.description}</p>
-                            </div>
+                              <p className="mt-1 truncate text-[11px] text-text-tertiary" title={skill.skillFile}>{skill.skillFile}</p>
+                              {builtin && <p className="mt-1 text-xs text-warning">{t('settings.skillInstallBuiltinConflict', { names: skill.name })}</p>}
+                              </div>
+                            </label>
                             <div className="flex shrink-0 gap-1">
                               {conflict && <Badge variant="default">{t('settings.skillInstallUpdate')}</Badge>}
                               <Badge variant="default">{t('settings.skillInstallResourceCount', { count: String(skill.resources.length) })}</Badge>
@@ -215,6 +260,8 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
                     })}
                   </div>
                 )}
+
+                {duplicateNames.length > 0 && <div role="alert" className="rounded-xl border border-warning/35 bg-warning/8 p-3 text-xs text-warning">{t('settings.skillInstallDuplicate', { names: duplicateNames.join(', ') })}</div>}
 
                 {conflicts.length > 0 && (
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-warning/35 bg-warning/8 p-3 text-xs text-text-secondary">
@@ -283,7 +330,7 @@ export function SkillInstaller({ skills, onInstalled }: SkillInstallerProps) {
                   disabled={!canInstall}
                   onClick={install}
                 >
-                  {t('settings.skillInstallConfirm', { count: String(preview.length) })}
+                  {t('settings.skillInstallConfirm', { count: String(selected.length) })}
                 </Button>
               </footer>
             </motion.section>

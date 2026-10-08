@@ -59,7 +59,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`manage_persona`](../crates/core/prompts/tools/manage_persona.json) | List available personas, inspect the current conversation persona, or switch the active conversation persona for future turns |
 | [`manage_playbook`](../crates/core/prompts/tools/manage_playbook.json) | Create, update, list, get details of, add citations to, or delete a playbook |
 | [`manage_project_memory`](../crates/core/prompts/tools/manage_project_memory.json) | List, search, record, update, archive, or delete memories for the active Project |
-| [`manage_skill`](../crates/core/prompts/tools/manage_skill.json) | List, load, activate, inspect available skills and their bundled resources, execute a declared script resource helper through the skill resource helper sandbox, and create, insp... |
+| [`manage_skill`](../crates/core/prompts/tools/manage_skill.json) | List, inspect and activate skills, read bundled resources, and run declared script helpers through their sandbox |
 | [`manage_source`](../crates/core/prompts/tools/manage_source.json) | Add, remove, or refresh knowledge source directories |
 | [`manage_user_memory`](../crates/core/prompts/tools/manage_user_memory.json) | List, search, record, update, or delete cross-session user memories |
 | [`mcp_context`](../crates/core/prompts/tools/mcp_context.json) | Discover MCP resources, URI templates and prompt templates |

@@ -1242,6 +1242,8 @@ fn main() {
             commands::parse_skill_markdown_cmd,
             commands::inspect_skill_install_source_cmd,
             commands::install_skills_from_source_cmd,
+            commands::inspect_skill_install_sources_cmd,
+            commands::install_skills_from_sources_cmd,
             commands::export_skill_to_md_cmd,
             commands::scan_skill_content_cmd,
             commands::list_skill_change_proposals_cmd,
