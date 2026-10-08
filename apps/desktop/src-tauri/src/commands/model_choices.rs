@@ -64,6 +64,7 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
                                 disabled_mode: None,
                                 effort_levels: model.reasoning_efforts,
                                 default_effort: None,
+                                default_enabled: None,
                                 effort_budget_exclusive: true,
                                 thinking_budget: None,
                             },

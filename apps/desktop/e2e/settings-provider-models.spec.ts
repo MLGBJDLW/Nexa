@@ -1451,7 +1451,9 @@ test("settings exposes Meta Model API with Muse Spark 1.3 as its verified defaul
     .locator("xpath=..")
     .locator("[data-nexa-select-trigger]");
   await expectNexaOptions(effortSelect, ["Minimal", "Low", "Medium", "High"]);
-  await expectNexaOptionCount(effortSelect, 4);
+  await expectNexaOptionCount(effortSelect, 6);
+  await expectNexaOption(effortSelect, "xhigh", "visible");
+  await expectNexaOption(effortSelect, "max", "visible");
 });
 
 test('October models expose working reasoning toggles and dialogue speech controls', async ({ page }, testInfo) => {
@@ -1517,7 +1519,10 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
   const modelSelect = modelField.locator("[data-nexa-select-trigger]");
   await expectNexaValue(modelSelect, "");
   await expectNexaOptions(modelSelect, ["Qwen3.8 Max", "Qwen3.8 Flash"]);
-  await expectNexaOptionCount(modelSelect, 2);
+  await expectNexaOptionCount(modelSelect, 12);
+  await expectNexaOption(modelSelect, "auto", "visible");
+  await expectNexaOption(modelSelect, "glm-5.3", "visible");
+  await expectNexaOption(modelSelect, "deepseek-v4.1-flash", "visible");
   await expectNexaOption(modelSelect, "qwen3.7-flash", "absent");
   await modelSelect.click();
   const retiredPreview = page.locator('[role="option"][data-value="qwen3.8-max-preview"]');

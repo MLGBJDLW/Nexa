@@ -170,6 +170,14 @@ response is not retirement evidence.
 - Ark Seed 2.1 preserves standalone `encrypted_content` frames as opaque
   replay, separately from visible reasoning summaries. Model/endpoint changes
   cannot forward the old state. See the [Ark Chat API](https://docs.volcengine.com/docs/ark/chat-api?lang=en).
+- Ark GLM 5.3 Flash and DeepSeek V4.1 Flash have separate native thinking
+  controls and textual reasoning replay; they never inherit Seed ciphertext or
+  direct-vendor fields. Jev Router and Token Plan Auto preserve returned
+  reasoning without inventing router-level thinking controls.
+- [Mistral Large 4](https://docs.mistral.ai/studio/conversations/reasoning)
+  supports explicit none/high effort and Mistral thinking content chunks.
+  Nexa preserves omission when no override is supplied; the upstream default
+  for an omitted effort is not assumed.
 - [Qwen Image 2.1 Pro](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)
   uses PNG and validated pixel/ratio limits on the existing single-image path;
   unsupported negative prompts are rejected. Nano Banana 2.1 uses Gemini

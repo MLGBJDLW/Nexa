@@ -999,7 +999,17 @@ fn build_request_body_with_config(
         });
     let effort_can_encode_disabled =
         reasoning_profile.mode_control == ThinkingModeControl::ProviderDefault;
-    let requested_effort = if reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"
+    let requested_effort = if reasoning_profile.id == "mistral-large4-reasoning-v1" {
+        // Large 4 documents none/high, but no omitted-effort default. Preserve
+        // omission unless the caller explicitly selects a thinking mode.
+        if requested_reasoning_mode == Some(false) {
+            Some(&ReasoningEffort::None)
+        } else if request.reasoning_enabled == Some(true) && request.reasoning_effort.is_none() {
+            Some(&ReasoningEffort::High)
+        } else {
+            request.reasoning_effort.as_ref()
+        }
+    } else if reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"
         && requested_reasoning_mode == Some(false)
     {
         // Omni disables thinking through the effort field itself. A saved
@@ -1087,7 +1097,11 @@ fn build_request_body_with_config(
                         }
                         super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails(
                             details,
-                        ) if reasoning_profile.id == "openrouter-normalized-reasoning-v1" => {
+                        ) if matches!(
+                            reasoning_profile.id.as_str(),
+                            "openrouter-normalized-reasoning-v1" | "openrouter-retained-history-v1"
+                        ) =>
+                        {
                             wire.reasoning_details = Some(serde_json::Value::Array(details.clone()))
                         }
                         _ => {}
@@ -1367,13 +1381,18 @@ fn build_responses_request_with_tools(
     if let Some(max_tokens) = request.max_tokens {
         body["max_output_tokens"] = serde_json::json!(max_tokens);
     }
+    if matches!(
+        dialect,
+        super::native_search::NativeSearchDialect::OpenAiResponses
+            | super::native_search::NativeSearchDialect::OpenRouterServerTool
+    ) && include_encrypted_reasoning
+    {
+        // Stateless Responses tool loops must replay encrypted reasoning
+        // items alongside function calls. The returned payload is kept in
+        // ToolCallRequest::thought_signature and never shown as reasoning.
+        body["include"] = serde_json::json!(["reasoning.encrypted_content"]);
+    }
     if dialect == super::native_search::NativeSearchDialect::OpenAiResponses {
-        if include_encrypted_reasoning {
-            // Stateless Responses tool loops must replay encrypted reasoning
-            // items alongside function calls. The returned payload is kept in
-            // ToolCallRequest::thought_signature and never shown as reasoning.
-            body["include"] = serde_json::json!(["reasoning.encrypted_content"]);
-        }
         if matches!(
             request.model.as_str(),
             "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol"
@@ -1556,6 +1575,21 @@ fn parse_responses_completion(
     let mut saw_unknown_output_item = false;
 
     for item in output {
+        // OpenRouter's completed Responses examples omit status on reasoning
+        // items. Attest completion from that trusted dialect's outer response
+        // only when the field is absent; explicit incomplete/unknown states
+        // retain the existing rejection behavior. Ciphertext is unchanged.
+        let normalized_reasoning = (dialect
+            == super::native_search::NativeSearchDialect::OpenRouterServerTool
+            && response_completed
+            && item["type"] == "reasoning"
+            && item.get("status").is_none())
+        .then(|| {
+            let mut normalized = item.clone();
+            normalized["status"] = serde_json::json!("completed");
+            normalized
+        });
+        let item = normalized_reasoning.as_ref().unwrap_or(item);
         match item.get("type").and_then(serde_json::Value::as_str) {
             Some(item_type) if provider_hosted_tool_identity(item_type, item).is_some() => {
                 if item_type == "web_search_call" {
@@ -1769,6 +1803,15 @@ fn parse_responses_completion(
     }
 
     replay_sequence_valid &= !saw_unknown_output_item;
+    if dialect == super::native_search::NativeSearchDialect::OpenRouterServerTool
+        && response_completed
+        && !tool_calls.is_empty()
+        && !replay_sequence_valid
+    {
+        return Err(CoreError::Llm(
+            "OpenRouter Responses returned incomplete or invalid native output alongside client tool calls; refusing dispatch".into(),
+        ));
+    }
     let provider_replay = (replay_sequence_valid && has_replay_reasoning)
         .then(|| {
             let payload = super::provider_turn::ResponsesReplayPayload {
@@ -3663,6 +3706,335 @@ mod tests {
     }
 
     #[test]
+    fn october_router_and_ark_tool_turns_authorize_and_replay_after_persistence() {
+        use crate::llm::provider_turn::{
+            ProviderReplayPayload, ProviderTurnEnvelope, RouteSnapshot,
+        };
+        let details = vec![
+            serde_json::json!({"type":"reasoning.encrypted","data":"opaque-state","id":"r-1","format":"test-v1"}),
+        ];
+        for (provider, base, model) in [
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "typesafe/jev-router",
+            ),
+            (
+                ProviderType::Qwen,
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "auto",
+            ),
+            (
+                ProviderType::Qwen,
+                "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+                "auto",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "glm-5-3-flash-260828",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "deepseek-v4-1-flash-260910",
+            ),
+        ] {
+            let config = endpoint_config(provider, base);
+            let profile = resolve_reasoning_profile(
+                provider,
+                Some(base),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            assert_ne!(
+                profile.replay_policy,
+                ReasoningReplayPolicy::Unknown,
+                "{base}/{model}"
+            );
+            let mut request = endpoint_reasoning_request(model);
+            request.provider_type = Some(provider);
+            let call = ToolCallRequest {
+                id: "oct-read".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"README.md"}"#.into(),
+                thought_signature: None,
+            };
+            let envelope = ProviderTurnEnvelope::capture_with_replay_payload(
+                "oct-turn",
+                "oct-sample",
+                RouteSnapshot::from_profile_for_request(&profile, &request),
+                "",
+                Some("Retained reasoning"),
+                Some("Retained reasoning"),
+                vec![call.clone()],
+                true,
+                (provider == ProviderType::OpenRouter)
+                    .then(|| ProviderReplayPayload::OpenRouterReasoningDetails(details.clone())),
+            );
+            let envelope: ProviderTurnEnvelope =
+                serde_json::from_str(&serde_json::to_string(&envelope).unwrap()).unwrap();
+            assert!(envelope.authorizes_tool_dispatch(), "{base}/{model}");
+            let mut assistant = Message::text(Role::Assistant, "");
+            assistant.tool_calls = Some(vec![call]);
+            assistant.set_provider_turn(envelope);
+            let history = vec![
+                assistant,
+                Message::text_with_name(Role::Tool, "Exact contents", "oct-read"),
+            ];
+            let projection = crate::llm::reasoning_replay::prepare_provider_replay_history(
+                &history,
+                &RouteSnapshot::from_profile_for_request(&profile, &request),
+            );
+            assert_eq!(projection.omitted_units, 0, "{base}/{model}");
+            request.messages = projection.messages;
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["messages"][0]["tool_calls"][0]["id"], "oct-read");
+            assert_eq!(body["messages"][1]["content"], "Exact contents");
+            if provider == ProviderType::OpenRouter {
+                assert_eq!(
+                    body["messages"][0]["reasoning_details"],
+                    serde_json::Value::Array(details.clone())
+                );
+                assert!(body.get("reasoning").is_none());
+            } else {
+                assert_eq!(
+                    body["messages"][0]["reasoning_content"], "Retained reasoning",
+                    "{base}/{model}"
+                );
+            }
+            assert!(body["messages"][0].get("encrypted_content").is_none());
+            for field in [
+                "enable_thinking",
+                "thinking_budget",
+                "preserve_thinking",
+                "clear_thinking",
+            ] {
+                assert!(body.get(field).is_none(), "{base}/{model}: {field}");
+            }
+            let custom = resolve_reasoning_profile(
+                provider,
+                Some("https://custom.example/v1"),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            assert_eq!(custom.replay_policy, ReasoningReplayPolicy::Unknown);
+        }
+    }
+
+    #[test]
+    fn october_ark_models_use_native_controls_and_effort_mappings() {
+        let config = endpoint_config(
+            ProviderType::Doubao,
+            "https://ark.cn-beijing.volces.com/api/v3",
+        );
+        for (model, default, mandatory) in [
+            ("doubao-seed-2-1-turbo-260628", "high", false),
+            ("glm-5-3-flash-260828", "max", true),
+            ("deepseek-v4-1-flash-260910", "high", false),
+        ] {
+            let mut request = endpoint_reasoning_request(model);
+            request.provider_type = Some(ProviderType::Doubao);
+            let wire = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(wire["thinking"]["type"], "enabled", "{model}");
+            assert_eq!(wire["reasoning_effort"], default, "{model}");
+            request.reasoning_effort = Some(ReasoningEffort::XHigh);
+            let wire = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(
+                wire["reasoning_effort"],
+                if mandatory { "max" } else { "high" }
+            );
+            request.reasoning_enabled = Some(false);
+            let wire = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(
+                wire["thinking"]["type"],
+                if mandatory { "enabled" } else { "disabled" }
+            );
+            if !mandatory {
+                assert!(wire.get("reasoning_effort").is_none());
+            }
+            request.reasoning_enabled = Some(true);
+            request.reasoning_effort = Some(ReasoningEffort::Minimal);
+            let wire = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(
+                wire["thinking"]["type"],
+                if model.starts_with("doubao-") {
+                    "disabled"
+                } else {
+                    "enabled"
+                }
+            );
+            if !model.starts_with("doubao-") {
+                assert_eq!(wire["reasoning_effort"], "low");
+            }
+        }
+    }
+
+    #[test]
+    fn october_openrouter_responses_native_search_preserves_authorized_tool_replay() {
+        use crate::llm::native_search::{
+            NativeSearchDialect, NativeSearchPlan, SearchExecutionMode,
+        };
+        use crate::llm::provider_turn::{ProviderTurnEnvelope, RouteSnapshot};
+        let model = "anthropic/claude-haiku-5.5";
+        let config = endpoint_config(ProviderType::OpenRouter, "https://openrouter.ai/api/v1");
+        let provider = OpenAiProvider::new(config.clone()).unwrap();
+        let plan = NativeSearchPlan::resolve(
+            SearchExecutionMode::Auto,
+            ProviderType::OpenRouter,
+            config.base_url.as_deref(),
+            model,
+        );
+        let mut request = endpoint_reasoning_request(model);
+        request.provider_type = Some(ProviderType::OpenRouter);
+        request.tools = Some(vec![
+            plan.marker().unwrap(),
+            ToolDefinition {
+                name: "read_file".into(),
+                description: "read".into(),
+                parameters: serde_json::json!({"type":"object"}),
+            },
+        ]);
+        let route = provider.route_snapshot(&request);
+        assert_eq!(route.api_style, ReasoningApiStyle::OpenAiResponses);
+        assert_eq!(route.reasoning_profile_id, "openrouter-responses-replay-v1");
+        for reasoning_status in [None, Some("completed"), Some("incomplete"), Some("unknown")] {
+            let mut reasoning = serde_json::json!({"type":"reasoning","id":"rs-or","encrypted_content":"opaque-OR","summary":[]});
+            if let Some(status) = reasoning_status {
+                reasoning["status"] = status.into();
+            }
+            let response = parse_responses_completion(
+                serde_json::json!({"status":"completed","output":[
+                    reasoning,
+                    {"type":"function_call","id":"fc-or","call_id":"call-or","name":"read_file","arguments":"{}","status":"completed"}
+                ]}),
+                NativeSearchDialect::OpenRouterServerTool,
+                generic_responses_capability(NativeSearchDialect::OpenRouterServerTool),
+            );
+            if matches!(reasoning_status, Some("incomplete" | "unknown")) {
+                assert!(response
+                    .unwrap_err()
+                    .to_string()
+                    .contains("refusing dispatch"));
+                continue;
+            }
+            let response = response.unwrap();
+            let calls = response.tool_calls.unwrap();
+            let envelope = ProviderTurnEnvelope::capture_with_replay_payload(
+                "or-turn",
+                "or-sample",
+                route.clone(),
+                "",
+                None,
+                None,
+                calls.clone(),
+                true,
+                response.provider_replay,
+            );
+            assert!(envelope.authorizes_tool_dispatch());
+            let persisted: ProviderTurnEnvelope =
+                serde_json::from_value(serde_json::to_value(&envelope).unwrap()).unwrap();
+            let mut assistant = Message::text(Role::Assistant, "");
+            assistant.tool_calls = Some(calls);
+            assistant.set_provider_turn(persisted);
+            request.messages = vec![
+                assistant,
+                Message::text_with_name(Role::Tool, "Actual file", "call-or"),
+            ];
+            let projection = crate::llm::reasoning_replay::prepare_provider_replay_history(
+                &request.messages,
+                &route,
+            );
+            assert_eq!(projection.omitted_units, 0);
+            request.messages = projection.messages;
+            let (dialect, mode, capability) = hosted_search_context(&request).unwrap();
+            let body = build_responses_request(&request, dialect, mode, capability).unwrap();
+            assert_eq!(body["include"][0], "reasoning.encrypted_content");
+            assert_eq!(body["input"][0]["encrypted_content"], "opaque-OR");
+            assert_eq!(body["input"][2]["call_id"], "call-or");
+            assert_eq!(body["input"][3]["output"], "Actual file");
+            let private = resolve_reasoning_profile(
+                ProviderType::OpenRouter,
+                Some("https://private.example/v1"),
+                ReasoningApiStyle::OpenAiResponses,
+                model,
+            );
+            assert_eq!(private.replay_policy, ReasoningReplayPolicy::Unknown);
+            assert!(!envelope.is_compatible_with(&RouteSnapshot::from_profile(&private)));
+        }
+    }
+
+    #[test]
+    fn october_mistral_large4_keeps_provider_default_and_explicit_modes() {
+        for model in ["mistral-large-4", "mistral-large-4-0"] {
+            let config = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
+            let mut request = endpoint_reasoning_request(model);
+            let profile = resolve_reasoning_profile(
+                ProviderType::OpenAi,
+                config.base_url.as_deref(),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            assert_ne!(profile.replay_policy, ReasoningReplayPolicy::Unknown);
+            let mut assistant = Message::text(Role::Assistant, "Conclusion");
+            assistant.reasoning_content = Some("First part\nSecond part 中文".into());
+            request.messages = vec![assistant];
+            for (enabled, effort) in [
+                (None, None),
+                (Some(true), Some("high")),
+                (Some(false), Some("none")),
+            ] {
+                request.reasoning_enabled = enabled;
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    false,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert_eq!(
+                    body.get("reasoning_effort").and_then(|v| v.as_str()),
+                    effort
+                );
+                if enabled != Some(false) {
+                    assert_eq!(
+                        body["messages"][0]["content"][0]["thinking"][0]["text"],
+                        "First part\nSecond part 中文"
+                    );
+                    assert_eq!(body["messages"][0]["content"][1]["text"], "Conclusion");
+                } else {
+                    assert_eq!(body["messages"][0]["content"], "Conclusion");
+                }
+                assert!(body.get("thinking_budget").is_none());
+            }
+        }
+    }
+
+    #[test]
     fn ark_encrypted_history_replays_only_on_its_bound_route() {
         use crate::llm::provider_turn::{
             ProviderReplayPayload, ProviderTurnEnvelope, RouteSnapshot,
@@ -3961,8 +4333,8 @@ mod tests {
             Some(&doubao),
         ))
         .unwrap();
-        assert_eq!(body["thinking"]["type"], "enabled");
-        assert_eq!(body["reasoning_effort"], "minimal");
+        assert_eq!(body["thinking"]["type"], "disabled");
+        assert!(body.get("reasoning_effort").is_none());
         assert!(body.get("enable_thinking").is_none());
     }
 
@@ -7906,7 +8278,7 @@ data: [DONE]
                 "parameters": { "engine": "exa" },
             })
         );
-        assert!(body.get("include").is_none());
+        assert_eq!(body["include"][0], "reasoning.encrypted_content");
         assert_eq!(body["reasoning"]["effort"], "high");
         assert!(body.get("reasoning_effort").is_none());
     }

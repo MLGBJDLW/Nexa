@@ -2463,6 +2463,16 @@ impl LlmProvider for AnthropicProvider {
             &contract.reasoning,
             request,
         );
+        // Haiku's native assistant-block envelope remains replayable when
+        // adaptive thinking is toggled. An OFF turn still captures its exact
+        // text/tool blocks and prefix; it must not lose completed tool results
+        // when a later request enables thinking on the same trusted route.
+        if request.model.eq_ignore_ascii_case("claude-haiku-5-5")
+            && contract.reasoning.id == "anthropic-signed-thinking-v1"
+        {
+            snapshot.replay_policy =
+                super::reasoning_profile::ReasoningReplayPolicy::OpaqueSignature;
+        }
         if !sonnet55::is_model(&request.model)
             && !request.model.eq_ignore_ascii_case("claude-haiku-5-5")
             && request.reasoning_enabled != Some(true)

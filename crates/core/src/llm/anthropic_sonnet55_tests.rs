@@ -63,10 +63,89 @@ fn haiku55_implicit_adaptive_route_matches_an_explicitly_enabled_turn() {
     input.reasoning_enabled = Some(true);
     assert_eq!(provider.route_snapshot(&input), default);
     input.reasoning_enabled = Some(false);
+    assert_eq!(provider.route_snapshot(&input), default);
     for effort in [ReasoningEffort::XHigh, ReasoningEffort::Max] {
         input.reasoning_effort = Some(effort);
         assert!(provider.resolve_output_capacity(&input).is_err());
     }
+}
+
+#[test]
+fn haiku55_thinking_toggle_retains_completed_native_tool_units() {
+    let provider = AnthropicProvider::new(ProviderConfig {
+        provider_type: ProviderType::Anthropic,
+        api_key: Some("fixture".into()),
+        base_url: None,
+        org_id: None,
+        timeout_secs: Some(10),
+        streaming: Default::default(),
+    })
+    .unwrap();
+    let mut input = request();
+    input.model = "claude-haiku-5-5".into();
+    input.reasoning_enabled = Some(false);
+    input.reasoning_effort = Some(ReasoningEffort::Low);
+    let blocks = vec![
+        json!({"type":"text","text":"Checking the file"}),
+        json!({"type":"tool_use","id":"toggle-read","name":"read_file","input":{"path":"a.rs"}}),
+    ];
+    let calls = vec![ToolCallRequest {
+        id: "toggle-read".into(),
+        name: "read_file".into(),
+        arguments: r#"{"path":"a.rs"}"#.into(),
+        thought_signature: None,
+    }];
+    let envelope = ProviderTurnEnvelope::capture_with_replay_payload(
+        "toggle-turn",
+        "toggle-sample",
+        provider.route_snapshot(&input),
+        "Checking the file",
+        None,
+        None,
+        calls.clone(),
+        true,
+        replay_payload(
+            Some(&FinishReason::ToolCalls),
+            blocks,
+            request_prefix(&body(&input)).as_deref(),
+        ),
+    );
+    assert!(envelope.authorizes_tool_dispatch());
+    let mut assistant = Message::text(Role::Assistant, "Checking the file");
+    assistant.tool_calls = Some(calls);
+    assistant.set_provider_turn(envelope.clone());
+    input.messages.push(assistant);
+    input.messages.push(Message::text_with_name(
+        Role::Tool,
+        "Exact file contents",
+        "toggle-read",
+    ));
+    for enabled in [Some(true), None, Some(false)] {
+        input.reasoning_enabled = enabled;
+        let projection = crate::llm::reasoning_replay::prepare_provider_replay_history(
+            &input.messages,
+            &provider.route_snapshot(&input),
+        );
+        assert_eq!(projection.omitted_units, 0);
+        assert_eq!(projection.messages.len(), input.messages.len());
+        let mut projected = input.clone();
+        projected.messages = projection.messages;
+        let wire = serde_json::to_value(body(&projected)).unwrap();
+        assert_eq!(wire["messages"][1]["content"][1]["id"], "toggle-read");
+        assert_eq!(
+            wire["messages"][2]["content"][0]["content"],
+            "Exact file contents"
+        );
+    }
+    input.model = "claude-sonnet-5-5".into();
+    assert!(!envelope.is_compatible_with(&provider.route_snapshot(&input)));
+    input.model = "claude-haiku-5-5".into();
+    let custom = AnthropicProvider::new(ProviderConfig {
+        base_url: Some("https://example.com/messages".into()),
+        ..provider.config.clone()
+    })
+    .unwrap();
+    assert!(!envelope.is_compatible_with(&custom.route_snapshot(&input)));
 }
 
 #[test]

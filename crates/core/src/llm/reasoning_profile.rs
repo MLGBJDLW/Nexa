@@ -65,6 +65,9 @@ pub enum ReasoningEffortMapping {
     Exact,
     OpenAiCompatible,
     Qwen38Chat,
+    ArkSeed,
+    ArkGlm,
+    ArkDeepSeek,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -228,6 +231,11 @@ impl ReasoningProfile {
         if effort == Some(&ReasoningEffort::None) {
             return Some(false);
         }
+        if self.effort_mapping == ReasoningEffortMapping::ArkSeed
+            && effort == Some(&ReasoningEffort::Minimal)
+        {
+            return Some(false);
+        }
         enabled
             .or_else(|| effort.map(|_| true))
             .or_else(|| budget.map(|_| true))
@@ -251,6 +259,27 @@ impl ReasoningProfile {
             ReasoningEffortMapping::OpenAiCompatible | ReasoningEffortMapping::Exact => {
                 effort.clone()
             }
+            ReasoningEffortMapping::ArkSeed => match effort {
+                ReasoningEffort::None | ReasoningEffort::Minimal => ReasoningEffort::Minimal,
+                ReasoningEffort::Low => ReasoningEffort::Low,
+                ReasoningEffort::Medium => ReasoningEffort::Medium,
+                _ => ReasoningEffort::High,
+            },
+            ReasoningEffortMapping::ArkGlm => match effort {
+                ReasoningEffort::None | ReasoningEffort::Minimal | ReasoningEffort::Low => {
+                    ReasoningEffort::Low
+                }
+                ReasoningEffort::Medium | ReasoningEffort::High => ReasoningEffort::High,
+                _ => ReasoningEffort::Max,
+            },
+            ReasoningEffortMapping::ArkDeepSeek => match effort {
+                ReasoningEffort::None => ReasoningEffort::None,
+                ReasoningEffort::Minimal | ReasoningEffort::Low => ReasoningEffort::Low,
+                ReasoningEffort::Medium | ReasoningEffort::High | ReasoningEffort::XHigh => {
+                    ReasoningEffort::High
+                }
+                _ => ReasoningEffort::Max,
+            },
         };
         self.accepted_efforts
             .contains(&normalized)
@@ -359,6 +388,7 @@ pub fn resolve_reasoning_profile(
         let trusted_codec = match provider {
             ProviderType::DeepSeek => is_deepseek_public_endpoint(provider, base_url),
             ProviderType::OpenAi => is_openai_public_endpoint(provider, base_url),
+            ProviderType::OpenRouter => is_openrouter_public_endpoint(provider, base_url),
             _ => false,
         };
         if !trusted_codec {
@@ -366,11 +396,19 @@ pub fn resolve_reasoning_profile(
         }
         value.id = match provider {
             ProviderType::DeepSeek => "deepseek-responses-replay-v1",
+            ProviderType::OpenRouter => "openrouter-responses-replay-v1",
             _ => "openai-responses-replay-v1",
         }
         .to_string();
         value.preserve_reasoning_history = true;
-        value.replay_policy = ReasoningReplayPolicy::OpaqueSignature;
+        value.replay_policy = if provider == ProviderType::OpenRouter {
+            // The normalized gateway also serves non-reasoning models. Any
+            // returned native replay payload is still validated atomically;
+            // a plain, complete tool call needs no fabricated thought item.
+            ReasoningReplayPolicy::NotRequired
+        } else {
+            ReasoningReplayPolicy::OpaqueSignature
+        };
         if provider == ProviderType::OpenAi && matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
             value.mode_control = ThinkingModeControl::AlwaysOn;
         }
@@ -626,7 +664,7 @@ pub fn resolve_reasoning_profile(
             "doubao-seed21-thinking-v1",
             ThinkingModeControl::ThinkingType,
             ReasoningEffortField::TopLevel,
-            ReasoningEffortMapping::Exact,
+            ReasoningEffortMapping::ArkSeed,
             (
                 &[
                     ReasoningEffort::Minimal,
@@ -640,11 +678,68 @@ pub fn resolve_reasoning_profile(
         );
         value.preserve_reasoning_history = true;
         value.reasoning_history_encoding = ReasoningHistoryEncoding::ArkEncryptedContent;
+        value.default_enabled = (model == "doubao-seed-2-1-turbo-260628").then_some(true);
+        return value;
+    }
+
+    if is_doubao_public_endpoint(provider, base_url)
+        && matches!(
+            model.as_str(),
+            "glm-5-3-flash-260828" | "deepseek-v4-1-flash-260910"
+        )
+    {
+        let glm = model == "glm-5-3-flash-260828";
+        let mut value = profile(
+            key,
+            if glm {
+                "ark-glm53-flash-v1"
+            } else {
+                "ark-deepseek-v41-flash-v1"
+            },
+            if glm {
+                ThinkingModeControl::AlwaysOnThinkingType
+            } else {
+                ThinkingModeControl::ThinkingType
+            },
+            ReasoningEffortField::TopLevel,
+            if glm {
+                ReasoningEffortMapping::ArkGlm
+            } else {
+                ReasoningEffortMapping::ArkDeepSeek
+            },
+            (
+                &[
+                    ReasoningEffort::Low,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Max,
+                ],
+                Some(if glm {
+                    ReasoningEffort::Max
+                } else {
+                    ReasoningEffort::High
+                }),
+            ),
+            ReasoningBudgetField::None,
+        );
+        value.default_enabled = Some(true);
+        value.preserve_reasoning_history = true;
+        value.omit_stop_when_reasoning = glm;
+        // These hosted models replay reasoning_content, not Seed ciphertext
+        // and not the direct vendor's clear_thinking/preserve_thinking fields.
         return value;
     }
 
     if is_mistral_public_endpoint(provider, base_url) {
         let mut value = match model.as_str() {
+            "mistral-large-4" | "mistral-large-4-0" => profile(
+                key,
+                "mistral-large4-reasoning-v1",
+                ThinkingModeControl::ProviderDefault,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (&[ReasoningEffort::None, ReasoningEffort::High], None),
+                ReasoningBudgetField::None,
+            ),
             "zai-glm-5-3" | "zai-glm-5-2" => profile(
                 key,
                 "mistral-hosted-glm-v1",
@@ -726,7 +821,22 @@ pub fn resolve_reasoning_profile(
         if wire_parameters
             .is_some_and(|parameters| !parameters.iter().any(|value| value == "reasoning"))
         {
-            return ReasoningProfile::unsupported(key);
+            // A known gateway route can return normalized opaque reasoning
+            // even without a request-side thinking control (notably Jev's
+            // dynamic router). Keep that replay contract separate from the
+            // unsupported/unknown-provider policy that refuses tool dispatch.
+            let mut value = profile(
+                key,
+                "openrouter-retained-history-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.confidence = CapabilityConfidence::CuratedCompatibility;
+            return value;
         }
         let gateway_efforts = vec![
             ReasoningEffort::None,
@@ -942,6 +1052,21 @@ pub fn resolve_reasoning_profile(
                     "qwen-token-plan-cn" | "qwen-token-plan-global"
                 )
             });
+        if token_plan && model == "auto" {
+            let mut value = profile(
+                key,
+                "alibaba-token-plan-auto-replay-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+            // The router owns thinking configuration. Its selected model can
+            // still return reasoning_content alongside ordinary tool calls.
+            value.preserve_reasoning_history = true;
+            return value;
+        }
         if token_plan
             && matches!(
                 model.as_str(),

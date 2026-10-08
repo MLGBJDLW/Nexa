@@ -22418,7 +22418,17 @@
         "documentationRef": "https://docs.mistral.ai/models/mistral-large-4-0",
         "capabilities": {
           "vision": true,
-          "reasoning": null
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "high"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
         }
       }
     ]
@@ -26309,7 +26319,21 @@
         ],
         "supportsTools": true,
         "capabilities": {
-          "vision": true
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEnabled": true
+          }
         }
       },
       {
@@ -26333,7 +26357,19 @@
         ],
         "supportsTools": true,
         "capabilities": {
-          "vision": true
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
         }
       },
       {
@@ -26357,7 +26393,20 @@
         ],
         "supportsTools": true,
         "capabilities": {
-          "vision": true
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEnabled": true
+          }
         }
       }
     ]

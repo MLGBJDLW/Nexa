@@ -1623,10 +1623,7 @@ mod tests {
             Some(true)
         );
         // OpenRouter's gateway limits are distinct from the direct Z.ai endpoint.
-        for (model, max_output) in [
-            ("z-ai/glm-5.3", 943_718),
-            ("z-ai/glm-5.3-flash", 943_717),
-        ] {
+        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
             let limits = model_limits_from_catalog(ProviderType::OpenRouter, model)
                 .expect("OpenRouter GLM-5.3 route should expose limits");
             assert_eq!(limits.context_tokens, Some(1_048_576));
@@ -1834,10 +1831,17 @@ mod tests {
                 "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
                 Some("glm-5.3"),
             ),
-            ("siliconflow", "https://api.siliconflow.cn/v1", Some("zai-org/GLM-5.3")),
+            (
+                "siliconflow",
+                "https://api.siliconflow.cn/v1",
+                Some("zai-org/GLM-5.3"),
+            ),
         ] {
             let preset = find_provider_preset(provider, Some(base_url)).expect("known preset");
-            let glm = preset.models.iter().find(|model| model.id.to_ascii_lowercase().contains("glm-5.3"));
+            let glm = preset
+                .models
+                .iter()
+                .find(|model| model.id.to_ascii_lowercase().contains("glm-5.3"));
             assert_eq!(glm.map(|model| model.id.as_str()), expected_glm);
         }
     }
