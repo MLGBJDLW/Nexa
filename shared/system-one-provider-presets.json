@@ -1,0 +1,69 @@
+[
+  {
+    "id": "typesafe",
+    "name": "TypeSafe AI",
+    "baseUrl": "https://api.typesafe.ai/v1",
+    "documentationRef": "https://docs.typesafe.ai/models",
+    "lastVerifiedAt": "2026-10-08",
+    "models": [
+      { "id": "jev-latest", "name": "Jev Latest", "status": "active", "access": "application", "resolvedModel": "jev-1.13.0" },
+      { "id": "jev-1.13.0", "name": "Jev 1.13", "status": "active", "access": "application" },
+      { "id": "jev-preview", "name": "Jev Preview", "status": "preview", "access": "application", "resolvedModel": "jev-1.13.0" }
+    ]
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter (Jev)",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "documentationRef": "https://openrouter.ai/docs/guides/community/typesafe-sdk",
+    "lastVerifiedAt": "2026-10-08",
+    "models": [
+      { "id": "jev-latest", "name": "Jev Latest", "status": "active", "access": "public", "resolvedModel": "typesafe/jev-1.13" },
+      { "id": "typesafe/jev-1.13", "name": "Jev 1.13", "status": "active", "access": "public" }
+    ]
+  },
+  {
+    "id": "siliconflow-cn",
+    "name": "SiliconFlow China (System One Alpha)",
+    "baseUrl": "https://api.siliconflow.cn/v1",
+    "documentationRef": "https://docs.siliconflow.cn/docs/api/systemone-post",
+    "lastVerifiedAt": "2026-10-08",
+    "models": [
+      { "id": "diffusiongemma", "name": "DiffusionGemma", "status": "preview", "access": "public" },
+      { "id": "Kev-4b", "name": "Kev 4B", "status": "preview", "access": "public" },
+      { "id": "SemIf", "name": "SemIf", "status": "preview", "access": "public" }
+    ]
+  },
+  {
+    "id": "siliconflow-international",
+    "name": "SiliconFlow International (System One Alpha)",
+    "baseUrl": "https://api.siliconflow.com/v1",
+    "documentationRef": "https://docs.siliconflow.com/en/api-reference/systemone/create-systemone",
+    "lastVerifiedAt": "2026-10-08",
+    "models": [
+      { "id": "Kev-4B", "name": "Kev 4B", "status": "preview", "access": "public" }
+    ]
+  },
+  {
+    "id": "alibaba-model-studio-cn",
+    "name": "Alibaba Model Studio Decisions (Beijing)",
+    "baseUrl": "",
+    "baseUrlPlaceholder": "https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-api",
+    "lastVerifiedAt": "2026-10-08",
+    "models": [
+      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" }
+    ]
+  },
+  {
+    "id": "alibaba-model-studio-intl",
+    "name": "Alibaba Model Studio Decisions (Singapore)",
+    "baseUrl": "",
+    "baseUrlPlaceholder": "https://<WorkspaceId>.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+    "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-api",
+    "lastVerifiedAt": "2026-10-08",
+    "models": [
+      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" }
+    ]
+  }
+]

@@ -873,6 +873,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub speech_to_text: SpeechToTextConfig,
 
+    /// Opt-in typed decisions; never used as the main generative agent model.
+    #[serde(default)]
+    pub system_one: crate::system_one::SystemOneConfig,
+
     /// Defaults for native no-key public web search tools.
     #[serde(default)]
     pub web_search: WebSearchConfig,
@@ -1046,6 +1050,7 @@ impl Default for AppConfig {
             image_generation: ImageGenerationConfig::default(),
             text_to_speech: TextToSpeechConfig::default(),
             speech_to_text: SpeechToTextConfig::default(),
+            system_one: crate::system_one::SystemOneConfig::default(),
             web_search: WebSearchConfig::default(),
             dreaming: DreamingConfig::default(),
             companion: CompanionSettings::default(),
@@ -1062,6 +1067,7 @@ fn encrypt_app_config_secrets(mut config: AppConfig) -> Result<AppConfig, CoreEr
         crate::crypto::encrypt_api_key(&config.image_generation.api_key)?;
     config.text_to_speech.api_key = crate::crypto::encrypt_api_key(&config.text_to_speech.api_key)?;
     config.speech_to_text.api_key = crate::crypto::encrypt_api_key(&config.speech_to_text.api_key)?;
+    config.system_one.api_key = crate::crypto::encrypt_api_key(&config.system_one.api_key)?;
     for provider in &mut config.web_search.custom_providers {
         provider.api_key = crate::crypto::encrypt_api_key(&provider.api_key)?;
     }
@@ -1073,6 +1079,7 @@ fn decrypt_app_config_secrets(mut config: AppConfig) -> Result<AppConfig, CoreEr
         crate::crypto::decrypt_api_key(&config.image_generation.api_key)?;
     config.text_to_speech.api_key = crate::crypto::decrypt_api_key(&config.text_to_speech.api_key)?;
     config.speech_to_text.api_key = crate::crypto::decrypt_api_key(&config.speech_to_text.api_key)?;
+    config.system_one.api_key = crate::crypto::decrypt_api_key(&config.system_one.api_key)?;
     for provider in &mut config.web_search.custom_providers {
         provider.api_key = crate::crypto::decrypt_api_key(&provider.api_key)?;
     }
@@ -1662,5 +1669,29 @@ mod tests {
             )
             .expect("raw app_config");
         assert!(!raw.contains("tvly-dev-example"));
+    }
+
+    #[test]
+    fn system_one_config_keeps_credentials_encrypted_and_disabled_legacy_defaults() {
+        let db = Database::open_memory().unwrap();
+        assert!(!db.load_app_config().unwrap().system_one.enabled);
+        let mut config = AppConfig::default();
+        config.system_one.enabled = true;
+        config.system_one.api_key = "system-one-fixture-secret".into();
+        db.save_app_config(&config).unwrap();
+        assert_eq!(
+            db.load_app_config().unwrap().system_one.api_key,
+            "system-one-fixture-secret"
+        );
+        let raw: String = db
+            .conn()
+            .query_row(
+                "SELECT value FROM app_config WHERE key=?1",
+                [APP_CONFIG_KEY],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!raw.contains("system-one-fixture-secret"));
+        assert!(!format!("{:?}", config.system_one).contains("system-one-fixture-secret"));
     }
 }

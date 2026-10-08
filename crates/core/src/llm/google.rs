@@ -2195,6 +2195,30 @@ mod tests {
     }
 
     #[test]
+    fn system_one_questions_survive_gemini_and_mfjs_projection() {
+        let definitions = crate::tools::default_tool_registry().definitions();
+        let definition = definitions
+            .iter()
+            .find(|tool| tool.name == "evaluate_decisions")
+            .unwrap();
+        let google = convert_tools(std::slice::from_ref(definition));
+        let schema = &google[0]["functionDeclarations"][0]["parametersJsonSchema"];
+        for schema in [
+            schema,
+            &super::super::moonshot_schema::project_tool_parameters(&definition.parameters),
+        ] {
+            assert_eq!(schema["properties"]["questions"]["type"], "array");
+            let question = &schema["properties"]["questions"]["items"];
+            assert!(question["properties"].get("instructions").is_some());
+            assert_eq!(
+                question["properties"]["options"]["items"]["properties"]["label"]["type"],
+                "string"
+            );
+            assert_eq!(question["properties"]["levels"]["items"]["type"], "string");
+        }
+    }
+
+    #[test]
     fn hybrid_search_keeps_local_and_google_search_paths() {
         let local = ToolDefinition {
             name: crate::llm::native_search::LOCAL_WEB_SEARCH_TOOL.to_string(),

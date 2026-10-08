@@ -81,6 +81,29 @@ async function selectNexaOption(trigger: Locator, value: string) {
   await trigger.page().evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
+test('structured decisions save opt-in settings and clear credentials across providers', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  const panel = page.getByTestId('system-one-settings');
+  await panel.locator('button[aria-expanded="false"]').click();
+  await expect(panel.getByRole('checkbox')).not.toBeChecked();
+  await panel.getByRole('checkbox').check();
+  const save = panel.getByRole('button', { name: 'Save', exact: true });
+  await expect(save).toBeDisabled();
+  await panel.locator('input[type="password"]').fill('typesafe-fixture-key');
+  await save.click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'typesafe', model: 'jev-latest', apiKey: 'typesafe-fixture-key' });
+  await selectNexaOption(panel.locator('[data-nexa-select-trigger]'), 'openrouter');
+  await expect(panel.locator('input[type="password"]')).toHaveValue('');
+  await expect(save).toBeDisabled();
+  await panel.locator('input[type="password"]').fill('router-fixture-key');
+  await save.click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: 'jev-latest', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
+  await page.setViewportSize({ width: 680, height: 820 });
+  await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await panel.screenshot({ path: testInfo.outputPath('system-one-settings.png') });
+});
+
 async function expectNexaValue(trigger: Locator, value: string) {
   await expect(trigger).toHaveAttribute("data-value", value);
 }

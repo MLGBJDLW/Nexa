@@ -161,6 +161,7 @@ pub mod session_search_tool;
 pub mod statistics_tool;
 pub mod submit_feedback_tool;
 pub mod summarize_tool;
+pub mod system_one_tool;
 pub(crate) mod text_match;
 pub mod text_to_speech_tool;
 pub mod tool_search_tool;
@@ -2236,6 +2237,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(health_check_tool::HealthCheckTool));
     registry.register(Box::new(image_generation_tool::GenerateImageTool));
     registry.register(Box::new(text_to_speech_tool::SynthesizeSpeechTool));
+    registry.register(Box::new(system_one_tool::EvaluateDecisionsTool));
     #[cfg(feature = "ocr")]
     registry.register(Box::new(ocr_tool::ExtractImageTextTool));
     registry.register(Box::new(archive_output_tool::ArchiveOutputTool));

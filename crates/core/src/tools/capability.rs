@@ -120,6 +120,7 @@ pub fn scheduled_workspace_tool_class(name: &str) -> ScheduledWorkspaceToolClass
         | "search_knowledge_base"
         | "search_playbooks"
         | "context_history"
+        | "evaluate_decisions"
         | "search_sessions"
         | "session_search"
         | "send_subagent_input"
@@ -591,6 +592,10 @@ pub fn infer_tool_access_profile(
             false,
             ApprovalRisk::Low,
             "Sends requested text to the configured cloud speech provider and returns bounded transient audio.",
+        ),
+        "evaluate_decisions" => (
+            "structured_decisions", true, false, false, true, false, ApprovalRisk::Low,
+            "Sends explicit privacy-projected state and questions to the configured decision provider; returns advisory values without executing actions.",
         ),
         "browser_evidence_capture" => (
             "web",
