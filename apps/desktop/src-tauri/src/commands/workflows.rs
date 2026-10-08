@@ -4,12 +4,14 @@ use crate::desktop_agent_session::resolve_desktop_pending_approvals_for_stopped_
 use chrono::DateTime;
 use nexa_core::package_host::PackageSurfaceKind;
 use nexa_core::task_orchestrator::{
-    workflow_automation_delivery_envelope, workflow_automation_execution_ticket,
-    workflow_due_run_delivery_envelope, workflow_due_run_execution_ticket,
-    workflow_due_run_queue_item, TaskOrchestratorDeliveryEnvelope, TaskOrchestratorExecutionTicket,
-    TaskOrchestratorQueueItem,
+    workflow_automation_delivery_envelope, workflow_due_run_delivery_envelope,
+    workflow_due_run_execution_ticket, workflow_due_run_queue_item,
+    TaskOrchestratorDeliveryEnvelope, TaskOrchestratorExecutionTicket, TaskOrchestratorQueueItem,
 };
 use nexa_core::tools::{browser_evidence_tool::BrowserEvidenceCaptureTool, Tool};
+use nexa_core::workflow_authoring::{
+    WorkflowAuthoringPreview, WorkflowInputs, WorkflowRecipe, WorkflowRunOptions,
+};
 use nexa_core::workflow_automation::{
     BrowserEvidenceCapture, InvestigationGraph, LearningGovernanceSnapshot,
     SaveWorkflowAutomationInput, TaskResumeCheckpoint, TaskResumePrompt, WorkflowAutomation,
@@ -17,8 +19,7 @@ use nexa_core::workflow_automation::{
     WorkflowSchedulerEventType,
 };
 use nexa_core::workflow_execution::{
-    prepare_workflow_automation_save, resolve_workflow_launch_policy, WorkflowLaunchMode,
-    WorkflowLaunchPolicy,
+    prepare_workflow_automation_save, resolve_workflow_launch_policy, WorkflowLaunchPolicy,
 };
 use nexa_core::workflow_scheduler::{
     preview_workflow_cron_schedule, WorkflowAutomationScheduleConfig, WorkflowSchedulePreview,
@@ -88,6 +89,7 @@ struct AuthoritativeScheduledWorkflowLaunchRequest<'a> {
     conversation_id: Option<String>,
     summary: Option<String>,
     delivery_kind: &'static str,
+    options: WorkflowRunOptions,
 }
 
 impl ScheduledWorkflowLaunchOutcome {
@@ -228,6 +230,7 @@ fn find_due_workflow_automation(
         .ok_or_else(|| format!("Workflow automation '{id}' is not currently due."))
 }
 
+#[cfg(test)]
 fn claim_due_workflow_automation_execution_ticket(
     db: &Database,
     due: WorkflowAutomationDueRun,
@@ -242,6 +245,7 @@ fn claim_due_workflow_automation_execution_ticket(
     workflow_due_run_execution_ticket(&claim.due_run, run).map_err(|err| err.to_string())
 }
 
+#[cfg(test)]
 fn claim_due_workflow_automation_execution(
     db: &Database,
     due: WorkflowAutomationDueRun,
@@ -262,6 +266,24 @@ fn claim_due_workflow_automation_execution(
 }
 
 async fn launch_task_orchestrator_execution_ticket(
+    request: DesktopTaskOrchestratorLaunchRequest<'_>,
+) -> Result<TaskOrchestratorWorkflowLaunch, String> {
+    let db = request.state.db.clone();
+    let run_id = request.ticket.run.run_id.clone();
+    let outcome = launch_task_orchestrator_execution_ticket_inner(request).await;
+    if let Err(error) = &outcome {
+        if let Err(transition_error) = db.mark_workflow_automation_launch_failed_for_retry(
+            &run_id,
+            error,
+            &Utc::now().to_rfc3339(),
+        ) {
+            warn!("Failed to retain workflow launch retry {run_id}: {transition_error}");
+        }
+    }
+    outcome
+}
+
+async fn launch_task_orchestrator_execution_ticket_inner(
     request: DesktopTaskOrchestratorLaunchRequest<'_>,
 ) -> Result<TaskOrchestratorWorkflowLaunch, String> {
     let DesktopTaskOrchestratorLaunchRequest {
@@ -380,12 +402,12 @@ async fn launch_task_orchestrator_execution_ticket(
             "attempt": workflow_run_snapshot.attempt,
             "scheduledAllowedTools": allowed_tools,
             "scheduledToolGrant": {
-                "authority": "savedAllowlist",
-                "approvalMode": "allow_all_within_saved_allowlist",
+                "authority": if agent_config_is_authoritative { "savedAllowlist" } else { "interactivePolicy" },
+                "approvalMode": if agent_config_is_authoritative { "allow_all_within_saved_allowlist" } else { "ask" },
                 "hardInteractiveConfirmationsRemainRequired": true,
             },
             "scheduledRoute": {
-                "authority": "scheduledPolicy",
+                "authority": if agent_config_is_authoritative { "scheduledPolicy" } else { "interactivePolicy" },
                 "projectId": project_id,
                 "workspacePolicy": if force_workspace_isolation { "isolated_patch" } else { "deny_writes" },
                 "sourceRootFingerprint": source_root_fingerprint,
@@ -403,21 +425,7 @@ async fn launch_task_orchestrator_execution_ticket(
     })
     .await;
 
-    let launch = match launch_result {
-        Ok(launch) => launch,
-        Err(err) => {
-            if let Err(transition_err) = state.db.mark_workflow_automation_launch_failed_for_retry(
-                &workflow_run_id,
-                &err,
-                &Utc::now().to_rfc3339(),
-            ) {
-                warn!(
-                    "Failed to schedule Task Orchestrator run {workflow_run_id} retry after launch failure: {transition_err}"
-                );
-            }
-            return Err(err);
-        }
-    };
+    let launch = launch_result?;
 
     Ok(TaskOrchestratorWorkflowLaunch {
         ticket,
@@ -441,12 +449,14 @@ async fn launch_authoritative_scheduled_workflow(
         conversation_id,
         summary,
         delivery_kind,
+        options,
     } = request;
-    let preparation = nexa_core::workflow_execution::prepare_scheduled_workflow_launch(
+    let preparation = nexa_core::workflow_execution::prepare_workflow_launch_with_options(
         state.db.as_ref(),
         due,
         now,
         summary,
+        &options,
     )
     .map_err(|error| error.to_string())?;
     let (ticket, launch_policy) = match preparation {
@@ -515,13 +525,96 @@ pub fn save_workflow_automation_cmd(
     state: tauri::State<'_, AppState>,
     input: SaveWorkflowAutomationInput,
     schedule_config: Option<WorkflowAutomationScheduleConfig>,
+    recipe: Option<serde_json::Value>,
+    expected_revision: Option<i64>,
 ) -> Result<WorkflowAutomation, String> {
     let prepared = prepare_workflow_automation_save(state.db.as_ref(), input, schedule_config)
         .map_err(|error| error.to_string())?;
     state
         .db
-        .save_workflow_automation_with_schedule_config(&prepared.input, &prepared.schedule_config)
+        .save_authored_workflow_automation(
+            &prepared.input,
+            &prepared.schedule_config,
+            recipe.as_ref(),
+            expected_revision,
+        )
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn preview_workflow_authoring_cmd(
+    state: tauri::State<'_, AppState>,
+    input: SaveWorkflowAutomationInput,
+    recipe: Option<serde_json::Value>,
+    schedule_config: Option<WorkflowAutomationScheduleConfig>,
+) -> Result<WorkflowAuthoringPreview, String> {
+    ensure_workflow_template_runtime_visible(state.db.as_ref(), &input.workflow_template_id)?;
+    let prepared = prepare_workflow_automation_save(state.db.as_ref(), input, schedule_config)
+        .map_err(|error| error.to_string())?;
+    if let Some(raw) = recipe {
+        let recipe: WorkflowRecipe =
+            serde_json::from_value(raw).map_err(|error| error.to_string())?;
+        nexa_core::workflow_authoring::compile_workflow_recipe(
+            &recipe,
+            &prepared.input.workflow_template_id,
+            None,
+        )
+        .map_err(|error| error.to_string())
+    } else {
+        if prepared.input.prompt.trim().is_empty() {
+            return Err("Workflow prompt cannot be empty".into());
+        }
+        Ok(WorkflowAuthoringPreview {
+            content_digest: blake3::hash(prepared.input.prompt.as_bytes())
+                .to_hex()
+                .to_string(),
+            prompt: prepared.input.prompt,
+            recipe: None,
+            resolved_inputs: None,
+            definition_revision: None,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn preview_saved_workflow_run_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    inputs: Option<WorkflowInputs>,
+) -> Result<WorkflowAuthoringPreview, String> {
+    let automation = state
+        .db
+        .get_workflow_automation(&id)
+        .map_err(|error| error.to_string())?;
+    ensure_workflow_template_runtime_visible(state.db.as_ref(), &automation.workflow_template_id)?;
+    state
+        .db
+        .preview_workflow_authoring(&id, inputs.as_ref())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_workflow_run_history_cmd(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    before: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<serde_json::Value>, String> {
+    state
+        .db
+        .list_workflow_run_history(&id, before.as_deref(), limit.unwrap_or(25))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_workflow_run_snapshot_cmd(
+    state: tauri::State<'_, AppState>,
+    run_id: String,
+) -> Result<Option<nexa_core::workflow_authoring::WorkflowRunSnapshot>, String> {
+    state
+        .db
+        .get_workflow_run_snapshot(&run_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -659,41 +752,8 @@ pub fn queue_workflow_automation_delivery_cmd(
     id: String,
     summary: Option<String>,
 ) -> Result<TaskOrchestratorExecutionTicket, String> {
-    let automation = state
-        .db
-        .get_workflow_automation(&id)
-        .map_err(|err| err.to_string())?;
-    if automation.trigger_kind == "schedule" {
-        return Err(
-            "Scheduled definitions must use start_workflow_automation_run_cmd so the saved execution and approval policy is enforced."
-                .to_string(),
-        );
-    }
-    queue_manual_workflow_automation_execution_ticket(state.db.as_ref(), &automation, summary)
-}
-
-fn queue_manual_workflow_automation_execution_ticket(
-    db: &Database,
-    automation: &WorkflowAutomation,
-    summary: Option<String>,
-) -> Result<TaskOrchestratorExecutionTicket, String> {
-    ensure_workflow_template_runtime_visible(db, &automation.workflow_template_id)?;
-    let prompt = db
-        .preview_workflow_automation_prompt(&automation.id)
-        .map_err(|err| err.to_string())?;
-    let delivery =
-        workflow_automation_delivery_envelope(automation, prompt, "manual run requested");
-    let run = db
-        .record_workflow_automation_run(
-            &automation.id,
-            None,
-            "queued",
-            summary
-                .as_deref()
-                .or(Some(delivery.queue_item.due_reason.as_str())),
-        )
-        .map_err(|err| err.to_string())?;
-    workflow_automation_execution_ticket(automation, &run, delivery).map_err(|err| err.to_string())
+    let _ = (state, id, summary);
+    Err("Use start_workflow_automation_run_cmd to preserve the saved definition and approval policy.".into())
 }
 
 #[tauri::command]
@@ -706,64 +766,33 @@ pub async fn start_workflow_automation_run_cmd(
     id: String,
     conversation_id: Option<String>,
     summary: Option<String>,
+    options: Option<WorkflowRunOptions>,
 ) -> Result<TaskOrchestratorWorkflowStartOutcome, String> {
     let automation = state
         .db
         .get_workflow_automation(&id)
         .map_err(|error| error.to_string())?;
-    if automation.trigger_kind == "schedule" {
-        ensure_workflow_template_runtime_visible(
-            state.db.as_ref(),
-            &automation.workflow_template_id,
-        )?;
-        let now = Utc::now().to_rfc3339();
-        let due = state
-            .db
-            .workflow_automation_run_now_due_at(&id, &now)
-            .map_err(|error| error.to_string())?;
-        return launch_authoritative_scheduled_workflow(
-            AuthoritativeScheduledWorkflowLaunchRequest {
-                state: state.inner(),
-                agent_state: agent_state.inner(),
-                mcp_state: mcp_state.inner(),
-                approval_state: approval_state.inner(),
-                app_handle,
-                due,
-                now: &now,
-                conversation_id,
-                summary,
-                delivery_kind: "manual_run_now",
-            },
-        )
-        .await
-        .map(Into::into);
-    }
-    if automation.approval_policy.require_before_run {
-        return Err("Workflow requires approval before it can run.".to_string());
-    }
-    let launch_policy = resolve_workflow_launch_policy(
-        state.db.as_ref(),
-        &automation,
-        WorkflowLaunchMode::Interactive,
-    )
-    .map_err(|error| error.to_string())?;
-    let ticket =
-        queue_manual_workflow_automation_execution_ticket(state.db.as_ref(), &automation, summary)?;
-    launch_task_orchestrator_execution_ticket(DesktopTaskOrchestratorLaunchRequest {
+    ensure_workflow_template_runtime_visible(state.db.as_ref(), &automation.workflow_template_id)?;
+    let now = Utc::now().to_rfc3339();
+    let due = state
+        .db
+        .workflow_automation_run_now_due_at(&id, &now)
+        .map_err(|error| error.to_string())?;
+    launch_authoritative_scheduled_workflow(AuthoritativeScheduledWorkflowLaunchRequest {
         state: state.inner(),
         agent_state: agent_state.inner(),
         mcp_state: mcp_state.inner(),
         approval_state: approval_state.inner(),
         app_handle,
-        ticket,
-        launch_policy,
+        due,
+        now: &now,
         conversation_id,
-        persona_id: None,
-        skill_ids: None,
-        delivery_kind: "manual",
+        summary,
+        delivery_kind: "manual_run_now",
+        options: options.unwrap_or_default(),
     })
     .await
-    .map(|launch| TaskOrchestratorWorkflowStartOutcome::Launched { launch })
+    .map(Into::into)
 }
 
 #[tauri::command]
@@ -773,15 +802,8 @@ pub fn queue_due_workflow_automation_delivery_cmd(
     now: Option<String>,
     summary: Option<String>,
 ) -> Result<TaskOrchestratorExecutionTicket, String> {
-    let now = now.unwrap_or_else(|| Utc::now().to_rfc3339());
-    let due = find_due_workflow_automation(state.db.as_ref(), &id, &now)?;
-    if due.automation.trigger_kind == "schedule" {
-        return Err(
-            "Scheduled occurrences must use start_due_workflow_automation_run_cmd so the saved execution and approval policy is enforced."
-                .to_string(),
-        );
-    }
-    claim_due_workflow_automation_execution_ticket(state.db.as_ref(), due, &now, summary)
+    let _ = (state, id, now, summary);
+    Err("Use start_due_workflow_automation_run_cmd to preserve the saved definition and approval policy.".into())
 }
 
 #[tauri::command]
@@ -810,6 +832,7 @@ pub async fn start_due_workflow_automation_run_cmd(
         conversation_id,
         summary,
         delivery_kind: "manual_due",
+        options: Default::default(),
     })
     .await
     .map(Into::into)
@@ -840,18 +863,18 @@ pub async fn approve_workflow_automation_run_cmd(
         .db
         .get_workflow_automation_run(&run_id)
         .map_err(|error| error.to_string())?;
-    let waiting_automation = state
+    let waiting_due = state
         .db
-        .get_workflow_automation(&waiting_run.automation_id)
+        .get_workflow_due_for_run(&waiting_run.id)
         .map_err(|error| error.to_string())?;
     ensure_workflow_template_runtime_visible(
         state.db.as_ref(),
-        &waiting_automation.workflow_template_id,
+        &waiting_due.automation.workflow_template_id,
     )?;
     let launch_policy = resolve_workflow_launch_policy(
         state.db.as_ref(),
-        &waiting_automation,
-        WorkflowLaunchMode::AuthoritativeScheduled,
+        &waiting_due.automation,
+        nexa_core::workflow_execution::workflow_launch_mode(&waiting_due),
     )
     .map_err(|error| error.to_string())?;
     let claim = state
@@ -985,6 +1008,7 @@ pub async fn run_task_orchestrator_scheduler_tick(
             conversation_id: None,
             summary: None,
             delivery_kind: "scheduler",
+            options: Default::default(),
         })
         .await
         {

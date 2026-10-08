@@ -165,6 +165,7 @@ import type {
   TaskResumeCheckpoint,
   TaskResumePrompt,
   WorkflowAutomation,
+  WorkflowCatalogTemplate,
   WorkflowAutomationDueRun,
   WorkflowAutomationRun,
   WorkflowAutomationSchedulerEvent,
@@ -846,24 +847,7 @@ export interface FileSaveResult {
   reindexDetail?: string | null;
 }
 
-export interface WorkflowCatalogTask {
-  id: string;
-  roleId: string;
-  roleLabel: string;
-  task: string;
-  expectedOutput: string;
-  deliverableStyle: string;
-  acceptanceCriteria: string[];
-}
-
-export interface WorkflowCatalogTemplate {
-  id: string;
-  label: string;
-  description: string;
-  maxParallel: number;
-  promptTemplate: string;
-  tasks: WorkflowCatalogTask[];
-}
+export type { WorkflowCatalogTask, WorkflowCatalogTemplate } from '../types/workflows';
 
 export const previewFile = (path: string, conversationId?: string, verifyContentHash = false) =>
   invoke<FilePreview>('preview_file_cmd', {
@@ -1162,15 +1146,34 @@ export const listWorkflowTemplates = () =>
   invoke<WorkflowCatalogTemplate[]>('list_workflow_templates_cmd');
 
 export const saveWorkflowAutomation = (input: SaveWorkflowAutomationInput) => {
-  const { scheduleConfig, ...coreInput } = input;
+  const { scheduleConfig, recipe, expectedRevision, ...coreInput } = input;
   return invoke<WorkflowAutomation>('save_workflow_automation_cmd', {
     input: coreInput,
     scheduleConfig: scheduleConfig ?? null,
+    recipe: recipe ?? null,
+    expectedRevision: expectedRevision ?? null,
   });
 };
 
+export const previewWorkflowAuthoring = (input: SaveWorkflowAutomationInput) => {
+  const { scheduleConfig, recipe, expectedRevision: _expectedRevision, ...coreInput } = input;
+  return invoke<import('../types/workflows').WorkflowAuthoringPreview>('preview_workflow_authoring_cmd', { input: coreInput, scheduleConfig: scheduleConfig ?? null, recipe: recipe ?? null });
+};
+
+export const previewSavedWorkflowRun = (id: string, inputs?: import('../types/workflows').WorkflowInputs) =>
+  invoke<import('../types/workflows').WorkflowAuthoringPreview>('preview_saved_workflow_run_cmd', { id, inputs: inputs ?? null });
+
+export const listWorkflowRunHistory = (id: string, before?: string, limit = 25) =>
+  invoke<import('../types/workflows').WorkflowRunHistoryEntry[]>('list_workflow_run_history_cmd', { id, before: before ?? null, limit });
+
+export const getWorkflowRunSnapshot = (runId: string) =>
+  invoke<import('../types/workflows').WorkflowRunSnapshot | null>('get_workflow_run_snapshot_cmd', { runId });
+
 export const listWorkflowAutomations = () =>
   invoke<WorkflowAutomation[]>('list_workflow_automations_cmd');
+
+export const getAgentTaskRunSummary = (runId: string) =>
+  invoke<AgentTaskRunListItem>('get_agent_task_run_summary_cmd', { runId });
 
 export const deleteWorkflowAutomation = (id: string) =>
   invoke<void>('delete_workflow_automation_cmd', { id });
@@ -1215,10 +1218,12 @@ export const startWorkflowAutomationRun = (
   id: string,
   conversationId?: string | null,
   summary?: string | null,
+  options?: import('../types/workflows').WorkflowRunOptions,
 ) => invoke<TaskOrchestratorWorkflowStartOutcome>('start_workflow_automation_run_cmd', {
   id,
   conversationId: conversationId ?? null,
   summary: summary ?? null,
+  options: options ?? null,
 });
 
 export const queueDueWorkflowAutomationDelivery = (

@@ -100,6 +100,8 @@ struct DelegationBatchSnapshot {
     cursor: u64,
     reset: bool,
     runs: Vec<SubagentRunArtifact>,
+    outcome: &'static str,
+    blocked_workers: usize,
 }
 
 struct WorkerHandleOwner {
@@ -378,6 +380,22 @@ impl DelegationRuntime {
                     completed_workers: batch.results.len(),
                     cursor,
                     reset,
+                    outcome: if batch.results.len() < batch.expected_workers {
+                        "running"
+                    } else if batch.results.values().any(|run| run.is_error) {
+                        "failed"
+                    } else {
+                        "completed"
+                    },
+                    blocked_workers: batch
+                        .results
+                        .values()
+                        .filter(|run| {
+                            run.error_message
+                                .as_deref()
+                                .is_some_and(|error| error.contains("dependency_failed:"))
+                        })
+                        .count(),
                     runs: selected
                         .into_iter()
                         .filter_map(|index| batch.results.get(&index).cloned())
@@ -453,6 +471,8 @@ impl DelegationRuntime {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct SpawnSubagentArgs {
     task: String,
+    #[serde(skip)]
+    stage_handoff: WorkflowStageHandoff,
     #[serde(flatten)]
     route: SubagentRouteArgs,
     #[serde(default)]
@@ -493,6 +513,8 @@ struct BatchSubagentTaskArgs {
     route: SubagentRouteArgs,
     #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
+    depends_on: Vec<String>,
     #[serde(default)]
     task_id: Option<String>,
     task: String,
@@ -729,6 +751,8 @@ struct SubagentRunArtifact {
     resumed_from_task_id: Option<String>,
     previous_session: Option<SubagentSessionSnapshot>,
     status: String,
+    depends_on: Vec<String>,
+    predecessor_results: Vec<WorkflowDependencyEvidence>,
     task: String,
     role_id: Option<String>,
     role_name: Option<String>,
@@ -813,6 +837,8 @@ fn subtask_input_payload(
         "maxIterations": args.max_iterations,
         "timeoutSecs": timeout_secs,
         "reservedTokens": reserved_tokens,
+        "dependsOn": &args.stage_handoff.depends_on,
+        "predecessorResults": args.stage_handoff.evidence(),
     })
 }
 
@@ -1081,6 +1107,7 @@ struct JudgeDecisionArtifact {
 }
 
 mod catalog;
+mod dependencies;
 mod event_pump;
 mod judge;
 mod policy;
@@ -1092,6 +1119,7 @@ mod tools;
 mod worker;
 
 use catalog::*;
+use dependencies::*;
 use event_pump::*;
 use policy::*;
 use preflight::*;

@@ -268,6 +268,11 @@ pub(super) fn expand_workflow_template_tasks(
             BatchSubagentTaskArgs {
                 route: SubagentRouteArgs::default(),
                 id: Some(format!("{}-{}", template.id, task_template.id)),
+                depends_on: task_template
+                    .depends_on
+                    .iter()
+                    .map(|id| format!("{}-{id}", template.id))
+                    .collect(),
                 task_id: None,
                 task: format!(
                     "Overall goal:\n{}\n\nTemplate step:\n{}",

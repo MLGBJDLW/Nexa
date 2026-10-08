@@ -1,6 +1,6 @@
 {
   "name": "spawn_subagent_batch",
-  "description": "Spawn a batch of short-lived subagents for parallel fan-out research, critique, comparison, or templated workflows. Every worker publishes an independent lifecycle stream and stable agentId while the batch completion policy is pending. Provide explicit tasks, or set workflow_template plus batch_goal to expand a built-in role-based workflow under one shared budget.",
+  "description": "Spawn a batch of short-lived subagents for research, critique, comparison, or staged workflows. Set tasks[].depends_on to other task IDs when a worker must consume completed predecessor results. Dependencies are validated before launch, wait without occupying execution slots, and block descendants if a predecessor fails. Every worker publishes a lifecycle stream and stable agentId. Provide explicit tasks, or workflow_template plus batch_goal to expand a built-in workflow under one shared budget.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -14,6 +14,11 @@
           "properties": {
             "id": {
               "type": "string"
+            },
+            "depends_on": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Prerequisite task IDs within this batch. This worker starts only after every prerequisite succeeds and receives their complete stored outputs as untrusted evidence. Cycles, unknown IDs, duplicate IDs and duplicate edges are rejected before launch."
             },
             "task_id": {
               "type": "string",

@@ -32,14 +32,15 @@ use crate::workflow_scheduler::{
 
 const AUTOMATION_NAME_MAX_CHARS: usize = 160;
 const AUTOMATION_DESCRIPTION_MAX_CHARS: usize = 2_000;
-const AUTOMATION_PROMPT_MAX_CHARS: usize = 12_000;
 const RESUME_PROMPT_MAX_STATE_CHARS: usize = 7_000;
 const RESUME_PARTIAL_OUTPUT_MAX_CHARS: usize = 24_000;
 const SCHEDULER_RETRY_EVENT_LOOKBACK_LIMIT: usize = 50;
 const SCHEDULER_RETRY_BACKOFF_SECONDS: [i64; 4] = [300, 900, 3_600, 14_400];
 const SCHEDULER_RETRY_MAX_ATTEMPTS: usize = 4;
 
+mod authoring;
 mod types;
+use authoring::*;
 pub use types::*;
 
 struct PreparedWorkflowOccurrenceClaim {
@@ -50,6 +51,7 @@ struct PreparedWorkflowOccurrenceClaim {
     next_run_at: Option<String>,
     occurrence_id: String,
     existing: Option<WorkflowAutomationOccurrence>,
+    snapshot: crate::workflow_authoring::WorkflowRunSnapshot,
 }
 
 enum WorkflowOccurrenceClaimDecision {
@@ -141,7 +143,10 @@ fn workflow_automation_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wor
                     if config.validate_for_save(cron).is_ok()
             )
     } else {
-        true
+        !matches!(schedule_config_json.trim(), "" | "{}" | "null")
+            && parsed_schedule_config
+                .as_ref()
+                .is_ok_and(|config| config.validate_common_for_save().is_ok())
     };
     let schedule_config = if schedule_config_is_valid {
         parsed_schedule_config.unwrap_or_default()
@@ -157,6 +162,19 @@ fn workflow_automation_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wor
         description: row.get(2)?,
         workflow_template_id: row.get(3)?,
         prompt: row.get(4)?,
+        recipe: row
+            .get::<_, Option<String>>(16)?
+            .map(|raw| {
+                serde_json::from_str(&raw).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        16,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })
+            })
+            .transpose()?,
+        definition_revision: row.get(17)?,
         trigger_kind,
         trigger,
         source_scope: parse_json_or_default::<Vec<String>>(source_scope_json),
@@ -305,7 +323,7 @@ fn workflow_automation_occurrence_from_row(
 
 const WORKFLOW_RUN_SELECT: &str = "SELECT id, automation_id, task_run_id, status, summary, created_at, finished_at, occurrence_id, scheduled_for, definition_revision, attempt FROM workflow_automation_runs";
 const WORKFLOW_OCCURRENCE_SELECT: &str = "SELECT id, automation_id, definition_revision, scheduled_for, status, attempt_count, retry_at, last_error, lease_token, lease_expires_at, created_at, updated_at FROM workflow_automation_occurrences";
-const WORKFLOW_AUTOMATION_SELECT: &str = "SELECT id, name, description, workflow_template_id, prompt, trigger_json, trigger_kind, source_scope_json, approval_policy_json, enabled, status, last_run_at, next_run_at, created_at, updated_at, COALESCE((SELECT config_json FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), '{}') FROM workflow_automations";
+const WORKFLOW_AUTOMATION_SELECT: &str = "SELECT id, name, description, workflow_template_id, prompt, trigger_json, trigger_kind, source_scope_json, approval_policy_json, enabled, status, last_run_at, next_run_at, created_at, updated_at, COALESCE((SELECT config_json FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), '{}'), recipe_json, COALESCE((SELECT revision FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), 0) FROM workflow_automations";
 
 fn fetch_workflow_run(
     conn: &rusqlite::Connection,
@@ -335,30 +353,29 @@ fn fetch_pending_workflow_approval(
     tx: &Transaction<'_>,
     run_id: &str,
 ) -> Result<PendingWorkflowApproval, CoreError> {
-    let automation = tx
-        .query_row(
-            "SELECT a.id, a.name, a.description, a.workflow_template_id, a.prompt,
-                    a.trigger_json, a.trigger_kind, a.source_scope_json,
-                    a.approval_policy_json, a.enabled, a.status, a.last_run_at,
-                    a.next_run_at, a.created_at, a.updated_at, c.config_json
-             FROM workflow_automations a
+    let actionable: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM workflow_automations a
              JOIN workflow_automation_schedule_configs c ON c.automation_id = a.id
              JOIN workflow_automation_runs r ON r.automation_id = a.id
              JOIN workflow_automation_occurrence_approvals p ON p.occurrence_id = r.occurrence_id
              JOIN workflow_automation_occurrences o ON o.id = r.occurrence_id
              WHERE r.id = ?1 AND r.status = 'waiting_approval'
                AND p.state = 'pending' AND o.status = 'waiting_approval'
-               AND c.revision = r.definition_revision",
-            rusqlite::params![run_id],
-            workflow_automation_from_row,
-        )
-        .map_err(|error| match error {
-            rusqlite::Error::QueryReturnedNoRows => CoreError::InvalidInput(format!(
-                "Workflow run {run_id} is no longer waiting for approval"
-            )),
-            other => CoreError::Database(other),
-        })?;
+               AND c.revision = r.definition_revision AND a.enabled = 1)",
+        rusqlite::params![run_id],
+        |row| row.get(0),
+    )?;
+    if !actionable {
+        return Err(CoreError::InvalidInput(format!(
+            "Workflow run {run_id} is no longer waiting for approval"
+        )));
+    }
     let run = fetch_workflow_run(tx, run_id)?;
+    let automation = if let Some(snapshot) = fetch_run_snapshot(tx, run_id)? {
+        snapshot.automation
+    } else {
+        fetch_definition_revision(tx, &run.automation_id, i64::from(run.definition_revision))?
+    };
     let occurrence_id = run
         .occurrence_id
         .clone()
@@ -552,6 +569,7 @@ pub fn workflow_automation_scheduler_retry_decision_from_events(
 fn folder_trigger_due(
     trigger: &WorkflowAutomationTrigger,
     last_run_at: Option<&str>,
+    observed_through: DateTime<Utc>,
 ) -> Result<bool, CoreError> {
     let WorkflowAutomationTrigger::Folder { path, pattern } = trigger else {
         return Ok(false);
@@ -583,9 +601,6 @@ fn folder_trigger_due(
         if !globset.is_match(relative) && !globset.is_match(entry.file_name()) {
             continue;
         }
-        let Some(since) = since else {
-            return Ok(true);
-        };
         let Ok(metadata) = entry.metadata() else {
             continue;
         };
@@ -593,7 +608,7 @@ fn folder_trigger_due(
             continue;
         };
         let modified = DateTime::<Utc>::from(modified);
-        if modified.timestamp() > since.timestamp() {
+        if modified <= observed_through && since.is_none_or(|since| modified > since) {
             return Ok(true);
         }
     }
@@ -607,7 +622,7 @@ fn automation_prompt(automation: &WorkflowAutomation) -> String {
         automation.source_scope.join(", ")
     };
     let approval = if automation.approval_policy.require_before_run {
-        "Ask for approval before executing write, network, shell, or desktop actions."
+        "Nexa manages the required pre-run approval before launch; per-tool permission and confirmation rules still apply."
     } else {
         "Use the saved approval policy for this automation."
     };

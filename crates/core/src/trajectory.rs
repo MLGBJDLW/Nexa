@@ -329,7 +329,7 @@ pub fn export_workflow_automation_run_trajectory(
     redaction_profile: TrajectoryRedactionProfile,
 ) -> Result<Trajectory, CoreError> {
     let workflow_run = db.get_workflow_automation_run(workflow_run_id)?;
-    let automation = db.get_workflow_automation(&workflow_run.automation_id)?;
+    let automation = db.get_workflow_definition_for_run(&workflow_run.id)?;
     let workflow_projection = workflow_automation_run_projection(&automation, &workflow_run)
         .map_err(|err| CoreError::Internal(format!("project workflow automation run: {err}")))?;
 

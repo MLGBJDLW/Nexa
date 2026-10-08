@@ -1095,6 +1095,7 @@ const AGENT_TASK_RUN_SUMMARY_QUERY: &str = r#"WITH event_counts AS (
      WHERE (?2 IS NULL OR (r.updated_at, r.created_at, r.id) < (?2, ?3, ?4))
        AND (?5 IS NULL OR r.status = ?5)
        AND (?6 IS NULL OR t.launch_project_id = ?6)
+       AND (?7 IS NULL OR r.id = ?7)
      ORDER BY r.updated_at DESC, r.created_at DESC, r.id DESC
      LIMIT ?1"#;
 
@@ -3291,6 +3292,27 @@ impl Database {
         status: Option<&str>,
         project_id: Option<&str>,
     ) -> Result<AgentTaskRunSummaryPage, CoreError> {
+        self.query_agent_task_run_summaries(limit, cursor, status, project_id, None)
+    }
+
+    pub fn get_agent_task_run_summary(
+        &self,
+        run_id: &str,
+    ) -> Result<AgentTaskRunListItem, CoreError> {
+        self.query_agent_task_run_summaries(1, None, None, None, Some(run_id))?
+            .items
+            .pop()
+            .ok_or_else(|| CoreError::NotFound(format!("Agent task run {run_id}")))
+    }
+
+    fn query_agent_task_run_summaries(
+        &self,
+        limit: u32,
+        cursor: Option<&AgentTaskRunPageCursor>,
+        status: Option<&str>,
+        project_id: Option<&str>,
+        run_id: Option<&str>,
+    ) -> Result<AgentTaskRunSummaryPage, CoreError> {
         let bounded_limit = i64::from(limit.clamp(1, 100));
         let fetch_limit = bounded_limit + 1;
         let conn = self.conn();
@@ -3306,6 +3328,7 @@ impl Database {
                 cursor_id,
                 status,
                 project_id,
+                run_id,
             ],
             |row| {
                 let artifact_kinds = row
@@ -6929,6 +6952,7 @@ mod tests {
                         Option::<&str>::None,
                         Option::<&str>::None,
                         Option::<&str>::None,
+                        Option::<&str>::None,
                     ],
                     |row| row.get::<_, String>(3),
                 )
@@ -6951,6 +6975,13 @@ mod tests {
             .unwrap();
         assert_eq!(first.items.len(), 25);
         assert_eq!(first.items[0].run.id, "perf-run-09999");
+        let historical = db.get_agent_task_run_summary("perf-run-00001").unwrap();
+        assert_eq!(historical.run.id, "perf-run-00001");
+        assert_eq!(historical.run.title, "Task 1");
+        assert!(historical.run.plan.is_none());
+        assert!(db
+            .get_agent_task_run_summary("missing-workflow-task")
+            .is_err());
         let second = db
             .list_agent_task_run_summaries(25, first.next_cursor.as_ref(), None, None)
             .unwrap();

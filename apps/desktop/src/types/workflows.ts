@@ -1,5 +1,78 @@
 import type { AgentTaskRun } from './conversation';
 import type { TaskOrchestratorQueueItem, TaskOrchestratorRun } from './trace';
+import type { WorkflowRecordingStep } from '../lib/workflowRecorder';
+
+export interface WorkflowCatalogTask {
+  id: string;
+  dependsOn?: string[];
+  roleId: string;
+  roleLabel: string;
+  task: string;
+  expectedOutput: string;
+  deliverableStyle: string;
+  acceptanceCriteria: string[];
+}
+
+export interface WorkflowCatalogTemplate {
+  id: string;
+  version?: number;
+  label: string;
+  description: string;
+  maxParallel: number;
+  promptTemplate: string;
+  tasks: WorkflowCatalogTask[];
+}
+
+export interface WorkflowInputs {
+  goal: string;
+  context: string;
+  constraints: string[];
+  deliverable: { format: 'answer' | 'markdown' | 'table' | 'checklist'; instructions: string };
+  replayValues: string[];
+}
+
+export interface WorkflowRecipe {
+  version: 1;
+  kind: 'template' | 'custom' | 'recorded';
+  templateSnapshot: WorkflowCatalogTemplate;
+  inputs: WorkflowInputs;
+  customInstructions: string;
+  recording: null | {
+    variableInputs: string[];
+    steps: WorkflowRecordingStep[];
+    preferences: string[];
+    successCriteria: string[];
+    safetyNotes: string[];
+  };
+}
+
+export interface WorkflowAuthoringPreview {
+  prompt: string;
+  contentDigest: string;
+  recipe: WorkflowRecipe | null;
+  resolvedInputs: WorkflowInputs | null;
+  definitionRevision: number | null;
+}
+
+export interface WorkflowRunOptions {
+  inputs?: WorkflowInputs;
+  expectedRevision?: number;
+  previewDigest?: string;
+  clientRequestId?: string;
+}
+
+export interface WorkflowRunSnapshot {
+  version: number;
+  definitionDigest: string;
+  automation: WorkflowAutomation;
+  resolvedInputs: WorkflowInputs | null;
+  compiledPrompt: string;
+  origin: 'schedule' | 'manual_run_now' | 'folder_event';
+}
+
+export interface WorkflowRunHistoryEntry extends WorkflowAutomationRun {
+  conversationId?: string | null;
+}
 
 export type WorkflowAutomationTrigger =
   | { kind: 'manual' }
@@ -64,6 +137,8 @@ export interface SaveWorkflowAutomationInput {
   approvalPolicy: WorkflowAutomationApprovalPolicy;
   scheduleConfig?: WorkflowAutomationScheduleConfig;
   enabled: boolean;
+  recipe?: WorkflowRecipe | null;
+  expectedRevision?: number;
 }
 
 export interface WorkflowAutomation {
@@ -72,6 +147,8 @@ export interface WorkflowAutomation {
   description: string;
   workflowTemplateId: string;
   prompt: string;
+  recipe?: WorkflowRecipe | null;
+  definitionRevision?: number;
   triggerKind: string;
   trigger: WorkflowAutomationTrigger;
   sourceScope: string[];
@@ -90,7 +167,7 @@ export interface WorkflowAutomationDueRun {
   prompt: string;
   dueReason: string;
   scheduledFor?: string | null;
-  origin: 'schedule' | 'manual_run_now';
+  origin: 'schedule' | 'manual_run_now' | 'folder_event';
 }
 
 export interface WorkflowAutomationRun {

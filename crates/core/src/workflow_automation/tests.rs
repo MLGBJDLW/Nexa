@@ -567,7 +567,7 @@ fn schedule_revision_remains_monotonic_across_trigger_kind_round_trip() {
             .collect::<Result<Vec<_>, _>>()
             .unwrap()
     };
-    assert_eq!(revisions, vec![1, 2]);
+    assert_eq!(revisions, vec![1, 2, 3]);
 }
 
 #[test]
@@ -861,8 +861,16 @@ fn overlap_policy_is_enforced_inside_atomic_claim() {
         let mut config = WorkflowAutomationScheduleConfig::default();
         config.overlap_policy = policy;
         let automation = scheduled_automation(&db, "overlap", "0 9 * * *", config);
+        let now = Utc::now().to_rfc3339();
         let existing = db
-            .record_workflow_automation_run(&automation.id, None, "queued", Some("existing"))
+            .claim_workflow_automation_due_run_at(
+                db.workflow_automation_run_now_due_at(&automation.id, &now)
+                    .unwrap(),
+                &now,
+                Some("existing"),
+            )
+            .unwrap()
+            .run
             .unwrap();
         let task = create_test_agent_run(&db, "existing active run");
         db.start_workflow_automation_run(&existing.id, &task.id, None)
@@ -1168,7 +1176,18 @@ fn folder_trigger_detects_matching_files_and_advances_after_run() {
     assert_eq!(due[0].automation.id, saved.id);
     assert!(due[0].due_reason.contains("folder trigger"));
 
-    db.record_workflow_automation_run(&saved.id, None, "completed", Some("done"))
+    let claim = db
+        .claim_workflow_automation_due_run_at(due[0].clone(), "2099-01-01T09:00:00Z", None)
+        .unwrap();
+    let run = claim.run.unwrap();
+    db.mark_workflow_automation_run_waiting_approval(&run.id)
+        .unwrap();
+    db.approve_workflow_automation_run_at(&run.id, "2099-01-01T09:00:00Z")
+        .unwrap();
+    let task = create_test_agent_run(&db, "Folder event");
+    db.start_workflow_automation_run_at(&run.id, &task.id, None, "2099-01-01T09:00:00Z")
+        .unwrap();
+    db.transition_workflow_automation_run(&run.id, "completed", Some("done"))
         .unwrap();
     assert!(db
         .list_due_workflow_automations("2099-01-01T09:00:00Z")
@@ -1244,8 +1263,16 @@ fn workflow_automation_run_binds_to_agent_task_run_and_transitions() {
             enabled: true,
         })
         .unwrap();
+    let now = Utc::now().to_rfc3339();
     let queued_run = db
-        .record_workflow_automation_run(&automation.id, None, "queued", Some("queued"))
+        .claim_workflow_automation_due_run_at(
+            db.workflow_automation_run_now_due_at(&automation.id, &now)
+                .unwrap(),
+            &now,
+            Some("queued"),
+        )
+        .unwrap()
+        .run
         .unwrap();
     let conversation = db
         .create_conversation(&CreateConversationInput {

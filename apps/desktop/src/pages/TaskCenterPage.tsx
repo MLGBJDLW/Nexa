@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   Boxes,
   Brain,
@@ -383,9 +383,11 @@ export function TaskCenterPage() {
   const { t } = useTranslation();
   const [developerMode] = useDeveloperMode();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedRunId = searchParams.get('runId');
   const copy = useMemo(() => createCopy(t), [t]);
   const [tasks, setTasks] = useState<AgentTaskRunListItem[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(() => localStorage.getItem(TASK_CENTER_SELECTION_KEY));
+  const [selectedId, setSelectedId] = useState<string | null>(() => linkedRunId ?? localStorage.getItem(TASK_CENTER_SELECTION_KEY));
   const [nextCursor, setNextCursor] = useState<AgentTaskRunPageCursor | null>(null);
   const [events, setEvents] = useState<TaskCenterHistoryItem[]>([]);
   const [schedulerEvents, setSchedulerEvents] = useState<TaskCenterHistoryItem[]>([]);
@@ -431,13 +433,18 @@ export function TaskCenterPage() {
     else setLoading(true);
     try {
       const page = await api.listAgentTaskRunSummaries(25, append ? nextCursorRef.current : null);
+      const requestedId = linkedRunId ?? localStorage.getItem(TASK_CENTER_SELECTION_KEY);
+      if (!append && requestedId && !page.items.some(item => item.run.id === requestedId)) {
+        try { page.items.push(await api.getAgentTaskRunSummary(requestedId)); }
+        catch (error) { toast.error(String(error)); }
+      }
       setTasks((current) => append
         ? [...current, ...page.items.filter((item) => !current.some((existing) => existing.run.id === item.run.id))]
         : page.items);
       setNextCursor(page.nextCursor ?? null);
       nextCursorRef.current = page.nextCursor ?? null;
       if (!append) {
-        setSelectedId((current) => current && page.items.some((task) => task.run.id === current) ? current : null);
+        setSelectedId(requestedId && page.items.some(task => task.run.id === requestedId) ? requestedId : null);
       }
     } catch (error) {
       toast.error(String(error));
@@ -445,7 +452,7 @@ export function TaskCenterPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, []);
+  }, [linkedRunId]);
 
   useEffect(() => {
     void load();
@@ -598,7 +605,8 @@ export function TaskCenterPage() {
   const handleSelectTask = useCallback((runId: string) => {
     localStorage.setItem(TASK_CENTER_SELECTION_KEY, runId);
     setSelectedId(runId);
-  }, []);
+    setSearchParams({ runId }, { replace: true });
+  }, [setSearchParams]);
 
   const handleCancel = useCallback(async () => {
     if (!selected || !taskRunCanAcceptStop(selected.run)) return;

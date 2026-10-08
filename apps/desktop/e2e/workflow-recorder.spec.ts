@@ -13,6 +13,9 @@ test.beforeEach(async ({ page }) => {
     const nowIso = new Date().toISOString();
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
     const savedAutomationInputs: Array<Record<string, unknown>> = [];
+    const savedAutomations: Array<Record<string, unknown>> = [];
+    const workflowCalls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+    (window as unknown as { __workflowCalls: typeof workflowCalls }).__workflowCalls = workflowCalls;
     (window as unknown as { __savedAutomationInputs?: Array<Record<string, unknown>> }).__savedAutomationInputs = savedAutomationInputs;
     const schedulePreviewInputs: Array<Record<string, unknown>> = [];
     (window as unknown as { __schedulePreviewInputs?: Array<Record<string, unknown>> }).__schedulePreviewInputs = schedulePreviewInputs;
@@ -22,6 +25,7 @@ test.beforeEach(async ({ page }) => {
     const workflowCatalog = [
       {
         id: 'connector_background',
+        version: 1,
         label: 'Connector + Background Task',
         description: 'Assess connector setup and background-task lifecycle risks.',
         maxParallel: 3,
@@ -119,6 +123,7 @@ test.beforeEach(async ({ page }) => {
     let listenerSeq = 1;
 
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
+      workflowCalls.push({ cmd, args: clone(args) });
       switch (cmd) {
         case 'plugin:event|listen': {
           const listenerId = listenerSeq++;
@@ -136,7 +141,7 @@ test.beforeEach(async ({ page }) => {
         case 'list_workflow_templates_cmd':
           return clone(workflowCatalog);
         case 'list_workflow_automations_cmd':
-          return [clone(approvalAutomation)];
+          return [clone(approvalAutomation), ...clone(savedAutomations)];
         case 'list_due_workflow_automations_cmd':
           return [];
         case 'list_workflow_automation_approvals_cmd':
@@ -168,11 +173,14 @@ test.beforeEach(async ({ page }) => {
           };
         case 'save_workflow_automation_cmd': {
           const input = clone(args.input as Record<string, unknown>);
-          const scheduleConfig = clone(args.scheduleConfig as Record<string, unknown> | null);
-          savedAutomationInputs.push({ ...input, scheduleConfig });
-          return {
+          const scheduleConfig = clone(args.scheduleConfig ?? approvalAutomation.scheduleConfig);
+          const recipe = clone(args.recipe);
+          savedAutomationInputs.push({ ...input, scheduleConfig, recipe, expectedRevision: args.expectedRevision });
+          const saved = {
             ...(input as Record<string, unknown>),
-            scheduleConfig,
+            scheduleConfig, recipe,
+            prompt: input.prompt || JSON.stringify(recipe),
+            definitionRevision: Number(args.expectedRevision ?? 0) + 1,
             id: 'automation-recorded',
             triggerKind: 'manual',
             status: 'ready',
@@ -181,7 +189,23 @@ test.beforeEach(async ({ page }) => {
             createdAt: nowIso,
             updatedAt: nowIso,
           };
+          savedAutomations.splice(0, savedAutomations.length, saved);
+          return clone(saved);
         }
+        case 'preview_workflow_authoring_cmd': {
+          const prompt = (args.input as { prompt: string }).prompt || JSON.stringify(args.recipe);
+          const replay = (args.recipe as { inputs?: { replayValues?: string[] } })?.inputs?.replayValues ?? [];
+          return { prompt: `${prompt}\nRuntime values for this replay\n${replay.join('\n')}`, contentDigest: 'preview-digest', recipe: args.recipe, definitionRevision: null };
+        }
+        case 'preview_saved_workflow_run_cmd':
+          return { prompt: 'Saved workflow preview', contentDigest: 'saved-preview-digest', resolvedInputs: args.inputs, definitionRevision: savedAutomations[0]?.definitionRevision ?? 1 };
+        case 'start_workflow_automation_run_cmd':
+          if (window.location.search.includes('failLaunch=1')) throw new Error('The selected model is unavailable');
+          return { status: 'pending_approval', run: { ...approvalRun, automationId: args.id } };
+        case 'list_workflow_run_history_cmd':
+          return [{ ...approvalRun, id: 'historical-workflow-run', status: 'completed', definitionRevision: 1, taskRunId: 'old-task-run', conversationId: 'old-conversation' }];
+        case 'get_workflow_run_snapshot_cmd':
+          return { compiledPrompt: 'Original goal and original evidence from revision 1' };
         case 'preview_workflow_automation_schedule_cmd':
           schedulePreviewInputs.push(clone(args));
           return {
@@ -277,6 +301,64 @@ test('recorded workflow can be previewed and saved as an automation', async ({ p
   expect(saved?.trigger).toEqual({ kind: 'manual' });
   expect(String(saved?.prompt)).toContain('Workflow: Weekly report export');
   expect(String(saved?.prompt)).toContain('Success criteria');
+  expect(saved?.recipe).toMatchObject({ version: 1, kind: 'recorded', inputs: { replayValues: ['period = 2026-W25'] }, recording: { successCriteria: ['CSV exported', 'Summary includes anomalies'] } });
+  await page.getByRole('button', { name: 'Automations', exact: true }).click();
+  const card = page.locator('article').filter({ hasText: 'Weekly report export' });
+  await card.getByRole('button', { name: 'Update automation' }).click();
+  await expect(page.getByPlaceholder('Open report page and export CSV')).toHaveValue('Open the report page, choose the weekly date range, and export CSV.');
+  await expect(page.getByPlaceholder('client = Acme\nperiod = last week')).toHaveValue('period = 2026-W25');
+});
+
+test('template copy preserves full inputs, supports settings and runs with temporary inputs', async ({ page }, testInfo) => {
+  await page.goto('/workflows');
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  const panel = page.getByTestId('workflow-authoring');
+  await expect(panel).toBeVisible();
+  await panel.getByLabel('Name', { exact: true }).fill('Monthly evidence review');
+  await panel.getByRole('textbox', { name: 'Goal', exact: true }).fill('Validate the monthly report');
+  const longContext = 'Source evidence 数据\n'.repeat(900) + 'END_OF_REQUIRED_CONTEXT';
+  await panel.getByRole('textbox', { name: 'Context', exact: true }).fill(longContext);
+  await panel.getByLabel('Constraints (one per line)').fill('Cite all numbers\nKeep the source files unchanged');
+  await panel.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(panel.locator('pre')).toContainText('END_OF_REQUIRED_CONTEXT');
+  await panel.screenshot({ path: testInfo.outputPath('workflow-authoring.png') });
+  await panel.getByRole('button', { name: 'Save a copy', exact: true }).click();
+  const card = page.locator('article').filter({ hasText: 'Monthly evidence review' });
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'Update automation' }).click();
+  await expect(panel.getByRole('textbox', { name: 'Context', exact: true })).toHaveValue(longContext);
+  await panel.getByRole('button', { name: 'Close', exact: true }).click();
+  await card.getByRole('button', { name: 'Trigger and permissions' }).click();
+  await expect(page.getByRole('textbox', { name: 'Prompt', exact: true })).toHaveAttribute('readonly', '');
+  await page.getByRole('button', { name: 'Folder', exact: true }).click();
+  await page.getByLabel('Folder path').fill('D:\\Reports');
+  await page.getByRole('button', { name: 'Save automation', exact: true }).click();
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'Goal', exact: true }).fill('Validate only October');
+  await panel.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel).toHaveCount(0);
+  const state = await page.evaluate(() => ({
+    saved: (window as unknown as { __savedAutomationInputs: Array<Record<string, unknown>> }).__savedAutomationInputs,
+    calls: (window as unknown as { __workflowCalls: Array<{ cmd: string; args: Record<string, unknown> }> }).__workflowCalls,
+  }));
+  expect(state.saved).toHaveLength(2);
+  expect(state.saved[1]).toMatchObject({ expectedRevision: 1, trigger: { kind: 'folder', path: 'D:\\Reports' }, recipe: { version: 1, inputs: { goal: 'Validate the monthly report', context: longContext } } });
+  const launch = state.calls.find(call => call.cmd === 'start_workflow_automation_run_cmd');
+  expect(launch?.args.options).toMatchObject({ expectedRevision: 2, previewDigest: 'saved-preview-digest', inputs: { goal: 'Validate only October' } });
+  expect((launch?.args.options as { clientRequestId: string }).clientRequestId).toMatch(/^[0-9a-f-]{36}$/);
+  await card.getByRole('button', { name: 'Run history' }).click();
+  await page.getByRole('button', { name: 'View saved inputs' }).click();
+  await expect(page.getByText('Original goal and original evidence from revision 1', { exact: true })).toBeVisible();
+});
+
+test('run failure keeps the authoring input dialog open for correction', async ({ page }) => {
+  await page.goto('/workflows?failLaunch=1');
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  const panel = page.getByTestId('workflow-authoring');
+  await panel.getByRole('textbox', { name: 'Goal', exact: true }).fill('Review the unavailable model route');
+  await panel.getByRole('button', { name: 'Save and run', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('The selected model is unavailable');
+  await expect(panel.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('Review the unavailable model route');
 });
 
 test('scheduled workflow previews timezone and saves provider-managed execution policy', async ({ page }) => {

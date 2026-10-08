@@ -164,12 +164,13 @@ impl Tool for SubagentBatchTool {
                 if task.parallel_group.is_none() {
                     task.parallel_group = parallel_group.clone();
                 }
-                if task.id.is_none() {
+                if task.id.as_deref().is_none_or(|id| id.trim().is_empty()) {
                     task.id = Some(format!("{}-{}", call_id, index + 1));
                 }
                 normalize_batch_task_args(task)
             })
             .collect::<Result<_, _>>()?;
+        let dependency_indices = resolve_batch_dependencies(&normalized_tasks)?;
         let budget_before = self.runtime.budget.snapshot().await;
         let requested_parallel = requested_max_parallel
             .unwrap_or_else(|| {
@@ -200,7 +201,13 @@ impl Tool for SubagentBatchTool {
         let mut worker_cancel_tokens = Vec::with_capacity(worker_count);
         let mut lifecycle_workers = Vec::with_capacity(worker_count);
         let mut pending = FuturesUnordered::new();
-        for (index, (worker_id, task_args)) in normalized_tasks.into_iter().enumerate() {
+        for (index, (worker_id, mut task_args)) in normalized_tasks.into_iter().enumerate() {
+            if !dependency_indices[index].is_empty() {
+                task_args.stage_handoff.gate = Some(BatchDependencyGate {
+                    batch_id: batch_id.clone(),
+                    indices: dependency_indices[index].clone(),
+                });
+            }
             let db = db.clone();
             let inherited_source_scope = inherited_source_scope.clone();
             let batch_parallel_group = batch_parallel_group.clone();
@@ -236,11 +243,8 @@ impl Tool for SubagentBatchTool {
                 "task": &task_args.task,
                 "roleId": &task_args.role_id,
                 "role": &task_args.role,
+                "dependsOn": &task_args.stage_handoff.depends_on,
             }));
-            let lifecycle_for_join = runtime.lifecycle.clone();
-            let lifecycle_agent_id_for_join = lifecycle_agent_id.clone();
-            let runtime_for_join = runtime.clone();
-            let batch_id_for_join = batch_id.clone();
             let worker_task = tokio::spawn(async move {
                 let label = worker_id
                     .clone()
@@ -266,35 +270,21 @@ impl Tool for SubagentBatchTool {
                 batch_runtime.record_batch_result(&worker_batch_id, index, run.clone());
                 (index, run)
             });
-            pending.push(async move {
-                match worker_task.await {
-                    Ok(result) => result,
-                    Err(join_error) => {
-                        let error = CoreError::Agent(format!(
-                            "Delegated worker task terminated unexpectedly: {join_error}"
-                        ));
-                        let _ = settle_worker_lifecycle(
-                            &lifecycle_for_join,
-                            &lifecycle_agent_id_for_join,
-                            &lifecycle_cancellation_for_join,
-                            Err(&error),
-                        )
-                        .await;
-                        let run = failed_subagent_run_artifact(
-                            detached_label,
-                            detached_fallback,
-                            detached_parallel_group,
-                            &error,
-                        );
-                        runtime_for_join.record_batch_result(
-                            &batch_id_for_join,
-                            index,
-                            run.clone(),
-                        );
-                        (index, run)
-                    }
-                }
-            });
+            // This monitor retains publication ownership after a partial batch
+            // policy releases the parent and drops its observation futures.
+            let monitor = BatchWorkerSettlement {
+                runtime: runtime.clone(),
+                batch_id: batch_id.clone(),
+                index,
+                agent_id: lifecycle_agent_id,
+                cancellation: lifecycle_cancellation_for_join,
+                label: detached_label,
+                fallback: detached_fallback,
+                parallel_group: detached_parallel_group,
+            }
+            .monitor(worker_task);
+            pending
+                .push(async move { monitor.await.expect("batch settlement monitor must finish") });
         }
         let policy_deadline = match &completion_policy {
             DelegationCompletionPolicy::Deadline { deadline_ms } => {
@@ -361,6 +351,8 @@ impl Tool for SubagentBatchTool {
             .batch_snapshot(&batch_id, None)
             .ok_or_else(|| CoreError::NotFound(format!("Delegated batch {batch_id}")))?;
         let cursor = snapshot.cursor;
+        let workflow_outcome = snapshot.outcome;
+        let blocked_workers = snapshot.blocked_workers;
         let runs = snapshot.runs;
         let budget_after = self.runtime.budget.snapshot().await;
         let completed_runs = runs.iter().filter(|run| !run.is_error).count();
@@ -411,6 +403,8 @@ impl Tool for SubagentBatchTool {
                 "cancelRemaining": cancel_remaining,
                 "completedRuns": completed_runs,
                 "failedRuns": failed_runs,
+                "workflowOutcome": workflow_outcome,
+                "blockedWorkers": blocked_workers,
                 "budgetBefore": budget_before,
                 "budgetAfter": budget_after,
                 "runs": runs,
@@ -541,13 +535,15 @@ impl Tool for ObserveSubagentBatchTool {
             cursor,
             reset,
             runs,
+            outcome,
+            blocked_workers,
         } = snapshot;
         let pending_workers = expected_workers.saturating_sub(completed_workers);
         let mut content = format!(
             "Delegated batch {batch_id}: {completed_workers}/{expected_workers} worker(s) settled"
         );
         if pending_workers > 0 {
-            content.push_str(&format!("; {pending_workers} still running"));
+            content.push_str(&format!("; {pending_workers} pending"));
         }
         content.push_str(".\n\n");
         for run in &runs {
@@ -571,6 +567,8 @@ impl Tool for ObserveSubagentBatchTool {
                 "expectedWorkers": expected_workers,
                 "completedWorkers": completed_workers,
                 "pendingWorkers": pending_workers,
+                "workflowOutcome": outcome,
+                "blockedWorkers": blocked_workers,
                 "cancelRequested": args.cancel_remaining,
                 "runs": runs,
             })),

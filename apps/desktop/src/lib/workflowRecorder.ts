@@ -18,8 +18,6 @@ export interface RecordedWorkflowPromptInput {
   replayValues?: string[];
 }
 
-const PROMPT_MAX_CHARS = 11_500;
-
 const stepKindLabels: Record<WorkflowRecordingStepKind, string> = {
   action: 'Action',
   decision: 'Decision',
@@ -73,11 +71,6 @@ function stepSection(steps: WorkflowRecordingStep[]): string[] {
   ];
 }
 
-function clampPrompt(prompt: string): string {
-  if (prompt.length <= PROMPT_MAX_CHARS) return prompt;
-  return `${prompt.slice(0, PROMPT_MAX_CHARS - 120).trimEnd()}\n\n[Recording truncated to fit the workflow automation prompt limit.]`;
-}
-
 export function buildRecordedWorkflowPrompt(input: RecordedWorkflowPromptInput): string {
   const name = cleanText(input.name, 'Untitled recorded workflow');
   const objective = cleanText(input.objective, 'Replay the recorded workflow and produce the same class of outcome.');
@@ -105,7 +98,7 @@ export function buildRecordedWorkflowPrompt(input: RecordedWorkflowPromptInput):
     '- Surface assumptions, blocked steps, and evidence gaps instead of silently filling them.',
   ];
 
-  return clampPrompt(lines.join('\n'));
+  return lines.join('\n');
 }
 
 export function hasRecordableWorkflow(input: RecordedWorkflowPromptInput): boolean {

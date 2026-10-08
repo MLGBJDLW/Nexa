@@ -359,7 +359,7 @@ fn prepare_workspace_target(
 ) -> Result<(), CoreError> {
     let mut source_scope = input.source_scope.clone();
     let policy = schedule_config.execution_policy.workspace_policy;
-    let is_schedule = matches!(&input.trigger, WorkflowAutomationTrigger::Schedule { .. });
+    let is_schedule = !matches!(&input.trigger, WorkflowAutomationTrigger::Manual);
     if !is_schedule {
         schedule_config.execution_policy.source_root_fingerprint = None;
         return Ok(());
@@ -453,6 +453,7 @@ pub fn prepare_workflow_automation_save(
         (_, None) => WorkflowAutomationScheduleConfig::default(),
     };
     let mut schedule_config = normalize_scheduled_config_agent_snapshot(db, schedule_config)?;
+    schedule_config.validate_common_for_save()?;
     prepare_workspace_target(db, &mut input, &mut schedule_config)?;
     Ok(PreparedWorkflowAutomationSave {
         input,
@@ -523,8 +524,14 @@ pub fn due_workflow_run_is_scheduler_eligible(due: &WorkflowAutomationDueRun) ->
         && !scheduler_status_is_active(&due.automation.status)
 }
 
-pub fn requires_preclaim_approval_skip(trigger_kind: &str, require_before_run: bool) -> bool {
-    trigger_kind != "schedule" && require_before_run
+pub fn workflow_launch_mode(due: &WorkflowAutomationDueRun) -> WorkflowLaunchMode {
+    if due.origin == crate::workflow_automation::WorkflowAutomationOccurrenceOrigin::ManualRunNow
+        && due.automation.trigger_kind != "schedule"
+    {
+        WorkflowLaunchMode::Interactive
+    } else {
+        WorkflowLaunchMode::AuthoritativeScheduled
+    }
 }
 
 pub fn prepare_scheduled_workflow_launch(
@@ -533,78 +540,41 @@ pub fn prepare_scheduled_workflow_launch(
     now: &str,
     summary: Option<String>,
 ) -> Result<ScheduledWorkflowLaunchPreparation, CoreError> {
+    prepare_workflow_launch_with_options(db, due, now, summary, &Default::default())
+}
+
+pub fn prepare_workflow_launch_with_options(
+    db: &Database,
+    due: WorkflowAutomationDueRun,
+    now: &str,
+    summary: Option<String>,
+    options: &crate::workflow_authoring::WorkflowRunOptions,
+) -> Result<ScheduledWorkflowLaunchPreparation, CoreError> {
     let automation_id = due.automation.id.clone();
     let due_reason = due.due_reason.clone();
-    let uses_durable_occurrence = due.automation.trigger_kind == "schedule";
-
-    if !uses_durable_occurrence {
-        let retry_decision =
-            db.workflow_automation_scheduler_retry_decision(&automation_id, now)?;
-        if !retry_decision.allowed {
-            let (event_type, status, event_summary) = scheduler_retry_skip_event(&retry_decision);
-            record_scheduler_event_best_effort(
-                db,
-                Some(&automation_id),
-                None,
-                event_type,
-                Some(status),
-                event_summary,
-                serde_json::json!({
-                    "dueReason": due_reason,
-                    "triggerKind": due.automation.trigger_kind,
-                    "workflowTemplateId": due.automation.workflow_template_id,
-                    "retryDecision": retry_decision,
-                }),
-            );
-            return Ok(ScheduledWorkflowLaunchPreparation::Skipped {
-                reason: if retry_decision.attempts_exhausted {
-                    "retry_exhausted".into()
-                } else {
-                    "retry_backoff".into()
-                },
-            });
-        }
-        if requires_preclaim_approval_skip(
-            &due.automation.trigger_kind,
-            due.automation.approval_policy.require_before_run,
-        ) {
-            record_scheduler_event_best_effort(
-                db,
-                Some(&automation_id),
-                None,
-                WorkflowSchedulerEventType::SkippedPreRunApproval,
-                Some("waiting_approval"),
-                "Scheduler skipped due workflow because pre-run approval is required",
-                serde_json::json!({
-                    "dueReason": due_reason,
-                    "triggerKind": due.automation.trigger_kind,
-                    "workflowTemplateId": due.automation.workflow_template_id,
-                    "riskLevel": due.automation.approval_policy.risk_level,
-                }),
-            );
-            return Ok(ScheduledWorkflowLaunchPreparation::Skipped {
-                reason: "approval_required_before_claim".into(),
-            });
-        }
-    }
+    let uses_durable_occurrence = due.scheduled_for.is_some();
 
     let claim_summary = summary.unwrap_or_else(|| format!("scheduler: {due_reason}"));
-    let claim =
-        match db.claim_workflow_automation_due_run_at(due, now, Some(claim_summary.as_str())) {
-            Ok(claim) => claim,
-            Err(error) => {
-                record_scheduler_event_best_effort(
-                    db,
-                    Some(&automation_id),
-                    None,
-                    WorkflowSchedulerEventType::ClaimFailed,
-                    Some("failed"),
-                    "Scheduler failed to claim due workflow",
-                    serde_json::json!({ "dueReason": due_reason, "error": error.to_string() }),
-                );
-                return Err(error);
-            }
-        };
+    let claim = match db.claim_workflow_automation_with_options(
+        due,
+        now,
+        Some(claim_summary.as_str()),
+        options,
+    ) {
+        Ok(claim) => claim,
+        Err(error) => {
+            record_scheduler_event_best_effort(
+                db,
+                Some(&automation_id),
+                None,
+                WorkflowSchedulerEventType::ClaimFailed,
+                Some("failed"),
+                "Scheduler failed to claim due workflow",
+                serde_json::json!({ "dueReason": due_reason, "error": error.to_string() }),
+            );
+            return Err(error);
+        }
+    };
     let Some(claimed_run) = claim.run.as_ref() else {
         let reason = claim.skip_reason.as_deref().unwrap_or("not_launchable");
         if !matches!(
@@ -651,7 +621,7 @@ pub fn prepare_scheduled_workflow_launch(
     let policy = match resolve_workflow_launch_policy(
         db,
         &claim.due_run.automation,
-        WorkflowLaunchMode::AuthoritativeScheduled,
+        workflow_launch_mode(&claim.due_run),
     ) {
         Ok(policy) => policy,
         Err(error) => {
@@ -751,13 +721,6 @@ mod tests {
             approval_policy: WorkflowAutomationApprovalPolicy::default(),
             enabled: true,
         }
-    }
-
-    #[test]
-    fn non_occurrence_approval_gate_is_owned_by_core() {
-        assert!(requires_preclaim_approval_skip("folder", true));
-        assert!(!requires_preclaim_approval_skip("folder", false));
-        assert!(!requires_preclaim_approval_skip("schedule", true));
     }
 
     #[test]
@@ -866,6 +829,7 @@ mod tests {
         schedule.execution_policy.project_id = Some(project.id);
         schedule.execution_policy.agent_config_id = Some(agent.id.clone());
         schedule.execution_policy.workspace_policy = WorkflowScheduleWorkspacePolicy::IsolatedPatch;
+        schedule.execution_policy.orchestration_profile = "codeUltra".into();
 
         let prepared =
             prepare_workflow_automation_save(&db, input, Some(schedule)).expect("prepare schedule");
