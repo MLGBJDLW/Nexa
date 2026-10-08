@@ -208,6 +208,16 @@ pub struct DiscoveredSkillBundle {
     pub resources: Vec<SkillResourceInfo>,
     #[serde(default)]
     pub warnings: Vec<SkillWarning>,
+    /// Binds installation to the body and resources that were inspected.
+    #[serde(default)]
+    pub content_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SkillInstallSelection {
+    pub skill_file: String,
+    pub content_digest: String,
 }
 
 /// Parsed YAML frontmatter of a SKILL.md file.

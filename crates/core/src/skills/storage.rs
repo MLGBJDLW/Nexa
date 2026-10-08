@@ -22,6 +22,10 @@ static SKILLS_BASE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static USER_SKILLS_DIR: OnceLock<PathBuf> = OnceLock::new();
 pub const MAX_CANONICAL_SKILL_NAME_CHARS: usize = 64;
 
+pub(crate) fn configured_user_skills_directory() -> Option<PathBuf> {
+    USER_SKILLS_DIR.get().cloned()
+}
+
 /// Configure the single user-owned skill source root before skills are loaded
 /// from the database. Reconfiguration to a different path is rejected so
 /// runtime paths cannot drift after prompts have been rendered.
@@ -893,9 +897,14 @@ fn write_if_changed(path: &Path, bytes: &[u8], skill_slug: &str) {
 }
 
 pub(crate) fn resource_kind_from_relative_path(path: &str) -> SkillResourceKind {
-    if path.starts_with("scripts/") {
+    if path.starts_with("scripts/")
+        || Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| matches!(extension, "py" | "js" | "mjs" | "cjs"))
+    {
         SkillResourceKind::Script
-    } else if path.starts_with("references/") {
+    } else if path.starts_with("references/") || path.ends_with(".md") || path.ends_with(".txt") {
         SkillResourceKind::Reference
     } else if path == OPENAI_AGENT_METADATA_PATH {
         SkillResourceKind::Metadata
@@ -1139,6 +1148,101 @@ fn migration_canonical_skill_name(display_name: &str, id: &str) -> String {
     format!("{base}-{suffix}")
 }
 
+fn save_skill_on_connection(
+    conn: &rusqlite::Connection,
+    input: &SaveSkillInput,
+) -> Result<Skill, CoreError> {
+    let mut input = normalize_skill_input(input)?;
+    let resource_bundle_json = serialize_resource_bundle(&input.resource_bundle)?;
+    let id = match &input.id {
+        Some(existing_id) => {
+            let installed_canonical: String = conn
+                .query_row(
+                    "SELECT canonical_name FROM skills WHERE id = ?1",
+                    rusqlite::params![existing_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| CoreError::NotFound(format!("Skill {existing_id}")))?;
+            input.content = portable_user_skill_content(
+                &input.content,
+                existing_id,
+                &installed_canonical,
+                None,
+            );
+            conn.execute(
+                "UPDATE skills
+                 SET name = ?2, description = ?3, content = ?4, enabled = ?5,
+                     resource_bundle_json = ?6, canonical_name = ?7,
+                     updated_at = datetime('now')
+                 WHERE id = ?1",
+                rusqlite::params![
+                    existing_id,
+                    &input.name,
+                    &input.description,
+                    &input.content,
+                    input.enabled as i32,
+                    &resource_bundle_json,
+                    &installed_canonical,
+                ],
+            )?;
+            existing_id.clone()
+        }
+        None => {
+            let new_id = loop {
+                let candidate = Uuid::new_v4().to_string();
+                let reserved: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM skills WHERE id = ?1 OR canonical_name = ?1 COLLATE NOCASE)",
+                    rusqlite::params![&candidate],
+                    |row| row.get(0),
+                )?;
+                if !reserved {
+                    break candidate;
+                }
+            };
+            let canonical_name = derive_canonical_skill_name(&input.name)
+                .unwrap_or_else(|_| migration_canonical_skill_name(&input.name, &new_id));
+            if builtin_skill_bundles()
+                .iter()
+                .any(|bundle| bundle.slug.eq_ignore_ascii_case(&canonical_name))
+            {
+                return Err(CoreError::Conflict(format!(
+                    "Skill canonical name `{canonical_name}` is reserved by a built-in skill"
+                )));
+            }
+            let conflict: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM skills WHERE canonical_name = ?1 COLLATE NOCASE OR id = ?1)",
+                rusqlite::params![&canonical_name],
+                |row| row.get(0),
+            )?;
+            if conflict {
+                return Err(CoreError::Conflict(format!(
+                    "Skill canonical name `{canonical_name}` is reserved by an installed skill identity"
+                )));
+            }
+            input.content =
+                portable_user_skill_content(&input.content, &new_id, &canonical_name, None);
+            conn.execute(
+                "INSERT INTO skills (id, canonical_name, name, description, content, enabled, resource_bundle_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    &new_id,
+                    &canonical_name,
+                    &input.name,
+                    &input.description,
+                    &input.content,
+                    input.enabled as i32,
+                    &resource_bundle_json
+                ],
+            )?;
+            new_id
+        }
+    };
+    conn.query_row(
+        "SELECT id, name, description, content, enabled, created_at, updated_at, resource_bundle_json, canonical_name FROM skills WHERE id = ?1",
+        rusqlite::params![id], skill_from_row,
+    ).map_err(CoreError::from)
+}
+
 impl Database {
     /// List all user skills, newest first. Built-ins live in the static registry,
     /// while historical database rows were removed by migration v048.
@@ -1158,97 +1262,41 @@ impl Database {
         Ok(out)
     }
 
-    /// Create or update a user skill.
+    /// Create or update one user skill using the same transaction as batch imports.
     pub fn save_skill(&self, input: &SaveSkillInput) -> Result<Skill, CoreError> {
-        let mut input = normalize_skill_input(input)?;
-        let conn = self.conn();
-        ensure_skill_canonical_names(&conn)?;
-        let resource_bundle_json = serialize_resource_bundle(&input.resource_bundle)?;
-        let id = match &input.id {
-            Some(existing_id) => {
-                let installed_canonical: String = conn
-                    .query_row(
-                        "SELECT canonical_name FROM skills WHERE id = ?1",
-                        rusqlite::params![existing_id],
-                        |row| row.get(0),
-                    )
-                    .map_err(|_| CoreError::NotFound(format!("Skill {existing_id}")))?;
-                input.content = portable_user_skill_content(
-                    &input.content,
-                    existing_id,
-                    &installed_canonical,
-                    None,
-                );
-                conn.execute(
-                    "UPDATE skills
-                     SET name = ?2, description = ?3, content = ?4, enabled = ?5,
-                         resource_bundle_json = ?6, canonical_name = ?7,
-                         updated_at = datetime('now')
-                     WHERE id = ?1",
-                    rusqlite::params![
-                        existing_id,
-                        &input.name,
-                        &input.description,
-                        &input.content,
-                        input.enabled as i32,
-                        &resource_bundle_json,
-                        &installed_canonical,
-                    ],
-                )?;
-                existing_id.clone()
-            }
-            None => {
-                let new_id = loop {
-                    let candidate = Uuid::new_v4().to_string();
-                    let reserved: bool = conn.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM skills WHERE id = ?1 OR canonical_name = ?1 COLLATE NOCASE)",
-                        rusqlite::params![&candidate],
-                        |row| row.get(0),
-                    )?;
-                    if !reserved {
-                        break candidate;
-                    }
-                };
-                let canonical_name = derive_canonical_skill_name(&input.name)
-                    .unwrap_or_else(|_| migration_canonical_skill_name(&input.name, &new_id));
-                if builtin_skill_bundles()
-                    .iter()
-                    .any(|bundle| bundle.slug.eq_ignore_ascii_case(&canonical_name))
-                {
-                    return Err(CoreError::Conflict(format!(
-                        "Skill canonical name `{canonical_name}` is reserved by a built-in skill"
-                    )));
-                }
-                let conflict: bool = conn.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM skills WHERE canonical_name = ?1 COLLATE NOCASE OR id = ?1)",
-                    rusqlite::params![&canonical_name],
-                    |row| row.get(0),
-                )?;
-                if conflict {
-                    return Err(CoreError::Conflict(format!(
-                        "Skill canonical name `{canonical_name}` is reserved by an installed skill identity"
-                    )));
-                }
-                input.content =
-                    portable_user_skill_content(&input.content, &new_id, &canonical_name, None);
-                conn.execute(
-                    "INSERT INTO skills (id, canonical_name, name, description, content, enabled, resource_bundle_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    rusqlite::params![
-                        &new_id,
-                        &canonical_name,
-                        &input.name,
-                        &input.description,
-                        &input.content,
-                        input.enabled as i32,
-                        &resource_bundle_json
-                    ],
-                )?;
-                new_id
-            }
-        };
-        drop(conn);
-        self.get_skill(&id)
+        self.save_skills_atomically(std::slice::from_ref(input))?
+            .pop()
+            .ok_or_else(|| CoreError::Internal("Skill save returned no record".into()))
+    }
+
+    pub fn save_skills_atomically(
+        &self,
+        inputs: &[SaveSkillInput],
+    ) -> Result<Vec<Skill>, CoreError> {
+        self.save_skills_atomically_with_guard(inputs, |_, _| Ok(()))
+            .map(|(skills, ())| skills)
+    }
+
+    /// The guard must undo prepared filesystem changes on drop until the caller
+    /// accepts it. A failed database commit therefore also restores the files.
+    pub(crate) fn save_skills_atomically_with_guard<G>(
+        &self,
+        inputs: &[SaveSkillInput],
+        prepare: impl FnOnce(&[Skill], &[Skill]) -> Result<G, CoreError>,
+    ) -> Result<(Vec<Skill>, G), CoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        ensure_skill_canonical_names(&tx)?;
+        let previous = inputs.iter().filter_map(|input| input.id.as_ref()).map(|id| {
+            tx.query_row("SELECT id, name, description, content, enabled, created_at, updated_at, resource_bundle_json, canonical_name FROM skills WHERE id = ?1", rusqlite::params![id], skill_from_row).map_err(CoreError::from)
+        }).collect::<Result<Vec<_>, _>>()?;
+        let skills = inputs
+            .iter()
+            .map(|input| save_skill_on_connection(&tx, input))
+            .collect::<Result<Vec<_>, _>>()?;
+        let guard = prepare(&skills, &previous)?;
+        tx.commit()?;
+        Ok((skills, guard))
     }
 
     /// Delete a user skill by ID.
@@ -1291,18 +1339,5 @@ impl Database {
             out.push(row?);
         }
         Ok(out)
-    }
-
-    fn get_skill(&self, id: &str) -> Result<Skill, CoreError> {
-        let conn = self.conn();
-        ensure_skill_canonical_names(&conn)?;
-        conn.query_row(
-            "SELECT id, name, description, content, enabled, created_at, updated_at, resource_bundle_json, canonical_name
-             FROM skills
-             WHERE id = ?1",
-            rusqlite::params![id],
-            skill_from_row,
-        )
-        .map_err(|_| CoreError::NotFound(format!("Skill {id}")))
     }
 }

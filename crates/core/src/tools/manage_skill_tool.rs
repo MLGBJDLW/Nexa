@@ -52,6 +52,156 @@ struct ManageSkillArgs {
     status: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    sources: Vec<String>,
+    #[serde(default)]
+    selection: Vec<crate::skills::SkillInstallSelection>,
+    #[serde(default)]
+    github_ref: Option<String>,
+    #[serde(default)]
+    replace_existing: bool,
+    #[serde(default)]
+    accept_blocked_warnings: bool,
+}
+
+/// Reject malformed install intent before approval, scheduling, or any I/O.
+pub(crate) fn validate_arguments(arguments: &str) -> Result<(), CoreError> {
+    let value: serde_json::Value = serde_json::from_str(arguments)?;
+    let args: ManageSkillArgs = serde_json::from_value(value.clone())?;
+    let install_fields = [
+        "sources",
+        "selection",
+        "github_ref",
+        "replace_existing",
+        "accept_blocked_warnings",
+    ];
+    if !matches!(
+        args.action.as_str(),
+        "inspect_install_sources" | "install_sources"
+    ) {
+        if install_fields
+            .iter()
+            .any(|field| value.get(field).is_some())
+        {
+            return Err(CoreError::InvalidInput("Skill source fields are only valid for inspect_install_sources or install_sources.".into()));
+        }
+        return Ok(());
+    }
+    let permitted = if args.action == "install_sources" {
+        install_fields.as_slice()
+    } else {
+        &install_fields[..1]
+    };
+    for key in value
+        .as_object()
+        .into_iter()
+        .flat_map(|object| object.keys())
+    {
+        if !matches!(
+            key.as_str(),
+            "action" | "github_ref" | "wait_for_previous" | "waitForPrevious"
+        ) && !permitted.contains(&key.as_str())
+        {
+            return Err(CoreError::InvalidInput(format!(
+                "{key} is not valid for {}",
+                args.action
+            )));
+        }
+    }
+    if args.sources.is_empty()
+        || args
+            .sources
+            .iter()
+            .any(|source| source.trim().is_empty() || source != source.trim())
+    {
+        return Err(missing("nonempty sources", &args.action));
+    }
+    super::skill_install_sources::validate_sources(&args.sources, args.github_ref.as_deref())?;
+    if args
+        .github_ref
+        .as_deref()
+        .is_some_and(|reference| reference.trim().is_empty())
+    {
+        return Err(CoreError::InvalidInput(
+            "github_ref must be nonempty".into(),
+        ));
+    }
+    if args.action == "install_sources"
+        && (args.selection.is_empty()
+            || args.selection.iter().any(|item| {
+                item.skill_file.trim().is_empty()
+                    || item.content_digest.len() != 64
+                    || !item
+                        .content_digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit())
+            }))
+    {
+        return Err(CoreError::InvalidInput("install_sources requires a nonempty selection with the exact skillFile and contentDigest returned by inspect_install_sources.".into()));
+    }
+    let unique = args
+        .selection
+        .iter()
+        .map(|item| &item.skill_file)
+        .collect::<std::collections::HashSet<_>>();
+    if unique.len() != args.selection.len() {
+        return Err(CoreError::InvalidInput(
+            "Duplicate skill install selection".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn execute_install_sources(
+    context: super::ToolExecutionContext<'_>,
+    args: ManageSkillArgs,
+) -> Result<ToolResult, CoreError> {
+    let cancellation = context.cancel_token.cloned().unwrap_or_default();
+    crate::privacy::runtime::ensure_invocation_current()?;
+    let lease = context.db.privacy_lease(&cancellation)?;
+    let prepared = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Skill import cancelled".into())),
+        _ = lease.cancelled() => return Err(CoreError::Cancelled("Privacy changed during skill import".into())),
+        result = lease.scope(super::skill_install_sources::prepare(&context, &args.sources, args.github_ref.as_deref())) => result?,
+    };
+    lease.ensure_current()?;
+    if args.action == "inspect_install_sources" {
+        let data = serde_json::json!({"kind":"skillInstallPreview", "authority":"untrusted_source", "sources":args.sources, "skills":prepared.previews, "installed":false});
+        return Ok(ToolResult {
+            call_id: context.call_id.to_string(),
+            content: serde_json::to_string(&data)?,
+            is_error: false,
+            artifacts: Some(data),
+        });
+    }
+    let selection = prepared.selection(&args.selection)?;
+    let destination = crate::skills::configured_user_skills_directory().ok_or_else(|| CoreError::InvalidInput(
+        "The host has not configured its user skill directory; open Skills settings before installing.".into()))?;
+    let db = context.db.clone();
+    let installed = tokio::task::spawn_blocking(move || {
+        // Keep downloads and the policy lease alive through the complete commit.
+        lease.release(|revoked| {
+            if revoked || cancellation.is_cancelled() {
+                return Err(CoreError::Cancelled(
+                    "Skill import cancelled before installation".into(),
+                ));
+            }
+            crate::skills::install_skills_from_sources(
+                &db,
+                &prepared.paths,
+                Some(&selection),
+                args.replace_existing,
+                args.accept_blocked_warnings,
+                &destination,
+            )
+        })
+    })
+    .await
+    .map_err(|error| CoreError::Internal(format!("Skill installation worker failed: {error}")))??;
+    let summaries = installed.iter().map(|skill| serde_json::json!({"id":skill.id,"name":skill.name,"enabled":skill.enabled,"sourcePath":skill.source_path,"resources":skill.resources})).collect::<Vec<_>>();
+    let data = serde_json::json!({"kind":"skillInstallResult","installed":true,"skills":summaries});
+    Ok(ToolResult { call_id:context.call_id.to_string(), content:format!("Installed {} skill(s), saved their complete resources and verified their active database identities. Use activate_skill with an enabled skill ID to follow it.\n{}", installed.len(), serde_json::to_string(&data)?), is_error:false, artifacts:Some(data) })
 }
 
 fn parse_status(value: Option<&str>) -> Result<Option<SkillProposalStatus>, CoreError> {
@@ -170,12 +320,32 @@ impl Tool for ManageSkillTool {
     fn requires_confirmation(&self, args: &serde_json::Value) -> bool {
         args.get("action")
             .and_then(|v| v.as_str())
-            .is_some_and(|action| action == "apply_proposal" || action == "run_resource_helper")
+            .is_some_and(|action| {
+                matches!(
+                    action,
+                    "apply_proposal" | "run_resource_helper" | "install_sources"
+                )
+            })
     }
 
     fn confirmation_message(&self, args: &serde_json::Value) -> Option<String> {
         let action = args.get("action")?.as_str()?;
         match action {
+            "install_sources" => {
+                let count = args
+                    .get("selection")
+                    .and_then(|value| value.as_array())
+                    .map_or(0, Vec::len);
+                let replace = args
+                    .get("replace_existing")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                let warnings = args
+                    .get("accept_blocked_warnings")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                Some(format!("Install {count} inspected user skill(s). Replace existing skills: {replace}. Accept flagged package warnings: {warnings}."))
+            }
             "apply_proposal" => {
                 let id = args
                     .get("proposal_id")
@@ -206,16 +376,21 @@ impl Tool for ManageSkillTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        validate_arguments(context.arguments)?;
+        let args: ManageSkillArgs = serde_json::from_str(context.arguments)
+            .map_err(|e| CoreError::InvalidInput(format!("Invalid manage_skill arguments: {e}")))?;
+        if matches!(
+            args.action.as_str(),
+            "inspect_install_sources" | "install_sources"
+        ) {
+            return execute_install_sources(context, args).await;
+        }
         let crate::tools::ToolExecutionContext {
             call_id,
-            arguments,
             db,
             source_scope,
             ..
         } = context;
-        let args: ManageSkillArgs = serde_json::from_str(arguments)
-            .map_err(|e| CoreError::InvalidInput(format!("Invalid manage_skill arguments: {e}")))?;
-
         let action = args.action.trim();
         match action {
             "propose_create" | "propose_patch" => {
@@ -599,6 +774,74 @@ impl Tool for ManageSkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_install_intents_fail_before_approval_and_scheduling() {
+        let mut registry = super::super::ToolRegistry::new();
+        registry.register(Box::new(ManageSkillTool));
+        for args in [
+            serde_json::json!({"action":"install_sources","sources":["/skills"]}),
+            serde_json::json!({"action":"inspect_install_sources","sources":["/skills"],"replace_existing":true}),
+            serde_json::json!({"action":"view_skill","skill_id":"test","sources":["/skills"]}),
+            serde_json::json!({"action":"inspect_install_sources","sources":["file:///private/skills"]}),
+            serde_json::json!({"action":"inspect_install_sources","sources":["https://example.com/skills.zip"],"github_ref":"main"}),
+        ] {
+            assert!(
+                registry
+                    .argument_error_for_scheduling("manage_skill", "bad", &args.to_string())
+                    .is_some(),
+                "{args}"
+            );
+        }
+        assert!(!ManageSkillTool
+            .requires_confirmation(&serde_json::json!({"action":"inspect_install_sources"})));
+        assert!(
+            ManageSkillTool.requires_confirmation(&serde_json::json!({"action":"install_sources"}))
+        );
+    }
+
+    #[tokio::test]
+    async fn inspect_install_sources_returns_selected_bundle_without_activating_it() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("downloaded-demo");
+        fs::create_dir_all(source.join("templates")).unwrap();
+        fs::write(source.join("SKILL.md"), "---\nname: downloaded-demo\ndescription: Example downloadable skill\n---\nRead templates/report.md.").unwrap();
+        fs::write(
+            source.join("templates/report.md"),
+            "Complete report template",
+        )
+        .unwrap();
+        let db = Database::open_memory().unwrap();
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = crate::tools::ShellAccessMode::Open;
+        db.save_app_config(&config).unwrap();
+        let args =
+            serde_json::json!({"action":"inspect_install_sources","sources":[source]}).to_string();
+        let result = ManageSkillTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "inspect",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        let artifact = result.artifacts.unwrap();
+        assert_eq!(artifact["skills"][0]["name"], "downloaded-demo");
+        assert_eq!(
+            artifact["skills"][0]["resources"][0]["path"],
+            "templates/report.md"
+        );
+        assert!(
+            artifact["skills"][0]["contentDigest"]
+                .as_str()
+                .unwrap()
+                .len()
+                > 20
+        );
+        assert!(db.list_skills().unwrap().is_empty());
+    }
 
     #[test]
     fn definition_loads() {

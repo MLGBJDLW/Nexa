@@ -10,6 +10,7 @@ pub mod package;
 mod activation;
 mod catalog;
 mod importer;
+mod install;
 mod model;
 mod prompt;
 mod registry;
@@ -30,13 +31,15 @@ pub use catalog::{
 };
 pub use importer::{
     discover_skills_in_directory, import_skills_from_directory, import_skills_from_source,
-    inspect_skill_install_source, sync_registered_user_skills_from_directory,
-    RegisteredSkillFileSyncReport,
+    import_skills_from_sources, inspect_skill_install_source, inspect_skill_install_sources,
+    sync_registered_user_skills_from_directory, RegisteredSkillFileSyncReport,
 };
+pub use install::install_skills_from_sources;
 pub use model::{
     DiscoveredSkillBundle, SaveSkillInput, Skill, SkillDependencies, SkillFrontmatter,
-    SkillInterfaceMetadata, SkillPolicy, SkillResourceEncoding, SkillResourceFile,
-    SkillResourceInfo, SkillResourceKind, SkillToolDependency, SkillWarning, SkillWarningSeverity,
+    SkillInstallSelection, SkillInterfaceMetadata, SkillPolicy, SkillResourceEncoding,
+    SkillResourceFile, SkillResourceInfo, SkillResourceKind, SkillToolDependency, SkillWarning,
+    SkillWarningSeverity,
 };
 pub use prompt::{
     build_loaded_skills_section_with_budget, build_skills_section, build_skills_section_for_query,
@@ -59,6 +62,7 @@ pub use spec::{
     validate_skill_spec, SkillSpecIssue, SkillSpecReport, MAX_SKILL_DESCRIPTION_CHARS,
     MAX_SKILL_NAME_CHARS, NEXA_SKILL_SPEC_VERSION,
 };
+pub(crate) use storage::configured_user_skills_directory;
 pub(crate) use storage::normalize_resource_bundle;
 pub use storage::{
     builtin_skill_dir, configure_user_skills_directory, derive_canonical_skill_name,

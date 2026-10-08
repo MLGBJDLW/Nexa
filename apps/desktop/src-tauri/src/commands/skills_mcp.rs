@@ -37,14 +37,6 @@ fn reconcile_user_skill_resource(
     materialize_user_skill_resource(state, next)
 }
 
-fn materialize_user_skill_resources(state: &AppState, skills: &[Skill]) -> Result<(), String> {
-    nexa_core::skills::materialize_user_skills_to_directory(
-        &state.user_extensions.skills_dir(),
-        skills,
-    )
-    .map_err(|e| e.to_string())
-}
-
 fn materialize_user_skill_resources_except(
     state: &AppState,
     skills: &[Skill],
@@ -193,24 +185,60 @@ pub fn install_skills_from_source_cmd(
     replace_existing: bool,
     accept_blocked_warnings: bool,
 ) -> Result<Vec<Skill>, String> {
-    let previous = state
-        .db
-        .list_skills()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .map(|skill| (skill.id.clone(), skill))
-        .collect::<std::collections::HashMap<_, _>>();
-    let skills = nexa_core::skills::import_skills_from_source(
+    nexa_core::skills::install_skills_from_sources(
         &state.db,
-        Path::new(&source),
+        &[std::path::PathBuf::from(source)],
+        None,
         replace_existing,
         accept_blocked_warnings,
+        &state.user_extensions.skills_dir(),
     )
-    .map_err(|e| e.to_string())?;
-    for skill in &skills {
-        reconcile_user_skill_resource(&state, previous.get(&skill.id), skill)?;
-    }
-    Ok(skills)
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn inspect_skill_install_sources_cmd(
+    sources: Vec<String>,
+) -> Result<Vec<DiscoveredSkillBundle>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let sources = sources
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .collect::<Vec<_>>();
+        nexa_core::skills::inspect_skill_install_sources(&sources)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn install_skills_from_sources_cmd(
+    state: tauri::State<'_, AppState>,
+    sources: Vec<String>,
+    selection: Vec<nexa_core::skills::SkillInstallSelection>,
+    replace_existing: bool,
+    accept_blocked_warnings: bool,
+) -> Result<Vec<Skill>, String> {
+    let db = state.db.clone();
+    let destination = state.user_extensions.skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let sources = sources
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .collect::<Vec<_>>();
+        nexa_core::skills::install_skills_from_sources(
+            &db,
+            &sources,
+            Some(&selection),
+            replace_existing,
+            accept_blocked_warnings,
+            &destination,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -226,10 +254,15 @@ pub fn import_skills_from_directory_cmd(
     state: tauri::State<'_, AppState>,
     directory: String,
 ) -> Result<Vec<Skill>, String> {
-    let skills = nexa_core::skills::import_skills_from_directory(&state.db, Path::new(&directory))
-        .map_err(|e| e.to_string())?;
-    materialize_user_skill_resources(&state, &skills)?;
-    Ok(skills)
+    nexa_core::skills::install_skills_from_sources(
+        &state.db,
+        &[std::path::PathBuf::from(directory)],
+        None,
+        false,
+        false,
+        &state.user_extensions.skills_dir(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
