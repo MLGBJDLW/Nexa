@@ -189,14 +189,24 @@ fn install_projection(conn: &Connection, projection: &Projection) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn install_turn_trace_projection(conn: &Connection) -> Result<(), CoreError> {
+pub(crate) fn install_turn_trace_projection(
+    conn: &Connection,
+    is_upgrade: bool,
+) -> Result<(), CoreError> {
     install_projection(
         conn,
         PROJECTIONS
             .iter()
             .find(|projection| projection.name == "turn_trace")
             .expect("host turn-trace projection"),
-    )
+    )?;
+    // A candidate or older integration may already have persisted business
+    // resultId values under the previous broad exemption. Reproject those
+    // derived copies and invalidate stale replay through the existing owner.
+    if is_upgrade && super::load_config_on(conn)?.enabled {
+        revoke(conn)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn install(conn: &Connection, is_upgrade: bool) -> Result<(), CoreError> {

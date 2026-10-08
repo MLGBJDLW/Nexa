@@ -3203,7 +3203,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
                 crate::privacy::chat_store::install(&transaction, migration_count != 0)?;
             }
             if *name == "v150_privacy_trace_identity" {
-                crate::privacy::chat_store::install_turn_trace_projection(&transaction)?;
+                crate::privacy::chat_store::install_turn_trace_projection(
+                    &transaction,
+                    migration_count != 0,
+                )?;
             }
             transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
             transaction.commit()?;

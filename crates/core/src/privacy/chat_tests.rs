@@ -89,18 +89,68 @@ fn turn_trace_projection_upgrade_replaces_legacy_triggers_atomically() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("trace-upgrade.db");
     let db = Database::new(&path).unwrap();
+    assert_eq!(db.privacy_revision().unwrap(), "initial");
+    let cid = conversation(&db);
+    seed_message(&db, &cid, Role::User, "legacy-user");
+    seed_message(&db, &cid, Role::Assistant, "legacy-result");
+    let turn = db
+        .create_conversation_turn(&cid, "legacy-user", None)
+        .unwrap();
+    db.save_privacy_config(&enabled_policy()).unwrap();
+    let old_revision = db.privacy_revision().unwrap();
+    db.conn()
+        .execute_batch("UPDATE privacy_chat_state SET guard=1 WHERE id=1")
+        .unwrap();
+    db.conn()
+        .execute(
+            "UPDATE messages SET artifacts_json=?1 WHERE id='legacy-result'",
+            [serde_json::json!({"resultId":"privateCODE-business"}).to_string()],
+        )
+        .unwrap();
+    db.update_conversation_turn_trace(&turn.id, Some(&serde_json::json!({"kind":"turnTrace","items":[{"kind":"tool","toolCall":{
+        "callId":"call","toolName":"probe","status":"done","resultId":"privateCODE-locator","content":"visible","artifacts":{"resultId":"privateCODE-business"}
+    }}]}))).unwrap();
+    db.conn()
+        .execute_batch("UPDATE privacy_chat_state SET guard=0 WHERE id=1")
+        .unwrap();
     db.conn().execute_batch("DELETE FROM _migrations WHERE name='v150_privacy_trace_identity';
         DROP TRIGGER privacy_chat_turn_trace_INSERT;
         DROP TRIGGER privacy_chat_turn_trace_UPDATE;
         CREATE TRIGGER privacy_chat_turn_trace_INSERT AFTER INSERT ON conversation_turns BEGIN SELECT 1; END;
         CREATE TRIGGER privacy_chat_turn_trace_UPDATE AFTER UPDATE ON conversation_turns BEGIN SELECT 1; END;").unwrap();
     drop(db);
-    let db = Database::new(path).unwrap();
+    let db = Database::new(&path).unwrap();
     let (count, invalid): (u64, u64) = db.conn().query_row(
         "SELECT COUNT(*),SUM(instr(sql,'''turn_trace''')=0) FROM sqlite_master WHERE type='trigger' AND name IN ('privacy_chat_turn_trace_INSERT','privacy_chat_turn_trace_UPDATE')",
         [], |row| Ok((row.get(0)?,row.get(1)?)),
     ).unwrap();
     assert_eq!((count, invalid), (2, 0));
+    assert_ne!(db.privacy_revision().unwrap(), old_revision);
+    let message = db
+        .get_messages(&cid)
+        .unwrap()
+        .into_iter()
+        .find(|message| message.id == "legacy-result")
+        .unwrap();
+    assert!(!message
+        .artifacts
+        .unwrap()
+        .to_string()
+        .contains("privateCODE"));
+    let projected = db.get_conversation_turn(&turn.id).unwrap().trace.unwrap();
+    assert_eq!(
+        projected["items"][0]["toolCall"]["resultId"],
+        "privateCODE-locator"
+    );
+    assert!(!projected["items"][0]["toolCall"]["artifacts"]
+        .to_string()
+        .contains("privateCODE"));
+    let revision = db.privacy_revision().unwrap();
+    drop(db);
+    assert_eq!(
+        Database::new(path).unwrap().privacy_revision().unwrap(),
+        revision
+    );
 }
 
 #[test]
