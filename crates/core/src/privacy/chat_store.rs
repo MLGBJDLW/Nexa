@@ -18,7 +18,7 @@ const PROJECTIONS: &[Projection] = &[
     Projection { name: "message_artifacts", table: "messages", condition: "1", scope_columns: &[], fields: &[("artifacts_json","json")] },
     Projection { name: "archive_text", table: "archived_messages", condition: "{row}role!='user'", scope_columns: &["role"], fields: &[("content","text"),("tool_calls_json","calls")] },
     Projection { name: "archive_artifacts", table: "archived_messages", condition: "1", scope_columns: &[], fields: &[("artifacts_json","json")] },
-    Projection { name: "turn_trace", table: "conversation_turns", condition: "1", scope_columns: &[], fields: &[("trace_json","json")] },
+    Projection { name: "turn_trace", table: "conversation_turns", condition: "1", scope_columns: &[], fields: &[("trace_json","turn_trace")] },
     Projection { name: "run", table: "agent_task_runs", condition: "1", scope_columns: &[], fields: &[("summary","text"),("error_message","text"),("plan_json","json"),("artifacts_json","json")] },
     Projection { name: "run_event", table: "agent_run_events", condition: "1", scope_columns: &[], fields: &[("label","text"),("payload_json","event_payload")] },
     Projection { name: "task_event", table: "agent_task_run_events", condition: "1", scope_columns: &[], fields: &[("label","text"),("payload_json","json")] },
@@ -149,6 +149,66 @@ fn install_trigger(
     Ok(())
 }
 
+fn install_projection(conn: &Connection, projection: &Projection) -> Result<(), CoreError> {
+    let condition = projection.condition.replace("{row}", "NEW.");
+    let insert_assignments = assignments(projection, "NEW.", false);
+    install_trigger(
+        conn,
+        projection.name,
+        projection.table,
+        "INSERT",
+        "",
+        &condition,
+        &insert_assignments,
+    )?;
+    let changed = projection
+        .fields
+        .iter()
+        .map(|(column, _)| format!("OLD.{column} IS NOT NEW.{column}"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    // Some writers bind provenance only after inserting the content. A
+    // transition into derived/document-backed scope must project existing
+    // fields even when the content itself has not changed.
+    let was_in_scope = projection.condition.replace("{row}", "OLD.");
+    install_trigger(
+        conn,
+        projection.name,
+        projection.table,
+        "UPDATE",
+        &projection
+            .fields
+            .iter()
+            .map(|(column, _)| *column)
+            .chain(projection.scope_columns.iter().copied())
+            .collect::<Vec<_>>()
+            .join(","),
+        &format!("({condition}) AND (({changed}) OR NOT COALESCE(({was_in_scope}),0))"),
+        &assignments(projection, "NEW.", true),
+    )?;
+    Ok(())
+}
+
+pub(crate) fn install_turn_trace_projection(
+    conn: &Connection,
+    is_upgrade: bool,
+) -> Result<(), CoreError> {
+    install_projection(
+        conn,
+        PROJECTIONS
+            .iter()
+            .find(|projection| projection.name == "turn_trace")
+            .expect("host turn-trace projection"),
+    )?;
+    // A candidate or older integration may already have persisted business
+    // resultId values under the previous broad exemption. Reproject those
+    // derived copies and invalidate stale replay through the existing owner.
+    if is_upgrade && super::load_config_on(conn)?.enabled {
+        revoke(conn)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn install(conn: &Connection, is_upgrade: bool) -> Result<(), CoreError> {
     // The UI/runtime treats an absent row as enabled defaults. Persist that
     // same default before installing SQL guards; NULL must not disable them.
@@ -157,42 +217,7 @@ pub(crate) fn install(conn: &Connection, is_upgrade: bool) -> Result<(), CoreErr
         [serde_json::to_string(&super::PrivacyConfig::default())?],
     )?;
     for projection in PROJECTIONS {
-        let condition = projection.condition.replace("{row}", "NEW.");
-        let insert_assignments = assignments(projection, "NEW.", false);
-        install_trigger(
-            conn,
-            projection.name,
-            projection.table,
-            "INSERT",
-            "",
-            &condition,
-            &insert_assignments,
-        )?;
-        let changed = projection
-            .fields
-            .iter()
-            .map(|(column, _)| format!("OLD.{column} IS NOT NEW.{column}"))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        // Some writers bind provenance only after inserting the content. A
-        // transition into derived/document-backed scope must project existing
-        // fields even when the content itself has not changed.
-        let was_in_scope = projection.condition.replace("{row}", "OLD.");
-        install_trigger(
-            conn,
-            projection.name,
-            projection.table,
-            "UPDATE",
-            &projection
-                .fields
-                .iter()
-                .map(|(column, _)| *column)
-                .chain(projection.scope_columns.iter().copied())
-                .collect::<Vec<_>>()
-                .join(","),
-            &format!("({condition}) AND (({changed}) OR NOT COALESCE(({was_in_scope}),0))"),
-            &assignments(projection, "NEW.", true),
-        )?;
+        install_projection(conn, projection)?;
     }
     for event in ["INSERT", "UPDATE"] {
         install_trigger(

@@ -2892,6 +2892,8 @@ Every answer that uses knowledge base search results.
     ("v146_knowledge_provenance", include_str!("v146_knowledge_provenance.sql")),
     ("v147_knowledge_research", include_str!("v147_knowledge_research.sql")),
     ("v148_chat_privacy", include_str!("v148_chat_privacy.sql")),
+    ("v149_file_change_progress", include_str!("v149_file_change_progress.sql")),
+    ("v150_privacy_trace_identity", include_str!("v150_privacy_trace_identity.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3199,6 +3201,12 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
             transaction.execute_batch(sql)?;
             if *name == "v148_chat_privacy" {
                 crate::privacy::chat_store::install(&transaction, migration_count != 0)?;
+            }
+            if *name == "v150_privacy_trace_identity" {
+                crate::privacy::chat_store::install_turn_trace_projection(
+                    &transaction,
+                    migration_count != 0,
+                )?;
             }
             transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
             transaction.commit()?;

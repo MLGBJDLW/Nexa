@@ -13,6 +13,8 @@ use super::turn_events::TurnLoopEvent;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct PersistedTraceToolCall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    result_id: Option<Box<str>>,
     call_id: String,
     tool_name: String,
     owner: CapabilityOwner,
@@ -152,7 +154,8 @@ pub(super) fn append_persisted_trace_tool(
     content: Option<String>,
     is_error: Option<bool>,
     artifacts: Option<serde_json::Value>,
-) {
+) -> String {
+    let result_id = uuid::Uuid::new_v4().to_string();
     let parsed_args = serde_json::from_str::<serde_json::Value>(arguments).ok();
     let capabilities = tools.run_capabilities(
         tool_name,
@@ -160,6 +163,7 @@ pub(super) fn append_persisted_trace_tool(
     );
     items.push(PersistedTraceItem::Tool {
         tool_call: PersistedTraceToolCall {
+            result_id: Some(result_id.clone().into_boxed_str()),
             call_id: call_id.to_string(),
             tool_name: tool_name.to_string(),
             owner: tools.plugin_info(tool_name),
@@ -175,6 +179,7 @@ pub(super) fn append_persisted_trace_tool(
             artifacts,
         },
     });
+    result_id
 }
 
 pub(super) fn append_persisted_trace_tool_run(
@@ -182,6 +187,7 @@ pub(super) fn append_persisted_trace_tool_run(
     run: &super::ToolRunItem,
 ) {
     let tool_call = PersistedTraceToolCall {
+        result_id: None,
         call_id: run.call_id.clone(),
         tool_name: run.tool_name.clone(),
         owner: run.owner.clone(),
@@ -488,6 +494,7 @@ mod tests {
     ) -> PersistedTraceItem {
         PersistedTraceItem::Tool {
             tool_call: PersistedTraceToolCall {
+                result_id: None,
                 call_id: format!("{tool_name}-1"),
                 tool_name: tool_name.to_string(),
                 owner: crate::plugins::capability_owner_for_tool(tool_name),
@@ -509,6 +516,42 @@ mod tests {
                 artifacts,
             },
         }
+    }
+
+    #[test]
+    fn local_results_keep_distinct_identity_through_trace_projection() {
+        let tools = default_tool_registry();
+        let mut items = Vec::new();
+        let mut ids = Vec::new();
+        for _ in 0..2 {
+            append_persisted_trace_prompt_cache(&mut items, serde_json::json!({"snapshot":{}}));
+            ids.push(append_persisted_trace_tool(
+                &mut items,
+                &tools,
+                "read_file",
+                "{}",
+                "call_0",
+                "done",
+                Some("identical output".into()),
+                Some(false),
+                None,
+            ));
+        }
+        assert_ne!(ids[0], ids[1]);
+        let trace = build_turn_trace(AgentRouteKind::CodebaseOperation, &items);
+        let calls = trace["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.get("toolCall"))
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        for (call, id) in calls.iter().zip(&ids) {
+            assert_eq!(call["resultId"].as_str(), Some(id.as_str()));
+        }
+        let legacy = serde_json::to_value(done_tool("read_file")).unwrap();
+        assert!(legacy["toolCall"].get("resultId").is_none());
+        serde_json::from_value::<PersistedTraceItem>(legacy).unwrap();
     }
 
     #[test]

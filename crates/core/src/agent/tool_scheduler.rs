@@ -224,6 +224,12 @@ pub(crate) fn tool_timeout_for_call(
 }
 
 pub(crate) fn compact_tool_result_for_context(tool_name: &str, content: &str) -> String {
+    // History queries already bound every page at the read boundary. Applying
+    // lossy compaction again would silently remove characters while advancing
+    // the exact page cursor, especially for CJK or escaped JSON text.
+    if tool_name == "context_history" {
+        return content.to_string();
+    }
     if let Some(projected) =
         interactive_context::project_observation(tool_name, content, MAX_TOOL_RESULT_CONTEXT_CHARS)
     {
@@ -249,6 +255,38 @@ pub(crate) fn compact_tool_result_for_context(tool_name: &str, content: &str) ->
         "retrieve_evidence" | "search_playbooks" => truncate_tool_result(content, 24_000),
         _ => truncate_tool_result(content, MAX_TOOL_RESULT_CONTEXT_CHARS),
     }
+}
+
+pub(crate) fn tool_result_readback_hint(
+    db: &crate::db::Database,
+    conversation_id: Option<&str>,
+    turn_id: Option<&str>,
+    call_id: &str,
+    result_id: &str,
+    model_content: &str,
+) -> Option<String> {
+    let (conversation_id, turn_id) = (conversation_id?, turn_id?);
+    if !db
+        .context_tool_result_is_persisted(
+            conversation_id,
+            turn_id,
+            call_id,
+            Some(result_id),
+            model_content,
+        )
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let arguments = serde_json::json!({
+        "action":"read_tool_result", "turn_id":turn_id,
+        "tool_call_id":call_id, "offset":0, "max_chars":6000,
+        "result_id":result_id,
+        "expected_digest":blake3::hash(model_content.as_bytes()).to_hex().to_string(),
+    });
+    Some(format!(
+        "\n\n[Compacted tool result. Full persisted text is available through context_history with {arguments}. Follow nextOffset to read more; do not rerun the original tool to recover omitted text.]"
+    ))
 }
 
 fn summarize_lines(text: &str, head_lines: usize, tail_lines: usize, max_chars: usize) -> String {
@@ -415,6 +453,17 @@ fn compress_sections(text: &str, separator: &str, max_chars: usize) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_history_pages_do_not_lose_unicode_to_a_second_compaction() {
+        let page =
+            serde_json::json!({"text":"历史🙂\n".repeat(3000), "nextOffset":15000}).to_string();
+        assert!(page.len() > MAX_TOOL_RESULT_CONTEXT_CHARS);
+        assert_eq!(
+            compact_tool_result_for_context("context_history", &page),
+            page
+        );
+    }
 
     #[test]
     fn browser_model_projection_preserves_action_refs_after_long_page_text() {

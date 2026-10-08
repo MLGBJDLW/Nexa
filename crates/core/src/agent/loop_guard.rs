@@ -380,6 +380,40 @@ fn is_live_wait_receipt(call: &ToolCallRequest, artifacts: Option<&Value>) -> bo
                     Some("queued" | "running" | "cancelling")
                 )
         }
+        ("observe_subagent_batch", Some("subagent_batch_observation")) => {
+            let after = args.get("afterSeq").and_then(Value::as_u64);
+            let requested_wait = args
+                .get("waitMs")
+                .and_then(Value::as_u64)
+                .unwrap_or(if after.is_some() { 30_000 } else { 0 })
+                .min(60_000);
+            let cursor = receipt.get("cursor").and_then(Value::as_u64);
+            let timed_out = receipt.get("timedOut").and_then(Value::as_bool);
+            let expected = receipt.get("expectedWorkers").and_then(Value::as_u64);
+            let completed = receipt.get("completedWorkers").and_then(Value::as_u64);
+            let pending = receipt.get("pendingWorkers").and_then(Value::as_u64);
+            args.get("batchId")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.is_empty())
+                && args.get("batchId") == receipt.get("batchId")
+                && args.get("cancelRemaining").and_then(Value::as_bool) != Some(true)
+                && receipt.get("cancelRequested").and_then(Value::as_bool) == Some(false)
+                && receipt.get("waitInterrupted").and_then(Value::as_bool) == Some(false)
+                && receipt.get("reset").and_then(Value::as_bool) == Some(false)
+                && requested_wait >= 1_000
+                && receipt
+                    .get("waitedMs")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|waited| waited <= requested_wait)
+                && after.is_none_or(|after| match timed_out {
+                    Some(true) => cursor == Some(after),
+                    Some(false) => cursor.is_some_and(|cursor| cursor > after),
+                    None => false,
+                })
+                && matches!((expected, completed, pending), (Some(total), Some(done), Some(left))
+                    if done < total && left == total - done)
+                && cursor == completed
+        }
         ("activity_observe", Some("activityObservation")) => {
             args.get("activityId").is_some()
                 && args.get("activityId") == receipt.pointer("/activity/record/activityId")
@@ -695,6 +729,84 @@ mod tests {
         assert!(
             blocked,
             "re-reading a finished worker must still be bounded"
+        );
+    }
+
+    #[test]
+    fn live_batch_waits_continue_without_a_total_observation_limit() {
+        let mut guard = AgentLoopGuard::new();
+        let mut wait = call(r#"{"batchId":"batch","afterSeq":0,"waitMs":30000}"#);
+        wait.name = "observe_subagent_batch".into();
+        let receipt = serde_json::json!({"kind":"subagent_batch_observation",
+            "batchId":"batch", "cursor":0, "expectedWorkers":2, "completedWorkers":0,
+            "pendingWorkers":2, "waitedMs":30000, "waitInterrupted":false,
+            "reset":false, "cancelRequested":false, "timedOut":true});
+        for _ in 0..300 {
+            assert!(guard
+                .observe_model_step("", std::slice::from_ref(&wait))
+                .is_none());
+            assert!(guard
+                .observe_tool_result(&wait, false, "two workers still running", Some(&receipt))
+                .is_none());
+        }
+        for (key, value) in [
+            ("batchId", serde_json::json!("another-batch")),
+            ("waitedMs", serde_json::json!(0)),
+            ("waitedMs", serde_json::json!(30_001)),
+            ("pendingWorkers", serde_json::json!(0)),
+            ("completedWorkers", serde_json::json!(2)),
+            ("cursor", serde_json::json!(1)),
+            ("waitInterrupted", serde_json::json!(true)),
+            ("cancelRequested", serde_json::json!(true)),
+            ("reset", serde_json::json!(true)),
+        ] {
+            let mut invalid = receipt.clone();
+            invalid[key] = value;
+            assert!(!is_live_wait_receipt(&wait, Some(&invalid)), "{key}");
+        }
+        for args in [
+            serde_json::json!({"batchId":"batch"}),
+            serde_json::json!({"batchId":"batch","afterSeq":0,"waitMs":0}),
+            serde_json::json!({"batchId":"batch","afterSeq":0,"waitMs":999}),
+            serde_json::json!({"batchId":"batch","afterSeq":1,"waitMs":30000}),
+        ] {
+            let mut poll = wait.clone();
+            poll.arguments = args.to_string();
+            assert!(!is_live_wait_receipt(&poll, Some(&receipt)));
+        }
+        let mut default_wait = wait.clone();
+        default_wait.arguments = serde_json::json!({"batchId":"batch","afterSeq":0}).to_string();
+        assert!(is_live_wait_receipt(&default_wait, Some(&receipt)));
+        let mut changed = receipt.clone();
+        changed["cursor"] = serde_json::json!(1);
+        changed["completedWorkers"] = serde_json::json!(1);
+        changed["pendingWorkers"] = serde_json::json!(1);
+        assert!(
+            !is_live_wait_receipt(&wait, Some(&changed)),
+            "a timed-out cursor cannot advance"
+        );
+        changed["timedOut"] = serde_json::json!(false);
+        assert!(
+            is_live_wait_receipt(&wait, Some(&changed)),
+            "a delayed new result with residual workers is progress"
+        );
+        changed["waitedMs"] = serde_json::json!(0);
+        assert!(
+            !is_live_wait_receipt(&wait, Some(&changed)),
+            "a stale cursor without actual waiting is not live progress"
+        );
+        let action = call(r#"{"path":"unchanged.txt"}"#);
+        let mut mixed = AgentLoopGuard::new();
+        for _ in 0..2 {
+            assert!(mixed
+                .observe_model_step("", &[wait.clone(), action.clone()])
+                .is_none());
+            mixed.observe_tool_result(&wait, false, "", Some(&receipt));
+            mixed.observe_tool_result(&action, false, "same content", None);
+        }
+        assert!(
+            mixed.observe_model_step("", &[wait, action]).is_some(),
+            "one live wait does not exempt a repeated action in the same batch"
         );
     }
 

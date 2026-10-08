@@ -502,6 +502,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn external_split_output_readback_and_cached_replay_keep_one_result_identity() {
+        struct SplitOutput(Arc<AtomicUsize>);
+        #[async_trait::async_trait]
+        impl Tool for SplitOutput {
+            fn name(&self) -> &str {
+                "split_output"
+            }
+            fn description(&self) -> &str {
+                "Read long model evidence"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type":"object","properties":{},"additionalProperties":false})
+            }
+            async fn execute(
+                &self,
+                context: ToolExecutionContext<'_>,
+            ) -> Result<ToolResult, CoreError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolResult::from_output(
+                    context.call_id,
+                    false,
+                    crate::tools::ToolOutput {
+                        llm_content: format!(
+                            "{}EXTERNAL_MIDDLE{}",
+                            "证据🙂".repeat(5000),
+                            "后续🙂".repeat(5000)
+                        ),
+                        display_content: "Short display summary".into(),
+                        data: None,
+                        artifacts: None,
+                        attachments: Vec::new(),
+                    },
+                ))
+            }
+        }
+        let (mut session, _, _rx) = session(5);
+        let executions = Arc::new(AtomicUsize::new(0));
+        session
+            .input
+            .tools
+            .register(Box::new(SplitOutput(executions.clone())));
+        session.input.tools.register(Box::new(
+            crate::tools::context_history_tool::ContextHistoryTool,
+        ));
+        let original = ToolCallRequest {
+            id: "split-call".into(),
+            name: "split_output".into(),
+            arguments: "{}".into(),
+            thought_signature: None,
+        };
+        let first = session.execute(original.clone()).await.unwrap().result;
+        let replay = session.execute(original).await.unwrap().result;
+        assert_eq!(first.content, replay.content);
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        assert!(first.content.starts_with("Short display summary"));
+        let hint = first
+            .content
+            .split("Full persisted text is available through context_history with ")
+            .nth(1)
+            .unwrap();
+        let mut args: serde_json::Value =
+            serde_json::from_str(hint.split(". Follow nextOffset").next().unwrap()).unwrap();
+        args["offset"] = serde_json::json!(14_000);
+        args["max_chars"] = serde_json::json!(2000);
+        let read = session
+            .execute(ToolCallRequest {
+                id: "read-page".into(),
+                name: "context_history".into(),
+                arguments: args.to_string(),
+                thought_signature: None,
+            })
+            .await
+            .unwrap()
+            .result;
+        assert!(!read.is_error, "{}", read.content);
+        let page: serde_json::Value =
+            serde_json::from_str(read.content.split_once('\n').unwrap().1).unwrap();
+        assert_eq!(page["resultId"], args["result_id"]);
+        assert!(page["text"].as_str().unwrap().contains("EXTERNAL_MIDDLE"));
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn duplicate_call_id_executes_once_and_changed_reuse_fails() {
         let (session, count, _rx) = session(4);
         assert!(

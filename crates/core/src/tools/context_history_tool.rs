@@ -14,6 +14,10 @@ struct Args {
     action: String,
     query: Option<String>,
     window_id: Option<String>,
+    turn_id: Option<String>,
+    tool_call_id: Option<String>,
+    result_id: Option<String>,
+    expected_digest: Option<String>,
     item: Option<usize>,
     offset: Option<usize>,
     max_chars: Option<usize>,
@@ -74,8 +78,32 @@ impl Tool for ContextHistoryTool {
                 args.offset.unwrap_or(0),
                 args.max_chars.unwrap_or(6000),
             ),
+            "read_tool_result" => {
+                let page = db.read_context_tool_result(
+                &conversation,
+                args.turn_id
+                    .as_deref()
+                    .filter(|id| !id.trim().is_empty())
+                    .ok_or_else(|| CoreError::InvalidInput("turn_id is required".into()))?,
+                args.tool_call_id
+                    .as_deref()
+                    .filter(|id| !id.trim().is_empty())
+                    .ok_or_else(|| CoreError::InvalidInput("tool_call_id is required".into()))?,
+                args.result_id.as_deref(),
+                args.offset.unwrap_or(0),
+                args.max_chars.unwrap_or(6000),
+                )?;
+                if args.expected_digest.as_deref().is_some_and(|digest| {
+                    page["contentDigest"].as_str() != Some(digest)
+                }) {
+                    return Err(CoreError::InvalidInput(
+                        "The persisted tool result changed, possibly after a privacy update. Restart at offset 0 without expected_digest and use the new contentDigest for later pages.".into(),
+                    ));
+                }
+                Ok(page)
+            },
             _ => Err(CoreError::InvalidInput(
-                "Use list, search, or read for context_history".into(),
+                "Use list, search, read, or read_tool_result for context_history".into(),
             )),
         })
         .await

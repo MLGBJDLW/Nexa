@@ -24,6 +24,12 @@ do not imply wire or configuration compatibility with another project.
 - [LangGraph checkpointing](https://github.com/langchain-ai/langgraph/tree/main/libs/checkpoint)
   informed the decision to make workflow progress serializable rather than
   keeping scheduler state only in a prompt.
+- [Anthropic's Managed Agents architecture](https://www.anthropic.com/engineering/managed-agents)
+  separates durable session history from the active context window. Nexa applies
+  this distinction to exact tool-result readback over its existing turn trace.
+- [Anthropic's long-running agent harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
+  motivate incremental, verified progress. Nexa's completion repair uses new
+  file states and satisfied obligations instead of a cumulative repair cap.
 - [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
   establish independent inspectable worker threads, parent inheritance for
   omitted model settings, and explicit orchestration controls.
@@ -178,6 +184,17 @@ errors have their own bounded counters, and any concrete action resets the
 bookkeeping window. This avoids both prompt-specific patches and a global
 "must call a tool" policy that would reject valid direct answers.
 
+Project-hook and workflow completion repairs have no cumulative attempt ceiling.
+Their profile retry allowance measures consecutive stalled repairs. A new
+persisted file-content state, newly passed completion check, completed workflow
+node, or verified evidence source renews the allowance. Repeated file states,
+no-op writes, hook-only log changes, timestamps, and rewritten explanations do
+not. File progress comes from the mutation ledger's owning operation and exact
+before/after content hashes; native process lifecycle events and legacy events
+without content provenance cannot renew it. Configured tool, token, cost, and
+time budgets remain authoritative. A stalled workflow reports failed completion checks instead of misreporting an
+exhausted tool-round budget.
+
 Stream recovery uses the same event authority. Answer text, thinking chunks,
 and generic tool arguments are resettable drafts until the model sample closes
 and the controller dispatches a tool; an interrupted draft is cleared and may
@@ -256,6 +273,27 @@ cover zero-summary-call handoff, tool-pair integrity, persistence failures,
 restart retrieval, and invalidation. Local deterministic checks establish
 storage and runtime behavior; comparative model recall and real long-task
 quality remain experimental.
+
+Tool-result compaction is a projection over the durable turn trace. When a tool
+result is shortened, Nexa attaches a `context_history` `read_tool_result` call
+only after the exact original has been persisted. The call identifies the
+conversation-owned turn, tool call, and stable runtime result ID; Unicode character offsets, `nextOffset`,
+and a content digest support exact paging without repeating the original action.
+This works in both context modes and before the first history handoff. Pages
+are bounded by the history tool and are not compacted again. The runtime result
+ID remains valid when provider call IDs repeat. Legacy reads without a result ID
+must be unambiguous; unfinished calls and provider-hosted replay are not exposed.
+Readback selects the validated persisted model channel, preserving the display
+summary. Intentionally ephemeral desktop screen content is not advertised as
+recoverable after persistence has removed it.
+The existing privacy projection and turn deletion govern readback; a supplied
+digest rejects pages changed by later privacy updates. Retrieved output remains
+historical evidence and cannot grant tool permissions or new instructions.
+Custom privacy expressions matching serialized locator or digest text, or
+non-idempotent replacement rules, can still invalidate pagination when a page
+is projected again through dispatch or history replay. Preserving typed
+evidence metadata across every replay boundary remains a follow-up; arbitrary
+tool text is not exempted from privacy filtering.
 
 ## Turn budgets and provider terminals
 
@@ -571,6 +609,13 @@ they do not recreate execution across application restart. Durable activity and
 subtask artifacts remain the recovery evidence, and unknown live handles remain
 explicitly unavailable. Child execution can outlive ordinary parent completion;
 the absence of fresh observation leaves its state unverified rather than cancelled.
+
+Batch observations include host-measured `waitedMs`. Matching, non-cancelled
+waits that actually waited at least one second and still have pending workers
+renew loop-guard patience, with no total observation limit. Instant polls,
+finished or mismatched batches, cursor resets, and repeated mixed-action batches
+retain ordinary repetition protection. The observation deadline limits one wait,
+not the lifetime of the delegated work.
 
 Workers remain leaves: their actual tool registry excludes delegation and
 interactive browser/desktop controls. The former unreachable child-runtime

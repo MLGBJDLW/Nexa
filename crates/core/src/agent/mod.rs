@@ -55,6 +55,7 @@ use crate::tools::{
 use crate::trace::{AgentTrace, TraceOutcome, TraceStep};
 
 mod assistant_turn;
+mod completion_repair;
 pub mod context;
 mod context_compaction;
 mod context_handoff;

@@ -78,6 +78,7 @@ impl ResolvedOrchestrationProfile {
             "## Orchestration Quality Profile\n\n\
              The user selected `{}`. This is a client-side execution policy, not a provider reasoning-effort value.\n\
              - Runtime retry limit: {}. Verification reserve: {}%. Minimum evidence sources: {}.\n\
+             - Completion-repair patience renews after new persisted file state or newly satisfied runtime checks; it is not a total task-attempt cap.\n\
              - Independent verifier required: {}. Isolated write scopes required: {}.\n\
              - Do not claim the model received an `ultra` reasoning parameter. Provider reasoning controls remain independently capability-gated.",
             self.profile.as_str(),
