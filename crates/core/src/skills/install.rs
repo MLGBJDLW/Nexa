@@ -1,6 +1,6 @@
 //! Publish inspected skill bundles through one database and filesystem owner.
 
-use super::{Skill, SkillInstallSelection};
+use super::{SaveSkillInput, Skill, SkillInstallSelection};
 use crate::{db::Database, error::CoreError};
 use std::{
     collections::HashMap,
@@ -20,6 +20,39 @@ struct SkillPublication {
     temporary: Option<tempfile::TempDir>,
     directories: Vec<PublishedDirectory>,
     committed: bool,
+}
+
+fn validate_installed_snapshot(
+    inputs: &[SaveSkillInput],
+    expected: &HashMap<String, Skill>,
+    current: &[Skill],
+) -> Result<(), CoreError> {
+    for actual in current {
+        let input = inputs
+            .iter()
+            .find(|input| input.id.as_deref() == Some(actual.id.as_str()))
+            .ok_or_else(|| {
+                CoreError::Conflict("Installed skill changed during import; inspect again".into())
+            })?;
+        let previous = expected.get(&actual.id).ok_or_else(|| {
+            CoreError::Conflict("Installed skill changed during import; inspect again".into())
+        })?;
+        if input.name != actual.name
+            || input.enabled != actual.enabled
+            || actual.name != previous.name
+            || actual.description != previous.description
+            || actual.enabled != previous.enabled
+            || actual.content != previous.content
+            || actual.resource_bundle != previous.resource_bundle
+            || actual.canonical_name != previous.canonical_name
+        {
+            return Err(CoreError::Conflict(format!(
+                "Installed skill {} changed during import; inspect again",
+                actual.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 impl Drop for SkillPublication {
@@ -177,6 +210,38 @@ impl SkillPublication {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_toggle_between_import_preparation_and_snapshot_is_not_overwritten() {
+        let temporary = tempfile::tempdir().unwrap();
+        let db = Database::open_memory().unwrap();
+        let sources = vec![source(temporary.path(), "demo", "Imported body")];
+        let destination = temporary.path().join("installed");
+        let installed =
+            install_skills_from_sources(&db, &sources, None, false, false, &destination).unwrap();
+        let inputs =
+            super::super::importer::prepare_skill_install_inputs(&db, &sources, None, true, false)
+                .unwrap();
+        db.toggle_skill(&installed[0].id, false).unwrap();
+        let expected = db
+            .list_skills()
+            .unwrap()
+            .into_iter()
+            .map(|skill| (skill.id.clone(), skill))
+            .collect();
+        let outcome = db.save_skills_atomically_with_guard(&inputs, |_, current| {
+            validate_installed_snapshot(&inputs, &expected, current)
+        });
+        assert!(outcome
+            .unwrap_err()
+            .to_string()
+            .contains("changed during import"));
+        assert!(!db.list_skills().unwrap()[0].enabled);
+        assert_eq!(
+            fs::read_to_string(destination.join("demo/references/guide.md")).unwrap(),
+            "Guide for Imported body"
+        );
+    }
 
     fn source(root: &Path, name: &str, body: &str) -> PathBuf {
         let directory = root.join(name);
@@ -404,25 +469,7 @@ pub fn install_skills_from_sources(
         .collect();
     let (mut skills, mut publication) =
         db.save_skills_atomically_with_guard(&inputs, |skills, current| {
-            for actual in current {
-                let expected = previous.get(&actual.id).ok_or_else(|| {
-                    CoreError::Conflict(
-                        "Installed skill changed during import; inspect again".into(),
-                    )
-                })?;
-                if actual.name != expected.name
-                    || actual.description != expected.description
-                    || actual.enabled != expected.enabled
-                    || actual.content != expected.content
-                    || actual.resource_bundle != expected.resource_bundle
-                    || actual.canonical_name != expected.canonical_name
-                {
-                    return Err(CoreError::Conflict(format!(
-                        "Installed skill {} changed during import; inspect again",
-                        actual.name
-                    )));
-                }
-            }
+            validate_installed_snapshot(&inputs, &previous, current)?;
             SkillPublication::prepare(user_skills_dir, skills, &previous, sources)
         })?;
     publication.committed = true;
