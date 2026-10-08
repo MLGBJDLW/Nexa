@@ -790,6 +790,11 @@ mod tests {
             is_live_wait_receipt(&wait, Some(&changed)),
             "a delayed new result with residual workers is progress"
         );
+        changed["waitedMs"] = serde_json::json!(0);
+        assert!(
+            !is_live_wait_receipt(&wait, Some(&changed)),
+            "a stale cursor without actual waiting is not live progress"
+        );
         let action = call(r#"{"path":"unchanged.txt"}"#);
         let mut mixed = AgentLoopGuard::new();
         for _ in 0..2 {

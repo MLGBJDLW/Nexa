@@ -273,20 +273,44 @@ impl Database {
         // Rust character slicing also preserves embedded NULs, which SQLite
         // text length/substr treat as a string terminator.
         let total_chars = result.content.chars().count();
+        let mut page = json!({
+            "turnId":turn_id,"toolCallId":tool_call_id,"resultId":result.result_id,
+            "toolName":result.tool_name,"isError":result.is_error,
+            "text":"","totalChars":total_chars,"offset":offset,
+            "contentDigest":blake3::hash(result.content.as_bytes()).to_hex().to_string(),
+            "nextOffset":null,
+        });
+        // Preserve exact paging within the normal serialized context budget.
+        // A single control character needs six JSON characters (\\u0000).
+        let mut remaining = 24_000usize
+            .checked_sub(page.to_string().chars().count() + 32)
+            .ok_or_else(|| {
+                CoreError::InvalidInput(
+                    "Tool result metadata exceeds the context page budget.".into(),
+                )
+            })?;
         let text: String = result
             .content
             .chars()
             .skip(offset)
             .take(max_chars.clamp(1, 16000))
+            .take_while(|ch| {
+                let width = match ch {
+                    '"' | '\\' | '\n' | '\r' | '\t' | '\u{0008}' | '\u{000c}' => 2,
+                    ch if *ch < '\u{0020}' => 6,
+                    _ => 1,
+                };
+                if remaining < width {
+                    return false;
+                }
+                remaining -= width;
+                true
+            })
             .collect();
         let next = offset.saturating_add(text.chars().count());
-        Ok(json!({
-            "turnId":turn_id,"toolCallId":tool_call_id,"resultId":result.result_id,
-            "toolName":result.tool_name,"isError":result.is_error,
-            "text":text,"totalChars":total_chars,"offset":offset,
-            "contentDigest":blake3::hash(result.content.as_bytes()).to_hex().to_string(),
-            "nextOffset":(next < total_chars).then_some(next),
-        }))
+        page["text"] = json!(text);
+        page["nextOffset"] = json!((next < total_chars).then_some(next));
+        Ok(page)
     }
 
     fn load_context_tool_result(
@@ -437,6 +461,31 @@ mod tests {
         db.update_conversation_turn_trace(&turn.id, Some(&trace))
             .unwrap();
         (turn.id, trace)
+    }
+
+    #[test]
+    fn tool_result_control_characters_page_by_serialized_budget_without_loss() {
+        let db = Database::open_memory().unwrap();
+        let id = conversation(&db);
+        let text = "\0\u{001f}\\\"证据🙂\n".repeat(8000);
+        let (turn, _) = tool_trace(&db, &id, &text);
+        let mut restored = String::new();
+        let mut offset = 0;
+        loop {
+            let page = db
+                .read_context_tool_result(&id, &turn, "long-output", None, offset, 16000)
+                .unwrap();
+            assert!(page.to_string().chars().count() <= 24000);
+            restored.push_str(page["text"].as_str().unwrap());
+            match page["nextOffset"].as_u64() {
+                Some(next) => {
+                    assert!(next as usize > offset);
+                    offset = next as usize;
+                }
+                None => break,
+            }
+        }
+        assert_eq!(restored, text);
     }
 
     #[test]
