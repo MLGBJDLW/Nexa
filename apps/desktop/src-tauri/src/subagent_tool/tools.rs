@@ -490,7 +490,8 @@ impl Tool for ObserveSubagentBatchTool {
             .batch_progress(batch_id)
             .ok_or_else(|| CoreError::NotFound(format!("Delegated batch {batch_id}")))?
             .1;
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(wait_ms);
+        let started = tokio::time::Instant::now();
+        let deadline = started + Duration::from_millis(wait_ms);
         let after = args.after_seq.unwrap_or(baseline_cursor);
         let mut wait_interrupted = false;
         loop {
@@ -556,6 +557,7 @@ impl Tool for ObserveSubagentBatchTool {
                 "incremental": args.after_seq.is_some(),
                 "timedOut": !wait_interrupted && pending_workers > 0 && cursor == after && !reset,
                 "waitInterrupted": wait_interrupted,
+                "waitedMs": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                 "expectedWorkers": expected_workers,
                 "completedWorkers": completed_workers,
                 "pendingWorkers": pending_workers,

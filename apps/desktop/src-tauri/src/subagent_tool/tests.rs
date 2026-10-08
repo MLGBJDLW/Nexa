@@ -711,6 +711,55 @@ fn batch_cursor_tracks_completion_order_without_replaying_or_replacing_results()
     );
 }
 
+#[tokio::test(start_paused = true)]
+async fn batch_wait_receipt_measures_waiting_without_extending_worker_lifetime() {
+    let runtime = test_runtime();
+    runtime.register_batch("quiet-batch", 2);
+    let tool = ObserveSubagentBatchTool::from_runtime(runtime.clone());
+    let db = Database::open_memory().unwrap();
+    let result = tool
+        .execute(nexa_core::tools::ToolExecutionContext::new(
+            "quiet-wait",
+            r#"{"batchId":"quiet-batch","afterSeq":0,"waitMs":30000}"#,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap()
+        .artifacts
+        .unwrap();
+    assert_eq!(result["waitedMs"], 30_000);
+    assert_eq!(result["pendingWorkers"], 2);
+    assert_eq!(result["timedOut"], true);
+    assert_eq!(result["waitInterrupted"], false);
+    let poll = tool
+        .execute(nexa_core::tools::ToolExecutionContext::new(
+            "instant-poll",
+            r#"{"batchId":"quiet-batch","afterSeq":0,"waitMs":0}"#,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap()
+        .artifacts
+        .unwrap();
+    assert_eq!(poll["waitedMs"], 0);
+    runtime.cancel_token.cancel();
+    let cancelled = tool
+        .execute(nexa_core::tools::ToolExecutionContext::new(
+            "cancelled-wait",
+            r#"{"batchId":"quiet-batch","afterSeq":0,"waitMs":30000}"#,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap()
+        .artifacts
+        .unwrap();
+    assert_eq!(cancelled["waitedMs"], 0);
+    assert_eq!(cancelled["waitInterrupted"], true);
+}
+
 #[tokio::test]
 async fn incremental_batch_wait_returns_only_new_evidence_and_is_parent_cancellable() {
     let runtime = test_runtime();
