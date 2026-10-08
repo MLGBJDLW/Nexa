@@ -189,8 +189,10 @@ Their profile retry allowance measures consecutive stalled repairs. A new
 persisted file-content state, newly passed completion check, completed workflow
 node, or verified evidence source renews the allowance. Repeated file states,
 no-op writes, hook-only log changes, timestamps, and rewritten explanations do
-not. Configured tool, token, cost, and time budgets remain authoritative. A
-stalled workflow reports failed completion checks instead of misreporting an
+not. File progress comes from the mutation ledger's owning operation and exact
+before/after content hashes; native process lifecycle events and legacy events
+without content provenance cannot renew it. Configured tool, token, cost, and
+time budgets remain authoritative. A stalled workflow reports failed completion checks instead of misreporting an
 exhausted tool-round budget.
 
 Stream recovery uses the same event authority. Answer text, thinking chunks,

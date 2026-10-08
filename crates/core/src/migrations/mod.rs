@@ -2892,6 +2892,7 @@ Every answer that uses knowledge base search results.
     ("v146_knowledge_provenance", include_str!("v146_knowledge_provenance.sql")),
     ("v147_knowledge_research", include_str!("v147_knowledge_research.sql")),
     ("v148_chat_privacy", include_str!("v148_chat_privacy.sql")),
+    ("v149_file_change_progress", include_str!("v149_file_change_progress.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

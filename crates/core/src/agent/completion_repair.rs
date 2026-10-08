@@ -8,7 +8,7 @@ use crate::{db::Database, error::CoreError};
 
 #[derive(Default)]
 pub(super) struct CompletionRepairGuard {
-    file_revision: Option<u64>,
+    last_file_event: u64,
     seen_file_states: HashSet<blake3::Hash>,
     completed_milestones: HashSet<String>,
     stalled_retries: u8,
@@ -46,38 +46,37 @@ impl CompletionRepairGuard {
         turn: &str,
     ) -> Result<bool, CoreError> {
         let conn = db.conn();
-        let (revision, pending): (u64, bool) = conn.query_row(
-            "SELECT COALESCE(MAX(id),0),COALESCE(MAX(pending),0)
-             FROM turn_file_change_events WHERE conversation_id=?1 AND turn_id=?2
-             AND mutation_id NOT LIKE 'hook:%'",
-            rusqlite::params![conversation, turn],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-        if revision == 0 || pending || self.file_revision == Some(revision) {
-            return Ok(false);
-        }
-        self.file_revision = Some(revision);
         let mut query = conn.prepare(
-            "SELECT absolute_path,after_hash,exists_after FROM turn_file_changes
-             WHERE conversation_id=?1 AND turn_id=?2 ORDER BY absolute_path",
+            "SELECT id,absolute_path,before_hash,after_hash FROM turn_file_change_events
+             WHERE conversation_id=?1 AND turn_id=?2 AND id>?3
+               AND mutation_id NOT LIKE 'hook:%' AND pending=0
+               AND absolute_path IS NOT NULL AND before_hash IS NOT after_hash
+             ORDER BY id",
         )?;
-        let rows = query.query_map(rusqlite::params![conversation, turn], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, bool>(2)?,
-            ))
-        })?;
-        let mut hash = blake3::Hasher::new();
-        let mut has_files = false;
+        let rows = query.query_map(
+            rusqlite::params![conversation, turn, self.last_file_event],
+            |row| {
+                Ok((
+                    row.get::<_, u64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )?;
+        let mut progressed = false;
         for row in rows {
-            let (path, content_hash, exists) = row?;
-            has_files = true;
-            let state = serde_json::to_vec(&(path, content_hash, exists))?;
-            hash.update(&(state.len() as u64).to_le_bytes());
-            hash.update(&state);
+            let (id, path, before, after) = row?;
+            // Seed the previous state too: reverting a failed candidate to
+            // its original bytes is not a newly discovered repair state.
+            self.seen_file_states
+                .insert(blake3::hash(&serde_json::to_vec(&(&path, before))?));
+            progressed |= self
+                .seen_file_states
+                .insert(blake3::hash(&serde_json::to_vec(&(&path, after))?));
+            self.last_file_event = id;
         }
-        Ok(has_files && self.seen_file_states.insert(hash.finalize()))
+        Ok(progressed)
     }
 }
 
@@ -89,17 +88,33 @@ mod tests {
         let db = Database::open_memory().unwrap();
         db.execute_batch_for_test("INSERT INTO conversations(id,provider,model) VALUES('chat','custom','test');
             INSERT INTO messages(id,conversation_id,role,content) VALUES('user','chat','user','test');
-            INSERT INTO conversation_turns(id,conversation_id,user_message_id) VALUES('turn','chat','user');
-            INSERT INTO turn_file_changes(conversation_id,turn_id,absolute_path,display_path,after_hash,existed_before,exists_after,content_kind) VALUES('chat','turn','file','file','initial',0,1,'text');").unwrap();
+            INSERT INTO conversation_turns(id,conversation_id,user_message_id) VALUES('turn','chat','user');").unwrap();
         db
     }
 
-    fn revision(db: &Database, id: &str, hash: &str) {
-        db.conn().execute("INSERT INTO turn_file_change_events(conversation_id,turn_id,mutation_id) VALUES('chat','turn',?1)", [id]).unwrap();
-        db.conn()
-            .execute(
-                "UPDATE turn_file_changes SET after_hash=?1 WHERE turn_id='turn'",
-                [hash],
+    fn revision(db: &Database, id: &str, path: &str, before: &str, after: &str) {
+        let mut context = crate::tools::ToolExecutionContext::new(id, "{}", db, &[])
+            .with_conversation_id(Some("chat"))
+            .with_turn_id(Some("turn"));
+        context.file_change_owner = Some(crate::turn_file_changes::FileChangeOwner {
+            conversation_id: "chat".into(),
+            turn_id: "turn".into(),
+            mutation_namespace: id.starts_with("hook:").then(|| "hook".into()),
+        });
+        crate::turn_file_changes::FileChangeScope::from_context(&context)
+            .unwrap()
+            .record(
+                id,
+                path,
+                path,
+                crate::turn_file_changes::FileChangeContent {
+                    hash: Some(before),
+                    bytes: None,
+                },
+                crate::turn_file_changes::FileChangeContent {
+                    hash: Some(after),
+                    bytes: None,
+                },
             )
             .unwrap();
     }
@@ -109,7 +124,13 @@ mod tests {
         let db = fixture();
         let mut guard = CompletionRepairGuard::default();
         for index in 0..300 {
-            revision(&db, &format!("edit-{index}"), &format!("contents-{index}"));
+            revision(
+                &db,
+                &format!("edit-{index}"),
+                "file",
+                &format!("contents-{index}"),
+                &format!("contents-{}", index + 1),
+            );
             assert!(guard
                 .allow_retry(&db, Some(("chat", "turn")), [], 1)
                 .unwrap());
@@ -123,17 +144,67 @@ mod tests {
     fn no_op_writes_and_hook_activity_do_not_reset_stall_detection() {
         let db = fixture();
         let mut guard = CompletionRepairGuard::default();
-        revision(&db, "edit-first", "unchanged");
+        revision(&db, "edit-first", "file", "before", "unchanged");
         assert!(guard
             .allow_retry(&db, Some(("chat", "turn")), [], 2)
             .unwrap());
-        revision(&db, "edit-no-op", "unchanged");
+        revision(&db, "edit-no-op", "file", "unchanged", "unchanged");
         assert!(guard
             .allow_retry(&db, Some(("chat", "turn")), [], 2)
             .unwrap());
-        revision(&db, "hook:changing-log", "log-noise");
+        revision(&db, "hook:changing-log", "log", "previous-log", "log-noise");
+        revision(&db, "new-no-op-row", "untouched-file", "same", "same");
         assert!(!guard
             .allow_retry(&db, Some(("chat", "turn")), [], 2)
+            .unwrap());
+    }
+
+    #[test]
+    fn native_lifecycle_events_and_first_time_no_op_files_are_not_progress() {
+        let db = fixture();
+        let mut guard = CompletionRepairGuard::default();
+        assert!(guard
+            .allow_retry(&db, Some(("chat", "turn")), [], 1)
+            .unwrap());
+        db.execute_batch_for_test("INSERT INTO turn_file_change_events(conversation_id,turn_id,mutation_id) VALUES('chat','turn','finished:read-only-command');").unwrap();
+        revision(
+            &db,
+            "untouched",
+            "previously-untracked-file",
+            "unchanged",
+            "unchanged",
+        );
+        revision(&db, "hook:log", "log", "old-log", "new-log");
+        assert!(!guard
+            .allow_retry(&db, Some(("chat", "turn")), [], 1)
+            .unwrap());
+    }
+
+    #[test]
+    fn provenance_upgrade_preserves_legacy_events_without_inventing_effects() {
+        let db = fixture();
+        {
+            let conn = db.conn();
+            conn.execute_batch("ALTER TABLE turn_file_change_events DROP COLUMN absolute_path;
+                ALTER TABLE turn_file_change_events DROP COLUMN before_hash;
+                ALTER TABLE turn_file_change_events DROP COLUMN after_hash;
+                DELETE FROM _migrations WHERE name='v149_file_change_progress';
+                INSERT INTO turn_file_change_events(conversation_id,turn_id,mutation_id) VALUES('chat','turn','legacy');").unwrap();
+            crate::migrations::run_migrations(&conn).unwrap();
+            crate::migrations::run_migrations(&conn).unwrap();
+            let legacy_unknown: bool = conn.query_row("SELECT absolute_path IS NULL AND before_hash IS NULL AND after_hash IS NULL FROM turn_file_change_events WHERE mutation_id='legacy'", [], |row| row.get(0)).unwrap();
+            assert!(legacy_unknown);
+        }
+        let mut guard = CompletionRepairGuard::default();
+        assert!(guard
+            .allow_retry(&db, Some(("chat", "turn")), [], 1)
+            .unwrap());
+        assert!(!guard
+            .allow_retry(&db, Some(("chat", "turn")), [], 1)
+            .unwrap());
+        revision(&db, "new-edit", "file", "before", "after");
+        assert!(guard
+            .allow_retry(&db, Some(("chat", "turn")), [], 1)
             .unwrap());
     }
 
@@ -141,13 +212,13 @@ mod tests {
     fn returning_to_an_old_file_state_is_not_new_progress() {
         let db = fixture();
         let mut guard = CompletionRepairGuard::default();
-        for state in ["candidate-a", "candidate-b"] {
-            revision(&db, state, state);
+        for (before, state) in [("baseline", "candidate-a"), ("candidate-a", "candidate-b")] {
+            revision(&db, state, "file", before, state);
             assert!(guard
                 .allow_retry(&db, Some(("chat", "turn")), [], 1)
                 .unwrap());
         }
-        revision(&db, "revert", "candidate-a");
+        revision(&db, "revert", "file", "candidate-b", "candidate-a");
         assert!(!guard
             .allow_retry(&db, Some(("chat", "turn")), [], 1)
             .unwrap());

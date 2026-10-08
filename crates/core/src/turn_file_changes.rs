@@ -249,8 +249,8 @@ impl FileChangeScope {
         // Callers supply backend-resolved absolute identities. Preserve case
         // for case-sensitive directories, including those on Windows.
         let admitted = transaction.execute(
-            "INSERT OR IGNORE INTO turn_file_change_events(conversation_id,turn_id,mutation_id) VALUES (?1,?2,?3)",
-            params![self.owner.conversation_id, self.owner.turn_id, mutation_id])?;
+            "INSERT OR IGNORE INTO turn_file_change_events(conversation_id,turn_id,mutation_id,absolute_path,before_hash,after_hash) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![self.owner.conversation_id, self.owner.turn_id, mutation_id, absolute_path, before.hash, after.hash])?;
         if admitted == 0 {
             return Ok(());
         }
