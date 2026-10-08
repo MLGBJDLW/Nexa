@@ -6,10 +6,10 @@ export type SpeechPlaybackRequestResult<Preview> =
   | { kind: 'input_limit'; model: string; actual: number; limit: number }
   | { kind: 'ready'; preview: Preview };
 
-/** Mirrors the completed-audio adapter's global bound and documented model
- * limits. A private same-name model does not inherit official vendor limits. */
+/** Enforce the selected endpoint's documented input limit. Unknown/private
+ * models do not inherit an unrelated provider's or a generic text ceiling. */
 export function speechPlaybackInputLimit(config: TextToSpeechConfig): number {
-  const adapterLimit = config.apiStyle === 'dashscope_audio_generation' ? 3_000 : 20_000;
+  const adapterLimit = config.apiStyle === 'dashscope_audio_generation' ? 3_000 : Number.POSITIVE_INFINITY;
   const preset = findTtsProviderPreset(config);
   if (!preset || !ttsPresetEndpointMatches(preset, config.baseUrl)) return adapterLimit;
   const model = preset.models.find(candidate => candidate.id === config.model.trim());

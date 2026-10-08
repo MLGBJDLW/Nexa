@@ -1454,6 +1454,42 @@ test("settings exposes Meta Model API with Muse Spark 1.3 as its verified defaul
   await expectNexaOptionCount(effortSelect, 4);
 });
 
+test('October models expose working reasoning toggles and dialogue speech controls', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByTitle('Edit').first().click();
+  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
+  await selectNexaOption(model, 'claude-haiku-5-5');
+  const toggle = page.getByRole('checkbox', { name: 'Enable Reasoning / Thinking', exact: true });
+  await expect(toggle).toBeEnabled();
+  await toggle.uncheck();
+  await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ model: 'claude-haiku-5-5', reasoningEnabled: false, reasoningEffort: null, thinkingBudget: null });
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('button', { name: /^OpenRouter/ }).click();
+  await selectNexaOption(model, 'upstage/solar-mini4');
+  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
+  await toggle.uncheck();
+  await toggle.check();
+  const effort = page.locator('label').filter({ hasText: 'Reasoning Effort' }).locator('xpath=..').locator('[data-nexa-select-trigger]');
+  await expectNexaValue(effort, 'medium');
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  const speech = page.getByTestId('text-to-speech-settings-panel');
+  await speech.locator('button').first().click();
+  const selects = speech.locator('[data-nexa-select-trigger]');
+  await selectNexaOption(selects.nth(0), 'elevenlabs');
+  await selectNexaOption(selects.nth(1), 'eleven_v4_turbo');
+  const speed = speech.locator('input[type=number]');
+  await expect(speed).toBeDisabled();
+  await expect(speed).toHaveValue('1');
+  await selectNexaOption(selects.nth(0), 'dashscope-cosyvoice');
+  await selectNexaOption(selects.nth(1), 'qwen-audio-3.1-tts-flash');
+  await expect(speech.getByTestId('tts-voice-input')).toHaveValue('longanhuan_v3.1');
+  await speech.screenshot({ path: testInfo.outputPath('october-speech-settings.png') });
+});
+
 test("settings exposes current Qwen3.8 Token Plan models without the retired preview", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("button", { name: "AI Providers" }).click();

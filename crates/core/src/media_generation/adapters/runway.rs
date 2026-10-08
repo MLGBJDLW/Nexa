@@ -212,7 +212,7 @@ impl VideoGenerationAdapter for RunwayVideoAdapter {
             ));
         }
         let allowed_resolutions: &[&str] = if request.model_id == "seedance2_5" {
-            &["480P", "720P"]
+            &["480P", "720P", "1080P"]
         } else {
             &["720P"]
         };
@@ -238,13 +238,6 @@ impl VideoGenerationAdapter for RunwayVideoAdapter {
                 "aspectRatio",
                 "unsupported_text_to_video_ratio",
                 "Runway Gen-4.5 text-to-video supports only 16:9 or 9:16",
-            ));
-        }
-        if request.model_id == "seedance2_5" && request.seed.is_some() {
-            issues.push(issue(
-                "seed",
-                "unsupported_seed",
-                "Runway Seedance 2.5 does not publish a seed parameter",
             ));
         }
         if request.model_id != "seedance2_5" && request.generate_audio.is_some() {
@@ -747,17 +740,23 @@ fn dimensions_for(request: &NormalizedVideoRequest) -> Option<&'static str> {
     if request.model_id == "seedance2_5" {
         return match (request.resolution.as_str(), ratio) {
             ("480P", "21:9") => Some("992:432"),
-            ("480P", "16:9") => Some("864:496"),
+            ("480P", "16:9") => Some("854:480"),
             ("480P", "4:3") => Some("752:560"),
             ("480P", "1:1") => Some("640:640"),
             ("480P", "3:4") => Some("560:752"),
-            ("480P", "9:16") => Some("496:864"),
+            ("480P", "9:16") => Some("480:854"),
             ("720P", "21:9") => Some("1470:630"),
             ("720P", "16:9") => Some("1280:720"),
             ("720P", "4:3") => Some("1112:834"),
             ("720P", "1:1") => Some("960:960"),
             ("720P", "3:4") => Some("834:1112"),
             ("720P", "9:16") => Some("720:1280"),
+            ("1080P", "21:9") => Some("2206:946"),
+            ("1080P", "16:9") => Some("1920:1080"),
+            ("1080P", "4:3") => Some("1664:1248"),
+            ("1080P", "1:1") => Some("1440:1440"),
+            ("1080P", "3:4") => Some("1248:1664"),
+            ("1080P", "9:16") => Some("1080:1920"),
             _ => None,
         };
     }
@@ -1002,6 +1001,15 @@ mod tests {
         let seedance = request("seedance2_5", MediaOperation::TextToVideo);
         assert!(adapter.validate(&seedance).valid);
         assert_eq!(dimensions_for(&seedance), Some("1280:720"));
+        let mut seedance = seedance;
+        seedance.seed = Some(42);
+        for (resolution, ratio) in [("480P", "854:480"), ("1080P", "1920:1080")] {
+            seedance.resolution = resolution.into();
+            assert!(adapter.validate(&seedance).valid);
+            let payload = RunwayVideoAdapter::payload(&seedance).unwrap();
+            assert_eq!(payload["ratio"], ratio);
+            assert_eq!(payload["seed"], 42);
+        }
     }
 
     #[tokio::test]

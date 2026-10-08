@@ -66,7 +66,10 @@ test('TTS model changes replace incompatible system voices and preserve private 
 test('new models are bound to implemented transports and unknown realtime models stay final-only', () => {
   const eleven = tts.TTS_PROVIDER_PRESETS.find(p => p.id === 'elevenlabs');
   assert.ok(eleven.models.some(m => m.id === 'eleven_v4'));
-  assert.ok(!eleven.models.some(m => ['eleven_v4_turbo', 'eleven_v3_conversational'].includes(m.id)));
+  for (const id of ['eleven_v4_turbo', 'eleven_v3_conversational']) {
+    assert.ok(eleven.models.some(m => m.id === id));
+    assert.deepEqual(tts.ttsSpeedRange(eleven, eleven.baseUrl, id), [1, 1]);
+  }
   const config = { provider: 'alibaba_model_studio', apiStyle: 'dashscope_realtime_asr', model: 'qwen3-asr-flash-realtime-2026-02-10' };
   assert.equal(stt.sttRuntimeCapabilities(config).transcriptDelivery, 'interimAndFinal');
   assert.equal(stt.sttRuntimeCapabilities({ ...config, model: 'qwen3-asr-flash-realtime-2099-01-01' }).transcriptDelivery, 'finalOnly');
@@ -144,4 +147,15 @@ test('read-aloud cancellation during config lookup causes no synthesis and setti
   });
   assert.equal(result.kind, 'ready');
   assert.equal(calls, 1);
+});
+
+test('speech input limits follow the selected model above the former generic ceiling', async () => {
+  const config = { ...groqConfig, provider: 'elevenlabs', apiStyle: 'elevenlabs_speech', baseUrl: 'https://api.elevenlabs.io/v1', model: 'eleven_flash_v2_5', voice: 'George', outputFormat: 'mp3' };
+  assert.equal(playback.speechPlaybackInputLimit(config), 40000);
+  const result = await playback.requestSpeechPlayback('中'.repeat(25000), {
+    loadConfig: async () => config, synthesize: async text => text, isCurrent: () => true,
+  });
+  assert.equal(result.kind, 'ready');
+  assert.equal(result.preview.length, 25000);
+  assert.equal(playback.speechPlaybackInputLimit({ ...config, model: 'eleven_v4' }), 10000);
 });

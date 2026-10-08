@@ -95,11 +95,12 @@ export function TextToSpeechSettingsPanel({
   );
   const scopeActive = Boolean(matchedPreset && scopedPresets.some((preset) => preset.id === matchedPreset.id));
   const activePreset = scopeActive ? matchedPreset! : scopedPresets[0];
-  const selectedModelDescriptor = activePreset.models.find(
+  const selectedModel = activePreset.models.find(
     (model) => model.id === config.model,
-  )?.descriptor;
+  );
+  const selectedModelDescriptor = selectedModel?.descriptor;
   const localProvider = Boolean(activePreset.local || config.apiStyle === 'sherpa_onnx');
-  const [minSpeed, maxSpeed] = ttsSpeedRange(activePreset, config.baseUrl);
+  const [minSpeed, maxSpeed] = ttsSpeedRange(activePreset, config.baseUrl, config.model);
   const localFamilyNeedsVoices = config.model === 'kokoro' || config.model === 'kitten';
   const sharedKeySource = !localProvider
     ? findSharedProviderCredential(agentConfigs, config.provider, config.baseUrl)
@@ -347,7 +348,10 @@ export function TextToSpeechSettingsPanel({
               <label className="text-sm font-medium text-text-primary">{t('settings.model')}</label>
               <CatalogModelPicker
                 value={config.model}
-                onValueChange={(model) => update({ model, voice: ttsVoiceForModel(activePreset, model, config.voice, config.baseUrl) })}
+                onValueChange={(model) => {
+                  const [minimum, maximum] = ttsSpeedRange(activePreset, config.baseUrl, model);
+                  update({ model, voice: ttsVoiceForModel(activePreset, model, config.voice, config.baseUrl), speed: Math.min(maximum, Math.max(minimum, config.speed)) });
+                }}
                 models={activePreset.models.flatMap((model) => model.descriptor ? [{ ...model, descriptor: model.descriptor }] : [])}
                 surface="text_to_speech"
               />
@@ -496,7 +500,7 @@ export function TextToSpeechSettingsPanel({
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-text-primary">{t('settings.ttsPreviewText')}</label>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={previewText} maxLength={config.apiStyle === 'dashscope_audio_generation' ? 3000 : 20000} onChange={(event) => setPreviewText(event.target.value)} />
+                <Input value={previewText} onChange={(event) => setPreviewText(event.target.value)} />
                 <Button
                   type="button"
                   variant="secondary"

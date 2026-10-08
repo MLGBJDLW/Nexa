@@ -20,6 +20,7 @@ export interface TtsCatalogItem {
   description?: string | null;
   previewUrl?: string | null;
   maxInputCharacters?: number;
+  speedRange?: [number, number];
   descriptor?: ModelDescriptor;
 }
 
@@ -63,7 +64,7 @@ export function defaultTtsItem(items: TtsCatalogItem[]): TtsCatalogItem | null {
     // Choosing a provider preset is an explicit settings action. Its documented
     // default can be selected before the account is probed; this must not label
     // the model callable or broaden the agent's implicit model policy.
-    const eligible = models.filter(({ descriptor }) => descriptor.lifecycle === 'active'
+    const eligible = models.filter(({ descriptor }) => (descriptor.lifecycle === 'active' || descriptor.lifecycle === 'preview')
       && descriptor.access === 'public' && descriptor.availableToCredential !== false);
     return selectImplicitDefault(models)
       ?? eligible.find((item) => item.recommended) ?? eligible[0] ?? null;
@@ -85,8 +86,8 @@ export function ttsVoiceForModel(preset: TtsProviderPreset, model: string, curre
   return defaultTtsItem(preset.voices.filter((voice) => ttsVoiceSupportsModel(voice, model)))?.id ?? '';
 }
 
-export function ttsSpeedRange(preset: TtsProviderPreset, baseUrl: string | null = preset.baseUrl): [number, number] {
-  return ttsPresetEndpointMatches(preset, baseUrl) ? preset.speedRange ?? [0.5, 2] : [0.5, 2];
+export function ttsSpeedRange(preset: TtsProviderPreset, baseUrl: string | null = preset.baseUrl, model?: string): [number, number] {
+  return ttsPresetEndpointMatches(preset, baseUrl) ? preset.models.find(item => item.id === model)?.speedRange ?? preset.speedRange ?? [0.5, 2] : [0.5, 2];
 }
 
 export function ttsPresetEndpointMatches(preset: TtsProviderPreset, baseUrl: string | null): boolean {
