@@ -119,6 +119,77 @@ Sources: [Anthropic overview](https://platform.claude.com/docs/en/models/sonnet-
 [migration guide](https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide),
 and [OpenRouter model](https://openrouter.ai/anthropic/claude-sonnet-5.5).
 
+## Structured decisions with Jev
+
+Settings → AI Providers → Structured decisions configures the optional
+`evaluate_decisions` tool. It accepts supplied state and typed Choice, Score,
+or Noul questions, returning probabilities and positional answers. Scores are
+weighted positions on the supplied scale and may be fractional. Results are
+advisory; they do not approve tools or satisfy completion gates by themselves.
+
+The [separate System One catalog](../shared/system-one-provider-presets.json)
+includes TypeSafe, OpenRouter, SiliconFlow China/international, and Alibaba
+Model Studio Beijing/Singapore. Credentials are encrypted and sent only to the
+selected regional endpoint. The tool cannot override a configured account,
+endpoint, or model. Source text is projected through the current privacy policy;
+revocation or cancellation stops the request. Question and option identities
+remain stable even when custom redaction changes their business labels.
+
+TypeSafe's direct pinned model is `jev-1.13.0`; OpenRouter uses
+`typesafe/jev-1.13` or the bare `jev-latest` alias through `/api/v1/systemone`.
+The separately selectable OpenRouter chat model `typesafe/jev-router` chooses
+the serving chat model and effort remotely. It is not the decision endpoint,
+and Nexa does not select it automatically. See the
+[TypeSafe API](https://docs.typesafe.ai/api),
+[OpenRouter System One contract](https://openrouter.ai/docs/guides/community/typesafe-sdk),
+and [Jev Router contract](https://openrouter.ai/docs/guides/routing/routers/jev-router).
+
+## October 8, 2026 compatibility refresh
+
+The refresh adds 87 endpoint-scoped chat entries, eight image entries, and three
+speech entries to the existing catalogs. OpenRouter's public catalog supplies
+51 of the chat additions; batch-only and image-output models are not added as
+ordinary chat candidates. Existing recommended models, saved configurations,
+and still-supported Nexa effort defaults are retained. Absence from a discovery
+response is not retirement evidence.
+
+- [Claude Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
+  uses adaptive thinking without manual budgets. Its default effort is medium;
+  disabled thinking accepts low/medium/high, while xhigh/max require thinking.
+  Disabled requests omit adaptive binding controls and reconcile changed
+  thinking prefixes locally. The provider's account-binding rules still apply.
+- OpenRouter reasoning uses the same normalized controls for Chat Completions
+  and native-search Responses. Explicit OFF removes stale effort/budget fields;
+  mandatory models remain enabled. The provider's default enabled state is
+  distinct from the effort selected when a user explicitly enables thinking.
+  Opaque replay is checked against its route and model at serialization.
+- Token Plan's newly listed Qwen, DeepSeek, and GLM IDs keep their own regional
+  controls. GLM uses top-level `clear_thinking:false` on this route, distinct
+  from direct BigModel's nested field. Direct GLM FlashX is not promoted into
+  Coding Plan. New SiliconFlow IDs do not inherit undocumented budget knobs.
+- Ark Seed 2.1 preserves standalone `encrypted_content` frames as opaque
+  replay, separately from visible reasoning summaries. Model/endpoint changes
+  cannot forward the old state. See the [Ark Chat API](https://docs.volcengine.com/docs/ark/chat-api?lang=en).
+- [Qwen Image 2.1 Pro](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)
+  uses PNG and validated pixel/ratio limits on the existing single-image path;
+  unsupported negative prompts are rejected. Nano Banana 2.1 uses Gemini
+  GenerateContent's string-valued `imageConfig` fields.
+- [Qwen Audio 3.1 TTS Flash](https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-flash)
+  retains Beijing-only access and model-specific voices.
+  [ElevenLabs dialogue](https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd)
+  adds v4 Turbo/v3 Conversational and requires the connection's final event
+  before returning audio. Speech length checks use documented model limits;
+  the previous generic 20,000-character rejection no longer hides larger limits.
+- Runway Seedance 2.5 corrects 480p ratios and accepts 1080p and seeds under its
+  [published schema](https://docs.dev.runwayml.com/openapi.json). The direct
+  ByteDance API is documented but remains unselectable until Nexa has a
+  production submission/recovery path. Other new video operations are not
+  advertised as executable merely because their names appear in a directory.
+
+The refresh uses official documentation and public catalog snapshots, request
+fixtures, local HTTP/WebSocket servers, and browser settings tests. These checks
+do not establish paid inference quality or access for a particular account.
+
 ## Model retirement
 
 ### September 30, 2026 catalog review
