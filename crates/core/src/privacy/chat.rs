@@ -194,7 +194,7 @@ impl Redactor {
                         | "call_id" | "toolCallId" | "tool_call_id" | "toolName" | "tool_name"
                         | "conversationId" | "turnId" | "runId" | "subtaskRunId" | "messageId"
                         | "interactionId" | "documentId" | "sourceId" | "chunkId" | "revision"
-                        | "route" | "providerEndpointId" | "modelId" | "resultId" => {}
+                        | "route" | "providerEndpointId" | "modelId" => {}
                         "data" | "metadata" | "structuredContent" | "meta" | "_meta" => {
                             self.data(value)
                         }
@@ -219,6 +219,44 @@ impl Redactor {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Only the host-owned conversation_turns.trace_json projection may retain
+    /// tool result identities. Arbitrary tool artifacts, including nested
+    /// trace-shaped objects, continue through ordinary source-data redaction.
+    fn turn_trace(&self, value: &mut Value) {
+        let result_ids = if value.get("kind").and_then(Value::as_str) == Some("turnTrace") {
+            value
+                .get("items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter_map(|(index, item)| {
+                    (item.get("kind").and_then(Value::as_str) == Some("tool"))
+                        .then(|| {
+                            item.pointer("/toolCall/resultId")
+                                .and_then(Value::as_str)
+                                .map(|id| (index, id.to_owned()))
+                        })
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        self.structured(value);
+        for (index, result_id) in result_ids {
+            if let Some(call) = value
+                .get_mut("items")
+                .and_then(Value::as_array_mut)
+                .and_then(|items| items.get_mut(index))
+                .and_then(|item| item.get_mut("toolCall"))
+                .and_then(Value::as_object_mut)
+            {
+                call.insert("resultId".into(), Value::String(result_id));
+            }
         }
     }
 }
@@ -292,6 +330,11 @@ impl ChatPrivacyPolicy {
     }
     pub fn redact_context_messages(&self, messages: &mut [Message]) {
         redact_context_messages(self, messages);
+    }
+    pub fn redact_data(&self, value: &mut Value) {
+        if self.config.enabled {
+            self.redactor.data(value);
+        }
     }
 }
 
@@ -400,14 +443,18 @@ pub(crate) fn register(conn: &Connection) -> rusqlite::Result<()> {
                     redactor.calls(&mut calls, !current);
                     serde_json::to_string(&calls).expect("tool calls are serializable")
                 }
-                "json" | "event_payload" => {
+                "json" | "event_payload" | "turn_trace" => {
                     // Old diagnostic traces can be malformed. Redact their raw
                     // text without interpreting it as a valid protocol object;
                     // keep the existing explicit detail-read error observable.
                     let Ok(mut value) = serde_json::from_str::<Value>(&raw) else {
                         return Ok(Some(redactor.text(&raw)));
                     };
-                    redactor.structured(&mut value);
+                    if kind == "turn_trace" {
+                        redactor.turn_trace(&mut value);
+                    } else {
+                        redactor.structured(&mut value);
+                    }
                     if kind == "event_payload" {
                         let scope = envelope_artifacts
                             .as_deref()

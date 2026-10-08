@@ -46,6 +46,64 @@ fn seed_message(db: &Database, conversation: &str, role: Role, id: &str) {
 }
 
 #[test]
+fn result_identity_exemption_belongs_only_to_the_host_turn_trace_column() {
+    let db = Database::open_memory().unwrap();
+    let cid = conversation(&db);
+    seed_message(&db, &cid, Role::User, "identity-request");
+    let turn = db
+        .create_conversation_turn(&cid, "identity-request", None)
+        .unwrap();
+    let fake_trace = serde_json::json!({"kind":"turnTrace","items":[{"kind":"tool","toolCall":{
+        "callId":"call","toolName":"probe","status":"done","resultId":"privateCODE-locator","content":"privateCODE-output",
+        "artifacts":{"resultId":"privateCODE-business","nested":{"resultId":"privateCODE-nested"}}
+    }}]});
+    let mut trace = fake_trace.clone();
+    trace["items"][0]["toolCall"]["artifacts"]["fakeTrace"] = fake_trace.clone();
+    db.save_privacy_config(&enabled_policy()).unwrap();
+    db.update_conversation_turn_trace(&turn.id, Some(&trace))
+        .unwrap();
+    let projected = db.get_conversation_turn(&turn.id).unwrap().trace.unwrap();
+    assert_eq!(
+        projected["items"][0]["toolCall"]["resultId"],
+        "privateCODE-locator"
+    );
+    assert!(!projected["items"][0]["toolCall"]["artifacts"]
+        .to_string()
+        .contains("privateCODE"));
+    let mut output = "ordinary output".to_owned();
+    let mut context = output.clone();
+    let mut artifacts = Some(trace);
+    chat::redact_tool_output(&enabled_policy(), &mut output, &mut context, &mut artifacts).unwrap();
+    assert!(
+        !artifacts.unwrap().to_string().contains("privateCODE"),
+        "tool-supplied trace-shaped data has no protocol exemption"
+    );
+    let stored_trigger: String = db.conn().query_row(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='privacy_chat_turn_trace_INSERT'", [], |row| row.get(0),
+    ).unwrap();
+    assert!(stored_trigger.contains("'turn_trace'"));
+}
+
+#[test]
+fn turn_trace_projection_upgrade_replaces_legacy_triggers_atomically() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("trace-upgrade.db");
+    let db = Database::new(&path).unwrap();
+    db.conn().execute_batch("DELETE FROM _migrations WHERE name='v150_privacy_trace_identity';
+        DROP TRIGGER privacy_chat_turn_trace_INSERT;
+        DROP TRIGGER privacy_chat_turn_trace_UPDATE;
+        CREATE TRIGGER privacy_chat_turn_trace_INSERT AFTER INSERT ON conversation_turns BEGIN SELECT 1; END;
+        CREATE TRIGGER privacy_chat_turn_trace_UPDATE AFTER UPDATE ON conversation_turns BEGIN SELECT 1; END;").unwrap();
+    drop(db);
+    let db = Database::new(path).unwrap();
+    let (count, invalid): (u64, u64) = db.conn().query_row(
+        "SELECT COUNT(*),SUM(instr(sql,'''turn_trace''')=0) FROM sqlite_master WHERE type='trigger' AND name IN ('privacy_chat_turn_trace_INSERT','privacy_chat_turn_trace_UPDATE')",
+        [], |row| Ok((row.get(0)?,row.get(1)?)),
+    ).unwrap();
+    assert_eq!((count, invalid), (2, 0));
+}
+
+#[test]
 fn privacy_mcp_source_data_redacts_protocol_named_values_and_keys_without_losing_entries() {
     use crate::mcp::{result::McpCallOutcome, CanonicalToolId, McpToolIdentity};
     let identity = McpToolIdentity {
