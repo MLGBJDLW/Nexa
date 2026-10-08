@@ -830,10 +830,28 @@ mod tests {
             }
             async fn stream_events(
                 &self,
-                _: &crate::llm::CompletionRequest,
+                request: &crate::llm::CompletionRequest,
             ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
             {
                 let index = self.calls.fetch_add(1, Ordering::SeqCst);
+                assert!(
+                    request
+                        .messages
+                        .iter()
+                        .filter(|message| message.role == crate::llm::Role::System)
+                        .all(|message| !message.text_content().contains("HOOK_UNTRUSTED_MARKER")),
+                    "repository-controlled check output must never enter controller authority"
+                );
+                if index == 2 {
+                    assert!(
+                        request
+                            .messages
+                            .iter()
+                            .any(|message| message.role == crate::llm::Role::User
+                                && message.text_content().contains("HOOK_UNTRUSTED_MARKER")),
+                        "the repair still needs lower-authority check evidence"
+                    );
+                }
                 assert!(
                     index < 8,
                     "the real check must pass after the fourth mutation"
@@ -874,9 +892,10 @@ mod tests {
             }
         }
         #[cfg(windows)]
-        let script = "if exist ready.txt (exit /b 0) else (exit /b 7)";
+        let script = "if exist ready.txt (exit /b 0) else (echo HOOK_UNTRUSTED_MARKER & exit /b 7)";
         #[cfg(not(windows))]
-        let script = "test -f ready.txt";
+        let script =
+            "if test -f ready.txt; then exit 0; else echo HOOK_UNTRUSTED_MARKER; exit 7; fi";
         let fixture = Fixture::new(script);
         fixture.enable(HookEvent::BeforeComplete);
         let mut tools = fixture
