@@ -24,10 +24,11 @@ import { toast } from 'sonner';
 import * as api from '../lib/api';
 import { useTranslation, type TranslationKey } from '../i18n';
 import { WorkflowRecorderPanel } from '../features/workflows/WorkflowRecorderPanel';
+import { WorkflowAuthoringPanel } from '../features/workflows/WorkflowAuthoringPanel';
+import { WorkflowRunHistory } from '../features/workflows/WorkflowRunHistory';
 import type { AgentConfig, Source } from '../types';
 import type { Project } from '../types/project';
 import type { WorkflowCatalogTemplate } from '../lib/api';
-import { buildWorkflowBatchPrompt } from '../lib/workflowPrompts';
 import type {
   BrowserEvidenceCapture,
   LearningGovernanceSnapshot,
@@ -39,6 +40,7 @@ import type {
   WorkflowAutomationRun,
   WorkflowSchedulePreview,
   TaskOrchestratorWorkflowStartOutcome,
+  WorkflowRunOptions,
 } from '../types/workflows';
 
 type Tab = 'templates' | 'automations' | 'recorder' | 'governance' | 'browser';
@@ -225,11 +227,10 @@ export function WorkflowsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [schedulePreview, setSchedulePreview] = useState<WorkflowSchedulePreview | null>(null);
   const [schedulePreviewError, setSchedulePreviewError] = useState<string | null>(null);
+  const [authoring, setAuthoring] = useState<{ template: WorkflowCatalogTemplate; automation?: WorkflowAutomation; mode: 'create' | 'edit' | 'run' } | null>(null);
+  const [recordingAutomation, setRecordingAutomation] = useState<WorkflowAutomation | null>(null);
+  const [historyAutomation, setHistoryAutomation] = useState<WorkflowAutomation | null>(null);
 
-  const selectedTemplate = useMemo(
-    () => templates.find((template) => template.id === form.workflowTemplateId) ?? templates[0],
-    [form.workflowTemplateId, templates],
-  );
   const scheduleConfig = form.scheduleConfig ?? defaultScheduleConfig();
   const approvalRunsByAutomation = useMemo(() => {
     const grouped = new Map<string, WorkflowAutomationRun[]>();
@@ -302,42 +303,32 @@ export function WorkflowsPage() {
     return () => window.clearTimeout(timer);
   }, [form.scheduleConfig, form.trigger]);
 
-  const runPrompt = useCallback((
-    prompt: string,
-    sourceScope?: string[],
-    taskOrchestratorRunId?: string | null,
-  ) => {
-    navigate('/chat', {
-      state: {
-        initialMessage: prompt,
-        sourceIds: sourceScope ?? [],
-        taskOrchestratorRunId: taskOrchestratorRunId ?? null,
-      },
-    });
-  }, [navigate]);
-
   const runTemplate = useCallback((template: WorkflowCatalogTemplate) => {
-    runPrompt(buildWorkflowBatchPrompt(template, templateText(template, 'prompt', tr)));
-  }, [runPrompt, tr]);
+    setAuthoring({ template, mode: 'create' });
+  }, []);
 
-  const runAutomation = useCallback(async (automation: WorkflowAutomation) => {
+  const runAutomation = useCallback(async (automation: WorkflowAutomation, options?: WorkflowRunOptions) => {
     setBusy(automation.id);
     try {
+      const preview = options ? null : await api.previewSavedWorkflowRun(automation.id);
       const outcome = await api.startWorkflowAutomationRun(
         automation.id,
         null,
         tr('queuedFromWorkbench'),
+        options ?? { expectedRevision: automation.definitionRevision, previewDigest: preview?.contentDigest, clientRequestId: crypto.randomUUID() },
       );
       if (outcome.status === 'launched') {
         navigate(`/chat/${outcome.launch.conversationId}`);
       } else if (outcome.status === 'pending_approval') {
         toast.success(tr('pendingApproval'));
+        setTab('automations');
         await load();
       } else {
-        toast.error(outcome.reason);
         await load();
+        throw new Error(outcome.reason);
       }
     } catch (error) {
+      if (options) throw error;
       toast.error(String(error));
     } finally {
       setBusy(null);
@@ -392,13 +383,14 @@ export function WorkflowsPage() {
     }
   }, [load, tr]);
 
-  const editAutomation = useCallback((automation: WorkflowAutomation) => {
+  const editAutomationSettings = useCallback((automation: WorkflowAutomation) => {
     setForm({
       id: automation.id,
       name: automation.name,
       description: automation.description,
       workflowTemplateId: automation.workflowTemplateId,
       prompt: automation.prompt,
+      recipe: automation.recipe,
       trigger: automation.trigger,
       sourceScope: automation.sourceScope,
       approvalPolicy: automation.approvalPolicy,
@@ -408,9 +400,27 @@ export function WorkflowsPage() {
         legacyNeedsReview: false,
       },
       enabled: automation.enabled,
+      expectedRevision: automation.definitionRevision,
     });
     setTab('automations');
   }, []);
+
+  const editAutomation = useCallback((automation: WorkflowAutomation) => {
+    if (automation.recipe?.kind === 'recorded' && automation.recipe.version === 1) {
+      setRecordingAutomation(automation); setTab('recorder'); return;
+    }
+    if (automation.recipe) {
+      setAuthoring({ template: automation.recipe.templateSnapshot, automation, mode: 'edit' });
+      return;
+    }
+    editAutomationSettings(automation);
+  }, [editAutomationSettings]);
+
+  const openRunInputs = (automation: WorkflowAutomation) => {
+    const template = automation.recipe?.templateSnapshot;
+    if (automation.recipe && template) setAuthoring({ template, automation, mode: 'run' });
+    else void runAutomation(automation);
+  };
 
   const updateTriggerKind = (kind: WorkflowAutomationTrigger['kind']) => {
     setForm((current) => ({
@@ -424,7 +434,7 @@ export function WorkflowsPage() {
   };
 
   const saveAutomation = async () => {
-    const effectivePrompt = (form.prompt || (selectedTemplate ? templateText(selectedTemplate, 'prompt', tr) : '')).trim();
+    const effectivePrompt = form.prompt.trim();
     if (!form.name.trim() || !effectivePrompt) {
       toast.error(tr('namePromptRequired'));
       return;
@@ -587,12 +597,11 @@ export function WorkflowsPage() {
                     <NexaSelect
                       className={textInputClass()}
                       value={form.workflowTemplateId}
+                      disabled={Boolean(form.recipe)}
                       onChange={(event) => {
-                        const nextTemplate = templates.find((template) => template.id === event.target.value);
                         setForm({
                           ...form,
                           workflowTemplateId: event.target.value,
-                          prompt: nextTemplate ? templateText(nextTemplate, 'prompt', tr) : form.prompt,
                         });
                       }}
                     >
@@ -602,7 +611,7 @@ export function WorkflowsPage() {
                     </NexaSelect>
                   </Field>
                   <Field label={tr('prompt')}>
-                    <textarea className={textareaClass()} value={form.prompt || (selectedTemplate ? templateText(selectedTemplate, 'prompt', tr) : '')} onChange={(event) => setForm({ ...form, prompt: event.target.value })} />
+                    <textarea className={textareaClass()} value={form.prompt} readOnly={Boolean(form.recipe)} onChange={(event) => setForm({ ...form, prompt: event.target.value })} />
                   </Field>
                   <Field label={tr('trigger')}>
                     <div className="grid grid-cols-3 gap-1 rounded-md border border-border/70 bg-surface-0 p-1">
@@ -676,6 +685,9 @@ export function WorkflowsPage() {
                           </NexaSelect>
                         </Field>
                       </div>
+                    </div>
+                  )}
+                  {form.trigger.kind !== 'manual' && <div className="space-y-3 rounded-md border border-border/70 bg-surface-0/50 p-3">
                       <Field label={tr('workspacePolicy')}>
                         <NexaSelect className={textInputClass()} value={scheduleConfig.executionPolicy.workspacePolicy} onChange={(event) => {
                           const isolated = event.target.value === 'isolated_patch';
@@ -703,6 +715,8 @@ export function WorkflowsPage() {
                           {tr('workspaceIsolatedHelp')}
                         </div>
                       )}
+                  </div>}
+                  <div className="space-y-3 rounded-md border border-border/70 bg-surface-0/50 p-3">
                       <Field label={tr('project')}>
                         <NexaSelect className={textInputClass()} value={scheduleConfig.executionPolicy.projectId ?? ''} onChange={(event) => setForm({
                           ...form,
@@ -779,8 +793,7 @@ export function WorkflowsPage() {
                           </NexaSelect>
                         </Field>
                       </div>
-                    </div>
-                  )}
+                  </div>
                   {form.trigger.kind === 'folder' && (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label={tr('folderPath')}>
@@ -876,8 +889,10 @@ export function WorkflowsPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Button disabled={busy === automation.id || pendingApprovals.length > 0} onClick={() => void runAutomation(automation)} icon={<Play className="h-4 w-4" />}>{tr('run')}</Button>
+                        <Button disabled={!automation.enabled || busy === automation.id || pendingApprovals.length > 0} onClick={() => openRunInputs(automation)} icon={<Play className="h-4 w-4" />}>{tr('run')}</Button>
                         <Button onClick={() => editAutomation(automation)} icon={<ClipboardList className="h-4 w-4" />}>{tr('updateAutomation')}</Button>
+                        {automation.recipe && <Button onClick={() => editAutomationSettings(automation)}>{tr('authoringSettings')}</Button>}
+                        <Button onClick={() => setHistoryAutomation(automation)}>{tr('authoringHistory')}</Button>
                         <Button disabled={busy === automation.id} onClick={() => void toggleAutomation(automation)} icon={automation.enabled ? <PauseCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}>
                           {automation.enabled ? tr('disabled') : tr('enabled')}
                         </Button>
@@ -916,8 +931,9 @@ export function WorkflowsPage() {
               templates={templates}
               sources={sources}
               tr={tr}
-              onReplay={runPrompt}
-              onSaved={load}
+              initialWorkflow={recordingAutomation}
+              onReplay={runAutomation}
+              onSaved={async saved => { setRecordingAutomation(saved); await load(); }}
             />
           )}
 
@@ -1033,6 +1049,8 @@ export function WorkflowsPage() {
           )}
         </main>
       )}
+      {authoring && <WorkflowAuthoringPanel {...authoring} sources={sources} tr={tr} onClose={() => setAuthoring(null)} onRun={runAutomation} onSaved={async () => { setAuthoring(null); setTab('automations'); await load(); }} />}
+      {historyAutomation && <WorkflowRunHistory automation={historyAutomation} tr={tr} onClose={() => setHistoryAutomation(null)} />}
     </div>
   );
 }

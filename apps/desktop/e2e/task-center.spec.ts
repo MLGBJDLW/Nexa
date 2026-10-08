@@ -169,6 +169,9 @@ test.beforeEach(async ({ page }) => {
           return { completed: true };
         case 'list_agent_task_run_summaries_cmd':
           return { items: [clone(runningTask), clone(failedTask)], nextCursor: null };
+        case 'get_agent_task_run_summary_cmd':
+          if (args.runId !== 'old-task-run') throw new Error('Task not found');
+          return { ...clone(failedTask), run: { ...clone(failedTask.run), id: 'old-task-run', title: 'Historical workflow output', status: 'completed', errorMessage: null } };
         case 'get_agent_task_run_events_cmd':
           return clone(events);
         case 'get_agent_task_history_cmd':
@@ -331,6 +334,13 @@ test.beforeEach(async ({ page }) => {
       },
     };
   });
+});
+
+test('workflow deep link selects an older task outside the first history page', async ({ page }) => {
+  await page.goto('/tasks?runId=old-task-run');
+  await expect(page.getByRole('heading', { name: 'Historical workflow output' })).toBeVisible();
+  const requests = await page.evaluate(() => (window as unknown as { __taskCenterInvokeCalls: Array<{ cmd: string; args: Record<string, unknown> }> }).__taskCenterInvokeCalls);
+  expect(requests.find(call => call.cmd === 'get_agent_task_run_summary_cmd')?.args).toEqual({ runId: 'old-task-run' });
 });
 
 test('task center manages runs, graph, project memory, artifacts, and risk map', async ({ page }) => {

@@ -22,6 +22,7 @@ import {
   type WorkflowRecordingStepKind,
 } from '../../lib/workflowRecorder';
 import type { Source } from '../../types';
+import type { SaveWorkflowAutomationInput, WorkflowAutomation, WorkflowRecipe, WorkflowRunOptions } from '../../types/workflows';
 
 type WorkflowT = (key: string, params?: Record<string, string | number>) => string;
 
@@ -29,8 +30,9 @@ interface WorkflowRecorderPanelProps {
   templates: WorkflowCatalogTemplate[];
   sources: Source[];
   tr: WorkflowT;
-  onReplay: (prompt: string, sourceScope?: string[]) => void;
-  onSaved: () => Promise<void> | void;
+  initialWorkflow?: WorkflowAutomation | null;
+  onReplay: (workflow: WorkflowAutomation, options: WorkflowRunOptions) => Promise<void>;
+  onSaved: (workflow: WorkflowAutomation) => Promise<void> | void;
 }
 
 interface RecorderDraftState {
@@ -146,13 +148,28 @@ export function WorkflowRecorderPanel({
   templates,
   sources,
   tr,
+  initialWorkflow,
   onReplay,
   onSaved,
 }: WorkflowRecorderPanelProps) {
   const [draft, setDraft] = useState<RecorderDraftState>(() => emptyDraft());
   const [templateId, setTemplateId] = useState('connector_background');
   const [busy, setBusy] = useState<string | null>(null);
-  const [savedAutomationId, setSavedAutomationId] = useState<string | null>(null);
+  const [savedWorkflow, setSavedWorkflow] = useState<WorkflowAutomation | null>(initialWorkflow ?? null);
+  const [preview, setPreview] = useState('');
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const recipe = initialWorkflow?.recipe;
+    if (initialWorkflow && recipe?.version === 1 && recipe.recording) {
+      setSavedWorkflow(initialWorkflow); setTemplateId(initialWorkflow.workflowTemplateId);
+      setDraft({ name:initialWorkflow.name,objective:recipe.inputs.goal,context:recipe.inputs.context,
+        variableInputs:recipe.recording.variableInputs.join('\n'),steps:structuredClone(recipe.recording.steps),
+        preferences:recipe.recording.preferences.join('\n'),successCriteria:recipe.recording.successCriteria.join('\n'),
+        safetyNotes:recipe.recording.safetyNotes.join('\n'),replayValues:recipe.inputs.replayValues.join('\n'),sourceScope:initialWorkflow.sourceScope,
+      });
+    }
+  }, [initialWorkflow?.id, initialWorkflow?.definitionRevision]);
 
   const fallbackTemplateId = useMemo(
     () => templates.find((template) => template.id === 'connector_background')?.id
@@ -168,15 +185,31 @@ export function WorkflowRecorderPanel({
   }, [fallbackTemplateId, templateId, templates]);
 
   const recording = useMemo(() => parseDraft(draft), [draft]);
-  const replayRecording = useMemo<RecordedWorkflowPromptInput>(() => ({
-    ...recording,
-    replayValues: splitRecordingLines(draft.replayValues),
-  }), [draft.replayValues, recording]);
   const canRecord = hasRecordableWorkflow(recording);
-  const preview = useMemo(
-    () => (canRecord ? buildRecordedWorkflowPrompt(replayRecording) : ''),
-    [canRecord, replayRecording],
-  );
+  const recipe = useMemo<WorkflowRecipe | null>(() => {
+    const template = templates.find(item => item.id === templateId);
+    if (!template) return null;
+    return { version:1,kind:'recorded',templateSnapshot:savedWorkflow?.workflowTemplateId === templateId && savedWorkflow.recipe ? savedWorkflow.recipe.templateSnapshot : { ...template,version:template.version ?? 1 },
+      inputs:{ constraints:[],deliverable:{ format:'answer',instructions:'' },...savedWorkflow?.recipe?.inputs,goal:draft.objective,context:draft.context,replayValues:splitRecordingLines(draft.replayValues) },
+      customInstructions:savedWorkflow?.recipe?.customInstructions ?? '',recording:{ variableInputs:recording.variableInputs ?? [],steps:recording.steps.filter(step => step.text.trim()),preferences:recording.preferences ?? [],successCriteria:recording.successCriteria ?? [],safetyNotes:recording.safetyNotes ?? [] },
+    };
+  }, [draft.context,draft.objective,draft.replayValues,recording,savedWorkflow,templateId,templates]);
+  const saveInput = useMemo<SaveWorkflowAutomationInput>(() => ({
+    id:savedWorkflow?.id ?? null,name:draft.name.trim(),description:draft.objective.trim(),workflowTemplateId:templateId,
+    prompt:buildRecordedWorkflowPrompt(recording),recipe,
+    trigger:savedWorkflow?.trigger ?? { kind:'manual' },sourceScope:draft.sourceScope,
+    approvalPolicy:savedWorkflow?.approvalPolicy ?? { requireBeforeRun:true,allowedTools:[],riskLevel:'medium' },
+    scheduleConfig:savedWorkflow?.scheduleConfig,enabled:savedWorkflow?.enabled ?? true,expectedRevision:savedWorkflow?.definitionRevision,
+  }), [draft.name,draft.objective,draft.sourceScope,recipe,recording,savedWorkflow,templateId]);
+
+  useEffect(() => {
+    let current = true;
+    if (!canRecord || !recipe) { setPreview(''); return; }
+    const timer = window.setTimeout(() => {
+      void api.previewWorkflowAuthoring(saveInput).then(result => { if (current) { setPreview(result.prompt); setPreviewError(null); } }).catch(error => { if (current) { setPreview(''); setPreviewError(String(error)); } });
+    }, 300);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [canRecord,recipe,saveInput]);
 
   const updateStep = useCallback((id: string, patch: Partial<WorkflowRecordingStep>) => {
     setDraft((current) => ({
@@ -194,45 +227,28 @@ export function WorkflowRecorderPanel({
     }));
   }, []);
 
-  const saveRecording = useCallback(async () => {
+  const saveRecording = useCallback(async (run = false) => {
     if (!canRecord) {
       toast.error(tr('recordingRequired'));
       return;
     }
     setBusy('save');
     try {
-      const saved = await api.saveWorkflowAutomation({
-        id: savedAutomationId,
-        name: draft.name.trim(),
-        description: draft.objective.trim(),
-        workflowTemplateId: templateId,
-        prompt: buildRecordedWorkflowPrompt(recording),
-        trigger: { kind: 'manual' },
-        sourceScope: draft.sourceScope,
-        approvalPolicy: {
-          requireBeforeRun: true,
-          allowedTools: [],
-          riskLevel: 'medium',
-        },
-        enabled: true,
-      });
-      setSavedAutomationId(saved.id);
-      await onSaved();
+      if (!recipe) throw new Error(tr('recordingRequired'));
+      await api.previewWorkflowAuthoring(saveInput);
+      const saved = await api.saveWorkflowAutomation(saveInput);
+      setSavedWorkflow(saved);
+      if (run) {
+        const checked = await api.previewSavedWorkflowRun(saved.id, recipe.inputs);
+        await onReplay(saved, { inputs:recipe.inputs,expectedRevision:saved.definitionRevision,previewDigest:checked.contentDigest,clientRequestId:crypto.randomUUID() });
+      } else { await onSaved(saved); }
       toast.success(tr('recordingSaved'));
     } catch (error) {
       toast.error(String(error));
     } finally {
       setBusy(null);
     }
-  }, [canRecord, draft.name, draft.objective, draft.sourceScope, onSaved, recording, savedAutomationId, templateId, tr]);
-
-  const replayRecordingNow = useCallback(() => {
-    if (!canRecord) {
-      toast.error(tr('recordingRequired'));
-      return;
-    }
-    onReplay(buildRecordedWorkflowPrompt(replayRecording), draft.sourceScope);
-  }, [canRecord, draft.sourceScope, onReplay, replayRecording, tr]);
+  }, [canRecord, onReplay, onSaved, recipe, saveInput, tr]);
 
   return (
     <div className="grid gap-5 xl:grid-cols-[430px_1fr]">
@@ -407,15 +423,15 @@ export function WorkflowRecorderPanel({
                 {tr('recordingSave')}
               </RecorderButton>
               <RecorderButton
-                disabled={!canRecord}
-                onClick={replayRecordingNow}
+                disabled={!canRecord || busy !== null}
+                onClick={() => void saveRecording(true)}
                 icon={<Play className="h-4 w-4" />}
               >
-                {tr('recordingReplay')}
+                {tr('authoringSaveRun')}
               </RecorderButton>
               <RecorderButton onClick={() => {
                 setDraft(emptyDraft());
-                setSavedAutomationId(null);
+                setSavedWorkflow(null);
               }}>
                 {tr('recordingReset')}
               </RecorderButton>
@@ -430,6 +446,7 @@ export function WorkflowRecorderPanel({
               {tr('recordingEmptyPreview')}
             </div>
           )}
+          {previewError && <p role="alert" className="mt-3 text-sm text-danger">{previewError}</p>}
         </div>
       </section>
     </div>
