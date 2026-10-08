@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.14.27](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.26...nexa-monorepo-v0.14.27) (2026-10-08)
+
+
+### Features
+
+* **agent:** add opt-in Jev structured decisions with scoped providers ([04d743c](https://github.com/MLGBJDLW/Nexa/commit/04d743cdeeb78210dd8234fe82971c2467fca776))
+* **agent:** recover compacted tool results through scoped history ([3247b76](https://github.com/MLGBJDLW/Nexa/commit/3247b7672cb566c8ac1d25de9fdb3741eedf826c))
+* **agent:** sustain task progress and recover full tool evidence ([132a23b](https://github.com/MLGBJDLW/Nexa/commit/132a23b99efa1ba5c19a8f6514c00b723b233ce6))
+* **media:** adapt new image and dialogue speech models to native transports ([4c8d47a](https://github.com/MLGBJDLW/Nexa/commit/4c8d47a9be61d7e56279bc0e1129a69155b875c2))
+* **providers:** refresh models and add Jev structured decisions ([8b31e6a](https://github.com/MLGBJDLW/Nexa/commit/8b31e6a75f5a20cbe7575950c583f299557e711b))
+* **providers:** refresh verified models and preserve endpoint reasoning contracts ([25f12d6](https://github.com/MLGBJDLW/Nexa/commit/25f12d6df81dee346746f5aa6ba5d35a1964ef71))
+* **skills:** install complete selected collections and public sources ([012d5d0](https://github.com/MLGBJDLW/Nexa/commit/012d5d055bb439239d33facf141da73021b3ed6f))
+* **skills:** install selected complete bundles from files and public sources ([2543fb6](https://github.com/MLGBJDLW/Nexa/commit/2543fb6a8d1ad4b92be6998c5e7b7b25711827ea))
+* **workflows:** add configuration, replay inputs, and run history ([4354935](https://github.com/MLGBJDLW/Nexa/commit/43549359d1c769a4351be8b949c5ca607c42108a))
+* **workflows:** add durable authoring and dependent stage execution ([3344bc9](https://github.com/MLGBJDLW/Nexa/commit/3344bc983f2eea1143bde41f340eee442bf01abc))
+* **workflows:** persist authored runs and execute dependent stages ([29e6bde](https://github.com/MLGBJDLW/Nexa/commit/29e6bde3ac1321fe726dc4dc1b006ecde30d9e45))
+
+
+### Bug Fixes
+
+* **agent:** avoid substring-triggered visual completion gates ([86101ff](https://github.com/MLGBJDLW/Nexa/commit/86101ffdd8d94cf889d1d27b5ad1c861938ec9dc))
+* **agent:** bind repair progress to material mutation receipts ([136b4c2](https://github.com/MLGBJDLW/Nexa/commit/136b4c25edbaec4e1c48e1bb37b2c1b354c868b3))
+* **agent:** bound exact readback pages by serialized context size ([37127b6](https://github.com/MLGBJDLW/Nexa/commit/37127b664578b48ed811c284d7b0bbe56ad3622e))
+* **agent:** keep hook evidence below controller authority ([c57e47e](https://github.com/MLGBJDLW/Nexa/commit/c57e47e58c12d2ed881f0cf9320c3ad7ae8f0488))
+* **agent:** preserve exact model output and stable readback identity ([bcc57c0](https://github.com/MLGBJDLW/Nexa/commit/bcc57c08ef9e51e9eadae7ef3cc5e1f7551600d5))
+* **agent:** recognize live delegated batch waits ([3bd10ea](https://github.com/MLGBJDLW/Nexa/commit/3bd10ead77e1626a5123e34fdabdb1612a87281a))
+* **agent:** renew completion repairs after verified progress ([731e9d2](https://github.com/MLGBJDLW/Nexa/commit/731e9d2b4e4d6dee8c7615c3e6ad989d7ad382d0))
+* **deps:** update source-map-js to patched 1.2.2 ([ebca90e](https://github.com/MLGBJDLW/Nexa/commit/ebca90eb3965e74cbee6474088368985be4f0d05))
+* **privacy:** reproject legacy data when upgrading trace identity ([058737b](https://github.com/MLGBJDLW/Nexa/commit/058737bf82574112d049e59e65788b94d63cc4aa))
+* **privacy:** scope readback identity preservation to host traces ([5a6608f](https://github.com/MLGBJDLW/Nexa/commit/5a6608f5712ad7f6acf4caf5aa87b7617b90a0f2))
+* **providers:** retain tool replay on newly supported reasoning routes ([357657a](https://github.com/MLGBJDLW/Nexa/commit/357657a0dc3afb98a412f9e6e75c9852e8ac15c1))
+* **skills:** preserve concurrent user state during replacement ([fef89ff](https://github.com/MLGBJDLW/Nexa/commit/fef89ff3c2e8b2ebd1f1d3ed994712a707879e4a))
+* **subagents:** count only actual blocking batch waits ([7b71d55](https://github.com/MLGBJDLW/Nexa/commit/7b71d5539aa4d4fb3ea12b3a60fa77e711344119))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 3344bc983f2eea1143bde41f340eee442bf01abc -->
+
+### What's Changed
+* feat(agent): sustain task progress and recover full tool evidence by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/451
+* feat(providers): refresh models and add Jev structured decisions by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/453
+* feat(skills): install complete selected collections and public sources by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/454
+* feat(workflows): add durable authoring and dependent stage execution by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/455
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.26...nexa-monorepo-v0.14.27
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.26](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.25...nexa-monorepo-v0.14.26) (2026-10-05)
 
 
