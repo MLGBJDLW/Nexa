@@ -4505,7 +4505,7 @@ async fn explicit_nexus_keeps_task_plan_tool_visible() {
     let db = Database::open_memory().expect("in-memory db");
     let (tx, _rx) = mpsc::channel(16);
 
-    executor
+    let error = executor
         .run(
             Vec::new(),
             vec![ContentPart::Text {
@@ -4518,7 +4518,8 @@ async fn explicit_nexus_keeps_task_plan_tool_visible() {
             0,
         )
         .await
-        .expect("agent turn");
+        .expect_err("the surface-only provider does not satisfy Nexus completion gates");
+    assert!(error.to_string().contains("gate:independent-review:None"));
 
     assert!(captured.lock().unwrap()[0]
         .iter()
@@ -4794,7 +4795,7 @@ async fn nexus_keeps_delegation_tools_visible_on_the_first_model_step() {
     let db = Database::open_memory().expect("in-memory db");
     let (tx, _rx) = mpsc::channel(16);
 
-    executor
+    let error = executor
         .run(
             Vec::new(),
             vec![ContentPart::Text {
@@ -4807,7 +4808,8 @@ async fn nexus_keeps_delegation_tools_visible_on_the_first_model_step() {
             0,
         )
         .await
-        .expect("agent turn");
+        .expect_err("the surface-only provider does not satisfy Nexus completion gates");
+    assert!(error.to_string().contains("gate:independent-review:None"));
 
     let requests = captured.lock().unwrap();
     // Nexus may issue a controller follow-up when the mock result does not
@@ -5674,7 +5676,7 @@ async fn full_access_dispatches_desktop_tools_without_approval_events() {
             }
             let db = Database::open_memory().unwrap();
             let (tx, mut rx) = mpsc::channel(128);
-            executor
+            let result = executor
                 .run(
                     vec![],
                     vec![ContentPart::Text {
@@ -5686,14 +5688,26 @@ async fn full_access_dispatches_desktop_tools_without_approval_events() {
                     tx,
                     0,
                 )
-                .await
-                .unwrap();
+                .await;
+            if name == "computer_control" {
+                let error =
+                    result.expect_err("the dispatch probe supplies no desktop observation receipt");
+                assert!(error.to_string().contains("gate:desktop-observation:None"));
+            } else {
+                result.expect("non-mutating dispatch probe should complete");
+            }
             assert_eq!(
                 executed.load(Ordering::SeqCst),
                 1,
                 "{name}, callback={callback}"
             );
             while let Ok(event) = rx.try_recv() {
+                if name == "computer_control" {
+                    assert!(
+                        !matches!(event, AgentEvent::Done { .. }),
+                        "missing observation must not be published as completion"
+                    );
+                }
                 assert!(
                     !matches!(
                         event,
