@@ -14,6 +14,7 @@ use crate::llm::{CompletionResponse, FinishReason, PromptLifetime, PromptStabili
 use crate::tools::{Tool, ToolResult};
 
 mod privacy_revocation;
+mod tool_result_readback;
 mod unlimited_turn;
 
 #[test]

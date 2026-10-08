@@ -249,6 +249,70 @@ impl Database {
         .ok_or_else(|| CoreError::NotFound("Context history item in this conversation".into()))
     }
 
+    /// Read the already persisted, privacy-projected output of one completed
+    /// local tool. The trace owns the original; context compaction owns only a
+    /// projection. Neither tool arguments nor provider reasoning are exposed.
+    pub fn read_context_tool_result(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        tool_call_id: &str,
+        offset: usize,
+        max_chars: usize,
+    ) -> Result<Value, CoreError> {
+        let conn = self.conn();
+        conn.query_row(
+            &format!(
+                "WITH outputs AS ({CONTEXT_TOOL_RESULT_QUERY})
+                 SELECT tool_name,is_error,content
+                 FROM outputs WHERE (SELECT COUNT(*) FROM outputs)=1"
+            ),
+            params![conversation_id, turn_id, tool_call_id],
+            |row| {
+                let content: String = row.get(2)?;
+                // Rust character slicing also preserves embedded NULs, which
+                // SQLite text length/substr treat as a string terminator.
+                let total_chars = content.chars().count();
+                let text: String = content
+                    .chars()
+                    .skip(offset)
+                    .take(max_chars.clamp(1, 16000))
+                    .collect();
+                let next = offset.saturating_add(text.chars().count());
+                Ok(json!({
+                    "turnId":turn_id,"toolCallId":tool_call_id,
+                    "toolName":row.get::<_,String>(0)?,"isError":row.get::<_,bool>(1)?,
+                    "text":text,"totalChars":total_chars,"offset":offset,
+                    "contentDigest":blake3::hash(content.as_bytes()).to_hex().to_string(),
+                    "nextOffset":(next < total_chars).then_some(next),
+                }))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| {
+            CoreError::NotFound("Unique completed tool result in this conversation and turn".into())
+        })
+    }
+
+    /// Advertise a readback only after the exact output has reached the owning
+    /// trace. Failed persistence or reused call IDs must not point to old data.
+    pub(crate) fn context_tool_result_is_persisted(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        tool_call_id: &str,
+        expected_content: &str,
+    ) -> Result<bool, CoreError> {
+        Ok(self.conn().query_row(
+            &format!(
+                "WITH outputs AS ({CONTEXT_TOOL_RESULT_QUERY})
+                 SELECT COUNT(*)=1 AND COALESCE(MIN(content)=?4,0) FROM outputs"
+            ),
+            params![conversation_id, turn_id, tool_call_id, expected_content],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn search_context_history(
         &self,
         conversation_id: &str,
@@ -276,6 +340,23 @@ impl Database {
     }
 }
 
+// Scope in SQL, before returning any output. Use the canonical tool item only:
+// adjacent thinking, arguments, artifacts and hosted replay are not readback.
+// Existing privacy projections and conversation/turn deletion govern this data.
+const CONTEXT_TOOL_RESULT_QUERY: &str = "
+    SELECT json_extract(i.value,'$.toolCall.toolName') AS tool_name,
+           COALESCE(json_extract(i.value,'$.toolCall.isError'),0) AS is_error,
+           json_extract(i.value,'$.toolCall.content') AS content
+    FROM conversation_turns t,json_each(t.trace_json,'$.items') i
+    WHERE t.conversation_id=?1 AND t.id=?2
+      AND json_extract(i.value,'$.kind')='tool'
+      AND json_extract(i.value,'$.toolCall.callId')=?3
+      AND json_extract(i.value,'$.toolCall.status') IN ('done','error')
+      AND COALESCE(json_extract(i.value,'$.toolCall.providerExecuted'),0)=0
+      AND json_type(i.value,'$.toolCall.content')='text'
+      AND json_type(i.value,'$.toolCall.toolName')='text'
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +373,170 @@ mod tests {
         })
         .unwrap()
         .id
+    }
+
+    fn tool_trace(db: &Database, conversation: &str, content: &str) -> (String, Value) {
+        let user = uuid::Uuid::new_v4().to_string();
+        db.conn().execute(
+            "INSERT INTO messages(id,conversation_id,role,content) VALUES(?1,?2,'user','Read the output')",
+            params![user, conversation],
+        ).unwrap();
+        let turn = db
+            .create_conversation_turn(conversation, &user, None)
+            .unwrap();
+        let trace = json!({"kind":"turnTrace","items":[
+            {"kind":"thinking","text":"private reasoning must not be read"},
+            {"kind":"tool","toolCall":{
+                "callId":"long-output","toolName":"read_file","status":"done",
+                "arguments":"private arguments must not be read",
+                "content":content,"isError":false,
+                "artifacts":{"private":"artifacts must not be read"}
+            }}
+        ]});
+        db.update_conversation_turn_trace(&turn.id, Some(&trace))
+            .unwrap();
+        (turn.id, trace)
+    }
+
+    #[test]
+    fn tool_result_pages_preserve_unicode_nuls_and_scope_after_reopening() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tool-results.db");
+        let db = Database::new(&path).unwrap();
+        let id = conversation(&db);
+        let text = format!(
+            "{}\0middle-evidence\0{}",
+            "证据🙂".repeat(9000),
+            "末尾".repeat(100)
+        );
+        let (turn, _) = tool_trace(&db, &id, &text);
+        assert!(db
+            .context_tool_result_is_persisted(&id, &turn, "long-output", &text)
+            .unwrap());
+        assert!(!db
+            .context_tool_result_is_persisted(&id, &turn, "long-output", "stale text")
+            .unwrap());
+        drop(db);
+        let db = Database::new(path).unwrap();
+        let mut restored = String::new();
+        let mut offset = 0;
+        loop {
+            let page = db
+                .read_context_tool_result(&id, &turn, "long-output", offset, 701)
+                .unwrap();
+            assert_eq!(
+                page["contentDigest"],
+                blake3::hash(text.as_bytes()).to_hex().as_str()
+            );
+            assert_eq!(page["totalChars"], text.chars().count());
+            restored.push_str(page["text"].as_str().unwrap());
+            match page["nextOffset"].as_u64() {
+                Some(next) => {
+                    assert!(next as usize > offset);
+                    offset = next as usize;
+                }
+                None => break,
+            }
+        }
+        assert_eq!(restored, text);
+        for (chat, turn_id, call) in [
+            ("other", turn.as_str(), "long-output"),
+            (id.as_str(), "other", "long-output"),
+            (id.as_str(), turn.as_str(), "other"),
+        ] {
+            assert!(db
+                .read_context_tool_result(chat, turn_id, call, 0, 100)
+                .is_err());
+        }
+        let end = db
+            .read_context_tool_result(&id, &turn, "long-output", usize::MAX, 100)
+            .unwrap();
+        assert_eq!(end["text"], "");
+        assert!(end["nextOffset"].is_null());
+    }
+
+    #[test]
+    fn tool_result_readback_rejects_ambiguous_unfinished_and_hosted_results() {
+        let db = Database::open_memory().unwrap();
+        let id = conversation(&db);
+        let (turn, original) = tool_trace(&db, &id, "visible text");
+        for mode in ["duplicate", "running", "hosted"] {
+            let mut trace = original.clone();
+            match mode {
+                "duplicate" => {
+                    let duplicate = trace["items"][1].clone();
+                    trace["items"].as_array_mut().unwrap().push(duplicate);
+                }
+                "running" => trace["items"][1]["toolCall"]["status"] = json!("running"),
+                _ => trace["items"][1]["toolCall"]["providerExecuted"] = json!(true),
+            }
+            db.update_conversation_turn_trace(&turn, Some(&trace))
+                .unwrap();
+            assert!(
+                db.read_context_tool_result(&id, &turn, "long-output", 0, 100)
+                    .is_err(),
+                "{mode}"
+            );
+            assert!(!db
+                .context_tool_result_is_persisted(&id, &turn, "long-output", "visible text")
+                .unwrap());
+        }
+        db.update_conversation_turn_trace(&turn, Some(&original))
+            .unwrap();
+        let page = db
+            .read_context_tool_result(&id, &turn, "long-output", 0, 100)
+            .unwrap();
+        assert_eq!(page["text"], "visible text");
+        assert!(!page.to_string().contains("private"));
+        db.conn()
+            .execute("DELETE FROM conversation_turns WHERE id=?1", [&turn])
+            .unwrap();
+        assert!(db
+            .read_context_tool_result(&id, &turn, "long-output", 0, 100)
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn tool_result_readback_uses_current_privacy_and_rejects_stale_pages() {
+        use crate::tools::{context_history_tool::ContextHistoryTool, Tool, ToolExecutionContext};
+        let db = Database::open_memory().unwrap();
+        let id = conversation(&db);
+        let (turn, _) = tool_trace(&db, &id, "retained privateCODE evidence");
+        let before = db
+            .read_context_tool_result(&id, &turn, "long-output", 0, 100)
+            .unwrap();
+        db.save_privacy_config(&crate::privacy::PrivacyConfig {
+            enabled: true,
+            redact_patterns: vec![crate::privacy::RedactRule {
+                name: "test".into(),
+                pattern: "privateCODE".into(),
+                replacement: "[PRIVATE]".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        let mut args = json!({"action":"read_tool_result", "turn_id":turn, "tool_call_id":"long-output", "expected_digest":before["contentDigest"]});
+        let result = ContextHistoryTool
+            .execute(
+                ToolExecutionContext::new("readback", &args.to_string(), &db, &[])
+                    .with_conversation_id(Some(&id)),
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "a privacy revision must not be combined with an earlier page"
+        );
+        args.as_object_mut().unwrap().remove("expected_digest");
+        let result = ContextHistoryTool
+            .execute(
+                ToolExecutionContext::new("readback", &args.to_string(), &db, &[])
+                    .with_conversation_id(Some(&id)),
+            )
+            .await
+            .unwrap();
+        assert!(!result.content.contains("privateCODE"));
+        assert!(result.content.contains("[PRIVATE]"));
+        assert!(result.content.contains("Historical evidence"));
     }
 
     #[test]

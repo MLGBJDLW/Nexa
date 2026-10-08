@@ -1920,9 +1920,24 @@ impl ToolDispatchRuntime<'_> {
         let mut visual_context_messages = Vec::new();
         for completed in completed_for_context.into_iter().flatten() {
             let tc = completed.call;
-            let content = compact_tool_result_for_context(&tc.name, &completed.content);
-            let persisted_content =
+            let mut content = compact_tool_result_for_context(&tc.name, &completed.content);
+            let mut persisted_content =
                 compact_tool_result_for_context(&tc.name, &completed.persisted_content);
+            if self.tools.contains("context_history")
+                && (content != completed.content
+                    || persisted_content != completed.persisted_content)
+            {
+                if let Some(hint) = tool_scheduler::tool_result_readback_hint(
+                    db,
+                    conversation_id,
+                    turn_id,
+                    &tc.id,
+                    &completed.persisted_content,
+                ) {
+                    content.push_str(&hint);
+                    persisted_content.push_str(&hint);
+                }
+            }
             let duration_ms = completed.duration_ms;
             let tool_artifacts = completed.artifacts;
             let tool_attachments = completed.attachments;
