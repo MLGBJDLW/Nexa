@@ -16,6 +16,7 @@ struct Args {
     window_id: Option<String>,
     turn_id: Option<String>,
     tool_call_id: Option<String>,
+    result_id: Option<String>,
     expected_digest: Option<String>,
     item: Option<usize>,
     offset: Option<usize>,
@@ -88,6 +89,7 @@ impl Tool for ContextHistoryTool {
                     .as_deref()
                     .filter(|id| !id.trim().is_empty())
                     .ok_or_else(|| CoreError::InvalidInput("tool_call_id is required".into()))?,
+                args.result_id.as_deref(),
                 args.offset.unwrap_or(0),
                 args.max_chars.unwrap_or(6000),
                 )?;

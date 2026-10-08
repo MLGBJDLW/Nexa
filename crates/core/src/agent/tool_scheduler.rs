@@ -262,11 +262,18 @@ pub(crate) fn tool_result_readback_hint(
     conversation_id: Option<&str>,
     turn_id: Option<&str>,
     call_id: &str,
-    persisted_content: &str,
+    result_id: &str,
+    model_content: &str,
 ) -> Option<String> {
     let (conversation_id, turn_id) = (conversation_id?, turn_id?);
     if !db
-        .context_tool_result_is_persisted(conversation_id, turn_id, call_id, persisted_content)
+        .context_tool_result_is_persisted(
+            conversation_id,
+            turn_id,
+            call_id,
+            Some(result_id),
+            model_content,
+        )
         .unwrap_or(false)
     {
         return None;
@@ -274,7 +281,8 @@ pub(crate) fn tool_result_readback_hint(
     let arguments = serde_json::json!({
         "action":"read_tool_result", "turn_id":turn_id,
         "tool_call_id":call_id, "offset":0, "max_chars":6000,
-        "expected_digest":blake3::hash(persisted_content.as_bytes()).to_hex().to_string(),
+        "result_id":result_id,
+        "expected_digest":blake3::hash(model_content.as_bytes()).to_hex().to_string(),
     });
     Some(format!(
         "\n\n[Compacted tool result. Full persisted text is available through context_history with {arguments}. Follow nextOffset to read more; do not rerun the original tool to recover omitted text.]"

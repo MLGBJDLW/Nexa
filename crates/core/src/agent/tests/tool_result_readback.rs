@@ -10,7 +10,10 @@ fn long_output() -> String {
     )
 }
 
-struct LongOutputTool(Arc<AtomicUsize>);
+struct LongOutputTool {
+    executions: Arc<AtomicUsize>,
+    split_channels: bool,
+}
 
 #[async_trait]
 impl Tool for LongOutputTool {
@@ -30,7 +33,20 @@ impl Tool for LongOutputTool {
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.executions.fetch_add(1, Ordering::SeqCst);
+        if self.split_channels {
+            return Ok(ToolResult::from_output(
+                context.call_id,
+                false,
+                crate::tools::ToolOutput {
+                    llm_content: long_output(),
+                    display_content: "Short display summary".into(),
+                    data: None,
+                    artifacts: None,
+                    attachments: Vec::new(),
+                },
+            ));
+        }
         Ok(ToolResult {
             call_id: context.call_id.into(),
             content: long_output(),
@@ -40,7 +56,10 @@ impl Tool for LongOutputTool {
     }
 }
 
-struct ReadbackProvider(AtomicUsize);
+struct ReadbackProvider {
+    step: AtomicUsize,
+    readback_args: std::sync::Mutex<Option<serde_json::Value>>,
+}
 
 #[async_trait]
 impl LlmProvider for ReadbackProvider {
@@ -60,7 +79,7 @@ impl LlmProvider for ReadbackProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-        let index = self.0.fetch_add(1, Ordering::SeqCst);
+        let index = self.step.fetch_add(1, Ordering::SeqCst);
         let tool = match index {
             0 => Some(("long_output", serde_json::json!({}))),
             1 => {
@@ -84,6 +103,8 @@ impl LlmProvider for ReadbackProvider {
                         .unwrap();
                 args["offset"] = serde_json::json!(14_000);
                 args["max_chars"] = serde_json::json!(16_000);
+                assert!(args["result_id"].as_str().is_some());
+                *self.readback_args.lock().unwrap() = Some(args.clone());
                 Some(("context_history", args))
             }
             2 => {
@@ -100,9 +121,27 @@ impl LlmProvider for ReadbackProvider {
                 let expected: String = long_output().chars().skip(14_000).take(16_000).collect();
                 assert_eq!(page["text"], expected);
                 assert!(page["text"].as_str().unwrap().contains(MARKER));
+                let mut args = self.readback_args.lock().unwrap().clone().unwrap();
+                assert_eq!(page["resultId"], args["result_id"]);
+                args["offset"] = page["nextOffset"].clone();
+                Some(("context_history", args))
+            }
+            3 => {
+                let result = request
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.role == Role::Tool)
+                    .unwrap()
+                    .text_content();
+                let page: serde_json::Value =
+                    serde_json::from_str(result.split_once('\n').unwrap().1).unwrap();
+                let expected: String = long_output().chars().skip(30_000).collect();
+                assert_eq!(page["text"], expected);
+                assert!(page["nextOffset"].is_null());
                 None
             }
-            _ => panic!("the task should finish after one output readback"),
+            _ => panic!("the task should finish after two output pages"),
         };
         let chunk = StreamChunk {
             delta: if tool.is_none() {
@@ -111,7 +150,8 @@ impl LlmProvider for ReadbackProvider {
                 String::new()
             },
             tool_call_delta: tool.as_ref().map(|(name, args)| ToolCallDelta {
-                id: format!("output-{index}"),
+                // Gemini can reuse an index-derived ID in every response.
+                id: "call_0".into(),
                 name: Some((*name).into()),
                 arguments_delta: args.to_string().into(),
                 index: Some(0),
@@ -131,18 +171,33 @@ impl LlmProvider for ReadbackProvider {
 
 #[tokio::test]
 async fn truncated_tool_output_is_recovered_without_reexecution_or_a_history_handoff() {
+    run_readback(false).await;
+}
+
+#[tokio::test]
+async fn split_channel_tool_output_survives_reused_ids_across_multiple_pages() {
+    run_readback(true).await;
+}
+
+async fn run_readback(split_channels: bool) {
     let db = Database::open_memory().unwrap();
     db.execute_batch_for_test("INSERT INTO conversations(id,provider,model) VALUES('chat','custom','test');
         INSERT INTO messages(id,conversation_id,role,content) VALUES('user','chat','user','Read the evidence');
         INSERT INTO conversation_turns(id,conversation_id,user_message_id) VALUES('turn','chat','user');").unwrap();
     let executions = Arc::new(AtomicUsize::new(0));
     let mut tools = ToolRegistry::new();
-    tools.register(Box::new(LongOutputTool(executions.clone())));
+    tools.register(Box::new(LongOutputTool {
+        executions: executions.clone(),
+        split_channels,
+    }));
     tools.register(Box::new(
         crate::tools::context_history_tool::ContextHistoryTool,
     ));
     let executor = AgentExecutor::new(
-        Box::new(ReadbackProvider(AtomicUsize::new(0))),
+        Box::new(ReadbackProvider {
+            step: AtomicUsize::new(0),
+            readback_args: std::sync::Mutex::new(None),
+        }),
         tools,
         AgentConfig {
             model: Some("test".into()),
@@ -168,6 +223,22 @@ async fn truncated_tool_output_is_recovered_without_reexecution_or_a_history_han
         .unwrap();
     assert_eq!(answer.text_content(), MARKER);
     assert_eq!(executions.load(Ordering::SeqCst), 1);
+    let trace = db.get_conversation_turn("turn").unwrap().trace.unwrap();
+    let calls = trace["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item.get("toolCall"))
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 3);
+    let result_ids = calls
+        .iter()
+        .map(|call| call["resultId"].as_str().unwrap())
+        .collect::<HashSet<_>>();
+    assert_eq!(result_ids.len(), 3);
+    if split_channels {
+        assert_eq!(calls[0]["content"], "Short display summary");
+    }
     assert_eq!(
         db.list_context_history("chat", None, 10).unwrap()["windows"],
         serde_json::json!([])

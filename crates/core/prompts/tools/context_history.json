@@ -9,6 +9,7 @@
       "window_id": { "type": "string", "description": "Window ID from the handoff or a list/search result." },
       "turn_id": { "type": "string", "description": "Exact turn_id from a compacted tool result; required for read_tool_result." },
       "tool_call_id": { "type": "string", "description": "Exact tool_call_id from a compacted tool result; required for read_tool_result." },
+      "result_id": { "type": "string", "description": "Stable runtime result_id from the readback hint or resultId from a page. Preserve it on every page; provider tool-call IDs may repeat." },
       "expected_digest": { "type": "string", "description": "contentDigest from an earlier tool-result page or readback hint. Rejects changed output so pages from different revisions cannot be combined." },
       "item": { "type": "integer", "minimum": 0 },
       "offset": { "type": "integer", "minimum": 0 },

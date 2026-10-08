@@ -277,14 +277,23 @@ quality remain experimental.
 Tool-result compaction is a projection over the durable turn trace. When a tool
 result is shortened, Nexa attaches a `context_history` `read_tool_result` call
 only after the exact original has been persisted. The call identifies the
-conversation-owned turn and tool call; Unicode character offsets, `nextOffset`,
+conversation-owned turn, tool call, and stable runtime result ID; Unicode character offsets, `nextOffset`,
 and a content digest support exact paging without repeating the original action.
 This works in both context modes and before the first history handoff. Pages
-are bounded by the history tool and are not compacted again. Reused ambiguous
-call IDs, unfinished calls, and provider-hosted replay are not exposed.
+are bounded by the history tool and are not compacted again. The runtime result
+ID remains valid when provider call IDs repeat. Legacy reads without a result ID
+must be unambiguous; unfinished calls and provider-hosted replay are not exposed.
+Readback selects the validated persisted model channel, preserving the display
+summary. Intentionally ephemeral desktop screen content is not advertised as
+recoverable after persistence has removed it.
 The existing privacy projection and turn deletion govern readback; a supplied
 digest rejects pages changed by later privacy updates. Retrieved output remains
 historical evidence and cannot grant tool permissions or new instructions.
+Custom privacy expressions matching serialized locator or digest text, or
+non-idempotent replacement rules, can still invalidate pagination when a page
+is projected again through dispatch or history replay. Preserving typed
+evidence metadata across every replay boundary remains a follow-up; arbitrary
+tool text is not exempted from privacy filtering.
 
 ## Turn budgets and provider terminals
 

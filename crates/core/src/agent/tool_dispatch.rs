@@ -790,6 +790,7 @@ impl ToolDispatchRuntime<'_> {
         #[derive(Clone)]
         struct CompletedToolForContext {
             call: ToolCallRequest,
+            result_id: String,
             content: String,
             persisted_content: String,
             duration_ms: u64,
@@ -1751,7 +1752,7 @@ impl ToolDispatchRuntime<'_> {
                 let content = tool_msg;
                 let context_content = tool_context_msg;
 
-                append_persisted_trace_tool(
+                let result_id = append_persisted_trace_tool(
                     persisted_trace_items,
                     self.tools,
                     &tc.name,
@@ -1830,6 +1831,7 @@ impl ToolDispatchRuntime<'_> {
 
                 completed_for_context[finished_tool.index] = Some(CompletedToolForContext {
                     call: tc,
+                    result_id,
                     content: context_content,
                     persisted_content: content,
                     duration_ms: tool_elapsed.as_millis() as u64,
@@ -1883,7 +1885,7 @@ impl ToolDispatchRuntime<'_> {
                         ),
                     })
                     .await;
-                append_persisted_trace_tool(
+                let result_id = append_persisted_trace_tool(
                     persisted_trace_items,
                     self.tools,
                     &tc.name,
@@ -1905,6 +1907,7 @@ impl ToolDispatchRuntime<'_> {
                 append_persisted_trace_loop_event(persisted_trace_items, finished);
                 *completed = Some(CompletedToolForContext {
                     call: tc,
+                    result_id,
                     content: content.clone(),
                     persisted_content: content,
                     duration_ms: 0,
@@ -1932,7 +1935,8 @@ impl ToolDispatchRuntime<'_> {
                     conversation_id,
                     turn_id,
                     &tc.id,
-                    &completed.persisted_content,
+                    &completed.result_id,
+                    &completed.content,
                 ) {
                     content.push_str(&hint);
                     persisted_content.push_str(&hint);

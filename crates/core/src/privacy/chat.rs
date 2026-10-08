@@ -194,7 +194,7 @@ impl Redactor {
                         | "call_id" | "toolCallId" | "tool_call_id" | "toolName" | "tool_name"
                         | "conversationId" | "turnId" | "runId" | "subtaskRunId" | "messageId"
                         | "interactionId" | "documentId" | "sourceId" | "chunkId" | "revision"
-                        | "route" | "providerEndpointId" | "modelId" => {}
+                        | "route" | "providerEndpointId" | "modelId" | "resultId" => {}
                         "data" | "metadata" | "structuredContent" | "meta" | "_meta" => {
                             self.data(value)
                         }
