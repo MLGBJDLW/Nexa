@@ -669,6 +669,7 @@ async fn drive(
                         output.native_final_fallback = Some(message);
                     }
                     output.clear_answer();
+                    output.mark_persisted(&format!("acp:{segment}:{span}:thought"));
                     reports
                         .update(&turn.events, update, &session.terminals)
                         .await?;
@@ -734,6 +735,7 @@ async fn drive(
             output.complete_block(&turn.events, id, text).await?;
         }
         output.select_answer_blocks(answer_blocks.iter().map(|(id, _)| id.clone()).collect())?;
+        output.mark_persisted(&format!("acp:{segment}:{span}:thought"));
         if command.is_some() && output.answer.trim().is_empty() {
             turn.events
                 .send(AgentEvent::ControllerStatus {

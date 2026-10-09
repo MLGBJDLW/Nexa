@@ -334,18 +334,35 @@ async fn project_event(
                 .await?
         }
         "assistant.reasoning_delta" => {
+            let id = response.observe_reasoning(
+                data.get("reasoningId")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&event.id),
+                None,
+            )?;
             projection
                 .delta(
                     tx,
-                    data.get("reasoningId")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or(&event.id),
+                    &id,
                     StreamBlockChannel::Thinking,
                     data.get("deltaContent")
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or_default(),
                 )
                 .await?
+        }
+        "assistant.reasoning" => {
+            let text = data
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| protocol_error("Copilot reasoning has no text content field"))?;
+            let id = response.observe_reasoning(
+                data.get("reasoningId")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&event.id),
+                Some(text),
+            )?;
+            projection.complete_reasoning(tx, &id, text).await?;
         }
         "assistant.message" => {
             let text = data
@@ -357,6 +374,21 @@ async fn project_event(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or(&event.id);
             let blocks = response.accept(data)?;
+            let reasoning_id = response.message_reasoning(
+                id,
+                data.get("reasoningText")
+                    .and_then(serde_json::Value::as_str),
+            )?;
+            if let (Some(reasoning_id), Some(text)) = (
+                reasoning_id,
+                data.get("reasoningText")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|text| !text.is_empty()),
+            ) {
+                projection
+                    .complete_reasoning(tx, &reasoning_id, text)
+                    .await?;
+            }
             projection.complete_block(tx, id, text).await?;
             projection.clear_answer();
             if let Some(blocks) = blocks {
@@ -365,6 +397,9 @@ async fn project_event(
         }
         "assistant.turn_start" => {
             response.ensure_complete()?;
+            for id in response.take_reasoning() {
+                projection.mark_persisted(&id);
+            }
             response.start(data.get("turnId").and_then(serde_json::Value::as_str));
             projection.clear_answer();
         }
@@ -375,6 +410,10 @@ async fn project_event(
                 .ok_or_else(|| protocol_error("Copilot retry has no turnId"))?;
             let abandoned = response.retry(turn_id)?;
             projection.discard_answer_blocks(tx, abandoned).await?;
+            for id in response.take_reasoning() {
+                projection.complete_reasoning(tx, &id, "").await?;
+                projection.mark_persisted(&id);
+            }
         }
         "tool.execution_start" => {
             response.tool_started();
@@ -527,6 +566,382 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn reasoning_offsets_survive_empty_settlement_between_live_events() {
+        let (request, mut rx, _, _) =
+            super::super::tests::fixture(AgentRuntimeKind::Copilot, "grok-4.7");
+        let turn = request.prepare(false).unwrap();
+        let mut projection = Projection::for_turn(&turn);
+        let mut response = super::super::copilot_response::Response::default();
+        for delta in ["first ", "second"] {
+            project_test_event(
+                &mut projection,
+                &mut response,
+                &turn.events,
+                "assistant.reasoning_delta",
+                serde_json::json!({"reasoningId":"reasoning-1","deltaContent":delta}),
+            )
+            .await
+            .unwrap();
+            // This is the production event loop, not just its dispatch helper.
+            projection
+                .persist_settled(&turn, response.take_settled())
+                .await
+                .unwrap();
+        }
+        let mut offsets = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::StreamBlockDelta {
+                channel: StreamBlockChannel::Thinking,
+                offset,
+                delta,
+                ..
+            } = event
+            {
+                offsets.push((offset, delta));
+            }
+        }
+        assert_eq!(offsets, vec![(0, "first ".into()), (6, "second".into())]);
+    }
+
+    #[tokio::test]
+    async fn full_reasoning_event_is_projected_without_requiring_deltas() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.reasoning",
+            serde_json::json!({"reasoningId":"reasoning-1","content":"Visible reasoning snapshot"}),
+        )
+        .await
+        .unwrap();
+        let mut visible = false;
+        while let Ok(event) = rx.try_recv() {
+            visible |= matches!(event,
+                AgentEvent::StreamBlockSnapshot {channel: StreamBlockChannel::Thinking, text, ..} if text == "Visible reasoning snapshot");
+        }
+        assert!(
+            visible,
+            "Copilot's durable reasoning snapshot must reach the UI"
+        );
+    }
+
+    #[tokio::test]
+    async fn message_reasoning_text_is_visible_but_opaque_replay_is_not() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        project_test_event(&mut projection, &mut response, &tx, "assistant.message",
+            serde_json::json!({"messageId":"message-1","content":"Final answer",
+                "reasoningText":"Readable rationale", "reasoningOpaque":"OPAQUE_SENTINEL", "encryptedContent":"ENCRYPTED_SENTINEL"}),
+        ).await.unwrap();
+        let mut texts = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AgentEvent::StreamBlockSnapshot {
+                    channel: StreamBlockChannel::Thinking,
+                    text,
+                    ..
+                } => texts.push(text),
+                AgentEvent::StreamBlockDelta {
+                    channel: StreamBlockChannel::Thinking,
+                    delta,
+                    ..
+                } => texts.push(delta),
+                _ => {}
+            }
+        }
+        assert_eq!(texts, vec!["Readable rationale"]);
+        assert_eq!(projection.answer, "Final answer");
+    }
+
+    #[tokio::test]
+    async fn reasoning_snapshots_repair_one_block_and_answers_stream_before_idle() {
+        let (request, mut rx, _, _) =
+            super::super::tests::fixture(AgentRuntimeKind::Copilot, "grok-4.7");
+        let turn = request.prepare(false).unwrap();
+        let mut projection = Projection::for_turn(&turn);
+        let mut response = super::super::copilot_response::Response::default();
+        let mut thinking = std::collections::HashMap::<String, String>::new();
+        let mut answer = String::new();
+        for (kind, data) in [
+            (
+                "assistant.reasoning_delta",
+                serde_json::json!({"reasoningId":"r","deltaContent":"错"}),
+            ),
+            (
+                "session.usage_info",
+                serde_json::json!({"currentTokens":10}),
+            ),
+            (
+                "assistant.reasoning_delta",
+                serde_json::json!({"reasoningId":"r","deltaContent":"误"}),
+            ),
+            (
+                "assistant.reasoning",
+                serde_json::json!({"reasoningId":"r","content":"修正思考🙂"}),
+            ),
+            (
+                "assistant.message_delta",
+                serde_json::json!({"messageId":"a","deltaContent":"实时"}),
+            ),
+            (
+                "assistant.message_delta",
+                serde_json::json!({"messageId":"a","deltaContent":"回答"}),
+            ),
+            (
+                "assistant.message",
+                serde_json::json!({"messageId":"a","content":"实时回答","reasoningText":"修正思考🙂"}),
+            ),
+        ] {
+            project_test_event(&mut projection, &mut response, &turn.events, kind, data)
+                .await
+                .unwrap();
+            projection
+                .persist_settled(&turn, response.take_settled())
+                .await
+                .unwrap();
+            let mut answer_delta = false;
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    AgentEvent::StreamBlockDelta {
+                        block_id,
+                        channel: StreamBlockChannel::Thinking,
+                        offset,
+                        delta,
+                    } => {
+                        let text = thinking.entry(block_id).or_default();
+                        assert_eq!(offset, text.len());
+                        text.push_str(&delta);
+                    }
+                    AgentEvent::StreamBlockSnapshot {
+                        block_id,
+                        channel: StreamBlockChannel::Thinking,
+                        text,
+                    } => {
+                        thinking.insert(block_id, text);
+                    }
+                    AgentEvent::StreamBlockDelta {
+                        channel: StreamBlockChannel::Answer,
+                        offset,
+                        delta,
+                        ..
+                    } => {
+                        assert_eq!(offset, answer.len());
+                        answer.push_str(&delta);
+                        answer_delta = true;
+                    }
+                    _ => {}
+                }
+            }
+            if kind == "assistant.message_delta" {
+                assert!(
+                    answer_delta,
+                    "each answer delta must reach the UI before full-message/idle"
+                );
+            }
+        }
+        assert_eq!(thinking.len(), 1);
+        assert_eq!(thinking.values().next().unwrap(), "修正思考🙂");
+        assert_eq!(answer, "实时回答");
+        assert_eq!(projection.answer, answer);
+    }
+
+    #[tokio::test]
+    async fn reasoning_retry_clears_abandoned_blocks_and_turns_retire_their_state() {
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        for (kind, data) in [
+            ("assistant.turn_start", serde_json::json!({"turnId":"t"})),
+            (
+                "assistant.reasoning_delta",
+                serde_json::json!({"reasoningId":"r","deltaContent":"abandoned"}),
+            ),
+            ("assistant.turn_retry", serde_json::json!({"turnId":"t"})),
+            (
+                "assistant.reasoning",
+                serde_json::json!({"reasoningId":"r","content":"late replay"}),
+            ),
+            (
+                "assistant.reasoning_delta",
+                serde_json::json!({"reasoningId":"new","deltaContent":"fresh"}),
+            ),
+        ] {
+            project_test_event(&mut projection, &mut response, &tx, kind, data)
+                .await
+                .unwrap();
+        }
+        let mut visible = std::collections::HashMap::<String, String>::new();
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AgentEvent::StreamBlockDelta {
+                    block_id, delta, ..
+                } => {
+                    visible.entry(block_id).or_default().push_str(&delta);
+                }
+                AgentEvent::StreamBlockSnapshot { block_id, text, .. } => {
+                    visible.insert(block_id, text);
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(visible["copilot:reasoning:r"], "");
+        assert_eq!(visible["copilot:reasoning:new"], "fresh");
+        // A long tool-driven session must release reasoning bookkeeping at
+        // genuine inference boundaries, even when there was no answer draft.
+        for index in 0..2100 {
+            project_test_event(
+                &mut projection,
+                &mut response,
+                &tx,
+                "assistant.turn_start",
+                serde_json::json!({"turnId":format!("turn-{index}")}),
+            )
+            .await
+            .unwrap();
+            project_test_event(
+                &mut projection,
+                &mut response,
+                &tx,
+                "assistant.reasoning",
+                serde_json::json!({"reasoningId":format!("r-{index}"),"content":"thought"}),
+            )
+            .await
+            .unwrap();
+            while rx.try_recv().is_ok() {}
+        }
+    }
+
+    #[tokio::test]
+    async fn opaque_only_messages_and_subagent_reasoning_never_enter_parent_thinking() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        let event: SessionEvent = serde_json::from_value(serde_json::json!({
+            "id":"child", "timestamp":"2026-10-09T00:00:00Z", "type":"assistant.reasoning",
+            "agentId":"child-agent", "data":{"reasoningId":"r", "content":"child thought"}
+        }))
+        .unwrap();
+        project_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            &mut EventLedger::default(),
+            &event,
+        )
+        .await
+        .unwrap();
+        project_test_event(&mut projection, &mut response, &tx, "assistant.message",
+            serde_json::json!({"messageId":"a", "content":"answer", "reasoningOpaque":"secret", "encryptedContent":"secret"})).await.unwrap();
+        while let Ok(event) = rx.try_recv() {
+            assert!(!matches!(
+                event,
+                AgentEvent::StreamBlockDelta {
+                    channel: StreamBlockChannel::Thinking,
+                    ..
+                } | AgentEvent::StreamBlockSnapshot {
+                    channel: StreamBlockChannel::Thinking,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn reasoning_snapshot_after_message_reuses_fallback_when_deltas_were_absent() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        for (kind, data) in [
+            (
+                "assistant.message",
+                serde_json::json!({"messageId":"a", "content":"answer", "reasoningText":"thought"}),
+            ),
+            (
+                "assistant.reasoning",
+                serde_json::json!({"reasoningId":"r", "content":"thought"}),
+            ),
+        ] {
+            project_test_event(&mut projection, &mut response, &tx, kind, data)
+                .await
+                .unwrap();
+        }
+        let mut ids = HashSet::new();
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::StreamBlockSnapshot {
+                block_id,
+                channel: StreamBlockChannel::Thinking,
+                text,
+            } = event
+            {
+                assert_eq!(text, "thought");
+                ids.insert(block_id);
+            }
+        }
+        assert_eq!(
+            ids.len(),
+            1,
+            "late full reasoning must not duplicate the message fallback"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "uses an explicitly selected official Copilot model for one synthetic streaming inference"]
+    async fn native_copilot_streams_readable_reasoning_and_answer_before_done() {
+        let model = std::env::var("NEXA_COPILOT_STREAM_PROBE_MODEL")
+            .expect("set the intended reasoning model explicitly");
+        let (mut request, mut rx, _, _) =
+            super::super::tests::fixture(AgentRuntimeKind::Copilot, &model);
+        request.dependencies.tools = nexa_core::tools::ToolRegistry::new();
+        request.config.system_prompt =
+            "Answer the arithmetic check concisely. Do not use tools.".into();
+        request.user_parts = vec![ContentPart::Text {
+            text:
+                "What is 137 times 263? Give the result and a brief explanation in three sentences."
+                    .into(),
+        }];
+        let cancellation = request.cancellation.clone();
+        let started = std::time::Instant::now();
+        let operation = run(request);
+        tokio::pin!(operation);
+        let mut completed = false;
+        let mut done = false;
+        let mut thinking_deltas = 0;
+        let mut answer_deltas = 0;
+        let mut snapshots = 0;
+        let mut visible = std::collections::HashMap::<String, String>::new();
+        let timeout = tokio::time::sleep(Duration::from_secs(180));
+        tokio::pin!(timeout);
+        while !completed || !done {
+            tokio::select! {
+                _ = &mut timeout => { cancellation.cancel(); panic!("Copilot streaming probe timed out"); }
+                result = &mut operation, if !completed => { result.unwrap(); completed = true; }
+                event = rx.recv() => match event.expect("runtime event channel closed before Done") {
+                    AgentEvent::StreamBlockDelta {block_id, channel, offset, delta} => {
+                        assert!(!done, "streaming must precede Done");
+                        let text = visible.entry(block_id).or_default();
+                        assert_eq!(offset, text.len(), "live offsets must remain contiguous");
+                        text.push_str(&delta);
+                        if channel == StreamBlockChannel::Thinking { thinking_deltas += 1; }
+                        else { answer_deltas += 1; }
+                    }
+                    AgentEvent::StreamBlockSnapshot {block_id, channel, text} => {
+                        if channel == StreamBlockChannel::Thinking { snapshots += 1; }
+                        visible.insert(block_id, text);
+                    }
+                    AgentEvent::Done {..} => done = true,
+                    _ => {}
+                }
+            }
+        }
+        eprintln!("Copilot live projection: model={model} elapsed_ms={} thinking_deltas={thinking_deltas} answer_deltas={answer_deltas} thinking_snapshots={snapshots}", started.elapsed().as_millis());
+        assert!(thinking_deltas > 0 && answer_deltas > 1 && snapshots > 0);
+    }
 
     #[tokio::test]
     async fn native_context_snapshot_survives_compaction_and_done_without_becoming_billable() {
