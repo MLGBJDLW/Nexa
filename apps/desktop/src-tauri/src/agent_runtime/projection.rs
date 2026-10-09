@@ -262,6 +262,38 @@ impl Projection {
         self.offsets.retain(|id, _| !id.starts_with(&prefix));
     }
 
+    pub(super) async fn complete_reasoning(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+        id: &str,
+        text: &str,
+    ) -> Result<(), CoreError> {
+        self.ensure_active()?;
+        if self.retired.contains(id) {
+            return Ok(());
+        }
+        if text.len() > 4 * 1024 * 1024
+            || (!self.offsets.contains_key(id) && self.offsets.len() >= 2048)
+            || (!self.completed.contains(id) && self.completed.len() >= 2048)
+        {
+            return Err(protocol_error(
+                "subscription reasoning-block budget exceeded",
+            ));
+        }
+        // A durable snapshot repairs dropped/revised deltas using the same UI
+        // block. Thinking never enters answer drafts or the persisted answer.
+        tx.send(AgentEvent::StreamBlockSnapshot {
+            block_id: id.to_string(),
+            channel: StreamBlockChannel::Thinking,
+            text: text.to_string(),
+        })
+        .await
+        .map_err(protocol_error)?;
+        self.offsets.insert(id.to_string(), text.len());
+        self.completed.insert(id.to_string());
+        Ok(())
+    }
+
     pub(super) async fn persist_settled(
         &mut self,
         turn: &PreparedTurn,
@@ -282,9 +314,8 @@ impl Projection {
         for id in ids {
             self.mark_persisted(&id);
         }
-        // Reasoning deltas are already durable in the ordered outbox. Once the
-        // inference has completed, their byte offsets need no lifetime cache.
-        self.offsets.retain(|id, _| self.drafts.contains_key(id));
+        // This is called after every Copilot event, including mid-reasoning.
+        // Reasoning offsets must live until the adapter observes its boundary.
         Ok(persisted)
     }
 

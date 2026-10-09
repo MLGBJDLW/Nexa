@@ -315,6 +315,23 @@ identities; display labels prefer the artifact's exact tool name.
 
 ## Implementation and verification
 
+### Copilot readable reasoning
+
+The subscription adapter requests native streaming and forwards each answer or
+reasoning delta immediately. Thinking offsets survive ordinary event checkpoints;
+only a real inference boundary retires them. `assistant.reasoning.content` and
+`assistant.message.reasoningText` repair the same thinking block, including the
+observed message-before-reasoning order and full snapshots without deltas.
+Opaque/encrypted replay fields never become visible text or answer history.
+Retries clear abandoned thinking, and child-agent events stay outside the parent
+response. Byte-only `assistant.streaming_delta` progress is not text content.
+
+Offline regressions cover continuous byte offsets, snapshot replacement, retry,
+turn retirement and delivery before completion. The ignored native test
+`native_copilot_streams_readable_reasoning_and_answer_before_done` requires an
+explicit `NEXA_COPILOT_STREAM_PROBE_MODEL` and a logged-in subscription; it makes
+one synthetic inference and reports event counts without printing model text.
+
 ### Context occupancy and billing
 
 `usageUpdated` may publish a context snapshot before a request, including newly

@@ -1,7 +1,7 @@
 //! Copilot can split one API response at reasoning boundaries. Message IDs
 //! identify blocks; only apiCallId + chunkIndex identify the complete answer.
 use super::{protocol_error, CoreError};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Default)]
 pub(super) struct Response {
@@ -10,6 +10,11 @@ pub(super) struct Response {
     group: Option<Group>,
     answer_blocks: HashSet<String>,
     settled: Vec<String>,
+    reasoning_blocks: HashSet<String>,
+    reasoning_aliases: HashMap<String, String>,
+    pending_reasoning: Option<String>,
+    message_reasoning: HashMap<String, String>,
+    last_message_reasoning: Option<(String, String)>,
 }
 
 struct Group {
@@ -20,6 +25,93 @@ struct Group {
 }
 
 impl Response {
+    pub(super) fn observe_reasoning(
+        &mut self,
+        id: &str,
+        snapshot: Option<&str>,
+    ) -> Result<String, CoreError> {
+        if !self.reasoning_aliases.contains_key(id) && self.reasoning_aliases.len() >= 2048 {
+            return Err(protocol_error(
+                "Copilot attempt exceeded its reasoning identity budget",
+            ));
+        }
+        // Copilot may send message.reasoningText before assistant.reasoning,
+        // even when no reasoning deltas were delivered. Reuse that fallback
+        // only when the immediately preceding readable snapshot is identical.
+        let block = self
+            .reasoning_aliases
+            .get(id)
+            .cloned()
+            .or_else(|| {
+                self.last_message_reasoning
+                    .as_ref()
+                    .and_then(|(block, text)| {
+                        (snapshot == Some(text.as_str())).then(|| block.clone())
+                    })
+            })
+            .unwrap_or_else(|| format!("copilot:reasoning:{id}"));
+        self.track_reasoning(&block)?;
+        self.reasoning_aliases.insert(id.to_string(), block.clone());
+        if !self.message_reasoning.values().any(|bound| bound == &block) {
+            self.pending_reasoning = Some(block.clone());
+        }
+        Ok(block)
+    }
+
+    fn track_reasoning(&mut self, block: &str) -> Result<(), CoreError> {
+        if !self.reasoning_blocks.contains(block) && self.reasoning_blocks.len() >= 2048 {
+            return Err(protocol_error(
+                "Copilot attempt exceeded its reasoning block budget",
+            ));
+        }
+        self.reasoning_blocks.insert(block.to_string());
+        Ok(())
+    }
+
+    pub(super) fn message_reasoning(
+        &mut self,
+        id: &str,
+        text: Option<&str>,
+    ) -> Result<Option<String>, CoreError> {
+        if !self.message_reasoning.contains_key(id) && self.message_reasoning.len() >= 2048 {
+            return Err(protocol_error(
+                "Copilot attempt exceeded its message reasoning budget",
+            ));
+        }
+        // The full message closes the immediately preceding reasoning block.
+        // Keep this association for durable replay instead of appending a copy.
+        let block = self
+            .message_reasoning
+            .get(id)
+            .cloned()
+            .or_else(|| self.pending_reasoning.take())
+            .or_else(|| {
+                text.filter(|text| !text.is_empty())
+                    .map(|_| format!("copilot:message-reasoning:{id}"))
+            });
+        let Some(block) = block else {
+            self.last_message_reasoning = None;
+            return Ok(None);
+        };
+        self.track_reasoning(&block)?;
+        self.message_reasoning.insert(id.to_string(), block.clone());
+        if text.is_some_and(|text| text.len() > 4 * 1024 * 1024) {
+            return Err(protocol_error("Copilot reasoning exceeded its byte budget"));
+        }
+        self.last_message_reasoning = text
+            .filter(|text| !text.is_empty())
+            .map(|text| (block.clone(), text.to_string()));
+        Ok(Some(block))
+    }
+
+    pub(super) fn take_reasoning(&mut self) -> Vec<String> {
+        self.pending_reasoning = None;
+        self.message_reasoning.clear();
+        self.reasoning_aliases.clear();
+        self.last_message_reasoning = None;
+        self.reasoning_blocks.drain().collect()
+    }
+
     pub(super) fn start(&mut self, turn_id: Option<&str>) {
         if let Some(group) = &self.group {
             self.settled.extend(group.blocks.values().cloned());
