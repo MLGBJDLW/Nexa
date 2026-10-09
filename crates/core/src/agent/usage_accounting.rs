@@ -33,6 +33,7 @@ pub(super) struct ModelStepUsageObservation<'a> {
     pub(super) tool_call_count: usize,
     pub(super) finish_reason: Option<String>,
     pub(super) chunk_usage: Option<Usage>,
+    pub(super) api_style: crate::llm::reasoning_profile::ReasoningApiStyle,
     pub(super) request_latency_ms: u64,
     pub(super) time_to_first_token_ms: Option<u64>,
     pub(super) cache_outcome_reason: Option<&'a str>,
@@ -162,17 +163,26 @@ impl AgentExecutor {
             tool_call_count,
             finish_reason,
             chunk_usage,
+            api_style,
             request_latency_ms,
             time_to_first_token_ms,
             cache_outcome_reason,
         } = observation;
 
-        let actual_prompt_tokens = chunk_usage.as_ref().map(|usage| usage.prompt_tokens);
+        let actual_prompt_tokens = chunk_usage
+            .as_ref()
+            .map(|usage| usage.context_input_tokens(api_style));
         let normalized_cache_miss_tokens = chunk_usage
             .as_ref()
             .and_then(|usage| normalized_cache_miss_tokens(self.config.provider_type, usage));
-        let context_breakdown =
+        let mut context_breakdown =
             self.context_usage_breakdown(model, request_messages, tool_defs, actual_prompt_tokens);
+        context_breakdown.budget = context_window.budget_snapshot();
+        context_breakdown.runtime_provider = self
+            .config
+            .provider_type
+            .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
+        context_breakdown.runtime_model = Some(model.to_string());
         let (prompt_tokens, completion_tokens, _has_actual_usage) =
             model_step_accounting_tokens(chunk_usage.as_ref(), context_breakdown.total_tokens);
         let operation_kind = match self.config.request_kind {
@@ -200,7 +210,7 @@ impl AgentExecutor {
         ) {
             warn!("Failed to persist canonical AI usage: {error}");
         }
-        *last_prompt_tokens = prompt_tokens;
+        *last_prompt_tokens = context_breakdown.total_tokens;
         *last_context_breakdown = Some(context_breakdown.clone());
         total_usage.prompt_tokens = total_usage.prompt_tokens.saturating_add(prompt_tokens);
         total_usage.completion_tokens = total_usage
@@ -243,7 +253,9 @@ impl AgentExecutor {
 
         // Request preparation exclusively owns compaction. Usage accounting
         // observes the accepted input and never rewrites live history mid-step.
-        let iteration_context_pct = context_window.budget_decision(prompt_tokens).usage_pct;
+        let iteration_context_pct = context_window
+            .budget_decision(context_breakdown.total_tokens)
+            .usage_pct;
 
         let completed = TurnLoopEvent::ModelStepCompleted {
             iteration: sample_index,

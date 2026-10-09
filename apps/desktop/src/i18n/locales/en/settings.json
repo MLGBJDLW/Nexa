@@ -52,7 +52,7 @@
   "embeddingSection": "Embedding Configuration",
   "embeddingProvider": "Embedding Provider",
   "embeddingLocal": "Local Model",
-  "embeddingApi": "API",
+  "embeddingApi": "Online API",
   "embeddingTfidf": "TF-IDF",
   "embeddingLocalModel": "Local Embedding Model",
   "embeddingLocalModelSelect": "Choose Model",
@@ -803,12 +803,12 @@
   "ttsAutoSpeakFinal": "Read final answers automatically",
   "ttsAutoSpeakFinalDesc": "After a turn completes, collapse the working trace and speak only the final answer. The chat header also provides a quick switch."
   ,"localModelStorage": "Local model storage"
-  ,"localModelStorageDesc": "Choose where Nexa stores managed embedding, OCR, and Whisper downloads. The default location is shown and can be changed to another drive."
+  ,"localModelStorageDesc": "New models use NEXA_HOME/models (default ~/.nexa/models). Choose another drive or consolidate existing downloads here."
   ,"localModelStorageChoose": "Choose a local model folder"
   ,"localModelStorageBrowse": "Browse"
-  ,"localModelStorageApply": "Use this location"
-  ,"localModelStorageDefault": "Restore default"
-  ,"localModelStorageWarning": "Changing the location does not move or delete existing model files. Downloads and delete actions use the newly selected folders."
+  ,"localModelStorageApply": "Consolidate and use"
+  ,"localModelStorageDefault": "Consolidate to default"
+  ,"localModelStorageWarning": "Existing models are copied and verified before all paths switch together. Originals are kept; conflicting files are never overwritten. Save pending settings and finish downloads first."
   ,"localModelStorageUnavailable": "Model settings are still loading. Try again in a moment."
   ,"localModelStorageSaved": "Local model location saved"
   ,"localModelStorageSaveError": "Failed to save the local model location"
@@ -1112,4 +1112,8 @@
   ,"systemOneEndpoint": "Provider base URL"
   ,"systemOneAccess": "Requires an enabled provider account. Preview and alpha model access can change; provider charges may apply."
   ,"systemOneDocs": "Official documentation"
+  ,"storageSection": "Storage locations"
+  ,"storageSectionDesc": "Manage global declarations, project rules and local model downloads in one place."
+  ,"storageProjectContracts": "Project contracts stay in each workspace: .nexa/AGENTS.md, .nexa/tools and .nexa/tmp. Existing AGENTS.md files take precedence."
+  ,"storageInternalState": "Database, credentials and app caches"
 }

@@ -142,7 +142,17 @@ fn usage_snapshot_from_payload(payload: &serde_json::Value) -> Option<UsageSnaps
         .as_ref()
         .and_then(|value| value.context_window)
         .filter(|value| *value > 0);
-    let source = if prompt_tokens + completion_tokens > 0 || context_capacity.is_some() {
+    let source = if matches!(
+        context_breakdown
+            .as_ref()
+            .and_then(|value| value.measurement),
+        Some(
+            crate::agent::context::ContextMeasurement::Estimated
+                | crate::agent::context::ContextMeasurement::ProviderPlusEstimate
+        )
+    ) {
+        UsageSnapshotSource::Estimated
+    } else if prompt_tokens + completion_tokens > 0 || context_capacity.is_some() {
         UsageSnapshotSource::Provider
     } else if last_prompt_tokens > 0 {
         UsageSnapshotSource::Estimated

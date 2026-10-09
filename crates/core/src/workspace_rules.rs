@@ -122,8 +122,9 @@ pub fn load(workspace: &Workspace, targets: &[PathBuf]) -> WorkspaceRules {
         }
     }
     let mut remaining = MAX_RULE_BYTES;
+    let mut seen_rule_files = BTreeSet::new();
     for (root, directory) in directories {
-        for name in ["AGENTS.override.md", "AGENTS.md"] {
+        for name in ["AGENTS.override.md", "AGENTS.md", ".nexa/AGENTS.md"] {
             let path = directory.join(name);
             match std::fs::symlink_metadata(&path) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -150,6 +151,9 @@ pub fn load(workspace: &Workspace, targets: &[PathBuf]) -> WorkspaceRules {
                     break;
                 }
             };
+            if !seen_rule_files.insert(canonical.clone()) {
+                break;
+            }
             let mut bytes = Vec::new();
             if let Err(error) = std::fs::File::open(&canonical).and_then(|file| {
                 file.take((MAX_RULE_BYTES + 1) as u64)
@@ -301,6 +305,35 @@ impl WorkspaceRuleState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn centralized_project_rules_keep_directory_scope_and_standard_precedence() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".nexa")).unwrap();
+        std::fs::create_dir_all(root.path().join("child/.nexa")).unwrap();
+        std::fs::write(root.path().join(".nexa/AGENTS.md"), "project rules").unwrap();
+        std::fs::write(root.path().join("child/.nexa/AGENTS.md"), "child rules").unwrap();
+        let workspace = Workspace::validate(&[root.path().to_string_lossy().into_owned()]).unwrap();
+        let rules = load(&workspace, &[PathBuf::from("child/file.rs")]);
+        assert_eq!(rules.files.len(), 2);
+        assert_eq!(rules.files[0].content, "project rules");
+        assert_eq!(
+            load(&workspace, &[PathBuf::from(".nexa/tools/check.json")])
+                .files
+                .len(),
+            1
+        );
+        assert_eq!(
+            PathBuf::from(&rules.files[0].scope),
+            root.path().canonicalize().unwrap()
+        );
+        assert_eq!(
+            PathBuf::from(&rules.files[1].scope),
+            root.path().join("child").canonicalize().unwrap()
+        );
+        std::fs::write(root.path().join("AGENTS.md"), "standard rules").unwrap();
+        assert_eq!(load(&workspace, &[]).files[0].content, "standard rules");
+    }
 
     #[test]
     fn loads_only_selected_ancestors_and_refreshes_revisions() {

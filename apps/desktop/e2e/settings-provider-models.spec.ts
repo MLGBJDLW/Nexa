@@ -785,17 +785,23 @@ test.beforeEach(async ({ page }) => {
           return clone(videoConfig);
         case "check_whisper_model_cmd":
           return false;
-        case "get_managed_model_paths_cmd": {
-          const customRoot = typeof _args.root === "string" && _args.root.trim()
-            ? _args.root.trim()
-            : null;
-          const root = customRoot || "C:\\Nexa\\models";
-          return {
-            root,
-            embedding: `${root}\\paraphrase-multilingual-MiniLM-L12-v2`,
-            ocr: `${root}\\paddleocr`,
-            whisper: customRoot ? `${root}\\whisper` : "C:\\Nexa\\legacy-whisper",
-          };
+        case "get_managed_model_paths_cmd":
+        case "consolidate_model_storage_cmd": {
+          const customRoot = typeof _args.root === "string" && _args.root.trim() ? _args.root.trim() : null;
+          const root = customRoot || "C:\\Users\\Test\\.nexa\\models";
+          const paths = { root, embedding: `${root}\\paraphrase-multilingual-MiniLM-L12-v2`, ocr: `${root}\\paddleocr`, whisper: `${root}\\whisper` };
+          if (cmd === "consolidate_model_storage_cmd") {
+            if (localStorage.getItem('hold-model-consolidation') === '1') {
+              await new Promise<void>(resolve => { Object.assign(window, { finishModelConsolidation: resolve }); });
+            }
+            Object.assign(appConfig, { localModelRoot: root });
+            Object.assign(embedderConfig, { modelPath: paths.embedding });
+            Object.assign(ocrConfig, { modelPath: paths.ocr });
+            Object.assign(videoConfig, { modelPath: paths.whisper });
+            Object.assign(window, { __savedAppConfig: clone(appConfig), __savedOcrConfig: clone(ocrConfig), __savedVideoConfig: clone(videoConfig), __consolidationCalled: true });
+            return { paths, copiedFiles: 3, copiedBytes: 1000, retainedSources: [] };
+          }
+          return paths;
         }
         case "save_embedder_config_cmd":
           (window as unknown as { __savedEmbedConfig?: unknown }).__savedEmbedConfig = clone(_args.config);
@@ -2039,9 +2045,9 @@ test("settings applies a managed model root and exposes OCR deletion", async ({ 
   await page.getByRole("button", { name: /^Models Manage AI models/ }).click();
 
   const rootInput = page.getByRole("textbox", { name: "Local model storage" });
-  await expect(rootInput).toHaveValue("C:\\Nexa\\models");
+  await expect(rootInput).toHaveValue("C:\\Users\\Test\\.nexa\\models");
   await rootInput.fill("D:\\NexaModels");
-  await page.getByRole("button", { name: "Use this location" }).click();
+  await page.getByRole("button", { name: "Consolidate and use" }).click();
 
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedAppConfig?: { localModelRoot?: string } }
@@ -2053,13 +2059,13 @@ test("settings applies a managed model root and exposes OCR deletion", async ({ 
     window as unknown as { __savedVideoConfig?: { modelPath?: string } }
   ).__savedVideoConfig?.modelPath)).toBe("D:\\NexaModels\\whisper");
 
-  await page.getByRole("button", { name: "Restore default" }).click();
+  await page.getByRole("button", { name: "Consolidate to default" }).click();
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedAppConfig?: { localModelRoot?: string } }
-  ).__savedAppConfig?.localModelRoot)).toBe("");
+  ).__savedAppConfig?.localModelRoot)).toBe("C:\\Users\\Test\\.nexa\\models");
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedVideoConfig?: { modelPath?: string } }
-  ).__savedVideoConfig?.modelPath)).toBe("C:\\Nexa\\legacy-whisper");
+  ).__savedVideoConfig?.modelPath)).toBe("C:\\Users\\Test\\.nexa\\models\\whisper");
 
   const ocrCard = page.getByRole("heading", { name: "OCR Model" }).locator("xpath=../../..");
   await ocrCard.getByRole("button", { name: "Delete model" }).click();
@@ -2209,8 +2215,7 @@ test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", a
   const section = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Embedding Configuration" }),
   });
-  await section.locator("button").first().click();
-  await section.getByRole("button", { name: "API", exact: true }).click();
+  await section.getByRole("button", { name: "Online API", exact: true }).click();
 
   const selects = section.locator("[data-nexa-select-trigger]");
   await selectNexaOption(selects.nth(0), "alibaba-model-studio-cn");
@@ -2812,4 +2817,31 @@ test('bottom-edge model and provider menus stay inside the viewport and reach th
   await page.keyboard.press('Enter');
   await expectNexaValue(triggers.first(), 'custom-openai-images');
   await page.screenshot({ path: testInfo.outputPath('bottom-edge-selection.png') });
+});
+
+
+test('source settings deep link opens online embeddings and centralized storage', async ({ page }, testInfo) => {
+  await page.goto('/settings?tab=models_embedding');
+  const online = page.getByRole('button', { name: 'Online API', exact: true });
+  await expect(online).toBeVisible();
+  await online.click();
+  await expect(page.getByRole('combobox', { name: 'Provider', exact: true })).toBeVisible();
+  await expect(page.getByTestId('local-storage-settings')).toContainText('.nexa/AGENTS.md');
+  await expect(page.getByRole('button', { name: 'Consolidate and use', exact: true })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('embedding-storage-entry.png'), fullPage: true });
+});
+
+
+test('model consolidation fences settings and download controls until verified readback', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('hold-model-consolidation', '1'));
+  await page.goto('/settings?tab=models_embedding');
+  await page.getByRole('button', { name: /^Models Manage AI models/ }).click();
+  await page.getByRole('button', { name: 'Consolidate and use', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: 'Local model storage' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Delete model' }).first()).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { finishModelConsolidation: () => void }).finishModelConsolidation());
+  await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeEnabled();
 });

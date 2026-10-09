@@ -37,7 +37,7 @@ pub struct OcrConfig {
     pub use_cls: bool,
 
     /// Optional override path for OCR model files.
-    /// When empty, defaults to `<data_dir>/<APP_DIR>/models/paddleocr/`.
+    /// When empty, uses the shared Nexa model home (with legacy read fallback).
     pub model_path: String,
 
     /// ISO 639-1 language codes controlling which rec model + dictionary
@@ -252,12 +252,7 @@ fn ocr_model_dir(config: &OcrConfig) -> Result<PathBuf, CoreError> {
     if !config.model_path.is_empty() {
         return Ok(PathBuf::from(&config.model_path));
     }
-    let data_dir =
-        dirs::data_dir().ok_or_else(|| CoreError::Ocr("cannot determine data directory".into()))?;
-    Ok(data_dir
-        .join(crate::APP_DIR)
-        .join("models")
-        .join("paddleocr"))
+    crate::local_storage::resolve_model_dir("paddleocr")
 }
 
 // ── PaddleOCR normalisation constants ───────────────────────────────

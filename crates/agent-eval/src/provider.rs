@@ -304,6 +304,23 @@ impl LlmProvider for ScriptedProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        if let Some(capacity) = self.task.context_window_tokens {
+            // Synthetic billing counters deliberately stay small. They are not
+            // a measurement of this transport's physical request capacity.
+            // Enforce that capacity explicitly so the long-turn fixture tests
+            // overflow recovery even when valid provider calibration prevents
+            // proactive compaction based on the full local estimate.
+            let input = nexa_core::agent::context::estimate_context_usage_breakdown_for_model(
+                &request.model,
+                &request.messages,
+                request.tools.as_deref().unwrap_or_default(),
+                None,
+            )
+            .total_tokens;
+            if input > capacity {
+                return Err(CoreError::ContextOverflow(input, capacity));
+            }
+        }
         let mut cursor = self.next_action.lock().unwrap();
         let chunk = if let Some(action) = self.task.reference_actions.get(*cursor) {
             *cursor += 1;

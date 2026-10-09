@@ -355,11 +355,35 @@ pub struct ContextUsageSegment {
 }
 
 /// Best-effort breakdown of the prompt tokens used by the latest model request.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextMeasurement {
+    Provider,
+    ProviderPlusEstimate,
+    Estimated,
+}
+
+/// The same capacity and trigger used by the runtime's compaction decision.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextBudget {
+    pub capacity_tokens: u32,
+    pub input_budget: u32,
+    pub response_reserve: u32,
+    pub safety_reserve: u32,
+    pub compact_threshold: u32,
+    pub compact_percent: u8,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextUsageBreakdown {
     pub total_tokens: u32,
     pub segments: Vec<ContextUsageSegment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<ContextBudget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement: Option<ContextMeasurement>,
     /// Authoritative capacity reported by the active external runtime. Absent
     /// for local estimates; never infer an external limit from an API alias.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -455,6 +479,12 @@ pub(super) fn breakdown_from_segments(
     ContextUsageBreakdown {
         total_tokens,
         segments,
+        budget: None,
+        measurement: Some(if actual_total > 0 {
+            ContextMeasurement::Provider
+        } else {
+            ContextMeasurement::Estimated
+        }),
         context_window: None,
         runtime_provider: None,
         runtime_model: None,

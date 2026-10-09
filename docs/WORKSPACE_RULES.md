@@ -11,6 +11,12 @@ those folders at the start of each native or host-tool agent turn. A nonempty
 to their directory and descendants; more specific directories take precedence.
 Explicit user instructions and the project's instructions remain authoritative.
 
+For projects that keep Nexa contracts together, `.nexa/AGENTS.md` is a fallback
+when neither standard rule file supplies instructions in that directory. It has
+the enclosing project/directory scope, not just the `.nexa` subfolder. Reading a
+tool manifest inside `.nexa/tools` does not load the same file a second time.
+No existing rules are moved or rewritten. See [local storage](LOCAL_STORAGE.md).
+
 Open **File rules** in the project menu, command palette, or `/rules`. The
 inspector shows the applicable files, directory scopes, content revisions and
 loading diagnostics. Enter a target file or directory to inspect its ancestor

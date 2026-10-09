@@ -52,7 +52,7 @@
   "embeddingSection": "AI 嵌入設定",
   "embeddingProvider": "嵌入提供商",
   "embeddingLocal": "本機模型",
-  "embeddingApi": "API",
+  "embeddingApi": "線上 API",
   "embeddingTfidf": "TF-IDF",
   "embeddingLocalModel": "本機嵌入模型",
   "embeddingLocalModelSelect": "選擇模型",
@@ -803,12 +803,12 @@
   "ttsAutoSpeakFinal": "Read final answers automatically",
   "ttsAutoSpeakFinalDesc": "Speak only the final answer after each turn. A quick switch is also available in the chat header."
   ,"localModelStorage": "本機模型儲存位置"
-  ,"localModelStorageDesc": "選擇 Nexa 儲存嵌入、OCR 與 Whisper 下載模型的位置。預設路徑會顯示，也可改到其他磁碟。"
+  ,"localModelStorageDesc": "新模型統一使用 NEXA_HOME/models（預設 ~/.nexa/models）。可選擇其他磁碟，或將現有下載集中到此處。"
   ,"localModelStorageChoose": "選擇本機模型資料夾"
   ,"localModelStorageBrowse": "瀏覽"
-  ,"localModelStorageApply": "使用此位置"
-  ,"localModelStorageDefault": "還原預設位置"
-  ,"localModelStorageWarning": "變更位置不會移動或刪除現有模型檔案；後續下載與刪除會使用新資料夾。"
+  ,"localModelStorageApply": "集中並使用此目錄"
+  ,"localModelStorageDefault": "集中到預設目錄"
+  ,"localModelStorageWarning": "先複製並驗證現有模型，再統一切換所有路徑。保留原始檔案，不覆寫衝突檔案。請先儲存待提交設定並完成下載。"
   ,"localModelStorageUnavailable": "模型設定仍在載入，請稍後再試。"
   ,"localModelStorageSaved": "已儲存本機模型位置"
   ,"localModelStorageSaveError": "無法儲存本機模型位置"
@@ -1112,4 +1112,8 @@
   ,"systemOneEndpoint": "供應商基礎網址"
   ,"systemOneAccess": "需要已開通的供應商帳號。預覽和 Alpha 模型的存取資格可能變更，呼叫可能產生費用。"
   ,"systemOneDocs": "官方文件"
+  ,"storageSection": "儲存位置"
+  ,"storageSectionDesc": "集中管理全域宣告、專案規則和本機模型下載。"
+  ,"storageProjectContracts": "專案契約保留在各工作區：.nexa/AGENTS.md、.nexa/tools 和 .nexa/tmp。現有 AGENTS.md 優先。"
+  ,"storageInternalState": "資料庫、憑證和應用程式快取"
 }

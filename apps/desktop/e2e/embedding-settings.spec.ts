@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
       : null } });
   });
   await page.goto('/e2e/fixtures/embedding-settings.html');
-  await page.getByRole('button', { name: /Embedding Configuration/ }).click();
+  await expect(page.getByRole('button', { name: /Embedding Configuration/ })).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('every verified provider chooses a valid default model and matching vector dimensions', async ({ page }) => {

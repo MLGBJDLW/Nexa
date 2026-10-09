@@ -52,7 +52,7 @@
   "embeddingSection": "AI 埋め込み設定",
   "embeddingProvider": "埋め込みプロバイダー",
   "embeddingLocal": "ローカルモデル",
-  "embeddingApi": "API",
+  "embeddingApi": "オンライン API",
   "embeddingTfidf": "TF-IDF",
   "embeddingLocalModel": "ローカル埋め込みモデル",
   "embeddingLocalModelSelect": "モデルを選択",
@@ -803,12 +803,12 @@
   "ttsAutoSpeakFinal": "Read final answers automatically",
   "ttsAutoSpeakFinalDesc": "Speak only the final answer after each turn. A quick switch is also available in the chat header."
   ,"localModelStorage": "Local model storage"
-  ,"localModelStorageDesc": "Choose where Nexa stores managed embedding, OCR, and Whisper downloads. The default location is shown and can be changed to another drive."
+  ,"localModelStorageDesc": "新しいモデルは NEXA_HOME/models（既定 ~/.nexa/models）に保存します。別のドライブの選択や既存モデルの集約もできます。"
   ,"localModelStorageChoose": "Choose a local model folder"
   ,"localModelStorageBrowse": "Browse"
-  ,"localModelStorageApply": "Use this location"
-  ,"localModelStorageDefault": "Restore default"
-  ,"localModelStorageWarning": "Changing the location does not move or delete existing model files. Downloads and delete actions use the newly selected folders."
+  ,"localModelStorageApply": "集約して使用"
+  ,"localModelStorageDefault": "既定の場所に集約"
+  ,"localModelStorageWarning": "コピーを検証してから全パスを一括で切り替えます。元のファイルは残し、競合ファイルは上書きしません。先に設定を保存し、ダウンロードを完了してください。"
   ,"localModelStorageUnavailable": "Model settings are still loading. Try again in a moment."
   ,"localModelStorageSaved": "Local model location saved"
   ,"localModelStorageSaveError": "Failed to save the local model location"
@@ -1112,4 +1112,8 @@
   ,"systemOneEndpoint": "プロバイダーのベース URL"
   ,"systemOneAccess": "利用可能なプロバイダーアカウントが必要です。プレビュー・アルファ版の提供状況は変わる可能性があり、料金が発生する場合があります。"
   ,"systemOneDocs": "公式ドキュメント"
+  ,"storageSection": "保存場所"
+  ,"storageSectionDesc": "共通設定、プロジェクトルール、ローカルモデルを一か所で管理します。"
+  ,"storageProjectContracts": "プロジェクト設定は各作業領域の .nexa/AGENTS.md、.nexa/tools、.nexa/tmp に置けます。既存の AGENTS.md が優先されます。"
+  ,"storageInternalState": "データベース、認証情報、アプリキャッシュ"
 }

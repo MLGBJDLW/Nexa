@@ -871,5 +871,9 @@
   "reviewHelp": "選擇比較範圍，檢視差異並在檔案行上記錄問題。差異變更後，舊問題會標為過期。回饋會加入草稿，確認後再傳送。",
   "reviewPartial": "部分內容為二進位、已省略或已截斷。請另外檢查完整變更，此檢視不代表完整審閱。",
   "reviewPrHelp": "使用現有的 GitHub CLI 登入唯讀查詢 PR。新提交後請重新整理；此處不發布留言或核准。",
-  "reviewHeadMismatch": "PR 提交與本機審閱不一致。這些檢查僅對應顯示的 PR SHA。"
+  "reviewHeadMismatch": "PR 提交與本機審閱不一致。這些檢查僅對應顯示的 PR SHA。",
+  "contextMeasured": "服務商實測",
+  "contextMeasuredPlusEstimate": "服務商實測 + 新增內容估算",
+  "contextCapacityReserves": "模型容量 {capacity} · 回覆預留 {response} · 安全預留 {safety}",
+  "contextCompactThreshold": "自動壓縮觸發點 {percent}%（{tokens} tokens）· 距觸發還剩 {remaining}"
 }

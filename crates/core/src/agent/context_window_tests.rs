@@ -72,6 +72,7 @@ struct ContextFixtureProvider {
     tools_per_round: usize,
     rows: usize,
     opaque_replay: bool,
+    usage: Option<Usage>,
 }
 
 #[async_trait]
@@ -84,7 +85,18 @@ impl LlmProvider for ContextFixtureProvider {
         Ok(vec!["gpt-4o".into()])
     }
 
-    async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        if let Some(usage) = self.usage.clone() {
+            self.requests.lock().unwrap().push(request.clone());
+            return Ok(CompletionResponse {
+                content: "Fixture complete.".into(),
+                tool_calls: None,
+                finish_reason: FinishReason::Stop,
+                usage,
+                thinking: None,
+                provider_replay: None,
+            });
+        }
         Err(CoreError::Llm(
             "fixture expects a streaming model step".into(),
         ))
@@ -106,6 +118,8 @@ impl LlmProvider for ContextFixtureProvider {
         );
         if self.opaque_replay {
             route.api_style = ReasoningApiStyle::AnthropicMessages;
+        } else if self.usage.is_some() {
+            route.api_style = ReasoningApiStyle::OpenAiChatCompletions;
         }
         route
     }
@@ -160,7 +174,7 @@ impl LlmProvider for ContextFixtureProvider {
                         .into(),
                     tool_call_delta: None,
                     finish_reason: Some(FinishReason::Stop),
-                    usage: None,
+                    usage: self.usage.clone(),
                     thinking_delta: None,
                 }),
             });
@@ -230,6 +244,7 @@ async fn run_context_fixture(
             tools_per_round,
             rows,
             opaque_replay,
+            usage: None,
         }),
         registry,
         AgentConfig {
@@ -270,6 +285,194 @@ async fn run_context_fixture(
     );
     let requests = requests.lock().unwrap().clone();
     (answer, requests, summaries.load(Ordering::SeqCst))
+}
+
+#[tokio::test]
+async fn provider_usage_counts_anthropic_cache_in_occupancy_without_changing_billing() {
+    check_provider_usage(ProviderType::Anthropic, "anthropic", true, 100).await;
+}
+
+#[tokio::test]
+async fn provider_usage_uses_config_route_ids_without_double_counting_openai_cache() {
+    for (provider, id) in [
+        (ProviderType::OpenAi, "open_ai"),
+        (ProviderType::OpenRouter, "openrouter"),
+        (ProviderType::SiliconFlow, "siliconflow"),
+    ] {
+        check_provider_usage(provider, id, false, 5_400).await;
+    }
+}
+
+async fn check_provider_usage(provider: ProviderType, id: &str, anthropic: bool, billed: u32) {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let executor = AgentExecutor::new(
+        Box::new(ContextFixtureProvider {
+            requests: Arc::clone(&requests),
+            rounds: 0,
+            tools_per_round: 0,
+            rows: 0,
+            opaque_replay: anthropic,
+            usage: Some(Usage {
+                prompt_tokens: billed,
+                completion_tokens: 20,
+                total_tokens: billed + 20,
+                cache_read_tokens: Some(5_000),
+                cache_creation_tokens: Some(300),
+                ..Usage::default()
+            }),
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            provider_type: Some(provider),
+            model: Some("gpt-4o".into()),
+            context_window: Some(8_192),
+            max_tokens: Some(512),
+            auto_compact_percent: Some(60),
+            ..AgentConfig::default()
+        },
+    )
+    .with_skills_override(Vec::new())
+    .with_auto_loaded_skills_override(Vec::new());
+    let db = Database::open_memory().unwrap();
+    let (tx, mut rx) = mpsc::channel(64);
+    let drain = tokio::spawn(async move {
+        let mut usage_events = Vec::new();
+        while let Some(event) = rx.recv().await {
+            if let AgentEvent::UsageUpdate {
+                usage_total,
+                last_prompt_tokens,
+                context_breakdown: Some(breakdown),
+            } = event
+            {
+                usage_events.push((usage_total, last_prompt_tokens, breakdown));
+            }
+        }
+        usage_events
+    });
+    executor
+        .run(
+            Vec::new(),
+            vec![ContentPart::Text {
+                text: "Finish the fixture".into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    let events = drain.await.unwrap();
+    let (usage, displayed, breakdown) = events
+        .iter()
+        .find(|(usage, _, _)| usage.completion_tokens == 20)
+        .unwrap();
+    assert_eq!(
+        *displayed, 5_400,
+        "all occupied input counts, including cached input"
+    );
+    assert_eq!(breakdown.total_tokens, 5_400);
+    assert_eq!(breakdown.runtime_provider.as_deref(), Some(id));
+    assert_eq!(
+        usage.prompt_tokens, billed,
+        "context normalization must not change billing counters"
+    );
+    assert_eq!(usage.total_tokens, billed + 20);
+    let request = requests.lock().unwrap()[0].clone();
+    let window = context_window::ContextWindow::new("gpt-4o", Some(8_192), 512)
+        .with_compact_percent(Some(60));
+    let calibrated = executor.context_budget_usage(
+        "gpt-4o",
+        &request.messages,
+        request.tools.as_deref().unwrap_or_default(),
+        window,
+    );
+    assert_eq!(
+        calibrated.total_tokens, 5_400,
+        "next-request calibration must retain cached occupancy"
+    );
+    assert!(
+        window
+            .budget_decision(calibrated.total_tokens)
+            .should_compact
+    );
+    assert_eq!(calibrated.runtime_provider.as_deref(), Some(id));
+}
+
+#[tokio::test]
+async fn history_compaction_publishes_its_current_budget_before_the_first_request() {
+    let summaries = Arc::new(AtomicUsize::new(0));
+    let executor = AgentExecutor::new(
+        Box::new(ContextFixtureProvider {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            rounds: 0,
+            tools_per_round: 0,
+            rows: 0,
+            opaque_replay: false,
+            usage: None,
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            model: Some("gpt-4o".into()),
+            context_window: Some(8_192),
+            max_tokens: Some(512),
+            auto_compact_percent: Some(60),
+            ..Default::default()
+        },
+    )
+    .with_summarization_provider(Box::new(ContextFixtureSummarizer(Arc::clone(&summaries))));
+    let history = vec![
+        Message::text(Role::User, "Earlier request"),
+        Message::text(Role::Assistant, "earlier evidence ".repeat(6_000)),
+        Message::text(Role::User, "Recent request"),
+        Message::text(Role::Assistant, "Recent answer"),
+        Message::text(Role::User, "Latest request"),
+        Message::text(Role::Assistant, "Latest answer"),
+    ];
+    let db = Database::open_memory().unwrap();
+    let (tx, mut rx) = mpsc::channel(8);
+    let (reduced, _) = executor
+        .summarize_if_needed(
+            history.clone(),
+            "gpt-4o",
+            512,
+            &tx,
+            context_compaction::CompactionRunContext {
+                db: &db,
+                conversation_id: None,
+                turn_id: None,
+                active_request: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(summaries.load(Ordering::SeqCst) > 0);
+    assert_ne!(
+        prompt_cache::message_sequence_fingerprint(&history),
+        prompt_cache::message_sequence_fingerprint(&reduced)
+    );
+    let AgentEvent::UsageUpdate {
+        usage_total,
+        last_prompt_tokens,
+        context_breakdown: Some(breakdown),
+    } = rx.try_recv().unwrap()
+    else {
+        panic!("history gate must publish current occupancy");
+    };
+    assert_eq!(
+        usage_total.total_tokens, 0,
+        "an estimate is not newly billed usage"
+    );
+    assert_eq!(last_prompt_tokens, breakdown.total_tokens);
+    assert_eq!(
+        breakdown.measurement,
+        Some(context::ContextMeasurement::Estimated)
+    );
+    let budget = breakdown.budget.unwrap();
+    assert_eq!(budget.capacity_tokens, 8_192);
+    assert!(last_prompt_tokens > budget.compact_threshold);
 }
 
 #[tokio::test]

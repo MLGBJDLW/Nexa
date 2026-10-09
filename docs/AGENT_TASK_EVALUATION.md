@@ -39,6 +39,11 @@ Default mode makes no model-account request. Its report is labelled
 task passes only when execution and its independent oracle succeed. Approval tasks also
 require an actual approval event.
 
+The long-turn transport enforces its configured physical request capacity
+separately from synthetic counters and rejects oversized requests before advancing
+its script. This exercises overflow compaction/recovery without depending on a
+full local estimate overriding an accepted provider usage observation.
+
 Oracles and reference answers are outside the agent's authorized workspace. Oracle Node
 processes receive no provider key or unrelated user environment, have filesystem read
 permission only for the workspace and oracle inputs, and have a separate timeout.

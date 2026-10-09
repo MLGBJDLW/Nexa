@@ -72,6 +72,7 @@ mod lexical;
 pub mod lint;
 pub mod live_analysis;
 pub mod llm;
+pub mod local_storage;
 pub mod managed_assets;
 pub mod managed_process;
 pub mod mcp;

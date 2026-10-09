@@ -22,6 +22,7 @@ English is the canonical language for maintained technical documentation.
 | [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
 | [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
 | [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |
+| [Local storage](LOCAL_STORAGE.md) | Inspect declaration/model locations and consolidate existing model downloads |
 | [Project lifecycle checks](PROJECT_HOOKS.md) | Enable version-bound commands, inspect their receipts, and enforce completion checks |
 | [MCP resources and prompt templates](MCP_CONTENT.md) | Browse connector content, validate template arguments, and add reviewed text to drafts |
 | [MCP OAuth sign-in](MCP_OAUTH.md) | Sign in, renew or disconnect remote connector accounts with system credential storage |

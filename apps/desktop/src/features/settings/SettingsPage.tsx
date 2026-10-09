@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useBlocker, useNavigate } from 'react-router';
+import { useBlocker, useNavigate, useSearchParams } from 'react-router';
 import {
   Database,
   Brain,
@@ -39,6 +39,7 @@ import { DataPrivacySettingsTab } from '../../components/settings/DataPrivacySet
 import { EmbeddingConfigSection } from '../../components/settings/EmbeddingConfigSection';
 import { KnowledgeServicesPanel } from '../../components/settings/KnowledgeServicesPanel';
 import { ExtensionsSettingsTab, type SkillFilter } from '../../components/settings/ExtensionsSettingsTab';
+import { LocalStorageSection } from '../../components/settings/LocalStorageSection';
 import { ModelDownloadsSection } from '../../components/settings/ModelDownloadsSection';
 import { OcrSettingsSection } from '../../components/settings/OcrSettingsSection';
 import { ProvidersSettingsTab, type ProviderView } from '../../components/settings/ProvidersSettingsTab';
@@ -50,14 +51,21 @@ import { useVoiceInputRuntime, withWhisperModel } from '../voice';
 
 /* ── Settings page ────────────────────────────────────────────────── */
 type SettingsTab = 'appearance' | 'theme' | 'models_embedding' | 'providers' | 'usage' | 'agent_quality' | 'media' | 'data_privacy' | 'extensions';
+function settingsTabFromQuery(value: string | null): SettingsTab {
+  return ['appearance', 'theme', 'models_embedding', 'providers', 'usage', 'media', 'data_privacy', 'extensions'].includes(value ?? '')
+    ? value as SettingsTab : 'appearance';
+}
 type SettingsTabItem = { id: SettingsTab; label: string; icon: ReactNode; developerOnly?: boolean };
 const MEMORY_CHAR_LIMIT = 240;
 const TAB_STRIP_EDGE_EPSILON = 4;
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedTab = settingsTabFromQuery(searchParams.get('tab'));
+  const lastRequestedTab = useRef(requestedTab);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(requestedTab);
   const [developerMode, updateDeveloperMode] = useDeveloperMode();
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
   const [pendingTab, setPendingTab] = useState<SettingsTab | null>(null);
@@ -623,16 +631,10 @@ export function SettingsPage() {
     }
     setModelStorageSaving(true);
     try {
-      const paths = await api.getManagedModelPaths(root?.trim() || undefined, embedConfig.localModel);
-      const nextAppConfig = { ...appConfig, localModelRoot: root?.trim() ? paths.root : '' };
-      const nextEmbedConfig = { ...embedConfig, modelPath: paths.embedding };
-      const nextOcrConfig = { ...ocrConfig, modelPath: paths.ocr };
-      const nextVideoConfig = { ...videoConfig, modelPath: paths.whisper };
-      await Promise.all([
-        api.saveAppConfig(nextAppConfig),
-        api.saveEmbedderConfig(nextEmbedConfig),
-        api.saveOcrConfig(nextOcrConfig),
-        api.saveVideoConfig(nextVideoConfig),
+      const report = await api.consolidateModelStorage(root?.trim() || undefined);
+      const paths = report.paths;
+      const [nextAppConfig, nextEmbedConfig, nextOcrConfig, nextVideoConfig] = await Promise.all([
+        api.getAppConfig(), api.getEmbedderConfig(), api.getOcrConfig(), api.getVideoConfig(),
       ]);
       setAppConfig(nextAppConfig);
       setEmbedConfig(nextEmbedConfig);
@@ -895,13 +897,20 @@ export function SettingsPage() {
   }, [activeTab, loadAppConfig, loadEmbedConfig, loadOcrConfig, loadVideoConfig, loadPrivacyConfig, markClean]);
 
   const handleTabChange = useCallback((nextTab: SettingsTab) => {
+    if (modelStorageSaving) return;
     if (nextTab === activeTab) return;
     if (isTabDirty(activeTab)) {
       setPendingTab(nextTab);
       return;
     }
     setActiveTab(nextTab);
-  }, [activeTab, isTabDirty]);
+  }, [activeTab, isTabDirty, modelStorageSaving]);
+
+  useEffect(() => {
+    if (lastRequestedTab.current === requestedTab) return;
+    lastRequestedTab.current = requestedTab;
+    handleTabChange(requestedTab);
+  }, [requestedTab, handleTabChange]);
 
   const handleCancelPendingTabChange = useCallback(() => {
     if (discardingTabChanges) return;
@@ -1654,6 +1663,7 @@ export function SettingsPage() {
               key={tab.id}
               aria-current={activeTab === tab.id ? 'page' : undefined}
               onClick={() => handleTabChange(tab.id)}
+              disabled={modelStorageSaving}
               className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-fast cursor-pointer whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-accent text-white shadow-sm'
@@ -1728,8 +1738,31 @@ export function SettingsPage() {
 
       {/* ── Tab: Models & Embedding ──────────────────────────────── */}
       {activeTab === 'models_embedding' && (
-        <>
+      <fieldset disabled={modelStorageSaving} aria-busy={modelStorageSaving} className="min-w-0 space-y-4">
         {/* Models section */}
+        <EmbeddingConfigSection
+          embedConfig={embedConfig}
+          localModelReady={localModelReady}
+          testLoading={testLoading}
+          embedSaveLoading={embedSaveLoading}
+          rebuildEmbedLoading={rebuildEmbedLoading}
+          embedRebuildProgress={embedRebuildProgress}
+          agentConfigs={agentConfigs}
+          onConfigChange={setEmbedConfig}
+          onMarkDirty={() => markDirty('models_embedding')}
+          onTestConnection={handleTestConnection}
+          onSave={handleSaveEmbedConfig}
+          onRebuild={handleRebuildEmbeddings}
+        />
+
+        <LocalStorageSection
+          managedModelPaths={managedModelPaths}
+          modelStorageSaving={modelStorageSaving}
+          disabled={isTabDirty('models_embedding') || downloadLoading || ocrDownloading || videoDownloading}
+          onApplyManagedModelRoot={(root) => handleManagedModelRootChange(root)}
+          onResetManagedModelRoot={() => handleManagedModelRootChange(undefined)}
+        />
+
         <ModelDownloadsSection
           embedConfig={embedConfig}
           localModelReady={localModelReady}
@@ -1747,8 +1780,6 @@ export function SettingsPage() {
           appConfig={appConfig}
           appConfigLoading={appConfigLoading}
           deleteEmbedModelConfirmOpen={deleteEmbedModelConfirmOpen}
-          managedModelPaths={managedModelPaths}
-          modelStorageSaving={modelStorageSaving}
           onEmbedLocalModelChange={(localModel) => {
             if (!embedConfig) return;
             void (async () => {
@@ -1787,27 +1818,11 @@ export function SettingsPage() {
           }}
           onMarkModelsDirty={() => markDirty('models_embedding')}
           onOpenSpeechSettings={() => handleTabChange('providers')}
-          onApplyManagedModelRoot={(root) => handleManagedModelRootChange(root)}
-          onResetManagedModelRoot={() => handleManagedModelRootChange(undefined)}
         />
 
-        <EmbeddingConfigSection
-          embedConfig={embedConfig}
-          localModelReady={localModelReady}
-          testLoading={testLoading}
-          embedSaveLoading={embedSaveLoading}
-          rebuildEmbedLoading={rebuildEmbedLoading}
-          embedRebuildProgress={embedRebuildProgress}
-          agentConfigs={agentConfigs}
-          onConfigChange={setEmbedConfig}
-          onMarkDirty={() => markDirty('models_embedding')}
-          onTestConnection={handleTestConnection}
-          onSave={handleSaveEmbedConfig}
-          onRebuild={handleRebuildEmbeddings}
-        />
         <VectorStoreSection />
         <KnowledgeServicesPanel />
-      </>
+      </fieldset>
       )}
 
       {/* ── Tab: AI Providers ──────────────────────────────────────── */}

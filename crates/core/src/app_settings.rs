@@ -819,7 +819,7 @@ pub struct AppConfig {
     pub window_close_behavior: WindowCloseBehavior,
 
     /// Optional root directory for managed local model downloads. An empty
-    /// value keeps the legacy per-model locations for existing installations.
+    /// value uses the shared Nexa home with read compatibility for old models.
     #[serde(default)]
     pub local_model_root: String,
 

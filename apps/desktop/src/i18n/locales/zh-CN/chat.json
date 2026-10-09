@@ -871,5 +871,9 @@
   "reviewHelp": "选择比较范围，查看差异并在文件行上记录问题。差异变化后，旧问题会标为过期。反馈会加入草稿，核对后再发送。",
   "reviewPartial": "部分内容为二进制、已省略或已截断。请单独检查完整更改，此视图不能代表完整审阅。",
   "reviewPrHelp": "使用已有的 GitHub CLI 登录只读查询 PR。新提交后请刷新；此处不发布评论或批准。",
-  "reviewHeadMismatch": "PR 提交与本地审阅不一致。这些检查仅对应显示的 PR SHA。"
+  "reviewHeadMismatch": "PR 提交与本地审阅不一致。这些检查仅对应显示的 PR SHA。",
+  "contextMeasured": "服务商实测",
+  "contextMeasuredPlusEstimate": "服务商实测 + 新增内容估算",
+  "contextCapacityReserves": "模型容量 {capacity} · 回复预留 {response} · 安全预留 {safety}",
+  "contextCompactThreshold": "自动压缩触发点 {percent}%（{tokens} tokens）· 距触发还剩 {remaining}"
 }

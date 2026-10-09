@@ -7,6 +7,11 @@ the connection, save, then rebuild embeddings. The custom model checkbox accepts
 account-specific model IDs without losing the provider's endpoint or adapter.
 Local ONNX downloads include Qwen3-Embedding-0.6B, multilingual MiniLM and E5.
 
+The provider selector is expanded by default, above the local downloads. Choose
+**Online API** for hosted embeddings. The **Sources → Embedding Configuration**
+shortcut opens this section directly. [Storage locations](LOCAL_STORAGE.md)
+provides one home for managed embedding, OCR and Whisper downloads.
+
 ## API and local-server choices
 
 | Service | Included models | Adapter and constraints |

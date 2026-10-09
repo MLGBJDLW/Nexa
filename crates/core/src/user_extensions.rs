@@ -41,6 +41,7 @@ This directory contains user-authored, portable Nexa declarations.
 - `themes/`: declarative theme-resource JSON files
 - `workflows/`: reusable workflow package declarations
 - `connectors/mcp.json`: MCP connector declarations
+- `models/`: managed embedding, OCR and Whisper downloads
 
 Secrets do not belong here. Reference environment variables or use Nexa's
 credential storage. Internal databases, caches, logs, indexes, downloaded
@@ -65,6 +66,7 @@ pub struct UserExtensionLayoutView {
     pub connectors_dir: String,
     pub mcp_config_path: String,
     pub legacy_app_data_dir: String,
+    pub models_dir: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
@@ -98,11 +100,10 @@ pub struct ThemeFileLoadReport {
 
 impl UserExtensionLayout {
     pub fn discover(legacy_app_data_dir: impl AsRef<Path>) -> Result<Self, CoreError> {
-        let home_dir = dirs::home_dir().ok_or_else(|| {
-            CoreError::Internal("Could not resolve the user home directory for ~/.nexa".into())
-        })?;
-        let override_root = std::env::var_os(NEXA_HOME_ENV).map(PathBuf::from);
-        Self::resolve(home_dir, legacy_app_data_dir, override_root)
+        Ok(Self {
+            root: crate::local_storage::home_dir()?,
+            legacy_app_data_dir: legacy_app_data_dir.as_ref().to_path_buf(),
+        })
     }
 
     pub fn resolve(
@@ -165,6 +166,7 @@ impl UserExtensionLayout {
             connectors_dir: display_path(&self.connectors_dir()),
             mcp_config_path: display_path(&self.mcp_config_path()),
             legacy_app_data_dir: display_path(&self.legacy_app_data_dir),
+            models_dir: display_path(&self.root.join("models")),
         }
     }
 

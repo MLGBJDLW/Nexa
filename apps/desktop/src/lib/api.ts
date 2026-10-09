@@ -2216,6 +2216,11 @@ export interface ManagedModelPaths {
 export const getManagedModelPaths = (root?: string, localModel?: string) =>
   invoke<ManagedModelPaths>('get_managed_model_paths_cmd', { root, localModel });
 
+export const consolidateModelStorage = (root?: string) =>
+  invoke<{ paths: ManagedModelPaths; copiedFiles: number; copiedBytes: number; retainedSources: string[] }>(
+    'consolidate_model_storage_cmd', { root },
+  );
+
 // ── App Config ──────────────────────────────────────────────────────
 
 export const getAppConfig = () =>

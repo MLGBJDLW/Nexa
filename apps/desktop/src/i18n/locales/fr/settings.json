@@ -52,7 +52,7 @@
   "embeddingSection": "Configuration d'embedding IA",
   "embeddingProvider": "Fournisseur d'embedding",
   "embeddingLocal": "Modèle local",
-  "embeddingApi": "API",
+  "embeddingApi": "API en ligne",
   "embeddingTfidf": "TF-IDF",
   "embeddingLocalModel": "Modèle d'embedding local",
   "embeddingLocalModelSelect": "Choisir le modèle",
@@ -803,12 +803,12 @@
   "ttsAutoSpeakFinal": "Read final answers automatically",
   "ttsAutoSpeakFinalDesc": "Speak only the final answer after each turn. A quick switch is also available in the chat header."
   ,"localModelStorage": "Local model storage"
-  ,"localModelStorageDesc": "Choose where Nexa stores managed embedding, OCR, and Whisper downloads. The default location is shown and can be changed to another drive."
+  ,"localModelStorageDesc": "Les nouveaux modèles utilisent NEXA_HOME/models (par défaut ~/.nexa/models). Choisissez un disque ou regroupez les modèles existants ici."
   ,"localModelStorageChoose": "Choose a local model folder"
   ,"localModelStorageBrowse": "Browse"
-  ,"localModelStorageApply": "Use this location"
-  ,"localModelStorageDefault": "Restore default"
-  ,"localModelStorageWarning": "Changing the location does not move or delete existing model files. Downloads and delete actions use the newly selected folders."
+  ,"localModelStorageApply": "Regrouper et utiliser"
+  ,"localModelStorageDefault": "Regrouper par défaut"
+  ,"localModelStorageWarning": "Les copies sont vérifiées avant le changement simultané des chemins. Les originaux sont conservés et les conflits ne sont pas écrasés. Enregistrez les réglages et terminez les téléchargements."
   ,"localModelStorageUnavailable": "Model settings are still loading. Try again in a moment."
   ,"localModelStorageSaved": "Local model location saved"
   ,"localModelStorageSaveError": "Failed to save the local model location"
@@ -1112,4 +1112,8 @@
   ,"systemOneEndpoint": "URL de base du fournisseur"
   ,"systemOneAccess": "Un compte autorisé est requis. L’accès aux modèles en aperçu ou alpha peut changer et les appels peuvent être facturés."
   ,"systemOneDocs": "Documentation officielle"
+  ,"storageSection": "Emplacements de stockage"
+  ,"storageSectionDesc": "Gérez les déclarations globales, règles de projet et modèles locaux au même endroit."
+  ,"storageProjectContracts": "Les règles restent dans chaque projet : .nexa/AGENTS.md, .nexa/tools et .nexa/tmp. Les fichiers AGENTS.md existants sont prioritaires."
+  ,"storageInternalState": "Base de données, identifiants et caches"
 }

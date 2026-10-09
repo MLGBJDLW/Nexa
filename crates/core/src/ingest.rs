@@ -591,7 +591,10 @@ fn scan_source_inner(
     // Batch-insert all new documents in a single transaction.
     if !new_docs.is_empty() {
         debug!("Batch-inserting {} new documents", new_docs.len());
-        batch_insert_documents(db, source_id, &new_docs)?;
+        let counts = commit_new_documents(db, source_id, &new_docs)?;
+        result.files_skipped += counts.unchanged;
+        result.files_added = counts.inserted;
+        result.files_updated += counts.updated;
     }
 
     // Batch-update all changed documents in a single transaction.
@@ -731,34 +734,41 @@ pub fn batch_insert_documents(
     source_id: &str,
     parsed_docs: &[ParsedDocument],
 ) -> Result<usize, CoreError> {
+    let counts = commit_new_documents(db, source_id, parsed_docs)?;
+    Ok(counts.inserted + counts.updated)
+}
+
+#[derive(Default)]
+struct DocumentCommitCounts {
+    inserted: usize,
+    updated: usize,
+    unchanged: usize,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentCommit {
+    Inserted,
+    Updated,
+    Unchanged,
+}
+
+fn commit_new_documents(
+    db: &Database,
+    source_id: &str,
+    parsed_docs: &[ParsedDocument],
+) -> Result<DocumentCommitCounts, CoreError> {
     let mut conn = db.conn();
-    let tx = conn.transaction()?;
-    let mut count = 0usize;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let mut counts = DocumentCommitCounts::default();
     for parsed in parsed_docs {
-        validate_privacy_at_commit(&tx, parsed)?;
-        let doc_id = uuid::Uuid::new_v4().to_string();
-        let metadata_json = parsed_metadata_json(parsed)?;
-        tx.execute(
-            "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
-                                    modified_at, content_hash, metadata)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), ?7, ?8)",
-            params![
-                &doc_id,
-                source_id,
-                &parsed.file_path,
-                &parsed.title,
-                &parsed.mime_type,
-                parsed.file_size,
-                &parsed.content_hash,
-                &metadata_json,
-            ],
-        )?;
-        insert_chunks(&tx, &doc_id, &parsed.chunks)?;
-        insert_visual_artifact_chunks(&tx, &doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
-        count += 1;
+        let (_, outcome) = commit_new_document(&tx, source_id, parsed)?;
+        match outcome {
+            DocumentCommit::Inserted => counts.inserted += 1,
+            DocumentCommit::Updated => counts.updated += 1,
+            DocumentCommit::Unchanged => counts.unchanged += 1,
+        }
     }
     tx.commit()?;
-    Ok(count)
+    Ok(counts)
 }
 
 /// Update multiple existing documents in a single transaction for bulk operations.
@@ -773,31 +783,7 @@ pub fn batch_update_documents(
     let tx = conn.transaction()?;
     let mut count = 0usize;
     for (doc_id, parsed) in updates {
-        validate_privacy_at_commit(&tx, parsed)?;
-        // Delete old chunks — FTS triggers fire automatically.
-        tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
-        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
-
-        // Update the document record.
-        let metadata_json = parsed_metadata_json(parsed)?;
-        tx.execute(
-            "UPDATE documents
-             SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
-                 content_hash = ?3, indexed_at = datetime('now'),
-                 title = ?4, metadata = ?5
-             WHERE id = ?6",
-            params![
-                &parsed.mime_type,
-                parsed.file_size,
-                &parsed.content_hash,
-                &parsed.title,
-                &metadata_json,
-                doc_id,
-            ],
-        )?;
-
-        insert_chunks(&tx, doc_id, &parsed.chunks)?;
-        insert_visual_artifact_chunks(&tx, doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+        replace_document_revision(&tx, doc_id, parsed)?;
         count += 1;
     }
     tx.commit()?;
@@ -863,13 +849,14 @@ impl Database {
                         .to_string()
                 })
                 .unwrap_or(path);
-            map.entry(key).or_insert(IndexedDocument {
-                id,
-                content_hash,
-                parser_profile,
-                parsed_hash,
-                redaction_profile,
-            });
+            map.entry(document_lookup_key(&key))
+                .or_insert(IndexedDocument {
+                    id,
+                    content_hash,
+                    parser_profile,
+                    parsed_hash,
+                    redaction_profile,
+                });
         }
         Ok(map)
     }
@@ -989,32 +976,9 @@ impl Database {
         source_id: &str,
         parsed: &ParsedDocument,
     ) -> Result<String, CoreError> {
-        let doc_id = uuid::Uuid::new_v4().to_string();
-
         let mut conn = self.conn();
-        let tx = conn.transaction()?;
-
-        validate_privacy_at_commit(&tx, parsed)?;
-
-        let metadata_json = parsed_metadata_json(parsed)?;
-        tx.execute(
-            "INSERT INTO documents (id, source_id, path, title, mime_type, file_size,
-                                    modified_at, content_hash, metadata)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), ?7, ?8)",
-            params![
-                &doc_id,
-                source_id,
-                &parsed.file_path,
-                &parsed.title,
-                &parsed.mime_type,
-                parsed.file_size,
-                &parsed.content_hash,
-                &metadata_json,
-            ],
-        )?;
-
-        insert_chunks(&tx, &doc_id, &parsed.chunks)?;
-        insert_visual_artifact_chunks(&tx, &doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (doc_id, _) = commit_new_document(&tx, source_id, parsed)?;
 
         tx.commit()?;
         Ok(doc_id)
@@ -1028,32 +992,7 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        validate_privacy_at_commit(&tx, parsed)?;
-
-        // Delete old chunks — FTS triggers fire automatically.
-        tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
-        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
-
-        // Update the document record.
-        let metadata_json = parsed_metadata_json(parsed)?;
-        tx.execute(
-            "UPDATE documents
-             SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
-                 content_hash = ?3, indexed_at = datetime('now'),
-                 title = ?4, metadata = ?5
-             WHERE id = ?6",
-            params![
-                &parsed.mime_type,
-                parsed.file_size,
-                &parsed.content_hash,
-                &parsed.title,
-                &metadata_json,
-                doc_id,
-            ],
-        )?;
-
-        insert_chunks(&tx, doc_id, &parsed.chunks)?;
-        insert_visual_artifact_chunks(&tx, doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+        replace_document_revision(&tx, doc_id, parsed)?;
 
         tx.commit()?;
         Ok(())
@@ -1085,6 +1024,108 @@ impl Database {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Use one spelling for prefetch and parser lookups. Joining a relative path
+/// with forward slashes onto a Windows root otherwise creates a mixed path
+/// that never equals the backslash spelling returned by read_dir.
+fn document_lookup_key(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        let path = path.replace('\\', "/");
+        let path = if let Some(rest) = path.strip_prefix("//?/UNC/") {
+            format!("//{rest}")
+        } else {
+            path.strip_prefix("//?/").unwrap_or(&path).to_string()
+        };
+        // NTFS can enable case sensitivity per directory. Keep leaf spelling
+        // so distinct files never share a prefetch identity.
+        path
+    }
+    #[cfg(not(windows))]
+    path.to_string()
+}
+
+/// Resolve identity again in the write transaction: a prefetch is only a hint.
+/// A concurrent scan/watcher may have already committed this document. Keep
+/// identical chunks/vectors, or reclassify against the live file on conflict.
+/// Updates retain document identity; no path uses INSERT OR REPLACE.
+fn commit_new_document(
+    tx: &rusqlite::Transaction<'_>,
+    source_id: &str,
+    parsed: &ParsedDocument,
+) -> Result<(String, DocumentCommit), CoreError> {
+    use rusqlite::OptionalExtension;
+    validate_privacy_at_commit(tx, parsed)?;
+    let aliases = source_document_path_aliases(tx, source_id, &parsed.file_path)?;
+    let existing: Option<(String, String, String)> = tx.query_row(
+        "SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1",
+        params![source_id, serde_json::to_string(&aliases)?], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
+    ).optional()?;
+    if let Some((id, current_hash, current_parsed_hash)) = existing {
+        if current_hash == parsed.content_hash && current_parsed_hash == parsed_hash(parsed) {
+            return Ok((id, DocumentCommit::Unchanged));
+        }
+        // A stale prefetch cannot tell which racing parse is newer. Resolve
+        // against the current file, rather than blindly choosing either writer.
+        let live_hash = crate::parse::hash_file_content(Path::new(&parsed.file_path))?;
+        if live_hash == parsed.content_hash {
+            replace_document_revision(tx, &id, parsed)?;
+            return Ok((id, DocumentCommit::Updated));
+        }
+        if live_hash == current_hash {
+            return Ok((id, DocumentCommit::Unchanged));
+        }
+        return Err(CoreError::Conflict(format!(
+            "File changed again while scanning {}; retry the scan to index its current contents",
+            parsed.file_path
+        )));
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO documents (id, source_id, path, title, mime_type, file_size, modified_at, content_hash, metadata)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), ?7, ?8)",
+        params![id, source_id, parsed.file_path, parsed.title, parsed.mime_type,
+            parsed.file_size, parsed.content_hash, parsed_metadata_json(parsed)?],
+    )?;
+    insert_chunks(tx, &id, &parsed.chunks)?;
+    insert_visual_artifact_chunks(tx, &id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+    Ok((id, DocumentCommit::Inserted))
+}
+
+fn replace_document_revision(
+    tx: &rusqlite::Transaction<'_>,
+    doc_id: &str,
+    parsed: &ParsedDocument,
+) -> Result<(), CoreError> {
+    validate_privacy_at_commit(tx, parsed)?;
+
+    // Delete old chunks — FTS triggers fire automatically.
+    tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
+    revoke_changed_redaction_history(tx, doc_id, parsed)?;
+
+    // Update the document record.
+    let metadata_json = parsed_metadata_json(parsed)?;
+    tx.execute(
+        "UPDATE documents
+         SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
+         content_hash = ?3, indexed_at = datetime('now'),
+         title = ?4, metadata = ?5
+         WHERE id = ?6",
+        params![
+            &parsed.mime_type,
+            parsed.file_size,
+            &parsed.content_hash,
+            &parsed.title,
+            &metadata_json,
+            doc_id,
+        ],
+    )?;
+
+    insert_chunks(tx, doc_id, &parsed.chunks)?;
+    insert_visual_artifact_chunks(tx, doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+
+    Ok(())
+}
 
 /// Classification of a file during scanning.
 enum FileClassification {
@@ -1118,11 +1159,14 @@ fn classify_file(
         let mime_type = detect_mime_type(path);
         if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
             let hash = hash_file_content(path)?;
-            if existing_docs.get(&file_path).is_some_and(|existing| {
-                existing.content_hash == hash
-                    && existing.parser_profile == NATIVE_PARSER_PROFILE
-                    && existing.redaction_profile == redaction_profile
-            }) {
+            if existing_docs
+                .get(&document_lookup_key(&file_path))
+                .is_some_and(|existing| {
+                    existing.content_hash == hash
+                        && existing.parser_profile == NATIVE_PARSER_PROFILE
+                        && existing.redaction_profile == redaction_profile
+                })
+            {
                 debug!("Skipping unchanged media before analysis: {}", file_path);
                 return Ok(FileClassification::Unchanged);
             }
@@ -1156,7 +1200,7 @@ fn classify_file(
 
     apply_privacy(&mut parsed, privacy, stored_fingerprint)?;
 
-    match existing_docs.get(&parsed.file_path) {
+    match existing_docs.get(&document_lookup_key(&parsed.file_path)) {
         Some(existing) => {
             if existing.content_hash == parsed.content_hash
                 && existing.parser_profile == parser_profile(&parsed)
@@ -2439,6 +2483,216 @@ mod tests {
     }
 
     #[test]
+    fn racing_new_document_parses_keep_the_live_revision_and_identity() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("racing.md");
+        let parse = || {
+            parse_file(
+                &file,
+                None,
+                #[cfg(feature = "video")]
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        fs::write(
+            &file,
+            "# Earlier\n\nOld evidence oldsentinel from the watcher.",
+        )
+        .unwrap();
+        let old = parse();
+        fs::write(
+            &file,
+            "# Current\n\nCurrent evidence newsentinel from the scan.",
+        )
+        .unwrap();
+        let current = parse();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        // The first writer wins the identity, but not permanently the content.
+        let id = db.insert_document(&sid, &old).unwrap();
+        let counts = commit_new_documents(&db, &sid, std::slice::from_ref(&current)).unwrap();
+        assert_eq!(counts.updated, 1);
+        assert_eq!(
+            db.get_document_by_path(&current.file_path)
+                .unwrap()
+                .unwrap(),
+            (id.clone(), current.content_hash.clone())
+        );
+        // In the inverse order the older writer must not revert current content.
+        assert_eq!(db.insert_document(&sid, &old).unwrap(), id);
+        assert_eq!(
+            db.get_document_by_path(&current.file_path)
+                .unwrap()
+                .unwrap()
+                .1,
+            current.content_hash
+        );
+        let conn = db.conn();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM fts_chunks WHERE fts_chunks MATCH 'newsentinel'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM fts_chunks WHERE fts_chunks MATCH 'oldsentinel'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn a_third_file_revision_cannot_be_reported_as_successful_indexing() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("changing.md");
+        let parse = || {
+            parse_file(
+                &file,
+                None,
+                #[cfg(feature = "video")]
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        fs::write(&file, "# One\n\nFirst content.").unwrap();
+        let first = parse();
+        fs::write(&file, "# Two\n\nSecond content.").unwrap();
+        let second = parse();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        let id = db.insert_document(&sid, &first).unwrap();
+        fs::write(
+            &file,
+            "# Three\n\nThird content changed during both parses.",
+        )
+        .unwrap();
+        assert!(matches!(
+            db.insert_document(&sid, &second),
+            Err(CoreError::Conflict(_))
+        ));
+        assert_eq!(
+            db.get_document_by_path(&first.file_path)
+                .unwrap()
+                .unwrap()
+                .0,
+            id
+        );
+    }
+
+    #[test]
+    fn prefetch_preserves_case_distinct_document_identities() {
+        let tmp = TempDir::new().unwrap();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        let paths = [
+            ("upper-document", tmp.path().join("Foo.md")),
+            ("lower-document", tmp.path().join("foo.md")),
+        ];
+        // Seed persisted identities without requiring machine-wide changes
+        // to NTFS case-sensitivity settings in the test runner.
+        for (id, path) in &paths {
+            db.conn().execute(
+                "INSERT INTO documents (id,source_id,path,title,mime_type,file_size,modified_at,content_hash) VALUES (?1,?2,?3,?4,'text/markdown',0,datetime('now'),?4)",
+                params![id, sid, path.to_string_lossy(), id],
+            ).unwrap();
+        }
+        let prefetched = db.get_document_paths_for_source(&sid).unwrap();
+        assert_eq!(prefetched.len(), 2);
+        for (id, path) in paths {
+            assert_eq!(
+                prefetched[&document_lookup_key(&path.to_string_lossy())].id,
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_scan_of_nested_paths_is_unchanged() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("nested")).unwrap();
+        fs::write(
+            tmp.path().join("nested/evidence.md"),
+            "# Nested\n\nOriginal nested evidence needle must be indexed exactly once.",
+        )
+        .unwrap();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        assert_eq!(scan_source(&db, &sid).unwrap().files_added, 1);
+        let before = db.get_document_paths_for_source(&sid).unwrap();
+        let repeated =
+            scan_source(&db, &sid).expect("nested Windows paths must match the prefetch identity");
+        assert_eq!(repeated.files_skipped, 1);
+        assert_eq!(repeated.files_added, 0);
+        assert_eq!(
+            db.get_document_paths_for_source(&sid)
+                .unwrap()
+                .values()
+                .next()
+                .unwrap()
+                .id,
+            before.values().next().unwrap().id
+        );
+    }
+
+    #[test]
+    fn scan_tolerates_watcher_inserts_after_prefetch() {
+        use std::cell::Cell;
+        let tmp = TempDir::new().unwrap();
+        for i in 0..10 {
+            fs::write(
+                tmp.path().join(format!("file_{i}.md")),
+                format!("# File {i}\n\nConcurrent watcher evidence needle {i} remains searchable."),
+            )
+            .unwrap();
+        }
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        let inserted = Cell::new(false);
+        let result = scan_source_with_progress(&db, &sid, |progress| {
+            // The scan has classified nine files using its empty prefetch.
+            // A watcher commits those same paths before the scan's batch.
+            if progress.current == 10 && !inserted.replace(true) {
+                for i in 0..10 {
+                    ingest_single_file(&db, &sid, &tmp.path().join(format!("file_{i}.md")))
+                        .unwrap();
+                }
+            }
+        });
+        assert!(
+            result.is_ok(),
+            "scan must tolerate a concurrent watcher: {result:?}"
+        );
+        assert!(inserted.get());
+        let conn = db.conn();
+        let documents: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM documents WHERE source_id=?1",
+                [&sid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(documents, 10);
+        let chunks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(chunks, 10, "duplicate scans must retain one set of chunks");
+    }
+
+    #[test]
     fn test_batch_insert_documents() {
         let tmp = TempDir::new().unwrap();
         for i in 0..100 {
@@ -2531,7 +2785,7 @@ mod tests {
         let path_string = path.to_string_lossy().to_string();
         let hash = hash_file_content(&path).unwrap();
         let existing = HashMap::from([(
-            path_string,
+            document_lookup_key(&path_string),
             IndexedDocument {
                 id: "doc-1".into(),
                 content_hash: hash,

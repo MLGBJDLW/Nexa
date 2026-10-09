@@ -256,6 +256,13 @@ impl ContextMetrics {
     }
 
     fn input_tokens(&self, snapshot: &ContextMetricsSnapshot) -> u32 {
+        self.input_measurement(snapshot).0
+    }
+
+    fn input_measurement(
+        &self,
+        snapshot: &ContextMetricsSnapshot,
+    ) -> (u32, context::ContextMeasurement) {
         let estimated = snapshot.breakdown(None).total_tokens;
         let Some(observed) = self.observation.as_ref().filter(|observed| {
             observed.tool_hash == snapshot.tools.hash
@@ -266,14 +273,24 @@ impl ContextMetrics {
                     .zip(&snapshot.messages)
                     .all(|(old, new)| *old == new.revision)
         }) else {
-            return estimated;
+            return (estimated, context::ContextMeasurement::Estimated);
         };
         let tail = snapshot.messages[observed.revisions.len()..]
             .iter()
             .flat_map(|message| message.segments.values())
             .copied()
             .sum::<u32>();
-        estimated.max(observed.actual_tokens.saturating_add(tail))
+        // The provider measured this exact prefix and tool surface. Applying
+        // the full local estimate again defeats calibration when it overcounts
+        // opaque replay, images or a different provider tokenizer.
+        (
+            observed.actual_tokens.saturating_add(tail),
+            if tail == 0 {
+                context::ContextMeasurement::Provider
+            } else {
+                context::ContextMeasurement::ProviderPlusEstimate
+            },
+        )
     }
 
     fn observe(&mut self, snapshot: &ContextMetricsSnapshot, actual_tokens: Option<u32>) {
@@ -297,6 +314,35 @@ impl ContextMetrics {
 }
 
 impl AgentExecutor {
+    pub(super) fn context_budget_usage(
+        &self,
+        model: &str,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        window: super::context_window::ContextWindow,
+    ) -> context::ContextUsageBreakdown {
+        let mut metrics = self
+            .context_metrics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let snapshot = metrics.snapshot(
+            self.provider.prompt_cache_profile(model).key,
+            model,
+            messages,
+            tools,
+        );
+        let (tokens, measurement) = metrics.input_measurement(&snapshot);
+        let mut breakdown = snapshot.breakdown(Some(tokens));
+        breakdown.measurement = Some(measurement);
+        breakdown.budget = window.budget_snapshot();
+        breakdown.runtime_provider = self
+            .config
+            .provider_type
+            .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
+        breakdown.runtime_model = Some(model.to_string());
+        breakdown
+    }
+
     pub(super) fn context_metrics_snapshot(
         &self,
         model: &str,
@@ -439,6 +485,30 @@ mod tests {
         alternate.endpoint_id = "another-endpoint".into();
         metrics.snapshot(alternate, "claude-sonnet-4", &messages, &[]);
         assert_eq!(metrics.analyzed_messages, 5);
+    }
+
+    #[test]
+    fn provider_feedback_corrects_overestimation_before_compaction() {
+        let model = "gpt-4o";
+        let mut metrics = ContextMetrics::default();
+        let mut messages = vec![Message::text(
+            Role::User,
+            "large historical payload ".repeat(4_000),
+        )];
+        let first = metrics.snapshot(key(model), model, &messages, &[]);
+        let actual = first.breakdown(None).total_tokens / 2;
+        metrics.observe(&first, Some(actual));
+        assert_eq!(
+            metrics.input_tokens(&first),
+            actual,
+            "the same accepted prompt must use provider occupancy, even when the estimate was high"
+        );
+        messages.push(Message::text(Role::Assistant, "new tail"));
+        let next = metrics.snapshot(key(model), model, &messages, &[]);
+        assert_eq!(
+            metrics.input_tokens(&next),
+            actual + next.messages[1].segments.values().sum::<u32>()
+        );
     }
 
     #[test]
