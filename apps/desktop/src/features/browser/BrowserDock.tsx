@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import {
   ArrowLeft,
@@ -33,7 +34,7 @@ import { toast } from 'sonner';
 import { useTranslation, type TranslationKey } from '../../i18n';
 import * as api from '../../lib/api';
 import { formatUserError } from '../../lib/userError';
-import { OPEN_BROWSER_WORKSPACE_EVENT, registerBrowserOpener, type OpenNexaBrowserDetail } from './openNexaBrowser';
+import { OPEN_BROWSER_WORKSPACE_EVENT, registerBrowserOpener, type OpenNexaBrowserDetail, type BrowserPreviewTarget } from './openNexaBrowser';
 import { browserActionInProgress, emptyBrowserActionProjection, interruptBrowserActions, projectBrowserAction } from './actionProjection';
 
 export interface BrowserDockStatus {
@@ -126,6 +127,7 @@ export function BrowserDock({
 }: BrowserDockProps) {
   const { t } = useTranslation();
   const [storedSession, setSession] = useState<api.BrowserSessionInfo | null>(null);
+  const agentPreviewOpening = useRef(false);
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -421,6 +423,7 @@ export function BrowserDock({
   useEffect(() => {
     if (!open || !conversationId) return;
     const targetConversationId = conversationId;
+    if (agentPreviewOpening.current) return;
     void ensureSession()
       .catch((error) => {
         if (conversationIdRef.current === targetConversationId) {
@@ -525,28 +528,26 @@ export function BrowserDock({
 
   useEffect(() => {
     if (!conversationId) return;
-    return registerBrowserOpener(conversationId, async (url, signal) => {
-      onOpenChange(true);
-      const opened = await ensureSession(url);
-      if (!opened) throw new Error('The browser workspace changed while opening the page.');
-      const origin = new URL(url).origin;
-      const tab = [...opened.tabs].reverse().find(item => { try { return new URL(item.url).origin === origin; } catch { return false; } });
-      if (!tab) throw new Error('The browser did not create the requested tab.');
+    return registerBrowserOpener(conversationId, async (request, signal) => {
+      agentPreviewOpening.current = 'agentPreviewRequestId' in request;
       try {
-        while (true) {
+        if (signal.aborted) throw new Error('The browser preview was cancelled.');
+        onOpenChange(true);
+        if ('agentPreviewRequestId' in request) {
+          const target = await invoke<BrowserPreviewTarget>('open_agent_html_preview_cmd', { requestId: request.agentPreviewRequestId });
+          const current = await refresh();
           if (signal.aborted || conversationIdRef.current !== conversationId) throw new Error('The browser preview was cancelled.');
-          const current = await api.activeBrowserSession(conversationId);
-          const loaded = current?.tabs.find(item => item.id === tab.id);
-          if (!loaded) throw new Error('The browser tab was closed.');
-          if (!loaded.loading) return;
-          await new Promise(resolve => setTimeout(resolve, 200));
+          if (current?.id !== target.sessionId || !current.tabs.some(tab => tab.id === target.tabId)) throw new Error('The browser preview target is no longer available.');
+          return target;
         }
-      } catch (error) {
-        await api.closeBrowserTab(opened.id, tab.id).catch(() => {});
-        throw error;
-      }
+        const opened = await ensureSession(request.url);
+        if (signal.aborted || conversationIdRef.current !== conversationId) throw new Error('The browser preview was cancelled.');
+        const tab = opened?.tabs.find(item => item.id === opened.activeTabId);
+        if (!opened || !tab) throw new Error('The browser did not create the requested tab.');
+        return { sessionId: opened.id, tabId: tab.id, readiness: 'presented' };
+      } finally { agentPreviewOpening.current = false; }
     });
-  }, [conversationId, ensureSession, onOpenChange]);
+  }, [conversationId, ensureSession, onOpenChange, refresh]);
 
   useEffect(() => {
     let disposed = false;

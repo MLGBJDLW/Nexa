@@ -421,22 +421,22 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [dirty]);
 
   useEffect(() => () => { htmlRequest.current?.abort(); selectionGeneration.current++; }, []);
-  const openHtml = useCallback(async (path: string, conversationId?: string | null, resourcePaths: string[] = []) => {
+  const openHtml = useCallback(async (path: string, conversationId?: string | null, resourcePaths: string[] = [], agentRequestId?: string) => {
     htmlRequest.current?.abort();
     const controller = new AbortController(); htmlRequest.current = controller;
     const currentChat = /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1];
-    const owner = conversationId ?? currentChat ?? 'nexa-global-browser-workspace';
-    const prepared = await invoke<{ previewId: string; path: string; url: string; reused: boolean }>('prepare_html_preview_cmd', { path, conversationId: owner, resourcePaths });
+    const owner = conversationId ?? (agentRequestId ? undefined : currentChat) ?? 'nexa-global-browser-workspace';
+    const prepared = agentRequestId ? null : await invoke<{ previewId: string; path: string; url: string; reused: boolean }>('prepare_html_preview_cmd', { path, conversationId: owner, resourcePaths });
     try {
       if (controller.signal.aborted) throw new Error('The HTML preview was cancelled.');
-      const opened = requestNexaBrowser(prepared.url, owner, controller.signal);
+      const opened = requestNexaBrowser(agentRequestId ? { agentPreviewRequestId: agentRequestId } : prepared!.url, owner, controller.signal);
       if (conversationId && currentChat !== conversationId) navigate(`/chat/${encodeURIComponent(conversationId)}`);
       else if (!currentChat && location.pathname.startsWith('/chat')) navigate('/');
       setOpen(false);
-      await opened;
-      return { path: prepared.path, kind: 'html', displayMode: 'browser', warning: null };
+      const browser = await opened;
+      return { path: prepared?.path ?? path, kind: 'html', displayMode: 'browser', warning: null, ...(agentRequestId ? { browser } : {}) };
     } catch (error) {
-      if (!prepared.reused) await invoke('release_html_preview_cmd', { previewId: prepared.previewId }).catch(() => {});
+      if (prepared && !prepared.reused) await invoke('release_html_preview_cmd', { previewId: prepared.previewId }).catch(() => {});
       throw error;
     } finally { if (htmlRequest.current === controller) htmlRequest.current = null; }
   }, [location.pathname, navigate]);
@@ -491,7 +491,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     selectionGeneration.current++;
     agentPreviewRequest.current = request.requestId;
     if (/\.html?$/i.test(request.path) && !request.line) {
-      const receipt = await openHtml(request.path, request.conversationId, request.resourcePaths);
+      const receipt = await openHtml(request.path, request.conversationId, request.resourcePaths, request.requestId);
       if (agentPreviewRequest.current !== request.requestId) throw new Error('The preview request was cancelled.');
       agentPreviewRequest.current = null;
       return receipt;

@@ -737,3 +737,33 @@ fn approval_policy_distinguishes_navigation_from_consequential_actions() {
         BrowserActionRisk::SensitiveInput,
     );
 }
+#[test]
+fn browser_observation_accepts_interactive_documents_while_resources_load() {
+    use super::state::snapshot_document_ready;
+    let snapshot = serde_json::json!({"url":"https://example.com/new", "readyState":"interactive"});
+    assert!(snapshot_document_ready(
+        &snapshot,
+        "https://example.com/new",
+        true
+    ));
+    assert!(!snapshot_document_ready(
+        &snapshot,
+        "https://example.com/old",
+        true
+    ));
+    assert!(snapshot_document_ready(
+        &snapshot,
+        "https://example.com/old",
+        false
+    ));
+    assert!(!snapshot_document_ready(
+        &serde_json::json!({"url":"about:blank","readyState":"complete"}),
+        "https://example.com/new",
+        true
+    ));
+    assert!(!snapshot_document_ready(
+        &serde_json::json!({"url":"https://example.com/new","readyState":"loading"}),
+        "https://example.com/new",
+        true
+    ));
+}

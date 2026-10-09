@@ -23,6 +23,8 @@ pub struct HtmlPreview {
     pub preview_id: String,
     pub path: String,
     pub url: String,
+    #[serde(skip)]
+    pub(super) document_url: String,
     pub title: String,
     pub conversation_id: String,
     pub reused: bool,
@@ -167,6 +169,7 @@ pub async fn start(
             preview_id: id,
             path: path.to_string_lossy().into_owned(),
             url: format!("{origin}/__nexa_bootstrap/{token}"),
+            document_url: format!("{origin}/{entry}"),
             title,
             conversation_id,
             reused: false,

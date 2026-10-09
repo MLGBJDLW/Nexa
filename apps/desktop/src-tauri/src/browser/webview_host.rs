@@ -668,7 +668,9 @@ pub async fn create_child_webview(
         .get_window("main")
         .ok_or_else(|| "Main application window is unavailable".to_string())?;
     let label = format!("browser-{}", tab_id.trim_start_matches("tab_"));
-    let approved_agent_urls = Arc::new(Mutex::new(HashSet::from([url.to_string()])));
+    let approved_agent_urls = Arc::new(Mutex::new(
+        state.initial_navigation_approvals(session_id, &url),
+    ));
     let takeover_token = uuid::Uuid::new_v4().simple().to_string();
     let pick_token = uuid::Uuid::new_v4().simple().to_string();
     let takeover_url = Url::parse(&format!("nexa-user-input://{takeover_token}"))
@@ -782,14 +784,8 @@ pub async fn create_child_webview(
             return Err(error);
         }
     }
-    // Native event handlers must be installed before any remote page can open
-    // a dialog or initiate a download, including its initial navigation.
-    if let Err(error) = webview.navigate(url) {
-        let _ = webview.close();
-        return Err(format!(
-            "Could not navigate the initialized browser tab: {error}"
-        ));
-    }
+    // The caller registers the tab before starting navigation, so even a
+    // synchronous/fast local page-load callback sees its authoritative state.
     let trusted_input_guard = BrowserTrustedInputGuard {
         webview: webview.clone(),
         token: Arc::from(takeover_token),

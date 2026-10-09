@@ -46,6 +46,20 @@ untrusted page is not authority to add a private file.
 - Different asset allowlists produce separate preview instances.
 - Closing the owning Browser Workspace revokes that local serving grant.
 
+For agent requests, the result includes `browser.sessionId`, `browser.tabId`,
+and `readiness: "presented"`. Opening completes when that exact tab is shown;
+it does not wait for every background resource to finish. Continue with
+`browser_session` using `action: "observe"` and those IDs to obtain current DOM
+evidence and a native screenshot, then use its observation ID for interaction.
+The tab retains Agent ownership. A real user takeover still requires the user
+to hand control back. Presentation failures preserve a created tab and report
+its identity so it can be shown and observed again.
+
+On Windows, additional tabs use separate browser storage to keep each tab's
+network policy independent and avoid WebView2 environment conflicts. Continue
+authenticated work in its original tab; a newly opened tab does not inherit
+that tab's cookies. The primary named profile keeps its existing storage.
+
 The tool result confirms that the preview opened. It does not certify that the
 page is correct, that its data is trustworthy, or that every interaction was
 tested. The same tool opens supported documents/media in the preview panel and

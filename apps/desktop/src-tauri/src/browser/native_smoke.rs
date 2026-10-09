@@ -4,6 +4,85 @@ use super::*;
 
 #[test]
 #[ignore = "requires an interactive Windows desktop and installed WebView2"]
+fn native_html_preview_keeps_agent_observation_and_input_continuous() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("index.html");
+    std::fs::write(&path, "<!doctype html><title>Preview continuity</title><button onclick=\"document.querySelector('output').textContent='clicked once'\">Continue</button><output>ready</output>").unwrap();
+    let profile = root.path().join("profiles");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut context = tauri::generate_context!();
+    context.config_mut().app.windows.clear();
+    context.config_mut().identifier = "com.nexa.browser-continuity-fixture".into();
+    let app = tauri::Builder::default().any_thread().setup(move |app| {
+        tauri::window::WindowBuilder::new(app, "main")
+            .title("Nexa HTML continuity fixture").visible(true).focused(false)
+            .inner_size(640.0, 480.0).build()?;
+        let handle = app.handle().clone();
+        let state = super::super::state::BrowserState::new(handle.clone(), profile);
+        tauri::async_runtime::spawn(async move {
+            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker}};
+            use nexa_core::browser_runtime::{BrowserBounds, BrowserControlOwner};
+            let result = tokio::time::timeout(std::time::Duration::from_secs(45), async {
+                let prepared = state.prepare_html_preview(path.to_string_lossy().into(), "fixture".into(), vec![]).await?;
+                let session = state.create_session(Some("fixture".into()), None, Some(&prepared.url), true, NavigationActor::Agent,
+                    Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
+                let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
+                state.acquire_agent_control(&session.id, "preview-observe")?;
+                let first = state.observe(&session.id, tab_id, "preview-observe").await.map_err(|error| format!("First observation: {error}"))?;
+                if first.url == "about:blank" || first.screenshot.as_ref().is_none_or(|shot| shot.image_bytes.is_empty()) {
+                    return Err("HTML preview did not return current native pixels".into());
+                }
+                // Fault injection: keep the page-load flag set after a real DOM
+                // is ready, matching an unfinished background-resource request.
+                state.update_page_load(&session.id, tab_id, &Url::parse(&first.url).map_err(|error| error.to_string())?, true);
+                state.acquire_agent_control(&session.id, "preview-click")?;
+                let before = tokio::time::timeout(std::time::Duration::from_secs(5), state.observe(&session.id, tab_id, "preview-click")).await
+                    .map_err(|_| "An interactive document waited for the load-finished event")??;
+                let target = before.elements.iter().find(|element| element.name == "Continue").ok_or("Missing button in native observation")?;
+                let after = state.act(BrowserActRequest {
+                    call_id: "preview-click", session_id: &session.id, tab_id, observation_id: &before.observation_id,
+                    action: "click", target_ref: Some(&target.element_ref), end_ref: None, text: None,
+                    value: None, values: None, checked: None, upload: None, key: None, button: None,
+                    modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
+                }).await.map_err(|error| format!("Native click: {error}"))?;
+                if !after.observation.text.contains("clicked once") || after.observation.screenshot.is_none() {
+                    return Err("The original HTML tab did not retain observable native input".into());
+                }
+                eprintln!("Native HTML continuity: opened, captured pixels, observed while loading, clicked, and observed the result.");
+                // Same-origin reopening must identify the newly created tab.
+                let next = state.open_tab(&session.id, &prepared.url, NavigationActor::Agent, None).await.map_err(|error| format!("Open second tab: {error}"))?;
+                if next.id == tab_id { return Err("Reopening reused the wrong tab identity".into()); }
+                state.acquire_agent_control(&session.id, "preview-second")?;
+                let observed = state.observe(&session.id, &next.id, "preview-second").await.map_err(|error| format!("Second tab: {error}"))?;
+                if observed.tab_id != next.id || !observed.text.contains("ready") { return Err("Observed the old same-origin tab".into()); }
+                state.acquire_control(&session.id, BrowserControlOwner::User)?;
+                if state.observe(&session.id, &next.id, "after-takeover").await.is_ok() { return Err("Agent bypassed actual user takeover".into()); }
+                eprintln!("Native HTML continuity: exact second tab observed; real user takeover remains authoritative.");
+                let cleanup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                loop {
+                    match state.close_session(&session.id) {
+                        Ok(()) => break,
+                        Err(error) if state.session_info(&session.id).is_ok_and(|session| session.cleanup_pending && session.tabs.is_empty())
+                            && std::time::Instant::now() < cleanup_deadline => { let _ = error; tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Ok::<_, String>(())
+            }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 45 seconds".into()));
+            let _ = sender.send(result);
+            handle.exit(0);
+        });
+        Ok(())
+    }).build(context).unwrap();
+    app.run_return(|_, _| {});
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+}
+
+#[test]
+#[ignore = "requires an interactive Windows desktop and installed WebView2"]
 fn native_dialog_and_download_complete_the_original_trusted_gesture() {
     let root = tempfile::tempdir().unwrap();
     let profile = root.path().join("profile");

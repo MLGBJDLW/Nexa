@@ -888,6 +888,7 @@ fn main() {
             commands::prepare_html_preview_cmd,
             commands::release_html_preview_cmd,
             preview_tool::pending_preview_requests_cmd,
+            preview_tool::open_agent_html_preview_cmd,
             preview_tool::acknowledge_preview_request_cmd,
             commands::save_text_file_cmd,
             commands::read_generated_image_data_url_cmd,

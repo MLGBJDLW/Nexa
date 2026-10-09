@@ -1,6 +1,6 @@
 {
   "name": "open_in_nexa",
-  "description": "Open an authorized local file inside Nexa. HTML opens in the built-in Browser Workspace with working scripts and relative web assets; documents and media open in the preview panel. Prefer this tool for documents, spreadsheets, PDF, Markdown, HTML, code, images, audio, and video the app can preview. The result confirms whether the preview opened; it does not verify document contents. Do not use a shell or external application to open a previewable file unless the user explicitly asks for an external app. Unsupported previews return an error without launching another app.",
+  "description": "Open an authorized local file inside Nexa. HTML opens in the built-in Browser Workspace with working scripts and relative web assets; documents and media open in the preview panel. HTML returns the exact browser sessionId/tabId once presented, without waiting for all background resources. Continue with browser_session action=observe using those IDs for current page evidence and a screenshot, then interact using that observation. Prefer this tool for documents, spreadsheets, PDF, Markdown, HTML, code, images, audio, and video the app can preview. The result confirms whether the preview opened; it does not verify document contents. Do not use a shell or external application to open a previewable file unless the user explicitly asks for an external app. Unsupported previews return an error without launching another app.",
   "parameters": {
     "type": "object",
     "properties": {

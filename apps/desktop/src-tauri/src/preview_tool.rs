@@ -1,6 +1,6 @@
 //! A preview request succeeds only after the current renderer acknowledges it.
 use nexa_core::tools::open_in_nexa_tool::{
-    NexaPreviewHost, PreviewOpenReceipt, PreviewOpenRequest,
+    NexaPreviewHost, PreviewBrowserTarget, PreviewOpenReceipt, PreviewOpenRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,6 +21,8 @@ pub struct PendingPreviewRequest {
 struct Pending {
     request: PendingPreviewRequest,
     response: oneshot::Sender<Result<PreviewOpenReceipt, String>>,
+    opening_browser: bool,
+    browser: Option<PreviewBrowserTarget>,
 }
 #[derive(Clone, Default)]
 pub struct PreviewBridgeState {
@@ -77,13 +79,15 @@ impl NexaPreviewHost for NativeNexaPreviewHost {
                 Pending {
                     request: request.clone(),
                     response,
+                    opening_browser: false,
+                    browser: None,
                 },
             );
         }
         let _guard = PendingGuard {
-            state,
+            state: state.clone(),
             app: self.app.clone(),
-            id,
+            id: id.clone(),
         };
         let window = self
             .app
@@ -98,7 +102,11 @@ impl NexaPreviewHost for NativeNexaPreviewHost {
         crate::app_events::emit_main_window_event(&self.app, "preview:open", &request);
         tokio::time::timeout(Duration::from_secs(25), receiver)
             .await
-            .map_err(|_| "Nexa did not acknowledge the preview. No external app was opened.")?
+            .map_err(|_| {
+                let target = state.pending.lock().ok().and_then(|pending| pending.get(&id).and_then(|entry| entry.browser.clone()));
+                target.map(|target| format!("The HTML tab was created but presentation was not acknowledged: sessionId={}, tabId={}. The tab is preserved; use browser_session show_workspace and observe to continue.", target.session_id, target.tab_id))
+                    .unwrap_or_else(|| "Nexa did not acknowledge the preview. No external app was opened.".into())
+            })?
             .map_err(|_| "The Nexa preview request was cancelled")?
     }
 }
@@ -121,6 +129,123 @@ pub fn pending_preview_requests_cmd(
         .map(|pending| pending.request.clone())
         .collect()
 }
+
+/// Only an outstanding, file-authorized tool request can open an Agent tab.
+/// Renderer input never supplies a path, actor, or conversation authority.
+#[tauri::command]
+pub async fn open_agent_html_preview_cmd(
+    state: State<'_, PreviewBridgeState>,
+    browser: State<'_, crate::browser::state::BrowserState>,
+    request_id: String,
+) -> Result<PreviewBrowserTarget, String> {
+    let request = {
+        let mut pending = state
+            .pending
+            .lock()
+            .map_err(|_| "Preview bridge unavailable")?;
+        let entry = pending
+            .get_mut(&request_id)
+            .ok_or("The preview request was cancelled")?;
+        if entry.opening_browser {
+            return Err("This browser preview is already opening".into());
+        }
+        if let Some(target) = &entry.browser {
+            return Ok(target.clone());
+        }
+        let request = &entry.request.request;
+        let extension = std::path::Path::new(&request.path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if request.line.is_some()
+            || !matches!(extension.to_ascii_lowercase().as_str(), "html" | "htm")
+        {
+            return Err("This request is not an HTML browser preview".into());
+        }
+        entry.opening_browser = true;
+        request.clone()
+    };
+    let owner = request
+        .conversation_id
+        .clone()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or(
+            "An agent HTML preview needs an owning conversation for continuous browser access",
+        )?;
+    let prepared = browser
+        .prepare_html_preview(request.path, owner.clone(), request.resource_paths)
+        .await?;
+    let require_pending = || -> Result<(), String> {
+        if state
+            .pending
+            .lock()
+            .map_err(|_| "Preview bridge unavailable")?
+            .contains_key(&request_id)
+        {
+            Ok(())
+        } else {
+            Err("The preview request was cancelled".into())
+        }
+    };
+    let opened = async {
+        require_pending()?;
+        if let Some(existing) = browser.active_session(&owner)? {
+            browser
+                .present_workspace(&existing.id, &request.call_id, true)
+                .await?;
+        }
+        require_pending()?;
+        let session = browser
+            .create_session(
+                Some(owner),
+                None,
+                Some(&prepared.url),
+                true,
+                crate::browser::policy::NavigationActor::Agent,
+                None,
+            )
+            .await?;
+        let tab_id = session
+            .active_tab_id
+            .clone()
+            .ok_or("The preview has no browser tab")?;
+        // Store the committed target before presentation: cancellation never closes
+        // a tab the user can inspect or invalidates a still-live HTML server.
+        let mut target = PreviewBrowserTarget {
+            session_id: session.id.clone(),
+            tab_id,
+            readiness: "opened".into(),
+        };
+        if let Some(entry) = state
+            .pending
+            .lock()
+            .map_err(|_| "Preview bridge unavailable")?
+            .get_mut(&request_id)
+        {
+            entry.browser = Some(target.clone());
+        }
+        browser
+            .present_workspace(&session.id, &request.call_id, true)
+            .await?;
+        require_pending()?;
+        target.readiness = "presented".into();
+        if let Some(entry) = state
+            .pending
+            .lock()
+            .map_err(|_| "Preview bridge unavailable")?
+            .get_mut(&request_id)
+        {
+            entry.opening_browser = false;
+            entry.browser = Some(target.clone());
+        }
+        Ok(target)
+    }
+    .await;
+    if opened.is_err() && !prepared.reused {
+        browser.release_html_preview(&prepared.preview_id);
+    }
+    opened
+}
 #[tauri::command]
 pub fn acknowledge_preview_request_cmd(
     state: State<'_, PreviewBridgeState>,
@@ -136,6 +261,13 @@ pub fn acknowledge_preview_request_cmd(
         .is_some_and(|receipt| receipt.path != request.request.request.path)
     {
         return Err("Preview acknowledgement does not match the requested file".into());
+    }
+    if result
+        .receipt
+        .as_ref()
+        .is_some_and(|receipt| receipt.browser != request.browser)
+    {
+        return Err("Preview acknowledgement does not match the authorized browser target".into());
     }
     let request = pending.remove(&result.request_id).unwrap();
     drop(pending);

@@ -29,6 +29,15 @@ pub struct PreviewOpenReceipt {
     pub kind: String,
     pub display_mode: String,
     pub warning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<PreviewBrowserTarget>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewBrowserTarget {
+    pub session_id: String,
+    pub tab_id: String,
+    pub readiness: String,
 }
 #[async_trait]
 pub trait NexaPreviewHost: Send + Sync {
@@ -124,7 +133,7 @@ impl Tool for OpenInNexaTool {
         Ok(ToolResult {
             call_id: context.call_id.into(),
             content: format!(
-                "Opened in Nexa: {}\nPreview: {} ({}){}",
+                "Opened in Nexa: {}\nPreview: {} ({}){}{}",
                 receipt.path,
                 receipt.kind,
                 receipt.display_mode,
@@ -132,7 +141,11 @@ impl Tool for OpenInNexaTool {
                     .warning
                     .as_ref()
                     .map(|warning| format!("\nNote: {warning}"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                receipt.browser.as_ref().map(|browser| format!(
+                    "\nBrowser target: sessionId={}, tabId={}, readiness={}. The tab is presented; background resources may still be loading. Continue with browser_session action=observe using these exact IDs to read the page and obtain a screenshot before interacting.",
+                    browser.session_id, browser.tab_id, browser.readiness
+                )).unwrap_or_default()
             ),
             is_error: false,
             artifacts: Some(serde_json::json!({"kind":"nexaPreview","receipt":receipt})),
@@ -156,6 +169,7 @@ mod tests {
                 kind: "text".into(),
                 display_mode: "preview".into(),
                 warning: None,
+                browser: None,
             };
             self.requests.lock().unwrap().push(request);
             Ok(receipt)

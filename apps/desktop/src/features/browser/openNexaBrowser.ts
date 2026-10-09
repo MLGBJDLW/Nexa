@@ -5,7 +5,9 @@ export interface OpenNexaBrowserDetail {
   title?: string;
 }
 
-type BrowserOpener = (url: string, signal: AbortSignal) => Promise<void>;
+export interface BrowserPreviewTarget { sessionId: string; tabId: string; readiness: string }
+export type BrowserOpenRequest = { url: string } | { agentPreviewRequestId: string };
+type BrowserOpener = (request: BrowserOpenRequest, signal: AbortSignal) => Promise<BrowserPreviewTarget>;
 const owners = new Map<string, BrowserOpener>();
 const pending = new Set<{ owner: string; run: (opener: BrowserOpener) => void }>();
 export function registerBrowserOpener(owner: string, opener: BrowserOpener) {
@@ -13,21 +15,24 @@ export function registerBrowserOpener(owner: string, opener: BrowserOpener) {
   for (const request of [...pending]) if (request.owner === owner) request.run(opener);
   return () => { if (owners.get(owner) === opener) owners.delete(owner); };
 }
-/** Survives route mounting; completes only when the native tab finishes loading. */
-export function requestNexaBrowser(url: string, owner: string, signal?: AbortSignal): Promise<void> {
+/** Survives route mounting; completes once the precise native tab is presented. */
+export function requestNexaBrowser(target: string | BrowserOpenRequest, owner: string, signal?: AbortSignal): Promise<BrowserPreviewTarget> {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     let started = false;
-    const finish = (error?: unknown) => {
+    let settled = false;
+    const finish = (error?: unknown, result?: BrowserPreviewTarget) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer); pending.delete(request); signal?.removeEventListener('abort', abort);
-      if (error) { controller.abort(); reject(error); } else resolve();
+      if (error) { controller.abort(); reject(error); } else resolve(result!);
     };
     const abort = () => finish(new Error('The browser preview was cancelled.'));
     const timer = setTimeout(() => finish(new Error('The browser did not finish opening the page.')), 20_000);
     const request = { owner, run: (opener: BrowserOpener) => {
       if (started || controller.signal.aborted) return;
       started = true; pending.delete(request);
-      void opener(url, controller.signal).then(() => finish(), finish);
+      void opener(typeof target === 'string' ? { url: target } : target, controller.signal).then(result => finish(undefined, result), finish);
     } };
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener('abort', abort, { once: true });

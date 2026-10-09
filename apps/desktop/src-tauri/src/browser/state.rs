@@ -37,6 +37,28 @@ pub const BROWSER_EVENT: &str = "browser:event";
 const MAX_OBSERVATIONS: usize = 64;
 const MAX_BROWSER_TABS_PER_SESSION: usize = 16;
 
+pub(super) fn snapshot_document_ready(
+    value: &serde_json::Value,
+    target_url: &str,
+    loading: bool,
+) -> bool {
+    if !matches!(
+        value.get("readyState").and_then(|value| value.as_str()),
+        Some("interactive" | "complete")
+    ) {
+        return false;
+    }
+    let Some(url) = value.get("url").and_then(|value| value.as_str()) else {
+        return false;
+    };
+    // During navigation an old document (especially the factory's blank page)
+    // can still answer eval. Once settled, history.pushState may change its URL.
+    if url == "about:blank" && target_url != "about:blank" {
+        return false;
+    }
+    !loading || url == target_url
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BrowserPageSnapshot {
@@ -435,6 +457,31 @@ impl BrowserState {
         }
     }
 
+    pub(super) fn initial_navigation_approvals(
+        &self,
+        session_id: &str,
+        url: &Url,
+    ) -> HashSet<String> {
+        let conversation = self
+            .session_info(session_id)
+            .ok()
+            .and_then(|session| session.conversation_id);
+        let mut approved = HashSet::from([url.to_string()]);
+        if let Ok(previews) = self.html_previews.lock() {
+            for server in previews.values() {
+                if Some(server.preview.conversation_id.as_str()) == conversation.as_deref()
+                    && server.preview.url == url.as_str()
+                    && server.permit.is_live()
+                {
+                    // The cookie bootstrap redirects exactly once to the selected
+                    // document. Do not authorize an origin or page-supplied URL.
+                    approved.insert(server.preview.document_url.clone());
+                }
+            }
+        }
+        approved
+    }
+
     /// Run an atomic native-input check/commit on the UI thread. Wry getters
     /// synchronously rendezvous with this thread, so a worker must never call
     /// them while holding `inner`: navigation callbacks also need that mutex.
@@ -486,6 +533,15 @@ impl BrowserState {
     pub fn update_page_load(&self, session_id: &str, tab_id: &str, url: &Url, loading: bool) {
         if let Ok(mut runtime) = self.inner.lock() {
             if let Some(session) = runtime.sessions.get_mut(session_id) {
+                // The factory starts at about:blank while installing native
+                // handlers. Its delayed callbacks must not replace the target.
+                if session
+                    .tabs
+                    .get(tab_id)
+                    .is_some_and(|tab| url.as_str() == "about:blank" && tab.url != "about:blank")
+                {
+                    return;
+                }
                 if loading {
                     session.observations.clear();
                     session.control_lease.invalidate();
@@ -774,7 +830,7 @@ impl BrowserState {
         if actor != NavigationActor::Agent {
             self.acquire_control(session_id, BrowserControlOwner::User)?;
         }
-        let (profile_id, tab_id, conversation_id, effective_bounds, agent_open_fence) = {
+        let (profile_id, tab_id, conversation_id, effective_bounds, agent_open_fence, initial_tab) = {
             let mut runtime = self
                 .inner
                 .lock()
@@ -850,6 +906,7 @@ impl BrowserState {
                 session.conversation_id.clone(),
                 bounds.or(inherited_bounds),
                 agent_open_fence,
+                session.initializing,
             )
         };
         let mut opening_guard = OpeningTabGuard {
@@ -865,6 +922,18 @@ impl BrowserState {
         }
         let network_proxy_url = network_proxy.url().clone();
         let profile_dir = self.profile_root.join(&profile_id);
+        // WebView2 rejects a second environment with the same data directory
+        // and a different proxy. Each additional tab has its own network policy
+        // proxy, so it also needs its own environment storage. Preserve the
+        // primary profile directory for existing named-profile sessions.
+        #[cfg(windows)]
+        let profile_dir = if initial_tab {
+            profile_dir
+        } else {
+            profile_dir.join("tabs").join(&tab_id)
+        };
+        #[cfg(not(windows))]
+        let _ = initial_tab;
         std::fs::create_dir_all(&profile_dir)
             .map_err(|error| format!("Could not create browser profile: {error}"))?;
         let BrowserChildWebview {
@@ -885,6 +954,7 @@ impl BrowserState {
             effective_bounds,
         )
         .await?;
+        let navigation_webview = webview.clone();
         let initial_bounds = effective_bounds
             .unwrap_or(BrowserBounds {
                 x: 0.0,
@@ -1014,7 +1084,15 @@ impl BrowserState {
             "tabOpened",
             serde_json::json!({ "sessionId": session_id, "tabId": tab_id }),
         );
-        Ok(info)
+        // Never hold the runtime mutex across a native call: page-load events
+        // can run before navigate returns and must update the registered tab.
+        if let Err(error) = navigation_webview.navigate(url) {
+            let _ = self.close_tab(session_id, &tab_id);
+            return Err(format!(
+                "Could not navigate the initialized browser tab: {error}"
+            ));
+        }
+        Ok(self.tab_info(session_id, &tab_id).unwrap_or(info))
     }
 
     pub async fn navigate(
@@ -1664,7 +1742,7 @@ impl BrowserState {
         Ok(permit)
     }
 
-    pub(super) async fn present_workspace(
+    pub(crate) async fn present_workspace(
         &self,
         session_id: &str,
         call_id: &str,
@@ -1930,12 +2008,6 @@ impl BrowserState {
         self.require_visible_focused_host_window()?;
         let lease_generation = self.agent_lease_generation(session_id, tab_id, call_id)?;
         let webview = self.webview(session_id, tab_id)?;
-        let current_url = webview
-            .url()
-            .map_err(|error| format!("Could not read browser address: {error}"))?;
-        self.prepare_agent_network_access(session_id, tab_id, &current_url)
-            .await?;
-        self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         let deadline = Instant::now() + BROWSER_FINAL_OBSERVATION_TIMEOUT;
         let observe_expression = format!(
             "window.__NEXA_BROWSER_RUNTIME__?.observe({})",
@@ -1943,12 +2015,26 @@ impl BrowserState {
         );
         let value = loop {
             self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
-            let loading = self.tab_info(session_id, tab_id)?.loading;
-            if !loading {
-                if let Ok(value) = eval_json(&webview, &observe_expression).await {
-                    if value.is_object() {
-                        break value;
-                    }
+            let tab = self.tab_info(session_id, tab_id)?;
+            let current_url = webview
+                .url()
+                .map_err(|error| format!("Could not read browser address: {error}"))?;
+            if current_url.as_str() == "about:blank" && tab.url != "about:blank" {
+                if Instant::now() >= deadline {
+                    return Err(
+                        "The browser navigation did not leave its initial blank document".into(),
+                    );
+                }
+                tokio::time::sleep(Duration::from_millis(75)).await;
+                continue;
+            }
+            if current_url.as_str() != "about:blank" {
+                self.prepare_agent_network_access(session_id, tab_id, &current_url)
+                    .await?;
+            }
+            if let Ok(value) = eval_json(&webview, &observe_expression).await {
+                if snapshot_document_ready(&value, &tab.url, tab.loading) {
+                    break value;
                 }
             }
             if Instant::now() >= deadline {
@@ -1960,8 +2046,10 @@ impl BrowserState {
             .map_err(|error| format!("Could not decode browser observation: {error}"))?;
         let snapshot_url = Url::parse(&snapshot.url)
             .map_err(|_| "Browser observation returned an invalid URL".to_string())?;
-        self.prepare_agent_network_access(session_id, tab_id, &snapshot_url)
-            .await?;
+        if snapshot_url.as_str() != "about:blank" {
+            self.prepare_agent_network_access(session_id, tab_id, &snapshot_url)
+                .await?;
+        }
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         self.require_visible_focused_host_window()?;
         if webview.url().map_err(|error| error.to_string())? != snapshot_url {
