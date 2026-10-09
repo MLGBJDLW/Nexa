@@ -1037,7 +1037,9 @@ fn document_lookup_key(path: &str) -> String {
         } else {
             path.strip_prefix("//?/").unwrap_or(&path).to_string()
         };
-        path.to_lowercase()
+        // NTFS can enable case sensitivity per directory. Keep leaf spelling
+        // so distinct files never share a prefetch identity.
+        path
     }
     #[cfg(not(windows))]
     path.to_string()
@@ -2589,6 +2591,33 @@ mod tests {
                 .0,
             id
         );
+    }
+
+    #[test]
+    fn prefetch_preserves_case_distinct_document_identities() {
+        let tmp = TempDir::new().unwrap();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        let paths = [
+            ("upper-document", tmp.path().join("Foo.md")),
+            ("lower-document", tmp.path().join("foo.md")),
+        ];
+        // Seed persisted identities without requiring machine-wide changes
+        // to NTFS case-sensitivity settings in the test runner.
+        for (id, path) in &paths {
+            db.conn().execute(
+                "INSERT INTO documents (id,source_id,path,title,mime_type,file_size,modified_at,content_hash) VALUES (?1,?2,?3,?4,'text/markdown',0,datetime('now'),?4)",
+                params![id, sid, path.to_string_lossy(), id],
+            ).unwrap();
+        }
+        let prefetched = db.get_document_paths_for_source(&sid).unwrap();
+        assert_eq!(prefetched.len(), 2);
+        for (id, path) in paths {
+            assert_eq!(
+                prefetched[&document_lookup_key(&path.to_string_lossy())].id,
+                id
+            );
+        }
     }
 
     #[test]
