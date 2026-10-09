@@ -591,9 +591,10 @@ fn scan_source_inner(
     // Batch-insert all new documents in a single transaction.
     if !new_docs.is_empty() {
         debug!("Batch-inserting {} new documents", new_docs.len());
-        let inserted = batch_insert_documents(db, source_id, &new_docs)?;
-        result.files_skipped += new_docs.len().saturating_sub(inserted);
-        result.files_added = inserted;
+        let counts = commit_new_documents(db, source_id, &new_docs)?;
+        result.files_skipped += counts.unchanged;
+        result.files_added = counts.inserted;
+        result.files_updated += counts.updated;
     }
 
     // Batch-update all changed documents in a single transaction.
@@ -733,15 +734,41 @@ pub fn batch_insert_documents(
     source_id: &str,
     parsed_docs: &[ParsedDocument],
 ) -> Result<usize, CoreError> {
+    let counts = commit_new_documents(db, source_id, parsed_docs)?;
+    Ok(counts.inserted + counts.updated)
+}
+
+#[derive(Default)]
+struct DocumentCommitCounts {
+    inserted: usize,
+    updated: usize,
+    unchanged: usize,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentCommit {
+    Inserted,
+    Updated,
+    Unchanged,
+}
+
+fn commit_new_documents(
+    db: &Database,
+    source_id: &str,
+    parsed_docs: &[ParsedDocument],
+) -> Result<DocumentCommitCounts, CoreError> {
     let mut conn = db.conn();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let mut count = 0usize;
+    let mut counts = DocumentCommitCounts::default();
     for parsed in parsed_docs {
-        let (_, inserted) = insert_document_if_absent(&tx, source_id, parsed)?;
-        count += usize::from(inserted);
+        let (_, outcome) = commit_new_document(&tx, source_id, parsed)?;
+        match outcome {
+            DocumentCommit::Inserted => counts.inserted += 1,
+            DocumentCommit::Updated => counts.updated += 1,
+            DocumentCommit::Unchanged => counts.unchanged += 1,
+        }
     }
     tx.commit()?;
-    Ok(count)
+    Ok(counts)
 }
 
 /// Update multiple existing documents in a single transaction for bulk operations.
@@ -756,31 +783,7 @@ pub fn batch_update_documents(
     let tx = conn.transaction()?;
     let mut count = 0usize;
     for (doc_id, parsed) in updates {
-        validate_privacy_at_commit(&tx, parsed)?;
-        // Delete old chunks — FTS triggers fire automatically.
-        tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
-        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
-
-        // Update the document record.
-        let metadata_json = parsed_metadata_json(parsed)?;
-        tx.execute(
-            "UPDATE documents
-             SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
-                 content_hash = ?3, indexed_at = datetime('now'),
-                 title = ?4, metadata = ?5
-             WHERE id = ?6",
-            params![
-                &parsed.mime_type,
-                parsed.file_size,
-                &parsed.content_hash,
-                &parsed.title,
-                &metadata_json,
-                doc_id,
-            ],
-        )?;
-
-        insert_chunks(&tx, doc_id, &parsed.chunks)?;
-        insert_visual_artifact_chunks(&tx, doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+        replace_document_revision(&tx, doc_id, parsed)?;
         count += 1;
     }
     tx.commit()?;
@@ -975,7 +978,7 @@ impl Database {
     ) -> Result<String, CoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let (doc_id, _) = insert_document_if_absent(&tx, source_id, parsed)?;
+        let (doc_id, _) = commit_new_document(&tx, source_id, parsed)?;
 
         tx.commit()?;
         Ok(doc_id)
@@ -989,32 +992,7 @@ impl Database {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        validate_privacy_at_commit(&tx, parsed)?;
-
-        // Delete old chunks — FTS triggers fire automatically.
-        tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
-        revoke_changed_redaction_history(&tx, doc_id, parsed)?;
-
-        // Update the document record.
-        let metadata_json = parsed_metadata_json(parsed)?;
-        tx.execute(
-            "UPDATE documents
-             SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
-                 content_hash = ?3, indexed_at = datetime('now'),
-                 title = ?4, metadata = ?5
-             WHERE id = ?6",
-            params![
-                &parsed.mime_type,
-                parsed.file_size,
-                &parsed.content_hash,
-                &parsed.title,
-                &metadata_json,
-                doc_id,
-            ],
-        )?;
-
-        insert_chunks(&tx, doc_id, &parsed.chunks)?;
-        insert_visual_artifact_chunks(&tx, doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+        replace_document_revision(&tx, doc_id, parsed)?;
 
         tx.commit()?;
         Ok(())
@@ -1067,22 +1045,38 @@ fn document_lookup_key(path: &str) -> String {
 
 /// Resolve identity again in the write transaction: a prefetch is only a hint.
 /// A concurrent scan/watcher may have already committed this document. Keep
-/// that winner, including its newer content, chunks, vectors and evidence IDs.
-/// Updates use their separate classified-update path, never INSERT OR REPLACE.
-fn insert_document_if_absent(
+/// identical chunks/vectors, or reclassify against the live file on conflict.
+/// Updates retain document identity; no path uses INSERT OR REPLACE.
+fn commit_new_document(
     tx: &rusqlite::Transaction<'_>,
     source_id: &str,
     parsed: &ParsedDocument,
-) -> Result<(String, bool), CoreError> {
+) -> Result<(String, DocumentCommit), CoreError> {
     use rusqlite::OptionalExtension;
     validate_privacy_at_commit(tx, parsed)?;
     let aliases = source_document_path_aliases(tx, source_id, &parsed.file_path)?;
-    let existing: Option<String> = tx.query_row(
-        "SELECT id FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1",
-        params![source_id, serde_json::to_string(&aliases)?], |row| row.get(0),
+    let existing: Option<(String, String, String)> = tx.query_row(
+        "SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parsed_hash'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1",
+        params![source_id, serde_json::to_string(&aliases)?], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
     ).optional()?;
-    if let Some(id) = existing {
-        return Ok((id, false));
+    if let Some((id, current_hash, current_parsed_hash)) = existing {
+        if current_hash == parsed.content_hash && current_parsed_hash == parsed_hash(parsed) {
+            return Ok((id, DocumentCommit::Unchanged));
+        }
+        // A stale prefetch cannot tell which racing parse is newer. Resolve
+        // against the current file, rather than blindly choosing either writer.
+        let live_hash = crate::parse::hash_file_content(Path::new(&parsed.file_path))?;
+        if live_hash == parsed.content_hash {
+            replace_document_revision(tx, &id, parsed)?;
+            return Ok((id, DocumentCommit::Updated));
+        }
+        if live_hash == current_hash {
+            return Ok((id, DocumentCommit::Unchanged));
+        }
+        return Err(CoreError::Conflict(format!(
+            "File changed again while scanning {}; retry the scan to index its current contents",
+            parsed.file_path
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
     tx.execute(
@@ -1093,7 +1087,42 @@ fn insert_document_if_absent(
     )?;
     insert_chunks(tx, &id, &parsed.chunks)?;
     insert_visual_artifact_chunks(tx, &id, parsed.chunks.len(), &parsed.visual_artifacts)?;
-    Ok((id, true))
+    Ok((id, DocumentCommit::Inserted))
+}
+
+fn replace_document_revision(
+    tx: &rusqlite::Transaction<'_>,
+    doc_id: &str,
+    parsed: &ParsedDocument,
+) -> Result<(), CoreError> {
+    validate_privacy_at_commit(tx, parsed)?;
+
+    // Delete old chunks — FTS triggers fire automatically.
+    tx.execute("DELETE FROM chunks WHERE document_id = ?1", params![doc_id])?;
+    revoke_changed_redaction_history(tx, doc_id, parsed)?;
+
+    // Update the document record.
+    let metadata_json = parsed_metadata_json(parsed)?;
+    tx.execute(
+        "UPDATE documents
+         SET mime_type = ?1, file_size = ?2, modified_at = datetime('now'),
+         content_hash = ?3, indexed_at = datetime('now'),
+         title = ?4, metadata = ?5
+         WHERE id = ?6",
+        params![
+            &parsed.mime_type,
+            parsed.file_size,
+            &parsed.content_hash,
+            &parsed.title,
+            &metadata_json,
+            doc_id,
+        ],
+    )?;
+
+    insert_chunks(tx, doc_id, &parsed.chunks)?;
+    insert_visual_artifact_chunks(tx, doc_id, parsed.chunks.len(), &parsed.visual_artifacts)?;
+
+    Ok(())
 }
 
 /// Classification of a file during scanning.
@@ -2448,6 +2477,117 @@ mod tests {
                 .unwrap()
                 > 0,
             "embedding one source must not mutate another source"
+        );
+    }
+
+    #[test]
+    fn racing_new_document_parses_keep_the_live_revision_and_identity() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("racing.md");
+        let parse = || {
+            parse_file(
+                &file,
+                None,
+                #[cfg(feature = "video")]
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        fs::write(
+            &file,
+            "# Earlier\n\nOld evidence oldsentinel from the watcher.",
+        )
+        .unwrap();
+        let old = parse();
+        fs::write(
+            &file,
+            "# Current\n\nCurrent evidence newsentinel from the scan.",
+        )
+        .unwrap();
+        let current = parse();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        // The first writer wins the identity, but not permanently the content.
+        let id = db.insert_document(&sid, &old).unwrap();
+        let counts = commit_new_documents(&db, &sid, std::slice::from_ref(&current)).unwrap();
+        assert_eq!(counts.updated, 1);
+        assert_eq!(
+            db.get_document_by_path(&current.file_path)
+                .unwrap()
+                .unwrap(),
+            (id.clone(), current.content_hash.clone())
+        );
+        // In the inverse order the older writer must not revert current content.
+        assert_eq!(db.insert_document(&sid, &old).unwrap(), id);
+        assert_eq!(
+            db.get_document_by_path(&current.file_path)
+                .unwrap()
+                .unwrap()
+                .1,
+            current.content_hash
+        );
+        let conn = db.conn();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM fts_chunks WHERE fts_chunks MATCH 'newsentinel'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM fts_chunks WHERE fts_chunks MATCH 'oldsentinel'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn a_third_file_revision_cannot_be_reported_as_successful_indexing() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("changing.md");
+        let parse = || {
+            parse_file(
+                &file,
+                None,
+                #[cfg(feature = "video")]
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        fs::write(&file, "# One\n\nFirst content.").unwrap();
+        let first = parse();
+        fs::write(&file, "# Two\n\nSecond content.").unwrap();
+        let second = parse();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        let id = db.insert_document(&sid, &first).unwrap();
+        fs::write(
+            &file,
+            "# Three\n\nThird content changed during both parses.",
+        )
+        .unwrap();
+        assert!(matches!(
+            db.insert_document(&sid, &second),
+            Err(CoreError::Conflict(_))
+        ));
+        assert_eq!(
+            db.get_document_by_path(&first.file_path)
+                .unwrap()
+                .unwrap()
+                .0,
+            id
         );
     }
 
