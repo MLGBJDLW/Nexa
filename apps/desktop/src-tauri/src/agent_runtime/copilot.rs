@@ -410,14 +410,16 @@ async fn project_event(
                 .ok_or_else(|| protocol_error("Copilot retry has no turnId"))?;
             let abandoned = response.retry(turn_id)?;
             projection.discard_answer_blocks(tx, abandoned).await?;
-            for id in response.take_reasoning() {
-                projection.complete_reasoning(tx, &id, "").await?;
-                projection.mark_persisted(&id);
-            }
+            discard_reasoning(projection, response, tx).await?;
         }
         "tool.execution_start" => {
             response.tool_started();
             projection.clear_answer();
+            // Several tool rounds can share one assistant.turn_start. Their
+            // successful thinking must not be cleared by a later retry.
+            for id in response.take_reasoning() {
+                projection.mark_persisted(&id);
+            }
         }
         "session.usage_info" => {
             if let Some(used) = data["currentTokens"]
@@ -513,6 +515,7 @@ async fn project_event(
                 projection
                     .discard_answer_blocks(tx, response.abandon_attempt())
                     .await?;
+                discard_reasoning(projection, response, tx).await?;
                 return Err(protocol_error("Copilot upstream content filtering blocked or truncated this response (content_filter). Nexa did not receive a complete answer. The request was stopped without automatically retrying or switching models."));
             }
         }
@@ -559,6 +562,18 @@ async fn project_event(
             tx.send(AgentEvent::ControllerStatus { code: "external_agent_active".into(), content: if data["success"] == false { "Copilot context compaction did not complete; waiting for the runtime's next event" } else { "Copilot context compacted" }.into(), tone: None }).await.map_err(protocol_error)?;
         }
         _ => {}
+    }
+    Ok(())
+}
+
+async fn discard_reasoning(
+    projection: &mut Projection,
+    response: &mut super::copilot_response::Response,
+    tx: &mpsc::Sender<AgentEvent>,
+) -> Result<(), CoreError> {
+    for id in response.take_reasoning() {
+        projection.complete_reasoning(tx, &id, "").await?;
+        projection.mark_persisted(&id);
     }
     Ok(())
 }
@@ -887,6 +902,78 @@ mod tests {
             ids.len(),
             1,
             "late full reasoning must not duplicate the message fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn reasoning_cleanup_preserves_settled_tool_rounds_and_clears_rejected_attempts() {
+        let mut observed = Vec::new();
+        for (kind, signal) in [
+            ("assistant.turn_retry", serde_json::json!({"turnId":"turn"})),
+            (
+                "assistant.usage",
+                serde_json::json!({"contentFilterTriggered":true}),
+            ),
+            (
+                "assistant.usage",
+                serde_json::json!({"finishReason":"content_filter"}),
+            ),
+        ] {
+            let (tx, mut rx) = mpsc::channel(32);
+            let mut projection = Projection::default();
+            let mut response = super::super::copilot_response::Response::default();
+            for (kind, data) in [
+                ("assistant.turn_start", serde_json::json!({"turnId":"turn"})),
+                (
+                    "assistant.reasoning",
+                    serde_json::json!({"reasoningId":"settled", "content":"valid earlier thought"}),
+                ),
+                (
+                    "assistant.message",
+                    serde_json::json!({"messageId":"tool", "content":"Checking", "toolRequests":[{}]}),
+                ),
+                ("tool.execution_start", serde_json::json!({})),
+                (
+                    "assistant.reasoning_delta",
+                    serde_json::json!({"reasoningId":"active", "deltaContent":"rejected thought"}),
+                ),
+            ] {
+                project_test_event(&mut projection, &mut response, &tx, kind, data)
+                    .await
+                    .unwrap();
+            }
+            let result =
+                project_test_event(&mut projection, &mut response, &tx, kind, signal).await;
+            assert_eq!(result.is_err(), kind == "assistant.usage");
+            let mut visible = std::collections::HashMap::<String, String>::new();
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    AgentEvent::StreamBlockDelta {
+                        block_id,
+                        channel: StreamBlockChannel::Thinking,
+                        delta,
+                        ..
+                    } => {
+                        visible.entry(block_id).or_default().push_str(&delta);
+                    }
+                    AgentEvent::StreamBlockSnapshot {
+                        block_id,
+                        channel: StreamBlockChannel::Thinking,
+                        text,
+                    } => {
+                        visible.insert(block_id, text);
+                    }
+                    _ => {}
+                }
+            }
+            observed.push((
+                visible["copilot:reasoning:settled"].clone(),
+                visible["copilot:reasoning:active"].clone(),
+            ));
+        }
+        assert_eq!(
+            observed,
+            vec![("valid earlier thought".to_string(), String::new()); 3]
         );
     }
 
