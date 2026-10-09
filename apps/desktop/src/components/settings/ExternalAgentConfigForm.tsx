@@ -64,7 +64,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     finally { if (generation.current === current) setLoading(false); }
   };
   const unchanged = config?.model === model && JSON.stringify(initialLaunch) === JSON.stringify(launch);
-  const canSave = !!name.trim() && !!launch.workingDirectory.trim() && !!model && !loading && !saving && !isSaving
+  const canSave = !!name.trim() && !!model && !loading && !saving && !isSaving
     && (unchanged || (verified && models.some(item => item.id === model)));
   const save = async () => {
     if (!canSave) return;
@@ -95,11 +95,14 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
       <input className={inputClass} value={launch.executable ?? ''} placeholder={preset.command} disabled={!initialLaunch}
         onChange={event => changeLaunch({ ...launch, executable: event.target.value || null })} />
     </label>
-    <label className="block text-xs font-medium text-text-secondary"><span className="inline-flex items-center gap-1"><FolderOpen size={13} />{t('settings.externalAgentDirectory')}</span>
+    <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentDirectoryHint')}</p>
+    <details className="rounded-lg border border-border p-3" open={Boolean(initialLaunch?.workingDirectory) || undefined}>
+      <summary className="cursor-pointer text-xs font-medium text-text-secondary">{t('settings.advanced')}</summary>
+    <label className="mt-3 block text-xs font-medium text-text-secondary"><span className="inline-flex items-center gap-1"><FolderOpen size={13} />{t('settings.externalAgentDirectory')}</span>
       <input className={inputClass} value={launch.workingDirectory} disabled={!initialLaunch}
         onChange={event => changeLaunch({ ...launch, workingDirectory: event.target.value })} />
     </label>
-    <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentDirectoryHint')}</p>
+    </details>
     {models.length > 0 && <label className="block text-xs font-medium text-text-secondary">{t('settings.defaultModel')}
       <select className={inputClass} value={model} disabled={loading} onChange={event => {
         const selected = event.target.value;
@@ -139,7 +142,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     {verified && <p role="status" className="text-xs text-success">{t('settings.externalAgentConnected')}</p>}
     {error && <p role="alert" className="break-words text-xs text-danger [overflow-wrap:anywhere]">{error}</p>}
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="secondary" loading={loading} disabled={!launch.workingDirectory.trim() || saving} onClick={() => void probe()}>{t('settings.externalAgentProbe')}</Button>
+      <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving} onClick={() => void probe()}>{t('settings.externalAgentProbe')}</Button>
       <Button size="sm" loading={saving || isSaving} disabled={!canSave} onClick={() => void save()}>{t('common.save')}</Button>
       <Button size="sm" variant="secondary" onClick={onCancel}>{t('common.cancel')}</Button>
     </div>

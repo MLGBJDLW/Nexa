@@ -2661,6 +2661,7 @@ for (const [name, provider, presetId] of [
     await page.locator(`[data-provider-preset-id="${presetId}"]`).click();
     const form = page.getByTestId('external-agent-form');
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
     await form.getByLabel('Working directory', { exact: true }).fill('D:\\工作区\\Example');
     await form.getByRole('button', { name: 'Check connection', exact: true }).click();
     await expect(form.getByRole('status')).toContainText('Inference has not been tested');
@@ -2675,6 +2676,20 @@ for (const [name, provider, presetId] of [
   });
 }
 
+test('ACP profiles can connect and save without a manual working directory', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.locator('[data-provider-preset-id="gemini-cli"]').click();
+  const form = page.getByTestId('external-agent-form');
+  await expect(form.getByRole('button', { name: 'Check connection', exact: true })).toBeEnabled();
+  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { workingDirectory: '' } });
+});
+
 test('ACP external agent launch edits discard stale connection probes', async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
@@ -2682,9 +2697,11 @@ test('ACP external agent launch edits discard stale connection probes', async ({
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('button', { name: /Gemini CLI/ }).click();
   const form = page.getByTestId('external-agent-form');
+  if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\first');
   await page.evaluate(() => localStorage.setItem('nexa-e2e-acp-probe-delay', '700'));
   await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\second');
   await page.waitForTimeout(850);
   await expect(form.getByRole('status')).toHaveCount(0);
@@ -2699,6 +2716,7 @@ test('ACP model changes discard uncategorized native reasoning before verifying 
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.locator('[data-provider-preset-id="goose"]').click();
   const form = page.getByTestId('external-agent-form');
+  if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
   await form.getByRole('button', { name: 'Check connection', exact: true }).click();
   await form.getByRole('combobox', { name: 'Native reasoning', exact: true }).selectOption('high');
@@ -2718,6 +2736,7 @@ test('ACP discovery exposes replacements without silently changing a retired sav
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.getByTitle('Edit').first().click();
   const form = page.getByTestId('external-agent-form');
+  if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
   await form.getByRole('button', { name: 'Check connection', exact: true }).click();
   const model = form.getByRole('combobox', { name: 'Default Model', exact: true });

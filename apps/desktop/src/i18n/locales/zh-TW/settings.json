@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "安裝與登入指南"
   ,"externalAgentExecutable": "執行檔路徑（選填）"
   ,"externalAgentDirectory": "工作目錄"
-  ,"externalAgentDirectoryHint": "優先使用專案主目錄；此備用目錄僅供目前設定使用。"
+  ,"externalAgentDirectoryHint": "自動跟隨目前聊天的專案或工作樹目錄；無專案聊天使用獨立的 Nexa 託管目錄。進階設定中可保留自訂備用目錄。"
   ,"externalAgentConnected": "已建立工作階段並取得模型，尚未測試推論。"
   ,"externalAgentProbe": "檢查連線"
   ,"externalAgentControls": "工具與執行設定由外部 Agent 管理。"

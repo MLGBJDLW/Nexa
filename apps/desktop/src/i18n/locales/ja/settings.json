@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "インストールとログインのガイド"
   ,"externalAgentExecutable": "実行ファイルのパス（任意）"
   ,"externalAgentDirectory": "作業ディレクトリ"
-  ,"externalAgentDirectoryHint": "プロジェクトのメインフォルダーを優先します。この代替フォルダーはこのプロファイルのみで使用します。"
+  ,"externalAgentDirectoryHint": "現在のチャットのワークスペースを自動で使用します。プロジェクトのないチャットには Nexa 専用フォルダーを用意します。代替フォルダーは詳細設定で指定できます。"
   ,"externalAgentConnected": "セッションを作成し、モデルを取得しました。推論は未検証です。"
   ,"externalAgentProbe": "接続を確認"
   ,"externalAgentControls": "ツールと実行設定は外部エージェントが管理します。"

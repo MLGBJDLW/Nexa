@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "Installation and sign-in guide"
   ,"externalAgentExecutable": "Executable path (optional)"
   ,"externalAgentDirectory": "Working directory"
-  ,"externalAgentDirectoryHint": "The project’s primary folder takes priority. This fallback folder is used only by this profile."
+  ,"externalAgentDirectoryHint": "Follows the current chat workspace automatically. Chats without a project use their own Nexa-managed folder. An optional fallback folder is available under Advanced."
   ,"externalAgentConnected": "Session created and models loaded. Inference has not been tested."
   ,"externalAgentProbe": "Check connection"
   ,"externalAgentControls": "Tools and runtime settings are managed by the external agent."

@@ -17,6 +17,41 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn automatic_acp_directory_is_shared_by_process_and_protocol() {
+    let root = tempfile::tempdir().unwrap();
+    let db = nexa_core::db::Database::new(root.path().join("nexa.db")).unwrap();
+    let launch = ExternalAgentLaunch::default()
+        .resolve(&db, None, Some("projectless-chat"))
+        .unwrap();
+    let marker = root.path().join("cwd.json");
+    let preset = nexa_core::external_agent::ExternalAgentPreset {
+        provider: "fixture".into(),
+        name: "Fixture".into(),
+        command: "python".into(),
+        args: vec![
+            "-u".into(),
+            "-c".into(),
+            include_str!("fixture.py").into(),
+            "cwd".into(),
+            marker.to_string_lossy().into(),
+        ],
+        env: Default::default(),
+        docs_url: String::new(),
+    };
+    let mut wire = Wire::start(&preset, &launch).unwrap();
+    let session = Session::connect(&mut wire, &launch.working_directory)
+        .await
+        .unwrap();
+    assert_eq!(session.cwd, launch.working_directory);
+    let receipt: Value = serde_json::from_str(&std::fs::read_to_string(marker).unwrap()).unwrap();
+    assert_eq!(receipt["sessionCwd"], launch.working_directory);
+    assert_eq!(
+        std::fs::canonicalize(receipt["processCwd"].as_str().unwrap()).unwrap(),
+        std::fs::canonicalize(&launch.working_directory).unwrap()
+    );
+}
+
+#[tokio::test]
 async fn chat_model_switch_discards_old_model_options_and_discovery_survives_retirement() {
     let mut wire = wire("dependent");
     let mut session = Session::connect(&mut wire, "fixture").await.unwrap();

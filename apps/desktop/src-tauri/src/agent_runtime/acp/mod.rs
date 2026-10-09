@@ -39,8 +39,9 @@ pub(crate) async fn probe(
     model: Option<&str>,
 ) -> Result<Catalog> {
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
+    let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
-    let mut wire = Wire::start(preset, launch)?;
+    let mut wire = Wire::start(preset, &launch)?;
     tokio::time::timeout(std::time::Duration::from_secs(45), async {
         let mut session =
             Session::connect_with_mcp(&mut wire, &launch.working_directory, &servers).await?;
@@ -72,7 +73,7 @@ pub(crate) struct Catalog {
     pub commands: Vec<String>,
 }
 
-pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Result<Message> {
+pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) -> Result<Message> {
     let privacy_lease = request.db.privacy_lease(&request.cancellation)?;
     if request.cancellation.is_cancelled() {
         return Err(CoreError::Cancelled("Stopped by user".into()));
@@ -83,9 +84,23 @@ pub(crate) async fn run(provider: &str, request: AgentRuntimeTurnRequest) -> Res
     }
     let binding = request
         .external
-        .as_ref()
-        .ok_or_else(|| error("Select an external-agent profile before starting a turn"))?
-        .clone();
+        .as_mut()
+        .ok_or_else(|| error("Select an external-agent profile before starting a turn"))?;
+    binding.launch = binding.launch.resolve(
+        &request.db,
+        request.dependencies.tools.workspace(),
+        Some(&request.conversation_id),
+    )?;
+    let binding = binding.clone();
+    if request.dependencies.tools.workspace().is_none() {
+        request.dependencies.tools =
+            request
+                .dependencies
+                .tools
+                .with_workspace(Some(nexa_core::workspace::Workspace {
+                    roots: vec![binding.launch.working_directory.clone()],
+                }));
+    }
     let servers = mcp::selected(&request.db, &binding.launch.mcp_server_ids)?;
     let key = blake3::hash(
         json!([

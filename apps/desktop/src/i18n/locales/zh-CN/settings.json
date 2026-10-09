@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "安装与登录指南"
   ,"externalAgentExecutable": "可执行文件路径（可选）"
   ,"externalAgentDirectory": "工作目录"
-  ,"externalAgentDirectoryHint": "优先使用项目主目录；此备用目录仅用于当前配置。"
+  ,"externalAgentDirectoryHint": "自动跟随当前聊天的项目或工作树目录；无项目聊天使用独立的 Nexa 托管目录。高级设置中可保留自定义备用目录。"
   ,"externalAgentConnected": "已建立会话并获取模型，尚未测试推理。"
   ,"externalAgentProbe": "检查连接"
   ,"externalAgentControls": "工具和运行设置由外部 Agent 管理。"
