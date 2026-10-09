@@ -293,6 +293,11 @@ fn redact_context_messages(policy: &ChatPrivacyPolicy, messages: &mut [Message])
                     redactor.envelope(envelope);
                     replay_current = envelope.capture_status != ReasoningCaptureStatus::Redacted;
                 }
+                ContentPart::Document { document } => {
+                    *part = ContentPart::Text {
+                        text: redactor.text(&document.fallback("privacy redaction enabled")),
+                    };
+                }
                 ContentPart::Image { .. } => {}
             }
         }

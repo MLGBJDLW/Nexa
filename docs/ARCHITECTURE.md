@@ -387,6 +387,8 @@ scan and sort event metadata; its row limit is not a database scan bound.
 - [Models and Providers](./PROVIDERS_AND_MODELS.md) defines connection,
   capability, and credential ownership; [Subscription Agents](./SUBSCRIPTION_AGENTS.md)
   details official runtime integration.
+- [Native Document Input](./NATIVE_DOCUMENT_INPUT.md) defines exact-route file
+  projection, ephemeral bytes, privacy, extraction fallback and document budgets.
 - [Knowledge and Retrieval](./KNOWLEDGE_AND_RETRIEVAL.md) defines source,
   evidence, collection, and graph interpretation boundaries.
 - [Phone Access](./remote-access.md) covers pairing, routes, typed remote

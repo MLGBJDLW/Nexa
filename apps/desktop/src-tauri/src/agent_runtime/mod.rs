@@ -121,6 +121,7 @@ impl AgentRuntimeTurnRequest {
             .iter()
             .filter_map(|part| match part {
                 ContentPart::Text { text } => Some(text.as_str()),
+                ContentPart::Document { document } => Some(document.fallback_text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()

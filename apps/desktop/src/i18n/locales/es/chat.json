@@ -893,5 +893,10 @@
   "subagentStop": "Detener subtarea",
   "subagentSend": "Enviar",
   "subagentStopping": "Deteniendo",
-  "subagentDisconnected": "Desconectado tras reiniciar"
+  "subagentDisconnected": "Desconectado tras reiniciar",
+  "documentAutoRead": "Lectura automática",
+  "documentExtractionRead": "Extracción local",
+  "documentPdfHint": "Las rutas compatibles leen texto e imágenes de páginas PDF. Las demás rutas y el modo de privacidad usan extracción local. Esta etiqueta describe la política de lectura, no un resultado completado.",
+  "documentOfficeHint": "Las rutas compatibles reciben el archivo Office original como texto. No se incluyen imágenes ni gráficos incrustados. Las demás rutas y el modo de privacidad usan extracción local.",
+  "documentExtractionHint": "Este formato usa extracción local de texto o datos estructurados. Las fórmulas y el recálculo requieren las herramientas de hojas de cálculo."
 }

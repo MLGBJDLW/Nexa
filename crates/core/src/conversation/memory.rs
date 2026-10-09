@@ -100,6 +100,16 @@ pub fn estimate_message_tokens_for_model(model: &str, msg: &Message) -> u32 {
 fn estimate_message_tokens_with_model(model_hint: Option<&str>, msg: &Message) -> u32 {
     let mut tokens = estimate_text_tokens_with_model(model_hint, &msg.text_content());
 
+    tokens = tokens.saturating_add(
+        msg.parts
+            .iter()
+            .filter_map(|p| match p {
+                crate::llm::ContentPart::Document { document } => Some(document.token_overhead()),
+                _ => None,
+            })
+            .fold(0u32, u32::saturating_add),
+    );
+
     // Estimate tokens for image parts.
     // OpenAI vision: 85 base + 170 per 512x512 tile. Since we don't know
     // resolution, use base64 data length as a rough proxy:

@@ -10,6 +10,7 @@ use crate::provider_catalog::model_supports_vision_from_catalog;
 use crate::provider_registry::{provider_adapter_for_type, ProviderAdapterKind};
 
 pub mod anthropic;
+pub mod document;
 pub mod fallback;
 pub mod google;
 mod message;
@@ -107,6 +108,11 @@ pub enum ContentPart {
         media_type: String,
         /// Base64-encoded image data
         data: String,
+    },
+    /// Validated file evidence. Raw bytes live only in the active request;
+    /// serialized histories retain the local extraction fallback.
+    Document {
+        document: Box<document::DocumentInput>,
     },
     /// Provider-native replay sidecar. It is never rendered as user-visible
     /// content; wire adapters consume it only when the route snapshot matches.

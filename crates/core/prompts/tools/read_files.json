@@ -1,6 +1,6 @@
 {
   "name": "read_files",
-  "description": "Read multiple files in a single call. Use this when you need to inspect a known set of files (up to 20) — it is significantly more efficient than calling `read_file` repeatedly. In restricted mode paths must resolve inside the current registered source scope; allow-all/non-restricted permission modes can use all registered sources, and open mode can also use absolute local paths outside registered sources. Supports the same file types as `read_file` (plain text plus extracted text from PDF/DOCX/XLSX/PPTX/images). Output is a JSON array with one entry per requested path; each entry is either {\"path\", \"content\", \"totalLines\", \"truncated\"} on success or {\"path\", \"error\"} on failure. Content is truncated at `max_lines_per_file` lines.",
+  "description": "Read multiple files in a single call. Use this when you need to inspect a known set of files (up to 20) — it is significantly more efficient than calling `read_file` repeatedly. In restricted mode paths must resolve inside the current registered source scope; allow-all/non-restricted permission modes can use all registered sources, and open mode can also use absolute local paths outside registered sources. Supports the same file types as `read_file` (plain text plus extracted text from PDF/DOCX/XLSX/PPTX/images). Output is a JSON array with one entry per requested path; each entry is either {\"path\", \"content\", \"totalLines\", \"truncated\"} on success or {\"path\", \"error\"} on failure. Content is truncated at `max_lines_per_file` lines. For PDF/DOCX/PPTX with no explicit line limit or start_line, the whole original document is also available to verified native document routes; extraction remains the fallback. Office native input is text only; PDF native input can include page images. Explicit line parameters always select extraction only and never send the whole file. XLSX remains structured/extracted input for complete spreadsheet accuracy.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -20,6 +20,8 @@
         "minimum": 1
       }
     },
-    "required": ["paths"]
+    "required": [
+      "paths"
+    ]
   }
 }

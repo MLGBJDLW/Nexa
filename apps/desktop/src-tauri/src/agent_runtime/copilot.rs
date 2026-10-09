@@ -90,6 +90,11 @@ impl github_copilot_sdk::tool::ToolHandler for ToolBridge {
                             r#type: "image".into(),
                             description: Some("Current Nexa tool observation".into()),
                         }),
+                        ContentPart::Document { document } => {
+                            result.text_result_for_llm.push_str(
+                                &document.fallback("Copilot document protocol unverified"),
+                            );
+                        }
                         ContentPart::Text { text } => {
                             result.text_result_for_llm.push('\n');
                             result.text_result_for_llm.push_str(&text);

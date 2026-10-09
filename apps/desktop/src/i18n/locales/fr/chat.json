@@ -893,5 +893,10 @@
   "subagentStop": "Arrêter la sous-tâche",
   "subagentSend": "Envoyer",
   "subagentStopping": "Arrêt en cours",
-  "subagentDisconnected": "Déconnecté après redémarrage"
+  "subagentDisconnected": "Déconnecté après redémarrage",
+  "documentAutoRead": "Lecture automatique",
+  "documentExtractionRead": "Extraction locale",
+  "documentPdfHint": "Les routes compatibles lisent le texte et les images des pages PDF. Les autres routes et le mode confidentialité utilisent une extraction locale. Cette étiquette décrit la règle de lecture, pas un résultat terminé.",
+  "documentOfficeHint": "Les routes compatibles reçoivent le fichier Office original comme texte. Les images et graphiques intégrés sont exclus. Les autres routes et le mode confidentialité utilisent une extraction locale.",
+  "documentExtractionHint": "Ce format utilise une extraction locale de texte ou de données structurées. Les formules et le recalcul nécessitent les outils de tableur."
 }

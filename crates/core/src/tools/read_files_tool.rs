@@ -19,7 +19,7 @@ use serde_json::json;
 use crate::error::CoreError;
 use crate::privacy::{self, PrivacyConfig};
 
-use super::document_utils::read_supported_file_content;
+use super::document_utils::{document_attachment, read_file_evidence};
 use super::path_utils::resolve_existing_file_for_file_access;
 use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
@@ -51,6 +51,7 @@ struct FileReadOk {
     total_lines: usize,
     shown_lines: usize,
     truncated: bool,
+    document: Option<crate::llm::document::DocumentInput>,
 }
 
 #[async_trait]
@@ -97,6 +98,7 @@ impl Tool for ReadFilesTool {
             )));
         }
 
+        let native_candidate = args.max_lines_per_file.is_none();
         let max_lines = args
             .max_lines_per_file
             .unwrap_or(DEFAULT_MAX_LINES_PER_FILE)
@@ -104,7 +106,7 @@ impl Tool for ReadFilesTool {
 
         // Resolve sources + privacy config once, outside the per-file tasks.
 
-        let privacy_config = db.load_privacy_config().unwrap_or_default();
+        let privacy_config = db.load_privacy_config()?;
 
         // If there are no sources in scope every path is inaccessible —
         // return a uniform error per path rather than failing the whole call.
@@ -119,6 +121,7 @@ impl Tool for ReadFilesTool {
                     allow_unregistered_absolute_paths,
                     &privacy_config,
                     max_lines,
+                    native_candidate,
                 );
                 FileReadOutcome {
                     path: raw_path,
@@ -132,6 +135,8 @@ impl Tool for ReadFilesTool {
         let mut files_json = Vec::with_capacity(results.len());
         let mut text_blocks: Vec<String> = Vec::with_capacity(results.len());
         let mut all_errored = true;
+        let mut attachments = Vec::new();
+        let mut remaining_document_bytes = crate::llm::document::MAX_REQUEST_DOCUMENT_BYTES;
 
         for joined in results {
             let outcome = joined
@@ -146,7 +151,15 @@ impl Tool for ReadFilesTool {
                             ok.shown_lines, ok.total_lines
                         ));
                     }
-                    text_blocks.push(format!("{}\n---\n{}", header, ok.content));
+                    let text = format!("{}\n---\n{}", header, ok.content);
+                    if let Some(document) = ok
+                        .document
+                        .filter(|d| d.byte_length <= remaining_document_bytes)
+                    {
+                        remaining_document_bytes -= document.byte_length;
+                        attachments.push(document_attachment(document, text.clone()));
+                    }
+                    text_blocks.push(text);
                     files_json.push(json!({
                         "path": ok.canonical_path,
                         "content": ok.content,
@@ -166,11 +179,15 @@ impl Tool for ReadFilesTool {
         }
 
         let content = text_blocks.join("\n\n");
+        let mut artifacts = json!({ "files": files_json });
+        if !attachments.is_empty() {
+            artifacts["toolOutput"] = json!({ "llmContent": content, "displayContent": content, "attachments": attachments });
+        }
         Ok(ToolResult {
             call_id: call_id.to_string(),
             content,
             is_error: all_errored,
-            artifacts: Some(json!({ "files": files_json })),
+            artifacts: Some(artifacts),
         })
     }
 }
@@ -183,6 +200,7 @@ fn read_single_file(
     allow_unregistered_absolute_paths: bool,
     privacy_config: &PrivacyConfig,
     max_lines: usize,
+    native_candidate: bool,
 ) -> Result<FileReadOk, String> {
     let requested = PathBuf::from(raw_path);
     if sources.is_empty() && !(allow_unregistered_absolute_paths && requested.is_absolute()) {
@@ -199,7 +217,9 @@ fn read_single_file(
     )
     .map_err(|e| e.to_string())?;
 
-    let raw = read_supported_file_content(&canonical).map_err(|e| e.to_string())?;
+    let (raw, document) =
+        read_file_evidence(&canonical, native_candidate && !privacy_config.enabled)
+            .map_err(|e| e.to_string())?;
 
     let total_lines = raw.lines().count();
     let lines: Vec<&str> = raw.lines().take(max_lines).collect();
@@ -223,6 +243,7 @@ fn read_single_file(
         total_lines,
         shown_lines: shown,
         truncated,
+        document,
     })
 }
 

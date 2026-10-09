@@ -207,7 +207,15 @@ function VisionAttachmentTile({
   const { t } = useTranslation();
   const analysis = attachment.visionAnalysis;
   if (!attachment.mediaType.startsWith('image/')) {
-    return <span className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-text-secondary">{attachment.originalName}</span>;
+    const nativeCandidate = attachment.mediaType === 'application/pdf'
+      || attachment.mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      || attachment.mediaType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    const hint = attachment.mediaType === 'application/pdf' ? 'chat.documentPdfHint'
+      : nativeCandidate ? 'chat.documentOfficeHint' : 'chat.documentExtractionHint';
+    return <span title={t(hint)} className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-text-secondary">
+      {attachment.originalName}
+      <span className="ml-2 text-[10px] text-text-tertiary">{t(nativeCandidate ? 'chat.documentAutoRead' : 'chat.documentExtractionRead')}</span>
+    </span>;
   }
   return (
     <div className="relative overflow-hidden rounded-md border border-border bg-surface-1">

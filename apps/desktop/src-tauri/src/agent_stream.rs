@@ -205,6 +205,12 @@ fn compact_message_for_frontend(mut message: Message) -> Message {
             // Provider replay envelopes can contain opaque signatures or
             // encrypted state. They are durable backend protocol state, never
             // a frontend stream payload.
+            ContentPart::Document { document } => {
+                *part = ContentPart::Text {
+                    text: document.fallback("display extraction"),
+                };
+                true
+            }
             ContentPart::ProviderTurn { .. } => false,
         }
     });

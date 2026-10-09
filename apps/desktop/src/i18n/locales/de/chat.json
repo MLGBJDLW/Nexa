@@ -893,5 +893,10 @@
   "subagentStop": "Unteraufgabe stoppen",
   "subagentSend": "Senden",
   "subagentStopping": "Wird gestoppt",
-  "subagentDisconnected": "Nach Neustart getrennt"
+  "subagentDisconnected": "Nach Neustart getrennt",
+  "documentAutoRead": "Automatisch lesen",
+  "documentExtractionRead": "Lokale Extraktion",
+  "documentPdfHint": "Unterstützte Routen lesen PDF-Text und Seitenbilder. Andere Routen und der Datenschutzmodus nutzen lokale Extraktion. Dies beschreibt die Leseregel, kein abgeschlossenes Ergebnis.",
+  "documentOfficeHint": "Unterstützte Routen erhalten die Office-Originaldatei als Texteingabe. Eingebettete Bilder und Diagramme sind nicht enthalten. Andere Routen und der Datenschutzmodus nutzen lokale Extraktion.",
+  "documentExtractionHint": "Dieses Format verwendet lokale Text- oder strukturelle Extraktion. Tabellenformeln und Neuberechnung erfordern Tabellenwerkzeuge."
 }

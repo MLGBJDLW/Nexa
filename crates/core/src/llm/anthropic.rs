@@ -138,6 +138,10 @@ enum AnthropicContentBlock {
     Image {
         source: AnthropicImageSource,
     },
+    Document {
+        source: AnthropicImageSource,
+        title: String,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -467,7 +471,7 @@ fn convert_messages(
                 }
             }
             Role::User => {
-                if msg.has_images() {
+                if msg.has_images() || msg.has_documents() {
                     let blocks: Vec<AnthropicContentBlock> = msg
                         .parts
                         .iter()
@@ -482,6 +486,16 @@ fn convert_messages(
                                         r#type: "base64".to_string(),
                                         media_type: media_type.clone(),
                                         data: data.clone(),
+                                    },
+                                })
+                            }
+                            ContentPart::Document { document } => {
+                                Some(AnthropicContentBlock::Document {
+                                    title: document.name.clone(),
+                                    source: AnthropicImageSource {
+                                        r#type: "base64".into(),
+                                        media_type: document.media_type.clone(),
+                                        data: document.data().into(),
                                     },
                                 })
                             }
@@ -636,6 +650,7 @@ fn add_cache_control_to_message_content(message: &mut AnthropicMessage) {
                         break;
                     }
                     AnthropicContentBlock::Image { .. }
+                    | AnthropicContentBlock::Document { .. }
                     | AnthropicContentBlock::Thinking { .. }
                     | AnthropicContentBlock::RedactedThinking { .. }
                     | AnthropicContentBlock::ToolUse { .. } => {}
@@ -725,6 +740,7 @@ fn enforce_cache_breakpoint_limit(
                     consume_cache_breakpoint(cache_control, &mut remaining);
                 }
                 AnthropicContentBlock::Image { .. }
+                | AnthropicContentBlock::Document { .. }
                 | AnthropicContentBlock::Thinking { .. }
                 | AnthropicContentBlock::RedactedThinking { .. }
                 | AnthropicContentBlock::ToolUse { .. } => {}
@@ -2495,6 +2511,14 @@ impl LlmProvider for AnthropicProvider {
         let transport = self.transport.for_request()?;
         let url = self.messages_url();
         let api_key = self.api_key()?;
+        crate::privacy::runtime::ensure_invocation_current()?;
+        let projected = super::document::project_request(
+            request,
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::AnthropicMessages,
+        );
+        let request = projected.as_ref();
         let (system, messages) = convert_messages(&request.messages);
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, false);
@@ -2523,7 +2547,21 @@ impl LlmProvider for AnthropicProvider {
             ))
         })?;
 
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.complete(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
 
         let raw_response: serde_json::Value = response
             .json()
@@ -2714,6 +2752,14 @@ impl LlmProvider for AnthropicProvider {
         let transport = self.transport.for_request()?;
         let url = self.messages_url();
         let api_key = self.api_key()?;
+        crate::privacy::runtime::ensure_invocation_current()?;
+        let projected = super::document::project_request(
+            request,
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::AnthropicMessages,
+        );
+        let request = projected.as_ref();
         let (system, messages) = convert_messages(&request.messages);
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, true);
@@ -2741,7 +2787,21 @@ impl LlmProvider for AnthropicProvider {
         })?;
 
         info!("Anthropic stream response status: {}", response.status());
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.stream_events(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
 
         let (tx, rx) = mpsc::channel(64);
         info!("Anthropic SSE stream started");
@@ -2811,5 +2871,42 @@ impl LlmProvider for AnthropicProvider {
 
         self.check_response(response).await?;
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "document-processing"))]
+mod native_document_tests {
+    use super::*;
+    use crate::llm::ProviderType;
+    #[test]
+    fn native_document_wire_pdf_has_document_source_and_office_has_only_extraction() {
+        let mut request = super::super::document::tests::pdf_request();
+        request.model = "claude-sonnet-4-5".into();
+        let projected = super::super::document::project_request(
+            &request,
+            ProviderType::Anthropic,
+            None,
+            super::super::reasoning_profile::ReasoningApiStyle::AnthropicMessages,
+        );
+        let (_, messages) = convert_messages(&projected.messages);
+        let wire = serde_json::to_value(messages).unwrap();
+        let block = wire[0]["content"].as_array().unwrap().last().unwrap();
+        assert_eq!(block["type"], "document");
+        assert_eq!(block["source"]["type"], "base64");
+        assert_eq!(block["source"]["media_type"], "application/pdf");
+        assert!(!serde_json::to_string(&wire)
+            .unwrap()
+            .contains("PDF fallback"));
+        let office = super::super::document::tests::office_request(super::super::document::DOCX);
+        let fallback = super::super::document::project_request(
+            &office,
+            ProviderType::Anthropic,
+            None,
+            super::super::reasoning_profile::ReasoningApiStyle::AnthropicMessages,
+        );
+        let (_, messages) = convert_messages(&fallback.messages);
+        assert!(serde_json::to_string(&messages)
+            .unwrap()
+            .contains("fixture unique fallback"));
     }
 }
