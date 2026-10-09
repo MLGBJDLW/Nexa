@@ -966,7 +966,7 @@ mod tests {
                 })
                 .unwrap(),
             );
-            let mut preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "gpt-4.1");
+            let mut preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "gpt-6-sol");
             preset.budget_policy.max_advisor_calls_per_turn = Some(0);
             let advisor = MoaAdvisor {
                 slot: preset.references[0].clone(),
