@@ -1757,6 +1757,7 @@ impl AgentExecutor {
                     tool_call_count: tool_calls.len(),
                     finish_reason: last_finish_reason.clone(),
                     chunk_usage,
+                    api_style: route_snapshot.api_style,
                     request_latency_ms,
                     time_to_first_token_ms,
                     cache_outcome_reason: prompt_cache_observation

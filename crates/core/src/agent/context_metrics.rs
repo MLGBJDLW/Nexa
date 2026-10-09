@@ -338,7 +338,7 @@ impl AgentExecutor {
         breakdown.runtime_provider = self
             .config
             .provider_type
-            .map(|provider| crate::usage_analytics::provider_type_id(Some(provider)).to_string());
+            .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
         breakdown.runtime_model = Some(model.to_string());
         breakdown
     }

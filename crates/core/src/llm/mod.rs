@@ -297,6 +297,24 @@ pub struct Usage {
     pub provider_raw: Option<serde_json::Value>,
 }
 
+impl Usage {
+    /// Current input occupancy, distinct from provider billing categories.
+    /// Anthropic Messages reports uncached input, cache reads and cache writes
+    /// separately; other adapters already include cached input in prompt_tokens.
+    pub(crate) fn context_input_tokens(
+        &self,
+        api_style: reasoning_profile::ReasoningApiStyle,
+    ) -> u32 {
+        if api_style == reasoning_profile::ReasoningApiStyle::AnthropicMessages {
+            self.prompt_tokens
+                .saturating_add(self.cache_read_tokens.unwrap_or_default())
+                .saturating_add(self.cache_creation_tokens.unwrap_or_default())
+        } else {
+            self.prompt_tokens
+        }
+    }
+}
+
 /// Why the model stopped generating.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

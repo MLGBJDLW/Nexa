@@ -1783,7 +1783,9 @@ impl AgentExecutor {
         let calibration_tokens = if primary_route.same_route_identity(&accepted_route_snapshot)
             && accepted_replay_omitted_units == 0
         {
-            chunk_usage.as_ref().map(|usage| usage.prompt_tokens)
+            chunk_usage
+                .as_ref()
+                .map(|usage| usage.context_input_tokens(accepted_route_snapshot.api_style))
         } else {
             None
         };
