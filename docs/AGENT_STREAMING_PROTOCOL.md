@@ -363,3 +363,13 @@ Run focused core/outbox tests and desktop `npm run test:streaming` when changing
 these contracts. Include missing-window, terminal race, event-gap, duplicate,
 pause/restart, and absent-final-message cases. Native and phone delivery need
 their own host-level verification in addition to reducer tests.
+
+## Delegated workspace history
+
+The task capsule opens a resizable child panel alongside the parent chat. It reads the delegated worker's durable activity journal; opening or refreshing the panel never invokes a model. Closing the panel leaves the worker running. Additional instructions and cooperative cancellation use the same lifecycle registry as the model tools, with exact parent-conversation ownership checks. Queued input and applied-at-model-boundary input are separate receipts.
+
+`observe_subagent` reads incremental progress, optionally long-polling up to 2.5 seconds. `wait_subagent` waits for a terminal result, for 30 seconds by default and up to 60 seconds. A wait timeout means the worker is still active, not that its task failed. The GUI provides one automatically refreshed progress view.
+
+Worker history stays on disk beyond the 2,048-event in-memory ring. Reads are paginated by sequence and byte budget. Old truncated histories are labeled; a worker without a live registry handle after restart is shown as disconnected, with no stale input/cancel controls. Deleting its parent chat deletes the journal, and late writes cannot recreate it.
+
+The event pump retains visible typed answer/thinking blocks, stream resets, tools, approvals and plans. Typed producers are authoritative over compatibility text. It coalesces full block snapshots before persistence, including legacy token producers, so privacy rules apply across token boundaries. Opaque provider reasoning and hidden prompts never enter the workspace journal. The UI reads the database privacy projection and rejects old reads after policy revocation. It drains accepted worker events before publishing completion.

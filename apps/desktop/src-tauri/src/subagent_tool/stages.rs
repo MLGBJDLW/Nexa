@@ -706,7 +706,7 @@ pub(super) async fn execute_subagent_worker(
         },
     );
     let mut fatal_error_rx = pump.fatal_error_rx;
-    let mut event_task = pump.task;
+    let event_task = pump.task;
     let run_future = executor.run_with_source_scope(
         context_messages,
         vec![ContentPart::Text { text: request_text }],
@@ -726,16 +726,13 @@ pub(super) async fn execute_subagent_worker(
         run_deadline_ms,
     )
     .await;
-    let capture = match tokio::time::timeout(Duration::from_millis(500), &mut event_task).await {
-        Ok(Ok(capture)) => capture,
-        Ok(Err(error)) => {
+    // The executor has returned and dropped its sender. Drain every accepted
+    // event before publishing the terminal result; a slow durable write must
+    // not cut off the last tool result or answer snapshot.
+    let capture = match event_task.await {
+        Ok(capture) => capture,
+        Err(error) => {
             warn!("Subagent event collector failed for {call_label}: {error}");
-            EventCapture::default()
-        }
-        Err(_) => {
-            event_task.abort();
-            let _ = event_task.await;
-            warn!("Subagent event collector exceeded its 500ms shutdown deadline for {call_label}");
             EventCapture::default()
         }
     };
@@ -819,7 +816,9 @@ pub(super) fn settle_subagent_artifact(
         thinking: if capture.thinking.is_empty() {
             None
         } else {
-            Some(capture.thinking)
+            // Preserve the public array contract, but redact complete text at
+            // the durable boundary rather than disconnected token fragments.
+            Some(vec![capture.thinking.join("")])
         },
         source_scope_applied: input.source_scope_applied,
         is_error: false,

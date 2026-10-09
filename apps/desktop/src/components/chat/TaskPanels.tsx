@@ -179,7 +179,7 @@ function VerificationRow({ check }: { check: VerificationCheckArtifact }) {
   );
 }
 
-function SubtaskRow({ subtask }: { subtask: SubtaskRunArtifact }) {
+function SubtaskRow({ subtask, onOpen }: { subtask: SubtaskRunArtifact; onOpen?: (subtask: SubtaskRunArtifact) => void }) {
   const { t } = useTranslation();
   let icon = <Circle className="h-3 w-3 text-text-tertiary" />;
   let tone = 'text-text-secondary';
@@ -200,7 +200,8 @@ function SubtaskRow({ subtask }: { subtask: SubtaskRunArtifact }) {
       title={subtask.runtimeState === 'unverified' ? t('chat.subagentUnverifiedHint') : undefined}>
       <span className="mt-0.5 shrink-0">{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className={`line-clamp-2 break-words text-xs ${tone}`}>{compactTaskLabel(subtask.label)}</div>
+        {onOpen ? <button type="button" onClick={() => onOpen(subtask)} className={`block w-full rounded text-left text-xs underline-offset-2 hover:underline focus-visible:outline-accent ${tone}`} title={t('chat.subagentWorkspace')}><span className="line-clamp-2 break-words">{compactTaskLabel(subtask.label)}</span></button>
+          : <div className={`line-clamp-2 break-words text-xs ${tone}`}>{compactTaskLabel(subtask.label)}</div>}
         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-text-tertiary">
           {subtask.role && <span>{compactTaskLabel(subtask.role, 32)}</span>}
           <span>{subtask.runtimeState === 'unverified' ? t('chat.subagentStatusUnverified') : subtaskStatusLabel(subtask.status, t)}</span>
@@ -255,12 +256,14 @@ export function PlanProgressPanel({
   subtasks = [],
   git,
   conversationId,
+  onOpenSubagent,
 }: {
   plan?: PlanArtifact | null;
   goal?: ActiveGoalContext | null;
   subtasks?: SubtaskRunArtifact[];
   git?: ReturnType<typeof useGitWorkspace>;
   conversationId?: string | null;
+  onOpenSubagent?: (subtask: SubtaskRunArtifact) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -570,7 +573,7 @@ export function PlanProgressPanel({
             </div>
             <ul className="mt-1.5 max-h-32 space-y-1.5 overflow-y-auto pr-1">
               {subtasks.map((subtask, index) => (
-                <SubtaskRow key={subtask.id || `${subtask.label}-${index}`} subtask={subtask} />
+                <SubtaskRow key={subtask.id || `${subtask.label}-${index}`} subtask={subtask} onOpen={onOpenSubagent} />
               ))}
             </ul>
           </section>

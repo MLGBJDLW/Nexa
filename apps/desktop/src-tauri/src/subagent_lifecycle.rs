@@ -40,6 +40,7 @@ pub enum SubagentLifecycleEventKind {
     Queued,
     Connected,
     ThinkingDelta,
+    Stream,
     ToolStarted,
     Progress,
     OutputDelta,
@@ -56,7 +57,9 @@ impl SubagentLifecycleEventKind {
             Self::Spawned | Self::Connected | Self::InputQueued | Self::InputApplied => {
                 ActivityEventKind::StateChanged
             }
-            Self::Queued | Self::ThinkingDelta | Self::Progress => ActivityEventKind::Progress,
+            Self::Queued | Self::ThinkingDelta | Self::Stream | Self::Progress => {
+                ActivityEventKind::Progress
+            }
             Self::ToolStarted => ActivityEventKind::CommandStarted,
             Self::OutputDelta => ActivityEventKind::StdoutChunk,
             Self::Completed => ActivityEventKind::Completed,

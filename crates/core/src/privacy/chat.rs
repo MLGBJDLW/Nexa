@@ -146,6 +146,20 @@ impl Redactor {
             Value::String(text) => *text = self.text(text),
             Value::Array(items) => items.iter_mut().for_each(|item| self.structured(item)),
             Value::Object(map) => {
+                // Historical token fragments cannot be safely redacted across
+                // event boundaries. New worker journals store full snapshots.
+                if matches!(
+                    map.get("subagentEvent").and_then(Value::as_str),
+                    Some("thinkingDelta" | "outputDelta")
+                ) {
+                    map.remove("data");
+                    if let Some(detail) = map.get_mut("detail").and_then(Value::as_object_mut) {
+                        detail.remove("delta");
+                    }
+                }
+                if map.get("type").and_then(Value::as_str) == Some("streamBlockDelta") {
+                    map.remove("delta");
+                }
                 if map.contains_key("turnItemId") && map.contains_key("replayPayload") {
                     if let Ok(mut envelope) =
                         serde_json::from_value::<ProviderTurnEnvelope>(value.clone())
@@ -194,6 +208,7 @@ impl Redactor {
                         | "call_id" | "toolCallId" | "tool_call_id" | "toolName" | "tool_name"
                         | "conversationId" | "turnId" | "runId" | "subtaskRunId" | "messageId"
                         | "interactionId" | "documentId" | "sourceId" | "chunkId" | "revision"
+                        | "activityId" | "agentId" | "workerId" | "blockId" | "subagentEvent"
                         | "route" | "providerEndpointId" | "modelId" => {}
                         "data" | "metadata" | "structuredContent" | "meta" | "_meta" => {
                             self.data(value)

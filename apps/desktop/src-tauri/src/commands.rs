@@ -119,6 +119,8 @@ pub use code_review::*;
 mod companion;
 mod context_policy;
 mod conversation;
+mod subagent_workspace;
+pub use subagent_workspace::*;
 mod file_changes;
 mod fonts;
 mod git_workspace;

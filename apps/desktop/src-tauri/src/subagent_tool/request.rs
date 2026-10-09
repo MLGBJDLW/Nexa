@@ -251,13 +251,14 @@ pub(super) async fn flush_subagent_deltas(
     bridge: Option<&SubagentEventBridge>,
     pending_thinking: &mut String,
     pending_output: &mut String,
+    transcript: &mut SubagentTranscript,
 ) {
     if !pending_thinking.is_empty() {
         let delta = std::mem::take(pending_thinking);
         emit_subagent_lifecycle_event(
             bridge,
-            SubagentLifecycleEventKind::ThinkingDelta,
-            serde_json::json!({ "delta": delta }),
+            SubagentLifecycleEventKind::Stream,
+            transcript.legacy_snapshot("thinking", &delta),
         )
         .await;
     }
@@ -265,9 +266,96 @@ pub(super) async fn flush_subagent_deltas(
         let delta = std::mem::take(pending_output);
         emit_subagent_lifecycle_event(
             bridge,
-            SubagentLifecycleEventKind::OutputDelta,
-            serde_json::json!({ "delta": delta }),
+            SubagentLifecycleEventKind::Stream,
+            transcript.legacy_snapshot("answer", &delta),
         )
         .await;
+    }
+    for event in transcript.take_snapshots() {
+        emit_subagent_lifecycle_event(bridge, SubagentLifecycleEventKind::Stream, event).await;
+    }
+}
+
+/// Persist complete blocks so privacy rules can match across token boundaries.
+/// Legacy producers get stable block identities; native typed producers retain
+/// their own identities and replace the compatibility projection in the UI.
+#[derive(Default)]
+pub(super) struct SubagentTranscript {
+    legacy: std::collections::HashMap<String, (String, String)>,
+    blocks: std::collections::HashMap<String, (nexa_core::agent::StreamBlockChannel, String)>,
+    dirty: Vec<String>,
+    next_id: u64,
+}
+
+impl SubagentTranscript {
+    fn legacy_snapshot(&mut self, channel: &str, delta: &str) -> serde_json::Value {
+        let next_id = &mut self.next_id;
+        let (id, text) = self.legacy.entry(channel.to_string()).or_insert_with(|| {
+            *next_id += 1;
+            (format!("legacy-worker-{channel}-{next_id}"), String::new())
+        });
+        text.push_str(delta);
+        serde_json::json!({ "event": { "type": "streamBlockSnapshot", "channel": channel, "blockId": id, "text": text, "legacy": true } })
+    }
+
+    pub(super) fn boundary(&mut self) {
+        self.legacy.clear();
+        self.blocks.clear();
+        self.dirty.clear();
+    }
+    pub(super) fn has_pending(&self) -> bool {
+        !self.dirty.is_empty()
+    }
+    pub(super) fn flush_before(&self, event: &AgentEvent) -> bool {
+        if self.dirty.is_empty() {
+            return false;
+        }
+        match event {
+            AgentEvent::StreamBlockDelta { block_id, .. }
+            | AgentEvent::StreamBlockSnapshot { block_id, .. } => {
+                self.dirty.last() != Some(block_id)
+            }
+            AgentEvent::Thinking { .. } | AgentEvent::TextDelta { .. } => false,
+            _ => true,
+        }
+    }
+
+    pub(super) fn note_canonical(&mut self, event: AgentEvent) {
+        let id = match event {
+            AgentEvent::StreamBlockDelta {
+                block_id,
+                channel,
+                offset,
+                delta,
+            } => {
+                let (_, text) = self
+                    .blocks
+                    .entry(block_id.clone())
+                    .or_insert((channel, String::new()));
+                if offset == text.len() {
+                    text.push_str(&delta);
+                }
+                block_id
+            }
+            AgentEvent::StreamBlockSnapshot {
+                block_id,
+                channel,
+                text,
+            } => {
+                self.blocks.insert(block_id.clone(), (channel, text));
+                block_id
+            }
+            _ => return,
+        };
+        if !self.dirty.contains(&id) {
+            self.dirty.push(id);
+        }
+    }
+
+    fn take_snapshots(&mut self) -> Vec<serde_json::Value> {
+        std::mem::take(&mut self.dirty).into_iter().filter_map(|id| {
+            let (channel, text) = self.blocks.get(&id)?;
+            Some(serde_json::json!({ "event": { "type": "streamBlockSnapshot", "channel": channel, "blockId": id, "text": text } }))
+        }).collect()
     }
 }

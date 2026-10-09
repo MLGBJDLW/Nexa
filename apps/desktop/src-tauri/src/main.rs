@@ -975,6 +975,8 @@ fn main() {
             commands::delete_ai_usage_records_cmd,
             commands::export_ai_usage_cmd,
             commands::get_agent_subtask_runs_cmd,
+            commands::read_subagent_workspace_cmd,
+            commands::control_subagent_workspace_cmd,
             commands::get_agent_execution_graph_cmd,
             commands::get_agent_task_artifacts_cmd,
             commands::list_persisted_agent_task_artifacts_cmd,

@@ -10,6 +10,7 @@ import {
   extractPlanArtifact,
   findLatestPlanArtifact,
   findLatestSubtaskArtifacts,
+  type SubtaskRunArtifact,
 } from '../../lib/taskArtifacts';
 import { PlanProgressPanel } from './TaskPanels';
 import { useGitWorkspace } from '../../lib/gitWorkspace';
@@ -23,6 +24,8 @@ interface TaskBoardProps {
   taskRun?: AgentTaskRun | null;
   taskEvents?: AgentTaskRunEvent[];
   goal?: ActiveGoalContext | null;
+  onOpenSubagent?: (subtask: SubtaskRunArtifact) => void;
+  subagentStatuses?: Record<string, string>;
 }
 
 export const TaskBoard = memo(function TaskBoard({
@@ -34,6 +37,8 @@ export const TaskBoard = memo(function TaskBoard({
   taskRun,
   taskEvents = [],
   goal = null,
+  onOpenSubagent,
+  subagentStatuses,
 }: TaskBoardProps) {
   const git = useGitWorkspace(conversationId, isStreaming, `${sourceRevision}:${messages.length}:${toolCalls.filter(call => call.status !== 'running').length}`);
   const plan = useMemo(
@@ -68,7 +73,12 @@ export const TaskBoard = memo(function TaskBoard({
       data-testid="task-board"
       className="pointer-events-none absolute right-3 top-14 z-20 w-[min(22rem,calc(100%-1.5rem))] md:right-4"
     >
-      <PlanProgressPanel key={conversationId} plan={plan?.routeKind === 'DirectResponse' ? null : plan} goal={goal} subtasks={subtasks} git={git} conversationId={conversationId} />
+      <PlanProgressPanel key={conversationId} plan={plan?.routeKind === 'DirectResponse' ? null : plan} goal={goal} subtasks={subtasks.map(task => {
+        const live = subagentStatuses?.[task.rowId || task.lifecycleId || task.id];
+        if (!live) return task;
+        const active = ['queued', 'running', 'cancelling'].includes(live);
+        return { ...task, status: live === 'cancelling' ? 'running' : live === 'orphaned' ? 'failed' : live, runtimeState: active ? 'live' : 'terminal' };
+      })} git={git} conversationId={conversationId} onOpenSubagent={onOpenSubagent} />
     </div>
   );
 });
