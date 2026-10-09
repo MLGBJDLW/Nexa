@@ -18,7 +18,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
             .title("Nexa HTML continuity fixture").visible(true).focused(false)
             .inner_size(640.0, 480.0).build()?;
         let handle = app.handle().clone();
-        let state = super::super::state::BrowserState::new(handle.clone(), profile);
+        let state = super::super::state::BrowserState::new(handle.clone(), profile.clone());
         tauri::async_runtime::spawn(async move {
             use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker}};
             use nexa_core::browser_runtime::{BrowserBounds, BrowserControlOwner};
@@ -49,12 +49,25 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     return Err("The original HTML tab did not retain observable native input".into());
                 }
                 eprintln!("Native HTML continuity: opened, captured pixels, observed while loading, clicked, and observed the result.");
+                let first_storage = state.tab_profile_directory_for_test(&session.id, tab_id)?;
+                let ordinary_storage = profile.join(&session.profile_id);
+                if first_storage == ordinary_storage { return Err("A local preview occupied the ordinary sign-in profile".into()); }
                 // Same-origin reopening must identify the newly created tab.
                 let next = state.open_tab(&session.id, &prepared.url, NavigationActor::Agent, None).await.map_err(|error| format!("Open second tab: {error}"))?;
                 if next.id == tab_id { return Err("Reopening reused the wrong tab identity".into()); }
+                let second_storage = state.tab_profile_directory_for_test(&session.id, &next.id)?;
+                if first_storage == second_storage || second_storage == ordinary_storage { return Err("Preview storage did not remain independent from the ordinary profile".into()); }
                 state.acquire_agent_control(&session.id, "preview-second")?;
                 let observed = state.observe(&session.id, &next.id, "preview-second").await.map_err(|error| format!("Second tab: {error}"))?;
                 if observed.tab_id != next.id || !observed.text.contains("ready") { return Err("Observed the old same-origin tab".into()); }
+                let ordinary = state.open_tab(&session.id, "about:blank", NavigationActor::User, None).await?;
+                if state.tab_profile_directory_for_test(&session.id, &ordinary.id)? != ordinary_storage {
+                    return Err("Ordinary browsing was silently moved into a separate sign-in profile".into());
+                }
+                let blocked = state.open_tab(&session.id, "about:blank", NavigationActor::User, None).await;
+                if blocked.is_ok() || !blocked.err().unwrap_or_default().contains("sign-in state is preserved") {
+                    return Err("Conflicting ordinary profile did not fail explicitly".into());
+                }
                 state.acquire_control(&session.id, BrowserControlOwner::User)?;
                 if state.observe(&session.id, &next.id, "after-takeover").await.is_ok() { return Err("Agent bypassed actual user takeover".into()); }
                 eprintln!("Native HTML continuity: exact second tab observed; real user takeover remains authoritative.");

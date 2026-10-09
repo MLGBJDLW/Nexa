@@ -24,6 +24,14 @@ struct Pending {
     opening_browser: bool,
     browser: Option<PreviewBrowserTarget>,
 }
+
+fn preview_failure(error: &str, target: Option<&PreviewBrowserTarget>) -> String {
+    let error = error.chars().take(1000).collect::<String>();
+    match target {
+        Some(target) => format!("{error} The HTML tab is preserved: sessionId={}, tabId={}. Use browser_session show_workspace and observe to continue with this target.", target.session_id, target.tab_id),
+        None => error,
+    }
+}
 #[derive(Clone, Default)]
 pub struct PreviewBridgeState {
     pending: Arc<Mutex<HashMap<String, Pending>>>,
@@ -103,9 +111,14 @@ impl NexaPreviewHost for NativeNexaPreviewHost {
         tokio::time::timeout(Duration::from_secs(25), receiver)
             .await
             .map_err(|_| {
-                let target = state.pending.lock().ok().and_then(|pending| pending.get(&id).and_then(|entry| entry.browser.clone()));
-                target.map(|target| format!("The HTML tab was created but presentation was not acknowledged: sessionId={}, tabId={}. The tab is preserved; use browser_session show_workspace and observe to continue.", target.session_id, target.tab_id))
-                    .unwrap_or_else(|| "Nexa did not acknowledge the preview. No external app was opened.".into())
+                let target =
+                    state.pending.lock().ok().and_then(|pending| {
+                        pending.get(&id).and_then(|entry| entry.browser.clone())
+                    });
+                preview_failure(
+                    "Nexa did not acknowledge the preview. No external app was opened.",
+                    target.as_ref(),
+                )
             })?
             .map_err(|_| "The Nexa preview request was cancelled")?
     }
@@ -251,6 +264,13 @@ pub fn acknowledge_preview_request_cmd(
     state: State<'_, PreviewBridgeState>,
     result: PreviewAcknowledgement,
 ) -> Result<(), String> {
+    acknowledge_preview_result(&state, result)
+}
+
+fn acknowledge_preview_result(
+    state: &PreviewBridgeState,
+    result: PreviewAcknowledgement,
+) -> Result<(), String> {
     let mut pending = state.pending.lock().unwrap_or_else(|e| e.into_inner());
     let Some(request) = pending.get(&result.request_id) else {
         return Ok(());
@@ -273,9 +293,62 @@ pub fn acknowledge_preview_request_cmd(
     drop(pending);
     let outcome = match (result.receipt, result.error) {
         (Some(receipt), None) => Ok(receipt),
-        (_, Some(error)) => Err(error.chars().take(1000).collect()),
-        _ => Err("Preview did not return a result".into()),
+        (_, Some(error)) => Err(preview_failure(&error, request.browser.as_ref())),
+        _ => Err(preview_failure(
+            "Preview did not return a result",
+            request.browser.as_ref(),
+        )),
     };
     let _ = request.response.send(outcome);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn preview_failure_keeps_committed_target_after_renderer_timeout() {
+        let state = PreviewBridgeState::default();
+        let (response, mut receiver) = oneshot::channel();
+        state.pending.lock().unwrap().insert(
+            "request".into(),
+            Pending {
+                request: PendingPreviewRequest {
+                    request_id: "request".into(),
+                    request: PreviewOpenRequest {
+                        path: "fixture.html".into(),
+                        resource_paths: vec![],
+                        line: None,
+                        conversation_id: Some("owner".into()),
+                        call_id: "call".into(),
+                    },
+                },
+                response,
+                opening_browser: true,
+                browser: Some(PreviewBrowserTarget {
+                    session_id: "session-owned".into(),
+                    tab_id: "tab-owned".into(),
+                    readiness: "opened".into(),
+                }),
+            },
+        );
+        acknowledge_preview_result(
+            &state,
+            PreviewAcknowledgement {
+                request_id: "request".into(),
+                receipt: None,
+                error: Some("Renderer timeout ".repeat(200)),
+            },
+        )
+        .unwrap();
+        assert!(state.pending.lock().unwrap().is_empty());
+        let error = receiver
+            .try_recv()
+            .unwrap()
+            .err()
+            .expect("presentation error remains an error");
+        assert!(error.contains("sessionId=session-owned, tabId=tab-owned"));
+        assert!(error.contains("show_workspace and observe"));
+        assert!(error.len() < 1400);
+    }
 }

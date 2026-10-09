@@ -55,10 +55,14 @@ The tab retains Agent ownership. A real user takeover still requires the user
 to hand control back. Presentation failures preserve a created tab and report
 its identity so it can be shown and observed again.
 
-On Windows, additional tabs use separate browser storage to keep each tab's
-network policy independent and avoid WebView2 environment conflicts. Continue
-authenticated work in its original tab; a newly opened tab does not inherit
-that tab's cookies. The primary named profile keeps its existing storage.
+On Windows, backend-registered local HTML previews use temporary storage, even
+when they are the first tab. Their per-tab network policy remains independent;
+external links use the ordinary browser-opening path instead of turning the
+preview into an isolated login tab. Ordinary pages keep the existing profile
+root and its sign-in data. The current WebView2 integration cannot open two
+ordinary tabs in the same profile with different network-policy proxies, so it
+returns a specific error and keeps the existing tab instead of silently creating
+a second sign-in profile. Continue ordinary browsing in that existing tab.
 
 The tool result confirms that the preview opened. It does not certify that the
 page is correct, that its data is trustworthy, or that every interaction was

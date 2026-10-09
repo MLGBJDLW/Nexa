@@ -662,6 +662,7 @@ pub async fn create_child_webview(
     agent_restricted: Arc<AtomicBool>,
     network_proxy_url: Url,
     bounds: Option<BrowserBounds>,
+    preview_origin: Option<String>,
 ) -> Result<BrowserChildWebview, String> {
     let window = state
         .app()
@@ -705,6 +706,21 @@ pub async fn create_child_webview(
     .on_navigation(move |target| {
         if target == &takeover_for_navigation {
             state_for_takeover.record_user_takeover(&session_for_takeover, &tab_for_takeover);
+            return false;
+        }
+        if target.as_str() != "about:blank"
+            && preview_origin
+                .as_ref()
+                .is_some_and(|origin| target.origin().ascii_serialization() != *origin)
+        {
+            // External links leave the preview's temporary storage via the normal
+            // popup path, including its existing actor and network checks.
+            state_for_takeover.emit(
+                "newWindowRequested",
+                serde_json::json!({
+                    "sessionId": session_for_takeover, "tabId": tab_for_takeover, "url": target,
+                }),
+            );
             return false;
         }
         let agent_restricted = navigation_restriction.load(std::sync::atomic::Ordering::Relaxed);

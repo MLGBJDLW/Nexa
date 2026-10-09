@@ -258,6 +258,9 @@ struct BrowserTab {
     approved_agent_urls: Arc<Mutex<HashSet<String>>>,
     agent_restricted: Arc<AtomicBool>,
     network_proxy: Arc<BrowserNetworkProxy>,
+    preview_origin: Option<String>,
+    // A preview owns its temporary storage, independently of a named profile.
+    _preview_profile: Option<tempfile::TempDir>,
     trusted_input_guard: BrowserTrustedInputGuard,
     dialogs: Arc<super::dialogs::DialogPolicy>,
     downloads: Arc<super::downloads::DownloadGate>,
@@ -455,6 +458,35 @@ impl BrowserState {
         if let Ok(mut previews) = self.html_previews.lock() {
             previews.retain(|id, server| id != preview_id || server.has_tabs());
         }
+    }
+
+    #[cfg(windows)]
+    fn registered_html_preview_origin(
+        &self,
+        conversation_id: Option<&str>,
+        url: &Url,
+    ) -> Option<String> {
+        let previews = self.html_previews.lock().ok()?;
+        super::local_html::registered_preview_origin(&previews, conversation_id, url)
+    }
+
+    #[cfg(all(test, windows))]
+    pub(super) fn tab_profile_directory_for_test(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+    ) -> Result<PathBuf, String> {
+        let runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser runtime is unavailable")?;
+        let session = runtime.sessions.get(session_id).ok_or("Missing session")?;
+        let tab = session.tabs.get(tab_id).ok_or("Missing tab")?;
+        Ok(tab
+            ._preview_profile
+            .as_ref()
+            .map(|profile| profile.path().to_path_buf())
+            .unwrap_or_else(|| self.profile_root.join(&session.profile_id)))
     }
 
     pub(super) fn initial_navigation_approvals(
@@ -830,7 +862,14 @@ impl BrowserState {
         if actor != NavigationActor::Agent {
             self.acquire_control(session_id, BrowserControlOwner::User)?;
         }
-        let (profile_id, tab_id, conversation_id, effective_bounds, agent_open_fence, initial_tab) = {
+        let (
+            profile_id,
+            tab_id,
+            conversation_id,
+            effective_bounds,
+            agent_open_fence,
+            ordinary_profile_busy,
+        ) = {
             let mut runtime = self
                 .inner
                 .lock()
@@ -906,7 +945,11 @@ impl BrowserState {
                 session.conversation_id.clone(),
                 bounds.or(inherited_bounds),
                 agent_open_fence,
-                session.initializing,
+                session
+                    .tabs
+                    .values()
+                    .any(|tab| tab._preview_profile.is_none())
+                    || session.opening_tabs > 1,
             )
         };
         let mut opening_guard = OpeningTabGuard {
@@ -922,20 +965,33 @@ impl BrowserState {
         }
         let network_proxy_url = network_proxy.url().clone();
         let profile_dir = self.profile_root.join(&profile_id);
-        // WebView2 rejects a second environment with the same data directory
-        // and a different proxy. Each additional tab has its own network policy
-        // proxy, so it also needs its own environment storage. Preserve the
-        // primary profile directory for existing named-profile sessions.
-        #[cfg(windows)]
-        let profile_dir = if initial_tab {
-            profile_dir
-        } else {
-            profile_dir.join("tabs").join(&tab_id)
-        };
-        #[cfg(not(windows))]
-        let _ = initial_tab;
         std::fs::create_dir_all(&profile_dir)
             .map_err(|error| format!("Could not create browser profile: {error}"))?;
+        // Only a registered, live HTML preview owns isolated temporary storage.
+        // Ordinary pages keep the profile's cookies, localStorage and IndexedDB.
+        #[cfg(windows)]
+        let preview_origin = self.registered_html_preview_origin(conversation_id.as_deref(), &url);
+        #[cfg(not(windows))]
+        let preview_origin: Option<String> = None;
+        #[cfg(not(windows))]
+        let _ = ordinary_profile_busy;
+        #[cfg(windows)]
+        if preview_origin.is_none() && ordinary_profile_busy {
+            return Err("Windows cannot open another ordinary tab in this profile with a separate network-policy proxy. Continue in the existing tab, or close it before reopening; the profile's sign-in state is preserved.".into());
+        }
+        let preview_profile = preview_origin
+            .as_ref()
+            .map(|_| {
+                tempfile::Builder::new()
+                    .prefix(".nexa-html-preview-")
+                    .tempdir_in(&profile_dir)
+                    .map_err(|error| format!("Could not create temporary HTML profile: {error}"))
+            })
+            .transpose()?;
+        let profile_dir = preview_profile
+            .as_ref()
+            .map(|profile| profile.path().to_path_buf())
+            .unwrap_or(profile_dir);
         let BrowserChildWebview {
             webview,
             approved_agent_urls,
@@ -952,6 +1008,7 @@ impl BrowserState {
             Arc::clone(&agent_restricted),
             network_proxy_url,
             effective_bounds,
+            preview_origin.clone(),
         )
         .await?;
         let navigation_webview = webview.clone();
@@ -1061,6 +1118,8 @@ impl BrowserState {
                     approved_agent_urls,
                     agent_restricted,
                     network_proxy,
+                    preview_origin,
+                    _preview_profile: preview_profile,
                     trusted_input_guard,
                     dialogs,
                     downloads,
@@ -1114,6 +1173,24 @@ impl BrowserState {
         } else {
             normalize_browser_url(input, actor)?
         };
+        {
+            let runtime = self
+                .inner
+                .lock()
+                .map_err(|_| "Browser runtime is unavailable".to_string())?;
+            let tab = runtime
+                .sessions
+                .get(session_id)
+                .and_then(|session| session.tabs.get(tab_id))
+                .ok_or_else(|| format!("Unknown browser tab '{tab_id}'"))?;
+            if tab
+                .preview_origin
+                .as_ref()
+                .is_some_and(|origin| url.origin().ascii_serialization() != *origin)
+            {
+                return Err("This tab owns a temporary local HTML preview. Use open_tab for ordinary browsing so its sign-in profile is preserved.".into());
+            }
+        }
         if actor == NavigationActor::Agent {
             {
                 let runtime = self
