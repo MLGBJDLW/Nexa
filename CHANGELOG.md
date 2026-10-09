@@ -32,6 +32,18 @@
 * **storage:** keep unfinished model copies inactive and fence settings ([1393f13](https://github.com/MLGBJDLW/Nexa/commit/1393f13386a8d0447a4421ce4908ba4b9fc7e4c2))
 * **subagents:** resolve worker identity and terminal history ([532f174](https://github.com/MLGBJDLW/Nexa/commit/532f1743df402f7592b3765eb6f52fbf499bd013))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at d5a5d1a6328bb9916de4e11343e4a69238a04fe3 -->
+
+### What's Changed
+* fix: align context accounting and repair source/model storage workflows by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/456
+* fix(copilot): restore readable Grok reasoning and continuous streaming by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/458
+* feat: improve document input and agent workspace continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/459
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.27...nexa-monorepo-v0.14.28
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.27](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.26...nexa-monorepo-v0.14.27) (2026-10-08)
 
 
