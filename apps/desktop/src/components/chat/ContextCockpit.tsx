@@ -95,7 +95,7 @@ export function ContextCockpit({
   let riskChipTone = 'border-border/70 bg-surface-0/70 text-text-secondary';
   let riskIcon = ShieldCheck;
   let riskTitle = t('chat.contextHealthy');
-  let riskAction = usage && usagePercent >= 80 ? t('chat.contextWatch') : '';
+  let riskAction = usage && usagePercent >= contextUsage.warningPercent ? t('chat.contextWatch') : '';
   let riskSummaryLabel = t('chat.contextHealthy');
 
   if (rateLimited) {
@@ -131,6 +131,12 @@ export function ContextCockpit({
     riskIcon = AlertTriangle;
     riskTitle = t('chat.contentFiltered');
     riskSummaryLabel = t('chat.contentFiltered');
+  } else if (usage && usagePercent >= contextUsage.warningPercent) {
+    riskTone = 'border-yellow-500/25 bg-yellow-500/10 text-yellow-700';
+    riskChipTone = 'border-yellow-500/20 bg-yellow-500/10 text-yellow-700';
+    riskIcon = AlertTriangle;
+    riskTitle = t('chat.contextWatch');
+    riskSummaryLabel = riskTitle;
   } else if (isStreaming) {
     riskSummaryLabel = t('chat.thinking');
   }
@@ -173,7 +179,7 @@ export function ContextCockpit({
             const pct = usagePercent / 100;
             const colorClass = (pct >= 0.95 || contextOverflow)
               ? 'text-red-500 bg-red-500/10'
-              : pct >= 0.8
+              : usagePercent >= contextUsage.warningPercent
               ? 'text-amber-400 bg-amber-400/10'
               : usage
               ? 'text-cyan-400 bg-cyan-400/10'

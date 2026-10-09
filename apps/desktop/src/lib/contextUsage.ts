@@ -23,6 +23,7 @@ export function resolveContextUsage(usage: UsageInput | null | undefined) {
   return {
     budget, capacity, inputBudget, used, percent,
     compactPercent: budget?.compactPercent ?? null,
+    warningPercent: Math.min(80, budget?.compactPercent ?? 80),
     untilCompact: budget ? Math.max(0, budget.compactThreshold - used) : null,
   };
 }

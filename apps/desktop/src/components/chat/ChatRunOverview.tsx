@@ -232,7 +232,7 @@ export function ChatRunOverview({
   const usagePercentRounded = Math.round(usagePercent);
   const contextRisk = contextOverflow || usagePercent >= 95
     ? 'danger'
-    : usagePercent >= Math.min(80, contextUsage.compactPercent ?? 80)
+    : usagePercent >= contextUsage.warningPercent
       ? 'warning'
       : 'ok';
 
