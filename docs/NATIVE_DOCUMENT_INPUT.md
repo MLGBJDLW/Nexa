@@ -57,7 +57,10 @@ its resolved budget for entries without window metadata. Invalid containers, enc
 routes, restored history without bytes and privacy mode use extraction or the existing
 explicit extraction error. UTF-8 text fallback is bounded and identifies truncation.
 
-Native document estimates use extracted text and PDF page count, never base64 as
+The active route plans native versus extracted cost before core context trimming,
+including documents newly returned by tools. A different fallback route can still
+use the original bytes and chooses its own representation. Native document estimates
+use extracted text and PDF page count, never base64 as
 ordinary text and never zero cost. Content digests and byte availability participate
 in prompt fingerprints. Actual provider usage still feeds the existing context calibration.
 

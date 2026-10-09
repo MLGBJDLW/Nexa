@@ -1749,6 +1749,21 @@ fn with_google_api_key(request: reqwest::RequestBuilder, api_key: &str) -> reqwe
 
 #[async_trait]
 impl LlmProvider for GeminiProvider {
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &super::document::DocumentInput,
+    ) -> bool {
+        super::document::native_semantics(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::GeminiGenerateContent,
+            &request.model,
+            document,
+        )
+        .is_some()
+    }
+
     fn name(&self) -> &str {
         "google"
     }

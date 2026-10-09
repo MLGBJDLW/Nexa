@@ -3041,6 +3041,21 @@ impl OpenAiProvider {
 
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &super::document::DocumentInput,
+    ) -> bool {
+        super::document::native_semantics(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            self.route_snapshot(request).api_style,
+            &request.model,
+            document,
+        )
+        .is_some()
+    }
+
     fn name(&self) -> &str {
         "openai"
     }

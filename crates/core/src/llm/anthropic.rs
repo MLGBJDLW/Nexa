@@ -2435,6 +2435,21 @@ mod tests {
 
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &super::document::DocumentInput,
+    ) -> bool {
+        super::document::native_semantics(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::AnthropicMessages,
+            &request.model,
+            document,
+        )
+        .is_some()
+    }
+
     fn name(&self) -> &str {
         "anthropic"
     }

@@ -234,6 +234,18 @@ struct FallbackStreamState<'a> {
 
 #[async_trait]
 impl LlmProvider for AutomaticFallbackProvider {
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &super::document::DocumentInput,
+    ) -> bool {
+        let position = self.route_window(request).0;
+        let route_request = self.request_for_route(request, position);
+        self.routes[position]
+            .provider
+            .supports_document_input(&route_request, document)
+    }
+
     fn name(&self) -> &str {
         self.routes[self.active_position()].provider.name()
     }

@@ -842,6 +842,16 @@ pub trait LlmProvider: Send + Sync {
         )
     }
 
+    /// Exact-route document capability used before context trimming. Unknown
+    /// adapters keep local extraction; image support never implies file support.
+    fn supports_document_input(
+        &self,
+        _request: &CompletionRequest,
+        _document: &document::DocumentInput,
+    ) -> bool {
+        false
+    }
+
     /// Endpoint-scoped contract for replaying provider reasoning. The agent
     /// uses this before dispatching tool calls; callers never infer it from a
     /// model name alone.
@@ -983,6 +993,14 @@ impl LlmProvider for MessageValidatingProvider {
 
     fn prompt_cache_profile(&self, model: &str) -> prompt_cache::PromptCacheProfile {
         self.inner.prompt_cache_profile(model)
+    }
+
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &document::DocumentInput,
+    ) -> bool {
+        self.inner.supports_document_input(request, document)
     }
 
     fn reasoning_replay_policy(&self, model: &str) -> reasoning_profile::ReasoningReplayPolicy {

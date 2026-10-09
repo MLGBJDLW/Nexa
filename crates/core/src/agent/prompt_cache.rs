@@ -216,9 +216,10 @@ pub(super) fn serialized_message_for_hash(message: &Message) -> String {
             ContentPart::Document { document } => Some((
                 document.media_type.as_str(),
                 hash_text(&format!(
-                    "{}:{}",
+                    "{}:{}:{}",
                     document.digest,
-                    !document.data().is_empty()
+                    !document.data().is_empty(),
+                    document.budget_fingerprint()
                 )),
             )),
             ContentPart::Text { .. } | ContentPart::ProviderTurn { .. } => None,
