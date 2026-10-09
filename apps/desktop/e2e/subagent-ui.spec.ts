@@ -185,7 +185,11 @@ test.beforeEach(async ({ page }) => {
     let childPrivacy = 'initial';
     let holdChildRead = false;
     let heldChildRead: (() => void) | null = null;
-    const childEvent = (subagentEvent: string, detail: unknown) => childEvents.push({ activityId: 'agent-controls', seq: childEvents.length + 1, timestamp: nowIso, kind: 'progress', payload: { subagentEvent, detail } });
+    const childEvent = (subagentEvent: string, detail: unknown) => {
+      const terminal = ['completed', 'failed', 'cancelled'].includes(subagentEvent);
+      const envelope = { subagentEvent, agentId: 'agent-controls', detail };
+      childEvents.push({ activityId: 'agent-controls', seq: childEvents.length + 1, timestamp: nowIso, kind: terminal ? subagentEvent : 'progress', payload: terminal ? { state: subagentEvent, detail: envelope } : envelope });
+    };
     childEvent('spawned', { task: 'Continue background research' });
     childEvent('stream', { event: { type: 'streamBlockSnapshot', channel: 'thinking', blockId: 'thinking', text: 'Inspecting the source carefully.' } });
     childEvent('stream', { event: { type: 'streamBlockSnapshot', channel: 'answer', blockId: 'answer', text: 'Live child answer privateCODE' } });

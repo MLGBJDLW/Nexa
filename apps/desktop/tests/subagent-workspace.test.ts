@@ -30,4 +30,16 @@ const legacy = new SubagentJournalProjection();
 legacy.append([stream({ type: 'streamBlockSnapshot', channel: 'answer', blockId: 'legacy-worker-answer-1', text: 'private', legacy: true }),
   stream({ type: 'streamBlockSnapshot', channel: 'answer', blockId: 'legacy-worker-answer-1', text: '[PRIVATE]', legacy: true })]);
 assert(legacy.state.traceEvents.length === 1 && legacy.state.traceEvents[0].kind === 'reply' && legacy.state.traceEvents[0].text === '[PRIVATE]', 'full legacy snapshots replace fragments after privacy redaction');
+
+for (const kind of ['completed', 'failed', 'cancelled'] as const) {
+  const child = new SubagentJournalProjection();
+  child.append([event('progress', { run: { callId: 'unfinished', toolName: 'read_file', status: 'running', arguments: '{}' } })]);
+  child.append([{ activityId: 'worker', seq: ++seq, timestamp: '', kind: kind === 'completed' ? 'completed' : kind === 'failed' ? 'failed' : 'cancelled', payload: {
+    state: kind, detail: { agentId: 'worker', subagentEvent: kind, detail: { result: { result: 'Wrapped terminal result' }, errorMessage: kind === 'failed' ? 'Child provider failed' : null } },
+  } }]);
+  assert(child.result === 'Wrapped terminal result', `${kind} transition envelope preserves the final result`);
+  assert(child.state.toolCalls[0]?.status === (kind === 'completed' ? 'done' : kind === 'failed' ? 'error' : 'cancelled'), `${kind} settles an unfinished child tool`);
+  if (kind === 'failed') assert(child.state.traceEvents.some(item => item.kind === 'status' && item.text === 'Child provider failed'), 'failed transition exposes error details');
+}
+
 console.log('Subagent workspace projection contracts passed');

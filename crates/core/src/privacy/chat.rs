@@ -154,11 +154,11 @@ impl Redactor {
                 ) {
                     map.remove("data");
                     if let Some(detail) = map.get_mut("detail").and_then(Value::as_object_mut) {
-                        detail.remove("delta");
+                        detail.insert("delta".into(), Value::String(String::new()));
                     }
                 }
                 if map.get("type").and_then(Value::as_str) == Some("streamBlockDelta") {
-                    map.remove("delta");
+                    map.insert("delta".into(), Value::String(String::new()));
                 }
                 if map.contains_key("turnItemId") && map.contains_key("replayPayload") {
                     if let Ok(mut envelope) =

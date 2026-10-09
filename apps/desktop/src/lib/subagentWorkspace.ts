@@ -33,8 +33,11 @@ export class SubagentJournalProjection {
       if (item.seq <= this.cursor) continue;
       this.cursor = item.seq;
       const payload = record(item.payload);
-      const detail = record(payload.detail);
-      const kind = text(payload.subagentEvent);
+      // ActivityRuntime transitions wrap their domain event in { state, detail }.
+      // Ordinary append events and legacy journals retain the flat envelope.
+      const envelope = typeof payload.subagentEvent === 'string' ? payload : record(payload.detail);
+      const detail = record(envelope.detail);
+      const kind = text(envelope.subagentEvent);
       if (kind === 'spawned') { this.task = text(detail.task); this.role = text(detail.role); }
       else if (kind === 'stream') {
         const event = record(detail.event);

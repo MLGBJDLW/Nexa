@@ -13,6 +13,17 @@ pub struct SubagentWorkspacePage {
     privacy_revision: String,
 }
 
+// Batch workerId is a task label. agentId is the lifecycle authority; only
+// older rows without that field may use a verified workerId as their identity.
+fn row_lifecycle_id(row: &AgentSubtaskRun) -> Option<&str> {
+    let input = row.input.as_ref()?;
+    input
+        .get("agentId")
+        .or_else(|| input.get("workerId"))?
+        .as_str()
+        .filter(|id| !id.trim().is_empty())
+}
+
 fn resolve_worker(
     db: &Database,
     conversation_id: &str,
@@ -24,18 +35,12 @@ fn resolve_worker(
         if parent.conversation_id != conversation_id {
             return Err(CoreError::NotFound("Subagent".into()));
         }
-        let worker = row
-            .input
-            .as_ref()
-            .and_then(|input| input.get("workerId"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
+        let worker = row_lifecycle_id(&row).map(str::to_owned);
         if let Some(worker_id) = worker.as_deref() {
-            if matches!(
-                db.read_subagent_history(conversation_id, worker_id, u64::MAX),
-                Err(CoreError::NotFound(_))
-            ) {
-                return Ok((None, Some(row)));
+            match db.read_subagent_history(conversation_id, worker_id, u64::MAX) {
+                Ok(_) => {}
+                Err(CoreError::NotFound(_)) => return Ok((None, Some(row))),
+                Err(error) => return Err(error),
             }
         }
         return Ok((worker, Some(row)));
@@ -78,9 +83,7 @@ pub async fn read_subagent_workspace_cmd(
             .unwrap_or_default();
         let live_id = legacy_run
             .as_ref()
-            .and_then(|run| run.input.as_ref())
-            .and_then(|input| input.get("workerId"))
-            .and_then(serde_json::Value::as_str)
+            .and_then(row_lifecycle_id)
             .filter(|worker_id| {
                 state
                     .subagent_lifecycle
@@ -220,4 +223,105 @@ pub async fn control_subagent_workspace_cmd(
         _ => return Err("Unknown subagent action".into()),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexa_core::activity::{ActivityRuntime, ActivitySpec, ActivitySurface};
+    use nexa_core::conversation::{ConversationMessage, CreateConversationInput};
+    use nexa_core::llm::Role;
+
+    #[test]
+    fn subagent_workspace_resolves_batch_rows_by_agent_identity_before_task_labels() {
+        let db = Database::open_memory().unwrap();
+        let conv = db
+            .create_conversation(&CreateConversationInput {
+                provider: "openai".into(),
+                model: "test".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let user = ConversationMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            conversation_id: conv.id.clone(),
+            role: Role::User,
+            content: "batch".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&user).unwrap();
+        let turn = db
+            .create_conversation_turn(&conv.id, &user.id, None)
+            .unwrap();
+        let parent = db
+            .create_agent_task_run(&conv.id, &turn.id, &user.id, "batch", None, None)
+            .unwrap();
+        let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
+        for id in ["actual-agent-uuid", "research-label"] {
+            runtime
+                .start(
+                    ActivitySpec::new(ActivitySurface::Process, "spawn_subagent")
+                        .with_activity_id(id)
+                        .with_conversation_id(&conv.id),
+                )
+                .unwrap();
+        }
+        let row = db
+            .create_agent_subtask_run(
+                &parent.id,
+                "Review",
+                "reviewer",
+                Some(
+                    &serde_json::json!({"workerId":"research-label","agentId":"actual-agent-uuid"}),
+                ),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            resolve_worker(&db, &conv.id, &row.id).unwrap().0.as_deref(),
+            Some("actual-agent-uuid")
+        );
+        let legacy = db
+            .create_agent_subtask_run(
+                &parent.id,
+                "Old worker",
+                "reviewer",
+                Some(&serde_json::json!({"workerId":"actual-agent-uuid"})),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            resolve_worker(&db, &conv.id, &legacy.id)
+                .unwrap()
+                .0
+                .as_deref(),
+            Some("actual-agent-uuid")
+        );
+        let missing = db
+            .create_agent_subtask_run(
+                &parent.id,
+                "Missing",
+                "reviewer",
+                Some(&serde_json::json!({"workerId":"research-label","agentId":"missing-agent"})),
+                None,
+            )
+            .unwrap();
+        assert!(
+            resolve_worker(&db, &conv.id, &missing.id)
+                .unwrap()
+                .0
+                .is_none(),
+            "a present agent identity must not redirect to a similarly named different worker"
+        );
+    }
 }
