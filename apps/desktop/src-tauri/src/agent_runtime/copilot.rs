@@ -940,7 +940,10 @@ mod tests {
             }
         }
         eprintln!("Copilot live projection: model={model} elapsed_ms={} thinking_deltas={thinking_deltas} answer_deltas={answer_deltas} thinking_snapshots={snapshots}", started.elapsed().as_millis());
-        assert!(thinking_deltas > 0 && answer_deltas > 1 && snapshots > 0);
+        // Live models may return only a readable full snapshot on a given
+        // request. Deterministic regressions above enforce delta continuity;
+        // this probe verifies actual readable thinking and streamed answers.
+        assert!(thinking_deltas + snapshots > 0 && answer_deltas > 1);
     }
 
     #[tokio::test]
