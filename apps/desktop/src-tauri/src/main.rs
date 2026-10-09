@@ -1173,6 +1173,7 @@ fn main() {
             commands::download_ocr_models_cmd,
             commands::delete_ocr_models_cmd,
             commands::get_managed_model_paths_cmd,
+            commands::consolidate_model_storage_cmd,
             // Video
             #[cfg(feature = "video")]
             commands::get_video_config_cmd,

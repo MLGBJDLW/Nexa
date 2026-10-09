@@ -208,11 +208,14 @@ fn default_beam_size() -> u32 {
 
 impl Default for VideoConfig {
     fn default() -> Self {
-        let model_path = dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(crate::APP_DIR)
-            .join("models")
-            .join("whisper")
+        let model_path = crate::local_storage::resolve_model_dir("whisper")
+            .unwrap_or_else(|_| {
+                dirs::data_local_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(crate::APP_DIR)
+                    .join("models")
+                    .join("whisper")
+            })
             .to_string_lossy()
             .to_string();
         Self {

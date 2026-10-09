@@ -124,10 +124,10 @@ export function EmbeddingConfigSection({
       title={t('settings.embeddingSection')}
       delay={0.06}
       collapsible
-      defaultOpen={false}
+      defaultOpen
       summary={embedConfig ? (
         <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-          {embedConfig.provider}
+          {t(embedConfig.provider === 'api' ? 'settings.embeddingApi' : embedConfig.provider === 'local' ? 'settings.embeddingLocal' : 'settings.embeddingTfidf')}
         </span>
       ) : undefined}
     >

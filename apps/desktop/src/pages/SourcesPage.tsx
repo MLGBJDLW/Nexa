@@ -609,6 +609,14 @@ export function SourcesPage() {
           <Button
             variant="secondary"
             size="sm"
+            icon={<Cpu size={14} />}
+            onClick={() => navigate('/settings?tab=models_embedding')}
+          >
+            {t('settings.embeddingSection')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             icon={<ScanSearch size={14} />}
             onClick={() => setPendingBatchAction('scanAll')}
             loading={scanningAll}

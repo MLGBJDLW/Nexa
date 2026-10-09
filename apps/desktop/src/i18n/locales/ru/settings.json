@@ -52,7 +52,7 @@
   "embeddingSection": "Конфигурация AI-эмбеддинга",
   "embeddingProvider": "Провайдер эмбеддинга",
   "embeddingLocal": "Локальная модель",
-  "embeddingApi": "API",
+  "embeddingApi": "Онлайн-API",
   "embeddingTfidf": "TF-IDF",
   "embeddingLocalModel": "Локальная модель эмбеддинга",
   "embeddingLocalModelSelect": "Выбрать модель",
@@ -803,12 +803,12 @@
   "ttsAutoSpeakFinal": "Read final answers automatically",
   "ttsAutoSpeakFinalDesc": "Speak only the final answer after each turn. A quick switch is also available in the chat header."
   ,"localModelStorage": "Local model storage"
-  ,"localModelStorageDesc": "Choose where Nexa stores managed embedding, OCR, and Whisper downloads. The default location is shown and can be changed to another drive."
+  ,"localModelStorageDesc": "Новые модели используют NEXA_HOME/models (по умолчанию ~/.nexa/models). Выберите диск или соберите здесь уже загруженные модели."
   ,"localModelStorageChoose": "Choose a local model folder"
   ,"localModelStorageBrowse": "Browse"
-  ,"localModelStorageApply": "Use this location"
-  ,"localModelStorageDefault": "Restore default"
-  ,"localModelStorageWarning": "Changing the location does not move or delete existing model files. Downloads and delete actions use the newly selected folders."
+  ,"localModelStorageApply": "Объединить и использовать"
+  ,"localModelStorageDefault": "Собрать по умолчанию"
+  ,"localModelStorageWarning": "Копии проверяются до одновременной смены всех путей. Оригиналы сохраняются, конфликтующие файлы не перезаписываются. Сначала сохраните настройки и завершите загрузки."
   ,"localModelStorageUnavailable": "Model settings are still loading. Try again in a moment."
   ,"localModelStorageSaved": "Local model location saved"
   ,"localModelStorageSaveError": "Failed to save the local model location"
@@ -1112,4 +1112,8 @@
   ,"systemOneEndpoint": "Базовый URL провайдера"
   ,"systemOneAccess": "Требуется активированный аккаунт. Доступ к предварительным и альфа-моделям может меняться; вызовы могут быть платными."
   ,"systemOneDocs": "Официальная документация"
+  ,"storageSection": "Расположение хранилищ"
+  ,"storageSectionDesc": "Управляйте общими настройками, правилами проектов и локальными моделями в одном месте."
+  ,"storageProjectContracts": "Правила остаются в каждом проекте: .nexa/AGENTS.md, .nexa/tools и .nexa/tmp. Существующие AGENTS.md имеют приоритет."
+  ,"storageInternalState": "База данных, учётные данные и кэши"
 }

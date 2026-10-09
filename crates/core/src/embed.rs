@@ -1147,14 +1147,12 @@ impl Embedder for OnnxEmbedder {
 
 /// Default cache directory for a specific ONNX model.
 pub fn default_model_dir_for(model: &LocalEmbeddingModel) -> Result<PathBuf, CoreError> {
-    Ok(default_model_root()?.join(model.model_name()))
+    crate::local_storage::resolve_model_dir(model.model_name())
 }
 
 /// Default root used by managed local model downloads.
 pub fn default_model_root() -> Result<PathBuf, CoreError> {
-    let data_dir = dirs::data_dir()
-        .ok_or_else(|| CoreError::Embedding("cannot determine data directory".into()))?;
-    Ok(data_dir.join(crate::APP_DIR).join("models"))
+    crate::local_storage::model_root()
 }
 
 /// Download `model.onnx` and `tokenizer.json` from HuggingFace.
