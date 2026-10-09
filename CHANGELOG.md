@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.14.28](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.27...nexa-monorepo-v0.14.28) (2026-10-09)
+
+
+### Features
+
+* **acp:** resolve working directories from the chat workspace ([13e0430](https://github.com/MLGBJDLW/Nexa/commit/13e0430106727ee6d05df7cd47a188d88d103aa2))
+* **documents:** prefer verified native file input with extraction fallback ([824627e](https://github.com/MLGBJDLW/Nexa/commit/824627ec37e5e8dc9386364fe0fc94ce7845df6e))
+* improve document input and agent workspace continuity ([d5a5d1a](https://github.com/MLGBJDLW/Nexa/commit/d5a5d1a6328bb9916de4e11343e4a69238a04fe3))
+* **settings:** centralize model storage and expose online embeddings ([a084a8a](https://github.com/MLGBJDLW/Nexa/commit/a084a8af27f8b9e69f63b94c6403855754a7ebba))
+* **subagents:** add a durable and controllable child workspace ([9da3164](https://github.com/MLGBJDLW/Nexa/commit/9da31642f56df1421e2c17c527be2619a559b964))
+
+
+### Bug Fixes
+
+* align context accounting and repair source/model storage workflows ([ea7fb17](https://github.com/MLGBJDLW/Nexa/commit/ea7fb1748bf91d5267c8c36d6887e4a156fb7e47))
+* **browser:** preserve agent control and continuous HTML preview targets ([13ecf49](https://github.com/MLGBJDLW/Nexa/commit/13ecf49b808140681951ea64e76d87f6cb39980d))
+* **browser:** preserve profiles and preview recovery handles ([ff75763](https://github.com/MLGBJDLW/Nexa/commit/ff75763e266b875a5bc3fae265430aee54589e09))
+* **chat:** align context warnings and enforce scripted overflow capacity ([9e0fa46](https://github.com/MLGBJDLW/Nexa/commit/9e0fa46cae8fd9c479b668ffa6b4ca6aaaa4e22d))
+* **chat:** calibrate context occupancy and expose the runtime input budget ([c9714ff](https://github.com/MLGBJDLW/Nexa/commit/c9714ff7c447f21864a77b7d853fbeb26e872e73))
+* **chat:** normalize cached context occupancy and runtime routes ([ebde7d6](https://github.com/MLGBJDLW/Nexa/commit/ebde7d682116208176b333d1ddba42619b1a150f))
+* **chat:** publish context estimates before initial history compaction ([1d5e645](https://github.com/MLGBJDLW/Nexa/commit/1d5e645dfc7933206d08645188cb0d8ea832b203))
+* **copilot:** preserve and reconcile streamed reasoning ([8d509b9](https://github.com/MLGBJDLW/Nexa/commit/8d509b925afe47b4c94621a2d3e9265d42961bdf))
+* **copilot:** restore readable Grok reasoning and continuous streaming ([809a50d](https://github.com/MLGBJDLW/Nexa/commit/809a50d15d881bec18d06c0dadac73ed7fa11376))
+* **copilot:** scope reasoning cleanup to rejected attempts ([41fe80d](https://github.com/MLGBJDLW/Nexa/commit/41fe80dcec3fda0921b4b81994e1abe044ff9570))
+* **documents:** plan route budgets before context enforcement ([d17c314](https://github.com/MLGBJDLW/Nexa/commit/d17c3144576258b664b1cd21737cead5f9164002))
+* **knowledge:** make source scans idempotent across path aliases and watchers ([f363690](https://github.com/MLGBJDLW/Nexa/commit/f363690a2230da557edfcfdc9f349dd291b756d0))
+* **knowledge:** preserve case-sensitive document identities ([8114650](https://github.com/MLGBJDLW/Nexa/commit/81146505bd672fcc348bb9ad1a13210d49b21aad))
+* **knowledge:** reconcile raced inserts against the current file revision ([bed7b5b](https://github.com/MLGBJDLW/Nexa/commit/bed7b5b8a5f3723555ba0a156c3ccfd06ade96be))
+* **moa:** forward native document capability to the aggregator ([7f5b57e](https://github.com/MLGBJDLW/Nexa/commit/7f5b57e0e4869ebbade7590d57bb366767cbc5d8))
+* **storage:** keep unfinished model copies inactive and fence settings ([1393f13](https://github.com/MLGBJDLW/Nexa/commit/1393f13386a8d0447a4421ce4908ba4b9fc7e4c2))
+* **subagents:** resolve worker identity and terminal history ([532f174](https://github.com/MLGBJDLW/Nexa/commit/532f1743df402f7592b3765eb6f52fbf499bd013))
+
 ## [0.14.27](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.26...nexa-monorepo-v0.14.27) (2026-10-08)
 
 
