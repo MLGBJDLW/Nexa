@@ -8,16 +8,8 @@ import { useTranslation, type TranslationKey } from '../../i18n';
 import { ProviderIcon } from '../../lib/providerIcons';
 import type { TurnTiming } from '../../lib/streaming/protocol';
 import { formatTimingLatency, useElapsedTime } from '../../lib/useElapsedTime';
-
-interface ContextUsageSegment {
-  kind: string;
-  tokens: number;
-}
-
-interface ContextUsageBreakdown {
-  totalTokens: number;
-  segments: ContextUsageSegment[];
-}
+import type { ContextUsageBreakdown, ContextUsageSegment } from '../../types/conversation';
+import { resolveContextUsage } from '../../lib/contextUsage';
 
 interface TokenUsage {
   promptTokens: number;
@@ -235,13 +227,12 @@ export function ChatRunOverview({
 
   const usage = tokenUsage && tokenUsage.contextWindow > 0 ? tokenUsage : null;
   const cacheStats = cacheUsageStats(usage);
-  const usagePercent = usage
-    ? Math.min(100, Math.max(0, (usage.promptTokens / usage.contextWindow) * 100))
-    : 0;
+  const contextUsage = resolveContextUsage(usage);
+  const usagePercent = contextUsage.percent;
   const usagePercentRounded = Math.round(usagePercent);
   const contextRisk = contextOverflow || usagePercent >= 95
     ? 'danger'
-    : usagePercent >= 80
+    : usagePercent >= Math.min(80, contextUsage.compactPercent ?? 80)
       ? 'warning'
       : 'ok';
 
@@ -268,7 +259,13 @@ export function ChatRunOverview({
             : t('chat.contextNoUsage');
 
   const usageSourceLabel = usage
-    ? usage.source === 'live'
+    ? usage.contextBreakdown?.measurement === 'provider'
+      ? t('chat.contextMeasured')
+      : usage.contextBreakdown?.measurement === 'provider_plus_estimate'
+        ? t('chat.contextMeasuredPlusEstimate')
+        : usage.contextBreakdown?.measurement === 'estimated'
+          ? t('chat.contextUsageEstimated')
+          : usage.source === 'live'
       ? t('chat.contextUsageLive')
       : usage.source === 'estimated'
         ? t('chat.contextUsageEstimated')
@@ -335,7 +332,7 @@ export function ChatRunOverview({
   const tokenUsageLabel = usage
     ? t('chat.tokenUsage', {
       used: formatTokens(usage.promptTokens),
-      total: formatTokens(usage.contextWindow),
+      total: formatTokens(contextUsage.inputBudget),
     })
     : t('chat.contextNoUsage');
   const percentLabel = usage
@@ -559,6 +556,20 @@ export function ChatRunOverview({
             <div className={`text-sm font-semibold tabular-nums ${valueTone}`}>{percentLabel}</div>
           </div>
 
+          {contextUsage.budget && (
+            <div data-testid="chat-context-budget" className="mt-2 space-y-1 text-[10px] leading-relaxed text-text-tertiary">
+              <p>{t('chat.contextCapacityReserves', {
+                capacity: formatTokens(contextUsage.capacity),
+                response: formatTokens(contextUsage.budget.responseReserve),
+                safety: formatTokens(contextUsage.budget.safetyReserve),
+              })}</p>
+              <p>{t('chat.contextCompactThreshold', {
+                percent: contextUsage.budget.compactPercent,
+                tokens: formatTokens(contextUsage.budget.compactThreshold),
+                remaining: formatTokens(contextUsage.untilCompact ?? 0),
+              })}</p>
+            </div>
+          )}
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3/80">
             <div className="flex h-full" style={{ width: `${usagePercent}%` }}>
               {segments.length > 0 ? (

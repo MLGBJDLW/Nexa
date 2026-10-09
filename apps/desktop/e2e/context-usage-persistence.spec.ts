@@ -444,6 +444,14 @@ test.beforeEach(async ({ page }) => {
             },
           };
 
+          if (/effective budget/i.test(userText)) {
+            streamUsage.lastPromptTokens = 50_000;
+            streamUsage.contextBreakdown = {
+              totalTokens: 50_000, segments: [{ kind: 'conversation', tokens: 50_000 }], measurement: 'provider',
+              budget: { capacityTokens: 100_000, inputBudget: 60_000, responseReserve: 36_000, safetyReserve: 4_000, compactThreshold: 54_000, compactPercent: 90 },
+            };
+          }
+
           const currentMessages = messagesByConversation[conversationId] ?? [];
           const userMessage: Message = {
             id: nextId('m-user'),
@@ -816,4 +824,23 @@ test('Git capsule exposes repository errors and supports retry', async ({ page }
   await page.evaluate(() => localStorage.removeItem('__e2e_git_error__'));
   await page.getByRole('button', { name: 'Refresh Git status' }).click();
   await expect(page.getByTestId('task-board')).toHaveCount(0);
+});
+
+
+test('runtime budget explains early compaction and survives usage hydration', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-input-textarea').fill('Show effective budget.');
+  await page.getByTestId('chat-send').click();
+  const trigger = page.getByTestId('chat-context-trigger');
+  await expect(trigger).toHaveAttribute('aria-label', /83% context used/);
+  await trigger.hover();
+  const details = page.getByTestId('chat-context-details');
+  await expect(details).toContainText('Provider measurement');
+  await expect(page.getByTestId('chat-context-budget')).toContainText('Model capacity 100K');
+  await expect(page.getByTestId('chat-context-budget')).toContainText('Reply reserve 36K');
+  await expect(page.getByTestId('chat-context-budget')).toContainText('Auto-compact at 90% (54K tokens)');
+  await expect(page.getByTestId('chat-context-budget')).toContainText('4.0K remaining');
+  await page.screenshot({ path: testInfo.outputPath('runtime-context-budget.png') });
+  await page.reload();
+  await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /83% context used/);
 });

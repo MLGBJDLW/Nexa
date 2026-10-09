@@ -65,6 +65,21 @@ impl ContextWindow {
         self
     }
 
+    pub(crate) fn budget_snapshot(self) -> Option<super::context::ContextBudget> {
+        let capacity_tokens = self.context_window?;
+        let input_budget = self.context_budget()?;
+        Some(super::context::ContextBudget {
+            capacity_tokens,
+            input_budget,
+            response_reserve: self.max_response_tokens.min(capacity_tokens),
+            safety_reserve: context_safety_buffer(capacity_tokens)
+                .min(capacity_tokens.saturating_sub(self.max_response_tokens)),
+            compact_threshold: ((u64::from(input_budget) * u64::from(self.compact_percent)) / 100)
+                as u32,
+            compact_percent: self.compact_percent,
+        })
+    }
+
     pub(crate) fn budget_decision(self, prompt_tokens: u32) -> ContextBudgetDecision {
         match self.context_budget() {
             Some(budget) => ContextBudgetDecision {

@@ -1524,6 +1524,18 @@ impl AgentExecutor {
             let suppress_tools_for_step = clean_final_retry_active || !step_permit.allows_tools();
             let effective_tool_defs =
                 effective_tool_surface(tool_defs.as_slice(), suppress_tools_for_step);
+            // Publish the gate's current occupancy before compaction starts.
+            // Tool results appended since the last response are context, not
+            // newly billed tokens: keep cumulative provider usage unchanged.
+            let before_compaction =
+                self.context_budget_usage(model, &messages, effective_tool_defs, context_window);
+            let _ = tx
+                .send(AgentEvent::UsageUpdate {
+                    usage_total: total_usage.clone(),
+                    last_prompt_tokens: before_compaction.total_tokens,
+                    context_breakdown: Some(before_compaction),
+                })
+                .await;
             prompt_was_compacted |= self
                 .compact_before_model_step_if_needed(LongTaskCompactionContext {
                     db,
@@ -1551,8 +1563,22 @@ impl AgentExecutor {
                 prompt_ir::messages_for_model_step(&messages, force_answer_only);
             self.append_shared_desktop_context(conversation_id, model, &mut request_messages)
                 .await;
-            let estimated_prompt =
-                self.context_input_tokens(model, &request_messages, effective_tool_defs);
+            let prepared_context = self.context_budget_usage(
+                model,
+                &request_messages,
+                effective_tool_defs,
+                context_window,
+            );
+            let estimated_prompt = prepared_context.total_tokens;
+            last_prompt_tokens = estimated_prompt;
+            last_context_breakdown = Some(prepared_context.clone());
+            let _ = tx
+                .send(AgentEvent::UsageUpdate {
+                    usage_total: total_usage.clone(),
+                    last_prompt_tokens,
+                    context_breakdown: Some(prepared_context),
+                })
+                .await;
             // Desktop context is attached after canonical projection. Check
             // the actual prepared input as well as the retained live window.
             context_window.validate_request(

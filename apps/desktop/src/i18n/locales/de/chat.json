@@ -871,5 +871,9 @@
   "reviewHelp": "Vergleich wählen, Diff prüfen und Befunde an Dateizeilen erfassen. Änderungen machen alte Befunde ungültig. Feedback wird vor dem Senden zur Prüfung in den Entwurf eingefügt.",
   "reviewPartial": "Inhalte sind binär, ausgelassen oder gekürzt. Die vollständige Änderung muss separat geprüft werden.",
   "reviewPrHelp": "Nutzt die vorhandene GitHub-CLI-Anmeldung nur zum Lesen. Nach neuen Commits aktualisieren. Es werden keine Kommentare oder Freigaben veröffentlicht.",
-  "reviewHeadMismatch": "Der PR-Commit unterscheidet sich von der lokalen Prüfung. Die Checks gelten nur für die angezeigte PR-SHA."
+  "reviewHeadMismatch": "Der PR-Commit unterscheidet sich von der lokalen Prüfung. Die Checks gelten nur für die angezeigte PR-SHA.",
+  "contextMeasured": "Anbietermessung",
+  "contextMeasuredPlusEstimate": "Messung + Schätzung neuer Inhalte",
+  "contextCapacityReserves": "Kapazität {capacity} · Antwortreserve {response} · Sicherheit {safety}",
+  "contextCompactThreshold": "Komprimierung bei {percent}% ({tokens} Tokens) · Verbleibend {remaining}"
 }

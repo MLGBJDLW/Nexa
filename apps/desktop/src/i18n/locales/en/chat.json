@@ -871,5 +871,9 @@
   "reviewHelp": "Choose a comparison, inspect the diff, and record findings at a file line. Changed diffs make old findings stale. Feedback is added to your draft for review before sending.",
   "reviewPartial": "Some content is binary, omitted, or truncated. Inspect the full change separately; this view cannot establish a complete review.",
   "reviewPrHelp": "Uses your existing GitHub CLI login for read-only PR observations. Refresh after new commits; no comments or approvals are published here.",
-  "reviewHeadMismatch": "The PR head differs from this local review. These checks apply only to the displayed PR SHA."
+  "reviewHeadMismatch": "The PR head differs from this local review. These checks apply only to the displayed PR SHA.",
+  "contextMeasured": "Provider measurement",
+  "contextMeasuredPlusEstimate": "Provider measurement + new content estimate",
+  "contextCapacityReserves": "Model capacity {capacity} · Reply reserve {response} · Safety reserve {safety}",
+  "contextCompactThreshold": "Auto-compact at {percent}% ({tokens} tokens) · {remaining} remaining"
 }

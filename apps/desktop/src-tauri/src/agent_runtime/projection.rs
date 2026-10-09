@@ -68,6 +68,8 @@ impl Projection {
         self.context_breakdown = Some(nexa_core::agent::context::ContextUsageBreakdown {
             total_tokens: used,
             segments,
+            budget: None,
+            measurement: Some(nexa_core::agent::context::ContextMeasurement::Provider),
             context_window: capacity.filter(|value| *value > 0).or_else(|| {
                 self.context_breakdown
                     .as_ref()

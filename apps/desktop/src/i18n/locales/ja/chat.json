@@ -871,5 +871,9 @@
   "reviewHelp": "比較範囲を選び、差分を確認して行に指摘を記録します。差分が変わると古い指摘が無効になります。フィードバックは送信前に確認できる下書きに追加されます。",
   "reviewPartial": "バイナリ、省略、切り詰められた内容があります。完全な変更は別途確認してください。",
   "reviewPrHelp": "既存の GitHub CLI ログインで PR を読み取ります。新しいコミット後は更新してください。コメントや承認は公開されません。",
-  "reviewHeadMismatch": "PR のコミットがローカルレビューと異なります。チェックは表示中の PR SHA にのみ適用されます。"
+  "reviewHeadMismatch": "PR のコミットがローカルレビューと異なります。チェックは表示中の PR SHA にのみ適用されます。",
+  "contextMeasured": "プロバイダーの実測値",
+  "contextMeasuredPlusEstimate": "実測値 + 追加内容の推定",
+  "contextCapacityReserves": "モデル容量 {capacity} · 応答用 {response} · 安全余裕 {safety}",
+  "contextCompactThreshold": "自動圧縮 {percent}%（{tokens} トークン）· 残り {remaining}"
 }

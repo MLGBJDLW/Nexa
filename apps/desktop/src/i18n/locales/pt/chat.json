@@ -871,5 +871,9 @@
   "reviewHelp": "Escolha uma comparação, examine o diff e registre problemas por linha. Alterações tornam os problemas anteriores desatualizados. O feedback é adicionado ao rascunho antes do envio.",
   "reviewPartial": "Há conteúdo binário, omitido ou truncado. Examine a alteração completa separadamente.",
   "reviewPrHelp": "Usa o login existente do GitHub CLI apenas para leitura. Atualize após novos commits. Nenhum comentário ou aprovação é publicado.",
-  "reviewHeadMismatch": "O commit da PR difere da revisão local. As verificações se aplicam apenas ao SHA exibido."
+  "reviewHeadMismatch": "O commit da PR difere da revisão local. As verificações se aplicam apenas ao SHA exibido.",
+  "contextMeasured": "Medição do provedor",
+  "contextMeasuredPlusEstimate": "Medição + estimativa do novo conteúdo",
+  "contextCapacityReserves": "Capacidade {capacity} · Reserva de resposta {response} · Margem {safety}",
+  "contextCompactThreshold": "Compressão em {percent}% ({tokens} tokens) · Restam {remaining}"
 }

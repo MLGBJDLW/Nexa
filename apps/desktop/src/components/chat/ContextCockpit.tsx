@@ -1,5 +1,7 @@
 import { AlertTriangle, ArchiveRestore, BrainCircuit, ChevronDown, Clock3, Cpu, Gauge, Loader2, Plus, ShieldCheck, Wrench, Zap } from 'lucide-react';
 import { useTranslation } from '../../i18n';
+import type { ContextUsageBreakdown } from '../../types/conversation';
+import { resolveContextUsage } from '../../lib/contextUsage';
 
 interface TokenUsage {
   promptTokens: number;
@@ -14,16 +16,6 @@ interface TokenUsage {
   contextBreakdown?: ContextUsageBreakdown;
   isEstimated: boolean;
   source: 'live' | 'provider' | 'normalized' | 'estimated';
-}
-
-interface ContextUsageSegment {
-  kind: string;
-  tokens: number;
-}
-
-interface ContextUsageBreakdown {
-  totalTokens: number;
-  segments: ContextUsageSegment[];
 }
 
 interface SourceSelectionSummary {
@@ -80,7 +72,8 @@ export function ContextCockpit({
   const { t } = useTranslation();
 
   const usage = tokenUsage && tokenUsage.contextWindow > 0 ? tokenUsage : null;
-  const usagePercent = usage ? Math.min(100, (usage.promptTokens / usage.contextWindow) * 100) : 0;
+  const contextUsage = resolveContextUsage(usage);
+  const usagePercent = contextUsage.percent;
   const usagePercentRounded = Math.round(usagePercent);
   const scopeSummary = sourceSummary.loading
     ? t('common.loading')
@@ -177,9 +170,7 @@ export function ContextCockpit({
       <details className="group rounded-xl border border-border/60 bg-surface-0/75">
         <summary data-testid="context-cockpit-toggle" className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-sm text-text-secondary [&::-webkit-details-marker]:hidden">
           {(() => {
-            const pct = usage && usage.contextWindow > 0
-              ? usage.promptTokens / usage.contextWindow
-              : 0;
+            const pct = usagePercent / 100;
             const colorClass = (pct >= 0.95 || contextOverflow)
               ? 'text-red-500 bg-red-500/10'
               : pct >= 0.8
@@ -266,7 +257,7 @@ export function ContextCockpit({
                   <div className="mt-1 text-[11px] tabular-nums text-text-secondary">
                     {t('chat.tokenUsage', {
                       used: formatTokens(usage.promptTokens),
-                      total: formatTokens(usage.contextWindow),
+                      total: formatTokens(contextUsage.inputBudget),
                     })}
                   </div>
                   {(cacheReadTokens > 0 || cacheMissTokens > 0 || cacheCreationTokens > 0) && (

@@ -1714,13 +1714,14 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     && (!usageForView?.contextBreakdown?.runtimeModel || usageForView.contextBreakdown.runtimeModel === agentConfig?.model);
   const durableContextAuthority = !isUsingLiveUsage && contextRouteMatches ? usageSnapshot?.contextAuthority : null;
   const nativeCapacity = usageForView?.contextBreakdown?.contextWindow;
+  const localCapacity = contextRouteMatches ? usageForView?.contextBreakdown?.budget?.capacityTokens : undefined;
   const hasNativeCapacity = contextRouteMatches && typeof nativeCapacity === 'number' && Number.isSafeInteger(nativeCapacity) && nativeCapacity > 0;
-  const usageContextWindow = hasNativeCapacity ? nativeCapacity : durableContextAuthority
+  const usageContextWindow = hasNativeCapacity ? nativeCapacity : localCapacity && localCapacity > 0 ? localCapacity : durableContextAuthority
     ? usageSnapshot?.contextCapacity ?? 0
     : contextWindow;
   const runtimeContextAuthority = hasNativeCapacity ? 'provider_managed' : durableContextAuthority ?? contextAuthority;
 
-  const tokenUsage = usageContextWindow > 0
+  const tokenUsage = contextRouteMatches && usageContextWindow > 0
     ? (usageForView
       ? (() => {
           const promptTokens = usageForView.lastPromptTokens ?? usageForView.promptTokens;

@@ -860,6 +860,15 @@ export interface ContextUsageSegment {
 export interface ContextUsageBreakdown {
   totalTokens: number;
   segments: ContextUsageSegment[];
+  measurement?: 'provider' | 'provider_plus_estimate' | 'estimated';
+  budget?: {
+    capacityTokens: number;
+    inputBudget: number;
+    responseReserve: number;
+    safetyReserve: number;
+    compactThreshold: number;
+    compactPercent: number;
+  };
   contextWindow?: number;
   runtimeProvider?: string;
   runtimeModel?: string;

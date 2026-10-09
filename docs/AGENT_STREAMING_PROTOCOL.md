@@ -315,6 +315,24 @@ identities; display labels prefer the artifact's exact tool name.
 
 ## Implementation and verification
 
+### Context occupancy and billing
+
+`usageUpdated` may publish a context snapshot before a request, including newly
+appended tool results, and again after compaction/preparation. These snapshots
+leave cumulative billed usage unchanged. Provider usage replaces the prompt
+measurement after a completed sample. A matching provider observation plus
+estimated new messages calibrates the next input even when a local full-prompt
+estimate is higher; a changed prefix, tools, model or route invalidates it.
+
+`contextBreakdown.measurement` distinguishes `provider`,
+`provider_plus_estimate` and `estimated`. Local runs also include `budget`:
+physical `capacityTokens`, effective `inputBudget`, `responseReserve`,
+`safetyReserve`, `compactThreshold` and `compactPercent`. The UI displays input
+occupancy against that same input budget and explains the reserves and trigger.
+Segment attribution remains estimated even with a provider-measured total.
+External runtimes keep their reported capacity without inventing a local
+compaction policy. Older persisted snapshots remain readable without new fields.
+
 - [Core outbox](../crates/core/src/run_event_outbox.rs) and
   [Agent Run schema](../crates/core/src/agent_run.rs) own publication and storage.
 - [Desktop delivery](../apps/desktop/src-tauri/src/agent_run_outbox.rs) adapts
