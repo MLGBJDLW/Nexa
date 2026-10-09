@@ -179,9 +179,47 @@ test.beforeEach(async ({ page }) => {
       useCls: false,
     };
 
+    const childEvents: Array<Record<string, unknown>> = [];
+    const childControls: Array<Record<string, unknown>> = [];
+    let childStatus = 'running';
+    let childPrivacy = 'initial';
+    let holdChildRead = false;
+    let heldChildRead: (() => void) | null = null;
+    const childEvent = (subagentEvent: string, detail: unknown) => {
+      const terminal = ['completed', 'failed', 'cancelled'].includes(subagentEvent);
+      const envelope = { subagentEvent, agentId: 'agent-controls', detail };
+      childEvents.push({ activityId: 'agent-controls', seq: childEvents.length + 1, timestamp: nowIso, kind: terminal ? subagentEvent : 'progress', payload: terminal ? { state: subagentEvent, detail: envelope } : envelope });
+    };
+    childEvent('spawned', { task: 'Continue background research' });
+    childEvent('stream', { event: { type: 'streamBlockSnapshot', channel: 'thinking', blockId: 'thinking', text: 'Inspecting the source carefully.' } });
+    childEvent('stream', { event: { type: 'streamBlockSnapshot', channel: 'answer', blockId: 'answer', text: 'Live child answer privateCODE' } });
+    childEvent('toolStarted', { run: { callId: 'child-tool', toolName: 'read_file', status: 'running', arguments: '{"path":"source.rs"}' } });
+    Object.assign(window, {
+      __childControls: childControls,
+      __completeChild: () => { childStatus = 'completed'; childEvent('progress', { run: { callId: 'child-tool', toolName: 'read_file', status: 'completed', content: 'Source verified', arguments: '{}' } }); childEvent('completed', { result: { result: 'Child completed after parent' } }); },
+      __holdChildRead: () => { holdChildRead = true; },
+      __releaseChildRead: () => heldChildRead?.(),
+      __childReadHeld: () => heldChildRead !== null,
+      __revokeChildPrivacy: () => { childPrivacy = 'new-policy'; holdChildRead = false; emitEvent('privacy:revoked', { revision: childPrivacy }); },
+    });
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'read_subagent_workspace_cmd': {
+          const events = childEvents.filter(event => Number(event.seq) > Number(args.afterSeq ?? 0));
+          const result = { agentId: 'agent-controls', status: childStatus, canControl: childStatus === 'running', legacyRun: null, privacyRevision: childPrivacy,
+            journal: { events: clone(events), cursor: childEvents.length, hasMore: false, historyTruncated: false, privacyRevision: childPrivacy } };
+          const safe = childPrivacy === 'initial' ? result : JSON.parse(JSON.stringify(result).replaceAll('privateCODE', '[PRIVATE]'));
+          if (holdChildRead) await new Promise<void>(resolve => { heldChildRead = resolve; });
+          else if (!events.length) await new Promise(resolve => setTimeout(resolve, 80));
+          return safe;
+        }
+        case 'control_subagent_workspace_cmd': {
+          childControls.push(clone(args));
+          if (args.action === 'input') { childEvent('inputQueued', { content: args.input }); childEvent('inputApplied', { content: args.input }); }
+          else if (args.action === 'cancel') { childStatus = 'cancelled'; childEvent('cancelled', {}); }
+          return null;
+        }
         case 'plugin:event|listen': {
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
@@ -695,4 +733,56 @@ test('marks persisted nonterminal lifecycle state unverified without stale contr
   await expect(chatLog.getByText('Status unverified')).toBeVisible();
   await expect(chatLog.getByText(/worker may still be running/)).toBeVisible();
   await expect(chatLog.getByTestId('subagent-parent-controls')).toHaveCount(0);
+});
+
+test('opens the child workspace from the capsule and preserves the parent draft through live controls and late completion', async ({ page }) => {
+  await page.goto('/chat/conv-subagent-controls');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Unsent parent draft');
+  const board = page.getByTestId('task-board');
+  await board.getByTestId('task-board-collapsed').click();
+  await board.getByTestId('task-board-subtask').getByRole('button').click();
+  const dock = page.getByTestId('subagent-workspace');
+  await expect(dock).toContainText('Live child answer');
+  await dock.getByText('Thinking', { exact: true }).click();
+  await expect(dock).toContainText('Inspecting the source carefully.');
+  await expect(dock.getByTestId('tool-call-card')).toHaveAttribute('data-tool-state', 'running');
+  await dock.getByLabel('Add an instruction to this subtask').fill('Check the edge case');
+  await dock.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(dock).toContainText('Instruction applied');
+  await expect(input).toHaveValue('Unsent parent draft');
+  await dock.getByLabel('Add an instruction to this subtask').fill('Unsent child draft');
+  await dock.getByLabel('Close panel', { exact: true }).click();
+  await expect(dock).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__childControls.map((entry: any) => entry.action))).toEqual(['input']);
+  await board.getByTestId('task-board-subtask').getByRole('button').click();
+  await expect(dock.getByLabel('Add an instruction to this subtask')).toHaveValue('Unsent child draft');
+  await page.evaluate(() => (window as any).__completeChild());
+  await expect(dock).toContainText('Child completed after parent');
+  await expect(dock.getByRole('button', { name: 'Stop subtask' })).toBeDisabled();
+  await expect(dock.getByTestId('tool-call-card')).toHaveAttribute('data-tool-state', 'done');
+  await expect(input).toHaveValue('Unsent parent draft');
+  await dock.getByRole('separator').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(dock.getByRole('separator')).toHaveAttribute('aria-valuenow', '620');
+  await page.screenshot({ path: 'D:/coder/Nexa/target/context-source-release-verification/subagent-workspace.png' });
+});
+
+test('child workspace rejects a late read after privacy revocation and stops only its selected worker', async ({ page }) => {
+  await page.goto('/chat/conv-subagent-controls');
+  const board = page.getByTestId('task-board');
+  await board.getByTestId('task-board-collapsed').click();
+  await board.getByTestId('task-board-subtask').getByRole('button').click();
+  const dock = page.getByTestId('subagent-workspace');
+  await expect(dock).toContainText('privateCODE');
+  await page.evaluate(() => (window as any).__holdChildRead());
+  await expect.poll(() => page.evaluate(() => (window as any).__childReadHeld())).toBe(true);
+  await page.evaluate(() => (window as any).__revokeChildPrivacy());
+  await expect(dock).toContainText('[PRIVATE]');
+  await page.evaluate(() => (window as any).__releaseChildRead());
+  await expect(dock).not.toContainText('privateCODE');
+  await dock.getByRole('button', { name: 'Stop subtask' }).click();
+  await expect(dock.getByRole('button', { name: 'Stop subtask' })).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__childControls)).toEqual([{ conversationId: 'conv-subagent-controls', agentId: 'agent-controls', action: 'cancel', input: null }]);
+  await dock.getByLabel('Close panel', { exact: true }).click();
 });

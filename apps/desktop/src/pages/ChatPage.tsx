@@ -22,6 +22,8 @@ import {
 } from '../components/chat/TerminalDock';
 import { ChatMessages } from '../features/chat';
 import { BrowserDock, type BrowserAgentArtifact, type BrowserDockStatus } from '../features/browser';
+import { SubagentDock } from '../components/chat/SubagentDock';
+import type { SubtaskRunArtifact } from '../lib/taskArtifacts';
 import { useApprovalQueue } from '../lib/useApprovalQueue';
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -979,8 +981,18 @@ export function ChatPage() {
   }, []);
   const [terminalDockRendered, setTerminalDockRendered] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [subagentView, setSubagentView] = useState<{ conversationId: string; task: SubtaskRunArtifact } | null>(null);
+  const subagentDrafts = useRef(new Map<string, string>());
+  const [subagentStatuses, setSubagentStatuses] = useState<{ conversationId: string; statuses: Record<string, string> }>({ conversationId: '', statuses: {} });
+  const handleSubagentStatus = useCallback((id: string, status: string) => {
+    if (!chat.activeId) return;
+    const conversationId = chat.activeId;
+    setSubagentStatuses(current => current.conversationId === conversationId && current.statuses[id] === status ? current
+      : { conversationId, statuses: { ...(current.conversationId === conversationId ? current.statuses : {}), [id]: status } });
+  }, [chat.activeId]);
   const [browserStatus, setBrowserStatus] = useState<BrowserDockStatus>({ tabCount: 0, state: 'empty' });
-  const handleToggleBrowser = useCallback(() => setBrowserOpen((value) => !value), []);
+  const handleToggleBrowser = useCallback(() => { setSubagentView(null); setBrowserOpen((value) => !value); }, []);
+  const handleBrowserOpenChange = useCallback((open: boolean) => { if (open) setSubagentView(null); setBrowserOpen(open); }, []);
   useAppCommand({ id: 'chat.browser', label: 'shortcuts.toggleBrowser', keywords: 'browser workspace 浏览器', run: handleToggleBrowser });
   useAppCommand({ id: 'chat.terminal', label: 'shortcuts.toggleTerminal', keywords: 'terminal shell 终端', run: handleToggleTerminal });
   useEffect(() => {
@@ -1971,6 +1983,9 @@ export function ChatPage() {
               taskRun={chat.taskRun}
               taskEvents={chat.taskEvents}
               goal={activeGoalContext}
+              onOpenSubagent={task => { if (chat.activeId) { setBrowserOpen(false); setSubagentView({ conversationId: chat.activeId, task }); } }}
+              subagentStatuses={subagentStatuses.conversationId === chat.activeId ? Object.fromEntries(Object.entries(subagentStatuses.statuses).filter(([id, status]) =>
+                !['running', 'queued', 'cancelling'].includes(status) || (subagentView?.conversationId === chat.activeId && id === (subagentView.task.rowId || subagentView.task.lifecycleId || subagentView.task.id)))) : undefined}
             />
             {!isArchivedConversation && (
               <TerminalDock
@@ -2138,10 +2153,14 @@ export function ChatPage() {
           open={browserOpen}
           conversationId={chat.activeId}
           agentLabel={selectedAgentConfig?.name || chat.agentConfig?.model}
-          onOpenChange={setBrowserOpen}
+          onOpenChange={handleBrowserOpenChange}
           onStatusChange={setBrowserStatus}
           onSendArtifactToAgent={isArchivedConversation ? undefined : handleBrowserArtifact}
         />
+      )}
+      {chat.activeId && subagentView?.conversationId === chat.activeId && (
+        <SubagentDock key={`${chat.activeId}:${subagentView.task.id}`} conversationId={chat.activeId} subtask={subagentView.task}
+          onClose={() => setSubagentView(null)} onStatus={handleSubagentStatus} drafts={subagentDrafts.current} />
       )}
     </div>
   );

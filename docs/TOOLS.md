@@ -278,6 +278,12 @@ absolute local paths outside registered sources. In addition to plain text,
 the tool can extract readable text from PDF, DOCX, XLSX, PPTX, and images when
 the corresponding runtime is available.
 
+For PDF, DOCX and PPTX, omitting line parameters also makes the whole original
+file available to [verified native document routes](NATIVE_DOCUMENT_INPUT.md).
+Explicit line parameters always use extraction only. Enabled privacy redaction
+also uses extraction; file bytes cannot be assumed to have been text-redacted.
+`read_files` applies the same rule when `max_lines_per_file` is omitted.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `path` | string | yes | Absolute path or path relative to a source root |

@@ -2895,6 +2895,7 @@ Every answer that uses knowledge base search results.
     ("v149_file_change_progress", include_str!("v149_file_change_progress.sql")),
     ("v150_privacy_trace_identity", include_str!("v150_privacy_trace_identity.sql")),
     ("v151_workflow_authoring", include_str!("v151_workflow_authoring.sql")),
+    ("v152_subagent_history_ownership", include_str!("v152_subagent_history_ownership.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

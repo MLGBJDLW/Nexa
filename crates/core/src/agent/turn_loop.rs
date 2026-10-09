@@ -420,6 +420,45 @@ async fn emit_tool_dispatch_failure(
 }
 
 impl AgentExecutor {
+    fn refresh_document_budgets(
+        &self,
+        model: &str,
+        messages: &mut [Message],
+        tools: &[ToolDefinition],
+        window: ContextWindow,
+    ) {
+        if !messages.iter().any(|message| message.has_documents()) {
+            return;
+        }
+        let prepend_system = messages
+            .first()
+            .is_none_or(|message| message.role != Role::System);
+        let mut request_messages = Vec::with_capacity(messages.len() + usize::from(prepend_system));
+        if prepend_system {
+            request_messages.push(Message::text(
+                Role::System,
+                self.config.system_prompt.clone(),
+            ));
+        }
+        request_messages.extend_from_slice(messages);
+        let mut request = CompletionRequest {
+            model: model.into(),
+            messages: request_messages,
+            tools: Some(tools.to_vec()),
+            provider_type: self.config.provider_type,
+            reasoning_enabled: self.config.reasoning_enabled,
+            reasoning_effort: self.config.reasoning_effort.clone(),
+            thinking_budget: self.config.thinking_budget,
+            ..Default::default()
+        };
+        crate::llm::document::plan_budgets(
+            self.provider.as_ref(),
+            &mut request,
+            window.context_budget(),
+        );
+        messages.clone_from_slice(&request.messages[usize::from(prepend_system)..]);
+    }
+
     async fn recover_provider_context_limit(
         &self,
         ctx: ProviderContextLimitRecoveryContext<'_>,
@@ -630,7 +669,7 @@ impl AgentExecutor {
 
         // --- 0b. Pre-summarize evicted history if context is getting full -----
         let history_before_summarization = prompt_cache::message_sequence_fingerprint(&history);
-        let (history, pre_summarization_usage) = self
+        let (mut history, pre_summarization_usage) = self
             .summarize_if_needed(
                 history,
                 model,
@@ -965,6 +1004,23 @@ impl AgentExecutor {
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
+        let document_window = ContextWindow::new_with_resolution(
+            model,
+            self.config.context_window,
+            self.config.context_window_resolution,
+            max_response_tokens,
+        );
+        let mut document_inputs = history.clone();
+        let mut document_user = Message::text(Role::User, "");
+        document_user.parts = user_parts;
+        document_inputs.push(document_user);
+        self.refresh_document_budgets(model, &mut document_inputs, &tool_defs, document_window);
+        user_parts = document_inputs
+            .pop()
+            .expect("document input contains the current user")
+            .into_data()
+            .parts;
+        history = document_inputs;
         let mut messages = context::prepare_messages_with_options(
             &self.config.system_prompt,
             &history,
@@ -1525,6 +1581,14 @@ impl AgentExecutor {
             let suppress_tools_for_step = clean_final_retry_active || !step_permit.allows_tools();
             let effective_tool_defs =
                 effective_tool_surface(tool_defs.as_slice(), suppress_tools_for_step);
+            // New tool documents and a newly selected fallback route must use
+            // the effective file representation before context enforcement.
+            self.refresh_document_budgets(
+                model,
+                &mut messages,
+                effective_tool_defs,
+                context_window,
+            );
             // Publish the gate's current occupancy before compaction starts.
             // Tool results appended since the last response are context, not
             // newly billed tokens: keep cumulative provider usage unchanged.

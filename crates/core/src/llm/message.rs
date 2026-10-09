@@ -199,6 +199,7 @@ impl Message {
             .iter()
             .filter_map(|p| match p {
                 ContentPart::Text { text } => Some(text.as_str()),
+                ContentPart::Document { document } => Some(document.fallback_text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -210,6 +211,12 @@ impl Message {
         self.parts
             .iter()
             .any(|p| matches!(p, ContentPart::Image { .. }))
+    }
+
+    pub fn has_documents(&self) -> bool {
+        self.parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::Document { .. }))
     }
 
     /// Get all image parts.

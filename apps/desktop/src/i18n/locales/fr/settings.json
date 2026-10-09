@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "Guide d’installation et de connexion"
   ,"externalAgentExecutable": "Chemin de l’exécutable (facultatif)"
   ,"externalAgentDirectory": "Répertoire de travail"
-  ,"externalAgentDirectoryHint": "Le dossier principal du projet est prioritaire. Ce dossier de repli est propre à ce profil."
+  ,"externalAgentDirectoryHint": "Utilise automatiquement l’espace de travail du chat. Les chats sans projet ont leur propre dossier géré par Nexa. Un dossier de repli peut être choisi dans les options avancées."
   ,"externalAgentConnected": "Session créée et modèles chargés. L’inférence n’a pas été testée."
   ,"externalAgentProbe": "Vérifier la connexion"
   ,"externalAgentControls": "Les outils et les paramètres d’exécution sont gérés par l’agent externe."

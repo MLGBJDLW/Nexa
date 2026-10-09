@@ -119,7 +119,7 @@ test.beforeEach(async ({ page }) => {
     let browserSession: any = null;
     let browserLoading = false;
     const htmlOpens: unknown[] = [];
-    Object.assign(window, { __htmlOpens: htmlOpens, __holdBrowserLoad: () => { browserLoading = true; }, __finishBrowserLoad: () => { browserLoading = false; } });
+    Object.assign(window, { __htmlOpens: htmlOpens, __browserSession: () => browserSession, __returnBrowserToAgent: () => { if (browserSession) browserSession.controlOwner = { type: 'none' }; }, __holdBrowserLoad: () => { browserLoading = true; }, __finishBrowserLoad: () => { browserLoading = false; } });
     const emitPreview = (requestId: string, path: string, line: number | null = null, resourcePaths: string[] = [], conversationId: string | null = 'conv-agent-edit') => {
       const payload = { requestId, path, line, resourcePaths, conversationId, callId: requestId };
       previewPending.push(payload);
@@ -133,6 +133,18 @@ test.beforeEach(async ({ page }) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
         case 'prepare_html_preview_cmd': htmlOpens.push(args); return { previewId: 'html-test', path: args.path, url: 'http://nexa-test.localhost:12345/__nexa_bootstrap/test' };
+        case 'open_agent_html_preview_cmd': {
+          if (Object.keys(args).join(',') !== 'requestId') throw new Error('Only the authorized request ID may cross this boundary');
+          const request = previewPending.find(request => request.requestId === args.requestId);
+          if (!request) throw new Error('The preview request was cancelled');
+          if (browserSession?.controlOwner.type === 'user') throw new Error('Browser control belongs to the user; wait until they hand it back');
+          htmlOpens.push({ path: request.path, resourcePaths: request.resourcePaths });
+          browserSession = { id: 'browser-agent', conversationId: request.conversationId, profileId: 'test', activeTabId: 'tab-a-new', tabs: [
+            { id: 'tab-a-new', sessionId: 'browser-agent', url: 'http://nexa-test.localhost:12345/__nexa_bootstrap/test', title: 'index.html', active: true, loading: browserLoading, status: 'loading' },
+            { id: 'tab-z-old', sessionId: 'browser-agent', url: 'http://nexa-test.localhost:12345/__nexa_bootstrap/test', title: 'older index.html', active: false, loading: true, status: 'loading' },
+          ], controlOwner: { type: 'agent', callId: request.callId }, workspaceVisible: true, cleanupPending: false, visibilityRevision: 1, visibilityRequested: true };
+          return { sessionId: browserSession.id, tabId: 'tab-a-new', readiness: 'presented' };
+        }
         case 'release_html_preview_cmd': return null;
         case 'browser_active_session_cmd': return browserSession ? { ...browserSession, tabs: browserSession.tabs.map((tab: any) => ({ ...tab, loading: browserLoading })) } : null;
         case 'browser_create_session_cmd': {
@@ -911,21 +923,45 @@ test('keeps the file panel and unsaved draft when dismissing its image viewer', 
   await expect(page.getByTestId('file-preview-editor')).toHaveValue(draft);
 });
 
-test('opens HTML through the built-in browser and acknowledges actual load completion', async ({ page }) => {
+test('opens HTML through the built-in browser and acknowledges the exact presented tab', async ({ page }) => {
   await page.goto('/chat/conv-agent-edit');
   await page.getByRole('button', { name: /index\.html/i }).click();
   await expect(page.getByRole('dialog', { name: 'File Preview', exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(1);
   await expect(page.getByTestId('file-preview-html-preview')).toHaveCount(0);
-  await page.evaluate(() => { (window as any).__holdBrowserLoad(); (window as any).__emitAgentPreview('html-agent', 'D:\\Vault\\web\\index.html', null, ['D:\\Vault\\web\\assets\\main.js']); });
+  await page.evaluate(() => { (window as any).__returnBrowserToAgent(); (window as any).__holdBrowserLoad(); (window as any).__emitAgentPreview('html-agent', 'D:\\Vault\\web\\index.html', null, ['D:\\Vault\\web\\assets\\main.js']); });
   await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(2);
   expect(await page.evaluate(() => (window as any).__htmlOpens[0].resourcePaths)).toEqual([]);
   expect(await page.evaluate(() => (window as any).__htmlOpens[1].resourcePaths)).toEqual(['D:\\Vault\\web\\assets\\main.js']);
-  await page.waitForTimeout(250);
-  expect(await page.evaluate(() => (window as any).__previewAcks)).toEqual([]);
-  await page.evaluate(() => (window as any).__finishBrowserLoad());
   await expect.poll(() => page.evaluate(() => (window as any).__previewAcks[0]?.receipt?.displayMode)).toBe('browser');
+  expect(await page.evaluate(() => (window as any).__previewAcks[0].receipt.browser)).toEqual({ sessionId: 'browser-agent', tabId: 'tab-a-new', readiness: 'presented' });
   expect(await page.evaluate(() => (window as any).__externalOpens())).toBe(0);
+});
+
+test('keeps an agent HTML tab usable without waiting for background resources to finish', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  await page.evaluate(() => {
+    (window as any).__holdBrowserLoad();
+    (window as any).__emitAgentPreview('html-continuity', 'D:\\Vault\\web\\index.html', null, []);
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__htmlOpens.length)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as any).__previewAcks[0]?.receipt?.displayMode), {
+    timeout: 2_000,
+  }).toBe('browser');
+  await expect(page.getByTestId('browser-dock')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__browserSession().controlOwner.type)).toBe('agent');
+  expect(await page.evaluate(() => (window as any).__browserSession().tabs[0].loading)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__externalOpens())).toBe(0);
+});
+
+test('does not take browser control back from the user for an agent HTML preview', async ({ page }) => {
+  await page.goto('/chat/conv-agent-edit');
+  await page.getByRole('button', { name: /index\.html/i }).click();
+  await expect(page.getByTestId('browser-dock')).toBeVisible();
+  await page.evaluate(() => (window as any).__emitAgentPreview('html-takeover', 'D:\\Vault\\web\\index.html'));
+  await expect.poll(() => page.evaluate(() => (window as any).__previewAcks[0]?.error)).toContain('control belongs to the user');
+  expect(await page.evaluate(() => (window as any).__browserSession().controlOwner.type)).toBe('user');
+  expect(await page.evaluate(() => (window as any).__htmlOpens.length)).toBe(1);
 });
 
 test('closes file preview only after a dirty web link is confirmed and routed', async ({ page }) => {

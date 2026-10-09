@@ -588,3 +588,116 @@ async fn compaction_preserves_parallel_calls_opaque_replay_and_user_steering() {
         .any(|message| message.role == Role::User
             && message.text_content().contains("STEERING_271828")));
 }
+
+#[cfg(feature = "document-processing")]
+struct DocumentBudgetProvider {
+    private_endpoint: bool,
+    requests: Arc<Mutex<Vec<CompletionRequest>>>,
+}
+#[cfg(feature = "document-processing")]
+#[async_trait]
+impl LlmProvider for DocumentBudgetProvider {
+    fn name(&self) -> &str {
+        "native-document-budget-fixture"
+    }
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &crate::llm::document::DocumentInput,
+    ) -> bool {
+        crate::llm::document::native_semantics(
+            ProviderType::Anthropic,
+            self.private_endpoint
+                .then_some("https://private.example/v1"),
+            ReasoningApiStyle::AnthropicMessages,
+            &request.model,
+            document,
+        )
+        .is_some()
+    }
+    fn route_snapshot(&self, request: &CompletionRequest) -> RouteSnapshot {
+        let contract = crate::llm::model_contract::resolve_model_contract(
+            ProviderType::Anthropic,
+            self.private_endpoint
+                .then_some("https://private.example/v1"),
+            ReasoningApiStyle::AnthropicMessages,
+            &request.model,
+        );
+        RouteSnapshot::from_profile_for_request(&contract.reasoning, request)
+    }
+    async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+        Ok(vec![])
+    }
+    async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        unreachable!()
+    }
+    async fn stream_events(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        let wire = crate::llm::document::project_request(
+            request,
+            ProviderType::Anthropic,
+            self.private_endpoint
+                .then_some("https://private.example/v1"),
+            ReasoningApiStyle::AnthropicMessages,
+        )
+        .into_owned();
+        self.requests.lock().unwrap().push(wire);
+        Ok(Box::pin(stream::iter(vec![ProviderStreamEvent::Chunk {
+            chunk: Box::new(StreamChunk {
+                delta: "Read extracted evidence.".into(),
+                finish_reason: Some(FinishReason::Stop),
+                tool_call_delta: None,
+                usage: None,
+                thinking_delta: None,
+            }),
+        }])))
+    }
+    async fn health_check(&self) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+#[cfg(feature = "document-processing")]
+async fn native_document_extraction_fallback_reaches_provider_before_large_pdf_budget_rejection() {
+    for private_endpoint in [false, true] {
+        let mut input = crate::llm::document::tests::pdf_request_with_pages(101);
+        let parts = input.messages.remove(0).into_data().parts;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let executor = AgentExecutor::new(
+            Box::new(DocumentBudgetProvider {
+                private_endpoint,
+                requests: Arc::clone(&requests),
+            }),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("claude-sonnet-4-5".into()),
+                provider_type: Some(ProviderType::Anthropic),
+                context_window: Some(128_000),
+                max_tokens: Some(1024),
+                system_prompt: "Read the supplied document.".into(),
+                ..Default::default()
+            },
+        )
+        .with_skills_override(vec![])
+        .with_auto_loaded_skills_override(vec![]);
+        let db = Database::open_memory().unwrap();
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.enabled = false;
+        db.save_privacy_config(&privacy).unwrap();
+        let (tx, mut rx) = mpsc::channel(64);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let result = executor.run(vec![], parts, &db, None, None, tx, 0).await;
+        drain.await.unwrap();
+        assert!(result.is_ok(), "private={private_endpoint}: {result:?}");
+        let seen = requests.lock().unwrap();
+        assert!(!seen.is_empty());
+        assert!(!seen[0].messages.iter().any(|m| m.has_documents()));
+        assert!(seen[0]
+            .messages
+            .iter()
+            .any(|m| m.text_content().contains("PDF fallback")));
+    }
+}

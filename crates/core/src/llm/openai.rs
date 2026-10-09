@@ -187,6 +187,9 @@ enum OaiContentPart {
     ImageUrl {
         image_url: OaiImageUrl,
     },
+    File {
+        file: OaiFile,
+    },
     Thinking {
         thinking: Vec<OaiThinkingContentPart>,
     },
@@ -197,6 +200,12 @@ struct OaiThinkingContentPart {
     #[serde(rename = "type")]
     content_type: String,
     text: String,
+}
+
+#[derive(Serialize)]
+struct OaiFile {
+    filename: String,
+    file_data: String,
 }
 
 #[derive(Serialize)]
@@ -818,7 +827,7 @@ fn convert_message(
     reasoning_history_encoding: ReasoningHistoryEncoding,
     raw_tool_args: bool,
 ) -> OaiMessage {
-    let has_images = msg.has_images();
+    let has_images = msg.has_images() || msg.has_documents();
 
     // Build content: use array format when images are present, plain string otherwise.
     let content: Option<OaiContent> = if has_images {
@@ -836,6 +845,16 @@ fn convert_message(
                         image_url: OaiImageUrl { url },
                     })
                 }
+                ContentPart::Document { document } => Some(OaiContentPart::File {
+                    file: OaiFile {
+                        filename: document.name.clone(),
+                        file_data: format!(
+                            "data:{};base64,{}",
+                            document.media_type,
+                            document.data()
+                        ),
+                    },
+                }),
                 ContentPart::ProviderTurn { .. } => None,
             })
             .collect();
@@ -2904,7 +2923,21 @@ impl OpenAiProvider {
                 CoreError::Llm(message)
             }
         })?;
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.complete(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
         let value = response
             .json::<serde_json::Value>()
             .await
@@ -2968,7 +3001,21 @@ impl OpenAiProvider {
         )
         .await
         .inspect_err(|error| transport.record_transport_failure(error))?;
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.stream_events(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
         let (tx, rx) = mpsc::channel(64);
         let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
         tokio::spawn(async move {
@@ -2994,6 +3041,21 @@ impl OpenAiProvider {
 
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &super::document::DocumentInput,
+    ) -> bool {
+        super::document::native_semantics(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            self.route_snapshot(request).api_style,
+            &request.model,
+            document,
+        )
+        .is_some()
+    }
+
     fn name(&self) -> &str {
         "openai"
     }
@@ -3121,6 +3183,13 @@ impl LlmProvider for OpenAiProvider {
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         crate::privacy::runtime::ensure_invocation_current()?;
+        let projected = super::document::project_request(
+            request,
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            self.route_snapshot(request).api_style,
+        );
+        let request = projected.as_ref();
         let transport = self.transport.for_request()?;
         let fallback_request;
         let request = if let Some((dialect, mode, capability)) = hosted_search_context(request) {
@@ -3231,7 +3300,21 @@ impl LlmProvider for OpenAiProvider {
                 CoreError::Llm(message)
             }
         })?;
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.complete(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
         let oai: OaiResponse = response
             .json()
             .await
@@ -3347,6 +3430,13 @@ impl LlmProvider for OpenAiProvider {
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
         crate::privacy::runtime::ensure_invocation_current()?;
+        let projected = super::document::project_request(
+            request,
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            self.route_snapshot(request).api_style,
+        );
+        let request = projected.as_ref();
         let transport = self.transport.for_request()?;
         if let Some((dialect, mode, capability)) = hosted_search_context(request) {
             if capability.supports_stream_events
@@ -3464,7 +3554,21 @@ impl LlmProvider for OpenAiProvider {
         })?;
 
         info!("Stream response status: {}", response.status());
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.stream_events(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
 
         let (tx, rx) = mpsc::channel(64);
         info!("SSE stream started");
@@ -8956,5 +9060,53 @@ data: [DONE]
             .expect("terminal stream usage");
         assert_eq!(usage.cache_read_tokens, Some(21_888));
         assert_eq!(usage.cache_miss_tokens, Some(57_651));
+    }
+}
+
+#[cfg(test)]
+mod native_document_tests {
+    use super::*;
+    #[test]
+    fn native_document_wire_responses_office_and_chat_pdf_are_not_images_or_duplicate_text() {
+        for mime in [super::super::document::DOCX, super::super::document::PPTX] {
+            let request = super::super::document::tests::office_request(mime);
+            let projected = super::super::document::project_request(
+                &request,
+                ProviderType::OpenAi,
+                None,
+                ReasoningApiStyle::OpenAiResponses,
+            );
+            let wire = responses_input_items(&projected.messages).unwrap();
+            let content = wire[0]["content"].as_array().unwrap();
+            assert_eq!(
+                content.iter().filter(|p| p["type"] == "input_file").count(),
+                1
+            );
+            assert!(content.iter().all(|p| p["type"] != "input_image"));
+            assert!(!serde_json::to_string(&wire)
+                .unwrap()
+                .contains("fixture unique fallback"));
+            assert!(content.last().unwrap()["file_data"]
+                .as_str()
+                .unwrap()
+                .starts_with(&format!("data:{mime};base64,")));
+        }
+        #[cfg(feature = "document-processing")]
+        {
+            let request = super::super::document::tests::pdf_request();
+            let projected = super::super::document::project_request(
+                &request,
+                ProviderType::OpenAi,
+                None,
+                ReasoningApiStyle::OpenAiChatCompletions,
+            );
+            let wire = serde_json::to_value(build_request_body(&projected, true)).unwrap();
+            let parts = wire["messages"][0]["content"].as_array().unwrap();
+            assert_eq!(parts.last().unwrap()["type"], "file");
+            assert!(parts.last().unwrap()["file"]["file_data"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:application/pdf;base64,"));
+        }
     }
 }

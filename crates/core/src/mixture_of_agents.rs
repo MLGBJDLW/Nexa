@@ -445,6 +445,15 @@ impl LlmProvider for MoaProvider {
         "Mixture of Agents"
     }
 
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &crate::llm::document::DocumentInput,
+    ) -> bool {
+        self.aggregator
+            .supports_document_input(&self.request_for_aggregator(request), document)
+    }
+
     fn reasoning_replay_policy(&self, _model: &str) -> ReasoningReplayPolicy {
         self.aggregator
             .reasoning_replay_policy(&self.preset.aggregator_model)
@@ -594,6 +603,15 @@ fn deterministic_advisor_view(messages: &[Message], privacy: &MoaPrivacyFilter) 
                         ContentPart::Image { .. } if *privacy == MoaPrivacyFilter::Off => {
                             Some(part.clone())
                         }
+                        ContentPart::Document { .. } if *privacy == MoaPrivacyFilter::Off => {
+                            Some(part.clone())
+                        }
+                        ContentPart::Document { document } => Some(ContentPart::Text {
+                            text: crate::privacy::redact_content(
+                                &document.fallback("privacy filter"),
+                                &[],
+                            ),
+                        }),
                         ContentPart::Image { .. } | ContentPart::ProviderTurn { .. } => None,
                     })
                     .collect(),
@@ -929,6 +947,60 @@ mod tests {
             })],
             tools: Some(vec![]),
             ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn moa_native_document_budget_uses_the_concrete_aggregator_capability() {
+        use crate::llm::{document, openai::OpenAiProvider, ProviderConfig};
+        for private in [false, true] {
+            let base = private.then_some("https://private.example/v1");
+            let aggregator = Arc::new(
+                OpenAiProvider::new(ProviderConfig {
+                    provider_type: ProviderType::OpenAi,
+                    api_key: Some("fixture".into()),
+                    base_url: base.map(str::to_owned),
+                    org_id: None,
+                    timeout_secs: None,
+                    streaming: Default::default(),
+                })
+                .unwrap(),
+            );
+            let mut preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "gpt-6-sol");
+            preset.budget_policy.max_advisor_calls_per_turn = Some(0);
+            let advisor = MoaAdvisor {
+                slot: preset.references[0].clone(),
+                provider: provider("advisor", false),
+            };
+            let moa = MoaProvider::new(aggregator.clone(), preset, vec![advisor]).unwrap();
+            let mut request = document::tests::office_request(document::DOCX);
+            request.model = "moa/fast_review".into();
+            request.provider_type = None;
+            document::plan_budgets(&moa, &mut request, Some(128_000));
+            let physical = moa.aggregator_request(&request).await.unwrap();
+            let wire = document::project_request(
+                &physical,
+                ProviderType::OpenAi,
+                base,
+                aggregator.route_snapshot(&physical).api_style,
+            );
+            assert_eq!(
+                wire.messages[0].has_documents(),
+                !private,
+                "the official aggregator receives native documents; private endpoints extract"
+            );
+            document::plan_budgets(&moa, &mut request, Some(128));
+            let physical = moa.aggregator_request(&request).await.unwrap();
+            let wire = document::project_request(
+                &physical,
+                ProviderType::OpenAi,
+                base,
+                aggregator.route_snapshot(&physical).api_style,
+            );
+            assert!(
+                !wire.messages[0].has_documents(),
+                "MoA keeps the executor's input budget"
+            );
         }
     }
 

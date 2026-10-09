@@ -240,6 +240,7 @@ pub fn build_desktop_agent_user_content_parts(
             None,
         );
         let _ = std::fs::remove_file(&temp_path);
+        let document_part_start = user_parts.len();
         match parse_result {
             Ok(parsed) => {
                 let text: String = parsed
@@ -291,6 +292,27 @@ pub fn build_desktop_agent_user_content_parts(
                         "[Attached file \"{}\" — could not extract content: {}]",
                         attachment.original_name, e
                     ),
+                });
+            }
+        }
+        if !db.load_privacy_config().map_err(|e| e.to_string())?.enabled {
+            let fallback = user_parts[document_part_start..]
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if let Some(document) = nexa_core::llm::document::DocumentInput::from_bytes(
+                &attachment.original_name,
+                &attachment.media_type,
+                &bytes,
+                &fallback,
+            ) {
+                user_parts.truncate(document_part_start);
+                user_parts.push(ContentPart::Document {
+                    document: Box::new(document),
                 });
             }
         }
@@ -614,8 +636,12 @@ pub async fn build_desktop_agent_vision_user_content(
             document_parts.remove(0);
         }
         for part in &document_parts {
-            if let ContentPart::Text { text } = part {
-                llm_context_fragments.push(text.clone());
+            match part {
+                ContentPart::Text { text } => llm_context_fragments.push(text.clone()),
+                ContentPart::Document { document } => {
+                    llm_context_fragments.push(document.fallback("history extraction"))
+                }
+                _ => {}
             }
         }
         parts.extend(document_parts);
@@ -734,6 +760,7 @@ async fn interpret_desktop_tool_visuals(
         .skip(1)
         .filter_map(|part| match part {
             ContentPart::Text { text } => Some(text),
+            ContentPart::Document { document } => Some(document.fallback_text),
             ContentPart::Image { .. } | ContentPart::ProviderTurn { .. } => None,
         })
         .filter(|text| !text.trim().is_empty())

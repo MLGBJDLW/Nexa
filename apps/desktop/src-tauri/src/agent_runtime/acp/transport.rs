@@ -87,7 +87,7 @@ impl Wire {
         preset: &ExternalAgentPreset,
         launch: &ExternalAgentLaunch,
     ) -> Result<Self> {
-        launch.validate()?;
+        launch.validate_resolved()?;
         let mut command = tokio::process::Command::new(executable(preset, launch)?);
         command
             .args(&preset.args)

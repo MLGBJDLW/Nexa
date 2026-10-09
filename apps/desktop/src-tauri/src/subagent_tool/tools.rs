@@ -589,7 +589,7 @@ impl Tool for SubagentLifecycleTool {
     fn description(&self) -> &str {
         match self.action {
             SubagentLifecycleAction::Observe => {
-                "Read a spawned subagent's current state and incremental lifecycle events without blocking the parent turn."
+                "Inspect new progress since afterSeq while you continue other work. Optional waitMs long-polls for new events for at most 2500ms; it does NOT wait for completion. Use wait_subagent when you need the final result."
             }
             SubagentLifecycleAction::Wait => {
                 "Wait for a spawned subagent to settle and return its authoritative result. Defaults to 30 seconds, up to 60 seconds; UI progress and cancellation remain live. Continue waiting when timedOut is true and the worker remains active; do not restart its build."
@@ -753,6 +753,7 @@ impl Tool for SubagentLifecycleTool {
                         SubagentLifecycleEventKind::InputQueued,
                         serde_json::json!({
                             "bytes": input.len(),
+                            "content": input,
                             "state": "queued",
                             "acknowledgement": "channel_enqueue_only",
                         }),

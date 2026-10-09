@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "Guia de instalação e login"
   ,"externalAgentExecutable": "Caminho do executável (opcional)"
   ,"externalAgentDirectory": "Diretório de trabalho"
-  ,"externalAgentDirectoryHint": "A pasta principal do projeto tem prioridade. Esta pasta alternativa vale apenas para este perfil."
+  ,"externalAgentDirectoryHint": "Usa automaticamente o espaço de trabalho da conversa. Conversas sem projeto recebem uma pasta própria gerenciada pelo Nexa. Uma pasta alternativa pode ser definida nas opções avançadas."
   ,"externalAgentConnected": "Sessão criada e modelos carregados. A inferência ainda não foi testada."
   ,"externalAgentProbe": "Verificar conexão"
   ,"externalAgentControls": "As ferramentas e configurações de execução são gerenciadas pelo agente externo."

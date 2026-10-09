@@ -39,7 +39,9 @@ pub struct ExternalAgentLaunch {
     /// Optional absolute executable path; omitted uses the preset on PATH.
     #[serde(default)]
     pub executable: Option<String>,
-    /// Deliberately explicit: never inherit the desktop process's cwd.
+    /// Optional profile fallback. Blank follows the chat workspace or a managed
+    /// folder; a resolved runtime launch never inherits the process cwd.
+    #[serde(default)]
     pub working_directory: String,
     /// Native ACP select options, keyed by the advertised opaque config ID.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -75,7 +77,7 @@ impl ExternalAgentLaunch {
             ));
         }
         let cwd = Path::new(&self.working_directory);
-        if !cwd.is_absolute() || !cwd.is_dir() {
+        if !self.working_directory.trim().is_empty() && (!cwd.is_absolute() || !cwd.is_dir()) {
             return Err(CoreError::InvalidInput(
                 "Choose an existing absolute working directory for this external agent.".into(),
             ));
@@ -89,6 +91,72 @@ impl ExternalAgentLaunch {
             }
         }
         Ok(())
+    }
+
+    pub fn validate_resolved(&self) -> Result<(), CoreError> {
+        self.validate()?;
+        if self.working_directory.trim().is_empty() {
+            return Err(CoreError::InvalidInput(
+                "Resolve the external agent's working directory before launch".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// One identity feeds process launch, protocol cwd, file permissions, and
+    /// runtime cache binding. An explicitly empty project never falls back.
+    pub fn resolve(
+        &self,
+        db: &Database,
+        workspace: Option<&crate::workspace::Workspace>,
+        conversation_id: Option<&str>,
+    ) -> Result<Self, CoreError> {
+        let mut preferences = self.clone();
+        preferences.working_directory.clear();
+        preferences.validate()?;
+        let mut resolved = self.clone();
+        let directory = if let Some(workspace) = workspace {
+            workspace
+                .cwd()
+                .filter(|cwd| !cwd.trim().is_empty())
+                .ok_or_else(|| {
+                    CoreError::InvalidInput(
+                        "Choose a project workspace folder before starting an external agent"
+                            .into(),
+                    )
+                })?
+                .to_string()
+        } else if !self.working_directory.trim().is_empty() {
+            self.working_directory.clone()
+        } else {
+            let app_data = db
+                .db_path()
+                .and_then(Path::parent)
+                .filter(|path| path.is_absolute())
+                .ok_or_else(|| {
+                    CoreError::InvalidInput(
+                        "The managed external-agent workspace is unavailable".into(),
+                    )
+                })?;
+            let key = conversation_id
+                .map(|id| format!("chat-{}", blake3::hash(id.as_bytes()).to_hex()))
+                .unwrap_or_else(|| "discovery".into());
+            let managed = app_data
+                .join("workspaces")
+                .join("external-agents")
+                .join(key);
+            std::fs::create_dir_all(&managed).map_err(|error| {
+                CoreError::InvalidInput(format!(
+                    "Cannot create the external-agent workspace: {error}"
+                ))
+            })?;
+            managed.to_string_lossy().into_owned()
+        };
+        resolved.working_directory = crate::workspace::Workspace::validate(&[directory])?
+            .roots
+            .remove(0);
+        resolved.validate_resolved()?;
+        Ok(resolved)
     }
 }
 
@@ -203,7 +271,74 @@ mod tests {
             assert!(db.save_agent_config(&input).is_err());
         }
         assert!(!is_agent_runtime("google"));
-        assert!(ExternalAgentLaunch::default().validate().is_err());
+        assert!(ExternalAgentLaunch::default().validate().is_ok());
+        assert!(ExternalAgentLaunch::default().validate_resolved().is_err());
+    }
+
+    #[test]
+    fn automatic_directories_are_stable_scoped_and_project_authoritative() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::new(root.path().join("nexa.db")).unwrap();
+        let automatic: ExternalAgentLaunch = serde_json::from_str("{}").unwrap();
+        automatic.validate().unwrap();
+        let input: crate::conversation::SaveAgentConfigInput = serde_json::from_value(serde_json::json!({"name":"Automatic ACP", "provider":"hermes", "apiKey":"", "model":"native-model", "isDefault":false})).unwrap();
+        let saved = db.save_external_agent_profile(&input, &automatic).unwrap();
+        assert_eq!(
+            db.external_agent_launch(&saved.id)
+                .unwrap()
+                .working_directory,
+            ""
+        );
+        let first = automatic.resolve(&db, None, Some("../聊天:a")).unwrap();
+        assert!(Path::new(&first.working_directory).is_dir());
+        let normalized_root =
+            crate::workspace::Workspace::validate(&[root.path().to_string_lossy().into()]).unwrap();
+        assert!(Path::new(&first.working_directory).starts_with(normalized_root.cwd().unwrap()));
+        assert_eq!(
+            first,
+            automatic.resolve(&db, None, Some("../聊天:a")).unwrap()
+        );
+        assert_ne!(
+            first.working_directory,
+            automatic
+                .resolve(&db, None, Some("chat-b"))
+                .unwrap()
+                .working_directory
+        );
+        assert_ne!(
+            first.working_directory,
+            automatic
+                .resolve(&db, None, None)
+                .unwrap()
+                .working_directory
+        );
+        let project = root.path().join("项目 空格");
+        std::fs::create_dir(&project).unwrap();
+        let workspace =
+            crate::workspace::Workspace::validate(&[project.to_string_lossy().into()]).unwrap();
+        let legacy = ExternalAgentLaunch {
+            working_directory: root
+                .path()
+                .join("removed-legacy-folder")
+                .to_string_lossy()
+                .into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            legacy
+                .resolve(&db, Some(&workspace), Some("chat-a"))
+                .unwrap()
+                .working_directory,
+            workspace.cwd().unwrap()
+        );
+        assert!(automatic
+            .resolve(
+                &db,
+                Some(&crate::workspace::Workspace { roots: vec![] }),
+                Some("chat-a")
+            )
+            .is_err());
+        assert!(legacy.resolve(&db, None, Some("chat-a")).is_err());
     }
 
     #[test]

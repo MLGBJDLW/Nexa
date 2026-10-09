@@ -3,6 +3,7 @@ import json
 import sys
 import time
 import subprocess
+import os
 
 mode = sys.argv[1]
 session = "会话-Δ"
@@ -39,6 +40,10 @@ for line in sys.stdin:
         assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": True, "writeTextFile": True}
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}})
     elif method == "session/new":
+        if mode == "cwd":
+            assert os.path.samefile(os.getcwd(), message["params"]["cwd"])
+            with open(sys.argv[2], "w", encoding="utf-8") as log:
+                json.dump({"processCwd": os.getcwd(), "sessionCwd": message["params"]["cwd"]}, log)
         if mode == "auth":
             emit({"id": message["id"], "error": {"code": -32000, "message": "credential-secret-must-not-escape"}})
         elif mode == "legacy":

@@ -56,7 +56,13 @@ The External agents catalog also includes these explicit launch presets:
 | Goose | `goose acp` | Install and configure a native provider |
 | Auggie | `auggie --acp` | Install and authenticate the Augment CLI |
 
-Select an existing working directory and optionally an absolute executable path.
+The working directory follows the current chat automatically. A chat worktree
+or project's primary folder takes priority. A projectless chat gets a stable,
+separate folder under the application data directory's `workspaces/external-agents`;
+catalog discovery uses its own managed folder. An explicitly empty or unavailable
+project workspace remains an actionable error rather than selecting another folder.
+An optional custom fallback directory is available under **Advanced**, and an
+absolute executable path can be supplied when the CLI is not on PATH.
 Launch preferences are stored separately from API credentials under the exact
 saved profile ID. Editing one profile cannot redirect another profile. A project's
 primary workspace folder overrides the profile's fallback directory. The process

@@ -17,6 +17,20 @@ pub(crate) fn persist_transition(
     let event_json = serde_json::to_string(event)?;
     let mut connection = db.conn();
     let transaction = connection.transaction()?;
+    if record.owner_tool == "spawn_subagent" {
+        if let Some(conversation_id) = record.conversation_id.as_deref() {
+            let exists: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1)",
+                [conversation_id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Err(CoreError::Cancelled(
+                    "The parent conversation was deleted".into(),
+                ));
+            }
+        }
+    }
     transaction.execute(
         "INSERT INTO activity_records (
             activity_id, state, conversation_id, task_run_id, updated_at, record_json
@@ -51,7 +65,9 @@ pub(crate) fn persist_transition(
     let oldest_retained_seq = event
         .seq
         .saturating_sub(DEFAULT_MAX_EVENTS_PER_ACTIVITY as u64);
-    if oldest_retained_seq > 0 {
+    // A delegated conversation is durable history, not just a progress ring.
+    // Keep its complete journal on disk; the runtime and each read stay bounded.
+    if oldest_retained_seq > 0 && record.owner_tool != "spawn_subagent" {
         transaction.execute(
             "DELETE FROM activity_events WHERE activity_id = ?1 AND seq <= ?2",
             params![event.activity_id, oldest_retained_seq as i64],
@@ -95,36 +111,44 @@ pub(crate) fn load_entries(db: &Database) -> Result<LoadedActivityEntries, CoreE
         }
     }
 
+    // Explicit index ranges avoid reading or scanning a worker's complete
+    // transcript just to reconstruct the bounded runtime ring at startup.
     let mut events_stmt = conn.prepare(
-        "SELECT activity_id, seq, event_json FROM activity_events ORDER BY activity_id, seq",
+        "SELECT seq, event_json FROM activity_events
+         WHERE activity_id=?1 AND seq>?2 AND seq<=?3 ORDER BY seq",
     )?;
-    let events = events_stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })?;
-    for row in events {
-        let (id, seq, event_json) = row?;
-        if quarantined.contains(&id) {
-            continue;
-        }
-        match serde_json::from_str::<ActivityEvent>(&event_json) {
-            Ok(event)
-                if event.activity_id == id
-                    && seq > 0
-                    && u64::try_from(seq).ok() == Some(event.seq) =>
-            {
-                if let Some(entry) = entries.get_mut(&id) {
-                    entry.events.push_back(event);
+    let ranges: Vec<_> = entries
+        .iter()
+        .map(|(id, entry)| (id.clone(), entry.record.last_event_seq))
+        .collect();
+    for (id, expected) in ranges {
+        let events = events_stmt.query_map(
+            params![
+                id,
+                expected.saturating_sub(DEFAULT_MAX_EVENTS_PER_ACTIVITY as u64) as i64,
+                expected as i64
+            ],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        for row in events {
+            let (seq, event_json) = row?;
+            match serde_json::from_str::<ActivityEvent>(&event_json) {
+                Ok(event)
+                    if event.activity_id == id
+                        && seq > 0
+                        && u64::try_from(seq).ok() == Some(event.seq) =>
+                {
+                    if let Some(entry) = entries.get_mut(&id) {
+                        entry.events.push_back(event);
+                    }
                 }
-            }
-            _ => {
-                // A partial journal must not look like a complete replay.
-                entries.remove(&id);
-                tracing::error!(activity_id=%id, seq, "Quarantined unreadable activity journal; original database rows retained");
-                quarantined.insert(id);
+                _ => {
+                    // A partial journal must not look like a complete replay.
+                    entries.remove(&id);
+                    tracing::error!(activity_id=%id, seq, "Quarantined unreadable activity journal; original database rows retained");
+                    quarantined.insert(id.clone());
+                    break;
+                }
             }
         }
     }

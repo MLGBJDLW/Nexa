@@ -180,6 +180,10 @@ pub(super) fn responses_input_items(
                     "type": "input_image",
                     "image_url": format!("data:{media_type};base64,{data}"),
                 })),
+                ContentPart::Document { document } => content.push(serde_json::json!({
+                    "type": "input_file", "filename": document.name,
+                    "file_data": format!("data:{};base64,{}", document.media_type, document.data()),
+                })),
                 ContentPart::ProviderTurn { .. } => {}
             }
         }

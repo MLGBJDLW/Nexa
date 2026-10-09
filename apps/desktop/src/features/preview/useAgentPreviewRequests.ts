@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { connectEventSubscriptions } from '../../lib/eventSubscriptions';
 
 export interface AgentPreviewRequest { requestId: string; path: string; resourcePaths?: string[]; line: number | null; conversationId: string | null; callId: string }
-export interface AgentPreviewReceipt { path: string; kind: string; displayMode: string; warning: string | null }
+export interface AgentPreviewReceipt { path: string; kind: string; displayMode: string; warning: string | null; browser?: { sessionId: string; tabId: string; readiness: string } }
 
 export function useAgentPreviewRequests(open: (request: AgentPreviewRequest) => Promise<AgentPreviewReceipt>, cancel: (requestId: string) => void) {
   const openRef = useRef(open); openRef.current = open;

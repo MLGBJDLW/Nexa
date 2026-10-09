@@ -1070,7 +1070,7 @@
   ,"externalAgentSetup": "Guía de instalación e inicio de sesión"
   ,"externalAgentExecutable": "Ruta del ejecutable (opcional)"
   ,"externalAgentDirectory": "Directorio de trabajo"
-  ,"externalAgentDirectoryHint": "La carpeta principal del proyecto tiene prioridad. Esta carpeta alternativa solo se usa en este perfil."
+  ,"externalAgentDirectoryHint": "Usa automáticamente el espacio de trabajo del chat. Los chats sin proyecto tienen su propia carpeta de Nexa. Puede elegir una carpeta alternativa en las opciones avanzadas."
   ,"externalAgentConnected": "Sesión creada y modelos cargados. Aún no se ha probado la inferencia."
   ,"externalAgentProbe": "Comprobar conexión"
   ,"externalAgentControls": "El agente externo gestiona las herramientas y los ajustes de ejecución."

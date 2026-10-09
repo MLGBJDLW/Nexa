@@ -23,6 +23,8 @@ pub struct HtmlPreview {
     pub preview_id: String,
     pub path: String,
     pub url: String,
+    #[serde(skip)]
+    pub(super) document_url: String,
     pub title: String,
     pub conversation_id: String,
     pub reused: bool,
@@ -43,6 +45,20 @@ impl HtmlServer {
     pub fn has_tabs(&self) -> bool {
         !self.tab_ids.is_empty()
     }
+}
+
+#[cfg(any(windows, test))]
+pub(super) fn registered_preview_origin(
+    previews: &HashMap<String, HtmlServer>,
+    conversation_id: Option<&str>,
+    url: &url::Url,
+) -> Option<String> {
+    previews.values().find_map(|server| {
+        (Some(server.preview.conversation_id.as_str()) == conversation_id
+            && (server.preview.url == url.as_str() || server.preview.document_url == url.as_str())
+            && server.permit.is_live())
+        .then(|| url.origin().ascii_serialization())
+    })
 }
 
 pub(super) fn bind_preview_tab(
@@ -167,6 +183,7 @@ pub async fn start(
             preview_id: id,
             path: path.to_string_lossy().into_owned(),
             url: format!("{origin}/__nexa_bootstrap/{token}"),
+            document_url: format!("{origin}/{entry}"),
             title,
             conversation_id,
             reused: false,
@@ -474,5 +491,32 @@ mod tests {
         drop(server);
         assert!(!permit.is_live());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod storage_provenance_tests {
+    use super::*;
+    #[tokio::test]
+    async fn html_preview_storage_requires_exact_live_backend_provenance() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("index.html");
+        std::fs::write(&path, "<h1>fixture</h1>").unwrap();
+        let server = start(path.to_string_lossy().into(), "owner".into(), vec![])
+            .await
+            .unwrap();
+        let url = url::Url::parse(&server.preview.url).unwrap();
+        let document = url::Url::parse(&server.preview.document_url).unwrap();
+        let mut previews = HashMap::new();
+        previews.insert(server.preview.preview_id.clone(), server);
+        assert!(registered_preview_origin(&previews, Some("owner"), &url).is_some());
+        assert!(registered_preview_origin(&previews, Some("owner"), &document).is_some());
+        assert!(registered_preview_origin(&previews, Some("other-chat"), &url).is_none());
+        let mut unrelated = url.clone();
+        unrelated.set_path("/other.html");
+        assert!(registered_preview_origin(&previews, Some("owner"), &unrelated).is_none());
+        assert!(registered_preview_origin(&HashMap::new(), Some("owner"), &url).is_none());
+        previews.clear();
+        assert!(registered_preview_origin(&previews, Some("owner"), &url).is_none());
     }
 }

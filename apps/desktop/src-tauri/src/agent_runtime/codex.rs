@@ -516,6 +516,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                     let mut content = vec![json!({"type":"inputText","text":output.result.content})];
                     content.extend(output.visual_parts.into_iter().filter_map(|part| match part {
                         ContentPart::Text {text} => Some(json!({"type":"inputText","text":text})),
+                        ContentPart::Document {document} => Some(json!({"type":"inputText","text":document.fallback("Codex file protocol unavailable")})),
                         ContentPart::Image {media_type,data} => Some(json!({"type":"inputImage","imageUrl":format!("data:{media_type};base64,{data}")})), _=>None,
                     }));
                     wire.write(json!({"id":id,"result":{"contentItems":content,"success":!output.result.is_error}})).await?;

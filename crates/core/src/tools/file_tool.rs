@@ -12,7 +12,7 @@ use serde::Deserialize;
 use crate::error::CoreError;
 use crate::privacy;
 
-use super::document_utils::read_supported_file_content;
+use super::document_utils::{document_attachment, read_file_evidence};
 use super::path_utils::resolve_existing_file_for_file_access;
 use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
@@ -70,6 +70,9 @@ impl Tool for FileTool {
         {
             return Ok(error);
         }
+        let native_candidate = !value
+            .as_object()
+            .is_some_and(|args| args.contains_key("start_line") || args.contains_key("max_lines"));
         let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
@@ -107,7 +110,8 @@ impl Tool for FileTool {
             .map_err(CoreError::InvalidInput)?;
 
             // Read text files directly; for supported binary docs, parse and extract text.
-            let raw = read_supported_file_content(&canonical)?;
+            let privacy_config = db.load_privacy_config()?;
+            let (raw, document) = read_file_evidence(&canonical, native_candidate && !privacy_config.enabled)?;
 
             // Skip to start_line (1-based) and truncate to max_lines.
             let start = args.start_line.max(1);
@@ -136,7 +140,6 @@ impl Tool for FileTool {
             };
 
             // Apply privacy redaction.
-            let privacy_config = db.load_privacy_config().unwrap_or_default();
             let redacted = if privacy_config.enabled {
                 privacy::redact_content(&content, &privacy_config.redact_patterns)
             } else {
@@ -158,9 +161,9 @@ impl Tool for FileTool {
             text.push_str("---\n");
             text.push_str(&redacted);
 
-            Ok(ToolResult {
+            let mut result = ToolResult {
                 call_id,
-                content: text,
+                content: text.clone(),
                 is_error: false,
                 artifacts: Some(serde_json::json!({
                     "path": canonical_str,
@@ -171,7 +174,15 @@ impl Tool for FileTool {
                     "totalLines": total_lines,
                     "suggestedCitation": suggested_citation,
                 })),
-            })
+            };
+            if let Some(document) = document {
+                let attachment = document_attachment(document, text);
+                result.artifacts.as_mut().unwrap()["toolOutput"] = serde_json::json!({
+                    "llmContent": result.content, "displayContent": result.content,
+                    "attachments": [attachment],
+                });
+            }
+            Ok(result)
         })
         .await
         .map_err(|e| CoreError::Internal(format!("task join failed: {e}")))?
@@ -416,5 +427,146 @@ mod tests {
             "unexpected content: {}",
             result.content
         );
+    }
+}
+
+#[cfg(test)]
+mod native_document_tests {
+    use super::*;
+    use crate::llm::document::{tests::office_bytes, DOCX};
+    use crate::sources::CreateSourceInput;
+
+    #[tokio::test]
+    async fn native_document_read_is_authorized_ephemeral_and_disabled_for_ranges_and_privacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("report.docx");
+        std::fs::write(&file, office_bytes(DOCX)).unwrap();
+        let db = Database::open_memory().unwrap();
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.enabled = false;
+        db.save_privacy_config(&privacy).unwrap();
+        db.add_source(CreateSourceInput {
+            root_path: dir.path().to_string_lossy().into(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .unwrap();
+        let args = serde_json::json!({"path":file}).to_string();
+        let result = FileTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "doc",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        let attachments = result.artifacts.as_ref().unwrap()["toolOutput"]["attachments"]
+            .as_array()
+            .unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0]["mimeType"], DOCX);
+        assert!(attachments[0]["data"]["fallbackText"]
+            .as_str()
+            .unwrap()
+            .contains("File:"));
+        assert!(!result
+            .content
+            .contains(attachments[0]["data"]["base64"].as_str().unwrap()));
+        for range in [
+            serde_json::json!({"path":file,"max_lines":1}),
+            serde_json::json!({"path":file,"start_line":1}),
+        ] {
+            let range = range.to_string();
+            let result = FileTool
+                .execute(crate::tools::ToolExecutionContext::new(
+                    "range",
+                    &range,
+                    &db,
+                    &[],
+                ))
+                .await
+                .unwrap();
+            assert!(result.artifacts.unwrap().get("toolOutput").is_none());
+        }
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.enabled = true;
+        db.save_privacy_config(&privacy).unwrap();
+        let result = FileTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "private",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(result.artifacts.unwrap().get("toolOutput").is_none());
+        let denied = Database::open_memory().unwrap();
+        let result = FileTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "denied",
+                &args,
+                &denied,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.artifacts.is_none());
+    }
+
+    #[tokio::test]
+    async fn native_document_batch_preserves_each_file_and_range_fallback() {
+        use crate::tools::read_files_tool::ReadFilesTool;
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("report.docx");
+        let text = dir.path().join("notes.txt");
+        std::fs::write(&doc, office_bytes(DOCX)).unwrap();
+        std::fs::write(&text, "plain notes").unwrap();
+        let db = Database::open_memory().unwrap();
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.enabled = false;
+        db.save_privacy_config(&privacy).unwrap();
+        db.add_source(CreateSourceInput {
+            root_path: dir.path().to_string_lossy().into(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .unwrap();
+        for ranged in [false, true] {
+            let mut args = serde_json::json!({"paths":[doc,text]});
+            if ranged {
+                args["max_lines_per_file"] = 1.into();
+            }
+            let args = args.to_string();
+            let result = ReadFilesTool
+                .execute(crate::tools::ToolExecutionContext::new(
+                    "batch",
+                    &args,
+                    &db,
+                    &[],
+                ))
+                .await
+                .unwrap();
+            assert!(!result.is_error);
+            assert!(result.content.contains("plain notes"));
+            let artifacts = result.artifacts.unwrap();
+            assert_eq!(artifacts["files"].as_array().unwrap().len(), 2);
+            if ranged {
+                assert!(artifacts.get("toolOutput").is_none());
+            } else {
+                assert_eq!(
+                    artifacts["toolOutput"]["attachments"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    1
+                );
+            }
+        }
     }
 }

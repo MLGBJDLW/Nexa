@@ -538,6 +538,16 @@ pub(super) fn add_message_context_tokens(
 
 fn estimate_message_body_tokens_for_model(model: &str, message: &Message) -> u32 {
     let mut tokens = estimate_tokens_for_model(model, &message.text_content());
+    tokens = tokens.saturating_add(
+        message
+            .parts
+            .iter()
+            .filter_map(|p| match p {
+                ContentPart::Document { document } => Some(document.token_overhead()),
+                _ => None,
+            })
+            .fold(0u32, u32::saturating_add),
+    );
     for part in &message.parts {
         if let ContentPart::Image { data, .. } = part {
             let estimated = (data.len() / 1500) as u32;

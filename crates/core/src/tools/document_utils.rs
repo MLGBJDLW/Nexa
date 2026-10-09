@@ -2,6 +2,56 @@ use std::path::Path;
 
 use crate::error::CoreError;
 
+/// Read already-authorized bytes once. Extraction and native evidence use the
+/// same snapshot even when the source file is subsequently changed.
+pub(crate) fn read_file_evidence(
+    path: &Path,
+    native_candidate: bool,
+) -> Result<(String, Option<crate::llm::document::DocumentInput>), CoreError> {
+    use crate::llm::document::{DocumentInput, MAX_DOCUMENT_BYTES};
+    use std::io::{Read, Write};
+    let mime = crate::parse::detect_mime_type(path);
+    if !native_candidate || !crate::llm::document::supported_mime(&mime) {
+        return read_supported_file_content(path).map(|text| (text, None));
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take((MAX_DOCUMENT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    let name = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("document");
+    if DocumentInput::from_bytes(name, &mime, &bytes, "").is_none() {
+        return read_supported_file_content(path).map(|text| (text, None));
+    }
+    let suffix = path.extension().and_then(|v| v.to_str()).unwrap_or("bin");
+    let mut snapshot = tempfile::Builder::new()
+        .prefix("nexa-document-")
+        .suffix(&format!(".{suffix}"))
+        .tempfile()?;
+    snapshot.write_all(&bytes)?;
+    let text = read_supported_file_content(snapshot.path()).unwrap_or_else(|error| {
+        format!("[Local extraction failed: {error}. The original file may still be read by a supported native document route.]")
+    });
+    let candidate = DocumentInput::from_bytes(name, &mime, &bytes, &text);
+    Ok((text, candidate))
+}
+
+pub(crate) fn document_attachment(
+    mut document: crate::llm::document::DocumentInput,
+    fallback: String,
+) -> super::ToolOutputAttachment {
+    document.fallback_text = fallback;
+    let mut data = serde_json::to_value(&document).expect("document metadata serialization");
+    data["base64"] = serde_json::Value::String(document.data().to_string());
+    super::ToolOutputAttachment {
+        name: document.name,
+        mime_type: document.media_type,
+        data,
+    }
+}
+
 pub(crate) fn is_binary_file_error(err: &CoreError) -> bool {
     matches!(err, CoreError::Parse(msg) if msg.starts_with("File appears to be binary:"))
 }

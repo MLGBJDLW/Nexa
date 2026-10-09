@@ -12,6 +12,118 @@ pub(super) struct SubagentEventPumpConfig {
     pub(super) non_streaming_completion: bool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::subagent_lifecycle::{RegisterSubagentRequest, SubagentLifecycleRuntime};
+    use nexa_core::activity::ActivityRuntime;
+    use nexa_core::agent::StreamBlockChannel;
+    use nexa_core::conversation::CreateConversationInput;
+
+    #[tokio::test]
+    async fn subagent_pump_persists_readable_snapshots_across_privacy_and_drains_the_last_typed_event(
+    ) {
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&CreateConversationInput {
+                provider: "open_ai".into(),
+                model: "test".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        db.save_privacy_config(&nexa_core::privacy::PrivacyConfig {
+            enabled: true,
+            redact_patterns: vec![nexa_core::privacy::RedactRule {
+                name: "test".into(),
+                pattern: "privateCODE".into(),
+                replacement: "[PRIVATE]".into(),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        let lifecycle = SubagentLifecycleRuntime::default();
+        let cancel = CancellationToken::new();
+        let registration = lifecycle
+            .register(RegisterSubagentRequest {
+                agent_id: "child".into(),
+                parent_call_id: "parent-call".into(),
+                task: "Inspect a fixture".into(),
+                role_id: None,
+                role: None,
+                conversation_id: Some(conversation.id.clone()),
+                turn_id: None,
+                task_run_id: None,
+                cancel_token: cancel.clone(),
+                activity_runtime: ActivityRuntime::with_database(db.clone()).unwrap(),
+            })
+            .unwrap();
+        registration.events.start().await.unwrap();
+        let (tx, rx) = mpsc::channel(64);
+        let pump = SubagentEventPump::spawn(
+            rx,
+            SubagentEventPumpConfig {
+                cancel_token: cancel,
+                worker_actual_token_limit: None,
+                telemetry_db: db.clone(),
+                telemetry_identity: None,
+                telemetry_call_label: "fixture".into(),
+                lifecycle: Some(registration.events),
+                launch_started: Instant::now(),
+                non_streaming_completion: false,
+            },
+        );
+        tx.send(AgentEvent::Thinking {
+            content: "private".into(),
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(130)).await;
+        tx.send(AgentEvent::Thinking {
+            content: "CODE".into(),
+        })
+        .await
+        .unwrap();
+        tx.send(AgentEvent::StreamBlockDelta {
+            block_id: "answer".into(),
+            channel: StreamBlockChannel::Answer,
+            offset: 0,
+            delta: "你好".into(),
+        })
+        .await
+        .unwrap();
+        tx.send(AgentEvent::StreamBlockDelta {
+            block_id: "answer".into(),
+            channel: StreamBlockChannel::Answer,
+            offset: 6,
+            delta: "，完成".into(),
+        })
+        .await
+        .unwrap();
+        drop(tx);
+        pump.task.await.unwrap();
+        let page = db
+            .read_subagent_history(&conversation.id, "child", 0)
+            .unwrap();
+        let serialized = serde_json::to_string(&page).unwrap();
+        assert!(!serialized.contains("privateCODE"));
+        assert!(page
+            .events
+            .iter()
+            .any(|event| event.payload["detail"]["event"]["text"] == "[PRIVATE]"));
+        assert!(page
+            .events
+            .iter()
+            .any(|event| event.payload["detail"]["event"]["text"] == "你好，完成"));
+        assert!(!page
+            .events
+            .iter()
+            .any(|event| event.payload["subagentEvent"] == "thinkingDelta"));
+    }
+}
+
 pub(super) struct SubagentEventPumpHandle {
     pub(super) task: tokio::task::JoinHandle<EventCapture>,
     pub(super) fatal_error_rx: mpsc::UnboundedReceiver<String>,
@@ -55,13 +167,19 @@ impl SubagentEventPump {
         let mut first_visible_token_recorded = false;
         let mut pending_thinking = String::new();
         let mut pending_output = String::new();
+        let mut transcript = SubagentTranscript::default();
+        let mut canonical_thinking = false;
+        let mut canonical_output = false;
         let mut last_delta_flush = Instant::now();
         let mut worker_token_limit_exceeded = false;
         loop {
             // Dormant workers sleep on their channel. A flush timer exists
             // only while a delta is buffered, eliminating ten idle wakeups
             // per second per worker during long provider/tool requests.
-            let next = if pending_thinking.is_empty() && pending_output.is_empty() {
+            let next = if pending_thinking.is_empty()
+                && pending_output.is_empty()
+                && !transcript.has_pending()
+            {
                 Ok(event_rx.recv().await)
             } else {
                 let remaining =
@@ -75,6 +193,7 @@ impl SubagentEventPump {
                         lifecycle_capture.as_ref(),
                         &mut pending_thinking,
                         &mut pending_output,
+                        &mut transcript,
                     )
                     .await;
                     break;
@@ -84,6 +203,7 @@ impl SubagentEventPump {
                         lifecycle_capture.as_ref(),
                         &mut pending_thinking,
                         &mut pending_output,
+                        &mut transcript,
                     )
                     .await;
                     last_delta_flush = Instant::now();
@@ -216,11 +336,12 @@ impl SubagentEventPump {
                 AgentEvent::TextDelta { .. } => !pending_thinking.is_empty(),
                 _ => !pending_thinking.is_empty() || !pending_output.is_empty(),
             };
-            if should_flush_before_event {
+            if should_flush_before_event || transcript.flush_before(&event) {
                 flush_subagent_deltas(
                     lifecycle_capture.as_ref(),
                     &mut pending_thinking,
                     &mut pending_output,
+                    &mut transcript,
                 )
                 .await;
                 last_delta_flush = Instant::now();
@@ -228,7 +349,9 @@ impl SubagentEventPump {
             match event {
                 AgentEvent::Thinking { content } => {
                     if !content.trim().is_empty() {
-                        pending_thinking.push_str(&content);
+                        if !canonical_thinking {
+                            pending_thinking.push_str(&content);
+                        }
                         capture.thinking.push(content);
                     }
                 }
@@ -272,6 +395,7 @@ impl SubagentEventPump {
                             SubagentLifecycleEventKind::InputApplied,
                             serde_json::json!({
                                 "bytes": content.len(),
+                                "content": content,
                                 "state": "applied_at_model_boundary",
                             }),
                         )
@@ -302,6 +426,7 @@ impl SubagentEventPump {
                         lifecycle_capture.as_ref(),
                         &mut pending_thinking,
                         &mut pending_output,
+                        &mut transcript,
                     )
                     .await;
                     capture.usage_total = usage_total;
@@ -324,6 +449,7 @@ impl SubagentEventPump {
                         lifecycle_capture.as_ref(),
                         &mut pending_thinking,
                         &mut pending_output,
+                        &mut transcript,
                     )
                     .await;
                     capture.error_message = Some(message.clone());
@@ -336,9 +462,12 @@ impl SubagentEventPump {
                     break;
                 }
                 AgentEvent::TextDelta { delta } => {
-                    pending_output.push_str(&delta);
+                    if !canonical_output {
+                        pending_output.push_str(&delta);
+                    }
                 }
                 AgentEvent::ToolRunStarted { run } => {
+                    transcript.boundary();
                     let detail = serde_json::json!({ "phase": "runStarted", "run": run });
                     capture.tool_events.push(detail.clone());
                     emit_subagent_lifecycle_event(
@@ -385,27 +514,52 @@ impl SubagentEventPump {
                     )
                     .await;
                 }
-                AgentEvent::StreamBlockDelta { .. }
-                | AgentEvent::StreamBlockSnapshot { .. }
-                | AgentEvent::StreamReset { .. }
+                event @ (AgentEvent::StreamBlockDelta { .. }
+                | AgentEvent::StreamBlockSnapshot { .. }) => {
+                    match &event {
+                        AgentEvent::StreamBlockDelta { channel, .. }
+                        | AgentEvent::StreamBlockSnapshot { channel, .. } => match channel {
+                            nexa_core::agent::StreamBlockChannel::Thinking => {
+                                canonical_thinking = true
+                            }
+                            nexa_core::agent::StreamBlockChannel::Answer => canonical_output = true,
+                        },
+                        _ => unreachable!(),
+                    }
+                    transcript.note_canonical(event);
+                }
+                event @ (AgentEvent::StreamReset { .. }
                 | AgentEvent::AutoCompacted { .. }
-                | AgentEvent::ToolCallPreparing { .. }
+                | AgentEvent::ApprovalRequested { .. }
+                | AgentEvent::ApprovalResolved { .. }
+                | AgentEvent::PlanUpdated { .. }) => {
+                    if matches!(event, AgentEvent::StreamReset { .. }) {
+                        transcript.boundary();
+                    }
+                    emit_subagent_lifecycle_event(
+                        lifecycle_capture.as_ref(),
+                        SubagentLifecycleEventKind::Stream,
+                        serde_json::json!({ "event": event }),
+                    )
+                    .await;
+                }
+                AgentEvent::ToolCallPreparing { .. }
                 | AgentEvent::ToolCallArgsDelta { .. }
                 | AgentEvent::ToolCallStart { .. }
                 | AgentEvent::ToolCallProgress { .. }
                 | AgentEvent::ToolCallResult { .. }
-                | AgentEvent::ApprovalRequested { .. }
-                | AgentEvent::ApprovalResolved { .. }
-                | AgentEvent::ControllerStatus { .. }
-                | AgentEvent::PlanUpdated { .. } => {}
+                | AgentEvent::ControllerStatus { .. } => {}
             }
             if last_delta_flush.elapsed() >= Duration::from_millis(100)
-                && (!pending_thinking.is_empty() || !pending_output.is_empty())
+                && (!pending_thinking.is_empty()
+                    || !pending_output.is_empty()
+                    || transcript.has_pending())
             {
                 flush_subagent_deltas(
                     lifecycle_capture.as_ref(),
                     &mut pending_thinking,
                     &mut pending_output,
+                    &mut transcript,
                 )
                 .await;
                 last_delta_flush = Instant::now();

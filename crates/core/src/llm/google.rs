@@ -397,6 +397,12 @@ fn convert_messages(
                                 data: data.clone(),
                             },
                         }),
+                        ContentPart::Document { document } => Some(GeminiPartV2::InlineData {
+                            inline_data: GeminiBlob {
+                                mime_type: document.media_type.clone(),
+                                data: document.data().into(),
+                            },
+                        }),
                         ContentPart::ProviderTurn { .. } => None,
                     })
                     .collect();
@@ -1743,6 +1749,21 @@ fn with_google_api_key(request: reqwest::RequestBuilder, api_key: &str) -> reqwe
 
 #[async_trait]
 impl LlmProvider for GeminiProvider {
+    fn supports_document_input(
+        &self,
+        request: &CompletionRequest,
+        document: &super::document::DocumentInput,
+    ) -> bool {
+        super::document::native_semantics(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::GeminiGenerateContent,
+            &request.model,
+            document,
+        )
+        .is_some()
+    }
+
     fn name(&self) -> &str {
         "google"
     }
@@ -1871,6 +1892,14 @@ impl LlmProvider for GeminiProvider {
             normalized_model_name(&request.model),
         );
 
+        crate::privacy::runtime::ensure_invocation_current()?;
+        let projected = super::document::project_request(
+            request,
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::GeminiGenerateContent,
+        );
+        let request = projected.as_ref();
         let (system_instruction, contents) = convert_messages(&request.messages);
         let body = build_request_body(request, system_instruction, contents);
         let body_bytes = serialized_json_body(&body, "Gemini completion request")?;
@@ -1893,7 +1922,21 @@ impl LlmProvider for GeminiProvider {
             ))
         })?;
 
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.complete(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
 
         let resp: GeminiResponse = response
             .json()
@@ -1940,6 +1983,14 @@ impl LlmProvider for GeminiProvider {
             normalized_model_name(&request.model),
         );
 
+        crate::privacy::runtime::ensure_invocation_current()?;
+        let projected = super::document::project_request(
+            request,
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            super::reasoning_profile::ReasoningApiStyle::GeminiGenerateContent,
+        );
+        let request = projected.as_ref();
         let (system_instruction, contents) = convert_messages(&request.messages);
         let body = build_request_body(request, system_instruction, contents);
         let body_bytes = serialized_json_body(&body, "Gemini stream request")?;
@@ -1960,7 +2011,21 @@ impl LlmProvider for GeminiProvider {
         })?;
 
         info!("Gemini stream response status: {}", response.status());
-        let response = self.check_response(response).await?;
+        let status = response.status().as_u16();
+        let response = match self.check_response(response).await {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(fallback) =
+                    super::document::rejected_document_fallback(request, status, &error)
+                {
+                    tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                    return Box::pin(self.stream_events(&fallback)).await;
+                }
+                return Err(error);
+            }
+        };
 
         let (tx, rx) = mpsc::channel(64);
         info!("Gemini SSE stream started");
@@ -3349,5 +3414,38 @@ mod tests {
             extract_response(&resp).expect("extract response");
 
         assert_eq!(usage.cache_read_tokens, None);
+    }
+}
+
+#[cfg(all(test, feature = "document-processing"))]
+mod native_document_tests {
+    use super::*;
+    #[test]
+    fn native_document_wire_pdf_uses_inline_data_and_private_route_extracts() {
+        let mut request = super::super::document::tests::pdf_request();
+        request.model = "gemini-2.5-pro".into();
+        let projected = super::super::document::project_request(
+            &request,
+            ProviderType::Google,
+            None,
+            super::super::reasoning_profile::ReasoningApiStyle::GeminiGenerateContent,
+        );
+        let (_, contents) = convert_messages(&projected.messages);
+        let wire = serde_json::to_value(contents).unwrap();
+        let block = wire[0]["parts"].as_array().unwrap().last().unwrap();
+        assert_eq!(block["inlineData"]["mimeType"], "application/pdf");
+        assert!(!serde_json::to_string(&wire)
+            .unwrap()
+            .contains("PDF fallback"));
+        let fallback = super::super::document::project_request(
+            &request,
+            ProviderType::Google,
+            Some("https://private.example/v1"),
+            super::super::reasoning_profile::ReasoningApiStyle::GeminiGenerateContent,
+        );
+        let (_, contents) = convert_messages(&fallback.messages);
+        let wire = serde_json::to_string(&contents).unwrap();
+        assert!(!wire.contains("inlineData"));
+        assert!(wire.contains("PDF fallback"));
     }
 }

@@ -1594,3 +1594,49 @@ fn empty_learned_memory_does_not_call_embedding_before_the_model_request() {
     assert_eq!(indexed.len(), 1);
     assert_eq!(indexed[0].0.response_summary, "Learned answer");
 }
+
+#[test]
+fn native_document_attachment_keeps_original_ephemeral_and_privacy_fallback_explicit() {
+    let db = Database::open_memory().unwrap();
+    let mut privacy = db.load_privacy_config().unwrap();
+    privacy.enabled = false;
+    db.save_privacy_config(&privacy).unwrap();
+    let attachment = ImageAttachment {
+        base64_data: "UEsDBBQAAAAAADpzSV19j8M5TQAAAE0AAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIi8+UEsDBBQAAAAAADpzSV1C5BJgrAAAAKwAAAARAAAAd29yZC9kb2N1bWVudC54bWw8dzpkb2N1bWVudCB4bWxuczp3PSJodHRwOi8vc2NoZW1hcy5vcGVueG1sZm9ybWF0cy5vcmcvd29yZHByb2Nlc3NpbmdtbC8yMDA2L21haW4iPjx3OmJvZHk+PHc6cD48dzpyPjx3OnQ+bmF0aXZlIGF0dGFjaG1lbnQgc2VudGluZWw8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQAFAAAAAAAOnNJXX2PwzlNAAAATQAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAUAAAAAAA6c0ldQuQSYKwAAACsAAAAEQAAAAAAAAAAAAAAgAF+AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAIAAgCAAAAAWQEAAAAA".into(),
+        media_type: nexa_core::llm::document::DOCX.into(), original_name: "report.docx".into(),
+        attachment_id: None, attachment_hash: None, vision_analysis: None,
+    };
+    for private in [false, true] {
+        privacy.enabled = private;
+        db.save_privacy_config(&privacy).unwrap();
+        let parts = build_desktop_agent_user_content_parts(DesktopAgentUserContentRequest {
+            db: &db,
+            app_handle: None,
+            provider_config: &test_provider_config(ProviderType::OpenAi),
+            db_config: &test_agent_config(),
+            message: "Read this",
+            attachments: Some(std::slice::from_ref(&attachment)),
+        })
+        .unwrap();
+        assert_eq!(
+            parts
+                .iter()
+                .any(|p| matches!(p, ContentPart::Document { .. })),
+            !private
+        );
+        let message = Message::from(nexa_core::llm::MessageData {
+            role: Role::User,
+            parts,
+            name: None,
+            tool_calls: None,
+            reasoning_content: None,
+            prompt_cache_hint: None,
+        });
+        assert!(message
+            .text_content()
+            .contains("native attachment sentinel"));
+        assert!(!serde_json::to_string(&message)
+            .unwrap()
+            .contains(&attachment.base64_data));
+    }
+}

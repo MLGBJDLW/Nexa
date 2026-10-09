@@ -1105,7 +1105,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     }
                 }
             };
-            let mut backend = if let Some(kind) = runtime_kind {
+            let backend = if let Some(kind) = runtime_kind {
                 let external = if matches!(kind, crate::agent_runtime::AgentRuntimeKind::Acp(_)) {
                     let launch = db.external_agent_launch(&db_config.id).map_err(|error| error.to_string())?;
                     Some(crate::agent_runtime::ExternalAgentBinding {
@@ -1260,11 +1260,6 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 warn!("Failed to persist context resolution for {task_run_id}: {error}");
             }
             let workspace = desktop_turn_config.workspace;
-            if let DesktopAgentBackend::Runtime { external: Some(binding), .. } = &mut backend {
-                if let Some(workspace) = &workspace {
-                    binding.launch.working_directory = workspace.cwd().ok_or_else(|| "Choose a project workspace folder before starting an external agent".to_string())?.to_string();
-                }
-            }
             let source_scope_ids = desktop_turn_config.source_scope_ids;
             let pinned_skill_ids = desktop_turn_config.pinned_skill_ids;
             let context_pack = desktop_turn_config.context_pack;

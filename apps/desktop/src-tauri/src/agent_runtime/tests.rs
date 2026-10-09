@@ -508,3 +508,22 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
         "Live {kind:?} model={model}: real edit once; native context capacity={native_capacity:?}"
     );
 }
+
+#[test]
+fn native_document_subscription_preparation_keeps_extracted_evidence_without_file_protocol() {
+    for kind in [AgentRuntimeKind::Copilot, AgentRuntimeKind::Codex] {
+        let (mut request, _rx, _, _) = fixture(kind, "test");
+        let document: nexa_core::llm::document::DocumentInput = serde_json::from_value(serde_json::json!({
+            "name":"report.docx","mediaType":nexa_core::llm::document::DOCX,"digest":"fixture", "byteLength":100,
+            "pages":null,"fallbackText":"Complete local document fallback sentinel", "estimatedTokens":1024
+        })).unwrap();
+        request.user_parts = vec![ContentPart::Document {
+            document: Box::new(document),
+        }];
+        let prepared = request.prepare(false).unwrap();
+        assert!(prepared
+            .prompt
+            .contains("Complete local document fallback sentinel"));
+        assert!(prepared.images.is_empty());
+    }
+}
