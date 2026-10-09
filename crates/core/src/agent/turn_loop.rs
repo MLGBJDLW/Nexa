@@ -635,6 +635,7 @@ impl AgentExecutor {
                 history,
                 model,
                 max_response_tokens,
+                &tx,
                 context_compaction::CompactionRunContext {
                     db,
                     conversation_id,

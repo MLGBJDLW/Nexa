@@ -217,6 +217,7 @@ impl AgentExecutor {
         mut history: Vec<Message>,
         model: &str,
         max_response_tokens: u32,
+        tx: &mpsc::Sender<AgentEvent>,
         run: CompactionRunContext<'_>,
         actual_tokens_remaining: Option<u32>,
     ) -> Result<(Vec<Message>, Usage), CoreError> {
@@ -230,12 +231,23 @@ impl AgentExecutor {
         let Some(budget) = window.context_budget().filter(|budget| *budget > 0) else {
             return Ok((history, Usage::default()));
         };
-        let tokens = self
-            .context_usage_breakdown(model, &history, &[], None)
-            .total_tokens;
-        if !window.budget_decision(tokens).should_compact {
+        let breakdown = self.context_budget_usage(model, &history, &[], window);
+        if !window
+            .budget_decision(breakdown.total_tokens)
+            .should_compact
+        {
             return Ok((history, Usage::default()));
         }
+        // A fresh executor has not measured its rebuilt request yet. Show the
+        // estimate that actually triggers history reduction instead of leaving
+        // the previous turn's provider measurement in the HUD while summarizing.
+        let _ = tx
+            .send(AgentEvent::UsageUpdate {
+                usage_total: Usage::default(),
+                last_prompt_tokens: breakdown.total_tokens,
+                context_breakdown: Some(breakdown),
+            })
+            .await;
         let (usage, _) = self
             .reduce_context_to_target(
                 &mut history,

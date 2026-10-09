@@ -273,6 +273,80 @@ async fn run_context_fixture(
 }
 
 #[tokio::test]
+async fn history_compaction_publishes_its_current_budget_before_the_first_request() {
+    let summaries = Arc::new(AtomicUsize::new(0));
+    let executor = AgentExecutor::new(
+        Box::new(ContextFixtureProvider {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            rounds: 0,
+            tools_per_round: 0,
+            rows: 0,
+            opaque_replay: false,
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            model: Some("gpt-4o".into()),
+            context_window: Some(8_192),
+            max_tokens: Some(512),
+            auto_compact_percent: Some(60),
+            ..Default::default()
+        },
+    )
+    .with_summarization_provider(Box::new(ContextFixtureSummarizer(Arc::clone(&summaries))));
+    let history = vec![
+        Message::text(Role::User, "Earlier request"),
+        Message::text(Role::Assistant, "earlier evidence ".repeat(6_000)),
+        Message::text(Role::User, "Recent request"),
+        Message::text(Role::Assistant, "Recent answer"),
+        Message::text(Role::User, "Latest request"),
+        Message::text(Role::Assistant, "Latest answer"),
+    ];
+    let db = Database::open_memory().unwrap();
+    let (tx, mut rx) = mpsc::channel(8);
+    let (reduced, _) = executor
+        .summarize_if_needed(
+            history.clone(),
+            "gpt-4o",
+            512,
+            &tx,
+            context_compaction::CompactionRunContext {
+                db: &db,
+                conversation_id: None,
+                turn_id: None,
+                active_request: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(summaries.load(Ordering::SeqCst) > 0);
+    assert_ne!(
+        prompt_cache::message_sequence_fingerprint(&history),
+        prompt_cache::message_sequence_fingerprint(&reduced)
+    );
+    let AgentEvent::UsageUpdate {
+        usage_total,
+        last_prompt_tokens,
+        context_breakdown: Some(breakdown),
+    } = rx.try_recv().unwrap()
+    else {
+        panic!("history gate must publish current occupancy");
+    };
+    assert_eq!(
+        usage_total.total_tokens, 0,
+        "an estimate is not newly billed usage"
+    );
+    assert_eq!(last_prompt_tokens, breakdown.total_tokens);
+    assert_eq!(
+        breakdown.measurement,
+        Some(context::ContextMeasurement::Estimated)
+    );
+    let budget = breakdown.budget.unwrap();
+    assert_eq!(budget.capacity_tokens, 8_192);
+    assert!(last_prompt_tokens > budget.compact_threshold);
+}
+
+#[tokio::test]
 async fn long_single_turn_keeps_active_request_and_latest_tool_evidence() {
     let (answer, requests, summaries) =
         run_context_fixture(TOOL_ROUNDS, 1, 160, false, false).await;
