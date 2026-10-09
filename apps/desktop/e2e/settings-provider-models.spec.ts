@@ -791,6 +791,9 @@ test.beforeEach(async ({ page }) => {
           const root = customRoot || "C:\\Users\\Test\\.nexa\\models";
           const paths = { root, embedding: `${root}\\paraphrase-multilingual-MiniLM-L12-v2`, ocr: `${root}\\paddleocr`, whisper: `${root}\\whisper` };
           if (cmd === "consolidate_model_storage_cmd") {
+            if (localStorage.getItem('hold-model-consolidation') === '1') {
+              await new Promise<void>(resolve => { Object.assign(window, { finishModelConsolidation: resolve }); });
+            }
             Object.assign(appConfig, { localModelRoot: root });
             Object.assign(embedderConfig, { modelPath: paths.embedding });
             Object.assign(ocrConfig, { modelPath: paths.ocr });
@@ -2826,4 +2829,19 @@ test('source settings deep link opens online embeddings and centralized storage'
   await expect(page.getByTestId('local-storage-settings')).toContainText('.nexa/AGENTS.md');
   await expect(page.getByRole('button', { name: 'Consolidate and use', exact: true })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath('embedding-storage-entry.png'), fullPage: true });
+});
+
+
+test('model consolidation fences settings and download controls until verified readback', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('hold-model-consolidation', '1'));
+  await page.goto('/settings?tab=models_embedding');
+  await page.getByRole('button', { name: /^Models Manage AI models/ }).click();
+  await page.getByRole('button', { name: 'Consolidate and use', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: 'Local model storage' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Delete model' }).first()).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { finishModelConsolidation: () => void }).finishModelConsolidation());
+  await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeEnabled();
 });

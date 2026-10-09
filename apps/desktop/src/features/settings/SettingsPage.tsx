@@ -897,13 +897,14 @@ export function SettingsPage() {
   }, [activeTab, loadAppConfig, loadEmbedConfig, loadOcrConfig, loadVideoConfig, loadPrivacyConfig, markClean]);
 
   const handleTabChange = useCallback((nextTab: SettingsTab) => {
+    if (modelStorageSaving) return;
     if (nextTab === activeTab) return;
     if (isTabDirty(activeTab)) {
       setPendingTab(nextTab);
       return;
     }
     setActiveTab(nextTab);
-  }, [activeTab, isTabDirty]);
+  }, [activeTab, isTabDirty, modelStorageSaving]);
 
   useEffect(() => {
     if (lastRequestedTab.current === requestedTab) return;
@@ -1662,6 +1663,7 @@ export function SettingsPage() {
               key={tab.id}
               aria-current={activeTab === tab.id ? 'page' : undefined}
               onClick={() => handleTabChange(tab.id)}
+              disabled={modelStorageSaving}
               className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-fast cursor-pointer whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-accent text-white shadow-sm'
@@ -1736,7 +1738,7 @@ export function SettingsPage() {
 
       {/* ── Tab: Models & Embedding ──────────────────────────────── */}
       {activeTab === 'models_embedding' && (
-        <>
+      <fieldset disabled={modelStorageSaving} aria-busy={modelStorageSaving} className="min-w-0 space-y-4">
         {/* Models section */}
         <EmbeddingConfigSection
           embedConfig={embedConfig}
@@ -1820,7 +1822,7 @@ export function SettingsPage() {
 
         <VectorStoreSection />
         <KnowledgeServicesPanel />
-      </>
+      </fieldset>
       )}
 
       {/* ── Tab: AI Providers ──────────────────────────────────────── */}

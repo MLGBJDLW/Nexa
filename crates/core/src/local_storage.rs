@@ -9,6 +9,9 @@ use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+const CONSOLIDATION_MARKER: &str = ".nexa-consolidation-pending";
+const CONSOLIDATION_MARKER_BYTES: &[u8] = b"nexa-model-consolidation-v1\n";
+
 pub fn home_dir() -> Result<PathBuf, CoreError> {
     let path = std::env::var_os(crate::user_extensions::NEXA_HOME_ENV)
         .map(PathBuf::from)
@@ -45,12 +48,12 @@ fn populated(path: &Path) -> bool {
 }
 
 fn resolve_existing(canonical: PathBuf, legacy: impl IntoIterator<Item = PathBuf>) -> PathBuf {
-    if populated(&canonical) {
+    if populated(&canonical) && !canonical.join(CONSOLIDATION_MARKER).exists() {
         return canonical;
     }
     legacy
         .into_iter()
-        .find(|path| populated(path))
+        .find(|path| populated(path) && !path.join(CONSOLIDATION_MARKER).exists())
         .unwrap_or(canonical)
 }
 
@@ -103,6 +106,8 @@ pub struct ModelStorageReport {
     pub copied_files: u64,
     pub copied_bytes: u64,
     pub retained_sources: Vec<String>,
+    #[serde(skip)]
+    pending_directories: Vec<PathBuf>,
 }
 
 // Only the path-related state participates in CAS. Other concurrent settings,
@@ -198,6 +203,7 @@ pub fn consolidate_models(
         copied_files: 0,
         copied_bytes: 0,
         retained_sources: Vec::new(),
+        pending_directories: Vec::new(),
     };
     for (source, target) in sources {
         copy_model_tree(&source, &target, &mut report)?;
@@ -219,6 +225,19 @@ pub fn consolidate_models(
     crate::settings_schema_v2::sync_legacy_app_config_in_transaction(&tx)?;
     crate::capability_registry::sync_registry_in_transaction(&tx)?;
     tx.commit()?;
+    // Explicit paths now point at fully verified copies. If cleanup is
+    // interrupted, those paths remain usable; default lookup stays conservative.
+    for directory in &report.pending_directories {
+        let marker = directory.join(CONSOLIDATION_MARKER);
+        if std::fs::read(&marker).ok().as_deref() == Some(CONSOLIDATION_MARKER_BYTES) {
+            if let Err(error) = std::fs::remove_file(&marker) {
+                tracing::warn!(
+                    "Could not finish model consolidation marker {}: {error}",
+                    marker.display()
+                );
+            }
+        }
+    }
     Ok(report)
 }
 
@@ -308,6 +327,9 @@ fn copy_model_tree(
             ));
         }
         let name = entry.file_name().to_string_lossy();
+        if name == CONSOLIDATION_MARKER {
+            return Err(CoreError::Conflict("The selected model source contains an unfinished consolidation; restore its original source path before retrying".into()));
+        }
         if name.ends_with(".partial") || name.ends_with(".part") || name.ends_with(".tmp") {
             return Err(CoreError::Conflict(
                 "A model download is incomplete. Finish or cancel it before consolidating models."
@@ -337,6 +359,29 @@ fn copy_model_tree(
         report
             .retained_sources
             .push(source.to_string_lossy().into_owned());
+    }
+    // The default resolver must not activate even one copied file until all
+    // categories and their configuration have committed successfully.
+    if !files.is_empty() || target.join(CONSOLIDATION_MARKER).exists() {
+        std::fs::create_dir_all(target)?;
+        let marker = target.join(CONSOLIDATION_MARKER);
+        reject_link(&marker)?;
+        if marker.exists() {
+            if std::fs::read(&marker)?.as_slice() != CONSOLIDATION_MARKER_BYTES {
+                return Err(CoreError::Conflict(
+                    "Unrecognized model consolidation marker; no file was overwritten".into(),
+                ));
+            }
+        } else {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&marker)?;
+            file.write_all(CONSOLIDATION_MARKER_BYTES)?;
+            file.sync_all()?;
+        }
+        report.pending_directories.push(target.to_path_buf());
     }
     for (source_file, destination, digest) in files {
         let parent = destination
@@ -407,6 +452,41 @@ mod tests {
         std::fs::create_dir_all(&new).unwrap();
         std::fs::write(new.join("model"), "canonical").unwrap();
         assert_eq!(resolve_existing(new.clone(), [old]), new);
+    }
+
+    #[test]
+    fn uncommitted_copies_never_shadow_working_legacy_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("legacy");
+        let canonical = tmp.path().join("home/models/embedding");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("model.onnx"), b"working model").unwrap();
+        std::fs::write(old.join("tokenizer.json"), b"working tokenizer").unwrap();
+        let mut report = ModelStorageReport {
+            paths: ManagedModelPaths::new(tmp.path().to_str(), &LocalEmbeddingModel::default())
+                .unwrap(),
+            copied_files: 0,
+            copied_bytes: 0,
+            retained_sources: vec![],
+            pending_directories: vec![],
+        };
+        copy_model_tree(&old, &canonical, &mut report).unwrap();
+        // Even a fully copied tree is inactive if the settings transaction fails.
+        assert_eq!(resolve_existing(canonical.clone(), [old.clone()]), old);
+        // Model a disk-full/interruption after the first successful file.
+        std::fs::remove_file(canonical.join("tokenizer.json")).unwrap();
+        assert_eq!(resolve_existing(canonical.clone(), [old.clone()]), old);
+        assert_eq!(
+            resolve_existing(
+                tmp.path().join("other-home"),
+                [canonical.clone(), old.clone()]
+            ),
+            old
+        );
+        // Retry verifies existing bytes and finishes the missing file.
+        copy_model_tree(&old, &canonical, &mut report).unwrap();
+        std::fs::remove_file(canonical.join(CONSOLIDATION_MARKER)).unwrap();
+        assert_eq!(resolve_existing(canonical.clone(), [old]), canonical);
     }
 
     #[test]

@@ -32,6 +32,9 @@ downloads, links/reparse points, nested source/destination folders and settings
 changed during copying stop the operation without switching paths. Originals are
 retained. A failed copy or settings commit can leave verified copies at the
 destination; the originals and previous configuration remain usable.
+An unfinished-consolidation marker keeps these copies out of automatic model
+resolution until every copy and the settings transaction succeed. This also
+applies when a destination is one of the legacy model roots.
 
 Save pending settings and finish active downloads before consolidating. After a
 successful switch, download, readiness and delete controls use the configured
