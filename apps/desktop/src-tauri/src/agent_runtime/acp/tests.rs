@@ -17,6 +17,61 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn opaque_chat_reasoning_reaches_native_prompt_and_unadvertised_values_fail_closed() {
+    for effort in ["deep", "invented"] {
+        let (mut request, mut rx, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp("opencode"),
+            "vendor/模型",
+        );
+        request.config.reasoning_effort = Some(nexa_core::llm::ReasoningEffort::High);
+        request.external = Some(super::super::ExternalAgentBinding {
+            profile_id: "fixture".into(),
+            launch: Default::default(),
+            reasoning_effort: Some(effort.into()),
+        });
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let result = run_connected("opencode", request, wire("opaque_effort"), "fixture").await;
+        assert_eq!(result.is_ok(), effort == "deep", "{effort}: {result:?}");
+        drain.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn custom_launch_overrides_arguments_and_environment_without_shell_interpretation() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("launch.json");
+    let preset = nexa_core::external_agent::ExternalAgentPreset {
+        command: "python".into(),
+        args: vec!["--invalid-preset-argument".into()],
+        env: std::collections::BTreeMap::from([("NEXA_ACP_TEST".into(), "preset".into())]),
+        ..Default::default()
+    };
+    let launch = ExternalAgentLaunch {
+        working_directory: directory.path().to_string_lossy().into(),
+        args: Some(vec![
+            "-u".into(),
+            "-c".into(),
+            include_str!("fixture.py").into(),
+            "launch".into(),
+            marker.to_string_lossy().into(),
+            "literal & unicode 参数".into(),
+        ]),
+        env: std::collections::BTreeMap::from([(
+            "NEXA_ACP_TEST".into(),
+            "override=literal".into(),
+        )]),
+        ..Default::default()
+    };
+    let mut wire = Wire::start(&preset, &launch).unwrap();
+    Session::connect(&mut wire, &launch.working_directory)
+        .await
+        .unwrap();
+    let value: Value = serde_json::from_str(&std::fs::read_to_string(marker).unwrap()).unwrap();
+    assert_eq!(value["argument"], "literal & unicode 参数");
+    assert_eq!(value["environment"], "override=literal");
+}
+
+#[tokio::test]
 async fn automatic_acp_directory_is_shared_by_process_and_protocol() {
     let root = tempfile::tempdir().unwrap();
     let db = nexa_core::db::Database::new(root.path().join("nexa.db")).unwrap();
@@ -37,6 +92,7 @@ async fn automatic_acp_directory_is_shared_by_process_and_protocol() {
         ],
         env: Default::default(),
         docs_url: String::new(),
+        ..Default::default()
     };
     let mut wire = Wire::start(&preset, &launch).unwrap();
     let session = Session::connect(&mut wire, &launch.working_directory)
@@ -177,6 +233,7 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
     request.external = Some(super::super::ExternalAgentBinding {
         profile_id: uuid::Uuid::new_v4().to_string(),
         launch,
+        reasoning_effort: None,
     });
     let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
     let answer = tokio::time::timeout(Duration::from_secs(180), run("github_copilot_acp", request))
@@ -463,6 +520,93 @@ fn wire_with_marker(mode: &str, marker: &str) -> Wire {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     Wire::spawn(command).unwrap()
+}
+
+#[tokio::test]
+async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            pool::discard_test_connections(&self.0.to_string_lossy());
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let _cleanup = Cleanup(directory.path().to_path_buf());
+    let log = directory.path().join("effective-effort.txt");
+    let python = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    let launch = ExternalAgentLaunch {
+        executable: Some(String::from_utf8(python.stdout).unwrap().trim().into()),
+        working_directory: directory.path().to_string_lossy().into(),
+        args: Some(vec![
+            "-u".into(),
+            "-c".into(),
+            include_str!("fixture.py").into(),
+            "opaque_record".into(),
+            log.to_string_lossy().into(),
+        ]),
+        config_options: std::collections::BTreeMap::from([
+            ("custom-effort".into(), "eco".into()),
+            ("thought_level".into(), "retired".into()),
+            ("effort".into(), "fast".into()),
+        ]),
+        ..Default::default()
+    };
+    let binding = super::super::ExternalAgentBinding {
+        profile_id: uuid::Uuid::new_v4().to_string(),
+        launch,
+        reasoning_effort: Some("deep".into()),
+    };
+    let (mut first, _rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("opencode"),
+        "vendor/模型",
+    );
+    let db = first.db.clone();
+    let conversation = first.conversation_id.clone();
+    first.external = Some(binding.clone());
+    run("opencode", first).await.unwrap();
+
+    let (mut next, _next_rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("opencode"),
+        "vendor/模型",
+    );
+    let mut user = db.get_messages(&conversation).unwrap()[0].clone();
+    user.id = uuid::Uuid::new_v4().to_string();
+    user.sort_order = db
+        .get_messages(&conversation)
+        .unwrap()
+        .iter()
+        .map(|message| message.sort_order)
+        .max()
+        .unwrap()
+        + 1;
+    user.content = "Use the native default for this turn".into();
+    db.add_message(&user).unwrap();
+    next.turn_id = db
+        .create_conversation_turn(&conversation, &user.id, None)
+        .unwrap()
+        .id;
+    next.next_sort_order = user.sort_order + 1;
+    next.db = db;
+    next.conversation_id = conversation;
+    next.external = Some(super::super::ExternalAgentBinding {
+        reasoning_effort: None,
+        ..binding
+    });
+    run("opencode", next).await.unwrap();
+    // Windows pipe readers keep the Tokio test runtime alive until the cached
+    // children exit. Remove only this fixture's sessions before runtime teardown.
+    pool::discard_test_connections(&directory.path().to_string_lossy());
+    assert_eq!(
+        std::fs::read_to_string(log)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["deep", "balanced"]
+    );
 }
 
 #[tokio::test]
@@ -757,6 +901,7 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
         args: vec![],
         env: Default::default(),
         docs_url: String::new(),
+        ..Default::default()
     };
     let launch = ExternalAgentLaunch {
         executable: Some(launcher.to_string_lossy().into_owned()),

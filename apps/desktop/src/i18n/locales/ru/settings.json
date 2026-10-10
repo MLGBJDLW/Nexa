@@ -1115,5 +1115,10 @@
   ,"storageSection": "Расположение хранилищ"
   ,"storageSectionDesc": "Управляйте общими настройками, правилами проектов и локальными моделями в одном месте."
   ,"storageProjectContracts": "Правила остаются в каждом проекте: .nexa/AGENTS.md, .nexa/tools и .nexa/tmp. Существующие AGENTS.md имеют приоритет."
-  ,"storageInternalState": "База данных, учётные данные и кэши"
+  ,"storageInternalState": "База данных, учётные данные и кэши",
+  "externalAgentArguments": "Аргументы (массив JSON; пусто — по умолчанию)",
+  "externalAgentEnvironment": "Окружение (объект JSON; хранится зашифрованным)",
+  "externalAgentJsonHint": "Аргументы должны быть массивом строк JSON, окружение — объектом JSON со строковыми значениями.",
+  "externalAgentPackageHint": "При первом подключении может загрузиться указанная версия пакета. Войдите в учётную запись самого агента.",
+  "externalAgentPackageProbe": "Загрузить / проверить подключение"
 }

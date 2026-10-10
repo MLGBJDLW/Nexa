@@ -8,6 +8,10 @@ import os
 mode = sys.argv[1]
 session = "会话-Δ"
 config = [{"id": "model-id", "category": "model", "type": "select", "name": "Model", "currentValue": "first", "options": [{"value": "first", "name": "First"}, {"value": "vendor/模型", "name": "Model"}]}]
+if mode in ("opaque_effort", "opaque_record"):
+    config.append({"id":"custom-effort" if mode == "opaque_record" else "reasoning_effort","category":"thought_level","type":"select","name":"Reasoning","currentValue":"balanced","options":[{"value":value,"name":value} for value in ["eco","balanced","deep"]]})
+if mode == "opaque_record":
+    config.append({"id":"effort","category":"model_config","type":"select","name":"Other configuration","currentValue":"default","options":[{"value":value,"name":value} for value in ["default","fast"]]})
 if mode == "dependent":
     config = [
         {"id": "provider", "type": "select", "name": "Provider", "currentValue": "A", "options": [{"value": "A", "name": "A"}, {"value": "B", "name": "B"}]},
@@ -40,6 +44,9 @@ for line in sys.stdin:
         assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": True, "writeTextFile": True}
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}})
     elif method == "session/new":
+        if mode == "launch":
+            with open(sys.argv[2], "w", encoding="utf-8") as log:
+                json.dump({"argument":sys.argv[3],"environment":os.environ["NEXA_ACP_TEST"]}, log)
         if mode == "cwd":
             assert os.path.samefile(os.getcwd(), message["params"]["cwd"])
             with open(sys.argv[2], "w", encoding="utf-8") as log:
@@ -54,6 +61,13 @@ for line in sys.stdin:
         assert mode == "legacy" and message["params"]["modelId"] == "vendor/模型"
         reply(message, {})
     elif method == "session/set_config_option":
+        if mode in ("opaque_effort", "opaque_record"):
+            option = next(option for option in config if option["id"] == message["params"]["configId"])
+            value = message["params"]["value"]
+            assert any(choice["value"] == value for choice in option["options"])
+            option["currentValue"] = value
+            reply(message, {"configOptions":config})
+            continue
         if mode == "dependent":
             ident, value = message["params"]["configId"], message["params"]["value"]
             option = next(option for option in config if option["id"] == ident)
@@ -73,6 +87,12 @@ for line in sys.stdin:
             config[0]["currentValue"] = message["params"]["value"]
         reply(message, {"configOptions": config})
     elif method == "session/prompt":
+        if mode == "opaque_effort":
+            assert config[1]["currentValue"] == "deep", "opaque chat effort was lost before prompt"
+        if mode == "opaque_record":
+            assert config[2]["currentValue"] == "fast", "same-named non-thinking preference was lost"
+            with open(sys.argv[2], "a", encoding="utf-8") as log:
+                log.write(config[1]["currentValue"] + "\n")
         pending = message
         if mode == "tree":
             subprocess.Popen([sys.executable, "-c", "import time,pathlib,sys;time.sleep(1);pathlib.Path(sys.argv[1]).write_text('orphan')", sys.argv[2]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

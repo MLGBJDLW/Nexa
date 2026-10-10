@@ -81,6 +81,7 @@ test.beforeEach(async ({ page }) => {
     configs.push({ ...configs[0], id: 'cfg-opencode', name: 'My OpenCode', provider: 'opencode', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-glm', name: 'GLM gateway', model: 'glm-4.7', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-sonnet', name: 'Anthropic', provider: 'anthropic', model: 'claude-sonnet-5-5', contextWindow: 1000000, isDefault: false });
+    configs.push({ ...configs[0], id: 'cfg-toggle', name: 'Kimi toggle', provider: 'moonshot', model: 'kimi-k2.6', isDefault: false });
     const savedAgentConfigInputs: Array<Record<string, unknown>> = [];
     (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> }).__savedAgentConfigInputs = savedAgentConfigInputs;
 
@@ -141,7 +142,7 @@ test.beforeEach(async ({ page }) => {
           (fixture.__catalogCalls ??= []).push(String(args.provider));
           if (fixture.__catalogDelay) await new Promise(resolve => setTimeout(resolve, fixture.__catalogDelay));
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
-          return [{ id: 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : ['low', 'ultra'], contextWindow: 200000 }];
+          return [{ id: 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
         }
         case 'list_agent_configs_cmd':
           return configs.map(clone);
@@ -488,6 +489,31 @@ test('Claude Sonnet 5.5 model selector distinguishes default and between-tool th
   });
 });
 
+test('reasoning slider shares provider semantics with the list and persists its display preference', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  const trigger=page.getByTestId('agent-reasoning-picker-trigger');
+  await trigger.click();
+  await page.getByRole('button',{name:'Intensity slider',exact:true}).click();
+  const slider=page.getByRole('slider',{name:'Reasoning Effort'});
+  await expect(slider).toBeVisible();
+  await slider.focus();
+  await slider.press('End');
+  await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:'max',thinkingBudget:null});
+  await trigger.click();
+  await expect(slider).toHaveAttribute('aria-valuetext','Max');
+  await page.getByTestId('agent-model-picker-menu').screenshot({path:testInfo.outputPath('reasoning-intensity-slider.png')});
+  await slider.focus();
+  await slider.press('Home');
+  await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:false,reasoningEffort:null,thinkingBudget:null});
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('nexa-display-preferences')!).reasoningControl)).toBe('slider');
+  await trigger.click();
+  await page.getByRole('button',{name:'List',exact:true}).click();
+  await expect(page.getByTestId('agent-model-reasoning-max')).toBeVisible();
+});
+
 test('model selector saves model and reasoning changes to the agent config', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
 
@@ -569,6 +595,43 @@ test('ACP advertised reasoning and native context capacity are available in chat
   await page.getByTestId('agent-model-reasoning-ultra').click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string,unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider: 'opencode', reasoningEffort: 'ultra' });
   await page.screenshot({ path: testInfo.outputPath('native-context-and-reasoning.png') });
+});
+
+test('ACP reasoning preserves opaque choices and shows Default until explicitly overridden', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('e2e-native-efforts', '["eco","balanced","deep"]'));
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-opencode').click();
+  await page.getByTestId('agent-model-option-cfg-opencode-gpt-native').click();
+  const trigger = page.getByTestId('agent-reasoning-picker-trigger');
+  await expect(trigger).toContainText('Default');
+  await trigger.click();
+  await page.getByRole('button', {name:'Intensity slider',exact:true}).click();
+  const slider = page.getByRole('slider', {name:'Reasoning Effort'});
+  await expect(slider).toHaveAttribute('aria-valuetext','Default');
+  await slider.focus(); await slider.press('End');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEffort:'deep'});
+  await expect(trigger).toContainText('deep');
+  await trigger.click(); await slider.focus(); await slider.press('Home');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEffort:null,reasoningEnabled:null});
+});
+
+test('reasoning toggle-only models retain On and Off in list and slider modes', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-toggle').click();
+  await page.getByTestId('agent-model-option-cfg-toggle-kimi-k2.6').click();
+  const trigger = page.getByTestId('agent-reasoning-picker-trigger');
+  await trigger.click();
+  await page.getByTestId('agent-model-reasoning-on').click();
+  await expect(trigger).toContainText('On');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:null,thinkingBudget:null});
+  await trigger.click();
+  await page.getByRole('button', {name:'Intensity slider',exact:true}).click();
+  const slider = page.getByRole('slider', {name:'Reasoning Effort'});
+  await expect(slider).toHaveAttribute('aria-valuetext','On');
+  await slider.focus(); await slider.press('Home');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:false,reasoningEffort:null,thinkingBudget:null});
 });
 
 test('ACP external agent model selector hides unsupported runtime controls and uses its native route', async ({ page }, testInfo) => {

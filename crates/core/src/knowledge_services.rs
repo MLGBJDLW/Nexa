@@ -384,37 +384,47 @@ mod tests {
     use std::io::Write;
     fn service(
         response: serde_json::Value,
-    ) -> (String, std::thread::JoinHandle<serde_json::Value>) {
+    ) -> (String, std::thread::JoinHandle<Vec<serde_json::Value>>) {
+        service_responses(vec![response])
+    }
+    fn service_responses(
+        responses: Vec<serde_json::Value>,
+    ) -> (String, std::thread::JoinHandle<Vec<serde_json::Value>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let thread = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut data = Vec::new();
-            let mut buffer = [0; 8192];
-            let body = loop {
-                let size = stream.read(&mut buffer).unwrap();
-                assert!(size > 0);
-                data.extend_from_slice(&buffer[..size]);
-                if let Some(end) = data.windows(4).position(|part| part == b"\r\n\r\n") {
-                    let header = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
-                    let length: usize = header
-                        .lines()
-                        .find_map(|line| {
-                            line.strip_prefix("content-length:")
-                                .map(|value| value.trim().parse().unwrap())
-                        })
-                        .unwrap();
-                    if data.len() >= end + 4 + length {
-                        break serde_json::from_slice(&data[end + 4..end + 4 + length]).unwrap();
+            let mut requests = Vec::new();
+            for response in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut data = Vec::new();
+                let mut buffer = [0; 8192];
+                let body = loop {
+                    let size = stream.read(&mut buffer).unwrap();
+                    assert!(size > 0);
+                    data.extend_from_slice(&buffer[..size]);
+                    if let Some(end) = data.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let header = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                        let length: usize = header
+                            .lines()
+                            .find_map(|line| {
+                                line.strip_prefix("content-length:")
+                                    .map(|value| value.trim().parse().unwrap())
+                            })
+                            .unwrap();
+                        if data.len() >= end + 4 + length {
+                            break serde_json::from_slice(&data[end + 4..end + 4 + length])
+                                .unwrap();
+                        }
                     }
-                }
-            };
-            let payload = response.to_string();
-            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
-            body
+                };
+                let payload = response.to_string();
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+                requests.push(body);
+            }
+            requests
         });
         (format!("http://{address}/"), thread)
     }
@@ -506,7 +516,7 @@ mod tests {
         let result = crate::ingest::scan_source(&db, &source).unwrap();
         assert_eq!(result.files_added, 1);
         assert_eq!(result.files_failed, 0);
-        assert!(request.join().unwrap()["path"]
+        assert!(request.join().unwrap()[0]["path"]
             .as_str()
             .unwrap()
             .ends_with("mixed.pdf"));
@@ -562,6 +572,65 @@ mod tests {
         assert!(db.integrity_check().unwrap());
     }
     #[test]
+    fn parser_upgrade_at_same_url_refreshes_scan_and_watcher_extraction() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("versioned.pdf");
+        std::fs::write(&path, b"%PDF unchanged service fixture").unwrap();
+        let (url, requests) = service_responses(
+            ["initial", "scan-upgrade", "watcher-upgrade"]
+                .into_iter()
+                .map(|version| {
+                    serde_json::json!({
+                        "protocol": 1, "parserVersion": version, "pageCount": 1,
+                        "blocks": [{"page": 1, "text": format!("Extracted with {version}")}]
+                    })
+                })
+                .collect(),
+        );
+        let db = Database::open_memory().unwrap();
+        db.save_knowledge_services_config(&KnowledgeServicesConfig {
+            parser_url: url,
+            ..Default::default()
+        })
+        .unwrap();
+        let source = source(&db, folder.path(), "**/*.pdf");
+        assert_eq!(
+            crate::ingest::scan_source(&db, &source)
+                .unwrap()
+                .files_added,
+            1
+        );
+        let initial = db
+            .get_document_in_source(&source, &path.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::ingest::scan_source(&db, &source)
+                .unwrap()
+                .files_updated,
+            1
+        );
+        let scanned = db
+            .get_document_in_source(&source, &path.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        assert_eq!(scanned.parser_profile, "docling-v1:scan-upgrade");
+        assert!(matches!(
+            crate::ingest::ingest_single_file(&db, &source, &path).unwrap(),
+            crate::ingest::IngestFileResult::Updated
+        ));
+        let watched = db
+            .get_document_in_source(&source, &path.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        assert_eq!(watched.parser_profile, "docling-v1:watcher-upgrade");
+        assert_eq!(initial.id, watched.id);
+        assert_eq!(initial.content_hash, watched.content_hash);
+        assert_ne!(initial.parsed_hash, watched.parsed_hash);
+        assert_eq!(requests.join().unwrap().len(), 3);
+    }
+
+    #[test]
     fn semantic_reranking_sees_candidates_before_the_user_limit_and_fails_atomically() {
         let folder = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -596,7 +665,10 @@ mod tests {
         .unwrap();
         let ranked = crate::search::hybrid_search(&db, &query).unwrap();
         assert_eq!(
-            request.join().unwrap()["texts"].as_array().unwrap().len(),
+            request.join().unwrap()[0]["texts"]
+                .as_array()
+                .unwrap()
+                .len(),
             2
         );
         assert_eq!(ranked.ranking.unwrap().method, "semantic_cross_encoder");

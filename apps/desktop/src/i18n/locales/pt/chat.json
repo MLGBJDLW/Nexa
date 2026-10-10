@@ -899,5 +899,9 @@
   "documentPdfHint": "As rotas compatíveis leem texto e imagens das páginas PDF. Outras rotas e o modo de privacidade usam extração local. Esta etiqueta descreve a política de leitura, não um resultado concluído.",
   "documentOfficeHint": "As rotas compatíveis recebem o arquivo Office original como texto. Imagens e gráficos incorporados não são incluídos. Outras rotas e o modo de privacidade usam extração local.",
   "documentExtractionHint": "Este formato usa extração local de texto ou dados estruturados. Fórmulas e recálculo exigem as ferramentas de planilha.",
-  "computerUseWaiting": "Continuando a tarefa no computador"
+  "computerUseWaiting": "Continuando a tarefa no computador",
+  "reasoningControlStyle": "Estilo do controle de raciocínio",
+  "reasoningList": "Lista",
+  "reasoningSlider": "Controle de intensidade",
+  "reasoningOn": "Ativado"
 }

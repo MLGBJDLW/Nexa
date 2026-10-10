@@ -899,5 +899,9 @@
   "documentPdfHint": "支持的路由读取 PDF 文字与页面图像；其他路由及隐私模式使用本地提取。此标签说明读取策略，不代表已完成读取。",
   "documentOfficeHint": "支持的路由接收 Office 原文件并读取文本，不包含内嵌图片和图表；其他路由及隐私模式使用本地提取。",
   "documentExtractionHint": "此格式使用本地文本或结构化提取。电子表格的公式与重算需要使用表格工具。",
-  "computerUseWaiting": "正在继续电脑任务"
+  "computerUseWaiting": "正在继续电脑任务",
+  "reasoningControlStyle": "思考强度控件样式",
+  "reasoningList": "列表选择",
+  "reasoningSlider": "强度滑杆",
+  "reasoningOn": "开启"
 }

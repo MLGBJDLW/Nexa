@@ -899,5 +899,9 @@
   "documentPdfHint": "Unterstützte Routen lesen PDF-Text und Seitenbilder. Andere Routen und der Datenschutzmodus nutzen lokale Extraktion. Dies beschreibt die Leseregel, kein abgeschlossenes Ergebnis.",
   "documentOfficeHint": "Unterstützte Routen erhalten die Office-Originaldatei als Texteingabe. Eingebettete Bilder und Diagramme sind nicht enthalten. Andere Routen und der Datenschutzmodus nutzen lokale Extraktion.",
   "documentExtractionHint": "Dieses Format verwendet lokale Text- oder strukturelle Extraktion. Tabellenformeln und Neuberechnung erfordern Tabellenwerkzeuge.",
-  "computerUseWaiting": "Computeraufgabe wird fortgesetzt"
+  "computerUseWaiting": "Computeraufgabe wird fortgesetzt",
+  "reasoningControlStyle": "Darstellung der Denkstärke",
+  "reasoningList": "Liste",
+  "reasoningSlider": "Stärkeregler",
+  "reasoningOn": "Ein"
 }

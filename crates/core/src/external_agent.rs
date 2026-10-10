@@ -3,9 +3,9 @@
 use crate::{db::Database, error::CoreError};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use std::{path::Path, sync::OnceLock};
+use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalAgentPreset {
     pub provider: String,
@@ -15,6 +15,79 @@ pub struct ExternalAgentPreset {
     #[serde(default)]
     pub env: std::collections::BTreeMap<String, String>,
     pub docs_url: String,
+    #[serde(default)]
+    pub registry_id: Option<String>,
+    #[serde(default)]
+    pub registry_version: Option<String>,
+    #[serde(default)]
+    pub distribution: Option<AgentDistribution>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct AgentDistribution {
+    #[serde(default)]
+    pub binary: BTreeMap<String, BinaryDistribution>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BinaryDistribution {
+    pub cmd: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+}
+
+impl ExternalAgentPreset {
+    pub fn platform_launch(&self) -> Option<&BinaryDistribution> {
+        let os = if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            std::env::consts::OS
+        };
+        let platform = format!("{os}-{}", std::env::consts::ARCH);
+        self.distribution.as_ref()?.binary.get(&platform)
+    }
+
+    pub fn launch_command(&self) -> String {
+        // Package runners use their reviewed pinned argv. Binary commands are
+        // installed by the user; nested archive paths are not assumed on PATH.
+        if matches!(self.command.as_str(), "npx" | "uvx") {
+            return self.command.clone();
+        }
+        self.platform_launch()
+            .map(|platform| {
+                platform
+                    .cmd
+                    .replace('\\', "/")
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .into()
+            })
+            .unwrap_or_else(|| self.command.clone())
+    }
+
+    pub fn launch_args<'a>(&'a self, launch: &'a ExternalAgentLaunch) -> &'a [String] {
+        launch.args.as_deref().unwrap_or_else(|| {
+            if matches!(self.command.as_str(), "npx" | "uvx") {
+                &self.args
+            } else {
+                self.platform_launch()
+                    .map(|platform| platform.args.as_slice())
+                    .unwrap_or(&self.args)
+            }
+        })
+    }
+
+    pub fn launch_env(&self, launch: &ExternalAgentLaunch) -> BTreeMap<String, String> {
+        let mut env = self.env.clone();
+        if let Some(platform) = self.platform_launch() {
+            env.extend(platform.env.clone());
+        }
+        env.extend(launch.env.clone());
+        env
+    }
 }
 
 pub fn presets() -> &'static [ExternalAgentPreset] {
@@ -39,6 +112,12 @@ pub struct ExternalAgentLaunch {
     /// Optional absolute executable path; omitted uses the preset on PATH.
     #[serde(default)]
     pub executable: Option<String>,
+    /// Explicit replacement argv. None uses the preset; Some([]) means no args.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    /// User-managed environment, encrypted when stored, never a shell command.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
     /// Optional profile fallback. Blank follows the chat workspace or a managed
     /// folder; a resolved runtime launch never inherits the process cwd.
     #[serde(default)]
@@ -57,6 +136,13 @@ pub struct ExternalAgentLaunch {
 
 impl ExternalAgentLaunch {
     pub fn validate(&self) -> Result<(), CoreError> {
+        if self.args.iter().flatten().any(|arg| arg.contains('\0'))
+            || self.env.iter().any(|(key, value)| {
+                key.is_empty() || key.contains(['=', '\0']) || value.contains('\0')
+            })
+        {
+            return Err(CoreError::InvalidInput("External-agent arguments and environment cannot contain NUL; environment names cannot contain '='.".into()));
+        }
         if self.config_options.len() > 64
             || self
                 .config_options_model
@@ -101,6 +187,10 @@ impl ExternalAgentLaunch {
             ));
         }
         Ok(())
+    }
+
+    pub(crate) fn storage_json(&self) -> Result<String, CoreError> {
+        crate::crypto::encrypt_api_key(&serde_json::to_string(self)?)
     }
 
     /// One identity feeds process launch, protocol cwd, file permissions, and
@@ -181,9 +271,14 @@ impl Database {
                 |row| row.get(0),
             )
             .optional()?;
-        json.map(|json| serde_json::from_str(&json).map_err(CoreError::from))
-            .transpose()
-            .map(Option::unwrap_or_default)
+        let launch: ExternalAgentLaunch = json
+            .map(|json| {
+                let decoded = crate::crypto::decrypt_api_key(&json)?;
+                serde_json::from_str(&decoded).map_err(CoreError::from)
+            })
+            .transpose()?
+            .unwrap_or_default();
+        Ok(launch)
     }
 }
 
@@ -203,6 +298,86 @@ pub(crate) fn ensure_launch_storage(connection: &rusqlite::Connection) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_launch_keeps_literal_arguments_and_encrypts_the_entire_profile() {
+        let db = Database::open_memory().unwrap();
+        let launch = ExternalAgentLaunch {
+            executable: Some(std::env::current_exe().unwrap().to_string_lossy().into()),
+            args: Some(vec![
+                "--acp".into(),
+                "literal & argument".into(),
+                "private-argument".into(),
+            ]),
+            env: BTreeMap::from([("TEST_TOKEN".into(), "private-environment".into())]),
+            ..Default::default()
+        };
+        let input = serde_json::from_value(serde_json::json!({"name":"Custom", "provider":"custom_acp", "apiKey":"", "model":"@nexa/agent-default", "isDefault":false})).unwrap();
+        let saved = db.save_external_agent_profile(&input, &launch).unwrap();
+        assert_eq!(db.external_agent_launch(&saved.id).unwrap(), launch);
+        let stored: String = db
+            .conn()
+            .query_row(
+                "SELECT value FROM app_config WHERE key=?1",
+                [format!("external_agent_profile:{}", saved.id)],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored.starts_with("enc:v1:"));
+        assert!(!stored.contains("private-argument") && !stored.contains("private-environment"));
+        let mut invalid = launch.clone();
+        invalid.env.insert("invalid=name".into(), "x".into());
+        assert!(invalid.validate().is_err());
+        invalid = launch.clone();
+        invalid.args = Some(vec!["nul\0byte".into()]);
+        assert!(invalid.validate().is_err());
+        db.conn()
+            .execute(
+                "UPDATE app_config SET value=?1 WHERE key=?2",
+                rusqlite::params![
+                    serde_json::to_string(&launch).unwrap(),
+                    format!("external_agent_profile:{}", saved.id)
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            db.external_agent_launch(&saved.id).unwrap(),
+            launch,
+            "legacy plaintext profiles remain readable"
+        );
+    }
+
+    #[test]
+    fn published_registry_entries_share_the_acp_route_and_preserve_platform_arguments() {
+        let published = presets()
+            .iter()
+            .filter(|preset| preset.registry_id.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(published.len(), 41);
+        let providers = presets()
+            .iter()
+            .map(|preset| &preset.provider)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(providers.len(), presets().len());
+        for preset in published {
+            assert!(is_agent_runtime(&preset.provider));
+            assert!(preset
+                .registry_version
+                .as_ref()
+                .is_some_and(|value| !value.is_empty()));
+            assert!(!preset.launch_command().is_empty());
+            assert_eq!(
+                preset.launch_args(&ExternalAgentLaunch {
+                    args: Some(vec![]),
+                    ..Default::default()
+                }),
+                &[] as &[String]
+            );
+        }
+        let qwen = preset("qwen_code").unwrap();
+        assert!(qwen.args.contains(&"--experimental-skills".into()));
+        assert!(preset("hermes").is_some() && preset("custom_acp").is_some());
+    }
 
     #[tokio::test]
     async fn unconfigured_launch_is_readable_on_a_fresh_read_only_executor_lane() {

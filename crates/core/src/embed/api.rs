@@ -7,6 +7,7 @@ use crate::error::CoreError;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -21,11 +22,14 @@ pub struct ApiEmbedder {
     style: EmbeddingApiStyle,
     batch_size: usize,
     space_id: String,
+    single_input_only: AtomicBool,
 }
 
+#[derive(Debug)]
 struct ApiFailure {
     error: CoreError,
     retryable: bool,
+    isolate_inputs: bool,
 }
 
 impl From<CoreError> for ApiFailure {
@@ -33,6 +37,7 @@ impl From<CoreError> for ApiFailure {
         Self {
             error,
             retryable: false,
+            isolate_inputs: false,
         }
     }
 }
@@ -176,6 +181,7 @@ impl ApiEmbedder {
             style,
             batch_size,
             space_id,
+            single_input_only: AtomicBool::new(false),
         })
     }
 
@@ -251,9 +257,16 @@ impl ApiEmbedder {
         (format!("{}{suffix}", self.base_url), body)
     }
 
-    fn decode(&self, value: Value, expected: usize) -> Result<Vec<Vec<f32>>, CoreError> {
-        let malformed =
-            |message: &str| CoreError::Embedding(format!("Invalid embedding response: {message}"));
+    fn decode(&self, value: Value, expected: usize) -> Result<Vec<Vec<f32>>, ApiFailure> {
+        let malformed = |message: &str| {
+            ApiFailure::from(CoreError::Embedding(format!(
+                "Invalid embedding response: {message}"
+            )))
+        };
+        let alignment = |message: &str| ApiFailure {
+            isolate_inputs: true,
+            ..malformed(message)
+        };
         let vectors: Vec<Vec<f32>> = match self.style {
             EmbeddingApiStyle::Cohere => {
                 serde_json::from_value(value["embeddings"]["float"].clone())
@@ -271,24 +284,24 @@ impl ApiEmbedder {
             _ => {
                 #[derive(Deserialize)]
                 struct IndexedVector {
-                    index: usize,
+                    #[serde(default)]
+                    index: Option<usize>,
                     embedding: Vec<f32>,
                 }
                 let mut data: Vec<IndexedVector> = serde_json::from_value(value["data"].clone())
                     .map_err(|_| malformed("missing indexed vectors"))?;
                 data.sort_by_key(|entry| entry.index);
-                if data
-                    .iter()
-                    .enumerate()
-                    .any(|(index, entry)| entry.index != index)
-                {
-                    return Err(malformed("duplicate, missing or out-of-range input index"));
+                if data.iter().enumerate().any(|(index, entry)| {
+                    entry.index != Some(index)
+                        && !(expected == 1 && data.len() == 1 && entry.index.is_none())
+                }) {
+                    return Err(alignment("duplicate, missing or out-of-range input index"));
                 }
                 data.into_iter().map(|entry| entry.embedding).collect()
             }
         };
         if vectors.len() != expected {
-            return Err(malformed("vector count does not match input count"));
+            return Err(alignment("vector count does not match input count"));
         }
         if vectors.iter().any(|vector| {
             vector.len() != self.dimensions || vector.iter().any(|value| !value.is_finite())
@@ -310,6 +323,7 @@ impl ApiEmbedder {
         }
         let response = request.send().map_err(|error| ApiFailure {
             retryable: error.is_timeout() || error.is_connect(),
+            isolate_inputs: false,
             error: CoreError::Embedding(format!("API request failed: {error}")),
         })?;
         let status = response.status();
@@ -325,22 +339,27 @@ impl ApiEmbedder {
             let detail: String = String::from_utf8_lossy(&bytes).chars().take(1000).collect();
             return Err(ApiFailure {
                 retryable: status.as_u16() == 429 || status.is_server_error(),
+                isolate_inputs: false,
                 error: CoreError::Embedding(format!("API returned HTTP {status}: {detail}")),
             });
         }
         let value = serde_json::from_slice(&bytes)
             .map_err(|error| CoreError::Embedding(format!("API response parse: {error}")))?;
-        Ok(self.decode(value, texts.len())?)
+        self.decode(value, texts.len())
     }
 
-    fn call_api_with_retry(&self, texts: &[&str], query: bool) -> Result<Vec<Vec<f32>>, CoreError> {
+    fn call_api_with_retry(
+        &self,
+        texts: &[&str],
+        query: bool,
+    ) -> Result<Vec<Vec<f32>>, ApiFailure> {
         for attempt in 0..=3 {
             match self.call_api(texts, query) {
                 Ok(result) => return Ok(result),
                 Err(failure) if failure.retryable && attempt < 3 => {
                     std::thread::sleep(std::time::Duration::from_millis(200 * 2u64.pow(attempt)))
                 }
-                Err(failure) => return Err(failure.error),
+                Err(failure) => return Err(failure),
             }
         }
         unreachable!()
@@ -364,7 +383,8 @@ impl Embedder for ApiEmbedder {
             .ok_or_else(|| CoreError::Embedding("Empty response from API".into()))
     }
     fn embed_query(&self, text: &str) -> Result<Vec<f32>, CoreError> {
-        self.call_api_with_retry(&[text], true)?
+        self.call_api_with_retry(&[text], true)
+            .map_err(|failure| failure.error)?
             .into_iter()
             .next()
             .ok_or_else(|| CoreError::Embedding("Empty response from API".into()))
@@ -372,7 +392,28 @@ impl Embedder for ApiEmbedder {
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, CoreError> {
         let mut vectors = Vec::with_capacity(texts.len());
         for batch in texts.chunks(self.batch_size) {
-            vectors.extend(self.call_api_with_retry(batch, false)?);
+            if !self.single_input_only.load(Ordering::Relaxed) {
+                match self.call_api_with_retry(batch, false) {
+                    Ok(result) => {
+                        vectors.extend(result);
+                        continue;
+                    }
+                    Err(failure) if batch.len() > 1 && failure.isolate_inputs => {
+                        // Never guess vector order in an ambiguous success response.
+                        // One input per request establishes alignment independently;
+                        // remember this endpoint limitation for the rest of the job.
+                        self.single_input_only.store(true, Ordering::Relaxed);
+                        tracing::warn!("Embedding endpoint returned ambiguous batch alignment; switching this job to validated single-input requests");
+                    }
+                    Err(failure) => return Err(failure.error),
+                }
+            }
+            for text in batch {
+                vectors.extend(
+                    self.call_api_with_retry(&[text], false)
+                        .map_err(|failure| failure.error)?,
+                );
+            }
         }
         Ok(vectors)
     }
@@ -662,6 +703,31 @@ mod tests {
             None
         )
         .is_err());
+    }
+
+    #[test]
+    fn ambiguous_batch_indices_are_recovered_by_isolated_requests_without_guessing_order() {
+        let (base, local) = server(vec![
+            json!({"data":[{"index":0,"embedding":[9,9]},{"index":0,"embedding":[8,8]}]}),
+            json!({"data":[{"index":0,"embedding":[1,2]}]}),
+            json!({"data":[{"index":0,"embedding":[3,4]}]}),
+            json!({"data":[{"index":0,"embedding":[5,6]}]}),
+            json!({"data":[{"index":0,"embedding":[7,8]}]}),
+        ]);
+        let c = client(&base, "custom", 2);
+        assert_eq!(
+            c.embed_batch(&["one", "two"]).unwrap(),
+            vec![vec![1., 2.], vec![3., 4.]]
+        );
+        assert_eq!(
+            c.embed_batch(&["three", "four"]).unwrap(),
+            vec![vec![5., 6.], vec![7., 8.]]
+        );
+        let requests = local.join().unwrap();
+        assert_eq!(requests.len(), 5);
+        for (request, expected) in requests[1..].iter().zip(["one", "two", "three", "four"]) {
+            assert_eq!(request.1["input"], json!([expected]));
+        }
     }
 
     #[test]

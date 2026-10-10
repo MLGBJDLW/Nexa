@@ -84,5 +84,7 @@ test('Tauri maps Office runtimes to the resource paths probed at startup', () =>
     'resources/openxml-validator/': 'openxml-validator/',
     'resources/office-addin/': 'office-addin/',
     'resources/pptxgenjs-runtime/': 'pptxgenjs-runtime/',
+    '../THIRD_PARTY_NOTICES.md': 'THIRD_PARTY_NOTICES.md',
+    '../licenses/pdf-rendering.txt': 'licenses/pdf-rendering.txt',
   });
 });

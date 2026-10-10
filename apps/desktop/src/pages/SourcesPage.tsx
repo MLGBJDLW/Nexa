@@ -38,6 +38,7 @@ import { CardSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { VideoProcessingProgress } from '../components/media/VideoProcessingProgress';
 import { SourceFileTree } from '../components/sources/SourceFileTree';
+import { EmbeddingTiming } from '../components/sources/EmbeddingTiming';
 import { undoableAction } from '../lib/undoToast';
 import { getSoftCollapseMotion } from '../lib/uiMotion';
 import { formatUserError } from '../lib/userError';
@@ -214,6 +215,7 @@ export function SourcesPage() {
         current: p.current,
         total: p.total,
         currentFile: p.currentFile,
+        embedding: p.embedding,
       };
     }
     return null;
@@ -688,6 +690,7 @@ export function SourcesPage() {
           {batchProgress.currentFile && (
             <div className="text-[10px] text-muted/50 truncate mb-1">{batchProgress.currentFile}</div>
           )}
+          <EmbeddingTiming estimate={batchProgress.embedding} />
           {batchProgress.total > 0 && (
             <div className="w-full bg-surface-3 rounded h-1.5">
               <div
@@ -950,6 +953,7 @@ export function SourcesPage() {
                                       {scanProgress.currentFile}
                                     </div>
                                   )}
+                                  <EmbeddingTiming estimate={scanProgress.embedding} />
                                   <div className="h-2 w-full rounded-full bg-surface-3">
                                     <div
                                       className="h-2 rounded-full bg-accent transition-all duration-300 ease-out"

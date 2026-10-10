@@ -908,55 +908,52 @@ pub async fn extract_text_via_llm_vision_with_llm_provider_type(
 
 pub struct PdfPageOcr {
     pub text: String,
-    pub images_seen: usize,
-    pub images_failed: usize,
+    pub warnings: Vec<String>,
 }
 
-pub fn ocr_pdf_page_with_llm_provider_type(
-    document: &lopdf::Document,
-    page_id: lopdf::ObjectId,
-    config: &OcrConfig,
-    llm_provider: Option<&dyn crate::llm::LlmProvider>,
-    llm_provider_type: Option<crate::llm::ProviderType>,
-) -> Result<PdfPageOcr, CoreError> {
-    let images = extract_images_from_pdf_page(document, page_id);
-    let mut result = PdfPageOcr {
-        text: String::new(),
-        images_seen: images.len(),
-        images_failed: 0,
-    };
-    for image in images {
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        if image
-            .write_to(&mut buffer, image::ImageFormat::Png)
-            .is_err()
-        {
-            result.images_failed += 1;
-            continue;
+/// One PDF parser per OCR job; raster buffers are released after each page.
+pub struct PdfOcrDocument(crate::pdf_render::PdfRenderer);
+
+impl PdfOcrDocument {
+    pub fn new(bytes: &[u8]) -> Result<Self, CoreError> {
+        crate::pdf_render::PdfRenderer::new(bytes).map(Self)
+    }
+
+    pub fn page_count(&self) -> usize {
+        self.0.page_count()
+    }
+
+    pub fn page(
+        &self,
+        index: usize,
+        config: &OcrConfig,
+        llm_provider: Option<&dyn crate::llm::LlmProvider>,
+        llm_provider_type: Option<crate::llm::ProviderType>,
+    ) -> Result<PdfPageOcr, CoreError> {
+        if !config.enabled {
+            return Ok(PdfPageOcr {
+                text: String::new(),
+                warnings: Vec::new(),
+            });
         }
-        match extract_text_from_image_with_llm_provider_type(
-            &buffer.into_inner(),
+        // Check models before spending time rasterizing. Successful engines
+        // are cached by the existing OCR owner, including across pages.
+        ocr_engine(config)?;
+        let rendered = self.0.page(index)?;
+        let result = extract_text_from_image_with_llm_provider_type(
+            &rendered.png,
             "image/png",
             config,
             llm_provider,
             llm_provider_type,
-        ) {
-            Ok(ocr) if !ocr.full_text.trim().is_empty() => {
-                if !result.text.is_empty() {
-                    result.text.push_str("\n\n");
-                }
-                result.text.push_str(&ocr.full_text);
-            }
-            _ => result.images_failed += 1,
-        }
+        )?;
+        Ok(PdfPageOcr {
+            text: result.full_text,
+            warnings: rendered.warnings,
+        })
     }
-    Ok(result)
 }
 
-/// Extract text from a scanned PDF by extracting embedded images and running OCR.
-///
-/// Scanned PDFs store each page as an embedded image.  This function uses
-/// `lopdf` to extract those images and passes them through the OCR pipeline.
 pub fn ocr_pdf(
     pdf_bytes: &[u8],
     config: &OcrConfig,
@@ -971,193 +968,22 @@ pub fn ocr_pdf_with_llm_provider_type(
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
     llm_provider_type: Option<crate::llm::ProviderType>,
 ) -> Result<String, CoreError> {
-    let doc = lopdf::Document::load_mem(pdf_bytes)
-        .map_err(|e| CoreError::Parse(format!("PDF load: {e}")))?;
-
-    let pages: Vec<lopdf::ObjectId> = doc.get_pages().into_values().collect();
-
-    let mut all_text = String::new();
-
-    for (page_idx, &page_id) in pages.iter().enumerate() {
-        let images = extract_images_from_pdf_page(&doc, page_id);
-        if images.is_empty() {
-            tracing::debug!("No embedded images found on PDF page {page_idx}");
-            continue;
+    let document = PdfOcrDocument::new(pdf_bytes)?;
+    let mut pages = Vec::new();
+    for index in 0..document.page_count() {
+        let result = document.page(index, config, llm_provider, llm_provider_type)?;
+        if !result.warnings.is_empty() {
+            return Err(CoreError::Ocr(format!(
+                "PDF page {}: {}",
+                index + 1,
+                result.warnings.join("; ")
+            )));
         }
-
-        for img in images {
-            // Encode extracted image as PNG bytes for OCR.
-            let mut buf = std::io::Cursor::new(Vec::new());
-            if let Err(e) = img.write_to(&mut buf, image::ImageFormat::Png) {
-                tracing::warn!("Failed to encode PDF page {page_idx} image as PNG: {e}");
-                continue;
-            }
-
-            match extract_text_from_image_with_llm_provider_type(
-                &buf.into_inner(),
-                "image/png",
-                config,
-                llm_provider,
-                llm_provider_type,
-            ) {
-                Ok(result) if !result.full_text.is_empty() => {
-                    if !all_text.is_empty() {
-                        all_text.push_str("\n\n--- Page Break ---\n\n");
-                    }
-                    all_text.push_str(&result.full_text);
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!("OCR failed for PDF page {page_idx}: {e}");
-                }
-            }
+        if !result.text.trim().is_empty() {
+            pages.push(result.text);
         }
     }
-
-    Ok(all_text)
-}
-
-/// Extract embedded images from a single PDF page using `lopdf`.
-///
-/// Scanned PDFs typically store each page as a large embedded image
-/// (JPEG, JPEG2000, or raw pixel data).  This function finds image
-/// XObjects on the given page and returns them as decoded `DynamicImage`s.
-pub(crate) fn extract_images_from_pdf_page(
-    doc: &lopdf::Document,
-    page_id: lopdf::ObjectId,
-) -> Vec<image::DynamicImage> {
-    let mut images = Vec::new();
-
-    // Get the page's Resources → XObject dictionary.
-    let xobjects = (|| -> Option<&lopdf::Dictionary> {
-        let page = doc.get_object(page_id).ok()?.as_dict().ok()?;
-        let resources = page
-            .get(b"Resources")
-            .ok()
-            .and_then(|r| doc.dereference(r).ok())
-            .and_then(|(_, o)| o.as_dict().ok())?;
-        let xobj = resources
-            .get(b"XObject")
-            .ok()
-            .and_then(|x| doc.dereference(x).ok())
-            .and_then(|(_, o)| o.as_dict().ok())?;
-        Some(xobj)
-    })();
-
-    let xobjects = match xobjects {
-        Some(x) => x,
-        None => return images,
-    };
-
-    for (_name, obj_ref) in xobjects.iter() {
-        let stream = match doc
-            .dereference(obj_ref)
-            .ok()
-            .and_then(|(_, o)| o.as_stream().ok())
-        {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let subtype: &[u8] = stream
-            .dict
-            .get(b"Subtype")
-            .ok()
-            .and_then(|s| s.as_name().ok())
-            .unwrap_or(b"");
-        if subtype != b"Image" {
-            continue;
-        }
-
-        let width = stream
-            .dict
-            .get(b"Width")
-            .ok()
-            .and_then(|w| w.as_i64().ok())
-            .unwrap_or(0) as u32;
-        let height = stream
-            .dict
-            .get(b"Height")
-            .ok()
-            .and_then(|h| h.as_i64().ok())
-            .unwrap_or(0) as u32;
-        if width == 0 || height == 0 {
-            continue;
-        }
-
-        let filter: Vec<u8> = stream
-            .dict
-            .get(b"Filter")
-            .ok()
-            .and_then(|f| {
-                f.as_name().ok().map(|n| n.to_vec()).or_else(|| {
-                    f.as_array().ok().and_then(|arr| {
-                        arr.last()
-                            .and_then(|n| n.as_name().ok())
-                            .map(|n| n.to_vec())
-                    })
-                })
-            })
-            .unwrap_or_default();
-
-        // Try to get the decoded stream content.
-        let raw = match stream.decompressed_content() {
-            Ok(data) => data,
-            Err(_) => stream.content.clone(),
-        };
-
-        // DCTDecode = JPEG, JPXDecode = JPEG2000 — both loadable by `image`.
-        if filter == b"DCTDecode" || filter == b"JPXDecode" {
-            if let Ok(img) = image::load_from_memory(&raw) {
-                images.push(img);
-            }
-        } else {
-            // Raw pixel data — try to construct an image from BPC + colorspace info.
-            let bpc = stream
-                .dict
-                .get(b"BitsPerComponent")
-                .ok()
-                .and_then(|b| b.as_i64().ok())
-                .unwrap_or(8) as u32;
-            if bpc != 8 {
-                continue;
-            }
-
-            let cs_name: Vec<u8> = stream
-                .dict
-                .get(b"ColorSpace")
-                .ok()
-                .and_then(|c| {
-                    c.as_name().ok().map(|n| n.to_vec()).or_else(|| {
-                        c.as_array()
-                            .ok()
-                            .and_then(|a| a.first())
-                            .and_then(|n| n.as_name().ok())
-                            .map(|n| n.to_vec())
-                    })
-                })
-                .unwrap_or_default();
-
-            let expected_len = (width * height) as usize;
-            if cs_name == b"DeviceGray" && raw.len() >= expected_len {
-                if let Some(gray) =
-                    image::GrayImage::from_raw(width, height, raw[..expected_len].to_vec())
-                {
-                    images.push(image::DynamicImage::ImageLuma8(gray));
-                }
-            } else if (cs_name == b"DeviceRGB" || cs_name.is_empty())
-                && raw.len() >= expected_len * 3
-            {
-                if let Some(rgb) =
-                    image::RgbImage::from_raw(width, height, raw[..expected_len * 3].to_vec())
-                {
-                    images.push(image::DynamicImage::ImageRgb8(rgb));
-                }
-            }
-        }
-    }
-
-    images
+    Ok(pages.join("\n\n--- Page Break ---\n\n"))
 }
 
 // ── Model download ──────────────────────────────────────────────────
@@ -1584,6 +1410,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::db::Database;
     use std::io::Write;
 

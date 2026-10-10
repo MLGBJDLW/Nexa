@@ -36,12 +36,21 @@ export interface SourceIndexHealth {
   lastScan: IngestResult | null;
 }
 
+export interface EmbeddingEstimate {
+  model: string;
+  elapsedSeconds: number;
+  estimatedRemainingSeconds: number | null;
+  chunksPerSecond: number | null;
+  basis: 'calibrating' | 'history' | 'measured';
+}
+
 export interface ScanProgress {
   sourceId: string;
   phase: string;
   current: number;
   total: number;
   currentFile: string | null;
+  embedding?: EmbeddingEstimate;
 }
 
 export interface BatchProgress {
@@ -53,6 +62,7 @@ export interface BatchProgress {
   current: number;
   total: number;
   currentFile: string | null;
+  embedding?: EmbeddingEstimate;
 }
 
 export interface FtsProgress {

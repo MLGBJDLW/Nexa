@@ -42,7 +42,13 @@ pub(crate) async fn probe(
     let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
     let mut wire = Wire::start(preset, &launch)?;
-    tokio::time::timeout(std::time::Duration::from_secs(45), async {
+    let timeout = if matches!(preset.command.as_str(), "npx" | "uvx") && launch.executable.is_none()
+    {
+        240
+    } else {
+        45
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(timeout), async {
         let mut session =
             Session::connect_with_mcp(&mut wire, &launch.working_directory, &servers).await?;
         session
@@ -107,6 +113,8 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
             provider,
             binding.profile_id,
             binding.launch,
+            request.config.model,
+            binding.reasoning_effort,
             request.conversation_id,
             request.dependencies.tools.workspace(),
             request.db.load_privacy_config()?,
@@ -150,7 +158,7 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
     };
     let answer = run_initialized(provider, request, &mut connection).await?;
     privacy_lease.ensure_current()?;
-    // A changed/rewound transcript, different profile or workspace never reuses
+    // A changed/rewound transcript, model/effort, profile or workspace never reuses
     // hidden upstream state. Only a completed, persisted turn is cached.
     if db.chat_worktree(&conversation)?.is_none() {
         if let Ok(history) = history_fingerprint(&db, &conversation, None) {
@@ -231,13 +239,16 @@ async fn run_initialized(
         .as_ref()
         .map(|binding| binding.launch.config_options.clone())
         .unwrap_or_default();
-    let effort = request
-        .config
-        .reasoning_effort
-        .as_ref()
-        .map(serde_json::to_value)
-        .transpose()?
-        .and_then(|value| value.as_str().map(str::to_owned));
+    let effort = match request.external.as_ref() {
+        Some(binding) => binding.reasoning_effort.clone(),
+        None => request
+            .config
+            .reasoning_effort
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?
+            .and_then(|value| value.as_str().map(str::to_owned)),
+    };
     let saved_model = request
         .external
         .as_ref()

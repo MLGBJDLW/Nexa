@@ -6637,6 +6637,47 @@ fn test_resource_keys_allow_independent_writes_to_share_batch() {
 }
 
 #[test]
+fn tool_batches_serialize_path_aliases_and_ancestor_mutations_but_keep_siblings_parallel() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("notes")).unwrap();
+    std::fs::write(root.path().join("notes/item.txt"), "before").unwrap();
+    let mut registry = ToolRegistry::new().with_workspace(Some(
+        crate::workspace::Workspace::validate(&[root.path().to_string_lossy().into()]).unwrap(),
+    ));
+    registry.register(Box::new(ResourceLockedTool));
+    let invocations = [
+        "notes",
+        "notes/item.txt",
+        "notes/./item.txt",
+        "other.txt",
+        "others.txt",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, path)| {
+        registry.build_invocation(
+            i.to_string(),
+            "locked_write",
+            serde_json::json!({"path":path}),
+        )
+    })
+    .collect::<Vec<_>>();
+    assert_eq!(
+        tool_call_execution_batches(&invocations),
+        vec![vec![0], vec![1], vec![2, 3, 4]]
+    );
+    let absolute = registry.build_invocation(
+        "absolute",
+        "locked_write",
+        serde_json::json!({"path":root.path().join("notes/item.txt")}),
+    );
+    assert_eq!(
+        tool_call_execution_batches([&invocations[1], &absolute]),
+        vec![vec![0], vec![1]]
+    );
+}
+
+#[test]
 fn test_browser_and_file_tools_share_a_batch_without_overlapping_browser_actions() {
     let registry = crate::tools::default_tool_registry();
     let offered = HashSet::from(["browser_session".to_string(), "read_file".to_string()]);

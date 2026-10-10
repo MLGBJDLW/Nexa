@@ -15,7 +15,6 @@ use tracing::{debug, info, warn};
 use crate::db::Database;
 pub use crate::embedding_job::{EmbedResult, ScanProgress};
 use crate::error::CoreError;
-#[cfg(feature = "video")]
 use crate::parse::hash_file_content;
 #[cfg(test)]
 use crate::parse::parse_file;
@@ -25,7 +24,7 @@ use crate::parse::{
 };
 use crate::privacy::{self, PrivacyConfig};
 
-pub const NATIVE_PARSER_PROFILE: &str = "native-v3";
+pub const NATIVE_PARSER_PROFILE: &str = "native-v5";
 
 #[derive(Debug, Clone)]
 pub struct IndexedDocument {
@@ -34,6 +33,93 @@ pub struct IndexedDocument {
     pub parser_profile: String,
     pub parsed_hash: String,
     pub redaction_profile: String,
+    pub ingestion_fingerprint: String,
+}
+
+impl IndexedDocument {
+    fn reusable_extraction(&self, content_hash: &str, fingerprint: &str) -> bool {
+        self.content_hash == content_hash
+            && self.ingestion_fingerprint == fingerprint
+            // A service can upgrade in place without changing its URL. Its
+            // response is the only authoritative parser-version identity, so
+            // externally parsed documents must revalidate before this shortcut.
+            && self.parser_profile == NATIVE_PARSER_PROFILE
+    }
+}
+
+/// Everything that can change extracted content is part of the cache identity.
+/// Only this digest is persisted; configuration can contain private credentials.
+#[allow(clippy::too_many_arguments)]
+fn ingestion_fingerprint(
+    privacy: &PrivacyConfig,
+    ocr: Option<&crate::ocr::OcrConfig>,
+    #[cfg(feature = "video")] video: Option<&crate::video::VideoConfig>,
+    #[cfg(feature = "video")] speech: Option<&crate::app_settings::SpeechToTextConfig>,
+    max_chars: Option<usize>,
+    services: &crate::knowledge_services::KnowledgeServicesConfig,
+) -> Result<String, CoreError> {
+    let mut identity = serde_json::json!({
+        "parser": NATIVE_PARSER_PROFILE,
+        "redaction": privacy::redaction_fingerprint(privacy)?,
+        "ocr": ocr,
+        "ocrModelsReady": ocr.is_some_and(crate::ocr::check_ocr_models_exist),
+        "chunkChars": max_chars,
+        "structuredParser": services.parser_url,
+        "documentProcessing": cfg!(feature = "document-processing"),
+    });
+    #[cfg(feature = "video")]
+    {
+        identity["video"] = serde_json::to_value(video)?;
+        identity["speech"] = serde_json::to_value(speech)?;
+    }
+    #[cfg(not(feature = "video"))]
+    {
+        identity["video"] = serde_json::Value::Null;
+    }
+    Ok(blake3::hash(&serde_json::to_vec(&identity)?)
+        .to_hex()
+        .to_string())
+}
+
+fn mark_ingestion_fingerprint(parsed: &mut ParsedDocument, fingerprint: &str) {
+    // Retry incomplete extraction even when the bytes have not changed. A
+    // missing OCR model or temporary parser failure must not become cached success.
+    if !parsed.chunks.is_empty()
+        && parsed
+            .metadata
+            .get("parse_warnings")
+            .is_none_or(String::is_empty)
+    {
+        parsed
+            .metadata
+            .insert("ingestion_fingerprint".into(), fingerprint.into());
+    }
+}
+
+fn unreadable_input_fingerprint(path: &Path, ingestion_profile: &str) -> String {
+    // Metadata can be inspected without rereading content that repeatedly
+    // failed. Never include access time, which reading the file can change.
+    let state = std::fs::metadata(path)
+        .map(|metadata| {
+            let identity = format!(
+                "{}:{:?}:{:?}:{:?}",
+                metadata.len(),
+                metadata.modified().ok(),
+                metadata.created().ok(),
+                metadata.permissions()
+            );
+            #[cfg(unix)]
+            let identity = {
+                use std::os::unix::fs::MetadataExt;
+                format!("{identity}:{}:{}", metadata.ctime(), metadata.ctime_nsec())
+            };
+            identity
+        })
+        .unwrap_or_else(|error| format!("{:?}", error.kind()));
+    format!(
+        "{ingestion_profile}:unreadable:{}",
+        blake3::hash(state.as_bytes()).to_hex()
+    )
 }
 
 fn parsed_hash(parsed: &ParsedDocument) -> String {
@@ -270,7 +356,20 @@ fn is_code_source_file(path: &Path) -> bool {
 }
 
 fn is_unhandled_binary_file(path: &Path) -> bool {
-    if detect_mime_type(path) != "application/octet-stream" {
+    // Office owner/lock files keep the real document's extension but contain
+    // lock metadata, never an OOXML package. Watcher and full scans share this
+    // check, including cleanup of errors produced by older versions.
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.starts_with("~$") || (name.starts_with(".~lock.") && name.ends_with('#'))
+        })
+    {
+        return true;
+    }
+    let mime = detect_mime_type(path);
+    if mime != "application/octet-stream" && !mime.starts_with("text/") {
         return false;
     }
 
@@ -425,6 +524,17 @@ fn scan_source_inner(
         .ok()
         .map(|cfg| cfg.local_embedding_model().max_chunk_chars().max(1500));
 
+    let ingestion_profile = ingestion_fingerprint(
+        privacy_cfg,
+        ocr_config.as_ref(),
+        #[cfg(feature = "video")]
+        video_config.as_ref(),
+        #[cfg(feature = "video")]
+        Some(&speech_config),
+        max_chunk_chars,
+        &services,
+    )?;
+
     // Collect all files recursively, sorted for deterministic order.
     let files = walk_directory(root)?;
     let total_files = files.len();
@@ -437,6 +547,7 @@ fn scan_source_inner(
             current: 0,
             total: total_files,
             current_file: None,
+            embedding: None,
         });
     }
 
@@ -483,6 +594,13 @@ fn scan_source_inner(
         }
 
         let file_path_str = file_path.to_string_lossy();
+        let unreadable_fingerprint = unreadable_input_fingerprint(file_path, &ingestion_profile);
+        if !db.should_retry_scan(source_id, &file_path_str, &unreadable_fingerprint)? {
+            result.files_skipped += 1;
+            files_processed += 1;
+            continue;
+        }
+
         if is_unhandled_binary_file(file_path) {
             debug!(
                 "Skipping unsupported binary file for knowledge embedding: {}",
@@ -506,6 +624,7 @@ fn scan_source_inner(
                     current: files_processed,
                     total: total_files,
                     current_file: Some(rel_str.clone()),
+                    embedding: None,
                 });
             }
         }
@@ -524,9 +643,16 @@ fn scan_source_inner(
             _ => {} // proceed normally (missing metadata is handled by parse_file)
         }
 
-        // Skip files that have repeatedly failed (backoff).
+        // A repaired file, parser upgrade or changed OCR configuration must
+        // bypass the old failure's backoff immediately.
+        let content_hash = hash_file_content(file_path).ok();
+        let attempt_fingerprint = content_hash
+            .as_deref()
+            .map(|hash| format!("{ingestion_profile}:{hash}"))
+            .unwrap_or(unreadable_fingerprint);
+        // Skip files that have repeatedly failed for these exact inputs.
         if !db
-            .should_retry_scan(source_id, &file_path_str)
+            .should_retry_scan(source_id, &file_path_str, &attempt_fingerprint)
             .unwrap_or(true)
         {
             debug!(
@@ -545,6 +671,7 @@ fn scan_source_inner(
                     current: progress.clamp(0.0, 100.0).round() as usize,
                     total: 100,
                     current_file: Some(rel_str.clone()),
+                    embedding: None,
                 });
             }
         };
@@ -561,6 +688,8 @@ fn scan_source_inner(
             Some(&media_progress),
             max_chunk_chars,
             &services,
+            &ingestion_profile,
+            content_hash.as_deref(),
         ) {
             Ok(FileClassification::New(parsed)) => {
                 // File succeeded — clear any previous error record.
@@ -575,13 +704,14 @@ fn scan_source_inner(
                 result.files_updated += 1;
             }
             Ok(FileClassification::Unchanged) => {
+                let _ = db.clear_scan_error(source_id, &file_path_str);
                 result.files_skipped += 1;
             }
             Err(e) => {
                 let msg = format!("{}: {}", file_path.display(), e);
                 warn!("Failed to ingest file: {}", msg);
                 // Persist the scan error for tracking and backoff.
-                let _ = db.upsert_scan_error(source_id, &file_path_str, &msg);
+                let _ = db.upsert_scan_error(source_id, &file_path_str, &msg, &attempt_fingerprint);
                 result.errors.push(msg);
                 result.files_failed += 1;
             }
@@ -652,6 +782,19 @@ fn scan_source_inner(
         }
     }
 
+    // Retire stale diagnostics for temporary/deleted/excluded files even when
+    // they were never successfully indexed (and hence have no document row).
+    for error in db.get_scan_errors(source_id)? {
+        let path = Path::new(&error.path);
+        let excluded = relative_source_path(root, path).is_none_or(|relative| {
+            (has_includes && !include_set.is_match(&relative)) || exclude_set.is_match(&relative)
+        });
+        if !path.exists() || excluded || is_code_source_file(path) || is_unhandled_binary_file(path)
+        {
+            db.clear_scan_error(source_id, &error.path)?;
+        }
+    }
+
     // Emit progress for purge phase.
     if result.files_purged > 0 {
         if let Some(cb) = &on_progress {
@@ -661,6 +804,7 @@ fn scan_source_inner(
                 current: result.files_purged,
                 total: result.files_purged,
                 current_file: None,
+                embedding: None,
             });
         }
     }
@@ -673,6 +817,7 @@ fn scan_source_inner(
             current: total_files,
             total: total_files,
             current_file: None,
+            embedding: None,
         });
     }
 
@@ -825,7 +970,7 @@ impl Database {
         let source = self.get_source(source_id)?;
         let conn = self.conn();
         let mut stmt =
-            conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),''), COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id = ?1")?;
+            conn.prepare("SELECT id, path, content_hash, COALESCE(json_extract(metadata,'$.parser_profile'),''), COALESCE(json_extract(metadata,'$.parsed_hash'),''), COALESCE(json_extract(metadata,'$.redaction_profile'),''), COALESCE(json_extract(metadata,'$.ingestion_fingerprint'),'') FROM documents WHERE source_id = ?1")?;
         let rows = stmt.query_map(params![source_id], |row| {
             Ok((
                 row.get::<_, String>(1)?,
@@ -834,13 +979,23 @@ impl Database {
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             ))
         })?;
         let records = rows.collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
         drop(conn);
         let mut map = HashMap::new();
-        for (path, id, content_hash, parser_profile, parsed_hash, redaction_profile) in records {
+        for (
+            path,
+            id,
+            content_hash,
+            parser_profile,
+            parsed_hash,
+            redaction_profile,
+            ingestion_fingerprint,
+        ) in records
+        {
             let key = relative_source_path(Path::new(&source.root_path), Path::new(&path))
                 .map(|relative| {
                     Path::new(&source.root_path)
@@ -856,6 +1011,7 @@ impl Database {
                     parser_profile,
                     parsed_hash,
                     redaction_profile,
+                    ingestion_fingerprint,
                 });
         }
         Ok(map)
@@ -883,9 +1039,10 @@ impl Database {
                 parser_profile: row.get(2)?,
                 parsed_hash: row.get(3)?,
                 redaction_profile: row.get(4)?,
+                ingestion_fingerprint: row.get(5)?,
             })
         };
-        let exact = self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], read).optional()?;
+        let exact = self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),''), COALESCE(json_extract(metadata,'$.ingestion_fingerprint'),'') FROM documents WHERE source_id=?1 AND path=?2", params![source_id, path], read).optional()?;
         if exact.is_some() {
             return Ok(exact);
         }
@@ -894,7 +1051,7 @@ impl Database {
             source_id,
             path,
         )?)?;
-        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
+        Ok(self.conn().query_row("SELECT id,content_hash,COALESCE(json_extract(metadata,'$.parser_profile'),''),COALESCE(json_extract(metadata,'$.parsed_hash'),''),COALESCE(json_extract(metadata,'$.redaction_profile'),''), COALESCE(json_extract(metadata,'$.ingestion_fingerprint'),'') FROM documents WHERE source_id=?1 AND path IN (SELECT value FROM json_each(?2)) ORDER BY indexed_at DESC LIMIT 1", params![source_id, aliases], read).optional()?)
     }
 
     pub fn delete_document_in_source(
@@ -1150,31 +1307,22 @@ fn classify_file(
     progress_callback: Option<&dyn Fn(f32)>,
     max_chunk_chars: Option<usize>,
     services: &crate::knowledge_services::KnowledgeServicesConfig,
+    ingestion_profile: &str,
+    known_hash: Option<&str>,
 ) -> Result<FileClassification, CoreError> {
-    #[cfg(feature = "video")]
     let file_path = path.to_string_lossy().to_string();
-    #[cfg(feature = "video")]
-    let known_content_hash = {
-        let redaction_profile = privacy::redaction_fingerprint(privacy)?;
-        let mime_type = detect_mime_type(path);
-        if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
-            let hash = hash_file_content(path)?;
-            if existing_docs
-                .get(&document_lookup_key(&file_path))
-                .is_some_and(|existing| {
-                    existing.content_hash == hash
-                        && existing.parser_profile == NATIVE_PARSER_PROFILE
-                        && existing.redaction_profile == redaction_profile
-                })
-            {
-                debug!("Skipping unchanged media before analysis: {}", file_path);
-                return Ok(FileClassification::Unchanged);
-            }
-            Some(hash)
-        } else {
-            None
-        }
-    };
+    let known_content_hash = known_hash
+        .map(str::to_owned)
+        .map(Ok)
+        .unwrap_or_else(|| hash_file_content(path))?;
+    if existing_docs
+        .get(&document_lookup_key(&file_path))
+        .is_some_and(|existing| {
+            existing.reusable_extraction(&known_content_hash, ingestion_profile)
+        })
+    {
+        return Ok(FileClassification::Unchanged);
+    }
 
     let mut parsed = if let Some(parsed) =
         crate::knowledge_services::parse_pdf(services, path, max_chunk_chars.unwrap_or(2000))?
@@ -1191,20 +1339,24 @@ fn classify_file(
             None,
             progress_callback,
             max_chunk_chars,
-            #[cfg(feature = "video")]
-            known_content_hash.as_deref(),
-            #[cfg(not(feature = "video"))]
-            None,
+            Some(&known_content_hash),
         )?
     };
 
     apply_privacy(&mut parsed, privacy, stored_fingerprint)?;
+    mark_ingestion_fingerprint(&mut parsed, ingestion_profile);
 
     match existing_docs.get(&document_lookup_key(&parsed.file_path)) {
         Some(existing) => {
             if existing.content_hash == parsed.content_hash
                 && existing.parser_profile == parser_profile(&parsed)
                 && existing.parsed_hash == parsed_hash(&parsed)
+                && existing.ingestion_fingerprint
+                    == parsed
+                        .metadata
+                        .get("ingestion_fingerprint")
+                        .map(String::as_str)
+                        .unwrap_or_default()
             {
                 debug!("Skipping unchanged file: {}", parsed.file_path);
                 Ok(FileClassification::Unchanged)
@@ -1401,17 +1553,6 @@ fn ingest_file(
         return Ok(IngestFileResult::Unchanged);
     }
 
-    if is_unhandled_binary_file(path) {
-        debug!(
-            "Skipping unsupported binary file for knowledge embedding: {}",
-            path.display()
-        );
-        let path_str = path.to_string_lossy();
-        let _ = db.clear_scan_error(source_id, &path_str);
-        let _ = db.forget_document_in_source(source_id, path_str.as_ref())?;
-        return Ok(IngestFileResult::Unchanged);
-    }
-
     // Load file size limits from app config.
     let app_cfg = db.load_app_config().unwrap_or_default();
     let file_limits = FileSizeLimits {
@@ -1432,12 +1573,7 @@ fn ingest_file(
         }
     }
 
-    // Skip files that have repeatedly failed (backoff).
     let path_str = path.to_string_lossy();
-    if !force && !db.should_retry_scan(source_id, &path_str).unwrap_or(true) {
-        debug!("Skipping file with repeated failures: {}", path.display());
-        return Ok(IngestFileResult::Unchanged);
-    }
 
     // Load video config from DB so user settings are used during parsing.
     #[cfg(feature = "video")]
@@ -1455,28 +1591,55 @@ fn ingest_file(
         .map(|cfg| cfg.local_embedding_model().max_chunk_chars().max(1500));
 
     let existing_document = db.get_document_in_source(source_id, &path_str)?;
-    #[cfg(feature = "video")]
-    let known_content_hash = {
-        let redaction_profile = privacy::redaction_fingerprint(&privacy_cfg)?;
-        let mime_type = detect_mime_type(path);
-        if mime_type.starts_with("audio/") || mime_type.starts_with("video/") {
-            let hash = hash_file_content(path)?;
-            if existing_document.as_ref().is_some_and(|existing| {
-                !force
-                    && existing.content_hash == hash
-                    && existing.parser_profile == NATIVE_PARSER_PROFILE
-                    && existing.redaction_profile == redaction_profile
-            }) {
-                debug!("Single-file ingest: unchanged media before analysis {path_str}");
-                return Ok(IngestFileResult::Unchanged);
-            }
-            Some(hash)
-        } else {
-            None
+    let services = db.knowledge_services_config()?;
+    let ingestion_profile = ingestion_fingerprint(
+        &privacy_cfg,
+        ocr_config.as_ref(),
+        #[cfg(feature = "video")]
+        video_config.as_ref(),
+        #[cfg(feature = "video")]
+        Some(&speech_config),
+        max_chunk_chars,
+        &services,
+    )?;
+    let unreadable_fingerprint = unreadable_input_fingerprint(path, &ingestion_profile);
+    if !force && !db.should_retry_scan(source_id, &path_str, &unreadable_fingerprint)? {
+        return Ok(IngestFileResult::Unchanged);
+    }
+    if is_unhandled_binary_file(path) {
+        debug!(
+            "Skipping unsupported binary file for knowledge embedding: {}",
+            path.display()
+        );
+        db.clear_scan_error(source_id, &path_str)?;
+        db.forget_document_in_source(source_id, &path_str)?;
+        return Ok(IngestFileResult::Unchanged);
+    }
+    let known_content_hash = match hash_file_content(path) {
+        Ok(hash) => hash,
+        Err(error) => {
+            let _ = db.upsert_scan_error(
+                source_id,
+                &path_str,
+                &error.to_string(),
+                &unreadable_fingerprint,
+            );
+            return Err(error);
         }
     };
+    let attempt_fingerprint = format!("{ingestion_profile}:{known_content_hash}");
+    if !force && !db.should_retry_scan(source_id, &path_str, &attempt_fingerprint)? {
+        return Ok(IngestFileResult::Unchanged);
+    }
+    if !force
+        && existing_document.as_ref().is_some_and(|existing| {
+            existing.reusable_extraction(&known_content_hash, &ingestion_profile)
+        })
+    {
+        db.clear_scan_error(source_id, &path_str)?;
+        return Ok(IngestFileResult::Unchanged);
+    }
 
-    let services = db.knowledge_services_config()?;
     let parsed_result =
         crate::knowledge_services::parse_pdf(&services, path, max_chunk_chars.unwrap_or(2000))
             .and_then(|enhanced| {
@@ -1493,10 +1656,7 @@ fn ingest_file(
                     None,
                     None,
                     max_chunk_chars,
-                    #[cfg(feature = "video")]
-                    known_content_hash.as_deref(),
-                    #[cfg(not(feature = "video"))]
-                    None,
+                    Some(&known_content_hash),
                 )
             });
 
@@ -1504,12 +1664,13 @@ fn ingest_file(
         Ok(p) => p,
         Err(e) => {
             let msg = format!("{}: {}", path.display(), e);
-            let _ = db.upsert_scan_error(source_id, &path_str, &msg);
+            let _ = db.upsert_scan_error(source_id, &path_str, &msg, &attempt_fingerprint);
             return Err(e);
         }
     };
 
     apply_privacy(&mut parsed, &privacy_cfg, &stored_fingerprint)?;
+    mark_ingestion_fingerprint(&mut parsed, &ingestion_profile);
 
     // Clear any previous scan error on success.
     let _ = db.clear_scan_error(source_id, &path_str);
@@ -1521,6 +1682,12 @@ fn ingest_file(
                 && existing.content_hash == parsed.content_hash
                 && existing.parser_profile == parser_profile(&parsed)
                 && existing.parsed_hash == parsed_hash(&parsed)
+                && existing.ingestion_fingerprint
+                    == parsed
+                        .metadata
+                        .get("ingestion_fingerprint")
+                        .map(String::as_str)
+                        .unwrap_or_default()
             {
                 debug!("Single-file ingest: unchanged {}", parsed.file_path);
                 Ok(IngestFileResult::Unchanged)
@@ -1709,6 +1876,35 @@ mod tests {
     use crate::sources::CreateSourceInput;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn image_ocr_failure_is_not_cached_as_complete_extraction() {
+        let root = TempDir::new().unwrap();
+        let image = root.path().join("scan.png");
+        fs::write(&image, b"image fixture").unwrap();
+        let mut config = crate::ocr::OcrConfig {
+            enabled: true,
+            model_path: root.path().join("missing-models").to_string_lossy().into(),
+            ..Default::default()
+        };
+        let mut parsed =
+            crate::parse::parse_image(&image, "image/png", &config, None, 2000).unwrap();
+        assert!(!parsed.chunks.is_empty());
+        assert!(parsed.metadata.contains_key("parse_warnings"));
+        mark_ingestion_fingerprint(&mut parsed, "same-config");
+        assert!(!parsed.metadata.contains_key("ingestion_fingerprint"));
+        config.enabled = false;
+        let mut disabled =
+            crate::parse::parse_image(&image, "image/png", &config, None, 2000).unwrap();
+        mark_ingestion_fingerprint(&mut disabled, "disabled-config");
+        assert_eq!(
+            disabled
+                .metadata
+                .get("ingestion_fingerprint")
+                .map(String::as_str),
+            Some("disabled-config")
+        );
+    }
 
     fn test_db() -> Database {
         let db = Database::open_memory().expect("open in-memory db");
@@ -2006,6 +2202,124 @@ mod tests {
     }
 
     #[test]
+    fn extraction_cache_invalidates_on_content_and_ocr_policy_changes() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("notes.txt");
+        fs::write(&path, "First source fact.").unwrap();
+        let db = test_db();
+        let source = create_test_source(&db, tmp.path(), vec![], vec![]);
+        assert_eq!(scan_source(&db, &source).unwrap().files_added, 1);
+        let before = db
+            .get_document_in_source(&source, &path.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        assert!(!before.ingestion_fingerprint.is_empty());
+        assert_eq!(scan_source(&db, &source).unwrap().files_skipped, 1);
+        assert!(matches!(
+            ingest_single_file(&db, &source, &path).unwrap(),
+            IngestFileResult::Unchanged
+        ));
+        let mut ocr = db.load_ocr_config().unwrap();
+        ocr.enabled = !ocr.enabled;
+        db.save_ocr_config(&ocr).unwrap();
+        assert_eq!(scan_source(&db, &source).unwrap().files_updated, 1);
+        let after = db
+            .get_document_in_source(&source, &path.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        assert_ne!(before.ingestion_fingerprint, after.ingestion_fingerprint);
+        assert_eq!(before.id, after.id);
+        assert_eq!(scan_source(&db, &source).unwrap().files_skipped, 1);
+        fs::write(&path, "Second source fact.").unwrap();
+        assert!(matches!(
+            ingest_single_file(&db, &source, &path).unwrap(),
+            IngestFileResult::Updated
+        ));
+    }
+
+    #[test]
+    fn unreadable_watcher_inputs_back_off_until_metadata_or_policy_changes() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("blocked.txt");
+        fs::write(&path, [0xef, 0xbb, 0xbf, 0xff]).unwrap();
+        let db = test_db();
+        let source = create_test_source(&db, tmp.path(), vec![], vec![]);
+        assert!(ingest_single_file(&db, &source, &path).is_err());
+        let profile = || {
+            let input: String = db
+                .conn()
+                .query_row(
+                    "SELECT input_fingerprint FROM scan_errors WHERE source_id=?1",
+                    [&source],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            input.split(':').next().unwrap().to_string()
+        };
+        let seed_unreadable = || {
+            let fingerprint = unreadable_input_fingerprint(&path, &profile());
+            for _ in 0..3 {
+                db.upsert_scan_error(
+                    &source,
+                    &path.to_string_lossy(),
+                    "Permission denied",
+                    &fingerprint,
+                )
+                .unwrap();
+            }
+        };
+        seed_unreadable();
+        for _ in 0..2 {
+            assert_eq!(
+                ingest_single_file(&db, &source, &path).unwrap(),
+                IngestFileResult::Unchanged
+            );
+        }
+        assert_eq!(db.get_scan_errors(&source).unwrap()[0].error_count, 3);
+        assert!(reindex_single_file(&db, &source, &path).is_err());
+        seed_unreadable();
+        let mut ocr = db.load_ocr_config().unwrap();
+        ocr.enabled = !ocr.enabled;
+        db.save_ocr_config(&ocr).unwrap();
+        assert!(ingest_single_file(&db, &source, &path).is_err());
+        assert_eq!(db.get_scan_errors(&source).unwrap()[0].error_count, 1);
+        seed_unreadable();
+        fs::write(&path, "Recovered source content changed size and metadata.").unwrap();
+        assert_eq!(
+            ingest_single_file(&db, &source, &path).unwrap(),
+            IngestFileResult::Added
+        );
+        assert!(db.get_scan_errors(&source).unwrap().is_empty());
+    }
+
+    #[test]
+    fn scan_backoff_retries_immediately_after_file_or_extraction_policy_changes() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("broken.txt");
+        fs::write(&path, [0xef, 0xbb, 0xbf, 0xff]).unwrap();
+        let db = test_db();
+        let source = create_test_source(&db, tmp.path(), vec![], vec![]);
+        for _ in 0..3 {
+            assert_eq!(scan_source(&db, &source).unwrap().files_failed, 1);
+        }
+        assert_eq!(scan_source(&db, &source).unwrap().files_skipped, 1);
+        let mut ocr = db.load_ocr_config().unwrap();
+        ocr.enabled = !ocr.enabled;
+        db.save_ocr_config(&ocr).unwrap();
+        assert_eq!(scan_source(&db, &source).unwrap().files_failed, 1);
+        assert_eq!(db.get_scan_errors(&source).unwrap()[0].error_count, 1);
+        for _ in 0..2 {
+            scan_source(&db, &source).unwrap();
+        }
+        fs::write(&path, "Recovered text is searchable immediately.").unwrap();
+        assert!(matches!(
+            ingest_single_file(&db, &source, &path).unwrap(),
+            IngestFileResult::Added
+        ));
+        assert!(db.get_scan_errors(&source).unwrap().is_empty());
+    }
+
+    #[test]
     fn test_incremental_scan_detects_changes() {
         let tmp = TempDir::new().unwrap();
         let file = tmp.path().join("doc.md");
@@ -2155,6 +2469,41 @@ mod tests {
         assert_eq!(result.files_skipped, 2);
         assert_eq!(result.files_failed, 0);
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn scan_and_watcher_skip_office_locks_and_binary_text_and_clear_old_errors() {
+        let tmp = TempDir::new().unwrap();
+        let db = test_db();
+        let sid = create_test_source(&db, tmp.path(), vec![], vec![]);
+        for name in [
+            "~$培训.docx",
+            "~$核算.xlsx",
+            "~$演示.pptx",
+            "cache.txt",
+            "cache.csv",
+        ] {
+            let path = tmp.path().join(name);
+            fs::write(&path, b"binary\0payload").unwrap();
+            db.upsert_scan_error(&sid, &path.to_string_lossy(), "old parse error", "")
+                .unwrap();
+        }
+        fs::write(
+            tmp.path().join("readable.txt"),
+            "Readable knowledge remains searchable.",
+        )
+        .unwrap();
+        let result = scan_source(&db, &sid).unwrap();
+        assert_eq!(result.files_failed, 0, "{:?}", result.errors);
+        assert_eq!(result.files_added, 1);
+        assert_eq!(result.files_skipped, 5);
+        assert!(db.get_scan_errors(&sid).unwrap().is_empty());
+        for name in ["~$培训.docx", "cache.txt"] {
+            assert!(matches!(
+                ingest_single_file(&db, &sid, &tmp.path().join(name)).unwrap(),
+                IngestFileResult::Unchanged
+            ));
+        }
     }
 
     #[test]
@@ -2791,6 +3140,7 @@ mod tests {
                 content_hash: hash,
                 parser_profile: NATIVE_PARSER_PROFILE.into(),
                 parsed_hash: String::new(),
+                ingestion_fingerprint: "test-profile".into(),
                 redaction_profile: privacy::redaction_fingerprint(&PrivacyConfig::default())
                     .unwrap(),
             },
@@ -2812,6 +3162,8 @@ mod tests {
             None,
             None,
             &crate::knowledge_services::KnowledgeServicesConfig::default(),
+            "test-profile",
+            None,
         )
         .unwrap();
 

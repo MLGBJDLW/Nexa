@@ -58,9 +58,12 @@ pub fn hash_file_content(path: &Path) -> Result<String, CoreError> {
 /// 5. Falls back to lossy UTF-8.
 pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
     let raw = std::fs::read(path)?;
+    decode_text_bytes(&raw, path)
+}
 
+fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // Binary check — look for null bytes in first 8 KB.
-    if bytes_appear_binary(&raw) {
+    if bytes_appear_binary(raw) {
         return Err(CoreError::Parse(format!(
             "File appears to be binary: {}",
             path.display()
@@ -94,14 +97,14 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
     }
 
     // Try strict UTF-8 (most common case)
-    if let Ok(s) = String::from_utf8(raw.clone()) {
-        return Ok(s);
+    if let Ok(s) = std::str::from_utf8(raw) {
+        return Ok(s.to_owned());
     }
 
     // Try common legacy encodings
     use encoding_rs::{EUC_KR, GBK, SHIFT_JIS, WINDOWS_1252};
     for encoding in &[GBK, SHIFT_JIS, EUC_KR, WINDOWS_1252] {
-        let (result, _, had_errors) = encoding.decode(&raw);
+        let (result, _, had_errors) = encoding.decode(raw);
         if !had_errors {
             tracing::info!(
                 "File {} decoded as {} (not UTF-8)",
@@ -117,7 +120,7 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
         "Could not detect encoding for {}, using lossy UTF-8",
         path.display()
     );
-    Ok(String::from_utf8_lossy(&raw).into_owned())
+    Ok(String::from_utf8_lossy(raw).into_owned())
 }
 
 // ---------------------------------------------------------------------------
@@ -424,18 +427,18 @@ fn parse_file_inner(
         });
     }
 
-    let content = read_text_file(path)?;
-    let fs_meta = std::fs::metadata(path)?;
+    let raw = std::fs::read(path)?;
+    let content = decode_text_bytes(&raw, path)?;
 
     let file_path = path.to_string_lossy().to_string();
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let file_size = fs_meta.len() as i64;
+    let file_size = raw.len() as i64;
     // Content hash is computed on the raw file content, not the chunked content,
     // so chunk overlap does not affect change detection.
-    let content_hash = hash_file_content(path)?;
+    let content_hash = blake3::hash(&raw).to_hex().to_string();
 
     // Extract filesystem timestamps as baseline metadata.
     let mut doc_metadata = extract_fs_metadata(path);
@@ -552,25 +555,47 @@ pub fn parse_pdf_with_llm_provider_type(
     let document = panic::catch_unwind(AssertUnwindSafe(|| lopdf::Document::load_mem(&bytes)))
         .map_err(|payload| CoreError::Parse(panic_payload_to_string(payload)))?
         .map_err(|error| CoreError::Parse(format!("PDF load failed: {error}")))?;
+    let page_indices: HashMap<_, _> = document
+        .get_pages()
+        .into_values()
+        .enumerate()
+        .map(|(index, id)| (id, index))
+        .collect();
+    let ocr_document = std::cell::OnceCell::new();
     let (chunks, missing_pages, warnings) =
         pdf_page_chunks(&document, max_chunk_chars, |page_id| {
             if !ocr_config.enabled {
                 return Ok(None);
             }
-            crate::ocr::ocr_pdf_page_with_llm_provider_type(
-                &document,
-                page_id,
-                ocr_config,
-                llm_provider,
-                llm_provider_type,
-            )
-            .map(Some)
+            let rendered = ocr_document
+                .get_or_init(|| crate::ocr::PdfOcrDocument::new(&bytes))
+                .as_ref()
+                .map_err(|error| CoreError::Ocr(error.to_string()))?;
+            if rendered.page_count() != page_indices.len() {
+                return Err(CoreError::Parse(
+                    "PDF rendering page count differs; cannot assign reliable page evidence".into(),
+                ));
+            }
+            rendered
+                .page(
+                    page_indices[&page_id],
+                    ocr_config,
+                    llm_provider,
+                    llm_provider_type,
+                )
+                .map(Some)
         });
     if chunks.is_empty() {
-        return Err(CoreError::Parse(
-            "PDF contains no searchable text. Enable OCR or a structured parser, then rescan."
-                .into(),
-        ));
+        let reason = if !ocr_config.enabled {
+            "OCR is disabled. Enable OCR in Settings, download its models, then rescan.".to_string()
+        } else {
+            warnings.iter().find(|warning| !warning.ends_with("no searchable text"))
+                .cloned().unwrap_or_else(|| "OCR found no readable text. Configure a structured PDF parser with page rendering, then rescan.".into())
+        };
+        return Err(CoreError::Parse(format!(
+            "PDF requires OCR: no searchable text in {} pages. {reason}",
+            document.get_pages().len()
+        )));
     }
     let visual_artifacts =
         crate::visual_document::extract_pdf_visual_artifacts_with_llm_provider_type(
@@ -640,12 +665,24 @@ fn pdf_page_chunks(
         .unwrap_or_else(|_| (String::new(), true));
         let (mut text, native_failed) = native;
         let mut method = "native";
-        if text.trim().chars().count() < 40 || native_failed {
+        let native_chars = text.trim().chars().count();
+        let sparse_visual = (1..40).contains(&native_chars)
+            && lopdf::content::Content::decode(&document.get_page_content(page_id)).is_ok_and(
+                |content| {
+                    content.operations.iter().any(|operation| {
+                        matches!(
+                            operation.operator.as_str(),
+                            "BI" | "Do" | "f" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*"
+                        )
+                    })
+                },
+            );
+        if text.trim().is_empty() || sparse_visual || native_failed {
             match ocr(page_id) {
                 Ok(Some(result)) => {
                     if !result.text.trim().is_empty() {
                         method = if text.trim().is_empty() {
-                            "embedded_image_ocr"
+                            "page_ocr"
                         } else {
                             "native_and_ocr"
                         };
@@ -654,12 +691,12 @@ fn pdf_page_chunks(
                             text.push_str(&result.text);
                         }
                     }
-                    if result.images_failed > 0 {
-                        warnings.push(format!(
-                            "Page {page}: {}/{} images could not be read",
-                            result.images_failed, result.images_seen
-                        ));
-                    }
+                    warnings.extend(
+                        result
+                            .warnings
+                            .into_iter()
+                            .map(|warning| format!("Page {page}: {warning}")),
+                    );
                 }
                 Ok(None) => (),
                 Err(error) => warnings.push(format!("Page {page}: {error}")),
@@ -784,7 +821,8 @@ pub fn parse_xlsx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument,
     let bytes = std::fs::read(path)?;
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
-    let chunks = crate::document_structure::workbook_chunks(path, max_chunk_chars)?;
+    let chunks = crate::document_structure::workbook_chunks(path, max_chunk_chars)
+        .map_err(|error| crate::document_structure::office_package_error(&bytes, error))?;
     let visual_artifacts =
         crate::visual_document::extract_ooxml_visual_artifacts(&bytes, OoxmlPackageKind::Xlsx);
 
@@ -880,28 +918,28 @@ pub fn parse_image_with_llm_provider_type(
         .unwrap_or_default();
 
     // ── Try OCR ──
-    let (text_content, ocr_source, ocr_confidence) =
-        match crate::ocr::extract_text_from_image_with_llm_provider_type(
-            &bytes,
-            mime_type,
-            ocr_config,
-            llm_provider,
-            llm_provider_type,
-        ) {
-            Ok(result) if !result.full_text.is_empty() => {
-                (result.full_text, result.source, result.avg_confidence)
-            }
-            Ok(_) | Err(_) => {
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("unknown");
-                let stub = format!(
-                    "[Image: {file_name}] type={ext} size={file_size} bytes path={file_path}"
-                );
-                (stub, crate::ocr::OcrSource::None, 0.5)
-            }
-        };
+    let ocr_result = crate::ocr::extract_text_from_image_with_llm_provider_type(
+        &bytes,
+        mime_type,
+        ocr_config,
+        llm_provider,
+        llm_provider_type,
+    );
+    let ocr_failed = ocr_config.enabled && ocr_result.is_err();
+    let (text_content, ocr_source, ocr_confidence) = match ocr_result {
+        Ok(result) if !result.full_text.is_empty() => {
+            (result.full_text, result.source, result.avg_confidence)
+        }
+        Ok(_) | Err(_) => {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("unknown");
+            let stub =
+                format!("[Image: {file_name}] type={ext} size={file_size} bytes path={file_path}");
+            (stub, crate::ocr::OcrSource::None, 0.5)
+        }
+    };
 
     let mut chunks = if ocr_source != crate::ocr::OcrSource::None {
         chunk_plaintext_preserving_short_document(&text_content, max_chunk_chars)
@@ -932,6 +970,13 @@ pub fn parse_image_with_llm_provider_type(
 
     let mut doc_metadata = extract_fs_metadata(path);
     doc_metadata.insert("ocr_source".into(), format!("{:?}", ocr_source));
+    if ocr_failed {
+        doc_metadata.insert(
+            "parse_warnings".into(),
+            "Image OCR failed; only image metadata is indexed. Check OCR configuration and retry."
+                .into(),
+        );
+    }
     let visual_artifacts = vec![crate::visual_document::image_file_visual_artifact(
         &file_name,
         mime_type,
@@ -1461,16 +1506,16 @@ fn parse_ppt(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
 
 /// Parse an HTML file by stripping tags and extracting clean text.
 fn parse_html(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
-    let content = read_text_file(path)?;
-    let fs_meta = std::fs::metadata(path)?;
+    let raw = std::fs::read(path)?;
+    let content = decode_text_bytes(&raw, path)?;
 
     let file_path = path.to_string_lossy().to_string();
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let file_size = fs_meta.len() as i64;
-    let content_hash = hash_file_content(path)?;
+    let file_size = raw.len() as i64;
+    let content_hash = blake3::hash(&raw).to_hex().to_string();
 
     let clean_text = strip_html_tags(&content);
 
@@ -2232,7 +2277,7 @@ mod tests {
 
     #[cfg(feature = "document-processing")]
     #[test]
-    fn mixed_pdf_invokes_ocr_only_for_uncovered_pages_and_keeps_page_anchors() {
+    fn mixed_pdf_skips_ocr_for_native_titles_and_keeps_page_anchors() {
         use lopdf::{
             content::{Content, Operation},
             dictionary, Document, Object, Stream,
@@ -2244,10 +2289,7 @@ mod tests {
         );
         let resources = doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font } });
         let mut kids: Vec<Object> = Vec::new();
-        for text in [
-            "A native page with more than forty readable characters and direct evidence.",
-            "",
-        ] {
+        for text in ["Readable native title.", "", "Scanned document caption."] {
             let content = Content {
                 operations: vec![
                     Operation::new("BT", vec![]),
@@ -2256,13 +2298,22 @@ mod tests {
                     Operation::new("ET", vec![]),
                 ],
             };
-            let stream = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+            let mut bytes = content.encode().unwrap();
+            if text == "Scanned document caption." {
+                bytes.extend_from_slice(b"\nBI /W 1 /H 1 /CS /RGB /BPC 8 ID \x00\x00\x00 EI\n");
+                let decoded = Content::decode(&bytes).unwrap();
+                assert!(decoded
+                    .operations
+                    .iter()
+                    .any(|operation| operation.operator == "BI"));
+            }
+            let stream = doc.add_object(Stream::new(dictionary! {}, bytes));
             let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => stream, "Resources" => resources, "MediaBox" => vec![0.into(),0.into(),612.into(),792.into()] });
             kids.push(page.into());
         }
         doc.objects.insert(
             pages_id,
-            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 2 }),
+            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 3 }),
         );
         let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
         doc.trailer.set("Root", catalog);
@@ -2271,16 +2322,22 @@ mod tests {
             calls += 1;
             Ok(Some(crate::ocr::PdfPageOcr {
                 text: "扫描页报销额度：500元。".into(),
-                images_seen: 1,
-                images_failed: 0,
+                warnings: Vec::new(),
             }))
         });
-        assert_eq!(calls, 1);
+        assert_eq!(calls, 2);
         assert!(missing.is_empty() && warnings.is_empty());
         assert!(chunks.iter().any(|chunk| chunk.content.contains("500元")
             && chunk.locator
                 == EvidenceLocator::Pdf {
                     page: 2,
+                    bbox: None
+                }));
+        assert!(chunks.iter().any(|chunk| chunk.content.contains("500元")
+            && chunk.extraction_method == "native_and_ocr"
+            && chunk.locator
+                == EvidenceLocator::Pdf {
+                    page: 3,
                     bbox: None
                 }));
         let (_, missing, warnings) = pdf_page_chunks(&doc, 2000, |_| Ok(None));
@@ -2289,6 +2346,25 @@ mod tests {
     }
 
     // -- MIME detection -----------------------------------------------------
+
+    #[test]
+    fn invalid_office_packages_report_recovery_instead_of_an_unexplained_zip_failure() {
+        for (bytes, hint) in [
+            (b"PK\x03\x04truncated".as_slice(), "incomplete"),
+            (
+                &[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1][..],
+                "encrypted",
+            ),
+        ] {
+            let file = NamedTempFile::with_suffix(".docx").unwrap();
+            std::fs::write(file.path(), bytes).unwrap();
+            let error = parse_docx(file.path(), 2000).unwrap_err().to_string();
+            assert!(
+                error.contains(hint) && error.contains("save a new"),
+                "{error}"
+            );
+        }
+    }
 
     #[test]
     fn test_detect_mime_markdown() {

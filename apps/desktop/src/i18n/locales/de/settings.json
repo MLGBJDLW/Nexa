@@ -1115,5 +1115,10 @@
   ,"storageSection": "Speicherorte"
   ,"storageSectionDesc": "Globale Deklarationen, Projektregeln und lokale Modelle gemeinsam verwalten."
   ,"storageProjectContracts": "Projektregeln bleiben im Arbeitsbereich: .nexa/AGENTS.md, .nexa/tools und .nexa/tmp. Vorhandene AGENTS.md haben Vorrang."
-  ,"storageInternalState": "Datenbank, Zugangsdaten und App-Caches"
+  ,"storageInternalState": "Datenbank, Zugangsdaten und App-Caches",
+  "externalAgentArguments": "Argumente (JSON-Array; leer für Vorgabe)",
+  "externalAgentEnvironment": "Umgebung (JSON-Objekt; verschlüsselt gespeichert)",
+  "externalAgentJsonHint": "Argumente benötigen ein JSON-Array aus Zeichenfolgen, Umgebungsvariablen ein JSON-Objekt mit Zeichenfolgenwerten.",
+  "externalAgentPackageHint": "Die erste Verbindung kann das festgelegte Paket herunterladen. Melden Sie sich mit dem Konto des Agenten an.",
+  "externalAgentPackageProbe": "Herunterladen / Verbindung prüfen"
 }

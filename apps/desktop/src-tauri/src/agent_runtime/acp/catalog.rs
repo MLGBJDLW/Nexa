@@ -337,14 +337,18 @@ impl Session {
             if !reuse_model_options {
                 continue;
             }
-            // Model and explicit chat reasoning own their respective options.
-            if self.model_option.as_deref() == Some(id.as_str())
-                || (effort.is_some()
-                    && self
-                        .config_options
-                        .iter()
-                        .any(|option| option.id == id && config::is_thought(option)))
-            {
+            // Chat reasoning exclusively owns thought options, including
+            // Default. Ignore legacy hidden preferences even for opaque IDs.
+            // Respect an explicitly different category on a same-named option.
+            let thought_preference = self
+                .config_options
+                .iter()
+                .find(|option| option.id == id)
+                .map(config::is_thought)
+                .unwrap_or_else(|| {
+                    matches!(id.as_str(), "reasoning_effort" | "effort" | "thought_level")
+                });
+            if self.model_option.as_deref() == Some(id.as_str()) || thought_preference {
                 continue;
             }
             if purpose == ConfigurationUse::Discovery

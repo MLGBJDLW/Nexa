@@ -42,7 +42,11 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The External agents catalog also includes these explicit launch presets:
+The External agents catalog includes all 41 agents in the reviewed October 10,
+2026 [ACP registry](https://github.com/agentclientprotocol/registry), plus Hermes
+and a custom ACP entry. The shared catalog preserves registry provenance,
+platform distributions and pinned package versions. Existing profiles retain
+their installed CLI commands. Common installed CLI presets include:
 
 | Agent | Command | Preparation |
 | --- | --- | --- |
@@ -55,6 +59,17 @@ The External agents catalog also includes these explicit launch presets:
 | Qwen Code | `qwen --acp` | Install and authenticate the official CLI |
 | Goose | `goose acp` | Install and configure a native provider |
 | Auggie | `auggie --acp` | Install and authenticate the Augment CLI |
+
+New package presets such as Pi use their registry `npx` or `uvx` command.
+**Download / check connection** explicitly starts the package runner and may
+download the pinned package on its first run. Binary-only presets require an
+installed executable for a supported platform. **Advanced** accepts a JSON argv
+array and environment object, including custom ACP servers. These preferences
+are encrypted at rest; legacy preferences remain readable. Windows batch shims
+reject shell metacharacters in custom arguments; use a native executable when
+literal arguments require those characters. Registry inclusion proves a launch
+contract, not account access or every upstream feature. External ACP wire
+negotiation remains version 1; Zed's private internal protocol is separate.
 
 The working directory follows the current chat automatically. A chat worktree
 or project's primary folder takes priority. A projectless chat gets a stable,
@@ -83,6 +98,9 @@ Native select options are discovered, including mode, provider and reasoning.
 Provider/mode changes are applied before model selection, and model-dependent
 options are refreshed afterward. Successful native responses replace the complete
 option list; normalized values (such as Qwen's default reasoning level) are kept.
+Reasoning controls appear below the chat composer, with a list or intensity
+slider presentation. Both send the same advertised option IDs, including opaque
+ACP values; Settings no longer duplicates the reasoning toggle.
 The final model must still match the user's selection. Model-dependent preferences
 are bound to the model verified in Settings, so a chat model switch cannot replay
 obsolete effort/Fast options. Discovery returns replacement choices after a saved

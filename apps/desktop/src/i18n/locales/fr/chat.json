@@ -899,5 +899,9 @@
   "documentPdfHint": "Les routes compatibles lisent le texte et les images des pages PDF. Les autres routes et le mode confidentialité utilisent une extraction locale. Cette étiquette décrit la règle de lecture, pas un résultat terminé.",
   "documentOfficeHint": "Les routes compatibles reçoivent le fichier Office original comme texte. Les images et graphiques intégrés sont exclus. Les autres routes et le mode confidentialité utilisent une extraction locale.",
   "documentExtractionHint": "Ce format utilise une extraction locale de texte ou de données structurées. Les formules et le recalcul nécessitent les outils de tableur.",
-  "computerUseWaiting": "Poursuite de la tâche sur l’ordinateur"
+  "computerUseWaiting": "Poursuite de la tâche sur l’ordinateur",
+  "reasoningControlStyle": "Style du réglage de raisonnement",
+  "reasoningList": "Liste",
+  "reasoningSlider": "Curseur d’intensité",
+  "reasoningOn": "Activé"
 }

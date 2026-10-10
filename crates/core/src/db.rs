@@ -328,59 +328,44 @@ impl Database {
         Ok(count.max(0) as usize)
     }
 
-    /// Fetch one bounded source-scoped page of chunks missing embeddings.
-    ///
-    /// Callers persist each page before fetching the next one, so repeatedly
-    /// reading the first page is stable without retaining a growing cursor or
-    /// the full corpus in memory.
-    pub fn get_chunks_without_embeddings_for_source_batch(
+    /// Seek through the chunk primary-key index instead of rescanning every
+    /// already embedded row for every batch. Source and global jobs use the same
+    /// query contract; callers perform a final catch-up pass for concurrent edits.
+    pub(crate) fn missing_embedding_page(
         &self,
-        source_id: &str,
+        source_id: Option<&str>,
         model: &str,
+        after: &str,
         limit: usize,
-    ) -> Result<Vec<(String, String)>, crate::error::CoreError> {
+    ) -> Result<Vec<(String, String)>, CoreError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT c.id, c.content FROM chunks c
-             JOIN documents d ON c.document_id = d.id
-             LEFT JOIN embeddings e ON c.id = e.chunk_id AND e.model = ?2
-             WHERE d.source_id = ?1 AND e.chunk_id IS NULL
-             ORDER BY c.id
-             LIMIT ?3",
+        let mut statement = conn.prepare(
+            "SELECT c.id,c.content FROM chunks c
+             WHERE c.id > ?1
+               AND (?2 IS NULL OR EXISTS(SELECT 1 FROM documents d WHERE d.id=c.document_id AND d.source_id=?2))
+               AND NOT EXISTS(SELECT 1 FROM embeddings e WHERE e.chunk_id=c.id AND e.model=?3)
+             ORDER BY c.id LIMIT ?4"
         )?;
-        let rows = stmt.query_map(
-            rusqlite::params![source_id, model, limit.max(1) as i64],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )?;
-        let mut results = Vec::new();
-        for row in rows {
-            results.push(row?);
-        }
-        Ok(results)
+        let rows = statement
+            .query_map(
+                rusqlite::params![after, source_id, model, limit.max(1) as i64],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
-    /// Fetch one bounded global page of chunks missing embeddings.
-    pub fn get_chunks_without_embeddings_batch(
+    pub(crate) fn missing_embedding_work(
         &self,
+        source_id: Option<&str>,
         model: &str,
-        limit: usize,
-    ) -> Result<Vec<(String, String)>, crate::error::CoreError> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT c.id, c.content FROM chunks c
-             LEFT JOIN embeddings e ON c.id = e.chunk_id AND e.model = ?1
-             WHERE e.chunk_id IS NULL
-             ORDER BY c.id
-             LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(rusqlite::params![model, limit.max(1) as i64], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        let mut results = Vec::new();
-        for row in rows {
-            results.push(row?);
-        }
-        Ok(results)
+    ) -> Result<(usize, usize), CoreError> {
+        Ok(self.conn().query_row(
+            "SELECT COUNT(*),COALESCE(SUM(length(c.content)),0) FROM chunks c
+             WHERE (?1 IS NULL OR EXISTS(SELECT 1 FROM documents d WHERE d.id=c.document_id AND d.source_id=?1))
+               AND NOT EXISTS(SELECT 1 FROM embeddings e WHERE e.chunk_id=c.id AND e.model=?2)",
+            rusqlite::params![source_id,model], |row| Ok((row.get(0)?,row.get(1)?))
+        )?)
     }
 
     /// Delete all embeddings for a given model.
@@ -408,16 +393,18 @@ impl Database {
         source_id: &str,
         path: &str,
         error_message: &str,
+        input_fingerprint: &str,
     ) -> Result<(), crate::error::CoreError> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO scan_errors (source_id, path, error_message)
-             VALUES (?1, ?2, ?3)
+            "INSERT INTO scan_errors (source_id, path, error_message, input_fingerprint)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(source_id, path) DO UPDATE SET
-                error_count = error_count + 1,
+                error_count = CASE WHEN scan_errors.input_fingerprint=excluded.input_fingerprint THEN error_count+1 ELSE 1 END,
                 error_message = excluded.error_message,
+                input_fingerprint = excluded.input_fingerprint,
                 last_failed_at = datetime('now')",
-            rusqlite::params![source_id, path, error_message],
+            rusqlite::params![source_id, path, error_message, input_fingerprint],
         )?;
         Ok(())
     }
@@ -483,21 +470,22 @@ impl Database {
         &self,
         source_id: &str,
         path: &str,
+        input_fingerprint: &str,
     ) -> Result<bool, crate::error::CoreError> {
         let conn = self.conn();
-        let result: Option<(i64, String)> = conn
+        let result: Option<(i64, String, String)> = conn
             .query_row(
-                "SELECT error_count, last_failed_at FROM scan_errors
+                "SELECT error_count, last_failed_at, input_fingerprint FROM scan_errors
                  WHERE source_id = ?1 AND path = ?2",
                 rusqlite::params![source_id, path],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .ok();
 
         match result {
             None => Ok(true), // no error record → retry
-            Some((count, last_failed)) => {
-                if count < 3 {
+            Some((count, last_failed, previous_input)) => {
+                if count < 3 || previous_input != input_fingerprint {
                     return Ok(true);
                 }
                 // Parse last_failed_at and check if older than 24 hours.

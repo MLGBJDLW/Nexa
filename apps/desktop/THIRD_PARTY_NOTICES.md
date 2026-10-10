@@ -1,4 +1,4 @@
-# Third-party icon notices
+# Third-party notices
 
 Nexa Desktop renders selected file-type glyphs through
 [`react-icons`](https://github.com/react-icons/react-icons). Only explicitly
@@ -38,3 +38,10 @@ Nexa Desktop.
 
 - Project: https://github.com/lucide-icons/lucide
 - License: ISC
+
+## PDF page rendering
+
+OCR uses [Hayro](https://github.com/LaurenzV/hayro) under its MIT license,
+including its embedded standard fonts, Adobe character maps and color profile.
+The [renderer and embedded asset notices](licenses/pdf-rendering.txt) are
+included in the desktop bundle under `licenses/pdf-rendering.txt`.

@@ -117,5 +117,10 @@
   "fileTreeNoMatches": "No files match the current include/exclude rules.",
   "rootTruncated": "Root results are truncated. Expand subfolders to narrow the view.",
   "showInFolder": "Show in folder",
-  "addIndexNow": "Scan and embed immediately after adding"
+  "addIndexNow": "Scan and embed immediately after adding",
+  "embeddingCalibrating": "속도 측정 중…",
+  "embeddingRemaining": "약 {time} 남음",
+  "embeddingMeasured": "현재 실행 기준",
+  "embeddingHistory": "최근 실행 기준",
+  "embeddingElapsed": "{time} 경과"
 }

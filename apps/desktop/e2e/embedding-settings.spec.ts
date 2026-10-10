@@ -58,3 +58,14 @@ test('legacy indexes show an actionable rebuild state and refresh coverage after
   await expect(page.getByTestId('embedding-index-status')).toContainText('20/20');
   await expect(page.getByTestId('embedding-index-status')).not.toContainText('Rebuild embeddings');
 });
+
+test('embedding timing names the active model and distinguishes calibration, history and live estimates', async ({ page }) => {
+  for (const [basis, expected] of [['calibrating', 'Measuring speed'], ['history', 'Based on recent runs'], ['measured', 'Based on this run']]) {
+    await page.goto(`/e2e/fixtures/embedding-settings.html?timing=${basis}`);
+    const timing = page.getByTestId('embedding-timing');
+    await expect(timing).toContainText('qwen3.7-text-embedding');
+    await expect(timing).toContainText(expected);
+    if (basis !== 'calibrating') await expect(timing).toContainText('remaining');
+    await expect(timing).toContainText('elapsed');
+  }
+});

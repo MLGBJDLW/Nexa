@@ -567,6 +567,44 @@ fn write_note_preview_artifact(args: &Value) -> Option<Value> {
     Some(preview_artifact_from_diff(diff, Some(0)))
 }
 
+fn resource_keys_overlap(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    let (Some(left), Some(right)) = (left.strip_prefix("file:"), right.strip_prefix("file:"))
+    else {
+        return false;
+    };
+    let ancestor = |parent: &str, child: &str| {
+        parent == "."
+            || child
+                .strip_prefix(parent.trim_end_matches('/'))
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    };
+    if ancestor(left, right) || ancestor(right, left) {
+        return true;
+    }
+    // Without a project workspace, a relative path may resolve through a
+    // knowledge source. Conservatively match its suffix against absolute paths.
+    let absolute = |path: &str| path.starts_with('/') || path.as_bytes().get(1) == Some(&b':');
+    if absolute(left) != absolute(right) {
+        let (relative, full) = if absolute(left) {
+            (right, left)
+        } else {
+            (left, right)
+        };
+        return std::iter::once(full)
+            .chain(full.match_indices('/').map(|(index, _)| &full[index + 1..]))
+            .any(|suffix| {
+                !suffix.is_empty()
+                    && (suffix == relative
+                        || ancestor(relative, suffix)
+                        || ancestor(suffix, relative))
+            });
+    }
+    false
+}
+
 pub(super) fn tool_call_execution_batches<'a>(
     invocations: impl IntoIterator<Item = &'a crate::tools::ToolInvocation>,
 ) -> Vec<Vec<usize>> {
@@ -585,17 +623,17 @@ pub(super) fn tool_call_execution_batches<'a>(
             invocation.capabilities.destructive || !invocation.capabilities.concurrency_safe;
         let has_resource_keys = !invocation.capabilities.resource_keys.is_empty();
         let resource_conflict = if exclusive {
-            invocation
-                .capabilities
-                .resource_keys
-                .iter()
-                .any(|key| current_resource_keys.contains(key))
+            invocation.capabilities.resource_keys.iter().any(|key| {
+                current_resource_keys
+                    .iter()
+                    .any(|other| resource_keys_overlap(key, other))
+            })
         } else {
-            invocation
-                .capabilities
-                .resource_keys
-                .iter()
-                .any(|key| current_exclusive_resource_keys.contains(key))
+            invocation.capabilities.resource_keys.iter().any(|key| {
+                current_exclusive_resource_keys
+                    .iter()
+                    .any(|other| resource_keys_overlap(key, other))
+            })
         };
         let unkeyed_exclusive = exclusive && !has_resource_keys;
 

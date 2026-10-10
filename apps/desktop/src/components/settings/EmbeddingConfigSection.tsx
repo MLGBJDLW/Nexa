@@ -23,6 +23,7 @@ import { Input } from '../ui/Input';
 import { Section } from './SettingsSection';
 import { SharedCredentialNotice } from './SharedCredentialNotice';
 import { ModelDescriptorBadges } from './ModelDescriptorBadges';
+import { EmbeddingTiming } from '../sources/EmbeddingTiming';
 import { CatalogModelPicker } from './CatalogModelPicker';
 
 interface EmbeddingConfigSectionProps {
@@ -350,6 +351,7 @@ export function EmbeddingConfigSection({
                     />
                   </div>
                 )}
+                <EmbeddingTiming estimate={embedRebuildProgress.embedding} />
               </div>
             )}
           </div>

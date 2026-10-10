@@ -1115,5 +1115,10 @@
   ,"storageSection": "Storage locations"
   ,"storageSectionDesc": "Manage global declarations, project rules and local model downloads in one place."
   ,"storageProjectContracts": "Project contracts stay in each workspace: .nexa/AGENTS.md, .nexa/tools and .nexa/tmp. Existing AGENTS.md files take precedence."
-  ,"storageInternalState": "Database, credentials and app caches"
+  ,"storageInternalState": "Database, credentials and app caches",
+  "externalAgentArguments": "Arguments (JSON array; blank uses the preset)",
+  "externalAgentEnvironment": "Environment (JSON object; stored encrypted)",
+  "externalAgentJsonHint": "Use a JSON array of strings for arguments and a JSON object of string values for environment.",
+  "externalAgentPackageHint": "The first connection may download the pinned package through its package manager. Sign in with the agent’s own account.",
+  "externalAgentPackageProbe": "Download / check connection"
 }

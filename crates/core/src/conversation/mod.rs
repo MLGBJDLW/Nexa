@@ -5017,7 +5017,7 @@ impl Database {
             crate::external_agent::ensure_launch_storage(&transaction)?;
             transaction.execute(
                 "INSERT INTO app_config (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
-                rusqlite::params![format!("external_agent_profile:{id}"), serde_json::to_string(launch)?],
+                rusqlite::params![format!("external_agent_profile:{id}"), launch.storage_json()?],
             )?;
         }
         crate::settings_schema_v2::sync_legacy_agent_config_in_transaction(&transaction, &id)?;

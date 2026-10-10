@@ -486,6 +486,7 @@ test.beforeEach(async ({ page }) => {
             : [{ id: "gpt-6", name: "GPT-6", reasoningEfforts: ["low", "high", "ultra"] }];
         }
         case 'get_external_agent_launch_cmd':
+          if (localStorage.getItem('nexa-e2e-legacy-acp-reasoning')) return { executable: null, workingDirectory: '', configOptions: { effort: 'high' } };
           return { executable: null, workingDirectory: '' };
         case 'inspect_external_agent_cmd': {
           const delay = Number(localStorage.getItem('nexa-e2e-acp-probe-delay') ?? '0');
@@ -1356,8 +1357,7 @@ test("an edited public base URL cannot inherit catalog identity or capabilities"
     .locator("xpath=..");
   await baseUrlField.getByRole("textbox").fill("https://api.openai.com/evil?tenant=1");
   await page.getByRole("button", { name: /^Advanced Settings/ }).click();
-  await expect(page.getByText("No configurable reasoning controls are available for this model.")).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "Enable reasoning" })).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: "Enable reasoning" })).toHaveCount(0);
   await expect(page.getByTestId("default-model-picker")).toHaveCount(0);
   await page.getByRole("button", { name: "Test Connection" }).click();
 
@@ -1382,45 +1382,20 @@ test("settings uses the MiniMax logo for its OpenAI-compatible preset", async ({
   await expect(minimaxGlyph).not.toHaveAttribute("style", /provider-icons\/openai\.svg/);
 });
 
-test("Claude Sonnet 5.5 settings persist native thinking modes and isolate OpenRouter controls", async ({ page }) => {
-  test.setTimeout(90_000);
+test("provider settings keep normalized model defaults without duplicate reasoning controls", async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers' }).click();
   await page.getByTitle('Edit').first().click();
   const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
   await selectNexaOption(model, 'claude-sonnet-5-5');
-  const upfront = page.getByRole('checkbox', { name: 'Enable up-front thinking' });
-  await expect(upfront).toBeChecked();
-  const effort = page.locator('label').filter({ hasText: 'Reasoning Effort' })
-    .locator('xpath=..').locator('[data-nexa-select-trigger]');
-  await expectNexaValue(effort, 'high');
-  await expectNexaOptions(effort, ['Low', 'Medium', 'High', 'Extra High', 'Max']);
-  await expectNexaOptionCount(effort, 5);
+  await expect(page.getByRole('checkbox', { name: 'Enable up-front thinking' })).toHaveCount(0);
   await expect(page.locator('label').filter({ hasText: 'Thinking Budget' })).toHaveCount(0);
-  await selectNexaOption(effort, 'max');
-  await upfront.uncheck();
-  await expect(page.getByText('Between-tool thinking only', { exact: true })).toBeVisible();
+  await expect(page.locator('label').filter({ hasText: 'Reasoning Effort' })).toHaveCount(0);
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({
-    model: 'claude-sonnet-5-5', reasoningEnabled: false, thinkingBudget: null, reasoningEffort: null,
+    model: 'claude-sonnet-5-5', reasoningEnabled: true, thinkingBudget: null, reasoningEffort: 'high',
   });
-
-  await page.getByRole('button', { name: 'Add Provider' }).click();
-  await page.getByRole('button', { name: /^OpenRouter/ }).click();
-  await selectNexaOption(model, 'anthropic/claude-sonnet-5.5');
-  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
-  const always = page.getByRole('checkbox', { name: 'Reasoning is always on for this model.' });
-  await expect(always).toBeChecked();
-  await expect(always).toBeDisabled();
-  // A valid effort from the previous model is retained until explicitly changed.
-  await selectNexaOption(effort, 'high');
-  await expectNexaValue(effort, 'high');
-  await expectNexaOptionCount(effort, 5);
-  await selectNexaOption(model, '~anthropic/claude-sonnet-latest');
-  await expect(always).toBeDisabled();
-  await expectNexaOptionCount(effort, 5);
-  await expect(page.getByRole('checkbox', { name: 'Enable up-front thinking' })).toHaveCount(0);
 });
 
 test("settings exposes Meta Model API with Muse Spark 1.3 as its verified default", async ({ page }) => {
@@ -1446,42 +1421,20 @@ test("settings exposes Meta Model API with Muse Spark 1.3 as its verified defaul
   await expect(modelField.getByTestId("model-descriptor-badges")).toContainText("text+image→text");
 
   await page.getByRole("button", { name: /^Advanced Settings/ }).click();
-  const alwaysOn = page.getByRole("checkbox", {
-    name: "Reasoning is always on for this model.",
-  });
-  await expect(alwaysOn).toBeChecked();
-  await expect(alwaysOn).toBeDisabled();
-  const effortSelect = page
-    .locator("label")
-    .filter({ hasText: "Reasoning Effort" })
-    .locator("xpath=..")
-    .locator("[data-nexa-select-trigger]");
-  await expectNexaOptions(effortSelect, ["Minimal", "Low", "Medium", "High"]);
-  await expectNexaOptionCount(effortSelect, 6);
-  await expectNexaOption(effortSelect, "xhigh", "visible");
-  await expectNexaOption(effortSelect, "max", "visible");
+  await expect(page.getByRole("checkbox", { name: "Reasoning is always on for this model." })).toHaveCount(0);
+
 });
 
-test('October models expose working reasoning toggles and dialogue speech controls', async ({ page }, testInfo) => {
+test('October model defaults and dialogue speech controls remain available', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
   await page.getByTitle('Edit').first().click();
   const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
   await selectNexaOption(model, 'claude-haiku-5-5');
-  const toggle = page.getByRole('checkbox', { name: 'Enable Reasoning / Thinking', exact: true });
-  await expect(toggle).toBeEnabled();
-  await toggle.uncheck();
+  await expect(page.getByRole('checkbox', { name: 'Enable Reasoning / Thinking', exact: true })).toHaveCount(0);
   await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ model: 'claude-haiku-5-5', reasoningEnabled: false, reasoningEffort: null, thinkingBudget: null });
-  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
-  await page.getByRole('button', { name: /^OpenRouter/ }).click();
-  await selectNexaOption(model, 'upstage/solar-mini4');
-  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
-  await toggle.uncheck();
-  await toggle.check();
-  const effort = page.locator('label').filter({ hasText: 'Reasoning Effort' }).locator('xpath=..').locator('[data-nexa-select-trigger]');
-  await expectNexaValue(effort, 'medium');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ model: 'claude-haiku-5-5' });
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
   const speech = page.getByTestId('text-to-speech-settings-panel');
@@ -2666,12 +2619,12 @@ for (const [name, provider, presetId] of [
     await form.getByRole('button', { name: 'Check connection', exact: true }).click();
     await expect(form.getByRole('status')).toContainText('Inference has not been tested');
     await expect(form.getByRole('combobox', { name: 'Default Model', exact: true })).toHaveValue('vendor/native-model');
-    await form.getByRole('combobox', { name: 'Native reasoning', exact: true }).selectOption('high');
+    await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('external-agent-settings-narrow.png') });
     await form.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ provider, launch: { executable: null, workingDirectory: 'D:\\工作区\\Example', configOptions: { effort: 'high' } } });
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ provider, launch: { executable: null, workingDirectory: 'D:\\工作区\\Example', configOptions: {} } });
     await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ provider, model: 'vendor/native-model', apiKey: '', baseUrl: null });
   });
 }
@@ -2688,6 +2641,33 @@ test('ACP profiles can connect and save without a manual working directory', asy
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { workingDirectory: '' } });
+});
+
+test('registry agents and custom ACP profiles expose validated literal launch configuration', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button',{name:'AI Providers',exact:true}).click();
+  await page.getByRole('button',{name:'Add Provider',exact:true}).click();
+  await page.getByRole('tab',{name:'External agents',exact:true}).click();
+  for (const id of ['acp-pi-acp','acp-kimi','acp-cursor','acp-cline','acp-mistral-vibe','custom-acp']) {
+    await expect(page.locator(`[data-provider-preset-id="${id}"]`)).toHaveCount(1);
+  }
+  await page.locator('[data-provider-preset-id="acp-pi-acp"]').click();
+  const form=page.getByTestId('external-agent-form');
+  await expect(form).toContainText('pi-acp@0.0.34');
+  await expect(form).toContainText('first connection may download');
+  await form.locator('summary').click();
+  const args=form.getByRole('textbox',{name:/Arguments \(JSON/});
+  const env=form.getByRole('textbox',{name:/Environment \(JSON/});
+  await args.fill('["--yes","pi-acp@0.0.34"]');
+  await env.fill('{"PROFILE":123}');
+  await expect(form.getByRole('button',{name:'Download / check connection',exact:true})).toBeDisabled();
+  await expect(form.getByRole('alert')).toContainText('JSON');
+  await env.fill('{"PROFILE":"work with spaces"}');
+  await form.getByRole('button',{name:'Download / check connection',exact:true}).click();
+  await form.getByRole('button',{name:'Save',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({
+    provider:'acp_pi_acp',launch:{args:['--yes','pi-acp@0.0.34'],env:{PROFILE:'work with spaces'}},
+  });
 });
 
 test('ACP external agent launch edits discard stale connection probes', async ({ page }) => {
@@ -2719,10 +2699,10 @@ test('ACP model changes discard uncategorized native reasoning before verifying 
   if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
   await form.getByRole('button', { name: 'Check connection', exact: true }).click();
-  await form.getByRole('combobox', { name: 'Native reasoning', exact: true }).selectOption('high');
+  await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await form.getByRole('combobox', { name: 'Default Model', exact: true }).selectOption('second');
-  await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveValue('low');
+  await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await expect(form.getByRole('alert')).toHaveCount(0);
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { configOptions: {} } });
@@ -2730,7 +2710,10 @@ test('ACP model changes discard uncategorized native reasoning before verifying 
 });
 
 test('ACP discovery exposes replacements without silently changing a retired saved model', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('nexa-e2e-stale-subscription-provider', 'gemini_cli'));
+  await page.addInitScript(() => {
+    localStorage.setItem('nexa-e2e-stale-subscription-provider', 'gemini_cli');
+    localStorage.setItem('nexa-e2e-legacy-acp-reasoning', '1');
+  });
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
@@ -2742,9 +2725,11 @@ test('ACP discovery exposes replacements without silently changing a retired sav
   const model = form.getByRole('combobox', { name: 'Default Model', exact: true });
   await expect(model).toHaveValue('retired-native-model');
   await expect(model.getByRole('option', { name: 'Native model', exact: true })).toHaveCount(1);
+  await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await model.selectOption('vendor/native-model');
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ model: 'vendor/native-model', reasoningEffort: null });
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { configOptions: {} } });
 });
 
 test("Qwen Audio and dynamically discovered OpenRouter image models are usable in settings", async ({ page }) => {

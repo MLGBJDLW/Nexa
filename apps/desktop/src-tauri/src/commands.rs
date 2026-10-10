@@ -352,6 +352,8 @@ pub struct BatchProgress {
     pub current: usize,
     pub total: usize,
     pub current_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<nexa_core::embedding_job::EmbeddingEstimate>,
 }
 
 /// Progress for FTS index operations.

@@ -326,7 +326,7 @@ pub fn extract_pdf_visual_artifacts_with_llm_provider_type(
         if artifacts.len() >= MAX_VISUAL_ARTIFACTS_PER_DOCUMENT {
             break;
         }
-        let images = crate::ocr::extract_images_from_pdf_page(&doc, page_id);
+        let images = crate::pdf_images::extract_images_from_pdf_page(&doc, page_id);
         for image in images {
             if artifacts.len() >= MAX_VISUAL_ARTIFACTS_PER_DOCUMENT {
                 break;

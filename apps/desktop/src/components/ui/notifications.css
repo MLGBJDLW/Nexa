@@ -1,0 +1,31 @@
+/* Explicit app-owned styles survive themes, transparent windows and the
+   notification library's dynamic stylesheet loading order. */
+.nexa-notifications { max-width: calc(100vw - 24px); }
+.nexa-notifications [data-sonner-toast].nexa-notification {
+  background: linear-gradient(var(--color-surface-2), var(--color-surface-2)), var(--notification-base);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px #0003, 0 2px 6px #0001;
+  padding: 14px 38px 14px 16px;
+  gap: 10px;
+  max-height: min(200px, 28vh);
+  font-size: 12px;
+  line-height: 1.55;
+  isolation: isolate;
+}
+.nexa-notifications [data-content] { min-width: 0; overflow: auto; max-height: 150px; scrollbar-width: thin; overflow-wrap: anywhere; }
+.nexa-notifications [data-title] { font-weight: 550; }
+.nexa-notifications [data-description] { color: var(--color-text-secondary); }
+.nexa-notifications [data-icon] { align-self: start; margin-top: 2px; }
+.nexa-notifications [data-type='error'] [data-icon] { color: var(--color-danger); }
+.nexa-notifications [data-type='warning'] [data-icon] { color: var(--color-warning); }
+.nexa-notifications [data-type='success'] [data-icon] { color: var(--color-success); }
+.nexa-notifications [data-type='info'] [data-icon] { color: var(--color-accent); }
+.nexa-notifications [data-sonner-toast] [data-close-button] {
+  left: auto; right: 7px; top: 7px; transform: none; width: 23px; height: 23px;
+  border: 0; background: transparent; color: var(--color-text-tertiary); border-radius: 6px;
+}
+.nexa-notifications [data-sonner-toast] [data-close-button]:hover { background: var(--color-surface-3); color: var(--color-text-primary); }
+.nexa-notifications [data-sonner-toast] [data-close-button]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .nexa-notifications [data-sonner-toast] { transition-duration: 0ms !important; } }

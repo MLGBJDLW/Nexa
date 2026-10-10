@@ -899,5 +899,9 @@
   "documentPdfHint": "支援的路由讀取 PDF 文字與頁面影像；其他路由及隱私模式使用本機擷取。此標籤說明讀取策略，不代表已完成讀取。",
   "documentOfficeHint": "支援的路由接收 Office 原始檔案並讀取文字，不包含內嵌圖片和圖表；其他路由及隱私模式使用本機擷取。",
   "documentExtractionHint": "此格式使用本機文字或結構化擷取。試算表的公式與重新計算需要使用試算表工具。",
-  "computerUseWaiting": "正在繼續電腦任務"
+  "computerUseWaiting": "正在繼續電腦任務",
+  "reasoningControlStyle": "思考強度控制樣式",
+  "reasoningList": "清單選擇",
+  "reasoningSlider": "強度滑桿",
+  "reasoningOn": "開啟"
 }

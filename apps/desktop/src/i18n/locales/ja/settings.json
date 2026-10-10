@@ -1115,5 +1115,10 @@
   ,"storageSection": "保存場所"
   ,"storageSectionDesc": "共通設定、プロジェクトルール、ローカルモデルを一か所で管理します。"
   ,"storageProjectContracts": "プロジェクト設定は各作業領域の .nexa/AGENTS.md、.nexa/tools、.nexa/tmp に置けます。既存の AGENTS.md が優先されます。"
-  ,"storageInternalState": "データベース、認証情報、アプリキャッシュ"
+  ,"storageInternalState": "データベース、認証情報、アプリキャッシュ",
+  "externalAgentArguments": "引数（JSON 配列、空欄で既定値）",
+  "externalAgentEnvironment": "環境変数（JSON オブジェクト、暗号化保存）",
+  "externalAgentJsonHint": "引数は文字列の JSON 配列、環境変数は値が文字列の JSON オブジェクトで入力してください。",
+  "externalAgentPackageHint": "初回接続時に指定バージョンをダウンロードする場合があります。エージェント自身のアカウントでログインしてください。",
+  "externalAgentPackageProbe": "ダウンロード / 接続確認"
 }

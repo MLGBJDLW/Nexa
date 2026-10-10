@@ -38,14 +38,29 @@ fn executable(preset: &ExternalAgentPreset, launch: &ExternalAgentLaunch) -> Res
     }
     // Windows npm shims have .cmd; Command quotes its fixed argv, not a shell
     // command assembled from user input. Neither cwd nor prompts become argv.
-    let names = if cfg!(windows) {
+    let command = preset.launch_command();
+    if command.is_empty() {
+        return Err(error(
+            "Choose the custom ACP agent executable in Settings before connecting.",
+        ));
+    }
+    if !matches!(preset.command.as_str(), "npx" | "uvx")
+        && preset
+            .distribution
+            .as_ref()
+            .is_some_and(|distribution| !distribution.binary.is_empty())
+        && preset.platform_launch().is_none()
+    {
+        return Err(error("This agent's published registry does not include this platform. Choose a compatible installed executable explicitly."));
+    }
+    let names = if cfg!(windows) && std::path::Path::new(&command).extension().is_none() {
         vec![
-            format!("{}.exe", preset.command),
-            format!("{}.cmd", preset.command),
-            format!("{}.bat", preset.command),
+            format!("{command}.exe"),
+            format!("{command}.cmd"),
+            format!("{command}.bat"),
         ]
     } else {
-        vec![preset.command.clone()]
+        vec![command]
     };
     for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
         if !directory.is_absolute() {
@@ -88,10 +103,25 @@ impl Wire {
         launch: &ExternalAgentLaunch,
     ) -> Result<Self> {
         launch.validate_resolved()?;
-        let mut command = tokio::process::Command::new(executable(preset, launch)?);
+        let executable = executable(preset, launch)?;
+        let args = preset.launch_args(launch);
+        // On Windows .cmd/.bat go through cmd.exe. Reject expansion/control
+        // characters instead of accidentally treating a custom argv as shell
+        // code. Native executables accept the full literal argument set.
+        if cfg!(windows)
+            && executable.extension().is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+            })
+            && args
+                .iter()
+                .any(|argument| argument.contains(['%', '!', '^', '&', '|', '<', '>', '\r', '\n']))
+        {
+            return Err(error("These arguments require a native executable, not a Windows command shim. Select the agent's executable (or Node/Python executable) directly."));
+        }
+        let mut command = tokio::process::Command::new(executable);
         command
-            .args(&preset.args)
-            .envs(&preset.env)
+            .args(args)
+            .envs(preset.launch_env(launch))
             .current_dir(&launch.working_directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -210,7 +240,14 @@ impl Wire {
 
     pub(super) async fn request(&mut self, method: &str, params: Value) -> Result<Value> {
         let id = self.send(method, params).await?;
-        tokio::time::timeout(RPC_TIMEOUT, async {
+        // A reviewed package runner may perform its first installation before
+        // initialization. Ordinary RPCs keep the short liveness timeout.
+        let timeout = if method == "initialize" {
+            Duration::from_secs(180)
+        } else {
+            RPC_TIMEOUT
+        };
+        tokio::time::timeout(timeout, async {
             loop {
                 let message = self.messages.recv().await.ok_or_else(|| error("External agent exited during connection"))??;
                 if message.get("method").is_none() && message["id"].as_u64() == Some(id) {

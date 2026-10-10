@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
-import { createPortal } from 'react-dom';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
@@ -23,13 +22,11 @@ import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { Logo } from './Logo';
 import { Tooltip } from './ui';
-import { Toaster } from 'sonner';
+import { Notifications } from './ui/Notifications';
 import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from '../i18n';
 import { useUpdater } from '../lib/useUpdater';
-import { useTheme } from '../lib/ThemeProvider';
 import { RemoteSidebarLink } from '../features/remote/RemoteSidebarLink';
-import { isLightTheme } from '../lib/theme';
 import type { TranslationKey } from '../i18n';
 import { UpdateSettingsPanel } from './settings/UpdateSettingsPanel';
 import { openCommandPalette } from '../lib/appCommands';
@@ -162,7 +159,6 @@ function SortableNavItem({ item, label, isCurrentPage, shouldReduceMotion }: Sor
 /* ── Layout ───────────────────────────────────────────────────────── */
 export function Layout() {
   const { t } = useTranslation();
-  const { theme } = useTheme();
   const appVersion = useAppVersion();
   const updater = useUpdater(true);
   const shouldReduceMotion = useReducedMotion();
@@ -358,23 +354,7 @@ export function Layout() {
         </button>
       )}
       </div>
-      {createPortal(
-        <Toaster
-          theme={isLightTheme(theme) ? 'light' : 'dark'}
-          richColors
-          position="bottom-right"
-          style={{
-            position: 'fixed',
-            right: 16,
-            bottom: 16,
-            top: 'auto',
-            left: 'auto',
-            zIndex: 80,
-            maxWidth: 'calc(100vw - 2rem)',
-          }}
-        />,
-        document.body,
-      )}
+      <Notifications />
     </>
   );
 }

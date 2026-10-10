@@ -8,11 +8,11 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const releaseWorkflow = fs.readFileSync(
   path.join(repositoryRoot, '.github', 'workflows', 'release.yml'),
   'utf8',
-);
+).replaceAll('\r\n', '\n');
 const ciWorkflow = fs.readFileSync(
   path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'),
   'utf8',
-);
+).replaceAll('\r\n', '\n');
 const desktopPackage = JSON.parse(fs.readFileSync(
   path.join(repositoryRoot, 'apps', 'desktop', 'package.json'),
   'utf8',

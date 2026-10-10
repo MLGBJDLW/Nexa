@@ -63,6 +63,8 @@ pub(crate) struct AgentRuntimeTurnRequest {
 pub(crate) struct ExternalAgentBinding {
     pub profile_id: String,
     pub launch: nexa_core::external_agent::ExternalAgentLaunch,
+    /// Per-turn opaque ACP option ID, independent of API reasoning enums.
+    pub reasoning_effort: Option<String>,
 }
 
 struct PreparedTurn {

@@ -5,14 +5,16 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::db::Database;
 use crate::error::CoreError;
 use crate::llm::{ProviderConfig, ProviderStreamingConfig};
-use crate::model_catalog::{load_builtin_catalog, normalize_endpoint_url};
+use crate::model_catalog::normalize_endpoint_url;
 use crate::provider_registry::provider_type_for_parts;
 use crate::settings_schema_v2::{
     resolve_settings_v2, CapabilityFallbackModeV2, ResolvedSettingsV2, SettingsProfileV2,
     SettingsScopeKindV2, SettingsScopeV2,
 };
 
-use super::resolver::{build_registry_projection, selected_profile_chain, stable_id};
+use super::resolver::{
+    build_registry_projection, builtin_model_definitions, selected_profile_chain, stable_id,
+};
 use super::types::{
     CapabilityRegistryProjection, ConnectionHealth, ConnectionRecord, ModelDefinitionRecord,
     ModelTargetRecord, RegistryActivationRecord, RegistryReadMode, RegistryScope,
@@ -1623,27 +1625,7 @@ fn settings_v2_active(conn: &Connection) -> Result<bool, CoreError> {
 }
 
 fn empty_projection() -> Result<CapabilityRegistryProjection, CoreError> {
-    let catalog = load_builtin_catalog().map_err(CoreError::InvalidInput)?;
-    let definitions = catalog
-        .models
-        .into_iter()
-        .map(|descriptor| {
-            let descriptor_json = serde_json::to_vec(&descriptor)?;
-            Ok(ModelDefinitionRecord {
-                id: stable_id(
-                    "model",
-                    &format!(
-                        "{}|{}",
-                        normalize_provider(&descriptor.provider_id),
-                        descriptor.id.trim().to_ascii_lowercase()
-                    ),
-                ),
-                revision: 1,
-                descriptor_hash: blake3::hash(&descriptor_json).to_hex().to_string(),
-                descriptor,
-            })
-        })
-        .collect::<Result<Vec<_>, CoreError>>()?;
+    let definitions = builtin_model_definitions()?;
     Ok(CapabilityRegistryProjection {
         schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
         settings_revisions: Vec::new(),
@@ -1868,6 +1850,40 @@ mod tests {
                 })
                 .expect("text generation should remain registry-backed");
             assert_eq!(resolution.model_id, expected_model);
+        }
+    }
+
+    #[test]
+    fn alibaba_token_plan_and_metered_models_keep_distinct_definition_identities() {
+        let db = Database::open_memory().unwrap();
+        let mut agents = Vec::new();
+        for endpoint in [
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ] {
+            for model in ["qwen3.8-max", "glm-5.3"] {
+                let key = if endpoint.contains("token-plan") {
+                    "sk-sp-test-key"
+                } else {
+                    "sk-test-key"
+                };
+                let saved = db
+                    .save_agent_config(&agent("qwen", endpoint, model, key))
+                    .unwrap();
+                agents.push((saved.id, endpoint, model));
+            }
+        }
+        for (agent_id, endpoint, model) in agents {
+            let scope = RegistryScope {
+                agent_id: Some(agent_id),
+                ..RegistryScope::default()
+            };
+            let route = db
+                .resolve_runtime_capability(&scope, "text_generation")
+                .unwrap_or_else(|error| panic!("{endpoint} {model}: {error}"))
+                .expect("configured route");
+            assert_eq!(route.model_id, model);
+            assert_eq!(route.provider_config.base_url.as_deref(), Some(endpoint));
         }
     }
 
