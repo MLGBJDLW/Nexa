@@ -21,6 +21,16 @@
 * **vision:** preserve image disclosure consent across path aliases ([fa730dd](https://github.com/MLGBJDLW/Nexa/commit/fa730dd7310fdd00a0e2e4903e55aa3c7976b982))
 * **vision:** preserve small image dimensions during normalization ([ed4bc53](https://github.com/MLGBJDLW/Nexa/commit/ed4bc534431aa4984e373fab4643dbc15113e7c0))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 40880f7607fc401e5ba8be21d2be82d58ed79a2d -->
+
+### What's Changed
+* feat: improve computer use reliability and native image inspection by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/460
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.28...nexa-monorepo-v0.14.29
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.28](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.27...nexa-monorepo-v0.14.28) (2026-10-09)
 
 
