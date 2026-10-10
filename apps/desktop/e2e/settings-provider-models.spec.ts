@@ -486,6 +486,7 @@ test.beforeEach(async ({ page }) => {
             : [{ id: "gpt-6", name: "GPT-6", reasoningEfforts: ["low", "high", "ultra"] }];
         }
         case 'get_external_agent_launch_cmd':
+          if (localStorage.getItem('nexa-e2e-legacy-acp-reasoning')) return { executable: null, workingDirectory: '', configOptions: { effort: 'high' } };
           return { executable: null, workingDirectory: '' };
         case 'inspect_external_agent_cmd': {
           const delay = Number(localStorage.getItem('nexa-e2e-acp-probe-delay') ?? '0');
@@ -2709,7 +2710,10 @@ test('ACP model changes discard uncategorized native reasoning before verifying 
 });
 
 test('ACP discovery exposes replacements without silently changing a retired saved model', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('nexa-e2e-stale-subscription-provider', 'gemini_cli'));
+  await page.addInitScript(() => {
+    localStorage.setItem('nexa-e2e-stale-subscription-provider', 'gemini_cli');
+    localStorage.setItem('nexa-e2e-legacy-acp-reasoning', '1');
+  });
   await page.goto('/settings');
   await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
@@ -2721,9 +2725,11 @@ test('ACP discovery exposes replacements without silently changing a retired sav
   const model = form.getByRole('combobox', { name: 'Default Model', exact: true });
   await expect(model).toHaveValue('retired-native-model');
   await expect(model.getByRole('option', { name: 'Native model', exact: true })).toHaveCount(1);
+  await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await model.selectOption('vendor/native-model');
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ model: 'vendor/native-model', reasoningEffort: null });
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { configOptions: {} } });
 });
 
 test("Qwen Audio and dynamically discovered OpenRouter image models are usable in settings", async ({ page }) => {

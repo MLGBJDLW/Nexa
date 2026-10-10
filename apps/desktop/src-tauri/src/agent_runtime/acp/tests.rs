@@ -548,6 +548,11 @@ async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
             "opaque_record".into(),
             log.to_string_lossy().into(),
         ]),
+        config_options: std::collections::BTreeMap::from([
+            ("custom-effort".into(), "eco".into()),
+            ("thought_level".into(), "retired".into()),
+            ("effort".into(), "fast".into()),
+        ]),
         ..Default::default()
     };
     let binding = super::super::ExternalAgentBinding {

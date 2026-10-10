@@ -67,7 +67,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
       if (generation.current !== current) return;
       setModels(found.models); setNativeOptions(found.configOptions); setNativeCommands(found.commands); setVerified(true);
       setLaunch({ ...requestedLaunch, configOptions: Object.fromEntries(found.configOptions
-        .filter(option => Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
+        .filter(option => !isNativeReasoning(option) && Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
         .map(option => [option.id, option.currentValue])) });
       setModel(selected || found.models[0]?.id || '');
     } catch (cause) { if (generation.current === current) setError(String(cause)); }
