@@ -470,30 +470,13 @@ fn inside_polygon(x: f64, y: f64, points: &[(f64, f64)]) -> bool {
     inside
 }
 
-/// A compact 20x25 logical-pixel arrow in premultiplied BGRA. 4x4-sample
-/// antialiasing, a quiet target glow and a fine white edge retain contrast on
-/// light and dark surfaces without covering nearby controls with a label.
+/// A compact triangular pointer in premultiplied BGRA. A fine white edge
+/// and theme-tinted shadow retain contrast without a tail, label or idle halo.
 fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
     let width = (36.0 * scale).ceil() as i32;
-    let height = (40.0 * scale).ceil() as i32;
-    let outer = [
-        (8., 8.),
-        (9.2, 29.),
-        (14.8, 23.8),
-        (19.1, 32.2),
-        (22.9, 30.4),
-        (18.7, 22.),
-        (26.4, 21.4),
-    ];
-    let inner = [
-        (9.3, 10.3),
-        (10.3, 26.6),
-        (15.2, 22.),
-        (19.6, 30.7),
-        (21.3, 29.9),
-        (16.9, 21.),
-        (23.4, 20.5),
-    ];
+    let height = (36.0 * scale).ceil() as i32;
+    let outer = [(8.0, 8.0), (11.0, 28.0), (26.0, 21.0)];
+    let inner = [(9.6, 10.8), (12.0, 26.2), (23.4, 20.7)];
     let mut pixels = vec![0; width as usize * height as usize * 4];
     for row in 0..height {
         for column in 0..width {
@@ -502,14 +485,7 @@ fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
                 for sx in 0..4 {
                     let x = (f64::from(column) + (f64::from(sx) + 0.5) / 4.0) / scale;
                     let y = (f64::from(row) + (f64::from(sy) + 0.5) / 4.0) / scale;
-                    let distance = (x - 8.).hypot(y - 8.);
-                    let glow = (1.0 - distance / 7.5).clamp(0., 1.).powi(2);
-                    let mut color = [
-                        u32::from(accent[2]),
-                        u32::from(accent[1]),
-                        u32::from(accent[0]),
-                        (48.0 * glow) as u32,
-                    ];
+                    let mut color = [0_u32; 4];
                     // A restrained one-pixel shadow keeps the white outline
                     // readable on pale windows; it never expands the hotspot.
                     if inside_polygon(x - 0.5, y - 1.0, &outer) {
@@ -524,7 +500,7 @@ fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
                         color = [255, 255, 255, 255];
                     }
                     if inside_polygon(x, y, &inner) {
-                        let gradient = ((y - 10.) / 21.).clamp(0., 1.);
+                        let gradient = ((y - 10.) / 18.).clamp(0., 1.);
                         let shade = |channel: u8| {
                             let base = f64::from(channel);
                             let light = base + (255.0 - base) * 0.22;

@@ -39,7 +39,7 @@ control and the interval between actions; Stop remains available until the ownin
 run finishes. Run identities prevent another task's terminal event from clearing
 the current activity.
 
-The native action worker owns a compact Nexa pointer with a soft target glow.
+The native action worker owns a compact triangular Nexa pointer, without a tail or idle halo.
 Its color comes from the current theme's resolved accent, including theme resource
 plugins; the main theme provider projects updates into the existing native surface.
 It follows admitted pointer movement and marks semantic targets without
