@@ -151,11 +151,16 @@ fn finalize_image_evidence(
         });
     }
 
-    let normalized = decoded.resize(
-        MAX_LLM_IMAGE_DIMENSION,
-        MAX_LLM_IMAGE_DIMENSION,
-        image::imageops::FilterType::Lanczos3,
-    );
+    let normalized =
+        if decoded_width > MAX_LLM_IMAGE_DIMENSION || decoded_height > MAX_LLM_IMAGE_DIMENSION {
+            decoded.resize(
+                MAX_LLM_IMAGE_DIMENSION,
+                MAX_LLM_IMAGE_DIMENSION,
+                image::imageops::FilterType::Lanczos3,
+            )
+        } else {
+            decoded
+        };
     let (width, height) = (normalized.width(), normalized.height());
     let mut encoded = std::io::Cursor::new(Vec::new());
     let rgba = normalized.to_rgba8();
