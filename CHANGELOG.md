@@ -22,6 +22,16 @@
 * **ingest:** revalidate external parser upgrades during rescans ([04334e0](https://github.com/MLGBJDLW/Nexa/commit/04334e029c7776fd76ed73364bfcd29898cccfea))
 * **runtime:** preserve native controls and retry incomplete extraction ([c6a888a](https://github.com/MLGBJDLW/Nexa/commit/c6a888a557125501c15d2052b7c4f5b1134322a8))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 49d6920bec84083fed508869c9572856747f2d1c -->
+
+### What's Changed
+* feat(runtime)!: accelerate indexing and expand agent interoperability by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/462
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.29...nexa-monorepo-v0.15.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.29](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.28...nexa-monorepo-v0.14.29) (2026-10-10)
 
 
