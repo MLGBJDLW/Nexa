@@ -39,8 +39,8 @@ control and the interval between actions; Stop remains available until the ownin
 run finishes. Run identities prevent another task's terminal event from clearing
 the current activity.
 
-The native action worker owns a separate Nexa pointer with a label and target
-halo. It follows admitted pointer movement and marks semantic targets without
+The native action worker owns a compact purple-and-white Nexa pointer with a soft target
+glow. It follows admitted pointer movement and marks semantic targets without
 moving the user's pointer for UI Automation. The overlay is transparent to input,
 does not activate a window, and is destroyed when that worker exits. It does not
 change the Windows cursor scheme. Its independent window is outside the target
@@ -82,8 +82,9 @@ The implementation uses Nexa's existing contracts. Design references include
 [pi's image-aware read tool](https://github.com/earendil-works/pi/blob/42a3497d03ad17e308a2299fa824727894f2c0ec/packages/coding-agent/src/core/tools/read.ts),
 [Codex's view_image handler](https://github.com/openai/codex/blob/322bbf4d8486efd7dbbcf49598711a9e3fefc282/codex-rs/core/src/tools/handlers/view_image.rs),
 and [Cua's Windows pointer overlay](https://github.com/trycua/cua/blob/5274342fbf66ca2998325be5e900299406ca8650/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs).
-The upstream investigation also compared Hermes' unified action tool; the public
-tool count alone does not replace permission, recovery and receipt integration.
+The investigation also compared [Hermes' unified action tool and effect verdicts](https://github.com/NousResearch/hermes-agent/blob/5ba559c9e4b1c8397df7788e319ab634144ca728/tools/computer_use/tool.py#L519-L577);
+the public tool count alone does not replace permission, recovery and receipt
+integration.
 
 Core regressions cover fresh-token retention, safe failure diagnostics, real local
 image reads, native/interpreted routing and privacy. Interactive Windows helper

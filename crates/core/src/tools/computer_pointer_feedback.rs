@@ -222,7 +222,7 @@ struct PointerWindow {
 impl PointerWindow {
     fn create(scale: f64, point: (i32, i32)) -> windows::core::Result<Self> {
         let (width, height, pixels) = pointer_pixels(scale);
-        let hotspot = (18.0 * scale).round() as i32;
+        let hotspot = (8.0 * scale).round() as i32;
         let handle = unsafe {
             CreateWindowExW(
                 WS_EX_LAYERED
@@ -366,66 +366,57 @@ fn inside_polygon(x: f64, y: f64, points: &[(f64, f64)]) -> bool {
     inside
 }
 
-/// Premultiplied BGRA, with supersampling so the pointer stays legible at
-/// mixed display scales. The badge says NEXA without a font or WebView runtime.
+/// A compact 20x25 logical-pixel arrow in premultiplied BGRA. Four-sample
+/// antialiasing, a quiet target glow and a fine white edge retain contrast on
+/// light and dark surfaces without covering nearby controls with a label.
 fn pointer_pixels(scale: f64) -> (i32, i32, Vec<u8>) {
-    let width = (112.0 * scale).ceil() as i32;
-    let height = (78.0 * scale).ceil() as i32;
+    let width = (36.0 * scale).ceil() as i32;
+    let height = (40.0 * scale).ceil() as i32;
     let outer = [
-        (18., 18.),
-        (19., 48.),
-        (28., 39.),
-        (36., 55.),
-        (44., 51.),
-        (36., 35.),
-        (50., 34.),
+        (8., 8.),
+        (9.2, 29.),
+        (14.8, 23.8),
+        (19.1, 32.2),
+        (22.9, 30.4),
+        (18.7, 22.),
+        (26.4, 21.4),
     ];
     let inner = [
-        (20., 24.),
-        (21., 42.),
-        (29., 35.),
-        (38., 51.),
-        (40., 50.),
-        (32., 33.),
-        (43., 32.),
-    ];
-    let glyphs: [[u8; 7]; 4] = [
-        [17, 25, 25, 21, 19, 19, 17],
-        [31, 16, 16, 30, 16, 16, 31],
-        [17, 17, 10, 4, 10, 17, 17],
-        [14, 17, 17, 31, 17, 17, 17],
+        (9.3, 10.3),
+        (10.3, 26.6),
+        (15.2, 22.),
+        (19.6, 30.7),
+        (21.3, 29.9),
+        (16.9, 21.),
+        (23.4, 20.5),
     ];
     let mut pixels = vec![0; width as usize * height as usize * 4];
     for row in 0..height {
         for column in 0..width {
             let mut sum = [0_u32; 4];
-            for sy in 0..3 {
-                for sx in 0..3 {
-                    let x = (f64::from(column) + (f64::from(sx) + 0.5) / 3.0) / scale;
-                    let y = (f64::from(row) + (f64::from(sy) + 0.5) / 3.0) / scale;
-                    let mut color = [0_u32; 4];
-                    let distance = (x - 18.).hypot(y - 18.);
-                    if (10.0..=14.0).contains(&distance) {
-                        color = [181, 103, 132, 180];
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let x = (f64::from(column) + (f64::from(sx) + 0.5) / 4.0) / scale;
+                    let y = (f64::from(row) + (f64::from(sy) + 0.5) / 4.0) / scale;
+                    let distance = (x - 8.).hypot(y - 8.);
+                    let glow = (1.0 - distance / 7.5).clamp(0., 1.).powi(2);
+                    let mut color = [240, 123, 157, (48.0 * glow) as u32];
+                    // A restrained one-pixel shadow keeps the white outline
+                    // readable on pale windows; it never expands the hotspot.
+                    if inside_polygon(x - 0.5, y - 1.0, &outer) {
+                        color = [79, 38, 49, 70];
                     }
                     if inside_polygon(x, y, &outer) {
                         color = [255, 255, 255, 255];
                     }
                     if inside_polygon(x, y, &inner) {
-                        color = [211, 92, 120, 255];
-                    }
-                    let dx = (x - 76.).abs() - 20.;
-                    let dy = (y - 61.).abs() - 3.;
-                    if dx.max(0.).hypot(dy.max(0.)) <= 9. {
-                        color = [148, 56, 88, 245];
-                    }
-                    if (52.0..100.0).contains(&x) && (54.0..68.0).contains(&y) {
-                        let gx = ((x - 52.) / 2.) as usize;
-                        let gy = ((y - 54.) / 2.) as usize;
-                        if gx / 6 < 4 && gx % 6 < 5 && glyphs[gx / 6][gy] & (1 << (4 - gx % 6)) != 0
-                        {
-                            color = [255, 255, 255, 255];
-                        }
+                        let gradient = ((y - 10.) / 21.).clamp(0., 1.);
+                        color = [
+                            (248. - 37. * gradient) as u32,
+                            (128. - 49. * gradient) as u32,
+                            (164. - 52. * gradient) as u32,
+                            255,
+                        ];
                     }
                     for index in 0..3 {
                         sum[index] += color[index] * color[3] / 255;
@@ -435,7 +426,7 @@ fn pointer_pixels(scale: f64) -> (i32, i32, Vec<u8>) {
             }
             let offset = (row as usize * width as usize + column as usize) * 4;
             for index in 0..4 {
-                pixels[offset + index] = (sum[index] / 9) as u8;
+                pixels[offset + index] = (sum[index] / 16) as u8;
             }
         }
     }
@@ -506,6 +497,85 @@ mod tests {
             assert_eq!(unsafe { WindowFromPoint(point) }, hit);
         }
         assert!(!unsafe { IsWindow(Some(handle)) }.as_bool());
+        unsafe {
+            SetThreadDpiAwarenessContext(previous_dpi);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires an interactive Windows desktop; moves only an isolated test status window"]
+    fn status_obstruction_moves_only_registered_feedback_and_restores_on_exit() {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::HiDpi::{
+            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetCursorPos, GetForegroundWindow, GetWindowRect,
+        };
+        let previous_dpi =
+            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) }.unwrap();
+        let foreground = unsafe { GetForegroundWindow() };
+        let handle = unsafe {
+            CreateWindowExW(
+                WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                w!("STATIC"),
+                w!("Nexa Computer Use"),
+                WS_POPUP,
+                point.x - 40,
+                point.y - 20,
+                200,
+                76,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        .unwrap();
+        let _status = PointerWindow {
+            handle,
+            width: 200,
+            height: 76,
+            hotspot: 0,
+        };
+        unsafe {
+            SetWindowPos(
+                handle,
+                Some(HWND_TOPMOST),
+                point.x - 40,
+                point.y - 20,
+                200,
+                76,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+        }
+        .unwrap();
+        let mut original = RECT::default();
+        unsafe { GetWindowRect(handle, &mut original) }.unwrap();
+        {
+            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64);
+            // Unregistered windows are never moved, even with the same title.
+            avoid_status_at((point.x, point.y));
+            let mut current = RECT::default();
+            unsafe { GetWindowRect(handle, &mut current) }.unwrap();
+            assert_eq!(current, original);
+            register_status_window(handle.0 as usize as u64);
+            avoid_status_at((point.x, point.y));
+            unsafe { GetWindowRect(handle, &mut current) }.unwrap();
+            assert!(
+                point.x < current.left
+                    || point.x >= current.right
+                    || point.y < current.top
+                    || point.y >= current.bottom
+            );
+            assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+        }
+        let mut restored = RECT::default();
+        unsafe { GetWindowRect(handle, &mut restored) }.unwrap();
+        assert_eq!(restored, original);
+        register_status_window(0);
         unsafe {
             SetThreadDpiAwarenessContext(previous_dpi);
         }
