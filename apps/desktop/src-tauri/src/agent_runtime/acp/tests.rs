@@ -523,6 +523,78 @@ fn wire_with_marker(mode: &str, marker: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
+    let directory = tempfile::tempdir().unwrap();
+    let log = directory.path().join("effective-effort.txt");
+    let python = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    let launch = ExternalAgentLaunch {
+        executable: Some(String::from_utf8(python.stdout).unwrap().trim().into()),
+        working_directory: directory.path().to_string_lossy().into(),
+        args: Some(vec![
+            "-u".into(),
+            "-c".into(),
+            include_str!("fixture.py").into(),
+            "opaque_record".into(),
+            log.to_string_lossy().into(),
+        ]),
+        ..Default::default()
+    };
+    let binding = super::super::ExternalAgentBinding {
+        profile_id: uuid::Uuid::new_v4().to_string(),
+        launch,
+        reasoning_effort: Some("deep".into()),
+    };
+    let (mut first, _rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("opencode"),
+        "vendor/模型",
+    );
+    let db = first.db.clone();
+    let conversation = first.conversation_id.clone();
+    first.external = Some(binding.clone());
+    run("opencode", first).await.unwrap();
+
+    let (mut next, _next_rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("opencode"),
+        "vendor/模型",
+    );
+    let mut user = db.get_messages(&conversation).unwrap()[0].clone();
+    user.id = uuid::Uuid::new_v4().to_string();
+    user.sort_order = db
+        .get_messages(&conversation)
+        .unwrap()
+        .iter()
+        .map(|message| message.sort_order)
+        .max()
+        .unwrap()
+        + 1;
+    user.content = "Use the native default for this turn".into();
+    db.add_message(&user).unwrap();
+    next.turn_id = db
+        .create_conversation_turn(&conversation, &user.id, None)
+        .unwrap()
+        .id;
+    next.next_sort_order = user.sort_order + 1;
+    next.db = db;
+    next.conversation_id = conversation;
+    next.external = Some(super::super::ExternalAgentBinding {
+        reasoning_effort: None,
+        ..binding
+    });
+    run("opencode", next).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(log)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["deep", "balanced"]
+    );
+}
+
+#[tokio::test]
 async fn completed_session_reuses_connection_without_resending_history_or_model_setup() {
     use nexa_core::llm::Role;
     let directory = tempfile::tempdir().unwrap();

@@ -8,7 +8,7 @@ import os
 mode = sys.argv[1]
 session = "会话-Δ"
 config = [{"id": "model-id", "category": "model", "type": "select", "name": "Model", "currentValue": "first", "options": [{"value": "first", "name": "First"}, {"value": "vendor/模型", "name": "Model"}]}]
-if mode == "opaque_effort":
+if mode in ("opaque_effort", "opaque_record"):
     config.append({"id":"reasoning_effort","type":"select","name":"Reasoning","currentValue":"balanced","options":[{"value":value,"name":value} for value in ["eco","balanced","deep"]]})
 if mode == "dependent":
     config = [
@@ -59,7 +59,7 @@ for line in sys.stdin:
         assert mode == "legacy" and message["params"]["modelId"] == "vendor/模型"
         reply(message, {})
     elif method == "session/set_config_option":
-        if mode == "opaque_effort":
+        if mode in ("opaque_effort", "opaque_record"):
             option = next(option for option in config if option["id"] == message["params"]["configId"])
             value = message["params"]["value"]
             assert any(choice["value"] == value for choice in option["options"])
@@ -87,6 +87,9 @@ for line in sys.stdin:
     elif method == "session/prompt":
         if mode == "opaque_effort":
             assert config[1]["currentValue"] == "deep", "opaque chat effort was lost before prompt"
+        if mode == "opaque_record":
+            with open(sys.argv[2], "a", encoding="utf-8") as log:
+                log.write(config[1]["currentValue"] + "\n")
         pending = message
         if mode == "tree":
             subprocess.Popen([sys.executable, "-c", "import time,pathlib,sys;time.sleep(1);pathlib.Path(sys.argv[1]).write_text('orphan')", sys.argv[2]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
