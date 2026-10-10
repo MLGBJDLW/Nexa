@@ -672,7 +672,7 @@ fn pdf_page_chunks(
                     content.operations.iter().any(|operation| {
                         matches!(
                             operation.operator.as_str(),
-                            "Do" | "f" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*"
+                            "BI" | "Do" | "f" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*"
                         )
                     })
                 },
@@ -2289,7 +2289,7 @@ mod tests {
         );
         let resources = doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font } });
         let mut kids: Vec<Object> = Vec::new();
-        for text in ["Readable native title.", ""] {
+        for text in ["Readable native title.", "", "Scanned document caption."] {
             let content = Content {
                 operations: vec![
                     Operation::new("BT", vec![]),
@@ -2298,13 +2298,22 @@ mod tests {
                     Operation::new("ET", vec![]),
                 ],
             };
-            let stream = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+            let mut bytes = content.encode().unwrap();
+            if text == "Scanned document caption." {
+                bytes.extend_from_slice(b"\nBI /W 1 /H 1 /CS /RGB /BPC 8 ID \x00\x00\x00 EI\n");
+                let decoded = Content::decode(&bytes).unwrap();
+                assert!(decoded
+                    .operations
+                    .iter()
+                    .any(|operation| operation.operator == "BI"));
+            }
+            let stream = doc.add_object(Stream::new(dictionary! {}, bytes));
             let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => stream, "Resources" => resources, "MediaBox" => vec![0.into(),0.into(),612.into(),792.into()] });
             kids.push(page.into());
         }
         doc.objects.insert(
             pages_id,
-            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 2 }),
+            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 3 }),
         );
         let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
         doc.trailer.set("Root", catalog);
@@ -2316,12 +2325,19 @@ mod tests {
                 warnings: Vec::new(),
             }))
         });
-        assert_eq!(calls, 1);
+        assert_eq!(calls, 2);
         assert!(missing.is_empty() && warnings.is_empty());
         assert!(chunks.iter().any(|chunk| chunk.content.contains("500元")
             && chunk.locator
                 == EvidenceLocator::Pdf {
                     page: 2,
+                    bbox: None
+                }));
+        assert!(chunks.iter().any(|chunk| chunk.content.contains("500元")
+            && chunk.extraction_method == "native_and_ocr"
+            && chunk.locator
+                == EvidenceLocator::Pdf {
+                    page: 3,
                     bbox: None
                 }));
         let (_, missing, warnings) = pdf_page_chunks(&doc, 2000, |_| Ok(None));
