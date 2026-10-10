@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.29](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.28...nexa-monorepo-v0.14.29) (2026-10-10)
+
+
+### Features
+
+* **chat:** group computer actions into an inspectable workflow ([ef24cfe](https://github.com/MLGBJDLW/Nexa/commit/ef24cfebaee34e0f4e57d190b41f2d7e23719b39))
+* **computer-use:** align physical input and show scoped control feedback ([999e6f9](https://github.com/MLGBJDLW/Nexa/commit/999e6f93d65799d043ab1c8db1656a139b52fe88))
+* **computer-use:** animate theme-aware pointer and click feedback ([d9d3247](https://github.com/MLGBJDLW/Nexa/commit/d9d3247f13565eb41a13384e81a2a94666af7cb1))
+* improve computer use reliability and native image inspection ([40880f7](https://github.com/MLGBJDLW/Nexa/commit/40880f7607fc401e5ba8be21d2be82d58ed79a2d))
+* **vision:** read local image pixels through policy-bound visual routes ([1ee7226](https://github.com/MLGBJDLW/Nexa/commit/1ee7226fee56cc4aedf8f76a56ce79c87b3d9b7c))
+
+
+### Bug Fixes
+
+* **agent:** keep native tools within the resident schema budget ([675b797](https://github.com/MLGBJDLW/Nexa/commit/675b7978b2dd7d2ac56a9c20312720d942c8e947))
+* **agent:** keep visual guidance within the system prompt budget ([ce6da7b](https://github.com/MLGBJDLW/Nexa/commit/ce6da7b620233f2ed63ee39d62595845406798c8))
+* **computer-use:** revalidate targets after animated approach ([f046d42](https://github.com/MLGBJDLW/Nexa/commit/f046d42a0e6f8f5a830316408ee1cd327a940fda))
+* **theme:** refresh native feedback after hidden-window invalidations ([afa873f](https://github.com/MLGBJDLW/Nexa/commit/afa873f7b14ebdc64a6c5b17e1588151ef87c4b9))
+* **vision:** preserve image disclosure consent across path aliases ([fa730dd](https://github.com/MLGBJDLW/Nexa/commit/fa730dd7310fdd00a0e2e4903e55aa3c7976b982))
+* **vision:** preserve small image dimensions during normalization ([ed4bc53](https://github.com/MLGBJDLW/Nexa/commit/ed4bc534431aa4984e373fab4643dbc15113e7c0))
+
 ## [0.14.28](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.27...nexa-monorepo-v0.14.28) (2026-10-09)
 
 
