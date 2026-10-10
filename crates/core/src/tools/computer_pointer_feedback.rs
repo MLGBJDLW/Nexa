@@ -471,13 +471,37 @@ fn inside_polygon(x: f64, y: f64, points: &[(f64, f64)]) -> bool {
     inside
 }
 
+fn rounded_triangle(vertices: [(f64, f64); 3], corner: f64) -> Vec<(f64, f64)> {
+    let mut outline = Vec::with_capacity(21);
+    for index in 0..3 {
+        let vertex = vertices[index];
+        let inset = |neighbor: (f64, f64)| {
+            let dx = neighbor.0 - vertex.0;
+            let dy = neighbor.1 - vertex.1;
+            let fraction = (corner / dx.hypot(dy)).min(0.4);
+            (vertex.0 + dx * fraction, vertex.1 + dy * fraction)
+        };
+        let from = inset(vertices[(index + 2) % 3]);
+        let to = inset(vertices[(index + 1) % 3]);
+        for step in 0..=6 {
+            let t = f64::from(step) / 6.0;
+            let u = 1.0 - t;
+            outline.push((
+                u * u * from.0 + 2.0 * u * t * vertex.0 + t * t * to.0,
+                u * u * from.1 + 2.0 * u * t * vertex.1 + t * t * to.1,
+            ));
+        }
+    }
+    outline
+}
+
 /// A compact triangular pointer in premultiplied BGRA. A fine white edge
 /// and theme-tinted shadow retain contrast without a tail, label or idle halo.
 fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
     let width = (36.0 * scale).ceil() as i32;
     let height = (36.0 * scale).ceil() as i32;
-    let outer = [(8.0, 8.0), (11.0, 28.0), (26.0, 21.0)];
-    let inner = [(9.6, 10.8), (12.0, 26.2), (23.4, 20.7)];
+    let outer = rounded_triangle([(8.0, 8.0), (11.0, 28.0), (26.0, 21.0)], 3.4);
+    let inner = rounded_triangle([(9.3, 10.2), (11.8, 26.6), (24.0, 20.8)], 2.8);
     let mut pixels = vec![0; width as usize * height as usize * 4];
     for row in 0..height {
         for column in 0..width {
