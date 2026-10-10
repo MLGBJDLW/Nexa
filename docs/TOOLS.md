@@ -33,7 +33,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`code_review`](../crates/core/prompts/tools/code_review.json) | Inspect the local code review selected by the user in /review, and record structured findings |
 | [`compare_documents`](../crates/core/prompts/tools/compare_documents.json) | Compare content between two documents or chunks, showing differences and similarities |
 | [`compile_document`](../crates/core/prompts/tools/compile_document.json) | Check the compilation status of knowledge base documents |
-| [`computer_control`](../crates/core/prompts/tools/computer_control.json) | Perform one approval-gated action against a fresh Windows observation |
+| [`computer_control`](../crates/core/prompts/tools/computer_control.json) | Perform one approved Windows action against a fresh, single-use observation |
 | [`computer_observe`](../crates/core/prompts/tools/computer_observe.json) | Observe the local Windows desktop without changing it |
 | [`context_history`](../crates/core/prompts/tools/context_history.json) | Recover exact text and tool results in the current conversation |
 | [`create_file`](../crates/core/prompts/tools/create_file.json) | Create, overwrite, or incrementally append UTF-8 plain-text files at the specified path |
@@ -68,8 +68,8 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |
 | [`project_tool`](../crates/core/prompts/tools/project_tool.json) | Discover, describe, and run source-scoped project-local tool manifests |
 | [`query_knowledge_graph`](../crates/core/prompts/tools/query_knowledge_graph.json) | Query the compiled entity relationship graph as a compact navigation index before retrieving full evidence |
-| [`read_file`](../crates/core/prompts/tools/read_file.json) | Read an authorized local file |
-| [`read_files`](../crates/core/prompts/tools/read_files.json) | Read up to 20 authorized local files in one call using the same scope and privacy rules as read_file |
+| [`read_file`](../crates/core/prompts/tools/read_file.json) | Read an authorized local file by path |
+| [`read_files`](../crates/core/prompts/tools/read_files.json) | Read up to 20 local files under read_file scope/privacy rules |
 | [`record_verification`](../crates/core/prompts/tools/record_verification.json) | Record what was verified before finishing a multi-step task |
 | [`reindex_document`](../crates/core/prompts/tools/reindex_document.json) | Trigger re-indexing of a specific document by path or an entire source directory |
 | [`request_user_input`](../crates/core/prompts/tools/request_user_input.json) | Ask the user one to six concise, structured questions when their input is genuinely needed |

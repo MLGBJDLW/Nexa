@@ -1,6 +1,6 @@
 {
   "name": "read_file",
-  "description": "Read an authorized local file. Use path with optional start_line/max_lines; no action or command field. For edits use edit_file with old_str and explicit new_str; for new files use create_file. Restricted access stays within the current source roots; open mode also permits absolute local paths. Returns metadata, readable text and a citation. Page large text with start_line.\n\nFor PNG/JPEG/WebP/GIF visual inspection, set image_mode=\"native\" and omit line parameters: actual pixels enter the existing visual route after raw-image disclosure approval. Vision-capable models see pixels directly; text models use the configured interpreter. GIF uses its first frame. image_mode=\"text\" forces extraction; OCR is for text extraction. Without image_mode, privacy settings govern native evidence.\n\nPDF/DOCX/PPTX without explicit line parameters also provide original bytes to supported native document routes when privacy permits. Office native input is text-only; PDF can include page images. Explicit line parameters always select extraction only. XLSX uses structured extraction.",
+  "description": "Read an authorized local file by path. Restricted paths stay within current source roots; open mode permits absolute local paths. Returns metadata, text and a citation. Page text with start_line/max_lines. Use edit_file for changes, create_file for new files.\n\nFor image inspection, set image_mode=\"native\" without line parameters: approved pixels enter the existing visual route, directly for vision models or through the configured interpreter for text models. PNG/JPEG/WebP/GIF are supported; GIF uses its first frame. Omitted image_mode follows privacy settings; \"text\" forces extraction/OCR.\n\nWithout line parameters, PDF/DOCX/PPTX also provide originals to supported native routes when privacy permits. Office input is text-only; PDF can include page images. Explicit line parameters select extraction only. XLSX uses structured extraction.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -24,7 +24,7 @@
           "native",
           "text"
         ],
-        "description": "native: inspect image pixels after disclosure approval; omit line parameters. text: extraction without pixels. Omitted: follow privacy settings. Applies to PNG/JPEG/WebP/GIF (first frame)."
+        "description": "native: approved image pixels; omit line parameters. text: extraction only. Omitted: follow privacy settings."
       }
     },
     "required": [

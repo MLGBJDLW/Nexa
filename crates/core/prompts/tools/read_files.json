@@ -1,6 +1,6 @@
 {
   "name": "read_files",
-  "description": "Read up to 20 authorized local files in one call using the same scope and privacy rules as read_file. Returns each path with text/line counts or an error. max_lines_per_file limits extracted text.\n\nFor images, set image_mode=\"native\" without line parameters to return actual pixels through the existing visual route after raw-image disclosure approval; image_mode=\"text\" forces extraction. Native-capable models see pixels directly; text models use the configured interpreter. GIF uses its first frame. Without image_mode, privacy settings govern native evidence.\n\nPDF/DOCX/PPTX without explicit line limits also provide originals to supported native routes when privacy permits; Office native input is text-only and PDF can include page images. XLSX uses structured extraction. Explicit line limits never send whole files.",
+  "description": "Read up to 20 local files under read_file scope/privacy rules. Returns each path with content, totalLines and truncated, or error. max_lines_per_file limits text.\n\nimage_mode=\"native\" without line parameters requests approved image pixels through the existing visual route; \"text\" forces extraction/OCR. Omitted mode follows privacy settings. PNG/JPEG/WebP/GIF supported; GIF uses its first frame.\n\nWithout line parameters, PDF/DOCX/PPTX also provide originals to supported native routes when privacy permits. Office input is text-only; PDF can include images. Explicit line limits select extraction only; XLSX uses structured extraction.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -25,7 +25,7 @@
           "native",
           "text"
         ],
-        "description": "native: inspect image pixels after disclosure approval; omit line parameters. text: extraction without pixels. Omitted: follow privacy settings. Applies to PNG/JPEG/WebP/GIF (first frame)."
+        "description": "native: approved image pixels; omit line parameters. text: extraction only. Omitted: follow privacy settings."
       }
     },
     "required": [
