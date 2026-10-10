@@ -1,6 +1,6 @@
 {
   "name": "computer_control",
-  "description": "Perform one approval-gated action against a fresh Windows observation. Visual actions can target captured-image coordinates or observation-scoped UI Automation element ids. invoke and set_value use semantic Windows UI Automation patterns without moving the user's pointer; pointer/keyboard actions use foreground input. Each observation is single-use for control, process/title and visual/semantic freshness are revalidated, and the result includes a new hybrid observation plus change verification. A successful fresh post-action observation of the same target is usable evidence: inspect its values/states and continue with its observationId without an extra capture. If capture is missing or effects remain uncertain, observe again before retrying or completing. Auto delivery prefers actual UI Automation invocation patterns for single element clicks. Use set_value only when advertised for a writable Value pattern; it supports exact replacement, clearing and long multiline text. type_text sends keyboard input. Background requests never silently fall back to foreground input.",
+  "description": "Perform one approved Windows action against a fresh, single-use observation. Target either captured-image coordinates or observation-scoped UI Automation element ids. Identity, visual/semantic freshness and input ownership are revalidated. A successful result includes a new observation and change verification: inspect it and reuse its observationId without another capture. If capture is missing or effects uncertain, observe before further input.\n\ninvoke/set_value use semantic patterns without moving the pointer; type_text uses keyboard input. Auto delivery prefers UI Automation for supported element clicks. set_value requires an advertised writable Value pattern and supports replacement, clearing and multiline text. Background delivery never falls back to foreground input.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -49,22 +49,22 @@
       "x": {
         "type": "number",
         "minimum": 0,
-        "description": "X coordinate in the referenced captured image. Required for mouse actions."
+        "description": "X in the referenced captured image. For pointer actions, supply x/y or element_id, never both."
       },
       "y": {
         "type": "number",
         "minimum": 0,
-        "description": "Y coordinate in the referenced captured image. Required for mouse actions."
+        "description": "Y in the referenced captured image. For pointer actions, supply x/y or element_id, never both."
       },
       "to_x": {
         "type": "number",
         "minimum": 0,
-        "description": "Destination X coordinate in the referenced captured image. Required for drag."
+        "description": "Drag destination in the captured image. Supply to_x/to_y or to_element_id, never both."
       },
       "to_y": {
         "type": "number",
         "minimum": 0,
-        "description": "Destination Y coordinate in the referenced captured image. Required for drag."
+        "description": "Drag destination in the captured image. Supply to_x/to_y or to_element_id, never both."
       },
       "button": {
         "type": "string",
@@ -97,7 +97,7 @@
         "type": "string",
         "minLength": 0,
         "maxLength": 65536,
-        "description": "set_value replaces the full value and accepts 0..65536 characters; empty clears the field. type_text enters 1..8000 characters with at most 32 newline/tab controls. Prefer set_value for forms and multiline documents when the element offers it. Other controls and password fields are rejected."
+        "description": "set_value replaces/clears 0..65536 characters. type_text enters 1..8000 characters with at most 32 newline/tab controls. Prefer advertised set_value for forms and multiline text. Password fields and other controls are rejected."
       },
       "key_sequence": {
         "type": "string",
@@ -134,7 +134,7 @@
           "action",
           "window_session"
         ],
-        "description": "Defaults to action. For a multi-step task in one window, window_session offers the user a reusable Allow for session grant bound to the verified process/window and current task; fresh observations remain required. It never grants access automatically."
+        "description": "action (default), or window_session to request a reusable user grant bound to the verified process/window and task. Fresh observations remain required; this never grants access automatically."
       },
       "delivery": {
         "type": "string",
@@ -143,7 +143,7 @@
           "background",
           "foreground"
         ],
-        "description": "auto prefers native UI Automation for invokable single left clicks on element_id. background requires a usable semantic pattern and never sends foreground mouse/keyboard input; the target application may still activate itself. foreground forces pointer/keyboard delivery; invoke/set_value are always background."
+        "description": "auto prefers UI Automation for supported element clicks. background requires a semantic pattern; no foreground fallback. The application may activate itself. foreground forces pointer/keyboard input; invoke/set_value remain background."
       },
       "drag_duration_ms": {
         "type": "integer",

@@ -109,6 +109,8 @@ pub mod compare_tool;
 pub mod compile_tool;
 #[cfg(any(all(windows, feature = "desktop-control"), test))]
 mod computer_capture_lifecycle;
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+mod computer_pointer_feedback;
 pub mod computer_use_tool;
 pub mod context_history_tool;
 pub mod conversation_goal_tool;

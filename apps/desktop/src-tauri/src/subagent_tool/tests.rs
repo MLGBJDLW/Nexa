@@ -324,6 +324,28 @@ async fn no_op_private_worker_selectors_preserve_confirmed_image_support() {
 }
 
 #[tokio::test]
+async fn worker_model_selection_cannot_drop_parent_image_routing_permission() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("gpt-5.4".into());
+    runtime.base_config.native_vision = Some(true);
+    runtime.base_config.native_image_policy = Some(nexa_core::vision_router::NativeImagePolicy {
+        local: true,
+        remote: false,
+    });
+    runtime.provider_config.api_key = Some("test-key".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args = serde_json::from_value(
+        serde_json::json!({"task":"Inspect supplied image", "model":"gpt-5.4", "allowed_tools":[]}),
+    )
+    .unwrap();
+    let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "policy-bound-vision", None)
+        .await
+        .unwrap();
+    assert_eq!(worker.config.native_vision, Some(false));
+}
+
+#[tokio::test]
 async fn explicit_same_model_worker_recomputes_parent_fallback_image_policy() {
     let db = Database::open_memory().unwrap();
     let saved = db

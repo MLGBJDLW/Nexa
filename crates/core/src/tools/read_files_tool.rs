@@ -12,14 +12,16 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
-use futures::future::join_all;
+use futures::{stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::CoreError;
 use crate::privacy::{self, PrivacyConfig};
 
-use super::document_utils::{document_attachment, read_file_evidence};
+use super::document_utils::{
+    native_image_consent_message, read_file_evidence, requests_native_image, NativeFileEvidence,
+};
 use super::path_utils::resolve_existing_file_for_file_access;
 use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
@@ -36,6 +38,8 @@ struct ReadFilesArgs {
     paths: Vec<String>,
     #[serde(default)]
     max_lines_per_file: Option<usize>,
+    #[serde(default)]
+    image_mode: Option<String>,
 }
 
 /// Per-file read outcome. Kept private — serialised directly into the
@@ -51,7 +55,7 @@ struct FileReadOk {
     total_lines: usize,
     shown_lines: usize,
     truncated: bool,
-    document: Option<crate::llm::document::DocumentInput>,
+    document: Option<NativeFileEvidence>,
 }
 
 #[async_trait]
@@ -70,6 +74,23 @@ impl Tool for ReadFilesTool {
 
     fn categories(&self) -> &'static [ToolCategory] {
         &[ToolCategory::Core, ToolCategory::FileSystem]
+    }
+
+    fn requires_confirmation(&self, args: &serde_json::Value) -> bool {
+        requests_native_image(args)
+    }
+    fn confirmation_message(&self, args: &serde_json::Value) -> Option<String> {
+        native_image_consent_message(args)
+    }
+    fn is_read_only(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+    fn is_concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+
+    fn run_capabilities(&self, args: &serde_json::Value) -> super::ToolRunCapabilities {
+        super::document_utils::file_read_capabilities(self, args)
     }
 
     async fn execute(
@@ -98,7 +119,15 @@ impl Tool for ReadFilesTool {
             )));
         }
 
-        let native_candidate = args.max_lines_per_file.is_none();
+        let native_candidate =
+            args.max_lines_per_file.is_none() && args.image_mode.as_deref() != Some("text");
+        // Use the exact predicate that admitted raw-image disclosure. The
+        // canonical path may reveal an image behind a symlink or Win32 alias;
+        // resolving it must not manufacture consent absent from the request.
+        let native_image_consent =
+            requests_native_image(&serde_json::from_str(arguments).map_err(|error| {
+                CoreError::InvalidInput(format!("Invalid read_files arguments: {error}"))
+            })?);
         let max_lines = args
             .max_lines_per_file
             .unwrap_or(DEFAULT_MAX_LINES_PER_FILE)
@@ -122,6 +151,7 @@ impl Tool for ReadFilesTool {
                     &privacy_config,
                     max_lines,
                     native_candidate,
+                    native_image_consent,
                 );
                 FileReadOutcome {
                     path: raw_path,
@@ -130,7 +160,9 @@ impl Tool for ReadFilesTool {
             })
         });
 
-        let results = join_all(tasks).await;
+        // Bound concurrent image/document decoders, not the number of task
+        // steps. Twenty compressed images must not allocate twenty full frames.
+        let results = stream::iter(tasks).buffered(4).collect::<Vec<_>>().await;
 
         let mut files_json = Vec::with_capacity(results.len());
         let mut text_blocks: Vec<String> = Vec::with_capacity(results.len());
@@ -151,13 +183,14 @@ impl Tool for ReadFilesTool {
                             ok.shown_lines, ok.total_lines
                         ));
                     }
-                    let text = format!("{}\n---\n{}", header, ok.content);
-                    if let Some(document) = ok
-                        .document
-                        .filter(|d| d.byte_length <= remaining_document_bytes)
-                    {
-                        remaining_document_bytes -= document.byte_length;
-                        attachments.push(document_attachment(document, text.clone()));
+                    let mut text = format!("{}\n---\n{}", header, ok.content);
+                    if let Some(document) = ok.document {
+                        if document.byte_length() <= remaining_document_bytes {
+                            remaining_document_bytes -= document.byte_length();
+                            attachments.push(document.into_attachment(text.clone()));
+                        } else {
+                            text.push_str("\n[Native evidence omitted because this batch reached the visual/document request byte budget. Read this file separately before claiming to inspect its pixels or native contents.]");
+                        }
                     }
                     text_blocks.push(text);
                     files_json.push(json!({
@@ -201,6 +234,7 @@ fn read_single_file(
     privacy_config: &PrivacyConfig,
     max_lines: usize,
     native_candidate: bool,
+    native_image_consent: bool,
 ) -> Result<FileReadOk, String> {
     let requested = PathBuf::from(raw_path);
     if sources.is_empty() && !(allow_unregistered_absolute_paths && requested.is_absolute()) {
@@ -217,9 +251,13 @@ fn read_single_file(
     )
     .map_err(|e| e.to_string())?;
 
-    let (raw, document) =
-        read_file_evidence(&canonical, native_candidate && !privacy_config.enabled)
-            .map_err(|e| e.to_string())?;
+    let unredacted_image = native_image_consent
+        && crate::media::is_supported_image(&crate::parse::detect_mime_type(&canonical));
+    let (raw, document) = read_file_evidence(
+        &canonical,
+        native_candidate && (!privacy_config.enabled || unredacted_image),
+    )
+    .map_err(|e| e.to_string())?;
 
     let total_lines = raw.lines().count();
     let lines: Vec<&str> = raw.lines().take(max_lines).collect();
@@ -253,6 +291,46 @@ mod tests {
     use crate::app_settings::{AppConfig, ShellAccessMode};
     use crate::sources::CreateSourceInput;
     use std::path::Path;
+
+    #[cfg(any(windows, unix))]
+    #[tokio::test]
+    async fn canonical_image_alias_cannot_bypass_batch_image_consent() {
+        let dir = tempfile::tempdir().unwrap();
+        let image_path = dir.path().join("private.png");
+        image::RgbImage::from_pixel(16, 16, image::Rgb([180, 60, 90]))
+            .save(&image_path)
+            .unwrap();
+        #[cfg(windows)]
+        let alias = dir.path().join("private.png."); // Win32 canonicalizes the trailing dot.
+        #[cfg(unix)]
+        let alias = {
+            let alias = dir.path().join("alias.txt");
+            std::os::unix::fs::symlink(&image_path, &alias).unwrap();
+            alias
+        };
+        assert_eq!(
+            std::fs::canonicalize(&alias).unwrap(),
+            std::fs::canonicalize(&image_path).unwrap()
+        );
+        let db = setup_db_with_source(dir.path());
+        assert!(db.load_privacy_config().unwrap().enabled);
+        let args = json!({"paths":[alias], "image_mode":"native"});
+        assert!(!ReadFilesTool.requires_confirmation(&args));
+        let result = ReadFilesTool
+            .execute(super::super::ToolExecutionContext::new(
+                "alias",
+                &args.to_string(),
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert!(
+            result.artifacts.unwrap().get("toolOutput").is_none(),
+            "unadmitted raw image pixels must remain private after path resolution"
+        );
+    }
 
     fn setup_db_with_source(root: &Path) -> Database {
         let db = Database::open_memory().expect("open in-memory db");

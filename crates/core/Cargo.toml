@@ -72,7 +72,7 @@ similar = { version = "3.2.0", default-features = false, features = ["text", "st
 reqwest = { version = "0.12", features = ["native-tls"], default-features = false }
 windows-registry = "0.6"
 windows-native-keyring-store = { version = "=1.1.0", default-features = false }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 windows-capture = { version = "2.0.0", optional = true }
 
 [target.'cfg(unix)'.dependencies]

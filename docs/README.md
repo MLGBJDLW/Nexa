@@ -20,6 +20,7 @@ English is the canonical language for maintained technical documentation.
 | [Subscription agents](SUBSCRIPTION_AGENTS.md) | Sign in to supported Copilot/Codex runtimes or understand their execution limits |
 | [Phone access](remote-access.md) | Pair a phone, select LAN/public routes, use remote chat, or diagnose a connection |
 | [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |
+| [Computer Use and local images](COMPUTER_USE.md) | Native input, physical coordinates, control feedback, recovery, and direct image inspection |
 | [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
 | [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
 | [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |

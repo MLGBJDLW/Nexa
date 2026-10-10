@@ -575,6 +575,7 @@ pub fn build_desktop_agent_turn_config(
 
     let executor_config = AgentConfig {
         native_vision: None,
+        native_image_policy: None,
         max_iterations: orchestration_policy.max_iterations,
         system_prompt,
         volatile_system_sections,

@@ -16,6 +16,7 @@ import {
 } from './themeProfile';
 import { persistStartupAppearance, snapshotStartupAppearance } from './startupAppearance';
 import { connectEventSubscriptions } from './eventSubscriptions';
+import { connectNativeComputerUseAppearance } from './nativeComputerUseAppearance';
 
 interface ThemeContextValue {
   theme: ThemeId;
@@ -32,6 +33,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  useEffect(connectNativeComputerUseAppearance, []);
   const [themePlugins, setThemePlugins] = useState<ThemeResourcePlugin[]>(readThemePlugins);
   const customThemes = useMemo(
     () => themePlugins.map(themeResourcePluginToCustomTheme),
@@ -127,7 +129,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!disposed && !document.hidden) timer = window.setTimeout(() => void refresh(), 30_000);
     };
     const refresh = async () => {
-      if (disposed || document.hidden || !started) return;
+      // Explicit registry invalidations must reach native feedback even while
+      // the main window is hidden. schedule() still pauses periodic polling.
+      if (disposed || !started) return;
       if (pending) { refreshAgain = true; return; }
       pending = true;
       window.clearTimeout(timer);

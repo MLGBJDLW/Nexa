@@ -31,6 +31,18 @@ const DEFAULT_MAX_ELEMENTS: usize = 120;
 const MAX_ELEMENTS: usize = 300;
 const SCREENSHOT_GUARD_EDGE: u32 = 256;
 
+/// Register the host's single Stop/status window for scoped obstruction avoidance.
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+pub fn register_desktop_status_window(window_id: u64) {
+    super::computer_pointer_feedback::register_status_window(window_id);
+}
+
+/// Project the renderer's resolved theme into native action feedback.
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+pub fn configure_desktop_feedback(accent: [u8; 3], reduced_motion: bool) {
+    super::computer_pointer_feedback::configure_appearance(accent, reduced_motion);
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct VisualDifference {
@@ -362,18 +374,52 @@ fn computer_control_activity_id(
     format!("computer_control:{scope}:{call_id}:{observation_id}")
 }
 
+/// Distance-adaptive motion in logical pixels, sampled at roughly 60 Hz.
+/// Smoothstep gives a quiet departure/arrival and an exact final hotspot.
+#[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
+fn pointer_motion_path(
+    from: (i32, i32),
+    to: (i32, i32),
+    scale: f64,
+) -> (Duration, Vec<(i32, i32)>) {
+    let dx = f64::from(to.0) - f64::from(from.0);
+    let dy = f64::from(to.1) - f64::from(from.1);
+    let distance = dx.hypot(dy) / scale.max(1.0);
+    if distance <= 2.0 {
+        return (Duration::ZERO, vec![to]);
+    }
+    let millis = (90.0 + distance.sqrt() * 8.0).clamp(100.0, 360.0) as u64;
+    let frames = millis.div_ceil(16);
+    let points = (1..=frames)
+        .map(|frame| {
+            let t = frame as f64 / frames as f64;
+            let eased = t * t * (3.0 - 2.0 * t);
+            (
+                (f64::from(from.0) + dx * eased).round() as i32,
+                (f64::from(from.1) + dy * eased).round() as i32,
+            )
+        })
+        .collect();
+    (Duration::from_millis(millis), points)
+}
+
 const WORKER_PENDING: u8 = 0;
 const WORKER_STARTED: u8 = 1;
 const WORKER_CANCELLED: u8 = 2;
 
 struct PendingWorkerCancellation {
     state: std::sync::Arc<AtomicU8>,
+    running_control: Option<Arc<AtomicBool>>,
     armed: bool,
 }
 
 impl PendingWorkerCancellation {
     fn new(state: std::sync::Arc<AtomicU8>) -> Self {
-        Self { state, armed: true }
+        Self {
+            state,
+            running_control: None,
+            armed: true,
+        }
     }
 
     fn disarm(&mut self) {
@@ -384,6 +430,9 @@ impl PendingWorkerCancellation {
 impl Drop for PendingWorkerCancellation {
     fn drop(&mut self) {
         if self.armed {
+            if let Some(cancelled) = &self.running_control {
+                cancelled.store(true, AtomicOrdering::Release);
+            }
             let _ = self.state.compare_exchange(
                 WORKER_PENDING,
                 WORKER_CANCELLED,
@@ -1177,7 +1226,18 @@ enum ControlFailurePhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PreCommitFailureKind {
     InvalidAction,
+    InvalidCoordinates,
     ObservationStale,
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    CaptureFailed,
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    TargetUnavailable,
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    TargetOccluded,
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    FocusUnavailable,
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    CoordinateTransform,
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     Refused,
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
@@ -1230,9 +1290,20 @@ impl ControlFailure {
 struct ControlCommitTracker {
     effect_may_have_occurred: Arc<AtomicBool>,
     observation_consumed: Arc<AtomicBool>,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl ControlCommitTracker {
+    #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
+    fn ensure_running(&self) -> Result<(), CoreError> {
+        if self.cancelled.load(AtomicOrdering::Acquire) {
+            return Err(CoreError::Cancelled(
+                "Computer control stopped; no further input will be sent.".into(),
+            ));
+        }
+        Ok(())
+    }
+
     #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
     fn mark(&self) {
         self.effect_may_have_occurred
@@ -1257,11 +1328,19 @@ impl ControlCommitTracker {
     }
 
     fn failure_as(&self, kind: PreCommitFailureKind, cause: CoreError) -> ControlFailure {
+        let kind = if matches!(cause, CoreError::Cancelled(_)) {
+            PreCommitFailureKind::Cancelled
+        } else {
+            kind
+        };
         let mut failure = if self.effect_may_have_occurred() {
             ControlFailure::effect_may_have_occurred(cause)
         } else {
             ControlFailure::pre_commit_as(kind, cause)
         };
+        // Keep a typed, non-sensitive diagnostic even after the commit boundary.
+        // The outer uncertain-effect contract still prohibits blind replay.
+        failure.pre_commit_kind = Some(kind);
         failure.observation_consumed = self.observation_consumed();
         failure
     }
@@ -1291,25 +1370,41 @@ fn before_control_commit_as<T>(
     result.map_err(|cause| ControlFailure::pre_commit_as(kind, cause))
 }
 
+fn precondition_contract(kind: PreCommitFailureKind) -> (&'static str, bool) {
+    match kind {
+        PreCommitFailureKind::InvalidAction => ("invalid_computer_action", true),
+        PreCommitFailureKind::InvalidCoordinates => ("computer_coordinates_out_of_bounds", true),
+        PreCommitFailureKind::ObservationStale => ("computer_observation_stale", true),
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::CaptureFailed => ("computer_capture_failed", true),
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::TargetUnavailable => ("computer_target_unavailable", true),
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::TargetOccluded => ("computer_target_occluded", true),
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::FocusUnavailable => ("computer_focus_unavailable", true),
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::CoordinateTransform => {
+            ("computer_coordinate_transform_invalid", true)
+        }
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::Refused => ("computer_action_refused", false),
+        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+        PreCommitFailureKind::UserTakeover => ("computer_user_takeover", false),
+        PreCommitFailureKind::Cancelled => ("computer_control_cancelled", false),
+        PreCommitFailureKind::RuntimeUnavailable => ("computer_control_runtime_unavailable", true),
+    }
+}
+
 fn control_failure_contract(failure: &ControlFailure) -> (&'static str, bool) {
     if failure.phase.effect_may_have_occurred() {
         ("computer_action_uncertain", false)
     } else {
-        match failure
-            .pre_commit_kind
-            .unwrap_or(PreCommitFailureKind::RuntimeUnavailable)
-        {
-            PreCommitFailureKind::InvalidAction => ("invalid_computer_action", true),
-            PreCommitFailureKind::ObservationStale => ("computer_observation_stale", true),
-            #[cfg(all(target_os = "windows", feature = "desktop-control"))]
-            PreCommitFailureKind::Refused => ("computer_action_refused", false),
-            #[cfg(all(target_os = "windows", feature = "desktop-control"))]
-            PreCommitFailureKind::UserTakeover => ("computer_user_takeover", false),
-            PreCommitFailureKind::Cancelled => ("computer_control_cancelled", false),
-            PreCommitFailureKind::RuntimeUnavailable => {
-                ("computer_control_runtime_unavailable", true)
-            }
-        }
+        precondition_contract(
+            failure
+                .pre_commit_kind
+                .unwrap_or(PreCommitFailureKind::RuntimeUnavailable),
+        )
     }
 }
 
@@ -1322,6 +1417,12 @@ fn control_failure_result(call_id: &str, failure: &ControlFailure) -> ToolResult
         "computer_user_takeover" => "Computer action stopped before commit because physical input or focus takeover was detected.",
         "computer_control_cancelled" => "Computer action was cancelled before its OS input worker committed a side effect.",
         "computer_control_runtime_unavailable" => "Computer control runtime or durable action receipts were unavailable before desktop input was sent.",
+        "computer_coordinates_out_of_bounds" => "Coordinates are outside this observation's captured image. Use its exact image width/height or normalized_0_1 coordinates; no input was sent and the token was not consumed.",
+        "computer_capture_failed" => "Windows could not capture the target for verification. Restore the target and capture it again before input.",
+        "computer_target_unavailable" => "The observed window disappeared, changed owner, or became inaccessible. List windows and capture the intended target again.",
+        "computer_target_occluded" => "Another window or overlay owns the target point. Clear the obstruction and capture again, or use an advertised semantic element action.",
+        "computer_focus_unavailable" => "Windows did not grant foreground focus to the observed target. Bring it forward, then capture again; a supported background element action can avoid foreground input.",
+        "computer_coordinate_transform_invalid" => "The screenshot and physical screen geometry do not agree. Capture the target again or use an observation-scoped element_id; do not guess a DPI multiplier.",
         _ => "Computer action arguments or pre-commit conditions were invalid. Review the schema and fresh observation without reusing sensitive values.",
     };
     crate::tools::structured_tool_error_result_with_side_effect(
@@ -1331,10 +1432,11 @@ fn control_failure_result(call_id: &str, failure: &ControlFailure) -> ToolResult
         serde_json::json!({
             "tool": "computer_control",
             "arguments": "must match the current computer_control schema and exact conversation-scoped observation",
-            "recovery": if failure.observation_consumed {
-                "capture a fresh observation before any retry because the approved observation token was consumed"
-            } else if failure.phase.effect_may_have_occurred() {
+            "causeCode": failure.pre_commit_kind.map(|kind| precondition_contract(kind).0),
+            "recovery": if failure.phase.effect_may_have_occurred() {
                 "capture fresh visual state or ask the user; never blindly retry the same action"
+            } else if failure.observation_consumed {
+                "capture a fresh observation before any retry because the approved observation token was consumed"
             } else if code == "computer_observation_stale" {
                 "re-observe the exact target and retry once with the fresh observation"
             } else {
@@ -2018,6 +2120,34 @@ fn validate_observed_targets(
     }
     if let Some(element_id) = args.to_element_id.as_deref() {
         let _ = semantic_element(observed, element_id, "drag destination")?;
+    }
+    Ok(())
+}
+
+fn validate_observed_coordinates(
+    args: &ControlArgs,
+    observed: &ObservedWindow,
+) -> Result<(), CoreError> {
+    let space = CoordinateSpace::parse(args.coordinate_space.as_deref())?;
+    for (x, y) in [(args.x, args.y), (args.to_x, args.to_y)] {
+        if let (Some(x), Some(y)) = (x, y) {
+            let (width, height) =
+                observed
+                    .image_width
+                    .zip(observed.image_height)
+                    .ok_or_else(|| {
+                        CoreError::InvalidInput(
+                            "Coordinates require a captured-window observation".into(),
+                        )
+                    })?;
+            if space == CoordinateSpace::CapturedImagePixels
+                && (x >= f64::from(width) || y >= f64::from(height))
+            {
+                return Err(CoreError::InvalidInput(
+                    "Coordinates exceed the captured image bounds".into(),
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -2707,6 +2837,8 @@ impl Tool for ComputerControlTool {
                 observed_window(conversation_id, &args.observation_id, args.window_id),
             )?;
             let target_identity = desktop_target_identity(&preflight_observation.snapshot);
+            before_control_commit_as(PreCommitFailureKind::InvalidCoordinates,
+                validate_observed_coordinates(&args, &preflight_observation))?;
             before_control_commit(validate_observed_targets(
                 &args,
                 action,
@@ -2787,6 +2919,7 @@ impl Tool for ComputerControlTool {
             let mut pending_worker =
                 PendingWorkerCancellation::new(std::sync::Arc::clone(&worker_state));
             let commit_tracker = ControlCommitTracker::default();
+            pending_worker.running_control = Some(Arc::clone(&commit_tracker.cancelled));
             let worker_commit_tracker = commit_tracker.clone();
             let worker_target_identity = target_identity.clone();
             let worker_consumed_observation_id = consumed_observation_id.clone();
@@ -3169,7 +3302,7 @@ mod platform {
     use windows_capture::window::Window;
 
     use super::{
-        before_control_commit, screenshot_difference, screenshot_guard,
+        before_control_commit, before_control_commit_as, screenshot_difference, screenshot_guard,
         screenshot_guard_patch_matches, screenshot_signature, screenshot_signatures_match,
         CaptureMode, CaptureOptions, CapturedWindow, ControlAction, ControlArgs,
         ControlCommitTracker, ControlFailure, ControlOutcome, CoordinateSpace, CoreError,
@@ -3196,6 +3329,36 @@ mod platform {
 
     fn platform_error(context: &str, error: impl std::fmt::Display) -> CoreError {
         CoreError::Internal(format!("{context}: {error}"))
+    }
+
+    /// WGC and UI Automation report physical pixels. Pool threads can inherit
+    /// a DPI-unaware host/test context, so scope every native input/capture to
+    /// physical coordinates and restore the previous context on all exits.
+    pub(super) struct PhysicalPixels(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT);
+
+    impl PhysicalPixels {
+        pub(super) fn enter() -> Result<Self, CoreError> {
+            use windows::Win32::UI::HiDpi::{
+                SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            };
+            let previous =
+                unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+            if previous.0.is_null() {
+                return Err(platform_error(
+                    "enter physical desktop coordinates",
+                    windows::core::Error::from_thread(),
+                ));
+            }
+            Ok(Self(previous))
+        }
+    }
+
+    impl Drop for PhysicalPixels {
+        fn drop(&mut self) {
+            unsafe {
+                windows::Win32::UI::HiDpi::SetThreadDpiAwarenessContext(self.0);
+            }
+        }
     }
 
     fn process_identity(pid: u32) -> Result<(u64, String, String, u32), CoreError> {
@@ -3303,10 +3466,30 @@ mod platform {
     }
 
     fn snapshot(window: &Window) -> Result<WindowSnapshot, CoreError> {
-        let rect = window
-            .rect()
-            .map_err(|error| platform_error("read window bounds", error))?;
+        let _physical_pixels = PhysicalPixels::enter()?;
         let handle = window.as_raw_hwnd();
+        // GetWindowRect includes invisible resize borders and may be DPI
+        // virtualized. WGC captures the compositor's visible frame instead.
+        let rect = if unsafe { IsIconic(HWND(handle)).as_bool() } {
+            window
+                .rect()
+                .map_err(|error| platform_error("read minimized window bounds", error))?
+        } else {
+            use windows::Win32::Graphics::Dwm::{
+                DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS,
+            };
+            let mut rect = RECT::default();
+            unsafe {
+                DwmGetWindowAttribute(
+                    HWND(handle),
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    (&mut rect as *mut RECT).cast(),
+                    std::mem::size_of::<RECT>() as u32,
+                )
+            }
+            .map_err(|error| platform_error("read visible physical window bounds", error))?;
+            rect
+        };
         let mut native_pid = 0_u32;
         let thread_id = unsafe { GetWindowThreadProcessId(HWND(handle), Some(&mut native_pid)) };
         if thread_id == 0 || native_pid == 0 {
@@ -3525,6 +3708,7 @@ mod platform {
     }
 
     pub(super) fn capture_user_share_window(source_id: &str) -> Result<String, CoreError> {
+        let _physical_pixels = PhysicalPixels::enter()?;
         use base64::Engine;
         if source_id.len() > 16_384 {
             return Err(invalid("Invalid window sharing source"));
@@ -4220,6 +4404,7 @@ mod platform {
         expected: &WindowSnapshot,
         options: CaptureOptions,
     ) -> Result<CapturedWindow, CoreError> {
+        let _physical_pixels = PhysicalPixels::enter()?;
         // Stamp the beginning, not completion: an older in-flight capture must
         // not become fresh evidence merely because its provider returned late.
         let observation_captured_at_ms = observation_time_ms();
@@ -4984,7 +5169,7 @@ mod platform {
         Ok(())
     }
 
-    fn move_cursor(point: (i32, i32), context: &str) -> Result<(), CoreError> {
+    fn move_cursor_frame(point: (i32, i32), context: &str) -> Result<(), CoreError> {
         unsafe { SetCursorPos(point.0, point.1) }
             .map_err(|error| platform_error(context, error))?;
         let actual = cursor_position()?;
@@ -4994,7 +5179,68 @@ mod platform {
                 actual.0, actual.1, point.0, point.1
             )));
         }
+        super::super::computer_pointer_feedback::show_at(point);
         Ok(())
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum PointerApproach {
+        Foreground,
+        FeedbackOnly,
+    }
+
+    /// One motion path for native input and semantic feedback. Frames carry no
+    /// button events; background delivery never moves the physical cursor.
+    fn approach_pointer(
+        point: (i32, i32),
+        window: &WindowSnapshot,
+        tracker: &ControlCommitTracker,
+        context: &str,
+        delivery: PointerApproach,
+    ) -> Result<(), CoreError> {
+        use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL};
+        use windows::Win32::UI::HiDpi::GetDpiForWindow;
+        let from = cursor_position()?;
+        let scale = f64::from(unsafe { GetDpiForWindow(hwnd(window.id)) }.max(96)) / 96.0;
+        let (duration, points) = if super::super::computer_pointer_feedback::reduced_motion() {
+            (Duration::ZERO, vec![point])
+        } else {
+            super::pointer_motion_path(from, point, scale)
+        };
+        let started = Instant::now();
+        let mut previous = from;
+        super::super::computer_pointer_feedback::show_at(from);
+        for (index, next) in points.iter().copied().enumerate() {
+            let due = duration.mul_f64((index + 1) as f64 / points.len() as f64);
+            thread::sleep(due.saturating_sub(started.elapsed()));
+            tracker.ensure_running()?;
+            if delivery == PointerApproach::FeedbackOnly {
+                super::super::computer_pointer_feedback::show_at(next);
+                continue;
+            }
+            ensure_target_foreground(window)?;
+            ensure_cursor_at(previous, context)?;
+            for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+                ensure_mouse_button_not_physically_pressed(button)?;
+            }
+            // A straight path can cross empty space between offset monitors.
+            // Do not ask Windows to clamp those intermediate physical points.
+            let screen = unsafe {
+                MonitorFromPoint(
+                    windows::Win32::Foundation::POINT {
+                        x: next.0,
+                        y: next.1,
+                    },
+                    MONITOR_DEFAULTTONULL,
+                )
+            };
+            if screen.0.is_null() && index + 1 < points.len() {
+                continue;
+            }
+            move_cursor_frame(next, context)?;
+            previous = next;
+        }
+        tracker.ensure_running()
     }
 
     fn ensure_cursor_at(point: (i32, i32), context: &str) -> Result<(), CoreError> {
@@ -5011,6 +5257,7 @@ mod platform {
         point: (i32, i32),
         window: &WindowSnapshot,
     ) -> Result<(), CoreError> {
+        super::super::computer_pointer_feedback::avoid_status_at(point);
         let hit = unsafe {
             WindowFromPoint(windows::Win32::Foundation::POINT {
                 x: point.0,
@@ -5546,9 +5793,9 @@ mod platform {
         from_live: Option<&LiveElement>,
         to_live: Option<&LiveElement>,
         duration_ms: u64,
+        tracker: &ControlCommitTracker,
     ) -> Result<(), CoreError> {
-        move_cursor(from, "move to drag start")?;
-        thread::sleep(INPUT_SETTLE);
+        tracker.ensure_running()?;
         ensure_target_foreground(window)?;
         ensure_cursor_at(from, "drag preparation")?;
         ensure_point_targets_window(from, window)?;
@@ -5561,6 +5808,10 @@ mod platform {
         let mut previous = from;
         let frames = duration_ms.div_ceil(16).clamp(7, 188);
         for frame in 1..=frames {
+            if let Err(error) = tracker.ensure_running() {
+                movement_error = Some(error);
+                break;
+            }
             if unsafe { GetForegroundWindow() } != hwnd(window.id) {
                 movement_error = Some(CoreError::Internal(
                     "Foreground focus changed during drag; released the mouse button and stopped. Action effect is uncertain."
@@ -5585,7 +5836,7 @@ mod platform {
                 )));
                 break;
             }
-            if let Err(error) = move_cursor(next, "drag mouse") {
+            if let Err(error) = move_cursor_frame(next, "drag mouse") {
                 movement_error = Some(CoreError::Internal(format!(
                     "Drag cursor movement failed after button press; action effect is uncertain: {error}"
                 )));
@@ -5630,6 +5881,7 @@ mod platform {
     }
 
     pub(super) fn cursor_position() -> Result<(i32, i32), CoreError> {
+        let _physical_pixels = PhysicalPixels::enter()?;
         let mut point = windows::Win32::Foundation::POINT::default();
         unsafe { GetCursorPos(&mut point) }
             .map_err(|error| platform_error("read cursor position", error))?;
@@ -5643,7 +5895,14 @@ mod platform {
         final_capture_options: CaptureOptions,
         commit_tracker: &ControlCommitTracker,
     ) -> Result<ControlOutcome, ControlFailure> {
-        let (_, mut current) = before_control_commit(current_window(&observed.snapshot))?;
+        let _physical_pixels = before_control_commit_as(
+            PreCommitFailureKind::CoordinateTransform,
+            PhysicalPixels::enter(),
+        )?;
+        let (_, mut current) = before_control_commit_as(
+            PreCommitFailureKind::TargetUnavailable,
+            current_window(&observed.snapshot),
+        )?;
         if current.title != observed.snapshot.title {
             return Err(ControlFailure::pre_commit_as(
                 PreCommitFailureKind::ObservationStale,
@@ -5687,10 +5946,10 @@ mod platform {
             }
             None
         } else {
-            Some(before_control_commit(capture_window(
-                &current,
-                CaptureOptions::pixels_only(),
-            ))?)
+            Some(before_control_commit_as(
+                PreCommitFailureKind::CaptureFailed,
+                capture_window(&current, CaptureOptions::pixels_only()),
+            )?)
         };
         if let (Some(expected), Some(capture)) = (
             observed.screenshot_signature.as_ref(),
@@ -5727,7 +5986,10 @@ mod platform {
             let element_id = args.element_id.as_deref().expect("semantic click target");
             let expected =
                 before_control_commit(super::semantic_element(observed, element_id, "click"))?;
-            let live = before_control_commit(resolve_live_element(&current, observed, expected))?;
+            let live = before_control_commit_as(
+                PreCommitFailureKind::ObservationStale,
+                resolve_live_element(&current, observed, expected),
+            )?;
             if supports_semantic_invoke(&live.element) {
                 effective_action = ControlAction::Invoke;
             }
@@ -5753,10 +6015,16 @@ mod platform {
             ));
         }
 
+        let _pointer_feedback =
+            super::super::computer_pointer_feedback::PointerFeedback::begin(current.id);
+        commit_tracker.result(commit_tracker.ensure_running())?;
         let summary = match effective_action {
             ControlAction::FocusWindow => {
                 route = "window_focus";
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
                 current = commit_tracker.result(current_window(&current))?.1;
                 format!("Focused and restored window {}.", current.id)
             }
@@ -5765,9 +6033,31 @@ mod platform {
                 let element_id = args.element_id.as_deref().expect("validated element_id");
                 let expected =
                     before_control_commit(super::semantic_element(observed, element_id, "invoke"))?;
-                let live =
-                    before_control_commit(resolve_live_element(&current, observed, expected))?;
+                let live = before_control_commit_as(
+                    PreCommitFailureKind::ObservationStale,
+                    resolve_live_element(&current, observed, expected),
+                )?;
+                let bounds = &live.snapshot.screen_bounds;
+                let point = (
+                    bounds.x + (bounds.width / 2) as i32,
+                    bounds.y + (bounds.height / 2) as i32,
+                );
+                commit_tracker.result(approach_pointer(
+                    point,
+                    &current,
+                    commit_tracker,
+                    "approach semantic target",
+                    PointerApproach::FeedbackOnly,
+                ))?;
+                let live = commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    resolve_live_element(&current, observed, expected),
+                )?;
+                commit_tracker.result(commit_tracker.ensure_running())?;
                 route = invoke_element(&live.element, &current, commit_tracker)?;
+                super::super::computer_pointer_feedback::pulse_at(point, || {
+                    commit_tracker.ensure_running().is_ok()
+                });
                 format!(
                     "Invoked semantic element {element_id} in window {}.",
                     current.id
@@ -5781,9 +6071,16 @@ mod platform {
                     element_id,
                     "set_value",
                 ))?;
-                let live =
-                    before_control_commit(resolve_live_element(&current, observed, expected))?;
+                let live = before_control_commit_as(
+                    PreCommitFailureKind::ObservationStale,
+                    resolve_live_element(&current, observed, expected),
+                )?;
                 let text = args.text.as_deref().expect("validated text");
+                let bounds = &live.snapshot.screen_bounds;
+                super::super::computer_pointer_feedback::show_at((
+                    bounds.x + (bounds.width / 2) as i32,
+                    bounds.y + (bounds.height / 2) as i32,
+                ));
                 route = set_element_value(
                     &live.element,
                     &live.snapshot,
@@ -5798,69 +6095,123 @@ mod platform {
                 )
             }
             ControlAction::MoveMouse => {
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
-                commit_tracker.result(ensure_observation_fresh_after_focus(observed, &current))?;
-                let target = commit_tracker.result(resolve_pointer_target(
-                    args.element_id.as_deref(),
-                    args.x,
-                    args.y,
-                    coordinate_space,
-                    observed,
-                    &current,
-                    "move_mouse",
-                ))?;
-                commit_tracker.result(ensure_target_patch_fresh(
-                    observed,
-                    &current,
-                    target.point,
-                ))?;
-                commit_tracker.result(ensure_target_foreground(&current))?;
-                commit_tracker.result(ensure_point_targets_window(target.point, &current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_observation_fresh_after_focus(observed, &current),
+                )?;
+                let target = commit_tracker.result_as(
+                    PreCommitFailureKind::CoordinateTransform,
+                    resolve_pointer_target(
+                        args.element_id.as_deref(),
+                        args.x,
+                        args.y,
+                        coordinate_space,
+                        observed,
+                        &current,
+                        "move_mouse",
+                    ),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, target.point),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::TargetOccluded,
+                    ensure_point_targets_window(target.point, &current),
+                )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(target.point, "move mouse"))?;
-                commit_tracker.result(ensure_point_targets_window(target.point, &current))?;
+                commit_tracker.result(approach_pointer(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse",
+                    PointerApproach::Foreground,
+                ))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::TargetOccluded,
+                    ensure_point_targets_window(target.point, &current),
+                )?;
                 if let Some(live) = target.live.as_ref() {
                     commit_tracker.result(ensure_point_matches_live_element(live, target.point))?;
                 }
                 format!("Moved the cursor inside window {}.", current.id)
             }
             ControlAction::Click => {
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
-                commit_tracker.result(ensure_observation_fresh_after_focus(observed, &current))?;
-                let target = commit_tracker.result(resolve_pointer_target(
-                    args.element_id.as_deref(),
-                    args.x,
-                    args.y,
-                    coordinate_space,
-                    observed,
-                    &current,
-                    "click",
-                ))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_observation_fresh_after_focus(observed, &current),
+                )?;
+                let target = commit_tracker.result_as(
+                    PreCommitFailureKind::CoordinateTransform,
+                    resolve_pointer_target(
+                        args.element_id.as_deref(),
+                        args.x,
+                        args.y,
+                        coordinate_space,
+                        observed,
+                        &current,
+                        "click",
+                    ),
+                )?;
                 let button = commit_tracker.result(mouse_button(args.button.as_deref()))?;
                 let count = args.click_count.unwrap_or(1);
-                commit_tracker.result(ensure_target_patch_fresh(
-                    observed,
-                    &current,
-                    target.point,
-                ))?;
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, target.point),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
                     ensure_mouse_button_not_physically_pressed(button),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(target.point, "move mouse before click"))?;
+                commit_tracker.result(approach_pointer(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse before click",
+                    PointerApproach::Foreground,
+                ))?;
                 thread::sleep(INPUT_SETTLE);
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                if target.live.is_none() {
+                    commit_tracker.result_as(
+                        PreCommitFailureKind::ObservationStale,
+                        ensure_target_patch_fresh(observed, &current, target.point),
+                    )?;
+                }
+                commit_tracker.result(commit_tracker.ensure_running())?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
                     ensure_cursor_at(target.point, "click preparation"),
                 )?;
-                commit_tracker.result(ensure_point_targets_window(target.point, &current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::TargetOccluded,
+                    ensure_point_targets_window(target.point, &current),
+                )?;
                 if let Some(live) = target.live.as_ref() {
                     commit_tracker.result(ensure_point_matches_live_element(live, target.point))?;
                 }
                 for index in 0..count {
+                    commit_tracker.result(commit_tracker.ensure_running())?;
                     if let Err(error) = ensure_mouse_button_not_physically_pressed(button) {
                         if index > 0 {
                             return Err(ControlFailure::effect_may_have_occurred(
@@ -5883,7 +6234,7 @@ mod platform {
                     commit_tracker.result(send_mouse_click(button))?;
                     if index + 1 < count {
                         thread::sleep(Duration::from_millis(75));
-                        commit_tracker.result(ensure_target_foreground(&current).map_err(|error| {
+                        commit_tracker.result_as(PreCommitFailureKind::UserTakeover, ensure_target_foreground(&current).map_err(|error| {
                             CoreError::Internal(format!(
                                 "Focus changed after a partial multi-click; action effect is uncertain: {error}"
                             ))
@@ -5895,33 +6246,73 @@ mod platform {
                         }))?;
                     }
                 }
+                super::super::computer_pointer_feedback::pulse_at(target.point, || {
+                    commit_tracker.ensure_running().is_ok()
+                });
                 format!("Clicked {count} time(s) inside window {}.", current.id)
             }
             ControlAction::Drag => {
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
-                commit_tracker.result(ensure_observation_fresh_after_focus(observed, &current))?;
-                let from = commit_tracker.result(resolve_pointer_target(
-                    args.element_id.as_deref(),
-                    args.x,
-                    args.y,
-                    coordinate_space,
-                    observed,
-                    &current,
-                    "drag source",
-                ))?;
-                let to = commit_tracker.result(resolve_pointer_target(
-                    args.to_element_id.as_deref(),
-                    args.to_x,
-                    args.to_y,
-                    coordinate_space,
-                    observed,
-                    &current,
-                    "drag destination",
-                ))?;
-                commit_tracker.result(ensure_target_patch_fresh(observed, &current, from.point))?;
-                commit_tracker.result(ensure_target_patch_fresh(observed, &current, to.point))?;
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_observation_fresh_after_focus(observed, &current),
+                )?;
+                let from = commit_tracker.result_as(
+                    PreCommitFailureKind::CoordinateTransform,
+                    resolve_pointer_target(
+                        args.element_id.as_deref(),
+                        args.x,
+                        args.y,
+                        coordinate_space,
+                        observed,
+                        &current,
+                        "drag source",
+                    ),
+                )?;
+                let to = commit_tracker.result_as(
+                    PreCommitFailureKind::CoordinateTransform,
+                    resolve_pointer_target(
+                        args.to_element_id.as_deref(),
+                        args.to_x,
+                        args.to_y,
+                        coordinate_space,
+                        observed,
+                        &current,
+                        "drag destination",
+                    ),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, from.point),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, to.point),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 commit_tracker.mark();
+                commit_tracker.result(approach_pointer(
+                    from.point,
+                    &current,
+                    commit_tracker,
+                    "move to drag start",
+                    PointerApproach::Foreground,
+                ))?;
+                thread::sleep(INPUT_SETTLE);
+                for target in [&from, &to] {
+                    if target.live.is_none() {
+                        commit_tracker.result_as(
+                            PreCommitFailureKind::ObservationStale,
+                            ensure_target_patch_fresh(observed, &current, target.point),
+                        )?;
+                    }
+                }
                 commit_tracker.result(drag_mouse(
                     from.point,
                     to.point,
@@ -5929,48 +6320,81 @@ mod platform {
                     from.live.as_ref(),
                     to.live.as_ref(),
                     args.drag_duration_ms.unwrap_or(400),
+                    commit_tracker,
                 ))?;
                 format!("Dragged inside window {}.", current.id)
             }
             ControlAction::Scroll => {
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
-                commit_tracker.result(ensure_observation_fresh_after_focus(observed, &current))?;
-                let target = commit_tracker.result(resolve_pointer_target(
-                    args.element_id.as_deref(),
-                    args.x,
-                    args.y,
-                    coordinate_space,
-                    observed,
-                    &current,
-                    "scroll",
-                ))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_observation_fresh_after_focus(observed, &current),
+                )?;
+                let target = commit_tracker.result_as(
+                    PreCommitFailureKind::CoordinateTransform,
+                    resolve_pointer_target(
+                        args.element_id.as_deref(),
+                        args.x,
+                        args.y,
+                        coordinate_space,
+                        observed,
+                        &current,
+                        "scroll",
+                    ),
+                )?;
                 let scroll_x = args.scroll_x.unwrap_or(0);
                 let scroll_y = args.scroll_y.unwrap_or(0);
-                commit_tracker.result(ensure_target_patch_fresh(
-                    observed,
-                    &current,
-                    target.point,
-                ))?;
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, target.point),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(target.point, "move mouse before scroll"))?;
+                commit_tracker.result(approach_pointer(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse before scroll",
+                    PointerApproach::Foreground,
+                ))?;
                 thread::sleep(INPUT_SETTLE);
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                if target.live.is_none() {
+                    commit_tracker.result_as(
+                        PreCommitFailureKind::ObservationStale,
+                        ensure_target_patch_fresh(observed, &current, target.point),
+                    )?;
+                }
+                commit_tracker.result(commit_tracker.ensure_running())?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
                     ensure_cursor_at(target.point, "scroll preparation"),
                 )?;
-                commit_tracker.result(ensure_point_targets_window(target.point, &current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::TargetOccluded,
+                    ensure_point_targets_window(target.point, &current),
+                )?;
                 if let Some(live) = target.live.as_ref() {
                     commit_tracker.result(ensure_point_matches_live_element(live, target.point))?;
                 }
+                commit_tracker.result(commit_tracker.ensure_running())?;
                 if scroll_y != 0 {
                     commit_tracker.mark();
                     commit_tracker.result(send_scroll_steps(false, scroll_y))?;
                 }
                 if scroll_x != 0 {
+                    commit_tracker.result(commit_tracker.ensure_running())?;
                     if scroll_y != 0 {
-                        commit_tracker.result(ensure_target_foreground(&current).map_err(|error| {
+                        commit_tracker.result_as(PreCommitFailureKind::UserTakeover, ensure_target_foreground(&current).map_err(|error| {
                             CoreError::Internal(format!(
                                 "Focus changed after partial scrolling; action effect is uncertain: {error}"
                             ))
@@ -5980,7 +6404,7 @@ mod platform {
                                 "Cursor moved after partial scrolling; action effect is uncertain: {error}"
                             ))
                         }))?;
-                        commit_tracker.result(ensure_point_targets_window(target.point, &current).map_err(|error| {
+                        commit_tracker.result_as(PreCommitFailureKind::TargetOccluded, ensure_point_targets_window(target.point, &current).map_err(|error| {
                             CoreError::Internal(format!(
                                 "Another surface appeared after partial scrolling; action effect is uncertain: {error}"
                             ))
@@ -5999,9 +6423,18 @@ mod platform {
                 format!("Scrolled inside window {}.", current.id)
             }
             ControlAction::TypeText => {
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
-                commit_tracker.result(ensure_observation_fresh_after_focus(observed, &current))?;
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_observation_fresh_after_focus(observed, &current),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 let targeted_element = if let Some(element_id) = args.element_id.as_deref() {
                     let expected = commit_tracker.result(super::semantic_element(
                         observed,
@@ -6020,6 +6453,11 @@ mod platform {
                             invalid("Password elements are protected from text input."),
                         ));
                     }
+                    let bounds = &live.snapshot.screen_bounds;
+                    super::super::computer_pointer_feedback::show_at((
+                        bounds.x + (bounds.width / 2) as i32,
+                        bounds.y + (bounds.height / 2) as i32,
+                    ));
                     commit_tracker.mark();
                     commit_tracker
                         .result(unsafe { live.element.SetFocus() }.map_err(|error| {
@@ -6049,9 +6487,18 @@ mod platform {
                 )
             }
             ControlAction::Key => {
-                commit_tracker.result(focus_window(&current, commit_tracker))?;
-                commit_tracker.result(ensure_observation_fresh_after_focus(observed, &current))?;
-                commit_tracker.result(ensure_target_foreground(&current))?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::FocusUnavailable,
+                    focus_window(&current, commit_tracker),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_observation_fresh_after_focus(observed, &current),
+                )?;
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_target_foreground(&current),
+                )?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::Refused,
                     ensure_focused_target_is_not_password(&current),
@@ -6602,6 +7049,36 @@ mod tests {
     }
 
     #[test]
+    fn invalid_image_coordinates_are_rejected_without_consuming_the_observation() {
+        let fixture = wait_observed_fixture();
+        let token =
+            remember_observation(Some("coordinate-preflight"), vec![fixture.clone()]).unwrap();
+        let args: ControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "click", "observation_id": token, "window_id": fixture.snapshot.id,
+            "x": fixture.image_width.unwrap(), "y": 0,
+        }))
+        .unwrap();
+        let observation =
+            observed_window(Some("coordinate-preflight"), &token, fixture.snapshot.id).unwrap();
+        let error = validate_observed_coordinates(&args, &observation).unwrap_err();
+        let failure =
+            ControlFailure::pre_commit_as(PreCommitFailureKind::InvalidCoordinates, error);
+        let result = control_failure_result("coordinates", &failure);
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["code"],
+            "computer_coordinates_out_of_bounds"
+        );
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["observationConsumed"],
+            false
+        );
+        assert!(
+            claim_observed_window(Some("coordinate-preflight"), &token, fixture.snapshot.id)
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn control_commit_phase_is_explicit_monotonic_and_independent_of_error_text() {
         let tracker = ControlCommitTracker::default();
         let before = tracker.failure_as(
@@ -6894,6 +7371,51 @@ mod tests {
     }
 
     #[test]
+    fn pointer_motion_has_visible_intermediate_frames_and_exact_scaled_endpoints() {
+        for (from, to) in [((-1800, 240), (820, -500)), ((80, 10), (100, 35))] {
+            let (duration, points) = pointer_motion_path(from, to, 1.5);
+            assert!(duration >= Duration::from_millis(100));
+            assert!(duration <= Duration::from_millis(360));
+            assert_eq!(points.last(), Some(&to));
+            assert!(points.iter().any(|point| *point != from && *point != to));
+            for point in points {
+                assert!((from.0.min(to.0)..=from.0.max(to.0)).contains(&point.0));
+                assert!((from.1.min(to.1)..=from.1.max(to.1)).contains(&point.1));
+            }
+        }
+        assert_eq!(
+            pointer_motion_path((10, 10), (10, 10), 1.0),
+            (Duration::ZERO, vec![(10, 10)])
+        );
+        assert_eq!(
+            pointer_motion_path((0, 0), (600, 0), 2.0).0,
+            pointer_motion_path((0, 0), (300, 0), 1.0).0
+        );
+    }
+
+    #[test]
+    fn stopping_an_inflight_worker_signals_motion_without_erasing_committed_effects() {
+        let state = Arc::new(AtomicU8::new(WORKER_STARTED));
+        let tracker = ControlCommitTracker::default();
+        let mut pending = PendingWorkerCancellation::new(Arc::clone(&state));
+        pending.running_control = Some(Arc::clone(&tracker.cancelled));
+        tracker.mark();
+        let worker = tracker.clone();
+        drop(pending);
+        assert_eq!(state.load(AtomicOrdering::Acquire), WORKER_STARTED);
+        let failure = worker.failure(
+            worker
+                .ensure_running()
+                .expect_err("remaining frames must stop"),
+        );
+        assert_eq!(
+            failure.pre_commit_kind,
+            Some(PreCommitFailureKind::Cancelled)
+        );
+        assert!(worker.effect_may_have_occurred());
+    }
+
+    #[test]
     fn cancelled_pending_worker_cannot_transition_to_started() {
         let state = std::sync::Arc::new(AtomicU8::new(WORKER_PENDING));
         drop(PendingWorkerCancellation::new(std::sync::Arc::clone(
@@ -7155,7 +7677,7 @@ mod tests {
         }
         use windows::core::PCWSTR;
         use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-        use windows::Win32::Graphics::Gdi::{GetSysColorBrush, COLOR_WINDOW};
+        use windows::Win32::Graphics::Gdi::{GetSysColorBrush, ScreenToClient, COLOR_WINDOW};
         use windows::Win32::System::LibraryLoader::GetModuleHandleW;
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DispatchMessageW, GetDlgItem, GetMessageW,
@@ -7173,6 +7695,42 @@ mod tests {
             wparam: WPARAM,
             lparam: LPARAM,
         ) -> LRESULT {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                GetCursorPos, KillTimer, SetTimer, WM_APP, WM_TIMER,
+            };
+            if message == WM_APP + 99 {
+                unsafe {
+                    SetTimer(Some(window), 909, 10, None);
+                }
+                return LRESULT(0);
+            }
+            if message == WM_TIMER && wparam.0 == 909 {
+                let mut cursor = windows::Win32::Foundation::POINT::default();
+                if unsafe { GetCursorPos(&mut cursor) }.is_ok()
+                    && unsafe { ScreenToClient(window, &mut cursor) }.as_bool()
+                    && cursor.y >= 0
+                {
+                    let _ = unsafe { KillTimer(Some(window), 909) };
+                    // A hover-triggered overlay inside the same top-level HWND.
+                    let _ = unsafe {
+                        CreateWindowExW(
+                            WINDOW_EX_STYLE::default(),
+                            windows::core::w!("STATIC"),
+                            windows::core::w!("Changed hover target"),
+                            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(4 /* SS_BLACKRECT */),
+                            16,
+                            12,
+                            260,
+                            56,
+                            Some(window),
+                            None,
+                            None,
+                            None,
+                        )
+                    };
+                }
+                return LRESULT(0);
+            }
             if message == WM_COMMAND
                 && (wparam.0 & 0xffff) == 101
                 && (wparam.0 >> 16) == BN_CLICKED as usize
@@ -7623,28 +8181,35 @@ mod tests {
     #[test]
     #[ignore = "requires an interactive Windows desktop and sends input to an isolated helper"]
     fn windows_capture_control_recapture_smoke_test() {
-        windows_control_smoke(false, false, false);
+        windows_control_smoke(false, false, false, false);
+    }
+
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    #[test]
+    #[ignore = "requires an interactive Windows desktop; replaces an isolated target while approaching it"]
+    fn windows_hover_target_change_prevents_click_smoke_test() {
+        windows_control_smoke(false, false, false, true);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     #[test]
     #[ignore = "requires an interactive Windows desktop and uses UI Automation on an isolated helper"]
     fn windows_background_controls_smoke_test() {
-        windows_control_smoke(true, false, false);
+        windows_control_smoke(true, false, false, false);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     #[test]
     #[ignore = "requires an interactive Windows desktop and verifies agent-visible UI Automation state"]
     fn windows_semantic_observations_are_actionable_smoke_test() {
-        windows_control_smoke(true, true, false);
+        windows_control_smoke(true, true, false, false);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     #[test]
     #[ignore = "requires an interactive Windows desktop and closes only an isolated helper window"]
     fn windows_window_closure_receipt_smoke_test() {
-        windows_control_smoke(false, false, true);
+        windows_control_smoke(false, false, true, false);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
@@ -7652,7 +8217,10 @@ mod tests {
         background_only: bool,
         verify_semantic_state: bool,
         verify_closure: bool,
+        verify_hover_change: bool,
     ) {
+        let _physical_pixels =
+            platform::PhysicalPixels::enter().expect("physical test input coordinates");
         use std::process::{Command, Stdio};
         use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
         use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -7893,6 +8461,32 @@ mod tests {
                 screenshot_guard: screenshot_guard(&capture.png),
                 elements: capture.elements.clone(),
             };
+            if !background_only {
+                // Exercise the screenshot coordinate route, not only UIA element ids.
+                // WGC and Win32 window bounds must describe the same physical surface.
+                let geometry = (capture.native_image_width, capture.native_image_height);
+                let bounds = (capture.snapshot.width, capture.snapshot.height);
+                if geometry != bounds {
+                    return Err(format!("captured-image click geometry mismatch: screenshot {geometry:?}, screen bounds {bounds:?}"));
+                }
+                let _feedback =
+                    super::super::computer_pointer_feedback::PointerFeedback::begin(target.id);
+                super::super::computer_pointer_feedback::show_at((
+                    capture.snapshot.x + (capture.snapshot.width / 2) as i32,
+                    capture.snapshot.y + (capture.snapshot.height / 2) as i32,
+                ));
+                let with_pointer =
+                    platform::capture_window(&capture.snapshot, CaptureOptions::pixels_only())
+                        .map_err(|error| error.to_string())?;
+                if !screenshot_signatures_match(
+                    &screenshot_signature(&capture.png).unwrap(),
+                    &screenshot_signature(&with_pointer.png).unwrap(),
+                ) {
+                    return Err(
+                        "Nexa pointer feedback contaminated model screenshot evidence".into(),
+                    );
+                }
+            }
             let initial_action = if background_only {
                 ControlAction::SetValue
             } else {
@@ -8157,6 +8751,101 @@ mod tests {
                 eprintln!("Native value/checkbox effects verified; pointer preservation was not assessed because user input occurred or input history was unavailable.");
             } else if (after.x, after.y) != (cursor.x, cursor.y) {
                 return Err("background controls moved the pointer".into());
+            }
+            if !background_only && !verify_closure {
+                activate_isolated_window(&target)?;
+                let fresh = platform::capture_window(
+                    &target,
+                    CaptureOptions::from_control(&args).map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+                let element = fresh
+                    .elements
+                    .iter()
+                    .find(|element| element.role == "checkbox")
+                    .ok_or("missing checkbox coordinate target")?;
+                let observed = ObservedWindow {
+                    snapshot: fresh.snapshot.clone(),
+                    image_width: Some(fresh.image_width),
+                    image_height: Some(fresh.image_height),
+                    native_image_width: Some(fresh.native_image_width),
+                    native_image_height: Some(fresh.native_image_height),
+                    screenshot_signature: screenshot_signature(&fresh.png),
+                    screenshot_guard: screenshot_guard(&fresh.png),
+                    elements: fresh.elements.clone(),
+                };
+                let click: ControlArgs = serde_json::from_value(serde_json::json!({
+                    "action":"click", "delivery":"foreground", "observation_id":uuid::Uuid::new_v4().to_string(),
+                    "window_id":target.id, "coordinate_space":"captured_image_pixels",
+                    "x": element.bounds.x + (element.bounds.width / 2) as i32,
+                    "y": element.bounds.y + (element.bounds.height / 2) as i32,
+                })).map_err(|error| error.to_string())?;
+                let sampling = Arc::new(AtomicBool::new(true));
+                let sampler_flag = Arc::clone(&sampling);
+                let sampler = std::thread::spawn(move || {
+                    let mut points = Vec::new();
+                    while sampler_flag.load(AtomicOrdering::Acquire) {
+                        if let Ok(point) = platform::cursor_position() {
+                            if points.last() != Some(&point) {
+                                points.push(point);
+                            }
+                        }
+                        std::thread::sleep(Duration::from_millis(4));
+                    }
+                    points
+                });
+                if verify_hover_change {
+                    unsafe {
+                        SendMessageW(
+                            hwnd,
+                            windows::Win32::UI::WindowsAndMessaging::WM_APP + 99,
+                            Some(WPARAM(0)),
+                            Some(LPARAM(0)),
+                        )
+                    };
+                }
+                let clicked = platform::control_window(
+                    ControlAction::Click,
+                    &click,
+                    &observed,
+                    CaptureOptions::from_control(&click).map_err(|error| error.to_string())?,
+                    &ControlCommitTracker::default(),
+                );
+                sampling.store(false, AtomicOrdering::Release);
+                let trajectory = sampler.join().map_err(|_| "pointer sampler failed")?;
+                if verify_hover_change {
+                    let failure = match clicked {
+                        Err(failure) => failure,
+                        Ok(_) => {
+                            return Err("a hover-replaced coordinate target was clicked".into())
+                        }
+                    };
+                    if failure.pre_commit_kind != Some(PreCommitFailureKind::ObservationStale)
+                        || failure.phase != ControlFailurePhase::EffectMayHaveOccurred
+                        || unsafe {
+                            SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0)))
+                        }
+                        .0 != 1
+                    {
+                        return Err(format!("hover guard did not retain the original control and uncertain pointer effect: {failure:?}"));
+                    }
+                    eprintln!("Same-window hover replacement was rejected after movement without sending a click");
+                    return Ok((target.id, last));
+                }
+                last = clicked.map_err(|error| format!("coordinate click failed: {error:?}"))?;
+                if trajectory.len() < 4 {
+                    return Err(format!(
+                        "physical pointer jumped instead of moving through frames: {trajectory:?}"
+                    ));
+                }
+                if unsafe { SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0))) }.0
+                    != 0
+                {
+                    return Err(
+                        "captured-image coordinate click did not toggle the checkbox off".into(),
+                    );
+                }
+                eprintln!("Physical coordinate click verified against {}x{} screenshot and {}x{} visible bounds with {} distinct cursor positions", fresh.native_image_width, fresh.native_image_height, fresh.snapshot.width, fresh.snapshot.height, trajectory.len());
             }
             if verify_closure {
                 let fresh = last.capture.as_ref().ok_or("missing pre-close capture")?;

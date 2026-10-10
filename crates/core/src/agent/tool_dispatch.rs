@@ -325,6 +325,17 @@ fn visual_context_message(
         if data.is_empty() || data.len() > MAX_EPHEMERAL_TOOL_IMAGE_BASE64_BYTES {
             continue;
         }
+        let label = attachment
+            .data
+            .get("sourcePath")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&attachment.name)
+            .chars()
+            .take(1024)
+            .collect::<String>();
+        parts.push(ContentPart::Text {
+            text: format!("Image evidence: {label}"),
+        });
         parts.push(ContentPart::Image {
             media_type: attachment.mime_type,
             data: data.to_string(),
@@ -988,6 +999,8 @@ impl ToolDispatchRuntime<'_> {
                             .requires_confirmation(&tc.name, parsed_args)
                             || invocation.access_profile.needs_approval;
                         let hard_confirmation = tc.name == "computer_control"
+                            || (matches!(tc.name.as_str(), "read_file" | "read_files")
+                                && crate::tools::document_utils::requests_native_image(parsed_args))
                             || (tc.name == "browser_session" && tool_requires_confirm)
                             || (tc.name == "computer_observe"
                                 && parsed_args
@@ -2652,6 +2665,85 @@ mod visual_attachment_tests {
 #[cfg(test)]
 mod native_document_tests {
     use super::*;
+    #[tokio::test]
+    async fn local_image_reads_reach_native_vision_and_text_routes_without_persisting_pixels() {
+        use crate::tools::{Tool, ToolExecutionContext};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chart.png");
+        image::RgbImage::from_pixel(32, 24, image::Rgb([20, 140, 220]))
+            .save(&path)
+            .unwrap();
+        let db = Database::open_memory().unwrap();
+        db.add_source(crate::sources::CreateSourceInput {
+            root_path: dir.path().to_string_lossy().into(),
+            include_globs: vec![],
+            exclude_globs: vec![],
+            watch_enabled: false,
+        })
+        .unwrap();
+        assert!(db.load_privacy_config().unwrap().enabled);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = calls.clone();
+        let interpreter: ToolVisualInterpreter = Arc::new(move |request| {
+            let counted = counted.clone();
+            Box::pin(async move {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(request.attachments.len(), 1);
+                ToolVisualObservation::interpreted("fixture-vision", "The image is blue.")
+            })
+        });
+        let tools: Vec<(Box<dyn Tool>, serde_json::Value)> = vec![
+            (
+                Box::new(crate::tools::file_tool::FileTool),
+                serde_json::json!({"path": path, "image_mode":"native"}),
+            ),
+            (
+                Box::new(crate::tools::read_files_tool::ReadFilesTool),
+                serde_json::json!({"paths":[path], "image_mode":"native"}),
+            ),
+        ];
+        for (tool, args) in tools {
+            assert!(
+                tool.requires_confirmation(&args),
+                "raw pixels must require egress consent"
+            );
+            assert!(tool.is_read_only(&args));
+            let mut result = tool
+                .execute(ToolExecutionContext::new(
+                    "image",
+                    &args.to_string(),
+                    &db,
+                    &[],
+                ))
+                .await
+                .unwrap();
+            let images = normalize_ephemeral_tool_attachments(take_ephemeral_tool_attachments(
+                &mut result.artifacts,
+            ));
+            assert_eq!(images.len(), 1);
+            let encoded = images[0].data["base64"].as_str().unwrap();
+            assert!(!serde_json::to_string(&result).unwrap().contains(encoded));
+            let before = calls.load(std::sync::atomic::Ordering::SeqCst);
+            let native = resolve_tool_visual_context_message(
+                true,
+                Some(&interpreter),
+                tool.name(),
+                images.clone(),
+            )
+            .await
+            .unwrap();
+            assert!(native.has_images());
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), before);
+            let fallback =
+                resolve_tool_visual_context_message(false, Some(&interpreter), tool.name(), images)
+                    .await
+                    .unwrap();
+            assert!(!fallback.has_images());
+            assert!(fallback.text_content().contains("blue"));
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), before + 1);
+        }
+    }
+
     #[tokio::test]
     async fn native_document_sidecar_survives_text_only_route_and_closes_tool_round_first() {
         let mut request = crate::llm::document::tests::office_request(crate::llm::document::DOCX);

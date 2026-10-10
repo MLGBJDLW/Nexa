@@ -648,6 +648,17 @@ mod tests {
     #[test]
     fn default_registry_uses_a_small_stable_coding_surface() {
         let registry = crate::tools::default_tool_registry();
+        let resident_names = CACHE_STABLE_RESIDENT_TOOL_NAMES
+            .iter()
+            .filter(|name| registry.contains(name))
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>();
+        let resident = registry.filtered(&resident_names).definitions();
+        let resident_tokens = context::estimate_tool_tokens_for_model("deepseek-v4-pro", &resident);
+        assert!(
+            resident_tokens <= MAX_CACHE_STABLE_TOOL_TOKENS,
+            "resident schemas use {resident_tokens} tokens, exceeding {MAX_CACHE_STABLE_TOOL_TOKENS}; shorten repeated tool guidance"
+        );
         let surface =
             select_cache_stable_tool_surface(&registry, "deepseek-v4-pro", Some(1_000_000), 16_384)
                 .expect("the stable resident coding surface should fit");

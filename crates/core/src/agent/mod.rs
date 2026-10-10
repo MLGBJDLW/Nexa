@@ -260,6 +260,9 @@ pub struct AgentConfig {
     /// Exact route-plan image capability; None keeps legacy adapter discovery.
     #[serde(default)]
     pub native_vision: Option<bool>,
+    /// Inherited image-routing permission, independent of a worker's model.
+    #[serde(default)]
+    pub native_image_policy: Option<crate::vision_router::NativeImagePolicy>,
     /// Legacy wire name for the optional verified semantic tool-round limit.
     /// Physical provider samples, retries, output continuations, compaction,
     /// and rejected drafts do not consume this budget. `u32::MAX` is unlimited.
@@ -462,6 +465,7 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             native_vision: None,
+            native_image_policy: None,
             max_iterations: u32::MAX,
             system_prompt: default_system_prompt(),
             volatile_system_sections: Vec::new(),

@@ -1,6 +1,6 @@
 {
   "name": "read_files",
-  "description": "Read multiple files in a single call. Use this when you need to inspect a known set of files (up to 20) — it is significantly more efficient than calling `read_file` repeatedly. In restricted mode paths must resolve inside the current registered source scope; allow-all/non-restricted permission modes can use all registered sources, and open mode can also use absolute local paths outside registered sources. Supports the same file types as `read_file` (plain text plus extracted text from PDF/DOCX/XLSX/PPTX/images). Output is a JSON array with one entry per requested path; each entry is either {\"path\", \"content\", \"totalLines\", \"truncated\"} on success or {\"path\", \"error\"} on failure. Content is truncated at `max_lines_per_file` lines. For PDF/DOCX/PPTX with no explicit line limit or start_line, the whole original document is also available to verified native document routes; extraction remains the fallback. Office native input is text only; PDF native input can include page images. Explicit line parameters always select extraction only and never send the whole file. XLSX remains structured/extracted input for complete spreadsheet accuracy.",
+  "description": "Read up to 20 local files under read_file scope/privacy rules. Returns each path with content, totalLines and truncated, or error. max_lines_per_file limits text.\n\nimage_mode=\"native\" without line parameters requests approved image pixels through the existing visual route; \"text\" forces extraction/OCR. Omitted mode follows privacy settings. PNG/JPEG/WebP/GIF supported; GIF uses its first frame.\n\nWithout line parameters, PDF/DOCX/PPTX also provide originals to supported native routes when privacy permits. Office input is text-only; PDF can include images. Explicit line limits select extraction only; XLSX uses structured extraction.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -18,6 +18,14 @@
         "description": "Maximum number of lines returned per file. Default 500.",
         "default": 500,
         "minimum": 1
+      },
+      "image_mode": {
+        "type": "string",
+        "enum": [
+          "native",
+          "text"
+        ],
+        "description": "native: approved image pixels; omit line parameters. text: extraction only. Omitted: follow privacy settings."
       }
     },
     "required": [

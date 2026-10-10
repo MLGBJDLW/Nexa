@@ -196,7 +196,11 @@ impl AgentRuntimeTurnRequest {
                     cancellation: cancellation.clone(),
                     approval: self.approval.clone(),
                     visual_interpreter: Some(self.visual_interpreter),
-                    native_vision,
+                    native_vision: self
+                        .config
+                        .native_image_policy
+                        .as_ref()
+                        .map_or(native_vision, |policy| policy.allows(native_vision, false)),
                 },
             )?))
         };

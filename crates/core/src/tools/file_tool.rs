@@ -12,7 +12,9 @@ use serde::Deserialize;
 use crate::error::CoreError;
 use crate::privacy;
 
-use super::document_utils::{document_attachment, read_file_evidence};
+use super::document_utils::{
+    native_image_consent_message, read_file_evidence, requests_native_image,
+};
 use super::path_utils::resolve_existing_file_for_file_access;
 use super::{Tool, ToolCategory, ToolDef, ToolResult};
 
@@ -59,6 +61,23 @@ impl Tool for FileTool {
         &[ToolCategory::Core, ToolCategory::FileSystem]
     }
 
+    fn requires_confirmation(&self, args: &serde_json::Value) -> bool {
+        requests_native_image(args)
+    }
+    fn confirmation_message(&self, args: &serde_json::Value) -> Option<String> {
+        native_image_consent_message(args)
+    }
+    fn is_read_only(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+    fn is_concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+
+    fn run_capabilities(&self, args: &serde_json::Value) -> super::ToolRunCapabilities {
+        super::document_utils::file_read_capabilities(self, args)
+    }
+
     async fn execute(
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
@@ -70,9 +89,12 @@ impl Tool for FileTool {
         {
             return Ok(error);
         }
-        let native_candidate = !value
-            .as_object()
-            .is_some_and(|args| args.contains_key("start_line") || args.contains_key("max_lines"));
+        let native_image_consent = requests_native_image(&value);
+        let native_candidate = value.get("image_mode").and_then(serde_json::Value::as_str)
+            != Some("text")
+            && !value.as_object().is_some_and(|args| {
+                args.contains_key("start_line") || args.contains_key("max_lines")
+            });
         let file_policy = super::file_access_policy_for_context(&context)?;
         let crate::tools::ToolExecutionContext {
             call_id,
@@ -111,7 +133,8 @@ impl Tool for FileTool {
 
             // Read text files directly; for supported binary docs, parse and extract text.
             let privacy_config = db.load_privacy_config()?;
-            let (raw, document) = read_file_evidence(&canonical, native_candidate && !privacy_config.enabled)?;
+            let unredacted_image = native_image_consent && crate::media::is_supported_image(&crate::parse::detect_mime_type(&canonical));
+            let (raw, document) = read_file_evidence(&canonical, native_candidate && (!privacy_config.enabled || unredacted_image))?;
 
             // Skip to start_line (1-based) and truncate to max_lines.
             let start = args.start_line.max(1);
@@ -176,7 +199,7 @@ impl Tool for FileTool {
                 })),
             };
             if let Some(document) = document {
-                let attachment = document_attachment(document, text);
+                let attachment = document.into_attachment(text);
                 result.artifacts.as_mut().unwrap()["toolOutput"] = serde_json::json!({
                     "llmContent": result.content, "displayContent": result.content,
                     "attachments": [attachment],
@@ -216,12 +239,82 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_file_falls_back_to_document_parser_for_binary_images() {
+    async fn read_file_returns_native_image_evidence_without_ocr() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let path = dir.path().join("diagram.png");
+        image::RgbImage::from_pixel(64, 32, image::Rgb([80, 120, 220]))
+            .save(&path)
+            .unwrap();
+        let db = setup_db_with_source(dir.path());
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.enabled = false;
+        db.save_privacy_config(&privacy).unwrap();
+        let args = serde_json::json!({"path": path}).to_string();
+        let result = FileTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "image",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        let attachments = &result.artifacts.as_ref().unwrap()["toolOutput"]["attachments"];
+        assert!(
+            attachments.is_array(),
+            "local image pixels must reach the visual channel, not only an image placeholder: {}",
+            result.content
+        );
+        assert_eq!(attachments.as_array().unwrap().len(), 1);
+        assert!(attachments[0]["mimeType"]
+            .as_str()
+            .unwrap()
+            .starts_with("image/"));
+        assert!(!attachments[0]["data"]["base64"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+        // The visual channel must not bypass explicit extraction or privacy.
+        for request in [
+            serde_json::json!({"path": path, "max_lines": 1}),
+            serde_json::json!({"path": path, "start_line": 1}),
+        ] {
+            let result = FileTool
+                .execute(crate::tools::ToolExecutionContext::new(
+                    "range",
+                    &request.to_string(),
+                    &db,
+                    &[],
+                ))
+                .await
+                .unwrap();
+            assert!(result.artifacts.unwrap().get("toolOutput").is_none());
+        }
+        privacy.enabled = true;
+        db.save_privacy_config(&privacy).unwrap();
+        let result = FileTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "private",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(result.artifacts.unwrap().get("toolOutput").is_none());
+    }
+
+    #[tokio::test]
+    async fn read_file_rejects_invalid_images_instead_of_claiming_visual_evidence() {
         let dir = tempfile::tempdir().expect("create tempdir");
         let image_path = dir.path().join("diagram.png");
         std::fs::write(&image_path, [0_u8, 159, 1, 2, 3]).expect("write binary image bytes");
 
         let db = setup_db_with_source(dir.path());
+        let mut privacy = db.load_privacy_config().unwrap();
+        privacy.enabled = false;
+        db.save_privacy_config(&privacy).unwrap();
         let tool = FileTool;
         let args = serde_json::json!({
             "path": image_path.to_string_lossy().to_string()
@@ -236,14 +329,10 @@ mod tests {
                 &[],
             ))
             .await
-            .expect("read_file should fallback for image");
-
-        assert!(!result.is_error);
-        assert!(
-            result.content.contains("[Image: diagram.png]"),
-            "unexpected content: {}",
-            result.content
-        );
+            .expect_err("invalid image bytes cannot become visual evidence");
+        assert!(result
+            .to_string()
+            .contains("image format could not be decoded"));
     }
 
     #[tokio::test]

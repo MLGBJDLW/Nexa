@@ -18,6 +18,77 @@ pub struct VisionClassificationInput<'a> {
     pub ocr_available: bool,
 }
 
+/// Tool images obey the same user routing choices as uploaded images. Exact
+/// model capability is necessary, but is not permission to bypass OCR-only,
+/// local-only, disabled, ask, or auxiliary routing policy.
+pub fn native_tool_images_allowed(
+    policy: &VisionRouterPolicy,
+    turn_override: Option<VisionTurnOverride>,
+    primary_supports_vision: bool,
+    primary_is_local: bool,
+    auxiliary_available: bool,
+    auxiliary_is_local: bool,
+) -> bool {
+    classify_vision_route(VisionClassificationInput {
+        original_name: "tool-image.png",
+        mime_type: "image/png",
+        user_prompt: "Inspect the visual evidence",
+        policy,
+        turn_override,
+        primary_supports_vision,
+        primary_is_local,
+        auxiliary_available,
+        auxiliary_is_local,
+        ocr_available: true,
+    })
+    .is_ok_and(|decision| decision.plan == VisionRoutePlan::NativeDirect)
+}
+
+/// Frozen routing permission, separate from model capability. Workers can
+/// choose another model without dropping the parent's image privacy choices.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct NativeImagePolicy {
+    pub local: bool,
+    pub remote: bool,
+}
+
+impl NativeImagePolicy {
+    pub fn resolve(
+        policy: &VisionRouterPolicy,
+        turn_override: Option<VisionTurnOverride>,
+        auxiliary_available: bool,
+        auxiliary_is_local: bool,
+    ) -> Self {
+        Self {
+            local: native_tool_images_allowed(
+                policy,
+                turn_override,
+                true,
+                true,
+                auxiliary_available,
+                auxiliary_is_local,
+            ),
+            remote: native_tool_images_allowed(
+                policy,
+                turn_override,
+                true,
+                false,
+                auxiliary_available,
+                auxiliary_is_local,
+            ),
+        }
+    }
+
+    pub fn allows(&self, model_supports_images: bool, provider_is_local: bool) -> bool {
+        model_supports_images
+            && if provider_is_local {
+                self.local
+            } else {
+                self.remote
+            }
+    }
+}
+
 pub fn classify_vision_route(
     input: VisionClassificationInput<'_>,
 ) -> Result<VisionRouteDecision, CoreError> {
@@ -351,6 +422,59 @@ fn decision(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_tool_pixels_respect_model_capability_and_explicit_routing_policy() {
+        let mut policy = VisionRouterPolicy::default();
+        assert!(native_tool_images_allowed(
+            &policy, None, true, false, false, false
+        ));
+        assert!(!native_tool_images_allowed(
+            &policy, None, false, false, false, false
+        ));
+        assert!(!native_tool_images_allowed(
+            &policy,
+            Some(VisionTurnOverride::OcrOnly),
+            true,
+            false,
+            true,
+            true
+        ));
+        policy.local_only = true;
+        assert!(!native_tool_images_allowed(
+            &policy, None, true, false, true, true
+        ));
+        assert!(native_tool_images_allowed(
+            &policy, None, true, true, false, false
+        ));
+        policy.local_only = false;
+        for mode in [
+            VisionMode::Off,
+            VisionMode::Ask,
+            VisionMode::AlwaysAuxiliary,
+        ] {
+            policy.mode = mode;
+            assert!(!native_tool_images_allowed(
+                &policy, None, true, false, true, true
+            ));
+        }
+        assert!(native_tool_images_allowed(
+            &policy,
+            Some(VisionTurnOverride::Auto),
+            true,
+            false,
+            false,
+            false
+        ));
+        assert!(!native_tool_images_allowed(
+            &policy,
+            Some(VisionTurnOverride::VisionOnly),
+            true,
+            false,
+            true,
+            true
+        ));
+    }
 
     fn input<'a>(policy: &'a VisionRouterPolicy) -> VisionClassificationInput<'a> {
         VisionClassificationInput {
