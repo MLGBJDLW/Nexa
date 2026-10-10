@@ -1216,6 +1216,7 @@ fn main() {
             commands::list_desktop_windows_cmd,
             commands::capture_desktop_window_cmd,
             desktop_control_status::desktop_control_status_cmd,
+            desktop_control_status::set_desktop_control_appearance_cmd,
             desktop_control_status::stop_desktop_control_cmd,
             commands::update_desktop_share_cmd,
             commands::end_desktop_share_cmd,

@@ -39,12 +39,25 @@ control and the interval between actions; Stop remains available until the ownin
 run finishes. Run identities prevent another task's terminal event from clearing
 the current activity.
 
-The native action worker owns a compact purple-and-white Nexa pointer with a soft target
-glow. It follows admitted pointer movement and marks semantic targets without
+The native action worker owns a compact Nexa pointer with a soft target glow.
+Its color comes from the current theme's resolved accent, including theme resource
+plugins; the main theme provider projects updates into the existing native surface.
+It follows admitted pointer movement and marks semantic targets without
 moving the user's pointer for UI Automation. The overlay is transparent to input,
 does not activate a window, and is destroyed when that worker exits. It does not
 change the Windows cursor scheme. Its independent window is outside the target
 window's capture surface, so screenshots remain clean evidence.
+
+Foreground pointer actions travel along a smooth, distance-scaled path at about
+60 Hz (100–360 ms), including movement to a drag's starting point. The pointer and
+feedback advance together; semantic background actions only mark their target.
+Each movement frame checks focus, physical buttons, cursor takeover and Stop.
+Stopping signals the existing worker, which retains input ownership until cleanup;
+an interrupted drag still releases its injected button and records uncertain
+effects. Empty gaps between offset monitors are skipped without clamped input.
+Delivered pointer clicks and semantic invocations show a short expanding ripple
+in the same theme color. One ripple follows the complete click sequence, preserving
+double-click timing. Reduced-motion preferences disable travel animation and ripples.
 
 If the Stop banner covers an admitted pointer target, only that registered,
 process-verified Nexa window moves temporarily to the opposite edge of the same

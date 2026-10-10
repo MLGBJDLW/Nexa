@@ -257,6 +257,23 @@ pub fn desktop_control_status_cmd(app: AppHandle) -> Vec<DesktopControlActivity>
 }
 
 #[tauri::command]
+pub fn set_desktop_control_appearance_cmd(
+    window: tauri::WebviewWindow,
+    accent: [u8; 3],
+    reduced_motion: bool,
+) {
+    // Secondary windows may hydrate an older local appearance before the
+    // registry arrives. The main theme provider owns the native projection.
+    if window.label() != "main" {
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    nexa_core::tools::computer_use_tool::configure_desktop_feedback(accent, reduced_motion);
+    #[cfg(not(target_os = "windows"))]
+    let _ = (accent, reduced_motion);
+}
+
+#[tauri::command]
 pub async fn stop_desktop_control_cmd(
     state: tauri::State<'_, crate::commands::AppState>,
     agents: tauri::State<'_, crate::commands::AgentState>,

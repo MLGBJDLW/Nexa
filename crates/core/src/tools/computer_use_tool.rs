@@ -37,6 +37,12 @@ pub fn register_desktop_status_window(window_id: u64) {
     super::computer_pointer_feedback::register_status_window(window_id);
 }
 
+/// Project the renderer's resolved theme into native action feedback.
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+pub fn configure_desktop_feedback(accent: [u8; 3], reduced_motion: bool) {
+    super::computer_pointer_feedback::configure_appearance(accent, reduced_motion);
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct VisualDifference {
@@ -368,18 +374,52 @@ fn computer_control_activity_id(
     format!("computer_control:{scope}:{call_id}:{observation_id}")
 }
 
+/// Distance-adaptive motion in logical pixels, sampled at roughly 60 Hz.
+/// Smoothstep gives a quiet departure/arrival and an exact final hotspot.
+#[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
+fn pointer_motion_path(
+    from: (i32, i32),
+    to: (i32, i32),
+    scale: f64,
+) -> (Duration, Vec<(i32, i32)>) {
+    let dx = f64::from(to.0) - f64::from(from.0);
+    let dy = f64::from(to.1) - f64::from(from.1);
+    let distance = dx.hypot(dy) / scale.max(1.0);
+    if distance <= 2.0 {
+        return (Duration::ZERO, vec![to]);
+    }
+    let millis = (90.0 + distance.sqrt() * 8.0).clamp(100.0, 360.0) as u64;
+    let frames = millis.div_ceil(16);
+    let points = (1..=frames)
+        .map(|frame| {
+            let t = frame as f64 / frames as f64;
+            let eased = t * t * (3.0 - 2.0 * t);
+            (
+                (f64::from(from.0) + dx * eased).round() as i32,
+                (f64::from(from.1) + dy * eased).round() as i32,
+            )
+        })
+        .collect();
+    (Duration::from_millis(millis), points)
+}
+
 const WORKER_PENDING: u8 = 0;
 const WORKER_STARTED: u8 = 1;
 const WORKER_CANCELLED: u8 = 2;
 
 struct PendingWorkerCancellation {
     state: std::sync::Arc<AtomicU8>,
+    running_control: Option<Arc<AtomicBool>>,
     armed: bool,
 }
 
 impl PendingWorkerCancellation {
     fn new(state: std::sync::Arc<AtomicU8>) -> Self {
-        Self { state, armed: true }
+        Self {
+            state,
+            running_control: None,
+            armed: true,
+        }
     }
 
     fn disarm(&mut self) {
@@ -390,6 +430,9 @@ impl PendingWorkerCancellation {
 impl Drop for PendingWorkerCancellation {
     fn drop(&mut self) {
         if self.armed {
+            if let Some(cancelled) = &self.running_control {
+                cancelled.store(true, AtomicOrdering::Release);
+            }
             let _ = self.state.compare_exchange(
                 WORKER_PENDING,
                 WORKER_CANCELLED,
@@ -1247,9 +1290,20 @@ impl ControlFailure {
 struct ControlCommitTracker {
     effect_may_have_occurred: Arc<AtomicBool>,
     observation_consumed: Arc<AtomicBool>,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl ControlCommitTracker {
+    #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
+    fn ensure_running(&self) -> Result<(), CoreError> {
+        if self.cancelled.load(AtomicOrdering::Acquire) {
+            return Err(CoreError::Cancelled(
+                "Computer control stopped; no further input will be sent.".into(),
+            ));
+        }
+        Ok(())
+    }
+
     #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
     fn mark(&self) {
         self.effect_may_have_occurred
@@ -1274,6 +1328,11 @@ impl ControlCommitTracker {
     }
 
     fn failure_as(&self, kind: PreCommitFailureKind, cause: CoreError) -> ControlFailure {
+        let kind = if matches!(cause, CoreError::Cancelled(_)) {
+            PreCommitFailureKind::Cancelled
+        } else {
+            kind
+        };
         let mut failure = if self.effect_may_have_occurred() {
             ControlFailure::effect_may_have_occurred(cause)
         } else {
@@ -2860,6 +2919,7 @@ impl Tool for ComputerControlTool {
             let mut pending_worker =
                 PendingWorkerCancellation::new(std::sync::Arc::clone(&worker_state));
             let commit_tracker = ControlCommitTracker::default();
+            pending_worker.running_control = Some(Arc::clone(&commit_tracker.cancelled));
             let worker_commit_tracker = commit_tracker.clone();
             let worker_target_identity = target_identity.clone();
             let worker_consumed_observation_id = consumed_observation_id.clone();
@@ -5109,7 +5169,7 @@ mod platform {
         Ok(())
     }
 
-    fn move_cursor(point: (i32, i32), context: &str) -> Result<(), CoreError> {
+    fn move_cursor_frame(point: (i32, i32), context: &str) -> Result<(), CoreError> {
         unsafe { SetCursorPos(point.0, point.1) }
             .map_err(|error| platform_error(context, error))?;
         let actual = cursor_position()?;
@@ -5121,6 +5181,55 @@ mod platform {
         }
         super::super::computer_pointer_feedback::show_at(point);
         Ok(())
+    }
+
+    /// Move the physical cursor and its feedback together. Frames carry no
+    /// button events, and cancellation never releases the input arbiter early.
+    fn move_cursor(
+        point: (i32, i32),
+        window: &WindowSnapshot,
+        tracker: &ControlCommitTracker,
+        context: &str,
+    ) -> Result<(), CoreError> {
+        use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL};
+        use windows::Win32::UI::HiDpi::GetDpiForWindow;
+        let from = cursor_position()?;
+        let scale = f64::from(unsafe { GetDpiForWindow(hwnd(window.id)) }.max(96)) / 96.0;
+        let (duration, points) = if super::super::computer_pointer_feedback::reduced_motion() {
+            (Duration::ZERO, vec![point])
+        } else {
+            super::pointer_motion_path(from, point, scale)
+        };
+        let started = Instant::now();
+        let mut previous = from;
+        super::super::computer_pointer_feedback::show_at(from);
+        for (index, next) in points.iter().copied().enumerate() {
+            let due = duration.mul_f64((index + 1) as f64 / points.len() as f64);
+            thread::sleep(due.saturating_sub(started.elapsed()));
+            tracker.ensure_running()?;
+            ensure_target_foreground(window)?;
+            ensure_cursor_at(previous, context)?;
+            for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+                ensure_mouse_button_not_physically_pressed(button)?;
+            }
+            // A straight path can cross empty space between offset monitors.
+            // Do not ask Windows to clamp those intermediate physical points.
+            let screen = unsafe {
+                MonitorFromPoint(
+                    windows::Win32::Foundation::POINT {
+                        x: next.0,
+                        y: next.1,
+                    },
+                    MONITOR_DEFAULTTONULL,
+                )
+            };
+            if screen.0.is_null() && index + 1 < points.len() {
+                continue;
+            }
+            move_cursor_frame(next, context)?;
+            previous = next;
+        }
+        tracker.ensure_running()
     }
 
     fn ensure_cursor_at(point: (i32, i32), context: &str) -> Result<(), CoreError> {
@@ -5673,9 +5782,11 @@ mod platform {
         from_live: Option<&LiveElement>,
         to_live: Option<&LiveElement>,
         duration_ms: u64,
+        tracker: &ControlCommitTracker,
     ) -> Result<(), CoreError> {
-        move_cursor(from, "move to drag start")?;
+        move_cursor(from, window, tracker, "move to drag start")?;
         thread::sleep(INPUT_SETTLE);
+        tracker.ensure_running()?;
         ensure_target_foreground(window)?;
         ensure_cursor_at(from, "drag preparation")?;
         ensure_point_targets_window(from, window)?;
@@ -5688,6 +5799,10 @@ mod platform {
         let mut previous = from;
         let frames = duration_ms.div_ceil(16).clamp(7, 188);
         for frame in 1..=frames {
+            if let Err(error) = tracker.ensure_running() {
+                movement_error = Some(error);
+                break;
+            }
             if unsafe { GetForegroundWindow() } != hwnd(window.id) {
                 movement_error = Some(CoreError::Internal(
                     "Foreground focus changed during drag; released the mouse button and stopped. Action effect is uncertain."
@@ -5712,7 +5827,7 @@ mod platform {
                 )));
                 break;
             }
-            if let Err(error) = move_cursor(next, "drag mouse") {
+            if let Err(error) = move_cursor_frame(next, "drag mouse") {
                 movement_error = Some(CoreError::Internal(format!(
                     "Drag cursor movement failed after button press; action effect is uncertain: {error}"
                 )));
@@ -5893,6 +6008,7 @@ mod platform {
 
         let _pointer_feedback =
             super::super::computer_pointer_feedback::PointerFeedback::begin(current.id);
+        commit_tracker.result(commit_tracker.ensure_running())?;
         let summary = match effective_action {
             ControlAction::FocusWindow => {
                 route = "window_focus";
@@ -5918,6 +6034,13 @@ mod platform {
                     bounds.y + (bounds.height / 2) as i32,
                 ));
                 route = invoke_element(&live.element, &current, commit_tracker)?;
+                super::super::computer_pointer_feedback::pulse_at(
+                    (
+                        bounds.x + (bounds.width / 2) as i32,
+                        bounds.y + (bounds.height / 2) as i32,
+                    ),
+                    || commit_tracker.ensure_running().is_ok(),
+                );
                 format!(
                     "Invoked semantic element {element_id} in window {}.",
                     current.id
@@ -5988,7 +6111,12 @@ mod platform {
                     ensure_point_targets_window(target.point, &current),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(target.point, "move mouse"))?;
+                commit_tracker.result(move_cursor(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse",
+                ))?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::TargetOccluded,
                     ensure_point_targets_window(target.point, &current),
@@ -6034,7 +6162,12 @@ mod platform {
                     ensure_mouse_button_not_physically_pressed(button),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(target.point, "move mouse before click"))?;
+                commit_tracker.result(move_cursor(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse before click",
+                ))?;
                 thread::sleep(INPUT_SETTLE);
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
@@ -6052,6 +6185,7 @@ mod platform {
                     commit_tracker.result(ensure_point_matches_live_element(live, target.point))?;
                 }
                 for index in 0..count {
+                    commit_tracker.result(commit_tracker.ensure_running())?;
                     if let Err(error) = ensure_mouse_button_not_physically_pressed(button) {
                         if index > 0 {
                             return Err(ControlFailure::effect_may_have_occurred(
@@ -6086,6 +6220,9 @@ mod platform {
                         }))?;
                     }
                 }
+                super::super::computer_pointer_feedback::pulse_at(target.point, || {
+                    commit_tracker.ensure_running().is_ok()
+                });
                 format!("Clicked {count} time(s) inside window {}.", current.id)
             }
             ControlAction::Drag => {
@@ -6141,6 +6278,7 @@ mod platform {
                     from.live.as_ref(),
                     to.live.as_ref(),
                     args.drag_duration_ms.unwrap_or(400),
+                    commit_tracker,
                 ))?;
                 format!("Dragged inside window {}.", current.id)
             }
@@ -6176,7 +6314,12 @@ mod platform {
                     ensure_target_foreground(&current),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(target.point, "move mouse before scroll"))?;
+                commit_tracker.result(move_cursor(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse before scroll",
+                ))?;
                 thread::sleep(INPUT_SETTLE);
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
@@ -6193,11 +6336,13 @@ mod platform {
                 if let Some(live) = target.live.as_ref() {
                     commit_tracker.result(ensure_point_matches_live_element(live, target.point))?;
                 }
+                commit_tracker.result(commit_tracker.ensure_running())?;
                 if scroll_y != 0 {
                     commit_tracker.mark();
                     commit_tracker.result(send_scroll_steps(false, scroll_y))?;
                 }
                 if scroll_x != 0 {
+                    commit_tracker.result(commit_tracker.ensure_running())?;
                     if scroll_y != 0 {
                         commit_tracker.result_as(PreCommitFailureKind::UserTakeover, ensure_target_foreground(&current).map_err(|error| {
                             CoreError::Internal(format!(
@@ -7173,6 +7318,51 @@ mod tests {
         assert!(crate::browser_runtime::desktop_input_arbiter()
             .try_lock()
             .is_ok());
+    }
+
+    #[test]
+    fn pointer_motion_has_visible_intermediate_frames_and_exact_scaled_endpoints() {
+        for (from, to) in [((-1800, 240), (820, -500)), ((80, 10), (100, 35))] {
+            let (duration, points) = pointer_motion_path(from, to, 1.5);
+            assert!(duration >= Duration::from_millis(100));
+            assert!(duration <= Duration::from_millis(360));
+            assert_eq!(points.last(), Some(&to));
+            assert!(points.iter().any(|point| *point != from && *point != to));
+            for point in points {
+                assert!((from.0.min(to.0)..=from.0.max(to.0)).contains(&point.0));
+                assert!((from.1.min(to.1)..=from.1.max(to.1)).contains(&point.1));
+            }
+        }
+        assert_eq!(
+            pointer_motion_path((10, 10), (10, 10), 1.0),
+            (Duration::ZERO, vec![(10, 10)])
+        );
+        assert_eq!(
+            pointer_motion_path((0, 0), (600, 0), 2.0).0,
+            pointer_motion_path((0, 0), (300, 0), 1.0).0
+        );
+    }
+
+    #[test]
+    fn stopping_an_inflight_worker_signals_motion_without_erasing_committed_effects() {
+        let state = Arc::new(AtomicU8::new(WORKER_STARTED));
+        let tracker = ControlCommitTracker::default();
+        let mut pending = PendingWorkerCancellation::new(Arc::clone(&state));
+        pending.running_control = Some(Arc::clone(&tracker.cancelled));
+        tracker.mark();
+        let worker = tracker.clone();
+        drop(pending);
+        assert_eq!(state.load(AtomicOrdering::Acquire), WORKER_STARTED);
+        let failure = worker.failure(
+            worker
+                .ensure_running()
+                .expect_err("remaining frames must stop"),
+        );
+        assert_eq!(
+            failure.pre_commit_kind,
+            Some(PreCommitFailureKind::Cancelled)
+        );
+        assert!(worker.effect_may_have_occurred());
     }
 
     #[test]
@@ -8496,14 +8686,35 @@ mod tests {
                     "x": element.bounds.x + (element.bounds.width / 2) as i32,
                     "y": element.bounds.y + (element.bounds.height / 2) as i32,
                 })).map_err(|error| error.to_string())?;
-                last = platform::control_window(
+                let sampling = Arc::new(AtomicBool::new(true));
+                let sampler_flag = Arc::clone(&sampling);
+                let sampler = std::thread::spawn(move || {
+                    let mut points = Vec::new();
+                    while sampler_flag.load(AtomicOrdering::Acquire) {
+                        if let Ok(point) = platform::cursor_position() {
+                            if points.last() != Some(&point) {
+                                points.push(point);
+                            }
+                        }
+                        std::thread::sleep(Duration::from_millis(4));
+                    }
+                    points
+                });
+                let clicked = platform::control_window(
                     ControlAction::Click,
                     &click,
                     &observed,
                     CaptureOptions::from_control(&click).map_err(|error| error.to_string())?,
                     &ControlCommitTracker::default(),
-                )
-                .map_err(|error| format!("coordinate click failed: {error:?}"))?;
+                );
+                sampling.store(false, AtomicOrdering::Release);
+                let trajectory = sampler.join().map_err(|_| "pointer sampler failed")?;
+                last = clicked.map_err(|error| format!("coordinate click failed: {error:?}"))?;
+                if trajectory.len() < 4 {
+                    return Err(format!(
+                        "physical pointer jumped instead of moving through frames: {trajectory:?}"
+                    ));
+                }
                 if unsafe { SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0))) }.0
                     != 0
                 {
@@ -8511,7 +8722,7 @@ mod tests {
                         "captured-image coordinate click did not toggle the checkbox off".into(),
                     );
                 }
-                eprintln!("Physical coordinate click verified against {}x{} screenshot and {}x{} visible bounds", fresh.native_image_width, fresh.native_image_height, fresh.snapshot.width, fresh.snapshot.height);
+                eprintln!("Physical coordinate click verified against {}x{} screenshot and {}x{} visible bounds with {} distinct cursor positions", fresh.native_image_width, fresh.native_image_height, fresh.snapshot.width, fresh.snapshot.height, trajectory.len());
             }
             if verify_closure {
                 let fresh = last.capture.as_ref().ok_or("missing pre-close capture")?;

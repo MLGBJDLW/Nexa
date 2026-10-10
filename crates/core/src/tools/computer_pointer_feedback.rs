@@ -2,7 +2,7 @@
 //! window, intercepts input, or outlives the native action worker that owns it.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use windows::core::w;
 use windows::Win32::Foundation::{COLORREF, HWND, POINT, SIZE};
 use windows::Win32::Graphics::Gdi::{
@@ -22,7 +22,28 @@ struct State {
     scale: f64,
     window: Option<PointerWindow>,
     drawing_failed: bool,
+    painted_accent: Option<[u8; 3]>,
     status_placement: Option<StatusPlacement>,
+}
+
+// Neutral only until the main renderer projects the current theme. Built-in
+// and plugin colors both come from resolved CSS; there is no second palette.
+static APPEARANCE: AtomicU32 = AtomicU32::new(0x0080_8080);
+
+pub(super) fn configure_appearance(accent: [u8; 3], reduced_motion: bool) {
+    APPEARANCE.store(
+        u32::from_be_bytes([u8::from(reduced_motion), accent[0], accent[1], accent[2]]),
+        Ordering::Release,
+    );
+}
+
+fn accent() -> [u8; 3] {
+    let bytes = APPEARANCE.load(Ordering::Acquire).to_be_bytes();
+    [bytes[1], bytes[2], bytes[3]]
+}
+
+pub(super) fn reduced_motion() -> bool {
+    APPEARANCE.load(Ordering::Acquire) >> 24 != 0
 }
 
 static STATUS_WINDOW: AtomicUsize = AtomicUsize::new(0);
@@ -167,6 +188,7 @@ impl PointerFeedback {
                 scale: f64::from(dpi) / 96.0,
                 window: None,
                 drawing_failed: false,
+                painted_accent: None,
                 status_placement: None,
             }
         });
@@ -189,14 +211,21 @@ pub(super) fn show_at(point: (i32, i32)) {
             return;
         }
         if state.window.is_none() {
-            match PointerWindow::create(state.scale, point) {
-                Ok(window) => state.window = Some(window),
+            match PointerWindow::create(state.scale, point, accent()) {
+                Ok(window) => {
+                    state.window = Some(window);
+                    state.painted_accent = Some(accent());
+                }
                 Err(error) => {
                     state.drawing_failed = true;
                     tracing::warn!("Could not draw the Nexa agent pointer: {error}");
                 }
             }
         } else if let Some(window) = &state.window {
+            if state.painted_accent != Some(accent()) {
+                let (_, _, pixels) = pointer_pixels(state.scale, accent());
+                let _ = window.paint(point, &pixels);
+            }
             let _ = unsafe {
                 SetWindowPos(
                     window.handle,
@@ -208,6 +237,7 @@ pub(super) fn show_at(point: (i32, i32)) {
                     SWP_NOACTIVATE | SWP_SHOWWINDOW,
                 )
             };
+            state.painted_accent = Some(accent());
         }
     });
 }
@@ -219,10 +249,73 @@ struct PointerWindow {
     hotspot: i32,
 }
 
+/// Click acknowledgment only. Cosmetic failures never repeat an input action.
+pub(super) fn pulse_at(point: (i32, i32), keep_running: impl Fn() -> bool) {
+    use std::time::{Duration, Instant};
+    if reduced_motion() {
+        return;
+    }
+    let scale = FEEDBACK.with(|state| {
+        let state = state.borrow();
+        state.active.then_some(state.scale)
+    });
+    let Some(scale) = scale else {
+        return;
+    };
+    let (size, _, pixels) = ripple_pixels(scale, 0.0, accent());
+    let Ok(window) =
+        PointerWindow::create_surface(size, size, (32.0 * scale).round() as i32, point, &pixels)
+    else {
+        return;
+    };
+    let started = Instant::now();
+    let duration = Duration::from_millis(260);
+    while started.elapsed() < duration && keep_running() {
+        let progress = started.elapsed().as_secs_f64() / duration.as_secs_f64();
+        let (_, _, pixels) = ripple_pixels(scale, progress, accent());
+        if window.paint(point, &pixels).is_err() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(16));
+    }
+}
+
+fn ripple_pixels(scale: f64, progress: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
+    let size = (64.0 * scale).ceil() as i32;
+    let progress = progress.clamp(0.0, 1.0);
+    let radius = 4.0 + 22.0 * (1.0 - (1.0 - progress).powi(2));
+    let mut pixels = vec![0; size as usize * size as usize * 4];
+    for row in 0..size {
+        for column in 0..size {
+            let x = (f64::from(column) + 0.5) / scale - 32.0;
+            let y = (f64::from(row) + 0.5) / scale - 32.0;
+            let edge = (x.hypot(y) - radius).abs();
+            let line = (1.25 - edge).clamp(0.0, 1.0);
+            let glow = (1.0 - edge / 3.5).clamp(0.0, 1.0).powi(2);
+            let alpha = ((line * 190.0 + glow * 35.0) * (1.0 - progress)) as u32;
+            let offset = (row as usize * size as usize + column as usize) * 4;
+            for (index, channel) in accent.into_iter().rev().enumerate() {
+                pixels[offset + index] = (u32::from(channel) * alpha / 255) as u8;
+            }
+            pixels[offset + 3] = alpha as u8;
+        }
+    }
+    (size, size, pixels)
+}
+
 impl PointerWindow {
-    fn create(scale: f64, point: (i32, i32)) -> windows::core::Result<Self> {
-        let (width, height, pixels) = pointer_pixels(scale);
-        let hotspot = (8.0 * scale).round() as i32;
+    fn create(scale: f64, point: (i32, i32), accent: [u8; 3]) -> windows::core::Result<Self> {
+        let (width, height, pixels) = pointer_pixels(scale, accent);
+        Self::create_surface(width, height, (8.0 * scale).round() as i32, point, &pixels)
+    }
+
+    fn create_surface(
+        width: i32,
+        height: i32,
+        hotspot: i32,
+        point: (i32, i32),
+        pixels: &[u8],
+    ) -> windows::core::Result<Self> {
         let handle = unsafe {
             CreateWindowExW(
                 WS_EX_LAYERED
@@ -249,8 +342,19 @@ impl PointerWindow {
             height,
             hotspot,
         };
-        // A separate unowned tool window is excluded from the target's WGC
-        // surface. It remains visible to the user and ordinary screen recording.
+        window.paint(point, pixels)?;
+        Ok(window)
+    }
+
+    fn paint(&self, point: (i32, i32), pixels: &[u8]) -> windows::core::Result<()> {
+        let Self {
+            handle,
+            width,
+            height,
+            hotspot,
+        } = *self;
+        debug_assert_eq!(pixels.len(), width as usize * height as usize * 4);
+        // The unowned tool window is outside the target's WGC surface.
         let screen = unsafe { GetDC(None) };
         if screen.is_invalid() {
             return Err(windows::core::Error::from_thread());
@@ -342,7 +446,7 @@ impl PointerWindow {
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )
         }?;
-        Ok(window)
+        Ok(())
     }
 }
 
@@ -366,10 +470,10 @@ fn inside_polygon(x: f64, y: f64, points: &[(f64, f64)]) -> bool {
     inside
 }
 
-/// A compact 20x25 logical-pixel arrow in premultiplied BGRA. Four-sample
+/// A compact 20x25 logical-pixel arrow in premultiplied BGRA. 4x4-sample
 /// antialiasing, a quiet target glow and a fine white edge retain contrast on
 /// light and dark surfaces without covering nearby controls with a label.
-fn pointer_pixels(scale: f64) -> (i32, i32, Vec<u8>) {
+fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
     let width = (36.0 * scale).ceil() as i32;
     let height = (40.0 * scale).ceil() as i32;
     let outer = [
@@ -400,23 +504,33 @@ fn pointer_pixels(scale: f64) -> (i32, i32, Vec<u8>) {
                     let y = (f64::from(row) + (f64::from(sy) + 0.5) / 4.0) / scale;
                     let distance = (x - 8.).hypot(y - 8.);
                     let glow = (1.0 - distance / 7.5).clamp(0., 1.).powi(2);
-                    let mut color = [240, 123, 157, (48.0 * glow) as u32];
+                    let mut color = [
+                        u32::from(accent[2]),
+                        u32::from(accent[1]),
+                        u32::from(accent[0]),
+                        (48.0 * glow) as u32,
+                    ];
                     // A restrained one-pixel shadow keeps the white outline
                     // readable on pale windows; it never expands the hotspot.
                     if inside_polygon(x - 0.5, y - 1.0, &outer) {
-                        color = [79, 38, 49, 70];
+                        color = [
+                            u32::from(accent[2]) / 4,
+                            u32::from(accent[1]) / 4,
+                            u32::from(accent[0]) / 4,
+                            70,
+                        ];
                     }
                     if inside_polygon(x, y, &outer) {
                         color = [255, 255, 255, 255];
                     }
                     if inside_polygon(x, y, &inner) {
                         let gradient = ((y - 10.) / 21.).clamp(0., 1.);
-                        color = [
-                            (248. - 37. * gradient) as u32,
-                            (128. - 49. * gradient) as u32,
-                            (164. - 52. * gradient) as u32,
-                            255,
-                        ];
+                        let shade = |channel: u8| {
+                            let base = f64::from(channel);
+                            let light = base + (255.0 - base) * 0.22;
+                            (light * (1.0 - gradient) + base * 0.88 * gradient) as u32
+                        };
+                        color = [shade(accent[2]), shade(accent[1]), shade(accent[0]), 255];
                     }
                     for index in 0..3 {
                         sum[index] += color[index] * color[3] / 255;
@@ -437,9 +551,28 @@ fn pointer_pixels(scale: f64) -> (i32, i32, Vec<u8>) {
 mod tests {
     use super::*;
     #[test]
+    fn pointer_and_ripple_take_the_theme_color_and_ripple_fades_completely() {
+        let (width, _, red) = pointer_pixels(1.0, [255, 0, 0]);
+        let (_, _, blue) = pointer_pixels(1.0, [0, 0, 255]);
+        let body = (18 * width as usize + 12) * 4;
+        assert!(red[body + 2] > red[body]);
+        assert!(blue[body] > blue[body + 2]);
+        for scale in [1.0, 1.5, 2.0] {
+            let (_, _, pixels) = ripple_pixels(scale, 0.3, [224, 108, 50]);
+            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+            assert!(pixels
+                .chunks_exact(4)
+                .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
+            assert!(ripple_pixels(scale, 1.0, [224, 108, 50])
+                .2
+                .iter()
+                .all(|channel| *channel == 0));
+        }
+    }
+    #[test]
     fn pointer_pixels_have_transparency_and_scale_without_changing_the_hotspot() {
         for scale in [1.0, 1.5, 2.0] {
-            let (width, height, pixels) = pointer_pixels(scale);
+            let (width, height, pixels) = pointer_pixels(scale, [20, 184, 166]);
             assert_eq!(pixels.len(), width as usize * height as usize * 4);
             assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
             assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 255));
@@ -448,7 +581,7 @@ mod tests {
                 .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
         }
         if let Some(path) = std::env::var_os("NEXA_POINTER_PREVIEW") {
-            let (width, height, mut pixels) = pointer_pixels(2.0);
+            let (width, height, mut pixels) = pointer_pixels(2.0, [20, 184, 166]);
             for pixel in pixels.chunks_exact_mut(4) {
                 pixel.swap(0, 2);
                 if pixel[3] > 0 {
@@ -495,6 +628,11 @@ mod tests {
             assert!(unsafe { IsWindow(Some(handle)) }.as_bool());
             assert_eq!(unsafe { GetForegroundWindow() }, foreground);
             assert_eq!(unsafe { WindowFromPoint(point) }, hit);
+            pulse_at((point.x, point.y), || {
+                assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+                assert_eq!(unsafe { WindowFromPoint(point) }, hit);
+                true
+            });
         }
         assert!(!unsafe { IsWindow(Some(handle)) }.as_bool());
         unsafe {
