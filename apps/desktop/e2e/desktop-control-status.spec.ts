@@ -9,7 +9,9 @@ test('desktop computer-use status identifies active control and stops its owning
     let seq = 1;
     const active = [{ conversationId: 'desktop-task', runId: 'desktop-run', callId: 'control', toolName: 'computer_control' }];
     const stopped: string[] = [];
-    Object.assign(window, { __desktopStops: stopped, __TAURI_INTERNALS__: {
+    Object.assign(window, { __desktopStops: stopped, __desktopWait() {
+      for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: active.map(activity => ({ ...activity, phase: 'waiting' })) });
+    }, __TAURI_INTERNALS__: {
       transformCallback(callback: (event: unknown) => void) { const id = seq++; callbacks.set(id, callback); return id; },
       unregisterCallback(id: number) { callbacks.delete(id); },
       async invoke(command: string, args: Record<string, unknown> = {}) {
@@ -30,6 +32,9 @@ test('desktop computer-use status identifies active control and stops its owning
   await expect(page.getByRole('status')).toContainText('Controlling the computer');
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath('desktop-status.png') });
+  await page.evaluate(() => (window as unknown as { __desktopWait(): void }).__desktopWait());
+  await expect(page.getByRole('status')).toContainText('Continuing the computer task');
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0);
   await page.getByRole('button', { name: 'Stop', exact: true }).click();

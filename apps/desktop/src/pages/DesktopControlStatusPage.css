@@ -51,6 +51,12 @@
   animation-duration: 6s;
 }
 
+.nexa-control-status[data-waiting='true'] .bond-pulse,
+.nexa-control-status[data-waiting='true'] .nexa-control-thread::after {
+  animation-play-state: paused;
+  opacity: .4;
+}
+
 @keyframes nexa-bond-connect { to { stroke-dashoffset: -93; } }
 @keyframes nexa-bond-breathe { 50% { opacity: .5; transform: scale(.91); } }
 @keyframes nexa-bond-travel {

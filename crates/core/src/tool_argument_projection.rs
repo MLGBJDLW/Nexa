@@ -165,6 +165,7 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
         "scroll_y",
         "click_count",
         "max_elements",
+        "drag_duration_ms",
     ] {
         if let Some(value) = object.get(key) {
             projected.insert(
@@ -194,6 +195,8 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
         ),
         ("button", &["left", "right", "middle"][..]),
         ("capture_mode", &["raw", "som"][..]),
+        ("approval_scope", &["action", "window_session"][..]),
+        ("delivery", &["auto", "background", "foreground"][..]),
     ] {
         if let Some(value) = object.get(key) {
             let safe = value
@@ -279,6 +282,9 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
         "max_elements",
         "capture_mode",
         "wait_for_previous",
+        "approval_scope",
+        "delivery",
+        "drag_duration_ms",
     ];
     let unknown_field_count = object
         .keys()
@@ -669,6 +675,22 @@ mod tests {
 
         assert!(!projected.contains("browser-stream-secret"));
         assert!(projected.contains("redacted"));
+    }
+
+    #[test]
+    fn valid_desktop_delivery_fields_are_not_reported_as_unknown() {
+        let projected = audit_safe_arguments(
+            "computer_control",
+            &json!({
+                "action": "click", "approval_scope": "window_session", "delivery": "foreground",
+                "observation_id": "private-token", "window_id": 7606500,
+                "x": 211, "y": 433, "coordinate_space": "captured_image_pixels",
+            }),
+        );
+        assert!(projected.get("unknownFieldCount").is_none());
+        assert_eq!(projected["approval_scope"], "window_session");
+        assert_eq!(projected["delivery"], "foreground");
+        assert!(!projected.to_string().contains("private-token"));
     }
 
     #[test]
