@@ -76,6 +76,7 @@ import {
   type FileDiffArtifact,
 } from "../../components/chat/FileDiffPreview";
 import { ThinkingBlock } from "../../components/chat/ThinkingBlock";
+import { ComputerUseTrace, isComputerUseStep, type ComputerUseStep } from '../../components/chat/ComputerUseTrace';
 import type { ThinkingSection } from "../../components/chat/ThinkingBlock";
 import { MessageBubble } from "../../components/chat/MessageBubble";
 import { StreamingMarkdown } from "../../components/chat/StreamingMarkdown";
@@ -956,11 +957,27 @@ export function ChatMessages(props: ChatMessagesProps) {
   );
 
   const renderTimelineSections = useCallback(
-    (sections: TimelineSection[], parentRunActive = false): ThinkingSection[] =>
-      sections
-        .map(section => renderTimelineSection(section, parentRunActive))
-        .filter((section): section is ThinkingSection => Boolean(section)),
-    [renderTimelineSection],
+    (sections: TimelineSection[], parentRunActive = false): ThinkingSection[] => {
+      const result: ThinkingSection[] = [];
+      let computerSteps: ComputerUseStep[] = [];
+      const flushComputerSteps = () => {
+        if (computerSteps.length === 0) return;
+        result.push({ text: '', node: <ComputerUseTrace key={computerSteps[0].id} steps={computerSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+        computerSteps = [];
+      };
+      for (const section of sections) {
+        if (isComputerUseStep(section)) {
+          computerSteps.push(section);
+        } else {
+          flushComputerSteps();
+          const rendered = renderTimelineSection(section, parentRunActive);
+          if (rendered) result.push(rendered);
+        }
+      }
+      flushComputerSteps();
+      return result;
+    },
+    [conversationId, renderTimelineSection],
   );
 
   const renderTimelineTraceNode = useCallback(

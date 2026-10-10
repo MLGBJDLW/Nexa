@@ -68,8 +68,8 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | [`prepare_document_tools`](../crates/core/prompts/tools/prepare_document_tools.json) | Check or prepare the local Python-backed document tools used by the Office skills |
 | [`project_tool`](../crates/core/prompts/tools/project_tool.json) | Discover, describe, and run source-scoped project-local tool manifests |
 | [`query_knowledge_graph`](../crates/core/prompts/tools/query_knowledge_graph.json) | Query the compiled entity relationship graph as a compact navigation index before retrieving full evidence |
-| [`read_file`](../crates/core/prompts/tools/read_file.json) | READ ONLY: inspect a file by path without modifying it |
-| [`read_files`](../crates/core/prompts/tools/read_files.json) | Read multiple files in a single call |
+| [`read_file`](../crates/core/prompts/tools/read_file.json) | Read an authorized local file |
+| [`read_files`](../crates/core/prompts/tools/read_files.json) | Read up to 20 authorized local files in one call using the same scope and privacy rules as read_file |
 | [`record_verification`](../crates/core/prompts/tools/record_verification.json) | Record what was verified before finishing a multi-step task |
 | [`reindex_document`](../crates/core/prompts/tools/reindex_document.json) | Trigger re-indexing of a specific document by path or an entire source directory |
 | [`request_user_input`](../crates/core/prompts/tools/request_user_input.json) | Ask the user one to six concise, structured questions when their input is genuinely needed |
@@ -985,8 +985,11 @@ window-capture or input actions.
 Perform exactly one approved action against a fresh Windows observation.
 While native observation or control is running, a non-activating Nexa desktop
 status window shows the activity and offers **Stop** for its owning task.
-The indicator follows committed tool/terminal events and is hidden when those
-activities finish. It does not grant control permission.
+The indicator follows committed tool/terminal events, stays available between
+actions, and hides when the owning run finishes. It is centered on the target
+monitor. Native input also carries a non-activating, click-through Nexa pointer;
+see [Computer Use and local images](COMPUTER_USE.md) for coordinates, recovery,
+feedback lifecycle and direct image inspection. It does not grant control permission.
 Observations are single-use for control. Prefer semantic `invoke` or
 `set_value`, then element-targeted pointer actions, with raw coordinates as the
 last fallback. Coordinates may use `captured_image_pixels` or
