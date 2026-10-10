@@ -19,10 +19,16 @@ impl TurnModelSelection {
             return Err(CoreError::InvalidInput("Choose a valid model ID".into()));
         }
         if self.reasoning_effort.as_deref().is_some_and(|effort| {
-            !matches!(
-                effort,
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
-            )
+            if crate::external_agent::preset(&saved.provider).is_some() {
+                // ACP option IDs are opaque. The connected session validates
+                // membership after selecting the actual model, before prompting.
+                effort.is_empty() || effort.len() > 512 || effort.chars().any(char::is_control)
+            } else {
+                !matches!(
+                    effort,
+                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+                )
+            }
         }) || self
             .thinking_budget
             .is_some_and(|budget| !(0..=i64::from(u32::MAX)).contains(&budget))
@@ -72,5 +78,23 @@ mod tests {
             serde_json::json!({"model":"model", "baseUrl":"https://other.example"})
         )
         .is_err());
+        let mut native_selection = selection.clone();
+        native_selection.reasoning_effort = Some("balanced/native".into());
+        assert!(
+            native_selection.apply(&saved).is_err(),
+            "API effort enum stays strict"
+        );
+        let mut native = saved.clone();
+        native.provider = "opencode".into();
+        assert_eq!(
+            native_selection
+                .apply(&native)
+                .unwrap()
+                .reasoning_effort
+                .as_deref(),
+            Some("balanced/native")
+        );
+        native_selection.reasoning_effort = Some("bad\nvalue".into());
+        assert!(native_selection.apply(&native).is_err());
     }
 }

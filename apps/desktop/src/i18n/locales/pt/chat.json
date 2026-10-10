@@ -902,5 +902,6 @@
   "computerUseWaiting": "Continuando a tarefa no computador",
   "reasoningControlStyle": "Estilo do controle de raciocínio",
   "reasoningList": "Lista",
-  "reasoningSlider": "Controle de intensidade"
+  "reasoningSlider": "Controle de intensidade",
+  "reasoningOn": "Ativado"
 }

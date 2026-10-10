@@ -902,5 +902,6 @@
   "computerUseWaiting": "컴퓨터 작업을 계속하는 중",
   "reasoningControlStyle": "추론 조절 방식",
   "reasoningList": "목록",
-  "reasoningSlider": "강도 슬라이더"
+  "reasoningSlider": "강도 슬라이더",
+  "reasoningOn": "켜짐"
 }

@@ -237,13 +237,16 @@ async fn run_initialized(
         .as_ref()
         .map(|binding| binding.launch.config_options.clone())
         .unwrap_or_default();
-    let effort = request
-        .config
-        .reasoning_effort
-        .as_ref()
-        .map(serde_json::to_value)
-        .transpose()?
-        .and_then(|value| value.as_str().map(str::to_owned));
+    let effort = match request.external.as_ref() {
+        Some(binding) => binding.reasoning_effort.clone(),
+        None => request
+            .config
+            .reasoning_effort
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?
+            .and_then(|value| value.as_str().map(str::to_owned)),
+    };
     let saved_model = request
         .external
         .as_ref()

@@ -920,9 +920,6 @@ pub fn ocr_pdf_page_with_llm_provider_type(
     llm_provider_type: Option<crate::llm::ProviderType>,
 ) -> Result<PdfPageOcr, CoreError> {
     let images = crate::pdf_images::extract_images_from_pdf_page(document, page_id);
-    if images.is_empty() {
-        return Err(CoreError::Ocr("This page has no supported embedded images. Configure a structured PDF parser with page rendering, then rescan.".into()));
-    }
     let mut first_error = None;
     let mut result = PdfPageOcr {
         text: String::new(),
@@ -1456,6 +1453,18 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_without_image_candidates_does_not_require_ocr_models_or_warn() {
+        let mut document = lopdf::Document::new();
+        let page = document.add_object(lopdf::Dictionary::new());
+        let result =
+            ocr_pdf_page_with_llm_provider_type(&document, page, &OcrConfig::default(), None, None)
+                .unwrap();
+        assert!(result.text.is_empty());
+        assert_eq!(result.images_seen, 0);
+        assert_eq!(result.images_failed, 0);
+    }
     use crate::db::Database;
     use std::io::Write;
 

@@ -63,7 +63,7 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
 
 fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // Binary check — look for null bytes in first 8 KB.
-    if bytes_appear_binary(&raw) {
+    if bytes_appear_binary(raw) {
         return Err(CoreError::Parse(format!(
             "File appears to be binary: {}",
             path.display()
@@ -104,7 +104,7 @@ fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // Try common legacy encodings
     use encoding_rs::{EUC_KR, GBK, SHIFT_JIS, WINDOWS_1252};
     for encoding in &[GBK, SHIFT_JIS, EUC_KR, WINDOWS_1252] {
-        let (result, _, had_errors) = encoding.decode(&raw);
+        let (result, _, had_errors) = encoding.decode(raw);
         if !had_errors {
             tracing::info!(
                 "File {} decoded as {} (not UTF-8)",
@@ -120,7 +120,7 @@ fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
         "Could not detect encoding for {}, using lossy UTF-8",
         path.display()
     );
-    Ok(String::from_utf8_lossy(&raw).into_owned())
+    Ok(String::from_utf8_lossy(raw).into_owned())
 }
 
 // ---------------------------------------------------------------------------
@@ -890,28 +890,28 @@ pub fn parse_image_with_llm_provider_type(
         .unwrap_or_default();
 
     // ── Try OCR ──
-    let (text_content, ocr_source, ocr_confidence) =
-        match crate::ocr::extract_text_from_image_with_llm_provider_type(
-            &bytes,
-            mime_type,
-            ocr_config,
-            llm_provider,
-            llm_provider_type,
-        ) {
-            Ok(result) if !result.full_text.is_empty() => {
-                (result.full_text, result.source, result.avg_confidence)
-            }
-            Ok(_) | Err(_) => {
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("unknown");
-                let stub = format!(
-                    "[Image: {file_name}] type={ext} size={file_size} bytes path={file_path}"
-                );
-                (stub, crate::ocr::OcrSource::None, 0.5)
-            }
-        };
+    let ocr_result = crate::ocr::extract_text_from_image_with_llm_provider_type(
+        &bytes,
+        mime_type,
+        ocr_config,
+        llm_provider,
+        llm_provider_type,
+    );
+    let ocr_failed = ocr_config.enabled && ocr_result.is_err();
+    let (text_content, ocr_source, ocr_confidence) = match ocr_result {
+        Ok(result) if !result.full_text.is_empty() => {
+            (result.full_text, result.source, result.avg_confidence)
+        }
+        Ok(_) | Err(_) => {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("unknown");
+            let stub =
+                format!("[Image: {file_name}] type={ext} size={file_size} bytes path={file_path}");
+            (stub, crate::ocr::OcrSource::None, 0.5)
+        }
+    };
 
     let mut chunks = if ocr_source != crate::ocr::OcrSource::None {
         chunk_plaintext_preserving_short_document(&text_content, max_chunk_chars)
@@ -942,6 +942,13 @@ pub fn parse_image_with_llm_provider_type(
 
     let mut doc_metadata = extract_fs_metadata(path);
     doc_metadata.insert("ocr_source".into(), format!("{:?}", ocr_source));
+    if ocr_failed {
+        doc_metadata.insert(
+            "parse_warnings".into(),
+            "Image OCR failed; only image metadata is indexed. Check OCR configuration and retry."
+                .into(),
+        );
+    }
     let visual_artifacts = vec![crate::visual_document::image_file_visual_artifact(
         &file_name,
         mime_type,

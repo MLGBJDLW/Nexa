@@ -340,6 +340,8 @@ export function AgentModelPicker({
     ? (REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel] ? t(REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel]) : selectedConfig.reasoningEffort)
     : selectedConfig?.thinkingBudget
       ? formatBudget(selectedConfig.thinkingBudget)
+      : selectedConfig?.reasoningEnabled === true && !selectedModelRow?.reasoning?.nativeEffortLevels
+        ? t('chat.reasoningOn')
       : selectedConfig && findPresetForConfig(selectedConfig)?.runtime
         ? t('settings.isDefault')
         : selectedModelRow?.reasoning?.disabledMode === 'between_tools'
@@ -430,7 +432,7 @@ export function AgentModelPicker({
   const applyModelSelection = useCallback(
     (row: ModelRow) => {
       const isCurrent = selectedConfig?.id === row.providerRow.config.id && selectedConfig.model === row.model.id;
-      const defaultEffort = defaultReasoningEffort(row.reasoning);
+      const defaultEffort = row.reasoning?.nativeEffortLevels ? null : defaultReasoningEffort(row.reasoning);
       const defaultBudget = defaultThinkingBudget(row.reasoning);
       setOpen(false);
       void Promise.resolve(onSelect({
@@ -500,6 +502,9 @@ export function AgentModelPicker({
   const intensityOptions: Array<{ key: string; label: string; selection: Pick<AgentModelSelection, 'reasoningEnabled' | 'reasoningEffort' | 'thinkingBudget'> }> = [];
   if (intensityCapability) {
     const levels = intensityCapability.nativeEffortLevels ?? intensityCapability.effortLevels ?? [];
+    if (intensityCapability.nativeEffortLevels) {
+      intensityOptions.push({ key: 'native-default', label: t('settings.isDefault'), selection: { reasoningEnabled: null, thinkingBudget: null, reasoningEffort: null } });
+    }
     if (intensityCapability.mode !== 'always' && !levels.includes('none')) {
       intensityOptions.push({ key: 'off', label: t(reasoningOffLabelKey(intensityCapability)), selection: { reasoningEnabled: false, thinkingBudget: null, reasoningEffort: null } });
     }
@@ -510,12 +515,15 @@ export function AgentModelPicker({
       const custom = normalizeThinkingBudget(selected?.thinkingBudget ?? null, intensityCapability);
       if (custom != null && !budgets.includes(custom)) budgets.push(custom);
       intensityOptions.push(...budgets.sort((a, b) => a - b).map(budget => ({ key: `budget:${budget}`, label: formatBudget(budget), selection: { reasoningEnabled: true, thinkingBudget: budget, reasoningEffort: null } })));
+    } else if (intensityCapability.mode !== 'always') {
+      intensityOptions.push({ key: 'on', label: t('chat.reasoningOn'), selection: { reasoningEnabled: true, thinkingBudget: null, reasoningEffort: null } });
     }
   }
   const intensityEnabled = selected?.reasoningEnabled ?? intensityCapability?.defaultEnabled ?? intensityCapability?.mode === 'always';
-  const intensityKey = !intensityEnabled && intensityOptions.some(option => option.key === 'off') ? 'off'
-    : (intensityCapability?.nativeEffortLevels ?? intensityCapability?.effortLevels)?.length ? `effort:${selected?.reasoningEffort ?? defaultReasoningEffort(intensityCapability ?? null, true) ?? intensityCapability?.nativeEffortLevels?.[0]}`
-      : `budget:${selected?.thinkingBudget ?? defaultThinkingBudget(intensityCapability ?? null)}`;
+  const intensityKey = intensityCapability?.nativeEffortLevels && selected?.reasoningEffort == null ? 'native-default'
+    : !intensityEnabled && intensityOptions.some(option => option.key === 'off') ? 'off'
+      : (intensityCapability?.nativeEffortLevels ?? intensityCapability?.effortLevels)?.length ? `effort:${selected?.reasoningEffort ?? defaultReasoningEffort(intensityCapability ?? null, true)}`
+        : intensityCapability?.thinkingBudget?.enabled ? `budget:${selected?.thinkingBudget ?? defaultThinkingBudget(intensityCapability ?? null)}` : 'on';
   const isSearching = normalizedQuery.length > 0;
   const visibleCount = isSearching
     ? searchModelRows.length
@@ -866,10 +874,10 @@ export function AgentModelPicker({
                             <p className="text-[11px] leading-4 text-text-tertiary">
                               {t('settings.reasoningUnsupported')}
                             </p>
-                          ) : (activeModelRow.reasoning.nativeEffortLevels ?? activeModelRow.reasoning.effortLevels)?.length ? (
+                          ) : (activeModelRow.reasoning.nativeEffortLevels ?? activeModelRow.reasoning.effortLevels)?.length || (!activeModelRow.reasoning.thinkingBudget?.enabled && intensityOptions.length > 0) ? (
                             <div className="grid gap-1">
                               {intensityOptions.map(option => <button type="button" key={option.key}
-                                data-testid={`agent-model-reasoning-${option.key === 'off' ? 'none' : option.selection.reasoningEffort}`}
+                                data-testid={`agent-model-reasoning-${option.key === 'off' ? 'none' : option.selection.reasoningEffort ?? option.key}`}
                                 onClick={() => applyReasoningSelection(option.selection)}
                                 className={`flex h-7 items-center justify-between rounded-md px-2 text-xs transition-colors ${intensityKey === option.key ? 'bg-accent-subtle text-text-primary ring-1 ring-accent/25' : 'text-text-secondary hover:bg-surface-1 hover:text-text-primary'}`}>
                                 <span className="truncate">{option.label}</span>

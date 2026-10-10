@@ -902,5 +902,6 @@
   "computerUseWaiting": "正在继续电脑任务",
   "reasoningControlStyle": "思考强度控件样式",
   "reasoningList": "列表选择",
-  "reasoningSlider": "强度滑杆"
+  "reasoningSlider": "强度滑杆",
+  "reasoningOn": "开启"
 }

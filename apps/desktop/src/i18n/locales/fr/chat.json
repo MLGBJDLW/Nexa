@@ -902,5 +902,6 @@
   "computerUseWaiting": "Poursuite de la tâche sur l’ordinateur",
   "reasoningControlStyle": "Style du réglage de raisonnement",
   "reasoningList": "Liste",
-  "reasoningSlider": "Curseur d’intensité"
+  "reasoningSlider": "Curseur d’intensité",
+  "reasoningOn": "Activé"
 }

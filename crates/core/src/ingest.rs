@@ -36,6 +36,16 @@ pub struct IndexedDocument {
     pub ingestion_fingerprint: String,
 }
 
+impl IndexedDocument {
+    fn reusable_extraction(&self, content_hash: &str, fingerprint: &str) -> bool {
+        self.content_hash == content_hash
+            && self.ingestion_fingerprint == fingerprint
+            && !self.parser_profile.is_empty()
+            && (!self.parser_profile.starts_with("native-")
+                || self.parser_profile == NATIVE_PARSER_PROFILE)
+    }
+}
+
 /// Everything that can change extracted content is part of the cache identity.
 /// Only this digest is persisted; configuration can contain private credentials.
 #[allow(clippy::too_many_arguments)]
@@ -1275,8 +1285,7 @@ fn classify_file(
     if existing_docs
         .get(&document_lookup_key(&file_path))
         .is_some_and(|existing| {
-            existing.content_hash == known_content_hash
-                && existing.ingestion_fingerprint == ingestion_profile
+            existing.reusable_extraction(&known_content_hash, ingestion_profile)
         })
     {
         return Ok(FileClassification::Unchanged);
@@ -1585,8 +1594,7 @@ fn ingest_file(
     }
     if !force
         && existing_document.as_ref().is_some_and(|existing| {
-            existing.content_hash == known_content_hash
-                && existing.ingestion_fingerprint == ingestion_profile
+            existing.reusable_extraction(&known_content_hash, &ingestion_profile)
         })
     {
         db.clear_scan_error(source_id, &path_str)?;
@@ -1829,6 +1837,35 @@ mod tests {
     use crate::sources::CreateSourceInput;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn image_ocr_failure_is_not_cached_as_complete_extraction() {
+        let root = TempDir::new().unwrap();
+        let image = root.path().join("scan.png");
+        fs::write(&image, b"image fixture").unwrap();
+        let mut config = crate::ocr::OcrConfig {
+            enabled: true,
+            model_path: root.path().join("missing-models").to_string_lossy().into(),
+            ..Default::default()
+        };
+        let mut parsed =
+            crate::parse::parse_image(&image, "image/png", &config, None, 2000).unwrap();
+        assert!(!parsed.chunks.is_empty());
+        assert!(parsed.metadata.contains_key("parse_warnings"));
+        mark_ingestion_fingerprint(&mut parsed, "same-config");
+        assert!(!parsed.metadata.contains_key("ingestion_fingerprint"));
+        config.enabled = false;
+        let mut disabled =
+            crate::parse::parse_image(&image, "image/png", &config, None, 2000).unwrap();
+        mark_ingestion_fingerprint(&mut disabled, "disabled-config");
+        assert_eq!(
+            disabled
+                .metadata
+                .get("ingestion_fingerprint")
+                .map(String::as_str),
+            Some("disabled-config")
+        );
+    }
 
     fn test_db() -> Database {
         let db = Database::open_memory().expect("open in-memory db");

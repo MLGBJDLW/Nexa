@@ -902,5 +902,6 @@
   "computerUseWaiting": "正在繼續電腦任務",
   "reasoningControlStyle": "思考強度控制樣式",
   "reasoningList": "清單選擇",
-  "reasoningSlider": "強度滑桿"
+  "reasoningSlider": "強度滑桿",
+  "reasoningOn": "開啟"
 }

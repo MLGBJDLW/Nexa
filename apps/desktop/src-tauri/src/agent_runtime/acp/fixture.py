@@ -8,6 +8,8 @@ import os
 mode = sys.argv[1]
 session = "会话-Δ"
 config = [{"id": "model-id", "category": "model", "type": "select", "name": "Model", "currentValue": "first", "options": [{"value": "first", "name": "First"}, {"value": "vendor/模型", "name": "Model"}]}]
+if mode == "opaque_effort":
+    config.append({"id":"reasoning_effort","type":"select","name":"Reasoning","currentValue":"balanced","options":[{"value":value,"name":value} for value in ["eco","balanced","deep"]]})
 if mode == "dependent":
     config = [
         {"id": "provider", "type": "select", "name": "Provider", "currentValue": "A", "options": [{"value": "A", "name": "A"}, {"value": "B", "name": "B"}]},
@@ -57,6 +59,13 @@ for line in sys.stdin:
         assert mode == "legacy" and message["params"]["modelId"] == "vendor/模型"
         reply(message, {})
     elif method == "session/set_config_option":
+        if mode == "opaque_effort":
+            option = next(option for option in config if option["id"] == message["params"]["configId"])
+            value = message["params"]["value"]
+            assert any(choice["value"] == value for choice in option["options"])
+            option["currentValue"] = value
+            reply(message, {"configOptions":config})
+            continue
         if mode == "dependent":
             ident, value = message["params"]["configId"], message["params"]["value"]
             option = next(option for option in config if option["id"] == ident)
@@ -76,6 +85,8 @@ for line in sys.stdin:
             config[0]["currentValue"] = message["params"]["value"]
         reply(message, {"configOptions": config})
     elif method == "session/prompt":
+        if mode == "opaque_effort":
+            assert config[1]["currentValue"] == "deep", "opaque chat effort was lost before prompt"
         pending = message
         if mode == "tree":
             subprocess.Popen([sys.executable, "-c", "import time,pathlib,sys;time.sleep(1);pathlib.Path(sys.argv[1]).write_text('orphan')", sys.argv[2]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

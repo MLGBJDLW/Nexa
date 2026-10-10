@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use image::{DynamicImage, GrayImage, RgbImage};
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{content::Content, Dictionary, Document, Object, ObjectId, Stream};
 
 const MAX_IMAGE_PIXELS: usize = 32 * 1024 * 1024;
 
@@ -30,10 +30,13 @@ pub(crate) fn extract_images_from_pdf_page(doc: &Document, page_id: ObjectId) ->
         };
         node = parent;
     }
-    let mut pending = resources.into_iter().collect::<Vec<_>>();
+    let mut pending = resources
+        .into_iter()
+        .map(|resources| (doc.get_page_content(page_id), resources))
+        .collect::<Vec<_>>();
     let mut visited = HashSet::new();
     let mut images = Vec::new();
-    while let Some(resources) = pending.pop() {
+    while let Some((content, resources)) = pending.pop() {
         let Some(xobjects) = resources
             .get(b"XObject")
             .ok()
@@ -41,7 +44,26 @@ pub(crate) fn extract_images_from_pdf_page(doc: &Document, page_id: ObjectId) ->
         else {
             continue;
         };
-        for (_, object) in xobjects.iter() {
+        let Ok(content) = Content::decode(&content) else {
+            continue;
+        };
+        // Resource dictionaries are lookup scopes. Only Do operations paint
+        // an XObject on this page; shared, unused images belong to other pages.
+        for operation in content
+            .operations
+            .iter()
+            .filter(|operation| operation.operator == "Do")
+        {
+            let Some(name) = operation
+                .operands
+                .first()
+                .and_then(|operand| operand.as_name().ok())
+            else {
+                continue;
+            };
+            let Ok(object) = xobjects.get(name) else {
+                continue;
+            };
             let Ok((id, object)) = doc.dereference(object) else {
                 continue;
             };
@@ -53,13 +75,16 @@ pub(crate) fn extract_images_from_pdf_page(doc: &Document, page_id: ObjectId) ->
             };
             match stream.dict.get(b"Subtype").and_then(Object::as_name).ok() {
                 Some(b"Form") => {
-                    if let Some(resources) = stream
+                    let form_resources = stream
                         .dict
                         .get(b"Resources")
                         .ok()
-                        .and_then(|value| dictionary(doc, value))
-                    {
-                        pending.push(resources);
+                        .map(|value| dictionary(doc, value))
+                        .unwrap_or(Some(resources));
+                    if let Some(resources) = form_resources {
+                        if let Ok(content) = stream.get_plain_content() {
+                            pending.push((content, resources));
+                        }
                     }
                 }
                 Some(b"Image") => {
@@ -221,16 +246,37 @@ mod tests {
             form_id,
             Object::Stream(Stream::new(
                 dictionary! {"Subtype"=>"Form","Resources"=>resources},
-                Vec::new(),
+                b"/Image Do /Cycle Do /Image Do".to_vec(),
             )),
         );
         let parent = doc.add_object(
             dictionary! {"Resources"=>dictionary! {"XObject"=>dictionary! {"Form"=>form_id}}},
         );
-        let page = doc.add_object(dictionary! {"Parent"=>parent});
+        let content = doc.add_object(Stream::new(dictionary! {}, b"/Form Do".to_vec()));
+        let page = doc.add_object(dictionary! {"Parent"=>parent,"Contents"=>content});
         let images = extract_images_from_pdf_page(&doc, page);
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].to_rgb8().into_raw(), [255, 255, 255, 0, 0, 0]);
+    }
+
+    #[test]
+    fn shared_resources_only_extract_images_invoked_on_the_current_page() {
+        let mut doc = Document::new();
+        let a = doc.add_object(Stream::new(dictionary! {"Subtype"=>"Image","Width"=>1,"Height"=>1,"ColorSpace"=>"DeviceGray","BitsPerComponent"=>8}, vec![10]));
+        let b = doc.add_object(Stream::new(dictionary! {"Subtype"=>"Image","Width"=>1,"Height"=>1,"ColorSpace"=>"DeviceGray","BitsPerComponent"=>8}, vec![200]));
+        let parent = doc.add_object(
+            dictionary! {"Resources"=>dictionary! {"XObject"=>dictionary! {"A"=>a,"B"=>b}}},
+        );
+        for (name, pixel) in [("A", 10), ("B", 200)] {
+            let content = doc.add_object(Stream::new(
+                dictionary! {},
+                format!("/{name} Do").into_bytes(),
+            ));
+            let page = doc.add_object(dictionary! {"Parent"=>parent,"Contents"=>content});
+            let images = extract_images_from_pdf_page(&doc, page);
+            assert_eq!(images.len(), 1);
+            assert_eq!(images[0].to_luma8().into_raw(), [pixel]);
+        }
     }
 
     #[test]

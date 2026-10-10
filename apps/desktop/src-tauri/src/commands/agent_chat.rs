@@ -1111,6 +1111,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     Some(crate::agent_runtime::ExternalAgentBinding {
                         profile_id: db_config.id.clone(),
                         launch,
+                        reasoning_effort: db_config.reasoning_effort.clone(),
                     })
                 } else { None };
                 DesktopAgentBackend::Runtime { kind, external }

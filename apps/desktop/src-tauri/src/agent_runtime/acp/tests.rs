@@ -17,6 +17,26 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn opaque_chat_reasoning_reaches_native_prompt_and_unadvertised_values_fail_closed() {
+    for effort in ["deep", "invented"] {
+        let (mut request, mut rx, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp("opencode"),
+            "vendor/模型",
+        );
+        request.config.reasoning_effort = Some(nexa_core::llm::ReasoningEffort::High);
+        request.external = Some(super::super::ExternalAgentBinding {
+            profile_id: "fixture".into(),
+            launch: Default::default(),
+            reasoning_effort: Some(effort.into()),
+        });
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let result = run_connected("opencode", request, wire("opaque_effort"), "fixture").await;
+        assert_eq!(result.is_ok(), effort == "deep", "{effort}: {result:?}");
+        drain.await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn custom_launch_overrides_arguments_and_environment_without_shell_interpretation() {
     let directory = tempfile::tempdir().unwrap();
     let marker = directory.path().join("launch.json");
@@ -213,6 +233,7 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
     request.external = Some(super::super::ExternalAgentBinding {
         profile_id: uuid::Uuid::new_v4().to_string(),
         launch,
+        reasoning_effort: None,
     });
     let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
     let answer = tokio::time::timeout(Duration::from_secs(180), run("github_copilot_acp", request))

@@ -45,7 +45,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
         onChange={event => setDraft(Number(event.target.value))}
         onPointerUp={event => commit(Number(event.currentTarget.value))}
         onPointerCancel={() => setDraft(selected)}
-        onKeyUp={event => { if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key)) commit(Number(event.currentTarget.value)); }}
+        onKeyUp={event => { if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown'].includes(event.key)) commit(Number(event.currentTarget.value)); }}
         className="nexa-intensity-range" />
       <div className="mt-2 flex justify-between gap-2 text-[10px] text-text-tertiary">
         <span>{options[0].label}</span><span>{options[options.length - 1].label}</span>

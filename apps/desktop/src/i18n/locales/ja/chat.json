@@ -902,5 +902,6 @@
   "computerUseWaiting": "コンピューターのタスクを継続中",
   "reasoningControlStyle": "推論コントロールの表示",
   "reasoningList": "リスト",
-  "reasoningSlider": "強度スライダー"
+  "reasoningSlider": "強度スライダー",
+  "reasoningOn": "オン"
 }

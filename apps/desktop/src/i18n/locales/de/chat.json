@@ -902,5 +902,6 @@
   "computerUseWaiting": "Computeraufgabe wird fortgesetzt",
   "reasoningControlStyle": "Darstellung der Denkstärke",
   "reasoningList": "Liste",
-  "reasoningSlider": "Stärkeregler"
+  "reasoningSlider": "Stärkeregler",
+  "reasoningOn": "Ein"
 }

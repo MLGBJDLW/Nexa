@@ -902,5 +902,6 @@
   "computerUseWaiting": "Продолжение задачи на компьютере",
   "reasoningControlStyle": "Вид управления рассуждением",
   "reasoningList": "Список",
-  "reasoningSlider": "Шкала интенсивности"
+  "reasoningSlider": "Шкала интенсивности",
+  "reasoningOn": "Включено"
 }
