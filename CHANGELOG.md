@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.15.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.29...nexa-monorepo-v0.15.0) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** model-definition identities are now endpoint scoped and ingestion caches use versioned configuration fingerprints; existing stores migrate automatically.
+
+### Features
+
+* **runtime:** accelerate indexing and expand agent interoperability ([72eca6c](https://github.com/MLGBJDLW/Nexa/commit/72eca6c4830028b5bf75e3f2e3f7e59a5c7843a9))
+
+
+### Bug Fixes
+
+* **acp:** reset native defaults when reasoning selection changes ([d64c4dd](https://github.com/MLGBJDLW/Nexa/commit/d64c4dd28e018b9b8b0f0256eb7c89fef1817ea3))
+* **acp:** retire hidden legacy reasoning preferences ([bccab67](https://github.com/MLGBJDLW/Nexa/commit/bccab67b3b0f4147c5fd918367851d773d3dd56a))
+* **ingest:** honor unreadable input backoff before content reads ([08a8bd5](https://github.com/MLGBJDLW/Nexa/commit/08a8bd5103778424f8c0cb725e1820719071dc02))
+* **ingest:** include inline PDF images in page OCR ([ff027ef](https://github.com/MLGBJDLW/Nexa/commit/ff027efbaeaf9eb78f74d4aa56b9b862e8932a33))
+* **ingest:** OCR complete PDF pages including vector text ([bc012d3](https://github.com/MLGBJDLW/Nexa/commit/bc012d3a143b34b3e92449cf517db60f24a1f763))
+* **ingest:** revalidate external parser upgrades during rescans ([04334e0](https://github.com/MLGBJDLW/Nexa/commit/04334e029c7776fd76ed73364bfcd29898cccfea))
+* **runtime:** preserve native controls and retry incomplete extraction ([c6a888a](https://github.com/MLGBJDLW/Nexa/commit/c6a888a557125501c15d2052b7c4f5b1134322a8))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 49d6920bec84083fed508869c9572856747f2d1c -->
+
+### What's Changed
+* feat(runtime)!: accelerate indexing and expand agent interoperability by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/462
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.29...nexa-monorepo-v0.15.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.14.29](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.28...nexa-monorepo-v0.14.29) (2026-10-10)
 
 
