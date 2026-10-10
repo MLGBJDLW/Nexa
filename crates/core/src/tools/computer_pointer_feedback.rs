@@ -210,11 +210,12 @@ pub(super) fn show_at(point: (i32, i32)) {
         if !state.active || state.drawing_failed {
             return;
         }
+        let color = accent();
         if state.window.is_none() {
-            match PointerWindow::create(state.scale, point, accent()) {
+            match PointerWindow::create(state.scale, point, color) {
                 Ok(window) => {
                     state.window = Some(window);
-                    state.painted_accent = Some(accent());
+                    state.painted_accent = Some(color);
                 }
                 Err(error) => {
                     state.drawing_failed = true;
@@ -222,8 +223,8 @@ pub(super) fn show_at(point: (i32, i32)) {
                 }
             }
         } else if let Some(window) = &state.window {
-            if state.painted_accent != Some(accent()) {
-                let (_, _, pixels) = pointer_pixels(state.scale, accent());
+            if state.painted_accent != Some(color) {
+                let (_, _, pixels) = pointer_pixels(state.scale, color);
                 let _ = window.paint(point, &pixels);
             }
             let _ = unsafe {
@@ -237,7 +238,7 @@ pub(super) fn show_at(point: (i32, i32)) {
                     SWP_NOACTIVATE | SWP_SHOWWINDOW,
                 )
             };
-            state.painted_accent = Some(accent());
+            state.painted_accent = Some(color);
         }
     });
 }

@@ -5183,13 +5183,20 @@ mod platform {
         Ok(())
     }
 
-    /// Move the physical cursor and its feedback together. Frames carry no
-    /// button events, and cancellation never releases the input arbiter early.
-    fn move_cursor(
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum PointerApproach {
+        Foreground,
+        FeedbackOnly,
+    }
+
+    /// One motion path for native input and semantic feedback. Frames carry no
+    /// button events; background delivery never moves the physical cursor.
+    fn approach_pointer(
         point: (i32, i32),
         window: &WindowSnapshot,
         tracker: &ControlCommitTracker,
         context: &str,
+        delivery: PointerApproach,
     ) -> Result<(), CoreError> {
         use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL};
         use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -5207,6 +5214,10 @@ mod platform {
             let due = duration.mul_f64((index + 1) as f64 / points.len() as f64);
             thread::sleep(due.saturating_sub(started.elapsed()));
             tracker.ensure_running()?;
+            if delivery == PointerApproach::FeedbackOnly {
+                super::super::computer_pointer_feedback::show_at(next);
+                continue;
+            }
             ensure_target_foreground(window)?;
             ensure_cursor_at(previous, context)?;
             for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
@@ -5784,8 +5795,6 @@ mod platform {
         duration_ms: u64,
         tracker: &ControlCommitTracker,
     ) -> Result<(), CoreError> {
-        move_cursor(from, window, tracker, "move to drag start")?;
-        thread::sleep(INPUT_SETTLE);
         tracker.ensure_running()?;
         ensure_target_foreground(window)?;
         ensure_cursor_at(from, "drag preparation")?;
@@ -6029,18 +6038,26 @@ mod platform {
                     resolve_live_element(&current, observed, expected),
                 )?;
                 let bounds = &live.snapshot.screen_bounds;
-                super::super::computer_pointer_feedback::show_at((
+                let point = (
                     bounds.x + (bounds.width / 2) as i32,
                     bounds.y + (bounds.height / 2) as i32,
-                ));
-                route = invoke_element(&live.element, &current, commit_tracker)?;
-                super::super::computer_pointer_feedback::pulse_at(
-                    (
-                        bounds.x + (bounds.width / 2) as i32,
-                        bounds.y + (bounds.height / 2) as i32,
-                    ),
-                    || commit_tracker.ensure_running().is_ok(),
                 );
+                commit_tracker.result(approach_pointer(
+                    point,
+                    &current,
+                    commit_tracker,
+                    "approach semantic target",
+                    PointerApproach::FeedbackOnly,
+                ))?;
+                let live = commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    resolve_live_element(&current, observed, expected),
+                )?;
+                commit_tracker.result(commit_tracker.ensure_running())?;
+                route = invoke_element(&live.element, &current, commit_tracker)?;
+                super::super::computer_pointer_feedback::pulse_at(point, || {
+                    commit_tracker.ensure_running().is_ok()
+                });
                 format!(
                     "Invoked semantic element {element_id} in window {}.",
                     current.id
@@ -6111,11 +6128,12 @@ mod platform {
                     ensure_point_targets_window(target.point, &current),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(
+                commit_tracker.result(approach_pointer(
                     target.point,
                     &current,
                     commit_tracker,
                     "move mouse",
+                    PointerApproach::Foreground,
                 ))?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::TargetOccluded,
@@ -6162,13 +6180,21 @@ mod platform {
                     ensure_mouse_button_not_physically_pressed(button),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(
+                commit_tracker.result(approach_pointer(
                     target.point,
                     &current,
                     commit_tracker,
                     "move mouse before click",
+                    PointerApproach::Foreground,
                 ))?;
                 thread::sleep(INPUT_SETTLE);
+                if target.live.is_none() {
+                    commit_tracker.result_as(
+                        PreCommitFailureKind::ObservationStale,
+                        ensure_target_patch_fresh(observed, &current, target.point),
+                    )?;
+                }
+                commit_tracker.result(commit_tracker.ensure_running())?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
                     ensure_target_foreground(&current),
@@ -6271,6 +6297,22 @@ mod platform {
                     ensure_target_foreground(&current),
                 )?;
                 commit_tracker.mark();
+                commit_tracker.result(approach_pointer(
+                    from.point,
+                    &current,
+                    commit_tracker,
+                    "move to drag start",
+                    PointerApproach::Foreground,
+                ))?;
+                thread::sleep(INPUT_SETTLE);
+                for target in [&from, &to] {
+                    if target.live.is_none() {
+                        commit_tracker.result_as(
+                            PreCommitFailureKind::ObservationStale,
+                            ensure_target_patch_fresh(observed, &current, target.point),
+                        )?;
+                    }
+                }
                 commit_tracker.result(drag_mouse(
                     from.point,
                     to.point,
@@ -6314,13 +6356,21 @@ mod platform {
                     ensure_target_foreground(&current),
                 )?;
                 commit_tracker.mark();
-                commit_tracker.result(move_cursor(
+                commit_tracker.result(approach_pointer(
                     target.point,
                     &current,
                     commit_tracker,
                     "move mouse before scroll",
+                    PointerApproach::Foreground,
                 ))?;
                 thread::sleep(INPUT_SETTLE);
+                if target.live.is_none() {
+                    commit_tracker.result_as(
+                        PreCommitFailureKind::ObservationStale,
+                        ensure_target_patch_fresh(observed, &current, target.point),
+                    )?;
+                }
+                commit_tracker.result(commit_tracker.ensure_running())?;
                 commit_tracker.result_as(
                     PreCommitFailureKind::UserTakeover,
                     ensure_target_foreground(&current),
@@ -7627,7 +7677,7 @@ mod tests {
         }
         use windows::core::PCWSTR;
         use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-        use windows::Win32::Graphics::Gdi::{GetSysColorBrush, COLOR_WINDOW};
+        use windows::Win32::Graphics::Gdi::{GetSysColorBrush, ScreenToClient, COLOR_WINDOW};
         use windows::Win32::System::LibraryLoader::GetModuleHandleW;
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DispatchMessageW, GetDlgItem, GetMessageW,
@@ -7645,6 +7695,42 @@ mod tests {
             wparam: WPARAM,
             lparam: LPARAM,
         ) -> LRESULT {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                GetCursorPos, KillTimer, SetTimer, WM_APP, WM_TIMER,
+            };
+            if message == WM_APP + 99 {
+                unsafe {
+                    SetTimer(Some(window), 909, 10, None);
+                }
+                return LRESULT(0);
+            }
+            if message == WM_TIMER && wparam.0 == 909 {
+                let mut cursor = windows::Win32::Foundation::POINT::default();
+                if unsafe { GetCursorPos(&mut cursor) }.is_ok()
+                    && unsafe { ScreenToClient(window, &mut cursor) }.as_bool()
+                    && cursor.y >= 0
+                {
+                    let _ = unsafe { KillTimer(Some(window), 909) };
+                    // A hover-triggered overlay inside the same top-level HWND.
+                    let _ = unsafe {
+                        CreateWindowExW(
+                            WINDOW_EX_STYLE::default(),
+                            windows::core::w!("STATIC"),
+                            windows::core::w!("Changed hover target"),
+                            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(4 /* SS_BLACKRECT */),
+                            16,
+                            12,
+                            260,
+                            56,
+                            Some(window),
+                            None,
+                            None,
+                            None,
+                        )
+                    };
+                }
+                return LRESULT(0);
+            }
             if message == WM_COMMAND
                 && (wparam.0 & 0xffff) == 101
                 && (wparam.0 >> 16) == BN_CLICKED as usize
@@ -8095,28 +8181,35 @@ mod tests {
     #[test]
     #[ignore = "requires an interactive Windows desktop and sends input to an isolated helper"]
     fn windows_capture_control_recapture_smoke_test() {
-        windows_control_smoke(false, false, false);
+        windows_control_smoke(false, false, false, false);
+    }
+
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+    #[test]
+    #[ignore = "requires an interactive Windows desktop; replaces an isolated target while approaching it"]
+    fn windows_hover_target_change_prevents_click_smoke_test() {
+        windows_control_smoke(false, false, false, true);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     #[test]
     #[ignore = "requires an interactive Windows desktop and uses UI Automation on an isolated helper"]
     fn windows_background_controls_smoke_test() {
-        windows_control_smoke(true, false, false);
+        windows_control_smoke(true, false, false, false);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     #[test]
     #[ignore = "requires an interactive Windows desktop and verifies agent-visible UI Automation state"]
     fn windows_semantic_observations_are_actionable_smoke_test() {
-        windows_control_smoke(true, true, false);
+        windows_control_smoke(true, true, false, false);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     #[test]
     #[ignore = "requires an interactive Windows desktop and closes only an isolated helper window"]
     fn windows_window_closure_receipt_smoke_test() {
-        windows_control_smoke(false, false, true);
+        windows_control_smoke(false, false, true, false);
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
@@ -8124,6 +8217,7 @@ mod tests {
         background_only: bool,
         verify_semantic_state: bool,
         verify_closure: bool,
+        verify_hover_change: bool,
     ) {
         let _physical_pixels =
             platform::PhysicalPixels::enter().expect("physical test input coordinates");
@@ -8700,6 +8794,16 @@ mod tests {
                     }
                     points
                 });
+                if verify_hover_change {
+                    unsafe {
+                        SendMessageW(
+                            hwnd,
+                            windows::Win32::UI::WindowsAndMessaging::WM_APP + 99,
+                            Some(WPARAM(0)),
+                            Some(LPARAM(0)),
+                        )
+                    };
+                }
                 let clicked = platform::control_window(
                     ControlAction::Click,
                     &click,
@@ -8709,6 +8813,25 @@ mod tests {
                 );
                 sampling.store(false, AtomicOrdering::Release);
                 let trajectory = sampler.join().map_err(|_| "pointer sampler failed")?;
+                if verify_hover_change {
+                    let failure = match clicked {
+                        Err(failure) => failure,
+                        Ok(_) => {
+                            return Err("a hover-replaced coordinate target was clicked".into())
+                        }
+                    };
+                    if failure.pre_commit_kind != Some(PreCommitFailureKind::ObservationStale)
+                        || failure.phase != ControlFailurePhase::EffectMayHaveOccurred
+                        || unsafe {
+                            SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0)))
+                        }
+                        .0 != 1
+                    {
+                        return Err(format!("hover guard did not retain the original control and uncertain pointer effect: {failure:?}"));
+                    }
+                    eprintln!("Same-window hover replacement was rejected after movement without sending a click");
+                    return Ok((target.id, last));
+                }
                 last = clicked.map_err(|error| format!("coordinate click failed: {error:?}"))?;
                 if trajectory.len() < 4 {
                     return Err(format!(

@@ -51,6 +51,8 @@ window's capture surface, so screenshots remain clean evidence.
 Foreground pointer actions travel along a smooth, distance-scaled path at about
 60 Hz (100–360 ms), including movement to a drag's starting point. The pointer and
 feedback advance together; semantic background actions only mark their target.
+For semantic clicks, the feedback follows the same animated approach without
+moving the user's physical pointer; the semantic target is re-resolved afterward.
 Each movement frame checks focus, physical buttons, cursor takeover and Stop.
 Stopping signals the existing worker, which retains input ownership until cleanup;
 an interrupted drag still releases its injected button and records uncertain
@@ -58,6 +60,12 @@ effects. Empty gaps between offset monitors are skipped without clamped input.
 Delivered pointer clicks and semantic invocations show a short expanding ripple
 in the same theme color. One ripple follows the complete click sequence, preserving
 double-click timing. Reduced-motion preferences disable travel animation and ripples.
+
+Coordinate clicks, scrolling and drag preparation recheck the target patch after
+approaching it. Hover-triggered content within the same window can therefore stop
+the action before button or wheel input. This still reports an uncertain effect
+when the cursor has already moved. Explicit theme invalidations also refresh the
+hidden main window, keeping native colors current during tray/background use.
 
 If the Stop banner covers an admitted pointer target, only that registered,
 process-verified Nexa window moves temporarily to the opposite edge of the same
