@@ -96,6 +96,32 @@ fn mark_ingestion_fingerprint(parsed: &mut ParsedDocument, fingerprint: &str) {
     }
 }
 
+fn unreadable_input_fingerprint(path: &Path, ingestion_profile: &str) -> String {
+    // Metadata can be inspected without rereading content that repeatedly
+    // failed. Never include access time, which reading the file can change.
+    let state = std::fs::metadata(path)
+        .map(|metadata| {
+            let identity = format!(
+                "{}:{:?}:{:?}:{:?}",
+                metadata.len(),
+                metadata.modified().ok(),
+                metadata.created().ok(),
+                metadata.permissions()
+            );
+            #[cfg(unix)]
+            let identity = {
+                use std::os::unix::fs::MetadataExt;
+                format!("{identity}:{}:{}", metadata.ctime(), metadata.ctime_nsec())
+            };
+            identity
+        })
+        .unwrap_or_else(|error| format!("{:?}", error.kind()));
+    format!(
+        "{ingestion_profile}:unreadable:{}",
+        blake3::hash(state.as_bytes()).to_hex()
+    )
+}
+
 fn parsed_hash(parsed: &ParsedDocument) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(parsed.title.as_bytes());
@@ -568,6 +594,13 @@ fn scan_source_inner(
         }
 
         let file_path_str = file_path.to_string_lossy();
+        let unreadable_fingerprint = unreadable_input_fingerprint(file_path, &ingestion_profile);
+        if !db.should_retry_scan(source_id, &file_path_str, &unreadable_fingerprint)? {
+            result.files_skipped += 1;
+            files_processed += 1;
+            continue;
+        }
+
         if is_unhandled_binary_file(file_path) {
             debug!(
                 "Skipping unsupported binary file for knowledge embedding: {}",
@@ -613,11 +646,10 @@ fn scan_source_inner(
         // A repaired file, parser upgrade or changed OCR configuration must
         // bypass the old failure's backoff immediately.
         let content_hash = hash_file_content(file_path).ok();
-        let attempt_fingerprint = format!(
-            "{}:{}",
-            ingestion_profile,
-            content_hash.as_deref().unwrap_or("unreadable")
-        );
+        let attempt_fingerprint = content_hash
+            .as_deref()
+            .map(|hash| format!("{ingestion_profile}:{hash}"))
+            .unwrap_or(unreadable_fingerprint);
         // Skip files that have repeatedly failed for these exact inputs.
         if !db
             .should_retry_scan(source_id, &file_path_str, &attempt_fingerprint)
@@ -1521,17 +1553,6 @@ fn ingest_file(
         return Ok(IngestFileResult::Unchanged);
     }
 
-    if is_unhandled_binary_file(path) {
-        debug!(
-            "Skipping unsupported binary file for knowledge embedding: {}",
-            path.display()
-        );
-        let path_str = path.to_string_lossy();
-        let _ = db.clear_scan_error(source_id, &path_str);
-        let _ = db.forget_document_in_source(source_id, path_str.as_ref())?;
-        return Ok(IngestFileResult::Unchanged);
-    }
-
     // Load file size limits from app config.
     let app_cfg = db.load_app_config().unwrap_or_default();
     let file_limits = FileSizeLimits {
@@ -1581,11 +1602,28 @@ fn ingest_file(
         max_chunk_chars,
         &services,
     )?;
+    let unreadable_fingerprint = unreadable_input_fingerprint(path, &ingestion_profile);
+    if !force && !db.should_retry_scan(source_id, &path_str, &unreadable_fingerprint)? {
+        return Ok(IngestFileResult::Unchanged);
+    }
+    if is_unhandled_binary_file(path) {
+        debug!(
+            "Skipping unsupported binary file for knowledge embedding: {}",
+            path.display()
+        );
+        db.clear_scan_error(source_id, &path_str)?;
+        db.forget_document_in_source(source_id, &path_str)?;
+        return Ok(IngestFileResult::Unchanged);
+    }
     let known_content_hash = match hash_file_content(path) {
         Ok(hash) => hash,
         Err(error) => {
-            let _ =
-                db.upsert_scan_error(source_id, &path_str, &error.to_string(), &ingestion_profile);
+            let _ = db.upsert_scan_error(
+                source_id,
+                &path_str,
+                &error.to_string(),
+                &unreadable_fingerprint,
+            );
             return Err(error);
         }
     };
@@ -2197,6 +2235,61 @@ mod tests {
             ingest_single_file(&db, &source, &path).unwrap(),
             IngestFileResult::Updated
         ));
+    }
+
+    #[test]
+    fn unreadable_watcher_inputs_back_off_until_metadata_or_policy_changes() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("blocked.txt");
+        fs::write(&path, [0xef, 0xbb, 0xbf, 0xff]).unwrap();
+        let db = test_db();
+        let source = create_test_source(&db, tmp.path(), vec![], vec![]);
+        assert!(ingest_single_file(&db, &source, &path).is_err());
+        let profile = || {
+            let input: String = db
+                .conn()
+                .query_row(
+                    "SELECT input_fingerprint FROM scan_errors WHERE source_id=?1",
+                    [&source],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            input.split(':').next().unwrap().to_string()
+        };
+        let seed_unreadable = || {
+            let fingerprint = unreadable_input_fingerprint(&path, &profile());
+            for _ in 0..3 {
+                db.upsert_scan_error(
+                    &source,
+                    &path.to_string_lossy(),
+                    "Permission denied",
+                    &fingerprint,
+                )
+                .unwrap();
+            }
+        };
+        seed_unreadable();
+        for _ in 0..2 {
+            assert_eq!(
+                ingest_single_file(&db, &source, &path).unwrap(),
+                IngestFileResult::Unchanged
+            );
+        }
+        assert_eq!(db.get_scan_errors(&source).unwrap()[0].error_count, 3);
+        assert!(reindex_single_file(&db, &source, &path).is_err());
+        seed_unreadable();
+        let mut ocr = db.load_ocr_config().unwrap();
+        ocr.enabled = !ocr.enabled;
+        db.save_ocr_config(&ocr).unwrap();
+        assert!(ingest_single_file(&db, &source, &path).is_err());
+        assert_eq!(db.get_scan_errors(&source).unwrap()[0].error_count, 1);
+        seed_unreadable();
+        fs::write(&path, "Recovered source content changed size and metadata.").unwrap();
+        assert_eq!(
+            ingest_single_file(&db, &source, &path).unwrap(),
+            IngestFileResult::Added
+        );
+        assert!(db.get_scan_errors(&source).unwrap().is_empty());
     }
 
     #[test]
