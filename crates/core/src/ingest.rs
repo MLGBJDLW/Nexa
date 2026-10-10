@@ -40,9 +40,10 @@ impl IndexedDocument {
     fn reusable_extraction(&self, content_hash: &str, fingerprint: &str) -> bool {
         self.content_hash == content_hash
             && self.ingestion_fingerprint == fingerprint
-            && !self.parser_profile.is_empty()
-            && (!self.parser_profile.starts_with("native-")
-                || self.parser_profile == NATIVE_PARSER_PROFILE)
+            // A service can upgrade in place without changing its URL. Its
+            // response is the only authoritative parser-version identity, so
+            // externally parsed documents must revalidate before this shortcut.
+            && self.parser_profile == NATIVE_PARSER_PROFILE
     }
 }
 

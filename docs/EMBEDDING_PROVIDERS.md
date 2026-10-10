@@ -89,8 +89,10 @@ elapsed time and approximate remaining time. Estimates use recent measurements
 for the exact vector space on this machine, then adapt to actual batch speed;
 the first run shows calibration until a batch completes.
 
-Unchanged source files reuse extraction only when the content hash and ingestion
-configuration match, including parser revision, OCR readiness and chunking.
+Unchanged source files reuse native extraction only when the content hash and
+ingestion configuration match, including parser revision, OCR readiness and
+chunking. External structured parsers are called again on rescan so an in-place
+service upgrade cannot leave stale extraction behind.
 Office lock files and unsupported binary text are excluded. A changed failed
 file or configuration bypasses failure backoff immediately. Invalid Office
 packages report a format/repair action; image-only PDFs require enabled OCR with
